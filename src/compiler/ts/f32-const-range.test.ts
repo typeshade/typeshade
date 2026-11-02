@@ -38,13 +38,12 @@ const editorOf = (src: string): string[] => {
 
 const fs = (body: string, consts = ''): string => `"use typeshade"
 ${consts}
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let y: f32 = uv.x
   let v: vec2 = uv
   ${body}
   return vec4(y, v.x, 0., 1.)
-}
+});
 `;
 
 const PAST = (text: string, value: string): string =>

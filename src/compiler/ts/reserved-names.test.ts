@@ -50,8 +50,7 @@ const warningsOf = (src: string) => ofCategory(src, 'warning');
 
 const render = (decls: string, body = 'return vec4(1., 0., 0., 1.)') => `"use typeshade"
 ${decls}
-@fragment
-export function fs(): vec4 { ${body} }
+export const fs = fragment(function fs(): vec4 { ${body} });
 `;
 
 describe('backend spellings preserve TypeScript variable names', () => {
@@ -59,11 +58,11 @@ describe('backend spellings preserve TypeScript variable names', () => {
     const source = `"use typeshade";
 const cafue9_: f32 = 5.;
 function scale(α: f32): f32 { return α * 2.; }
-@fragment export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let café = uv.x;
   café += cafue9_;
   return vec4(scale(café), 0., 0., 1.);
-}
+});
 `;
     const result = compile(source);
     expect(result.diagnostics).toEqual([]);
@@ -90,11 +89,10 @@ export function local(x: f32): f32 {
   }
   return target + target_ + target_1;
 }
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   const target = uv.x;
   return vec4(parameter(target, 1., 2.), local(target), target, 1.);
-}
+});
 `;
     const result = compile(source);
     expect(result.diagnostics).toEqual([]);
@@ -116,11 +114,10 @@ const target: vec2 = vec2(2.);
 const gl_Scale: vec2 = target * 3.;
 const filter: f32 = 1.;
 let discard: f32 = filter;
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   discard = uv.x;
   return vec4(target + gl_Scale, discard, 1.);
-}
+});
 `;
     const result = compile(source);
     expect(result.diagnostics).toEqual([]);
@@ -145,14 +142,12 @@ describe('GLSL ES 3.00 reserves the name, and the module has a GLSL form (#103)'
   // spelling, `half_`, and the record names it beside the authored name (`emittedGlsl`).
   it('compiles a struct field named half, spelled half_ in the GLSL', () => {
     const src = `"use typeshade";
-class V {
-  @builtin("position") pos: vec4;
-  @location(0) half: vec2;
+interface V {
+  pos: builtin<"position", vec4>;
+  half: location<0, vec2>;
 }
-@vertex
-export function vs(): V { return { pos: vec4(0., 0., 0., 1.), half: vec2(0., 0.) }; }
-@fragment
-export function fs(v: V): vec4 { return vec4(v.half, 0., 1.); }
+export const vs = vertex(function vs(): V { return { pos: vec4(0., 0., 0., 1.), half: vec2(0., 0.) }; });
+export const fs = fragment(function fs(v: V): vec4 { return vec4(v.half, 0., 1.); });
 `;
     expect(warningsOf(src)).toEqual([]);
     expect(errorsOf(src)).toEqual([]);
@@ -172,8 +167,7 @@ export function fs(v: V): vec4 { return vec4(v.half, 0., 1.); }
       const src = `"use typeshade"
 ${decl}
 declare const cam: uniform<S>
-@fragment
-export function fs(): vec4 { return vec4(cam.half + cam.rest, 0., 0., 1.) }
+export const fs = fragment(function fs(): vec4 { return vec4(cam.half + cam.rest, 0., 0., 1.) });
 `;
       expect(warningsOf(src)).toEqual([]);
       expect(compile(src).glsl?.fragment).toBeDefined();
@@ -202,11 +196,10 @@ export function fs(): vec4 { return vec4(cam.half + cam.rest, 0., 0., 1.) }
 
   it('compiles a struct whose own name WGSL reserves, under a fresh WGSL spelling', () => {
     const src = `"use typeshade";
-class Self {
-  @builtin("position") pos: vec4;
+interface Self {
+  pos: builtin<"position", vec4>;
 }
-@vertex
-export function vs(): Self { return { pos: vec4(0., 0., 0., 1.) }; }
+export const vs = vertex(function vs(): Self { return { pos: vec4(0., 0., 0., 1.) }; });
 `;
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
@@ -227,8 +220,7 @@ describe('WGSL reserves the name (#103)', () => {
     expect(
       errorsOf(`"use typeshade";
 export function g(as: f32): f32 { return as; }
-@fragment
-export function fs(): vec4 { return vec4(g(1.), 0., 0., 1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(g(1.), 0., 0., 1.); });
 `),
     ).toEqual([]);
   });
@@ -255,12 +247,11 @@ describe('a name WGSL cannot spell: a $ anywhere in it (Rule 3.2, #376)', () => 
   //   fn café() {}               accepted
   //   fn a1() {}                 accepted
   const PROGRAM = `"use typeshade";
-class P$ { v$: f32; }
+class P$ { v$!: f32; }
 declare const out$: storage<array<f32>, "read_write">;
 const K$: f32 = 2.;
 function scale$(x$: f32): f32 { let k$: f32 = K$; k$ = k$ * x$; return k$; }
-@compute([1])
-export function main() { const p: P$ = { v$: 1. }; out$[0] = scale$(p.v$); }
+export const main = compute([1], function main() { const p: P$ = { v$: 1. }; out$[0] = scale$(p.v$); });
 `;
 
   it('compiles each declaration under a spelling without the $, since change 0070', () => {
@@ -305,8 +296,7 @@ export function main() { const p: P$ = { v$: 1. }; out$[0] = scale$(p.v$); }
     const r = compile(`"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
 function scale_(_a: f32): f32 { const café: f32 = 2.; const a1: f32 = café * _a; return a1; }
-@compute([1])
-export function main() { out[0] = scale_(3.); }
+export const main = compute([1], function main() { out[0] = scale_(3.); });
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('fn scale_(_a: f32)');
@@ -317,8 +307,7 @@ describe('the name that reaches the backend is the FLATTENED one (#103)', () => 
   it('names both spellings for a static field, whose emitted name is Cls_member', () => {
     const src = `"use typeshade";
 class atomic { static uint: u32 = 1; }
-@fragment
-export function fs(): vec4 { return vec4(f32(atomic.uint), 0., 0., 1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(f32(atomic.uint), 0., 0., 1.); });
 `;
     expect(warningsOf(src)).toEqual([]);
     expect(compile(src).glsl).toBeDefined();
@@ -328,8 +317,7 @@ export function fs(): vec4 { return vec4(f32(atomic.uint), 0., 0., 1.); }
     expect(
       errorsOf(`"use typeshade";
 namespace thread { export const local: f32 = 1.; }
-@fragment
-export function fs(): vec4 { return vec4(thread.local, 0., 0., 1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(thread.local, 0., 0., 1.); });
 `),
     ).toEqual([]);
   });
@@ -339,8 +327,7 @@ export function fs(): vec4 { return vec4(thread.local, 0., 0., 1.); }
     // name alone would have refused it — which is the reason the check reads the emitted one.
     const r = compile(`"use typeshade";
 class S { static half: f32 = 0.5; }
-@fragment
-export function fs(): vec4 { return vec4(S.half, 0., 0., 1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(S.half, 0., 0., 1.); });
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('S_half');
@@ -355,12 +342,11 @@ describe('the GLSL rename never lands on a name already in scope (#103)', () => 
     // enlarged word list is what made this reachable for the type names.
     const r = compile(`"use typeshade";
 const float_: f32 = 10.;
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let float = uv.x * 2.;
   float = float + 1.;
   return vec4(float + float_, 0., 0., 1.);
-}
+});
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.glsl?.fragment).toContain('float float_1 = (uv.x * 2.0);');
@@ -376,11 +362,10 @@ export function fs(@location(0) uv: vec2): vec4 {
     const r = compile(`"use typeshade";
 const float_: f32 = 1.;
 const float_1: f32 = 2.;
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let float = uv.x;
   return vec4(float + float_ + float_1, 0., 0., 1.);
-}
+});
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.glsl?.fragment).not.toMatch(/__/);
@@ -390,8 +375,7 @@ export function fs(@location(0) uv: vec2): vec4 {
   it('renames a helper named main, which is the entry point GLSL emits', () => {
     const r = compile(`"use typeshade";
 export function main(x: f32): f32 { return x * 2.; }
-@fragment
-export function fs(@location(0) uv: vec2): vec4 { return vec4(main(uv.x), 0., 0., 1.); }
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 { return vec4(main(uv.x), 0., 0., 1.); });
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.glsl?.fragment).toContain('float main_(float x)');
@@ -405,12 +389,11 @@ describe('a module the target never reaches is not held to its list (#103)', () 
   it('keeps a field named half in a compute-only module, which emits no GLSL', () => {
     const r = compile(`"use typeshade";
 declare const sink: storage<array<f32>, "read_write">;
-class P { half: f32; }
-@compute([64, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+class P { half!: f32; }
+export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   const p: P = { half: 2. };
   sink[gid.x] = p.half;
-}
+});
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     // Measured: Tint accepts `half` as a struct member; GLSL ES 3.00 is not a target here.

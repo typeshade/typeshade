@@ -26,10 +26,9 @@ const P = `class P {
 // builds then stays in the module to be read.
 const PIO = `${P}function mk(): P {\n  return { x: 1., y: 2. }\n}\nfunction rgba(q: P): vec4 {\n  return vec4(q.x, q.y, 0., 1.)\n}\n`;
 const file = (head: string, body: string) => `"use typeshade"
-${head}@fragment
-export function fs(): vec4 {
+${head}export const fs = fragment(function fs(): vec4 {
 ${body}
-}
+});
 `;
 const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
   for (const make of [compileModule, compileModuleJs]) {

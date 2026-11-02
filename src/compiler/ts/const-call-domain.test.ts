@@ -53,12 +53,11 @@ const both = (src: string, expected: readonly string[]): void => {
 
 const fs = (body: string, consts = ''): string => `"use typeshade"
 ${consts}
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let y: f32 = uv.x
   ${body}
   return vec4(y, 0., 0., 1.)
-}
+});
 `;
 
 const T = TS_CODES.TYPE_MISMATCH;

@@ -40,9 +40,9 @@ export function read(): Empty { return shared; }`);
   it('keeps profiled lowering equal for nested uniform fields and arrays', () => {
     const r = compile(`"use typeshade";
 class Empty {}
-class Uniforms { before: f32; item: Empty; items: array<Empty, 2>; after: f32; }
+class Uniforms { before!: f32; item!: Empty; items!: array<Empty, 2>; after!: f32; }
 declare const u: uniform<Uniforms>;
-@fragment export function fs(): vec4 { return vec4(u.before + u.after); }`);
+export const fs = fragment(function fs(): vec4 { return vec4(u.before + u.after); });`);
     expect(r.diagnostics).toEqual([]);
     for (const backend of [wgslBackend, glslEs300Backend]) {
       const stages: string[] = [];

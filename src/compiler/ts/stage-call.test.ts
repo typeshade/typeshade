@@ -148,7 +148,7 @@ export const fs = fragment(
     expect(off.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(off.wgsl).toContain('diagnostic(off, derivative_uniformity);');
     expect(errors(SAMPLE.replace('OPTIONS', '{ blend: "add" }'))).toContainEqual(
-      expect.stringContaining('TS8028 A stage call takes one option, "diagnostic"'),
+      expect.stringContaining('TS8028 A stage call takes two options, "diagnostic" and "numerics"'),
     );
   });
 });
@@ -179,6 +179,26 @@ namespace N {
   });
 
   it('the editor reports the same refusal', () => {
+    expect(editor(source)).toContainEqual(refusal);
+  });
+});
+
+describe('a stage call is an entry wherever an entry is checked', () => {
+  // A stage call's function compiled with a function-typed parameter and emitted no WGSL, with
+  // no word; the decorated entry is refused (Rule 8.18). Both halves read the same source.
+  const source = `"use typeshade";
+export const fs = fragment(function fs(f: (x: f32) => f32): vec4 {
+  return vec4(1.);
+});
+`;
+  const refusal =
+    "TS8020 An entry's parameters come from the pipeline, and a function is nothing the pipeline can supply: take the function in a helper the entry calls (Rule 8.18).";
+
+  it('a parameter of function type is refused in the compiler', () => {
+    expect(errors(source)).toEqual([refusal]);
+  });
+
+  it('and in the editor', () => {
     expect(editor(source)).toContainEqual(refusal);
   });
 });

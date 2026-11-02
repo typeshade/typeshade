@@ -327,7 +327,7 @@ export const fs = fragment(function fs(
   texel per invocation and has no workgroup to give `y` and `z` to.
 - `compute({ workgroup: [64, 1, 1] }, f)` is refused (`TS8037`):
   `compute takes an array of one to three whole numbers before its function, "compute([64, 1, 1], f)"; "{ workgroup: [64, 1, 1] }" is not a workgroup shape.`
-- A stage call takes one option after the function, `diagnostic` (§54):
+- A stage call takes two options after the function, `diagnostic` (§54) and `numerics` (§78):
   `fragment(f, { diagnostic: ["off", "derivative_uniformity"] })`. Another option is refused
   (`TS8028`).
 - A kernel function (§65) takes one extent in the same spelling as an entry:
@@ -467,6 +467,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
 | `.length` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 | a call of a name that change 0112 removed: `arrayLength`, `log10`, `log1p`, `expm1`, `cbrt`, `hypot`, `sum`, `none`, `pow`; a read of `PI`, `E`, `LN2`, `LN10`, `LOG2E` or `LOG10E`; `any(xs, p)` or `all(xs, p)` | `TS8004` for a call, `TS8022` for a read, `TS8019` for the two folds, each in one sentence that names the spelling to write: `arrayLength was removed: write xs.length.`, `PI was removed: write Math.PI.`, `any expects 1 argument, got 2; the array fold was removed: write xs.some(p).` (§10) |
+| a vector or matrix argument to a `Math` member: `Math.sqrt(v)`, `Math.max(v, 0.)`, `Math.pow(v, w)` | `TS8003`, in one sentence that names the WGSL name or operator that takes the vector: `Math.sqrt takes a number; for a vec3 write sqrt(v).`, `Math.pow takes a number; for a vec3 write v ** w.` The editor reports the same sentence (§10) |
 | A module variable declared or used where its address space forbids | `TS8033`. A `let` with neither type nor initializer, a resource type without `declare` (`"dst" is a storage binding the host provides, and needs declare: write "declare const dst: storage<array<f32>, "read_write">".` — the mode is the one the `let` asked for, and a resource with no type argument names the shape `storage<...>`), a `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
 | A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, or used as a value (§25). One under a branch the invocations may not share is `TS8052` (§54) |
 | A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A static field that holds a function, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a member a class that extends declares as another kind than its base, `super.f` on a field that holds a function, a method that changes its object called on a `const` whose value something else may hold, a parameter or a dropped value, one that returns nothing used as a value, a `private`, `protected` or `#x` member named where TypeScript does not allow it, or a changing call on the copy a `return this` method hands back inside an expression (§26) |
@@ -666,6 +667,13 @@ declaration hides a predeclared function. `fract(x)` and `fract(1.25)` beside a 
 `fract` both call it, and the editor's hover shows it. A call of a builtin the file never wrote
 keeps meaning the builtin: the `fract` that `random(p)` expands to, and a `Math.pow(a, b)` beside
 a declared `pow`.
+
+A `Math` member takes and returns scalars, as ECMAScript's does (Rule 9.4, change 0112): the
+ambient `MathObject` declares no vector overload, and `Math.sqrt(v)` or `Math.max(v, 0.)` on a
+`vec3` is refused in the compiler and in the editor with the same `TS8003` sentence, which names
+the builtin that takes the vector (`sqrt(v)`, `max(v, 0.)`; `v ** w` for `pow`). The vector math
+stays on the free WGSL names above. A name bound to a member (§12) takes the member's scalar
+signature the same way, `min` and `max` included.
 
 A value constructor is the one thing that does not give way. A declaration named like a scalar
 cast, a vector, a matrix or `array` (`f32`, `vec3`, `mat2x2f` …) does not take a call of that
@@ -10665,3 +10673,82 @@ last would start from.
 `examples/subgroup-reduce.shade.ts` is the complete example: an integer fold before an atomic,
 with `subgroup_id` and `num_subgroups` on the entry, on the compile gate on Tint; WGSL-only on the
 gallery, since it is a compute entry over storage buffers.
+
+## 78. A numerical contract: `numerics(["finite-math"], f)`
+
+Change 0107 lets an author opt one function into floating-point rewrites that the default
+optimizer refuses. The default `-O2` folds only the float identities that hold for every value,
+NaN and infinities included (`x * 1`, `x / 1`, `-(-x)`); it keeps `x * 0`, `x - x` and
+`mix(a, b, 0.0)`, because each of them is NaN when an operand is NaN or infinite. A function whose
+author knows its values are finite says so, and the compiler drops that work in that function and
+in no other (Rule 11.22).
+
+```ts
+"use typeshade";
+
+function hash(p: vec2f): f32 {
+  return fract(sin(dot(p, vec2f(12.9898, 78.233))) * 43758.5453);
+}
+
+const tick = numerics(["finite-math"], function tick(base: vec3f, x: vec3f, spread: f32): vec3f {
+  return mix(base, x, 0.) + spread * hash(base.xy) + (x - x);
+});
+
+export const fs = fragment(
+  function fs(p: builtin<"position", vec4f>): vec4f {
+    return vec4f(tick(p.xyz, p.zyx, 0.5), 1.);
+  },
+  { numerics: ["finite-math"] },
+);
+```
+
+```wgsl
+fn tick(base: vec3<f32>, x: vec3<f32>, spread: f32) -> vec3<f32> {
+  return ((base + (spread * hash(base.xy))) + vec3<f32>(0.0, 0.0, 0.0));
+}
+```
+
+**The spelling.** A function of the file is wrapped in a call to `numerics`, in the form change
+0111 gives every attribute (§3): `const f = numerics([...], function f(…) { … })`. An entry or a
+kernel function names its classes as its stage call's `numerics` option, beside `diagnostic`:
+`fragment(f, { numerics: ["finite-math"] })`, `workgroup_size([128], f, { numerics: [...] })`. The
+name is TypeShade's (§9.3, the "contracts" family); nothing in the emitted text names it.
+
+**The classes.** Each element of the list names one class. No class is on by default, and there is
+no catch-all.
+
+| Class | Assumes | Rewrites | Against the oracle |
+| --- | --- | --- | --- |
+| `finite-math` | every operand is finite and not NaN | `x * 0` and `0 * x` to `0`, `x - x` to `0`, `mix(a, b, 0)` to `a`, `mix(a, b, 1)` to `b` | bit for bit on finite inputs, apart from the sign of a zero |
+| `reassociate` | the function tolerates a change of rounding | none yet: each reassociation enters with its measured ulp bound | within each rewrite's recorded bound |
+
+Each rewrite is recorded with its domain and its bound where it is defined
+(`src/core/passes/finite-math.ts`). A rewrite matches `f32` operands only, scalar or vector: an
+`f64` operand is never matched, so no rewrite reaches the emulated double, whose error terms a
+rewrite would cancel (Rule 4.4). An operand the rewrite would drop is kept when it has an effect: a
+call that writes a binding, or an atomic.
+
+**The boundary.** A rewrite stays in the function whose author asked for it. No pass inlines an
+opted-in function into another function, and none inlines another function into it, the `inline()`
+plugin of `typeshade/emit-prod` included. A caller's own expressions stay exact, and so does a
+helper the opted-in function calls. The rewrites run at `-O2`, after the calls are specialized and
+before any `f64` is lowered; `O0` and `O1` emit the function as written.
+
+**The oracle.** The CPU oracle does not apply a contract: it keeps the meaning of the source, so a
+NaN or an infinity still reads there as the source says (Rule 1.3). A common module (Rule 11.20)
+does not opt in, since it promises the oracle's bits on every tier.
+
+**What is refused.** `TS8078` refuses a wrong list and a misplaced call, in `compile()` and in the
+editor alike (Rule 12.7):
+
+- `"fast" is not a numerics class. The classes are "finite-math" and "reassociate".`
+- `"finite-math" is named twice in this numerics list. Name each class once.`
+- `An empty numerics list opts into nothing. Name a class: "finite-math" or "reassociate".`
+- `numerics takes an array of class names, as strings: const f = numerics(["finite-math"], function f(…) { … }).`
+- a `numerics(...)` call inside a function, inside a namespace, or anywhere but as a top-level
+  `const`'s initializer: `numerics(...) wraps a function declared at the top of the file: …`
+
+A `@numerics` decorator is `TS8028`, as any decorator outside Rule 6.7's list is.
+
+The determinism report (§38) does not yet list the operations a contract rewrote: that is the
+second stage of change 0107.

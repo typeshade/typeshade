@@ -44,31 +44,29 @@ function problems(m: ModuleDecl, config: DebugLaunchConfig): readonly string[] {
 }
 
 const VERTEX = `"use typeshade";
-class VsIn {
-  @location(0) position: vec3;
-  @location(1) uv: vec2;
+interface VsIn {
+  position: location<0, vec3>;
+  uv: location<1, vec2>;
 }
-class Clip {
-  @builtin("position") pos: vec4;
+interface Clip {
+  pos: builtin<"position", vec4>;
 }
-@vertex
-export function vs(@builtin("vertex_index") i: u32, vin: VsIn): Clip {
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>, vin: VsIn): Clip {
   return { pos: vec4(vin.position, f32(i) + vin.uv.x) };
-}
+});
 `;
 
 const COMPUTE = `"use typeshade";
 declare const params: uniform<vec4u>;
 declare const out: storage<array<f32>, "read_write">;
-@compute([8, 1, 1])
-export function k(
-  @builtin("global_invocation_id") gid: vec3u,
-  @builtin("local_invocation_id") lid: vec3u,
-  @builtin("workgroup_id") wid: vec3u,
-  @builtin("local_invocation_index") li: u32,
+export const k = compute([8, 1, 1], function k(
+  gid: builtin<"global_invocation_id", vec3u>,
+  lid: builtin<"local_invocation_id", vec3u>,
+  wid: builtin<"workgroup_id", vec3u>,
+  li: builtin<"local_invocation_index", u32>,
 ): void {
   out[gid.x] = f32(lid.x) * 100. + f32(wid.x) * 10. + f32(li) + f32(params.x);
-}
+});
 `;
 
 describe('the invocation is keyed by what the entry declares', () => {
@@ -154,8 +152,8 @@ describe('a compute invocation derives the ids it can', () => {
   });
 
   it('derives them per axis for a two-dimensional workgroup', () => {
-    // gid (9, 3) with @compute([8, 8]): workgroup (1, 0), local (1, 3), index 1 + 3 * 8.
-    const m2 = compiled(COMPUTE.replace('@compute([8, 1, 1])', '@compute([8, 8])'));
+    // gid (9, 3) with compute([8, 8], …): workgroup (1, 0), local (1, 3), index 1 + 3 * 8.
+    const m2 = compiled(COMPUTE.replace('compute([8, 1, 1],', 'compute([8, 8],'));
     const s = startDebugSessionFromConfig(m2, {
       entry: 'k',
       precision: 'f64',
@@ -380,26 +378,24 @@ describe('the JSON Schema and the interface describe the same object', () => {
 // ═══ What the first review of this PR found, each with the test that would have caught it ═══
 
 const FRAGMENT = `"use typeshade";
-@fragment
-export function fs(@builtin("position") pos: vec4, @builtin("front_facing") ff: bool): vec4 {
+export const fs = fragment(function fs(pos: builtin<"position", vec4>, ff: builtin<"front_facing", bool>): vec4 {
   const ndc = pos.xyz / pos.w;
   let face = 0.;
   if (ff) {
     face = 1.;
   }
   return vec4(ndc.x, face, 0., 1.);
-}
+});
 `;
 
 const NWG = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-@compute([8])
-export function k(
-  @builtin("global_invocation_id") gid: vec3u,
-  @builtin("num_workgroups") nwg: vec3u,
+export const k = compute([8], function k(
+  gid: builtin<"global_invocation_id", vec3u>,
+  nwg: builtin<"num_workgroups", vec3u>,
 ): void {
   out[gid.x] = f32(nwg.x) * 100. + f32(nwg.y);
-}
+});
 `;
 
 describe('num_workgroups comes from the dispatch, which is not an invocation id', () => {
@@ -593,10 +589,9 @@ describe('the guards a malformed declaration needs', () => {
     // the malformed module is built by retyping the parameter on the IR. The resolver guard
     // is what is under test, and a hand-built or pass-produced module can still reach it.
     const good = compiled(`"use typeshade";
-@compute([8])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([8], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   let x: u32 = gid.x;
-}
+});
 `);
     const m: ModuleDecl = {
       ...good,
@@ -624,10 +619,9 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
     // rather than `undefined`, so a binding named `constructor` would have been "supplied".
     const m = compiled(`"use typeshade";
 declare const constructor: uniform<f32>;
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(constructor, 0., 0., 1.);
-}
+});
 `);
     const s = startDebugSessionFromConfig(m, { entry: 'fs', precision: 'f64' });
     s.continue();
@@ -637,16 +631,15 @@ export function fs(): vec4 {
 
 describe('two parameters that declare the same field name', () => {
   const COLLIDE = `"use typeshade";
-class A {
-  @location(0) v: vec2;
+interface A {
+  v: location<0, vec2>;
 }
-class B {
-  @location(1) v: vec3;
+interface B {
+  v: location<1, vec3>;
 }
-@vertex
-export function vs(a: A, b: B): vec4 {
+export const vs = vertex(function vs(a: A, b: B): vec4 {
   return vec4(a.v, b.v.x, b.v.y);
-}
+});
 `;
 
   it('the bare name is refused, with both spellings that would work', () => {
@@ -693,19 +686,17 @@ describe('a bare @location parameter, through the public typeshade/debug entry',
   // both the parameter's name) while the run read it back as `uv`, so the documented
   // `"inputs": { "uv": [0.5, 0.25] }` was accepted, then dropped, and the run saw zeros.
   const BARE = `"use typeshade";
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   return vec4(uv, 0., 1.);
-}
+});
 `;
   const MIXED = `"use typeshade";
-class S {
-  @location(1) uv: vec2;
+interface S {
+  uv: location<1, vec2>;
 }
-@fragment
-export function fs(@location(0) uv: vec2, s: S): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>, s: S): vec4 {
   return vec4(uv, s.uv);
-}
+});
 `;
 
   it('the value given under the parameter name reaches the run', () => {

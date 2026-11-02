@@ -734,15 +734,14 @@ describe('two owners', () => {
 /** An entry whose workgroup count a `Resident` may hold (change 0075). */
 const COUNTED = `"use typeshade";
 declare const marks: storage<array<u32>, "read_write">;
-@compute([2])
-export function mark(
-  @builtin("global_invocation_id") gid: vec3u,
-  @builtin("num_workgroups") nw: vec3u,
+export const mark = compute([2], function mark(
+  gid: builtin<"global_invocation_id", vec3u>,
+  nw: builtin<"num_workgroups", vec3u>,
 ) {
   if (gid.x < marks.length) {
     marks[gid.x] = nw.x;
   }
-}
+});
 `;
 const counted = hostFace(COUNTED, { fileName: '/app/counted.shade.ts', runtime: RUNTIME });
 expect(counted.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
@@ -1388,13 +1387,12 @@ const ENABLED: override<bool> = true;
 let tile: workgroup<array<f64, WIDTH>>;
 declare const values: storage<array<f64>, "read_write">;
 declare const gain: uniform<f64>;
-@compute([WIDTH])
-export function scale(@builtin("global_invocation_id") gid: vec3u, @builtin("local_invocation_id") lid: vec3u) {
+export const scale = compute([WIDTH], function scale(gid: builtin<"global_invocation_id", vec3u>, lid: builtin<"local_invocation_id", vec3u>) {
   if (gid.x < values.length) {
     tile[lid.x] = values[gid.x];
     values[gid.x] = ENABLED ? tile[lid.x] * gain : f64(-1.);
   }
-}
+});
 `;
 async function loadSpecialized(): Promise<{ scale: Call }> {
   const face = hostFace(SPECIALIZED_ENTRY, {

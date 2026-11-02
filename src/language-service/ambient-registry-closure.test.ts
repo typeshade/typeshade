@@ -138,7 +138,7 @@ const EXPRESSION_FORMS: Readonly<Record<string, string>> = {
 };
 
 /** The forms that are written in a DECLARATION rather than in an expression. One program
- *  exercises all thirteen, which is also the shape every example opens with. The four before
+ *  exercises all fourteen, which is also the shape every example opens with. The four before
  *  `inout` are the entry-IO and uniformity attributes #158 and #161 added (§53, §54); they are listed here
  *  rather than excused on `DECLARED_NOT_LOWERABLE` because the witness below really does
  *  compile them and each one really does reach the emitted WGSL. */
@@ -161,6 +161,8 @@ const DECLARATION_FORMS: readonly string[] = [
   // A kernel function's stage call (change 0111, amendment 1), which the witness's `scale` takes;
   // `vertex`, `fragment` and `compute` are its stage calls too, and both spellings compile.
   'workgroup_size',
+  // A function's numerical contract (change 0107), which the witness's `half` takes.
+  'numerics',
 ];
 
 const DECLARATION_WITNESS = `"use typeshade";
@@ -169,39 +171,36 @@ interface U {
 }
 declare const un: uniform<U>;
 declare const out: storage<array<f32>, "read_write">;
-class V {
-  @builtin("position") @invariant pos: vec4;
-  @location(0) uv: vec2;
-  @location(1) @interpolate("flat") id: u32;
+interface V {
+  pos: builtin<"position", vec4, { invariant: true }>;
+  uv: location<0, vec2>;
+  id: location<1, u32, { interpolate: "flat" }>;
 }
-class Dual {
-  @location(0) @blend_src(0) a: vec4;
-  @location(0) @blend_src(1) b: vec4;
+interface Dual {
+  a: location<0, vec4, { blend_src: 0 }>;
+  b: location<0, vec4, { blend_src: 1 }>;
 }
-@vertex
-export function vs(@builtin("vertex_index") i: u32): V {
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): V {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.), id: i };
-}
-@fragment
-@diagnostic("off", "derivative_uniformity")
-export function fs(v: V): Dual {
+});
+export const fs = fragment(function fs(v: V): Dual {
   const c = vec4(un.k, 0., 0., 1.);
   return { a: c, b: c };
-}
-function bump(@inout v: f32): void {
+}, { diagnostic: ["off", "derivative_uniformity"] });
+function bump(v: inout<f32>): void {
   v += un.k;
 }
-function put(@out v: f32): void {
+function put(v: out<f32>): void {
   v = un.k;
 }
-@compute([64, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   put(out[gid.x]);
   bump(out[gid.x]);
-}
-export const scale = workgroup_size([128], function scale(xs: array<f32>): void {
-  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * un.k; }
 });
+export const scale = workgroup_size([128], function scale(xs: array<f32>): void {
+  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * half(un.k); }
+});
+const half = numerics(["finite-math"], function half(x: f32): f32 { return x * 0.5; });
 `;
 
 const LOWERABLE: ReadonlySet<string> = new Set([

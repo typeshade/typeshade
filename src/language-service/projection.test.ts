@@ -13,15 +13,14 @@ import { Projection, planInsertions } from './projection.js';
 import { compileTsSource } from '../compiler/ts/source-file.js';
 
 const SOURCE = `"use typeshade";
-class Frame { time: f32; scale: f32; }
+class Frame { time!: f32; scale!: f32; }
 declare const frame: uniform<Frame>;
 function tint(c: vec2): f32 { return c.x; }
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   const uv = p.xy * frame.scale; const bad: i32 = 1.5;
   const t = tint(uv) + uv.x;
   return vec4(uv.x, uv.y, t, 1);
-}
+});
 `;
 const LINES = SOURCE.split('\n');
 const at = (line: number, text: string, plus = 0) => ({
@@ -44,23 +43,23 @@ describe('a local built by vector arithmetic has its vector type in the editor',
     expect(SOURCE.slice(d[0]!.span.start, d[0]!.span.start + d[0]!.span.length)).toBe(
       'bad: i32 = 1.5',
     );
-    expect(d[0]!.range.start).toEqual(at(6, 'bad'));
+    expect(d[0]!.range.start).toEqual(at(5, 'bad'));
   });
 
   it('hovers, completes and finds references as a vec2', () => {
     const service = open();
-    const hover = service.getHover('a.shade.ts', at(6, 'uv', 1));
+    const hover = service.getHover('a.shade.ts', at(5, 'uv', 1));
     expect(hover?.contents).toContain('const uv: vec2<f32>');
-    expect(hover?.range).toEqual({ start: at(6, 'uv'), end: at(6, 'uv', 2) });
-    const labels = service.getCompletions('a.shade.ts', at(7, 'uv.x', 3)).map((c) => c.label);
+    expect(hover?.range).toEqual({ start: at(5, 'uv'), end: at(5, 'uv', 2) });
+    const labels = service.getCompletions('a.shade.ts', at(6, 'uv.x', 3)).map((c) => c.label);
     expect(labels).toEqual(expect.arrayContaining(['x', 'y', 'xy']));
-    const refs = service.getReferences('a.shade.ts', at(6, 'uv', 1));
+    const refs = service.getReferences('a.shade.ts', at(5, 'uv', 1));
     expect(refs.map((r) => r.range.start)).toEqual([
-      at(6, 'uv'),
-      at(7, 'tint(uv)', 5),
+      at(5, 'uv'),
+      at(6, 'tint(uv)', 5),
+      at(6, 'uv.x'),
       at(7, 'uv.x'),
-      at(8, 'uv.x'),
-      at(8, 'uv.y'),
+      at(7, 'uv.y'),
     ]);
   });
 
@@ -93,15 +92,15 @@ export function f(a: vec3, b: vec3, u: vec3u, d: vec3f64, md: mat3<f64>): f32 {
   it('colours the text as written and nothing the service inserted', () => {
     const tokens = open()
       .getSemanticTokens('a.shade.ts')
-      .filter((t) => t.line === 6)
-      .map((t) => LINES[6]!.slice(t.character, t.character + t.length));
+      .filter((t) => t.line === 5)
+      .map((t) => LINES[5]!.slice(t.character, t.character + t.length));
     expect(tokens).not.toContain(' = p');
     expect(tokens.slice(0, 5)).toEqual(['const', 'uv', '=', 'p', 'xy']);
   });
 
   it('renames through the projection, and converts offsets against the text as written', () => {
     const service = open();
-    const edits = service.rename('a.shade.ts', at(6, 'uv', 1), 'st')['a.shade.ts']!;
+    const edits = service.rename('a.shade.ts', at(5, 'uv', 1), 'st')['a.shade.ts']!;
     let renamed = SOURCE;
     for (const e of [...edits].sort(
       (a, b) =>
@@ -114,10 +113,10 @@ export function f(a: vec3, b: vec3, u: vec3u, d: vec3f64, md: mat3<f64>): f32 {
     }
     expect(renamed).toContain('const st = p.xy * frame.scale;');
     expect(renamed).toContain('return vec4(st.x, st.y, t, 1);');
-    // The last character of line 6 is where the author's text ends, not where the projected
+    // The last character of line 5 is where the author's text ends, not where the projected
     // text ends, which is `: vec2`.length further on.
     const end = SOURCE.indexOf('\n', SOURCE.indexOf('const uv'));
-    expect(service.positionAt('a.shade.ts', end)).toEqual({ line: 6, character: LINES[6]!.length });
+    expect(service.positionAt('a.shade.ts', end)).toEqual({ line: 5, character: LINES[5]!.length });
   });
 });
 
@@ -145,8 +144,7 @@ function tint(c: vec2): f32 {
 function apply(f: (x: vec2) => vec2, v: vec2): vec2 {
   return f(v);
 }
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   const o = new Orbit();
   const half = (q: vec2) => q * 0.5;
   const k = 2.;
@@ -154,7 +152,7 @@ export function fs(@location(0) uv: vec2): vec4 {
   const b = apply(function (x) { return x * k; }, uv);
   const t = glow(uv).x + tint(glow(uv)) + o.at(1.).y + o.twice.x + half(uv).x;
   return vec4(a.x + b.y + t, 0., 0., 1.);
-}
+});
 `;
 const RLINES = RETURNS.split('\n');
 const rat = (line: number, text: string, plus = 0) => ({
@@ -194,7 +192,7 @@ describe('a function whose return does vector arithmetic has its vector type in 
 
   it('hovers and completes the call as a vec2', () => {
     const s = service();
-    const labels = s.getCompletions('r.shade.ts', rat(26, 'glow(uv).x', 9)).map((c) => c.label);
+    const labels = s.getCompletions('r.shade.ts', rat(25, 'glow(uv).x', 9)).map((c) => c.label);
     expect(labels).toEqual(expect.arrayContaining(['x', 'y', 'xy']));
     const hover = s.getHover('r.shade.ts', rat(1, 'glow', 1));
     expect(hover?.contents).toContain('vec2');
@@ -332,12 +330,11 @@ export function f(p: bool, q: bool, r: bool, u: u32): bool {
 function both(pa: bool, qa: bool): bool {
   return pa & qa;
 }
-@compute([1, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   const p = gid.x > u32(2);
   const q = gid.x < u32(9);
   const r = (p | q) & both(p, q);
-}
+});
 `;
     const lines = src.split('\n');
     const service = open(src);
@@ -348,7 +345,7 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
         range: { start: { line: 1, character: 14 }, end: { line: 1, character: 16 } },
       }),
     ]);
-    const p = { line: 8, character: lines[8]!.indexOf('p | q') };
+    const p = { line: 7, character: lines[7]!.indexOf('p | q') };
     expect(service.getHover('a.shade.ts', p)?.contents).toContain('const p: bool');
     expect(service.getReferences('a.shade.ts', p, { includeDeclaration: true })).toHaveLength(3);
     expect(service.prepareRename('a.shade.ts', p)).toMatchObject({ placeholder: 'p' });
@@ -403,12 +400,11 @@ class Ring {
     return max(this.#width, Ring.MIN_WIDTH);
   }
 }
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   const ring = new Ring();
   const falloff = (d: f32) => 0.004 / (d * d + 0.002);
   return vec4(ring.period + ring.width() + falloff(uv.x), 0., 0., 1.);
-}
+});
 `;
 
   it('writes f32 after each unannotated scalar field and scalar return, and nothing else', () => {
@@ -455,16 +451,15 @@ describe('an array reduced from a literal (0015 class C)', () => {
   // reads `f`; the front end makes it an `f32`. The projection writes that type in as the type
   // argument, and the call is an `f32` in both halves.
   const src = `"use typeshade";
-class Light { pos: vec2; power: f32; }
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+class Light { pos!: vec2; power!: f32; }
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   const lights = array<Light, 2>({ pos: vec2(0.), power: 1. }, { pos: vec2(1.), power: 2. });
   const d = array(uv.x, uv.y, 1.);
   const glow = lights.reduce((sum, l) => sum + l.power / (1. + dot(l.pos - uv, l.pos - uv)), 0.);
   const total = d.reduce((a, s) => a + s, 0.);
   const near = d.reduce((a, b) => min(a, b));
   return vec4(glow, total, near, 1.);
-}
+});
 `;
 
   it('writes the running value type as the type argument of a reduce from a value only', () => {

@@ -441,10 +441,9 @@ export function f(x: f32): f32 {
   it('an indexed assignment target spans the whole element access', () => {
     const { module, text } = compiled(`"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-@compute([1, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([1, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   out[gid.x] = 1.;
-}
+});
 `);
     const write = byName(module, 'k').body[0]!;
     expect(write.s).toBe('assign');

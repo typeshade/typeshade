@@ -224,31 +224,28 @@ describe('compileTsSources — what the merge carried over', () => {
 describe('compileTsSources keeps the structs and bindings compileTsSource accepts (#74, roadmap 0.5 item 14)', () => {
   const STRUCT = `"use typeshade";
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-@vertex
-export function vs(@location(0) p: vec2): VsOut {
+export const vs = vertex(function vs(p: location<0, vec2>): VsOut {
   const o: VsOut = { pos: vec4(p, 0., 1.), uv: p * 0.5 + 0.5 };
   return o;
-}
+});
 `;
   const TEXTURE = `"use typeshade";
 declare const atlas: texture_2d<f32>;
 declare const smp: sampler;
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   return textureSample(atlas, smp, uv);
-}
+});
 `;
   const STORAGE = `"use typeshade";
 declare const heights: storage<array<f32>, "read_write">;
-@compute([64, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   heights[gid.x] = 1.;
-}
+});
 `;
   const errors = (r: { diagnostics: readonly { category: string; message: string }[] }) =>
     r.diagnostics.filter((d) => d.category === 'error').map((d) => d.message);
@@ -285,9 +282,9 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
         {
           fileName: 'types.ts',
           source: `"use typeshade";
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 export function make(p: vec2): VsOut {
   const o: VsOut = { pos: vec4(p, 0., 1.), uv: p };
@@ -299,11 +296,10 @@ export function make(p: vec2): VsOut {
           fileName: 'main.ts',
           source: `"use typeshade";
 import { make } from "./types";
-@fragment
-export function fs(@location(0) p: vec2): vec4 {
+export const fs = fragment(function fs(p: location<0, vec2>): vec4 {
   const o = make(p);
   return vec4(o.uv, 0., 1.);
-}
+});
 `,
         },
       ],
@@ -332,8 +328,7 @@ export function tap(uv: vec2): vec4 { return textureSample(atlas, smp, uv); }
 declare const lut: texture_2d<f32>;
 declare const smp2: sampler;
 import { tap } from "./a";
-@fragment
-export function fs(@location(0) uv: vec2): vec4 { return tap(uv) + textureSample(lut, smp2, uv); }
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 { return tap(uv) + textureSample(lut, smp2, uv); });
 `,
       },
     ]);

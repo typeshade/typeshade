@@ -142,28 +142,26 @@ const ACCEPTED: readonly (readonly [string, Files, (readonly unknown[])?, unknow
       '/p/clouds.shade.ts': `${D}import { fbm } from "./noise.shade.ts";
 
 class Uniforms {
-  time: f32;
+  time!: f32;
 }
 
 declare const U: uniform<Uniforms>;
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-}
+});
 
-@fragment
-export function fs(vo: VsOut): vec4 {
+export const fs = fragment(function fs(vo: VsOut): vec4 {
   const f = fbm(vo.uv * 6. + vec2(U.time * 0.1, 0.));
   return vec4(vec3(f), 1.);
-}
+});
 `,
       '/p/noise.shade.ts': NOISE,
     },
@@ -298,11 +296,10 @@ export function b(x: f32): f32 {
     "a binding and a module variable of the library's, read through its functions",
     {
       '/p/main.shade.ts': `${D}import { bump, Camera, camera } from "./lib.shade.ts";
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const c: Camera = camera;
   return vec4(bump() + c.exposure);
-}
+});
 `,
       '/p/lib.shade.ts': `${D}export class Camera {
   exposure: f32;
@@ -320,10 +317,9 @@ export function bump(): f32 {
     'a function from a package, by its name, through the "typeshade" condition, two directories up',
     {
       '/p/src/scenes/main.shade.ts': `${D}import { fbm } from "shade-noise";
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   return vec4(vec3(fbm(uv * 6.)), 1.);
-}
+});
 `,
       ...SHADE_NOISE('/p/node_modules/shade-noise/'),
     },
@@ -720,10 +716,9 @@ import { warp, warpOctaves } from "shade-warp";
 
   it('reads one version reached by two paths once: one binding, one of each function', () => {
     const files = program(
-      `${imports}${calls}@fragment
-export function fs(): vec4 {
+      `${imports}${calls}export const fs = fragment(function fs(): vec4 {
   return vec4(octaves() + warpOctaves());
-}
+});
 `,
       '1.2.0',
       '2.',
@@ -953,7 +948,7 @@ describe('what the module holds (Rule 3.9)', () => {
 
   it("numbers the entry's own bindings first, so an import moves none of them", () => {
     const files = {
-      '/p/main.shade.ts': `${D}import { tap } from "./lib.shade.ts";\ndeclare const lut: texture_2d<f32>;\ndeclare const smp2: sampler;\n@fragment\nexport function fs(@location(0) uv: vec2): vec4 {\n  return tap(uv) + textureSample(lut, smp2, uv);\n}\n`,
+      '/p/main.shade.ts': `${D}import { tap } from "./lib.shade.ts";\ndeclare const lut: texture_2d<f32>;\ndeclare const smp2: sampler;\n@fragment\nexport function fs(uv: location<0, vec2>): vec4 {\n  return tap(uv) + textureSample(lut, smp2, uv);\n}\n`,
       '/p/lib.shade.ts': `${D}declare const atlas: texture_2d<f32>;\ndeclare const smp: sampler;\nexport function tap(uv: vec2): vec4 {\n  return textureSample(atlas, smp, uv);\n}\n`,
     };
     expect(compiled(files).module.bindings.map((b) => `${b.name}@${b.binding}`)).toEqual([
@@ -1003,7 +998,7 @@ describe('a mistake belongs to the file it is in (Rule 3.9)', () => {
 // is read by both halves on the same files, and they refuse it alike, with the same mistake in
 // the same file (Rule 12.7).
 describe('a mistake in an imported file holds back the shader text in both halves (Rule 3.9, #202)', () => {
-  const MAIN = `${D}import { pick } from "./lib.shade.ts";\n@fragment\nexport function fs(@builtin("position") p: vec4): vec4 {\n  return vec4(pick(i32(p.x)));\n}\n`;
+  const MAIN = `${D}import { pick } from "./lib.shade.ts";\n@fragment\nexport function fs(p: builtin<"position", vec4>): vec4 {\n  return vec4(pick(i32(p.x)));\n}\n`;
   const MAIN_URI = '/p/main.shade.ts';
   const LIB_URI = '/p/lib.shade.ts';
   const lib = (body: string): string => `${D}export function pick(k: i32): f32 {\n${body}\n}\n`;
@@ -1124,7 +1119,7 @@ describe('a mistake in an imported file holds back the shader text in both halve
 
   it('holds the text back for a mistake two files away', () => {
     const program: Files = {
-      [MAIN_URI]: `${D}import { pick } from "./mid.shade.ts";\n@fragment\nexport function fs(@builtin("position") p: vec4): vec4 {\n  return vec4(pick(i32(p.x)));\n}\n`,
+      [MAIN_URI]: `${D}import { pick } from "./mid.shade.ts";\n@fragment\nexport function fs(p: builtin<"position", vec4>): vec4 {\n  return vec4(pick(i32(p.x)));\n}\n`,
       '/p/mid.shade.ts': `${D}import { pick as inner } from "./lib.shade.ts";\nexport function pick(k: i32): f32 {\n  return inner(k);\n}\n`,
       [LIB_URI]: lib('  return true;'),
     };
@@ -1136,7 +1131,7 @@ describe('a mistake in an imported file holds back the shader text in both halve
 
   it('reports every mistake of every imported file, each in its own file, in the order compile() gives them', () => {
     const program: Files = {
-      [MAIN_URI]: `${D}import { pick } from "./lib.shade.ts";\nimport { boost, damp } from "./more.shade.ts";\n@fragment\nexport function fs(@builtin("position") p: vec4): vec4 {\n  return vec4(damp(boost(pick(i32(p.x)))));\n}\n`,
+      [MAIN_URI]: `${D}import { pick } from "./lib.shade.ts";\nimport { boost, damp } from "./more.shade.ts";\n@fragment\nexport function fs(p: builtin<"position", vec4>): vec4 {\n  return vec4(damp(boost(pick(i32(p.x)))));\n}\n`,
       [LIB_URI]: lib('  return true;'),
       '/p/more.shade.ts': `${D}export function boost(x: f32): f32 {\n  return zork(x);\n}\nexport function damp(x: f32): f32 {\n  return false;\n}\n`,
     };
@@ -1156,7 +1151,7 @@ describe('a mistake in an imported file holds back the shader text in both halve
     // first; the editor's list for the document is what is located in it (Rule 3.9), so the
     // pane gives that list as it stands and then what the front end reports in the imports.
     const program: Files = {
-      [MAIN_URI]: `${D}import { pick } from "./lib.shade.ts";\nfunction own(k: i32): f32 {\n  return false;\n}\n@fragment\nexport function fs(@builtin("position") p: vec4): vec4 {\n  return vec4(pick(i32(p.x)) + own(1));\n}\n`,
+      [MAIN_URI]: `${D}import { pick } from "./lib.shade.ts";\nfunction own(k: i32): f32 {\n  return false;\n}\n@fragment\nexport function fs(p: builtin<"position", vec4>): vec4 {\n  return vec4(pick(i32(p.x)) + own(1));\n}\n`,
       [LIB_URI]: lib('  return true;'),
     };
     const reference = errorsOf(program);

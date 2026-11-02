@@ -63,7 +63,7 @@ function agree(src: string, args: readonly unknown[]): unknown {
 }
 
 const fragment = (body: string): string =>
-  `${RNG}@fragment\nexport function fs(@location(0) uv: vec2): vec4 {\n  let rng = new Rng(u32(uv.x * 1000.))\n${body}\n}\n`;
+  `${RNG}@fragment\nexport function fs(uv: location<0, vec2>): vec4 {\n  let rng = new Rng(u32(uv.x * 1000.))\n${body}\n}\n`;
 
 describe('a call that writes, inside a larger expression, in source order', () => {
   it('two draws in one constructor are two lets, first to last', () => {
@@ -148,19 +148,18 @@ describe('a call that writes, inside a larger expression, in source order', () =
     // the value first, so `xs[c.n] = c.bump()` stored into the element after the one written.
     const src = `"use typeshade";
 class Counter {
-  n: i32;
+  n!: i32;
   bump(): i32 {
     this.n = this.n + 1;
     return this.n * 10;
   }
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   let c = new Counter();
   let xs: array<i32, 2> = [0, 0];
   xs[c.n] = c.bump();
   return vec4(f32(xs[0]), f32(xs[1]), f32(c.n), 1.);
-}
+});
 `;
     expect(compile(src).wgsl).toContain('  let _seq0 = c.n;\n  xs[_seq0] = Counter_bump(&c);');
     expect(agree(src, [])).toEqual([10, 0, 1, 1]);
@@ -169,8 +168,8 @@ export function fs(): vec4 {
   it('a compound assignment reads the old value before a call that changes it', () => {
     const src = `"use typeshade";
 class Acc {
-  total: f32;
-  n: f32;
+  total!: f32;
+  n!: f32;
   take(): f32 {
     this.n = this.n + 1.;
     this.total = this.total * 2.;
@@ -180,13 +179,12 @@ class Acc {
     this.total += this.take();
   }
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   let a = new Acc();
   a.total = 1.;
   a.add();
   return vec4(a.total, a.n, 0., 1.);
-}
+});
 `;
     expect(compile(src).wgsl).toContain(
       'fn Acc_add(self_: ptr<function, Acc>) {\n  let _seq0 = (*self_).total;\n  (*self_).total = (_seq0 + Acc_take(self_));\n}',
@@ -229,18 +227,17 @@ describe('what the passes after it would have done to such a call', () => {
     // by the callee's `self_` rather than by the receiver it lands in.
     const src = `"use typeshade";
 class P {
-  v: f32;
+  v!: f32;
   bump(): void {
     this.v = this.v + 1.;
   }
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   let p = new P();
   const before = p;
   p.bump();
   return vec4(before.v, p.v, 0., 1.);
-}
+});
 `;
     expect(compile(src).wgsl).toContain('return vec4<f32>(before.v, p.v, 0.0, 1.0);');
     expect(agree(src, [])).toEqual([0, 1, 0, 1]);
@@ -258,11 +255,10 @@ function pair(seed: u32): Pair {
   o.a = rng.next()
   return o
 }
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   const p = pair(u32(uv.x * 1000.))
   return vec4(p.a, p.b, 0., 1.)
-}
+});
 `;
     // Change 0105: the returned struct is built through a pointer to the caller's place.
     expect(compile(src).wgsl).toContain(
@@ -311,11 +307,10 @@ function next(): u32 {
   counter++;
   return counter;
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const unused = next();
   return vec4(f32(counter) - f32(next()), f32(next() * 2), 0., 1.);
-}
+});
 `;
     const r = compile(src);
     expect(r.wgsl).toContain(

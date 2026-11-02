@@ -139,15 +139,14 @@ async function load(pack: Pack, records: boolean) {
 }
 
 const DOUBLES = `"use typeshade";
-class Zoom { cx: f64; scale: f64; }
+class Zoom { cx!: f64; scale!: f64; }
 declare const zoom: uniform<Zoom>;
 declare const out: storage<array<f32>, "read_write">;
-@compute([4])
-export function main(@builtin("global_invocation_id") gid: vec3u) {
+export const main = compute([4], function main(gid: builtin<"global_invocation_id", vec3u>) {
   const x: f64 = zoom.cx + f64(f32(gid.x)) * zoom.scale;
   console.log("x", f32(x));
   out[gid.x] = f32(fract(x * 1000));
-}
+});
 `;
 
 describe('the derived need of a pipeline equals its layout (change 0051, one authority)', () => {

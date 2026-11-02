@@ -472,11 +472,10 @@ describe('unread scalar direct stores', () => {
 declare const bins: storage<array<atomic<u32>>, "read_write">;
 function peek(): u32 { return atomicLoad(bins[0]); }
 function wrap(): u32 { return peek(); }
-@compute([1, 1, 1])
-export function main(): void {
+export const main = compute([1, 1, 1], function main(): void {
   let dead: u32 = 0;
   dead = wrap();
-}
+});
 `);
     expect(result.diagnostics).toEqual([]);
     const out = fixpoint(result.module);

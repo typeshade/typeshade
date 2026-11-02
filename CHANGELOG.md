@@ -29,6 +29,16 @@ repository was published to npm before **`0.1.0`, the first release**.
   array that reaches a writable place give way to the compiler's refusal of the same flow.
   `array<T>` stays accepted; S2 to S4 follow. No code or export is added.
 
+- **A numerical contract, opted into per function** (change 0107, stage 1; Rule 6.7, Rule 9.6,
+  Rule 11.22, surface §3 and §78). `const f = numerics(["finite-math"], function f(…) { … })`, or
+  a stage call's `{ numerics: [...] }` option, lets `-O2` fold `x * 0`, `x - x`, `mix(a, b, 0)`
+  and `mix(a, b, 1)` in that function, which the default keeps because a NaN or an infinity can
+  observe them. Only `f32` operands are matched, so no rewrite reaches the emulated double, and
+  no inlining pass moves a body into or out of an opted-in function. The CPU oracle keeps the
+  source's meaning. `reassociate` is a valid class with no rewrite yet. A wrong list, and the
+  call anywhere but as a top-level `const`'s initializer, is the new code `TS8078`. The IR gains
+  `FuncDecl.numerics` and the exported type `NumericsClass`. The determinism report's rows for a
+  contract are stage 2.
 - **The subgroup built-in functions and values** (change 0117; Rule 11.21, surface §50 and
   §77). The 21 functions of WGSL's `subgroups` extension (`subgroupAdd`, `subgroupBallot`,
   `subgroupElect`, `subgroupBroadcast` and the rest) and the built-in values `subgroup_id` and

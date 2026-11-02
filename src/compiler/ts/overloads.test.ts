@@ -35,10 +35,9 @@ export function lum(c: vec3): f32;
 export function lum(c: vec3): f32 {
   return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(lum(vec3(1., 0., 0.)), 0., 0., 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl?.match(/fn lum\(/g)).toHaveLength(1);
@@ -55,10 +54,9 @@ namespace Color {
     return dot(c, vec3(0.2126, 0.7152, 0.0722));
   }
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(Color.lum(vec3(0., 1., 0.)), 0., 0., 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl?.match(/fn Color_lum\(/g)).toHaveLength(1);
@@ -68,7 +66,7 @@ export function fs(): vec4 {
   it('on a method, a static function and a constructor', () => {
     const r = compile(`"use typeshade";
 class C {
-  x: f32;
+  x!: f32;
   at(t: f32): f32;
   at(t: f32): f32 {
     return this.x * t;
@@ -82,12 +80,11 @@ class C {
     this.x = v;
   }
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const a = C.mk(2.);
   const b = new C(3.);
   return vec4(a.at(5.), b.at(5.), 0., 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     const wgsl = emitModuleAt(r.module, 'O1');
@@ -118,10 +115,9 @@ export function fs(): vec4 {
     expect(
       errorsOf(`"use typeshade";
 declare function lum(c: vec3): f32;
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(1.);
-}
+});
 `)[0],
     ).toBe(`${TS_CODES.FUNCTION_SHAPE} Function "lum" needs a body (no ambient declarations).`);
     expect(
@@ -130,10 +126,9 @@ declare function lum(c: vec3): f32;
 function lum(c: vec3): f32 {
   return c.x;
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(lum(vec3(1.)), 0., 0., 1.);
-}
+});
 `)[0],
     ).toBe(`${TS_CODES.FUNCTION_SHAPE} Function "lum" needs a body (no ambient declarations).`);
   });
@@ -147,10 +142,9 @@ function lum(c: vec3): f32 {
 function lum(c: vec3): f32 {
   return c.y;
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(lum(vec3(1.)), 0., 0., 1.);
-}
+});
 `)[0],
     ).toBe(`${TS_CODES.DUPLICATE_SYMBOL} Duplicate function "lum".`);
   });

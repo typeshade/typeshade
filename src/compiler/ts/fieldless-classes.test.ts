@@ -21,7 +21,7 @@ describe('fieldless classes', () => {
     const r = program(`class Empty {}
 export function make(): Empty { return new Empty(); }
 export function accept(e: Empty): Empty { return e; }
-@fragment export function fs(): vec4 { const e = new Empty(); return vec4(1.); }`);
+export const fs = fragment(function fs(): vec4 { const e = new Empty(); return vec4(1.); });`);
     expect(r.module.structs.find((s) => s.name === 'Empty')!.fields).toEqual([]);
     expect(r.eval('make')).toEqual({});
     expect(r.eval('accept', [{}])).toEqual({});

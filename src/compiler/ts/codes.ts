@@ -260,6 +260,11 @@ export const TS_CODES = {
    *  an attribute that asks for another size cannot be honored; the message names the function and
    *  the remedy. */
   KERNEL_WORKGROUP_REDUCES: 'TS8077',
+  /** A refused numerical contract (Rule 11.22, Rule 6.7, surface §78, change 0107): a
+   *  `numerics([...], f)` call or a stage call's `numerics` option whose list is empty, is not an
+   *  array of string literals, names a class the compiler does not know or names one twice; and a
+   *  `numerics(...)` call anywhere but as the initializer of a `const` at the top of the file. */
+  NUMERICS: 'TS8078',
   UNSUPPORTED: 'TS8099',
 } as const;
 

@@ -16,10 +16,9 @@ declare const c: storage<array<f32>, "read_write">;
 declare const n: uniform<u32>;
 let ta: workgroup<array<f32, 256>>;
 let tb: workgroup<array<f32, 256>>;
-@compute([16, 16, 1])
-export function tiled(
-  @builtin("global_invocation_id") gid: vec3u,
-  @builtin("local_invocation_id") lid: vec3u,
+export const tiled = compute([16, 16, 1], function tiled(
+  gid: builtin<"global_invocation_id", vec3u>,
+  lid: builtin<"local_invocation_id", vec3u>,
 ): void {
   let acc: f32 = 0.;
   for (let t: u32 = 0; t < n / 16; t++) {
@@ -32,7 +31,7 @@ export function tiled(
     workgroupBarrier();
   }
   c[gid.y * n + gid.x] = acc;
-}
+});
 export function naive(c: array<f32>, a: array<f32>, b: array<f32>, n: u32): void {
   for (let i: u32 = 0; i < c.length; i++) {
     const r = i / n;

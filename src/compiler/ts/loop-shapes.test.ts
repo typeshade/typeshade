@@ -269,11 +269,10 @@ function kernel(body: string, top = ''): string {
   return `"use typeshade";
     declare const out: storage<array<f32>, "read_write">;
     ${top}
-    @compute([64])
-    export function main(): void {
+    export const main = compute([64], function main(): void {
       ${body}
       out[1] = 2.;
-    }
+    });
   `;
 }
 

@@ -37,15 +37,14 @@ function bump(): u32 {
   seed = seed + 1;
   return seed;
 }
-@compute([64, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u, @builtin("local_invocation_id") lid: vec3u): void {
+export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>, lid: builtin<"local_invocation_id", vec3u>): void {
   tile[lid.x] = src[gid.x] * SCALE;
   bump();
   bump();
   acc.x = acc.x + tile[lid.x];
   atomicAdd(counters[0], 1);
   out[gid.x] = tile[lid.x] + f32(seed) + acc.x;
-}
+});
 `;
 
 const errorsOf = (src: string) =>
@@ -54,8 +53,7 @@ const errorsOf = (src: string) =>
     .map((d) => `${d.code} ${d.message}`);
 
 const TAIL = `
-@compute([64, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {}
+export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {});
 `;
 
 describe('module variables: the WGSL', () => {
@@ -64,8 +62,7 @@ describe('module variables: the WGSL', () => {
 const WG_SIZE: override<u32> = 4;
 const TILE_SIZE: u32 = 16;
 let scratch: workgroup<array<f32, WG_SIZE>>;
-@compute([TILE_SIZE, WG_SIZE])
-export function k(): void {}
+export const k = compute([TILE_SIZE, WG_SIZE], function k(): void {});
 `;
     const r = compile(source);
     expect(r.diagnostics).toEqual([]);
@@ -121,14 +118,13 @@ const WG_SIZE: override<u32> = 4;
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
 let tile: workgroup<array<f32, WG_SIZE>>;
-@compute([WG_SIZE])
-export function copy(
-  @builtin("global_invocation_id") gid: vec3u,
-  @builtin("local_invocation_id") lid: vec3u,
+export const copy = compute([WG_SIZE], function copy(
+  gid: builtin<"global_invocation_id", vec3u>,
+  lid: builtin<"local_invocation_id", vec3u>,
 ): void {
   tile[lid.x] = src[gid.x];
   dst[gid.x] = tile[lid.x];
-}
+});
 `;
     const r = compile(source);
     expect(r.diagnostics).toEqual([]);
@@ -169,11 +165,10 @@ export function copy(
     const src = `"use typeshade";
 declare const out: storage<array<u32>, "read_write">;
 let hits: workgroup<u32>;
-@compute([64, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   hits = hits + 1;
   out[gid.x] = hits;
-}
+});
 `;
     for (const make of [compileModule, compileModuleJs]) {
       const r = compile(src);
@@ -289,8 +284,7 @@ describe('module variables: what is refused, and what the fix is', () => {
     expect(
       only(`"use typeshade";
 let t: workgroup<f32>;
-@fragment
-export function fs(): vec4 { return vec4(t, 0., 0., 1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(t, 0., 0., 1.); });
 `),
     ).toBe(
       `${TS_CODES.MODULE_VAR} "t" is workgroup memory, which only a compute entry has; a fragment entry cannot read or write it.`,
@@ -368,16 +362,15 @@ ${TAIL}`);
   it('no initializer is zero; an array and a struct take a constant one', () => {
     const src = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-class P { a: f32; b: vec2; }
+class P { a!: f32; b!: vec2; }
 let hits: u32;
 let a: array<f32, 2> = [1., 2.];
 let z: array<f32, 2> = [0., 0.];
 let p: P = { a: 1., b: vec2(2., 3.) };
-@compute([64, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   z[0] = a[0] + a[1] + p.b.y;
   out[gid.x] = z[0] + a[1] + f32(hits);
-}
+});
 `;
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
@@ -407,13 +400,12 @@ function next(): u32 {
   seed = seed * 3 + 1;
   return seed;
 }
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   seed = u32(uv.x);
   const a = next();
   const b = next();
   return vec4(f32(a), f32(b), f32(seed), 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('var<private> seed: u32 = 7u;');
@@ -430,9 +422,9 @@ export function fs(@location(0) uv: vec2): vec4 {
     // variable can hold, and a static field the file writes, which is the same variable (Rule 8.13).
     const src = `"use typeshade";
 class Acc {
-  total: f32;
-  count: u32;
-  ring: array<vec2, 2>;
+  total!: f32;
+  count!: u32;
+  ring!: array<vec2, 2>;
 }
 class Counter {
   static count: u32;
@@ -447,15 +439,14 @@ let flags: vec2b;
 let ring: array<f32, 3>;
 let acc: Acc;
 let m: mat3x2;
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   hits += 1;
   acc.count += hits;
   ring[1] = ring[0] + uv.x;
   const n = Counter.bump();
   const s = f32(acc.count + n) + ring[1] + m[0].x + acc.ring[1].y;
   return vec4(s, tint.y, select(0., 1., flags.x), 1.);
-}
+});
 `;
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
@@ -509,13 +500,12 @@ let big: f64 = 0.1;
 let sum: f64;
 let w: vec3f64 = vec3f64(f64(1.), f64(2.), f64(0.1));
 let a: array<f64, 2>;
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   sum = sum + big + f64(uv.x);
   w = w + vec3f64(sum, f64(0.), f64(1.));
   a[1] = a[0] + sum;
   return vec4(f32(sum), f32(w.x), f32(a[1]), f32(w.z));
-}
+});
 `;
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);

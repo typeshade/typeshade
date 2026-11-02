@@ -11,7 +11,7 @@ function fixture(source: string): ModuleDecl {
   const r = compile(`"use typeshade";
     declare const output: storage<array<f32>, "read_write">;
     ${source}
-    @compute([1]) export function main(): void { output[0] = run(2.); }
+    export const main = compute([1], function main(): void { output[0] = run(2.); });
   `);
   expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
   return r.module;
@@ -210,7 +210,7 @@ describe('module-level call specialization', () => {
     expect(() => profileEmit(m)).not.toThrow();
     const fragment = compile(`"use typeshade";
       function choose(x: f32, take: bool): f32 { if (take) return x; return 0.; }
-      @fragment export function main(): vec4f { return vec4f(choose(2., true)); }
+      export const main = fragment(function main(): vec4f { return vec4f(choose(2., true)); });
     `);
     expect(fragment.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(() => profileEmit(fragment.module, 'glsl-es300')).not.toThrow();
