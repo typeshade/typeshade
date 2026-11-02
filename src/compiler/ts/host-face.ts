@@ -645,9 +645,12 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
   const exports: HostExport[] = [];
   // The author's JSDoc of each export, which the view carries (change 0108).
   const docs = new Map<string, ExportDocs>();
+  const declaredAt = topLevelDeclarations(faceSource);
   for (const ref of exportsOf(faceSource)) {
     const written =
-      ref.decl === undefined ? undefined : exportDocs(ref.decl, faceSource, linked?.linked);
+      ref.decl === undefined
+        ? undefined
+        : exportDocs(ref.decl, faceSource, declaredAt, linked?.linked);
     if (written !== undefined) docs.set(ref.name, written);
     exports.push(
       faceOf(ref, {

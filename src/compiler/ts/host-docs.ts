@@ -93,6 +93,16 @@ function membersOf(decl: ts.Node): readonly ts.Node[] {
   return [];
 }
 
+/** The names the `extends` clause of a class or an interface writes. */
+function basesOf(decl: ts.Node): string[] {
+  if (!ts.isClassDeclaration(decl) && !ts.isInterfaceDeclaration(decl)) return [];
+  return (decl.heritageClauses ?? [])
+    .filter((clause) => clause.token === ts.SyntaxKind.ExtendsKeyword)
+    .flatMap((clause) => clause.types.map((type) => type.expression))
+    .filter(ts.isIdentifier)
+    .map((name) => name.text);
+}
+
 /** The name a member is written under, when it is a plain one. */
 function memberName(member: ts.Node): string | undefined {
   const name = (member as ts.NamedDeclaration).name;
@@ -123,25 +133,49 @@ function writtenDeclaration(
   return declarator === undefined ? undefined : { node: declarator, sf };
 }
 
+/** The blocks above each member of `decl`, a declaration of `face`. A struct holds the fields of
+ *  the base it extends, so a field with no block of its own takes the blocks of the field of that
+ *  name in a base, as TypeScript's hover does. `declared` finds a base by its name in `face`. */
+function memberDocs(
+  decl: ts.Node,
+  face: ts.SourceFile,
+  declared: ReadonlyMap<string, ts.Node>,
+  linked: LinkedProgram | undefined,
+  seen: Set<ts.Node>,
+): Map<string, DocBlock[]> {
+  const members = new Map<string, DocBlock[]>();
+  const written = seen.has(decl) ? undefined : writtenDeclaration(decl, face, linked);
+  if (written === undefined) return members;
+  seen.add(decl);
+  for (const member of membersOf(written.node)) {
+    const name = memberName(member);
+    if (name === undefined) continue;
+    const above = blocksAbove(member, written.sf);
+    if (above.length > 0) members.set(name, above);
+  }
+  for (const base of basesOf(decl)) {
+    const baseDecl = declared.get(base);
+    if (baseDecl === undefined) continue;
+    for (const [name, above] of memberDocs(baseDecl, face, declared, linked, seen))
+      if (!members.has(name)) members.set(name, above);
+  }
+  return members;
+}
+
 /** The JSDoc of the export that the declaration `decl` of `face` is, or `undefined` when the
- *  author wrote none. `linked` is the linked program `face` is the source of, when the module
- *  imports another. */
+ *  author wrote none. `declared` holds the top-level declarations of `face` by name, and `linked`
+ *  is the linked program `face` is the source of, when the module imports another. */
 export function exportDocs(
   decl: ts.Node,
   face: ts.SourceFile,
+  declared: ReadonlyMap<string, ts.Node>,
   linked?: LinkedProgram,
 ): ExportDocs | undefined {
   const written = writtenDeclaration(decl, face, linked);
   if (written === undefined) return undefined;
   const { node, sf } = written;
   const blocks = ts.isVariableDeclaration(node) ? variableBlocks(node, sf) : blocksAbove(node, sf);
-  const members = new Map<string, DocBlock[]>();
-  for (const member of membersOf(node)) {
-    const name = memberName(member);
-    if (name === undefined) continue;
-    const above = blocksAbove(member, sf);
-    if (above.length > 0) members.set(name, above);
-  }
+  const members = memberDocs(decl, face, declared, linked, new Set());
   return blocks.length === 0 && members.size === 0 ? undefined : { blocks, members };
 }
 

@@ -526,6 +526,84 @@ export interface Probe {
 `);
   });
 
+  it('gives a struct the comments of the fields it inherits, as TypeScript’s hover does', () => {
+    const files: Readonly<Record<string, string>> = {
+      '/app/m.shade.ts': `"use typeshade";
+import { Base } from "./lib.shade.ts";
+
+/** A shape. */
+export class Shape {
+  /** The x position. */
+  x: f32 = 0.;
+  y: f32 = 0.;
+}
+
+/** A circle. */
+export class Circle extends Shape {
+  /** The radius. */
+  r: f32 = 1.;
+}
+
+export interface Named {
+  /** The id. */
+  id: u32;
+}
+
+export interface Tagged extends Named {
+  /** The tag. */
+  tag: u32;
+}
+
+export function tagOf(t: Tagged): u32 {
+  return t.id + t.tag;
+}
+
+export class Derived extends Base {
+  /** Its own. */
+  n: f32 = 0.;
+}
+`,
+      '/app/lib.shade.ts': `"use typeshade";
+
+export class Base {
+  /** The base's own field, from the library. */
+  id: f32 = 0.;
+}
+`,
+    };
+    const f = hostFace(files['/app/m.shade.ts']!, {
+      fileName: '/app/m.shade.ts',
+      runtime: RUNTIME,
+      readDocument: (name) => files[name],
+    });
+    expect(f.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const view = f.view!;
+    expect(view).toContain(`/** A circle. */
+export interface Circle {
+  /** The x position. */
+  x: number;
+  y: number;
+  /** The radius. */
+  r: number;
+}
+`);
+    expect(view).toContain(`export interface Tagged {
+  /** The id. */
+  id: number;
+  /** The tag. */
+  tag: number;
+}
+`);
+    // A base another file declares is found in the linked source and read in its own file.
+    expect(view).toContain(`export interface Derived {
+  /** The base's own field, from the library. */
+  id: number;
+  /** Its own. */
+  n: number;
+}
+`);
+  });
+
   it('keeps a struct and an enum with no comment on a member on one line, as before', () => {
     const f = face(`"use typeshade";
 

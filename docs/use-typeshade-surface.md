@@ -7424,7 +7424,8 @@ Where the view writes a sentence of its own, that sentence stands at the end of 
 one empty comment line. The editor shows the last block of a declaration, so a hover shows the
 author's words first and the contract second. An export with no JSDoc has the sentence alone. A
 struct with a commented field, and an `enum` with a commented member, are written over several lines,
-so each comment stands on the line of its field or member.
+so each comment stands on the line of its field or member. A field that a struct takes from the class
+or interface it extends carries the comment of the base's field, as TypeScript's hover shows it.
 
 The sentence of a kernel function and of a `@compute` entry also says how a call is queued (Rule 11.8,
 §65, §67). A call whose written arrays or bindings are all `Resident`s, and that returns nothing, may
