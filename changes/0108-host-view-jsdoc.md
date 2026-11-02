@@ -1,7 +1,7 @@
 ---
 id: '0108'
 title: A host file reads the author's JSDoc of each export of a shader module in the host view, before the sentence the compiler writes for a call
-status: implemented
+status: accepted
 rules: []
 surface:
   - 64
@@ -24,14 +24,15 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                            |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0108, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record. Pull request [#887](https://github.com/typeshade/typeshade/pull/887) implements it; see Configuration and validation record.                                                                                   |
-| Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                     |
-| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, while designing an audio library on the compiler. The owner asked whether a built module keeps the author's function comments ("빌드된 파일의 함수 주석이라던가 지원되는지"). The agent reported that the host view carries none. The owner approved the drafting of this proposal ("승인"). No GitHub issue is recorded. |
-| Applicability / effectivity   | The host view that `hostFace` writes (`src/compiler/ts/host-face.ts`, `viewText`), its description in `docs/use-typeshade-surface.md` §64, and `src/compiler/ts/host-face.test.ts`. The generated module, the CPU tier, the rules, the exports, the diagnostic codes and the examples do not change. No release version is assigned.                                                              |
-| Review baseline               | `main` at `c9efde0f79df0e6b10883b87c8af21d0c72dfbc9` (the merge of pull request #870), read on 2026-11-02.                                                                                                                                                                                                                                                                                        |
-| Review and revision authority | Pull request [#871](https://github.com/typeshade/typeshade/pull/871) (branch `claude/proposal-0108-host-view-docs`). Git records the revisions of this file. The review and merge of that pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                              |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0108, `status: accepted`: items 1 to 3 are implemented by pull request [#887](https://github.com/typeshade/typeshade/pull/887) (see Configuration and validation record), and item 4 (Amendment 1) awaits its implementation. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC) and Amendment 1 later the same day; see Approval and plan record. |
+| Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                          |
+| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, while designing an audio library on the compiler. The owner asked whether a built module keeps the author's function comments ("빌드된 파일의 함수 주석이라던가 지원되는지"). The agent reported that the host view carries none. The owner approved the drafting of this proposal ("승인"). No GitHub issue is recorded.                      |
+| Applicability / effectivity   | The host view that `hostFace` writes (`src/compiler/ts/host-face.ts`, `viewText`), its description in `docs/use-typeshade-surface.md` §64, and `src/compiler/ts/host-face.test.ts`. The generated module, the CPU tier, the rules, the exports, the diagnostic codes and the examples do not change. No release version is assigned.                                                                                   |
+| Review baseline               | `main` at `c9efde0f79df0e6b10883b87c8af21d0c72dfbc9` (the merge of pull request #870), read on 2026-11-02.                                                                                                                                                                                                                                                                                                             |
+| Review and revision authority | Pull request [#871](https://github.com/typeshade/typeshade/pull/871) (branch `claude/proposal-0108-host-view-docs`). Git records the revisions of this file. The review and merge of that pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                   |
+| Amendment 1                   | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction, on the branch `claude/0108-amend-members`. It widens item 1 to the members of an exported class (item 4, decision D4), after change 0109 made an exported class a value of the host face. Items 1 to 3, their approval and their record do not change. The merge of its pull request with `status: accepted` records the decision.          |
 
 ## What changes
 
@@ -64,6 +65,15 @@ without await: it is queued and runs in order, and read() of a Resident it write
 it and throws its error (Rule 11.8); the signature returning void is that call.` The sentence
    for a `@compute` entry gains the same sentence about its bindings. The surface already states
    both facts (Rule 8.21, §65, §71). The view says them where the developer reads.
+4. **The members of an exported class carry their comments (Amendment 1).** For a class the view
+   declares as `export declare class` (change 0109, Rule 8.20), the view carries the JSDoc blocks
+   attached to each member it declares, on the member's line, as item 1 does for a field: a
+   constructor, a method, each half of an accessor, a static field and a static method. A member
+   the view declares `never` carries the author's blocks first and the sentence of change 0109 at
+   the end of the last block, as item 2 says for an export. A member the view takes from an
+   exported base class stands in the base with its comment. A member a flat declaration takes from
+   its base carries the blocks of the base member. An overload signature without a body is not
+   carried: the face reads the implementation.
 
 The §64 listing of `terrain.shade.ts` reads as follows once `height` carries a comment:
 
@@ -140,6 +150,18 @@ contain `*/`, so a verbatim copy is a valid comment.
   is in any TypeScript file.
 - **D3.** Member comments of a struct: on the field line of the `export interface` (the draft),
   or dropped. The draft keeps them, since a host that builds the object reads the field names.
+- **D4 (Amendment 1).** Which members of an exported class: every member the view declares (the
+  amendment), or the methods alone. The amendment carries every member, because a host that
+  builds an instance reads the constructor, calls the methods, reads the accessors and calls a
+  static member on the class.
+
+**Amendment 1 (2026-11-02).** Change 0109, accepted the same day as this proposal, made an
+exported class a value of the host face, and its listing shows the comment of the method `tick`
+in the view as one of this proposal. The implementation of this proposal (#887) found that item
+1 names the members of an `enum` and the fields of a struct and nothing more, and did not widen
+it. The owner's question that started this proposal was about the comments of functions, and a
+unit's `tick` is the function a host developer hovers. Item 4 closes the gap between the two
+accepted texts.
 
 ## What it touches
 
@@ -154,7 +176,11 @@ contain `*/`, so a verbatim copy is a valid comment.
 **Implementation.** `src/compiler/ts/host-face.ts`: each `HostExport` carries the JSDoc blocks of
 its declaration, and of each member for a struct and an `enum`, read from the source file or the
 imported shader file; `viewText` prints them before the declaration and before its own sentence;
-the kernel and compute sentences gain item 3's sentence.
+the kernel and compute sentences gain item 3's sentence. Amendment 1: `carriesComment` in
+`src/compiler/ts/host-docs.ts` admits a constructor, a method, each half of an accessor and a
+static member of an exported class, and `classView` in `src/compiler/ts/host-face.ts` writes
+their blocks on the member lines, with the sentence of change 0109 at the end of the last block
+of a member declared `never`.
 
 **Validation.** `src/compiler/ts/host-face.test.ts` gains one case for each row of item 1: a
 helper, a constant, an `enum` with a member comment, a struct with a field comment, a `@compute`
@@ -162,7 +188,11 @@ entry, a kernel function, a fragment entry, a `never` export, a re-export, two b
 declaration (D1), and a module with no JSDoc, whose view differs from today's only by item 3's
 sentence. The host programs that file type-checks against a view keep passing, since no type
 changes. `tshc sync --check` over the examples' views is the document validation that every
-example's view carries its comments.
+example's view carries its comments. Amendment 1: `host-face.test.ts` gains one case for each of
+a constructor, a method, a getter and a setter, a static field, a static method, a member
+declared `never` and a member a derived class takes from its base, and one case that reads the
+editor's hover on a method call in a host file (Rule 12.7). The `OnePole` listing of §64 shows
+the comment of `tick` on its line.
 
 ### Draft impact estimate
 
@@ -170,7 +200,10 @@ Known work: reading the JSDoc blocks in the export collection of `host-face.ts`;
 `viewText`; the test cases above; the §64 text and listing. Compatibility: no host type changes;
 every view of a module with JSDoc is rewritten once by `tshc sync` on the next build. Bundle: no
 change to the generated module. Downstream: the two documentation repositories update their copy
-of the §64 listing. Duration and cost: unknown, no basis for an estimate.
+of the §64 listing. Duration and cost: unknown, no basis for an estimate. Amendment 1: the reader
+admits the other member kinds, the printer writes them, the test cases and the §64 listing; no
+host type changes, and the view of a module whose classes carry member comments is rewritten
+once.
 
 ### Approval and plan record
 
@@ -184,6 +217,15 @@ with `status: accepted` records the decision.
 Responsibilities: an agent of this repository implements items 1 to 3 and the §64 text in pull requests
 whose commits say `Change: 0108`. No milestone date is assigned. No duration or cost estimate is
 established.
+
+**Amendment 1.** The owner approved the amendment in the Claude Code session on 2026-11-02 (UTC),
+in Korean ("승인", approve), in answer to the agent's report that the accepted texts of 0108 and
+0109 disagree on the members of a class, and to the agent's proposal to widen 0108 to those
+members. D4 is accepted as drafted: every member the view declares. The merge of the pull request
+of the branch `claude/0108-amend-members` with `status: accepted` records the decision. An agent
+implements item 4 in a pull request whose commits say `Change: 0108`, after the implementation of
+change 0116 lands, because both change `src/compiler/ts/host-face.ts`. The record of that work
+extends the Configuration and validation record below.
 
 ### Configuration and validation record
 
@@ -354,10 +396,12 @@ Open item:
   not carried. Change 0109 declares those members, and the listing in `changes/0109-host-classes.md`
   shows the comment of a method (`tick`) as one of "proposal 0108". The approved text of 0108 names
   the members of an `enum` and the fields of a struct, so this change does not widen it. A member
-  that is declared `never` keeps the sentence of change 0109. Next action: the owner decides whether
-  an amendment of 0108, or a proposal, carries the comments of those members.
+  that is declared `never` keeps the sentence of change 0109. Amendment 1 widens the approved text
+  to those members (item 4, D4). Its implementation is pending and extends this record when it
+  lands.
 
-Pending: the open item above. The downstream work is as listed in "What it owes downstream".
+Pending: the implementation of item 4 (Amendment 1). The downstream work is as listed in "What it
+owes downstream".
 
 ## What it owes downstream
 
