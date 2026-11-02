@@ -2599,15 +2599,16 @@ reflection and a package. `new Ray(a, b)` is a call of `Ray_new` wherever you wr
 that changes its object writes the object you call it on, as an `@inout` argument writes its
 place (§70), so `voices[v].tick()` in a kernel function's loop writes `voices` at `v` (§65).
 Where a host may call a function (§64), the same conditions decide for a method, and a method
-that fails one has the reason a function would have. Until proposal 0109 is implemented, the host
-face declares an exported class as a type, with no method. The rule claims no more than that: a
-method that reaches a binding, a workgroup variable or a builtin only a GPU computes has no host
-call, a host call of a method runs on the CPU tier and never dispatches, and a read of a
-`Resident` is asynchronous. The class arm of `bun run gate:differential` holds the rule. For each
-exported class of the examples and of `journeys/class-twins/` it writes a twin module that builds
-the class with `new` and calls each member a host could call, in an entry and in a kernel
-function's loop. Every result and every field after the call must be the oracle's bits on WebGPU,
-on WebGL2 and on the CPU tier, or within the room a row of the determinism report leaves (§38).
+that fails one has the reason a function would have. The rule claims no more than that: a method
+that reaches a binding, a workgroup variable or a builtin only a GPU computes has no host call, a
+host call of a method runs on the CPU tier and never dispatches, and a read of a `Resident` is
+asynchronous. The class arm of `bun run gate:differential` holds the rule. For each exported class
+of the examples and of `journeys/class-twins/` it writes a twin module that builds the class with
+`new` and calls each member a host could call, in an entry and in a kernel function's loop, and it
+calls the member on the host class too (§64). Every result and every field after the call must be
+the oracle's bits on WebGPU, on WebGL2, on the CPU tier and on the host, or within the room a row
+of the determinism report leaves (§38). A member the host may not call must be refused by the host
+class with the same reason.
 
 **A method that reads its object reads it in place** (Rule 8.28, change 0103). When the object
 is a place (a `let` local, on WGSL any struct or array local (change 0105), a module variable, a uniform, a storage element, or a field or an

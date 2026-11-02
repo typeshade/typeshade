@@ -43,9 +43,11 @@
 // each through the module the Vite plugin generates (`hostFace`), bundled for the page as a host's
 // bundler bundles it, with one required tier at a time (`configure({ prefer: [tier] })`). The
 // entry and the kernel function also run on the oracle itself, dispatched and called as the
-// compiler's own tests do. The reference is the oracle (`compileModule` in `f32` mode, Rule
-// 11.1): `C_new` and then the member's function, called directly for each element. The host leg,
-// `new C(…)` and `o.m(…)` on the CPU tier through the host face, waits for proposal 0109.
+// compiler's own tests do. The host leg runs the class itself as a host does (change 0109):
+// `new C(…)` and then the member, `o.m(…)`, `C.s(…)`, `o.x` or `o.x = v`, on the host class that
+// the module the Vite plugin generates for the class's own file exports, which runs on the CPU
+// tier. The reference is the oracle (`compileModule` in `f32` mode, Rule 11.1): `C_new` and then
+// the member's function, called directly for each element.
 //
 // THE CLAIM. For every element, the member's result and every field of the object after the call
 // are the same bits on every leg as on the oracle. Where the determinism report (surface §38)
@@ -62,7 +64,9 @@
 //
 // REFUSALS. A leg a tier has no form for is named with the reason the host face gives (an entry's
 // `noGl` or `noCpu`, a kernel function's `noWebgl2` or `noGpu`), and the member is held on the legs
-// that run it. Any other error fails the arm.
+// that run it. Any other error fails the arm. The host class must run every member the probes
+// admit, and must refuse each member they refuse with the same reason, since a method is admitted
+// where a function is and refused with the reason a function has (Rule 8.29).
 //
 //   TYPESHADE_CHROMIUM=/path/to/headless_shell TYPESHADE_DIFF_ARMS=class bun scripts/gpu-differential.ts
 
@@ -124,7 +128,7 @@ const REACH = [
 type Reach = (typeof REACH)[number];
 
 type Tier = 'webgpu' | 'webgl2' | 'cpu';
-type Leg = `${'entry' | 'kernel'}/${Tier | 'oracle'}`;
+type Leg = `${'entry' | 'kernel'}/${Tier | 'oracle'}` | 'host/cpu';
 const PAGE_LEGS: readonly { kind: 'entry' | 'kernel'; tier: Tier }[] = [
   { kind: 'entry', tier: 'webgpu' },
   { kind: 'entry', tier: 'webgl2' },
@@ -142,6 +146,7 @@ const LEGS: readonly Leg[] = [
   'kernel/webgl2',
   'kernel/cpu',
   'kernel/oracle',
+  'host/cpu',
 ];
 
 // ─── the corpus ──────────────────────────────────────────────────────────────────────────────
@@ -672,9 +677,26 @@ function twinSource(
 }
 
 /** What the class arm makes of one class: its twin, or why it holds none. */
+/** A member the conditions of Rule 8.20 refuse, which the host class of change 0109 must refuse
+ *  with the same reason. */
+interface Refusal {
+  readonly c: ClassCase;
+  readonly kind: Member['kind'];
+  readonly name: string;
+  readonly reason: string;
+}
+
 type Planned =
-  | { readonly twin: Twin; readonly skipped: readonly string[] }
-  | { readonly skip: string; readonly skipped: readonly string[] };
+  | {
+      readonly twin: Twin;
+      readonly skipped: readonly string[];
+      readonly refusals: readonly Refusal[];
+    }
+  | {
+      readonly skip: string;
+      readonly skipped: readonly string[];
+      readonly refusals: readonly Refusal[];
+    };
 
 function plan(c: ClassCase, reasons: { generic: string; takesFunction: string }): Planned {
   const where = `${c.name} (${c.rel})`;
@@ -683,37 +705,53 @@ function plan(c: ClassCase, reasons: { generic: string; takesFunction: string })
     return {
       skip: `${where}: it is generic, and a generic class exists only as the instances the module uses (Rule 8.9)`,
       skipped: [],
+      refusals: [],
     };
   if (hasModifier(c.decl, ts.SyntaxKind.AbstractKeyword))
     return {
       skip: `${where}: it is abstract, a base and never a value (surface §26)`,
       skipped: [],
+      refusals: [],
     };
   const struct = structs.get(c.name);
   if (struct === undefined)
-    return { skip: `${where}: it was not lowered to a struct of the module`, skipped: [] };
+    return {
+      skip: `${where}: it was not lowered to a struct of the module`,
+      skipped: [],
+      refusals: [],
+    };
   const storeWhy = unstorable({ kind: 'struct', name: c.name }, structs, c.name);
-  if (storeWhy !== undefined) return { skip: `${where}: ${storeWhy}`, skipped: [] };
+  if (storeWhy !== undefined) return { skip: `${where}: ${storeWhy}`, skipped: [], refusals: [] };
   const funcs = new Map(c.module.funcs.map((f) => [f.name, f]));
   const ctorFn = funcs.get(`${c.name}_new`);
   if (ctorFn === undefined)
-    return { skip: `${where}: it has no constructor function ${c.name}_new`, skipped: [] };
+    return {
+      skip: `${where}: it has no constructor function ${c.name}_new`,
+      skipped: [],
+      refusals: [],
+    };
   const ctor = ctorFn.params.map((p) => p.type);
   for (const [j, t] of ctor.entries()) {
     const why = unstorable(t, structs, `constructor parameter ${String(j + 1)}`);
     if (why !== undefined)
-      return { skip: `${where}: its constructor cannot be called by the arm: ${why}`, skipped: [] };
+      return {
+        skip: `${where}: its constructor cannot be called by the arm: ${why}`,
+        skipped: [],
+        refusals: [],
+      };
   }
   const ctorWhy = probeConstructor(c, ctorFn);
   if (ctorWhy !== undefined)
     return {
       skip: `${where}: its constructor cannot be called by the arm: ${ctorWhy}`,
       skipped: [],
+      refusals: [],
     };
   const declared = new Set(c.module.funcs.map((f) => f.name));
   const callees = new Map(c.module.funcs.map((f) => [f.name, calleesOf(f, declared)]));
   const report = determinismReport(c.module).filter((r) => r.kind !== 'order');
   const skipped: string[] = [];
+  const refusals: Refusal[] = [];
   const members: TwinMember[] = [];
   for (const m of membersOf(c)) {
     const label = `${c.name}.${m.kind === 'getter' ? `get ${m.name}` : m.kind === 'setter' ? `set ${m.name}` : m.name}`;
@@ -725,10 +763,12 @@ function plan(c: ClassCase, reasons: { generic: string; takesFunction: string })
     }
     if (m.generic) {
       skipped.push(`${label}: ${reasons.generic}`);
+      refusals.push({ c, kind: m.kind, name: m.name, reason: reasons.generic });
       continue;
     }
     if (m.takesFunction) {
       skipped.push(`${label}: ${reasons.takesFunction}`);
+      refusals.push({ c, kind: m.kind, name: m.name, reason: reasons.takesFunction });
       continue;
     }
     const f = funcs.get(fnNameOf(c, m));
@@ -741,6 +781,7 @@ function plan(c: ClassCase, reasons: { generic: string; takesFunction: string })
     const why = probe(c, m, f);
     if (why !== undefined) {
       skipped.push(`${label}: ${why}`);
+      refusals.push({ c, kind: m.kind, name: m.name, reason: why });
       continue;
     }
     const store = [
@@ -779,10 +820,13 @@ function plan(c: ClassCase, reasons: { generic: string; takesFunction: string })
     if (result?.kind === 'vec') reach.add('a vector result');
     members.push({ m, fn: f, params, ...(result !== undefined ? { result } : {}), rows, reach });
   }
+  // A class with no member a host could call is still a value of the host face, whose host class
+  // refuses each member as the conditions of Rule 8.20 do.
   if (members.length === 0)
     return {
       skip: `${where}: no member a host could call${skipped.length > 0 ? `: ${skipped.join('; ')}` : ''}`,
       skipped: [],
+      refusals,
     };
   const source = twinSource(c, ctor, members);
   const fileName = join(dirname(c.file), `__class_twin_${c.name}.shade.ts`);
@@ -816,6 +860,7 @@ function plan(c: ClassCase, reasons: { generic: string; takesFunction: string })
       code: face.code,
     },
     skipped,
+    refusals,
   };
 }
 
@@ -961,8 +1006,8 @@ function compare(
 
 // ─── the page ────────────────────────────────────────────────────────────────────────────────
 
-/** One call the page makes. */
-interface PageJob {
+/** One call of a twin's entry or kernel function that the page makes. */
+interface TwinJob {
   readonly twin: number;
   readonly kind: 'entry' | 'kernel';
   readonly name: string;
@@ -975,6 +1020,31 @@ interface PageJob {
     | { readonly typed: 'f32' | 'i32' | 'u32'; readonly length: number }
     | { readonly values: readonly unknown[] };
 }
+
+/** One member held on the host class of change 0109, element by element: `new C(…)` with the
+ *  constructor's arguments (`c0`, …), then the member with its own (`a0`, …), on the CPU tier
+ *  through the module the Vite plugin generates for the class's file. */
+interface HostJob {
+  readonly kind: 'host';
+  readonly host: number;
+  readonly cls: string;
+  readonly member: { readonly kind: Member['kind']; readonly name: string };
+  readonly nc: number;
+  readonly na: number;
+  readonly n: number;
+  readonly args?: readonly unknown[];
+  readonly result: boolean;
+}
+
+/** One member the host class must refuse: the page calls it and returns what it threw. */
+interface RefuseJob {
+  readonly kind: 'refuse';
+  readonly host: number;
+  readonly cls: string;
+  readonly member: { readonly kind: Member['kind']; readonly name: string };
+}
+
+type PageJob = TwinJob | HostJob | RefuseJob;
 
 interface PageResult {
   readonly xs?: unknown[];
@@ -991,21 +1061,24 @@ interface Bundler {
   }>;
 }
 
-/** Every twin's generated module and the runtime's `configure`, bundled for the browser as a
- *  host's bundler bundles them, as one script that sets `globalThis.__classTwins`. */
-async function bundleOf(twins: readonly Twin[]): Promise<string> {
+/** Every twin's generated module, the generated module of each corpus file whose classes the
+ *  host leg calls (`hosts`), and the runtime's `configure`, bundled for the browser as a host's
+ *  bundler bundles them, as one script that sets `globalThis.__classTwins`. */
+async function bundleOf(twins: readonly Twin[], hosts: readonly string[]): Promise<string> {
   const bun = (globalThis as { Bun?: Bundler }).Bun;
   if (bun === undefined) throw new Error('the class arm needs Bun: run it with bun');
   const tmp = mkdtempSync(join(tmpdir(), 'typeshade-class-'));
   try {
     twins.forEach((t, i) => writeFileSync(join(tmp, `t${String(i)}.mjs`), t.code));
+    hosts.forEach((code, i) => writeFileSync(join(tmp, `h${String(i)}.mjs`), code));
     const entry = join(tmp, 'entry.ts');
     writeFileSync(
       entry,
       [
         `import { configure } from ${JSON.stringify(RUNTIME)};`,
         ...twins.map((_, i) => `import * as t${String(i)} from './t${String(i)}.mjs';`),
-        `(globalThis as Record<string, unknown>).__classTwins = { configure, twins: [${twins.map((_, i) => `t${String(i)}`).join(', ')}] };`,
+        ...hosts.map((_, i) => `import * as h${String(i)} from './h${String(i)}.mjs';`),
+        `(globalThis as Record<string, unknown>).__classTwins = { configure, twins: [${twins.map((_, i) => `t${String(i)}`).join(', ')}], hosts: [${hosts.map((_, i) => `h${String(i)}`).join(', ')}] };`,
         '',
       ].join('\n'),
     );
@@ -1048,7 +1121,12 @@ async function callsInPage(input: {
   const g = (globalThis as Record<string, unknown>)['__classTwins'] as {
     configure: (o: { prefer?: string[] }) => void;
     twins: Record<string, (...a: unknown[]) => Promise<unknown>>[];
+    hosts: Record<string, unknown>[];
   };
+  type HostClass = (new (...a: unknown[]) => Record<string, unknown>) &
+    Record<string, (...a: unknown[]) => unknown>;
+  type Member = { readonly kind: string; readonly name: string };
+  const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
   const typed = { f32: Float32Array, i32: Int32Array, u32: Uint32Array } as const;
   const plain = (v: unknown): unknown =>
     ArrayBuffer.isView(v)
@@ -1060,6 +1138,54 @@ async function callsInPage(input: {
           : v;
   const results: PageResult[] = [];
   for (const job of input.jobs) {
+    if (job.kind === 'host') {
+      // `new C(…)`, then the member, as a host writes them; the host class runs on the CPU tier.
+      try {
+        const C = g.hosts[job.host]![job.cls] as HostClass;
+        const m: Member = job.member;
+        const xs: unknown[] = [];
+        const out: unknown[] = [];
+        for (let i = 0; i < job.n; i++) {
+          const a = (job.args?.[i] ?? {}) as Record<string, unknown>;
+          const ctor = Array.from({ length: job.nc }, (_, j) =>
+            structuredClone(a[`c${String(j)}`]),
+          );
+          const params = Array.from({ length: job.na }, (_, j) =>
+            structuredClone(a[`a${String(j)}`]),
+          );
+          const o = new C(...ctor);
+          let r: unknown;
+          if (m.kind === 'static') r = C[m.name]!(...params);
+          else if (m.kind === 'getter') r = o[m.name];
+          else if (m.kind === 'setter') o[m.name] = params[0];
+          else r = (o[m.name] as (...p: unknown[]) => unknown)(...params);
+          xs.push(plain(o));
+          out.push(plain(r));
+        }
+        results.push({ xs, ...(job.result ? { out } : {}) });
+      } catch (e) {
+        results.push({ error: message(e) });
+      }
+      continue;
+    }
+    if (job.kind === 'refuse') {
+      // A member the conditions of Rule 8.20 refuse: the host class must throw, with the reason.
+      try {
+        const C = g.hosts[job.host]![job.cls] as HostClass;
+        const m: Member = job.member;
+        if (m.kind === 'static') C[m.name]!();
+        else {
+          const o = Object.create(C.prototype as object) as Record<string, unknown>;
+          if (m.kind === 'getter') void o[m.name];
+          else if (m.kind === 'setter') o[m.name] = 0;
+          else (o[m.name] as () => unknown)();
+        }
+        results.push({});
+      } catch (e) {
+        results.push({ error: message(e) });
+      }
+      continue;
+    }
     const xs = structuredClone(job.xs) as unknown[];
     const args = job.args === undefined ? undefined : (structuredClone(job.args) as unknown[]);
     const out =
@@ -1083,7 +1209,7 @@ async function callsInPage(input: {
         ...(out !== undefined ? { out: plain(out) as unknown[] } : {}),
       });
     } catch (e) {
-      results.push({ error: e instanceof Error ? e.message : String(e) });
+      results.push({ error: message(e) });
     } finally {
       g.configure({});
     }
@@ -1129,6 +1255,7 @@ export async function classArm(page: Page): Promise<number> {
   const counts: string[] = [];
   const skipped: string[] = [];
   const twins: Twin[] = [];
+  const refusals: Refusal[] = [];
   for (const { dir, files } of corpusFiles()) {
     let exporting = 0;
     let classes = 0;
@@ -1140,6 +1267,7 @@ export async function classArm(page: Page): Promise<number> {
       for (const c of found.classes) {
         const p = plan(c, reasons);
         skipped.push(...p.skipped.map((s) => `${s} (${c.rel})`));
+        refusals.push(...p.refusals);
         if ('skip' in p) skipped.push(p.skip);
         else twins.push(p.twin);
       }
@@ -1205,18 +1333,63 @@ export async function classArm(page: Page): Promise<number> {
     break;
   }
 
+  // The host leg (change 0109): the module the Vite plugin generates for each corpus file whose
+  // classes it calls, as a host imports it.
+  const hostFiles = [...new Set([...twins.map((t) => t.c.file), ...refusals.map((r) => r.c.file)])];
+  const hosts = hostFiles.map((file) => {
+    const face = hostFace(read(file)!, {
+      fileName: file,
+      runtime: RUNTIME,
+      readDocument: read,
+      fuse: false,
+    });
+    if (face.code === undefined)
+      throw new Error(
+        `${relative(ROOT, file)} has no host module: ${face.diagnostics.map((d) => d.message).join('; ')}`,
+      );
+    return face.code;
+  });
+  const hostOf = (c: ClassCase): number => hostFiles.indexOf(c.file);
+
   // The page legs, every call in one evaluation.
   const jobs: { c: number; leg: Leg; job: PageJob }[] = [];
-  for (const [ci, k] of cases.entries())
+  for (const [ci, k] of cases.entries()) {
+    const t = twins[k.t]!;
     for (const { kind, tier } of PAGE_LEGS)
-      jobs.push({ c: ci, leg: `${kind}/${tier}`, job: jobOf(twins[k.t]!, k, kind, tier) });
-  const server = await serveBundle(await bundleOf(twins));
+      jobs.push({ c: ci, leg: `${kind}/${tier}`, job: jobOf(t, k, kind, tier) });
+    jobs.push({
+      c: ci,
+      leg: 'host/cpu',
+      job: {
+        kind: 'host',
+        host: hostOf(t.c),
+        cls: t.c.name,
+        member: { kind: k.tm.m.kind, name: k.tm.m.name },
+        nc: t.ctor.length,
+        na: k.tm.params.length,
+        n: N,
+        ...(k.inputs.args !== undefined ? { args: k.inputs.args } : {}),
+        result: k.tm.result !== undefined,
+      },
+    });
+  }
+  const refuseJobs: PageJob[] = refusals.map((r) => ({
+    kind: 'refuse',
+    host: hostOf(r.c),
+    cls: r.c.name,
+    member: { kind: r.kind, name: r.name },
+  }));
+  const server = await serveBundle(await bundleOf(twins, hosts));
   const port = (server.address() as AddressInfo).port;
   let results: PageResult[];
   try {
     results = await page.evaluate(callsInPage, {
       url: `http://127.0.0.1:${String(port)}/class-twins.js`,
-      jobs: [...jobs.map((j) => j.job), ...(instrument !== undefined ? [instrument.job] : [])],
+      jobs: [
+        ...jobs.map((j) => j.job),
+        ...(instrument !== undefined ? [instrument.job] : []),
+        ...refuseJobs,
+      ],
     });
   } finally {
     server.close();
@@ -1226,6 +1399,7 @@ export async function classArm(page: Page): Promise<number> {
   const distances = new Map<Leg, Distance>(LEGS.map((l) => [l, { ulp: 0, abs: 0, values: 0 }]));
   const refused = new Map<string, string[]>();
   const held = new Set<string>();
+  const heldOnHost = new Set<string>();
   const classesHeld = new Set<string>();
   const reached = new Set<Reach>();
   let bitForBit = 0;
@@ -1235,6 +1409,13 @@ export async function classArm(page: Page): Promise<number> {
     const t = twins[k.t]!;
     const label = memberLabel(t, k.tm);
     if ('error' in got && got.error !== undefined) {
+      // The host class runs every member the conditions of Rule 8.20 admit, on the CPU tier.
+      if (leg === 'host/cpu') {
+        fail(
+          `host/cpu ${label}: the host class refuses a member a function would be admitted as: ${got.error.slice(0, 240)}`,
+        );
+        return;
+      }
       const [kind, tier] = leg.split('/') as ['entry' | 'kernel', Tier];
       const why = refusalOf(t, k.tm.m.tag, kind, tier);
       if (why === undefined) {
@@ -1258,6 +1439,7 @@ export async function classArm(page: Page): Promise<number> {
       classesHeld.add(t.c.name);
       for (const r of k.tm.reach) reached.add(r);
     }
+    if (leg === 'host/cpu') heldOnHost.add(label);
   };
   jobs.forEach((j, i) => check(j.c, j.leg, results[i]!));
   for (const [ci] of cases.entries())
@@ -1289,6 +1471,23 @@ export async function classArm(page: Page): Promise<number> {
     instrumentLine = `${label} on entry/webgpu with element ${String(instrument.at)} given element ${String(instrument.at + 1)}'s arguments: ${diff !== undefined && at === instrument.at ? `reported (${diff})` : 'NOT reported'}`;
   }
 
+  // Each member the conditions of Rule 8.20 refuse must be refused by the host class, with the
+  // reason a function would have (Rule 8.29).
+  const refusedOnHost: string[] = [];
+  refusals.forEach((r, i) => {
+    const got = results[jobs.length + (instrument !== undefined ? 1 : 0) + i]!;
+    const label = `${r.c.name}.${r.kind === 'getter' ? `get ${r.name}` : r.kind === 'setter' ? `set ${r.name}` : r.name}`;
+    if (got.error === undefined)
+      fail(
+        `host/cpu ${label}: the host class runs a member the conditions of Rule 8.20 refuse: ${r.reason}`,
+      );
+    else if (!got.error.includes(r.reason))
+      fail(
+        `host/cpu ${label}: the host class refuses it with another reason: ${got.error.slice(0, 240)}; a function has: ${r.reason}`,
+      );
+    else refusedOnHost.push(label);
+  });
+
   // The floors: the corpus must reach what the claim is about.
   if (classesHeld.size < CLASSES_FLOOR)
     fail(
@@ -1299,6 +1498,11 @@ export async function classArm(page: Page): Promise<number> {
       `the arm held ${String(held.size)} members on WebGPU, under its floor of ${String(MEMBERS_FLOOR)}`,
     );
   for (const r of REACH) if (!reached.has(r)) fail(`the corpus reaches no ${r} on WebGPU`);
+  if (heldOnHost.size < held.size)
+    fail(
+      `the host leg held ${String(heldOnHost.size)} members, and WebGPU ${String(held.size)}: every member held on the tiers is held on the host class`,
+    );
+  if (refusedOnHost.length === 0) fail('the corpus reaches no member the host class refuses');
 
   const values = [...distances.values()].reduce((n, d) => n + d.values, 0);
   for (const s of skipped) console.log(`class arm: skipped ${s}`);
@@ -1314,7 +1518,9 @@ export async function classArm(page: Page): Promise<number> {
         : `${l} ${String(d.ulp)} ULP and ${d.abs === 0 ? '0' : d.abs.toExponential(2)} absolute over ${String(d.values)} values`;
     }).join('; ')}`,
   );
-  console.log('host leg: not available (change 0109)');
+  console.log(
+    `class arm: host leg: ${String(heldOnHost.size)} members held on the host class on the CPU tier; refused there with the reason a function has: ${refusedOnHost.length > 0 ? refusedOnHost.join(', ') : 'none'}`,
+  );
   console.log(`class arm: instrument: ${instrumentLine}`);
   console.log(
     `class arm: ${String(classesHeld.size)} classes and ${String(held.size)} members of ${String(twins.length)} twins held on ${String(LEGS.length)} legs against the f32 oracle, ${String(values)} values, ` +
@@ -1330,7 +1536,7 @@ function jobOf(
   k: { readonly t: number; readonly tm: TwinMember; readonly inputs: Inputs },
   kind: 'entry' | 'kernel',
   tier: Tier,
-): PageJob {
+): TwinJob {
   const structs = new Map(t.module.structs.map((s) => [s.name, s]));
   const result = k.tm.result;
   const typed = result === undefined ? undefined : typedOf(result);

@@ -29,7 +29,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0110, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record. Pull request #883 implements it; the host leg of the arm is pending on proposal 0109 (Configuration and validation record).                                                                                                                                                                                                                                                                                  |
+| Identity and status           | Proposal 0110, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record. Pull request #883 implements it, the host leg of the arm included (Configuration and validation record).                                                                                                                                                                                                                                                                                                     |
 | Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                   |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, asked what it takes to advance the compiler's class support so that it is consistent ("고도화하려면 어떻게 되어야하나요? 일관되어야 의미 있어보이는데"). The agent proposed the rule sentence below and a class arm of the differential gate. The owner approved the drafting ("승인"). Proposals 0108 (pull request #871) and 0109 (pull request #872) are the related drafts of the same session. No GitHub issue is recorded.                                                                                        |
 | Applicability / effectivity   | `docs/language-design.md` (a new rule in §8, numbered per D1), `reqs/` (its item), `docs/use-typeshade-surface.md` §26, §65 and §71, `scripts/gpu-differential.ts` and a new `scripts/class-arm.ts`, a new `journeys/class-twins/`, `src/core/fuse-plan.test.ts` and `src/compiler/ts/kernel-loops.test.ts` (D4), and the CI job `compile gate (Tint + WebGL2)`, which runs `bun run gate:differential`. The lowering, the proof, the planner, the host face and reflection do not change by this proposal; what the arm finds in them is fixed under its rule. No release version is assigned. |
@@ -244,12 +244,13 @@ arm), `be95734` (the tests of D4), `e5f52da` (Rule 8.29), `de9f81f` (the three s
 and `7f4e916`) and the commit of this record. Delivered configuration:
 
 - `docs/language-design.md`: Rule 8.29 in §8 (D1), the sentence of item 1 with its Rationale,
-  Derives from and Enforced by lines, and a row for Rule 8.29 in Appendix B (the host half,
-  below). `reqs/` synced: RULE-0829 is new, and SURF-026, SURF-065 and SURF-071 link it; each was
-  read and reviewed with `doorstop review`.
+  Derives from and Enforced by lines. `reqs/` synced: RULE-0829 is new, and SURF-026, SURF-065
+  and SURF-071 link it; each was read and reviewed with `doorstop review`, and cleared with
+  `doorstop clear` when the host leg changed the rule's Enforced by line.
 - `scripts/class-arm.ts` (new), run by `scripts/gpu-differential.ts` under the arm name `class`,
   in the default arm list of `bun run gate:differential`, which the CI job
-  `compile gate (Tint + WebGL2)` runs (D3). `AGENTS.md` and `src/AGENTS.md` describe it.
+  `compile gate (Tint + WebGL2)` runs (D3), with the host leg (c) on the host class of
+  change 0109. `AGENTS.md` and `src/AGENTS.md` describe it.
 - `journeys/class-twins/` (new), `units.shade.ts` and `journey.mjs`: the corpus module of D2 and a
   journey of its own. `journeys/README.md` names it.
 - `src/core/fuse-plan.test.ts` (new) for the facts and `src/compiler/ts/kernel-loops.test.ts` for
@@ -315,9 +316,10 @@ Deviations:
   `hash32` and `uniform` from the element's index, and every leg is given the same array. The
   entry calls the member on a local, and the kernel function calls it on the element of its array
   (`xs[i].m(…)`), the form of §65's new sentence. Closed by this record, the reading of item 2.
-- Appendix B. The host half of Rule 8.29 is not enforced: an exported class is a type of the host
-  face, with no method, until proposal 0109 is implemented. Appendix B records it, and §26 says
-  so. Open: the row and the sentence of §26 are removed when 0109 and the host leg land.
+- Appendix B. The host half of Rule 8.29 was not enforced while an exported class was a type of
+  the host face, with no method; Appendix B recorded it, and §26 said so. Closed when change 0109
+  reached `main` (`9dbc298`, #890): the host leg (c) holds each member on the host class, and the
+  row of Appendix B and the sentence of §26 are removed.
 - The journey's wavetable voice keeps its position inside the table. Its first form,
   `table[this.at % arrayLength(table)]`, failed the WebGL2 leg of the CI check
   `user journeys (packed tarball, WebGPU)` on `dedb532`. The cause, reproduced here: the pass
@@ -331,8 +333,7 @@ Deviations:
   member form and the inline form agree, so D4's clause does not cover it, and a namespace's
   functions share it. Open: for an issue.
 
-Pending: the host leg (c), `new C(…)` and `o.m(…)` on the CPU tier through the host face, which
-waits for the implementation of proposal 0109.
+Pending: none in this repository.
 
 ## What it owes downstream
 

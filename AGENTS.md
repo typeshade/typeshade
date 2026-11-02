@@ -148,8 +148,9 @@ describes it.
   which the writer settles (Rule 11.12). Then each member a host could call of every exported class
   of the examples and of `journeys/class-twins/`, through the twin module the class arm writes
   (`scripts/class-arm.ts`, change 0110): built and called as an entry's local and as a kernel
-  function's element on WebGPU, WebGL2 and the CPU tier, and held to the `f32` oracle's own
-  constructor and member function. CI's compile-gate job runs it.
+  function's element on WebGPU, WebGL2 and the CPU tier, and on the host class of change 0109,
+  and held to the `f32` oracle's own constructor and member function. CI's compile-gate job runs
+  it.
 - `bun run gate:render`: the class-based 3D SDF example is rendered on headless WebGPU and its 48x48 RGBA8 pixels are compared exactly with the committed image golden. Use `UPDATE_RT_GOLDEN=1 bun run gate:render` only for an intentional golden refresh.
 - `bun run gate:journeys` (after `build`): the packed tarball installed into a fresh project,
   and every program in `journeys/` checked the way a user meets it: `compile()`, the language
