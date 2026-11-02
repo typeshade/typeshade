@@ -43,7 +43,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createServer } from 'node:http';
 import { chromium } from 'playwright';
@@ -58,6 +58,7 @@ import {
   type GateBrowserSettings,
 } from './gate-browser.js';
 import { stageGateBrowser } from './stage-gate-browser.js';
+import { portIsHeld, startChild, stopChild, stopLiveChildren } from './gate-children.js';
 import { HOST_ORDER } from '../examples/hosts/_order.js';
 import {
   compare,
@@ -819,22 +820,40 @@ async function hostsInBrowser(
   );
 }
 
+/** The file that the `vite` binary of the project in `app` runs: the `bin` entry of its package. */
+function viteEntry(app: string): string {
+  const dir = join(app, 'node_modules', 'vite');
+  const { bin } = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
+    bin: string | Record<string, string>;
+  };
+  return join(dir, typeof bin === 'string' ? bin : bin['vite']!);
+}
+
 /** Start `vite` (the dev server) in `app`, load the page and run `logged()` from `src/gpu.ts`,
- *  collecting what the page prints. */
+ *  collecting what the page prints.
+ *
+ *  `node` runs the vite entry of the project, so the child is the server and a signal reaches it.
+ *  `npx vite` put `npx` and a shell between the gate and vite, and `kill()` ended those two and
+ *  left vite running (#923). The server is stopped and waited for, then its port is checked: a
+ *  server that is still listening fails the run. */
 async function inDevServer(app: string): Promise<{ logs: string[]; error?: string }> {
   const port = 5170 + Math.floor(Math.random() * 500);
-  const server = spawn(
-    'npx',
-    ['vite', '--port', String(port), '--strictPort', '--host', '127.0.0.1'],
-    {
-      cwd: app,
-      stdio: 'ignore',
-    },
+  const server = startChild(
+    'node',
+    [viteEntry(app), '--port', String(port), '--strictPort', '--host', '127.0.0.1'],
+    { cwd: app, stdio: 'ignore' },
   );
+  const stopServer = async (): Promise<void> => {
+    await stopChild(server);
+    if (await portIsHeld(port))
+      throw new Error(`the dev server was stopped, and port ${port} still accepts connections`);
+  };
   const url = `http://127.0.0.1:${port}/`;
   const browserSettings = gateBrowserSettings(process.env);
-  const browser = await chromium.launch(browserSettings.launch).catch((error: unknown) => {
-    server.kill();
+  const browser = await chromium.launch(browserSettings.launch).catch(async (error: unknown) => {
+    await stopServer().catch((stopping: unknown) =>
+      console.error('GPU gate server cleanup also failed', stopping),
+    );
     throw error;
   });
   const run = async () => {
@@ -889,13 +908,7 @@ async function inDevServer(app: string): Promise<{ logs: string[]; error?: strin
     const logs = await Promise.all(printed);
     return { logs, ...(error !== undefined ? { error } : {}) };
   };
-  return withGateBrowser(
-    browser,
-    () => {
-      server.kill();
-    },
-    run,
-  );
+  return withGateBrowser(browser, stopServer, run);
 }
 
 /** A console call's arguments as the browser prints them: the format string's `%c` styles
@@ -990,8 +1003,24 @@ async function inBrowser(
   );
 }
 
+/** The last check of the gate (#923): no child that the gate started is alive. A child that is
+ *  still alive is stopped, so that it cannot outlive the run, and it fails the gate. */
+async function finish(code: number): Promise<number> {
+  const alive = await stopLiveChildren();
+  for (const child of alive)
+    console.error(`user journeys: a child the gate started is still alive: ${child}`);
+  return alive.length > 0 ? 1 : code;
+}
+
 if (
   process.argv[1] !== undefined &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
-)
-  process.exit(await main());
+) {
+  let code = 1;
+  try {
+    code = await main();
+  } finally {
+    code = await finish(code);
+  }
+  process.exit(code);
+}

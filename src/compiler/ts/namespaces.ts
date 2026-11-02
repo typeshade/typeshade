@@ -12,6 +12,7 @@
 // it is at the top level.
 
 import ts from 'typescript';
+import type { FuncDecl } from '../../core/ir/nodes.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
@@ -280,15 +281,33 @@ export function namespaceMember(
   return undefined;
 }
 
-/** A class's name written in full from the top of the file, its namespaces first: `[N, P]`. The
- *  module emits it joined by `_` (`N_P`), and a message writes it joined by `.` (`N.P`). */
-export function qualifiedParts(decl: ts.ClassDeclaration): string[] {
+/** A class's or a function's name written in full from the top of the file, its namespaces first:
+ *  `[N, P]`. The module emits it joined by `_` (`N_P`), and a message writes it joined by `.`
+ *  (`N.P`). */
+export function qualifiedParts(decl: ts.ClassDeclaration | ts.FunctionDeclaration): string[] {
   const parts = [decl.name?.text ?? ''];
   for (let at: ts.Node | undefined = decl.parent; at !== undefined; at = at.parent) {
     if (ts.isModuleDeclaration(at) && ts.isIdentifier(at.name)) parts.unshift(at.name.text);
   }
   return parts;
 }
+
+/** What the source calls each function a namespace declares, by the function the module emits for
+ *  it: `Gate.open` for `Gate_open`, `A.B.f` for `A_B_f`. */
+const writtenFunctions = new WeakMap<FuncDecl, string>();
+
+/** Records the name `decl`, a function written inside a namespace, has in the source. `stub` is the
+ *  function the module emits for it. A function outside a namespace has nothing to record. */
+export function recordNamespaceFunction(stub: FuncDecl, decl: ts.FunctionDeclaration): void {
+  if (decl.name === undefined) return;
+  const parts = qualifiedParts(decl);
+  if (parts.length > 1) writtenFunctions.set(stub, parts.join('.'));
+}
+
+/** How a message names a function a namespace declares: `Gate.open` for the `Gate_open` the module
+ *  emits. Undefined for any other function. */
+export const namespaceFunctionOf = (stub: FuncDecl): string | undefined =>
+  writtenFunctions.get(stub);
 
 /** The class a short type name written at `node` names inside the namespaces around it, as the
  *  module emits it (`N_P`): the innermost namespace that declares a class of that name, in the

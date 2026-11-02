@@ -65,7 +65,17 @@ function fixture() {
       encoding: 'utf8',
     });
   };
-  return { root, git, write, check, hook };
+  // The Claude preflight: Claude Code runs it with the command of a Bash call before the call.
+  const preflight = (command: string) =>
+    spawnSync('bun', [checker, '--hook'], {
+      cwd: root,
+      env,
+      input: JSON.stringify({ tool_input: { command } }),
+      encoding: 'utf8',
+    });
+  // The preflight runs the file checks too, and they need the derived reqs/ to be in step.
+  const sync = () => execFileSync('bun', [reqs], { cwd: root, env, stdio: 'pipe' });
+  return { root, git, write, check, hook, preflight, sync };
 }
 
 describe('shared commit policy', () => {
@@ -134,7 +144,7 @@ Path('doorstop-ran').touch()
 
   describe('merge commits', () => {
     // `feature` edits src/widget.ts; `main` edits a rule. Left with `feature` checked out.
-    const diverge = (f: ReturnType<typeof fixture>, mainRule: string) => {
+    const diverge = (f: ReturnType<typeof fixture>, mainRule: string, syncReqs = false) => {
       const main = f.git('rev-parse', '--abbrev-ref', 'HEAD').trim();
       f.git('checkout', '-qb', 'feature');
       f.write('src/widget.ts', 'export const value = 5;\n');
@@ -142,6 +152,7 @@ Path('doorstop-ran').touch()
       f.git('commit', '-qm', 'feature work');
       f.git('checkout', '-q', main);
       f.write('docs/language-design.md', mainRule);
+      if (syncReqs) f.sync();
       f.git('add', '.');
       f.git('commit', '-qm', 'main rule');
       f.git('checkout', '-q', 'feature');
@@ -166,6 +177,43 @@ Path('doorstop-ran').touch()
       );
       f.git('add', '.');
       const out = f.hook('merge main');
+      expect(out.status).toBe(2);
+      expect(out.stderr).toContain('Change proposal');
+    });
+
+    // The Claude preflight (`doc-impact.ts --hook`, `.claude/settings.json`) is the second caller
+    // of the commit policy. It read a merge against HEAD after the Git hooks had stopped (#901).
+    // Its file checks run too, so `main` syncs `reqs/`, and a rule says how it is held.
+    const rule = (number: string, text: string) =>
+      `**Rule ${number}.** ${text}\n- Enforced by: review.\n`;
+
+    it('passes a clean merge in the Claude preflight too', () => {
+      const f = fixture();
+      const main = diverge(f, rule('1.1', 'A rule from main.'), true);
+      f.git('merge', '--no-commit', '--no-ff', main);
+      const out = f.preflight('git commit -m "Merge main into feature"');
+      expect(out.status, out.stderr).toBe(0);
+    });
+
+    it('reads the working tree of a merge committed with -a the same way', () => {
+      const f = fixture();
+      const main = diverge(f, rule('1.1', 'A rule from main.'), true);
+      f.git('merge', '--no-commit', '--no-ff', main);
+      const out = f.preflight('git commit -a -m "Merge main into feature"');
+      expect(out.status, out.stderr).toBe(0);
+    });
+
+    it('still refuses, in the Claude preflight, an undeclared rule edited in the merge resolution', () => {
+      const f = fixture();
+      const main = diverge(f, rule('1.1', 'A rule from main.'), true);
+      f.git('merge', '--no-commit', '--no-ff', main);
+      f.write(
+        'docs/language-design.md',
+        `${rule('1.1', 'A rule from main.')}\n${rule('1.2', 'Extra.')}`,
+      );
+      f.sync();
+      f.git('add', '.');
+      const out = f.preflight('git commit -m "merge main"');
       expect(out.status).toBe(2);
       expect(out.stderr).toContain('Change proposal');
     });
