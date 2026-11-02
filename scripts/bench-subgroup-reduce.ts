@@ -503,7 +503,10 @@ async function measure(opts: {
     f32[i] = f32At(i);
     u32[i] = u32At(i);
   }
-  const upload = (data: Float32Array | Uint32Array): GPUBuffer => {
+  // An `ArrayBuffer`, not a typed array: TypeScript 5.7 and later type `new Float32Array(n)` over
+  // `ArrayBufferLike`, which `writeBuffer` refuses, and the pinned 5.6 has no type argument to say
+  // otherwise; the buffer itself is one spelling both accept.
+  const upload = (data: ArrayBuffer): GPUBuffer => {
     const b = device.createBuffer({
       size: data.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -511,7 +514,7 @@ async function measure(opts: {
     queue.writeBuffer(b, 0, data);
     return b;
   };
-  const inputs = { f32: upload(f32), u32: upload(u32) };
+  const inputs = { f32: upload(f32.buffer as ArrayBuffer), u32: upload(u32.buffer as ArrayBuffer) };
   const uniform = device.createBuffer({
     size: 16,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -572,7 +575,7 @@ async function measure(opts: {
     readonly pipelines: Map<string, { pipeline: GPUComputePipeline; group: GPUBindGroup }>;
     readonly second: GPUBuffer;
     readonly staging: GPUBuffer;
-    readonly zero: Uint32Array | null;
+    readonly zero: ArrayBuffer | null;
   }
   const results: Record<string, CaseResult> = {};
   const ready: Ready[] = [];
@@ -636,7 +639,7 @@ async function measure(opts: {
         pipelines,
         second,
         staging,
-        zero: spec.second.kind === 'atomic' ? new Uint32Array(spec.second.words) : null,
+        zero: spec.second.kind === 'atomic' ? new ArrayBuffer(spec.second.words * 4) : null,
       });
       results[spec.name] = { samples: [], check: 'not checked' };
     } catch (e) {
