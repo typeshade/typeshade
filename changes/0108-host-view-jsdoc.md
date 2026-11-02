@@ -1,7 +1,7 @@
 ---
 id: '0108'
 title: A host file reads the author's JSDoc of each export of a shader module in the host view, before the sentence the compiler writes for a call
-status: draft
+status: accepted
 rules: []
 surface:
   - 64
@@ -26,7 +26,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                            |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0108, `status: draft`. The front matter is the identity and lifecycle authority. No approval is recorded.                                                                                                                                                                                                                                                                                |
+| Identity and status           | Proposal 0108, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record.                                                                                                                                                                                                                   |
 | Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                     |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, while designing an audio library on the compiler. The owner asked whether a built module keeps the author's function comments ("빌드된 파일의 함수 주석이라던가 지원되는지"). The agent reported that the host view carries none. The owner approved the drafting of this proposal ("승인"). No GitHub issue is recorded. |
 | Applicability / effectivity   | The host view that `hostFace` writes (`src/compiler/ts/host-face.ts`, `viewText`), its description in `docs/use-typeshade-surface.md` §64, and `src/compiler/ts/host-face.test.ts`. The generated module, the CPU tier, the rules, the exports, the diagnostic codes and the examples do not change. No release version is assigned.                                                              |
@@ -130,7 +130,7 @@ where the question is asked.
 `ts.getJSDocCommentsAndTags`) on the AST the front end already parses. A JSDoc block cannot
 contain `*/`, so a verbatim copy is a valid comment.
 
-**Decisions to resolve before acceptance.**
+**Decisions, resolved at acceptance** (Approval and plan record).
 
 - **D1.** Which blocks: every JSDoc block attached to the declaration, in source order (the
   draft), or the last one only, as TypeScript's own hover shows. The draft copies all, so that
@@ -174,10 +174,16 @@ of the §64 listing. Duration and cost: unknown, no basis for an estimate.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the actual approval decision and its
-pull request reference, the approved revision of this file with D1 to D3 resolved, assigned
-responsibilities and the required validation evidence named above. No approver, schedule or
-result is recorded here.
+The owner (Seungup) approved the proposal in the Claude Code session on 2026-11-02 (UTC), in
+Korean ("승인", approve), in answer to the agent's report that listed pull requests #871 and #872
+with their open decisions and the draft's recommendations, and asked for the word that accepts
+them as drafted. D1 to D3 are accepted as drafted: every JSDoc block attached to the declaration is copied, in source order; tags are copied verbatim and not checked; a struct's field comments stand on the field lines of its `export interface`. The approved revision is the one
+this record is part of. The merge of [#871](https://github.com/typeshade/typeshade/pull/871)
+with `status: accepted` records the decision.
+
+Responsibilities: an agent of this repository implements items 1 to 3 and the §64 text in pull requests
+whose commits say `Change: 0108`. No milestone date is assigned. No duration or cost estimate is
+established.
 
 ### Configuration and validation record
 
