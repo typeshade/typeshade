@@ -4,7 +4,8 @@
 // (§17.5.46) and GLSL ES 3.00 leaves the result undefined (§8.2): `x = -8` gave NaN on the CPU
 // oracle and 2 on WebGPU and WebGL2 over SwiftShader (measured on 2a120ad, 2026-10-12), where
 // `Math.cbrt(-8)` is -2. Rule 2.4 keeps `cbrt` an ECMAScript name whatever it expands to, and
-// Rule 1.3 makes the oracle's answer the one WGSL fixes, which here the expansion decides. The
+// Rule 1.3 makes the oracle's answer the recorded one, the expansion Rule 9.4 gives, which WGSL
+// computes for that expression. The
 // expansion is now `sign(x) * pow(abs(x), 1/3)`: inside the domain of `pow` for every `x`, and 0
 // at 0. One IR expression feeds the oracle, the generated JavaScript, WGSL and GLSL.
 //
