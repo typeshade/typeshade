@@ -29,25 +29,23 @@ export function boost(pixels: array<f32>, c: Channel, scale: f32) {
   }
 }
 
-class Clip {
-  @builtin("position") pos: vec4;
+interface Clip {
+  pos: builtin<"position", vec4>;
 }
 
-class Color {
-  @location(0) color: vec4;
+interface Color {
+  color: location<0, vec4>;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") i: u32): Clip {
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
   let p = vec2(-1., -1.);
   if (i === 1) { p = vec2(3., -1.); }
   if (i === 2) { p = vec2(-1., 3.); }
   return { pos: vec4(p, 0., 1.) };
-}
+});
 
-@fragment
-export function fs(@builtin("position") p: vec4): Color {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
   const c: Channel = p.x < 16. ? "r" : p.x < 32. ? "g" : "b";
   const by: Record<Channel, f32> = { b: 0.5, r: 0.5, g: 0.5 };
   return { color: vec4(gain(c, 1., by), 0.25, 0.5, 1.) };
-}
+});

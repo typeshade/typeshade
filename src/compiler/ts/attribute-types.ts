@@ -26,6 +26,24 @@ export const ATTRIBUTE_TYPES: Readonly<Record<string, number>> = {
 /** The options an attribute type's third argument may name, each a decorator of its own. */
 const OPTIONS = ['interpolate', 'invariant', 'blend_src'] as const;
 
+/** Whether `node` is the builtin id of a `builtin<"…", T>` type, the one string position of an
+ *  attribute type with a closed vocabulary: hover and completion read it as they read the
+ *  argument of a `builtin("…")` decorator. */
+export function isBuiltinTypeLiteral(node: ts.Node): node is ts.StringLiteral {
+  const literalType = node.parent;
+  const ref = literalType?.parent;
+  return (
+    ts.isStringLiteral(node) &&
+    literalType !== undefined &&
+    ts.isLiteralTypeNode(literalType) &&
+    ref !== undefined &&
+    ts.isTypeReferenceNode(ref) &&
+    ts.isIdentifier(ref.typeName) &&
+    ref.typeName.text === 'builtin' &&
+    ref.typeArguments?.[0] === literalType
+  );
+}
+
 /** Whether `node` is a reference to an attribute type. */
 export function isAttributeType(node: ts.TypeNode | undefined): node is ts.TypeReferenceNode {
   return (

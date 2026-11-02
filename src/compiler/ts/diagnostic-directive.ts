@@ -176,6 +176,10 @@ function directiveSources(
       }
       continue;
     }
+    if (ts.isModuleDeclaration(stmt)) {
+      refuseNamespaceOptions(sourceFile, stmt, diagnostics);
+      continue;
+    }
     if (!ts.isFunctionDeclaration(stmt)) continue;
     const fnName = stmt.name?.text ?? '(anonymous)';
     // A decorator on a top-level `function` parses as a MODIFIER, not through
@@ -189,6 +193,40 @@ function directiveSources(
     }
   }
   return out;
+}
+
+/** Refuses the options of each stage call in namespace `ns` and the namespaces it holds. A
+ *  namespace's entry takes no `diagnostic`, as `@diagnostic` on a namespace's function is
+ *  refused (`TS8028`, `builtin-check.ts`), and the option was dropped with no word. */
+function refuseNamespaceOptions(
+  sourceFile: ts.SourceFile,
+  ns: ts.ModuleDeclaration,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  const body = ns.body;
+  if (body === undefined) return;
+  if (ts.isModuleDeclaration(body)) {
+    refuseNamespaceOptions(sourceFile, body, diagnostics);
+    return;
+  }
+  if (!ts.isModuleBlock(body)) return;
+  for (const stmt of body.statements) {
+    if (ts.isModuleDeclaration(stmt)) {
+      refuseNamespaceOptions(sourceFile, stmt, diagnostics);
+      continue;
+    }
+    const sc = stageCallOf(stmt);
+    if (sc?.options === undefined) continue;
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        sc.options,
+        `"diagnostic" does not apply to a namespace's entry: it marks an entry at the top of the ` +
+          `file. Remove the options.`,
+        TS_CODES.ATTRIBUTE_NAME,
+      ),
+    );
+  }
 }
 
 /** How the file's directives set `derivative_uniformity`, or `undefined` when none does.

@@ -25,25 +25,23 @@
 
 const RINGS: f32 = 6.;
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-class FsOut {
-  @location(0) color: vec4;
+interface FsOut {
+  color: location<0, vec4>;
 }
 
 // Fullscreen triangle, as `cutout.shade.ts` draws it: no vertex buffer, a centred [-1, 1] uv.
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
-}
+});
 
-@fragment
-export function fs(v: VsOut): FsOut {
+export const fs = fragment(function fs(v: VsOut): FsOut {
   const r = length(v.uv);
   // Where in its ring this pixel is, 0 at the inner edge and 1 at the outer: a float `%=`.
   let band: f32 = r * RINGS;
@@ -80,4 +78,4 @@ export function fs(v: VsOut): FsOut {
   const grid = min(abs(cell.x), abs(cell.y));
   const shaded: vec3 = tint * acc + stepped * 0.1 + grid * 0.05;
   return { color: vec4(shaded / RINGS * 4., 1.) };
-}
+});

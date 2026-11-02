@@ -26,10 +26,10 @@
 // TypeScript reads, which on its own types `a - b` on two vectors `number` (#162).
 
 class Sphere {
-  center: vec3;
-  radius: f32;
-  albedo: vec3;
-  emission: vec3;
+  center!: vec3;
+  radius!: f32;
+  albedo!: vec3;
+  emission!: vec3;
 }
 
 interface Frame {
@@ -99,15 +99,13 @@ function trace(ro0: vec3, rd0: vec3, seed0: f32): vec3 {
   return radiance;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): vec4 {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
   const x = f32(i32(vi) / 2) * 4. - 1.;
   const y = f32(i32(vi) % 2) * 4. - 1.;
   return vec4(x, y, 0., 1.);
-}
+});
 
-@fragment
-export function fs(@builtin("position") pos: vec4): vec4 {
+export const fs = fragment(function fs(pos: builtin<"position", vec4>): vec4 {
   const uv = (pos.xy - u.resolution * 0.5) / u.resolution.y;
   const rd = normalize(vec3(uv.x, -uv.y, -1.));
   let color = vec3(0.);
@@ -116,4 +114,4 @@ export function fs(@builtin("position") pos: vec4): vec4 {
   }
   const c = color / 16.;
   return vec4((c / (c + 1.)) ** vec3(1. / 2.2), 1.);
-}
+});

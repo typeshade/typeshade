@@ -87,7 +87,10 @@ describe('an extension-gated built-in value derives its enable, its host feature
       expect(hostFeaturesFor(wgslBackend, r.requiredFeatures)).toContain(hostFeature);
       // GLSL ES 3.00 has no row for any of the three, so the module fails CLOSED there
       // rather than emitting a varying the driver would silently reinterpret.
-      expect(() => emitGlslModule(c.module, 'fragment')).toThrow(new RegExp(cap));
+      // GLSL ES 3.00 has no row for the first two and fails closed naming the cap; since change
+      // 0117 a subgroup is one invocation there (Rule 11.21), so the subgroup value reads as 0.
+      if (cap === 'subgroups') expect(emitGlslModule(c.module, 'fragment')).toContain('0u');
+      else expect(() => emitGlslModule(c.module, 'fragment')).toThrow(new RegExp(cap));
     },
   );
 

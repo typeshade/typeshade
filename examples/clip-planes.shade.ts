@@ -3,12 +3,12 @@
 /* @example
 {
   "title": "User clip planes",
-  "blurb": "Four user clip planes through `@builtin(\"clip_distances\")`, the vertex output the rasterizer reads before it rasterizes (§50). Nothing in the source names a capability: writing the id derives `enable clip_distances;`, the `clipDistances` capability on `reflect().requiredFeatures` and the `clip-distances` feature the host requests at `requestDevice` — which the compile gate now does, so the Tint half runs it. The type is the one WGSL leaves to the author, `array<f32, N>` with N from 1 to 8, and the stage rule is checked at the authoring line.",
+  "blurb": "Four user clip planes through `builtin<\"clip_distances\", …>`, the vertex output the rasterizer reads before it rasterizes (§50). Nothing in the source names a capability: writing the id derives `enable clip_distances;`, the `clipDistances` capability on `reflect().requiredFeatures` and the `clip-distances` feature the host requests at `requestDevice` — which the compile gate now does, so the Tint half runs it. The type is the one WGSL leaves to the author, `array<f32, N>` with N from 1 to 8, and the stage rule is checked at the authoring line.",
   "renderable": false,
   "reason": "missing capabilities: clipDistances"
 }
 */
-// User clip planes: `@builtin("clip_distances")`, the vertex output the rasterizer reads
+// User clip planes: `builtin<"clip_distances", …>`, the vertex output the rasterizer reads
 // before it rasterizes anything (surface doc §50).
 //
 // It is the example for the rule that writing the id IS the declaration. Nothing below names
@@ -30,24 +30,23 @@
 
 class Planes {
   // Four planes, each `dot(plane, vec4(pos, 1.))` — the standard ax + by + cz + d form.
-  a: vec4;
-  b: vec4;
-  c: vec4;
-  d: vec4;
+  a!: vec4;
+  b!: vec4;
+  c!: vec4;
+  d!: vec4;
 }
 
 declare const planes: uniform<Planes>;
 
 class VsOut {
-  @builtin("position") pos: vec4;
+  pos!: builtin<"position", vec4>;
   // The one built-in value whose type the AUTHOR picks: `array<f32, N>` with N from 1 to 8.
   // A wider one, or any other type, is refused at this line.
-  @builtin("clip_distances") clip: array<f32, 4>;
-  @location(0) uv: vec2;
+  clip!: builtin<"clip_distances", array<f32, 4>>;
+  uv!: location<0, vec2>;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   const p = vec4(x, y, 0., 1.);
@@ -60,20 +59,19 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
   o.clip[2] = dot(planes.c, p);
   o.clip[3] = dot(planes.d, p);
   return o;
-}
+});
 
 // The fragment stage takes its OWN struct, not `VsOut`. `clip_distances` is a vertex output
 // and nothing else — WGSL never hands it to a fragment entry — so a fragment parameter
 // carrying it is refused at the authoring line (`Builtin "clip_distances" is not a valid
-// fragment input; it is a vertex output.`). The two structs share the `@location(0) uv`
+// fragment input; it is a vertex output.`). The two structs share the `uv: location<0, vec2>`
 // varying, which is the one the rasterizer actually interpolates.
-class FsIn {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface FsIn {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-@fragment
-export function fs(v: FsIn): vec4 {
+export const fs = fragment(function fs(v: FsIn): vec4 {
   // Whatever survives the four planes is shaded normally.
   return vec4(v.uv, 0.5, 1.);
-}
+});

@@ -182,6 +182,28 @@ downstream:
 | Review baseline               | `main` at `c9efde0f79df0e6b10883b87c8af21d0c72dfbc9` (the merge of pull request #870), read on 2026-11-02.                                                                                                                                                                                                                                                                                                                       |
 | Review and revision authority | Pull request [#875](https://github.com/typeshade/typeshade/pull/875) (branch `claude/proposal-0111-plain-typescript-entries`). Git records the revisions of this file. The review and merge of its pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                    |
 
+## Amendment 3 (2026-11-02)
+
+This revision amends the accepted text in one point, found while implementing milestone 2. The
+merge of its pull request is its acceptance. Git holds the earlier text.
+
+**The plain `tsc --strict` check reads the entry forms, not every diagnostic.** Milestone 3
+named a CI step that runs a plain `tsc --strict` over every example. Measured on 2026-11-02
+with `typescript@5.6.3`, `--noLib` and `SHADE_DTS`, the 101 examples migrated by
+`tshc migrate` (#904) give no TS1206 and one TS2564 (a mixin's class expression), so the entry
+forms this change replaces are plain TypeScript. But 75 files still report TypeScript's errors
+for vector arithmetic: `v * 2.` and `a + b` on a `vec3` are TS2362, TS2363 and TS2365, and the
+`number` result TypeScript gives them is TS2322, TS2339, TS2345 and TS2769 further on.
+TypeScript has no operator overloading, so no spelling of an entry removes these, and the
+language service keeps its filters for them.
+
+The milestone 3 step is therefore: a plain `tsc --strict` over every example reports no TS1206
+and no TS2564. The diagnostics of vector arithmetic stay out of its scope and inside the
+language service's filters. A change to how vector arithmetic is spelled would be a proposal of
+its own.
+
+The owner approved this criterion on 2026-11-02 in the Claude Code session ("승인").
+
 ## Amendment 2 (2026-11-02)
 
 This revision amends the accepted plan in one point, found while implementing milestone 1. The
@@ -197,7 +219,8 @@ turn those red before the codemod exists to rewrite them. The milestones are now
    attribute types in #893; the editor features follow.
 2. The `typeshade migrate` codemod and its dry run over `examples/`.
 3. The examples, the tests, the surface document and the rules in the new form, and a CI step
-   that runs a plain `tsc --strict` over every example.
+   that runs a plain `tsc --strict` over every example and finds no TS1206 and no TS2564
+   (Amendment 3).
 4. The `TS8028` warning on the old form, and the editor's TS1206 filter and
    `strictPropertyInitialization` override removed for a file in the new form. This is the
    migration release of D5.
@@ -449,7 +472,7 @@ the acceptance of the proposal:
 - **Milestones.** As Amendment 2 orders them: (1) the new forms beside the old ones, with the
   ambient declarations and the language service; (2) the `typeshade migrate` codemod and its dry
   run; (3) the examples, the tests, the surface document and the rules in the new form, and a
-  plain `tsc --strict` CI step; (4) the `TS8028` warning on the old form and the editor filters
+  plain `tsc --strict` CI step that finds no TS1206 and no TS2564 (Amendment 3); (4) the `TS8028` warning on the old form and the editor filters
   removed for the new form, the migration release; (5) in the release after it, the old form is
   refused. Duration and cost are not estimated.
 
@@ -458,7 +481,7 @@ the acceptance of the proposal:
 This record does not yet apply. Delivery will require: the emit goldens unchanged for every
 migrated example; `bun run test`, the compile gate (Tint and WebGL2) and the user journeys
 green; a CI step that runs a plain `tsc --strict` with the published ambient library over every
-`examples/**/*.shade.ts`; and `src/language-service/ambient-parity.test.ts` reading both halves
+`examples/**/*.shade.ts` that finds no TS1206 and no TS2564 (Amendment 3); and `src/language-service/ambient-parity.test.ts` reading both halves
 of each new form.
 
 ## Evidence

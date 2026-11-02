@@ -9,6 +9,7 @@ import { checkDocuments, type CheckDocument } from '../language-service/check.js
 import { CHECK_FORMATS, formatCheckReport, type CheckFormat } from './format.js';
 import { resolvePath, relativeTo } from './paths.js';
 import { initializeProject } from './init.js';
+import { migrateSource } from './migrate.js';
 import {
   formatBuildErrors,
   hostFace,
@@ -45,6 +46,7 @@ const SHADE_SUFFIX = '.shade.ts';
 export const USAGE = `Usage: tshc check [options] [paths...]
        tshc sync [--check] [--allow-empty] [paths...]
        tshc init [--project <host-tsconfig.json>] [directory]
+       tshc migrate [--check] [paths...]
 
 Checks "use typeshade" files the way the editor does, and runs the WGSL and GLSL
 backends the way compile() does. A directory is searched for *.shade.ts files
@@ -57,6 +59,13 @@ the module (the Vite plugin rewrites them as modules change). Run it before tsc 
 a clean checkout; its home is the "prepare" script. With --check it writes
 nothing and fails when a view is missing or stale.
 
+migrate rewrites each *.shade.ts from the decorated form to plain TypeScript
+(change 0111): a stage call for each entry, an attribute type for each @builtin,
+@location, @inout or @out, "!" on a struct field and on a local an out<T>
+argument fills first. It keeps every other byte and names, by line, a form it
+leaves as written. With --check it writes nothing and fails when a file would
+change.
+
 init configures a Vite project explicitly, preserves unrelated settings and comments,
 and refuses conflicts before writing. Repeating it makes no changes.
 
@@ -64,6 +73,7 @@ Options:
   --allow-empty               check/sync: succeed when no shader file exists yet
   --project <path>            init: select the host tsconfig within the project
   --check                     sync: check the views instead of writing them
+                              migrate: report the files instead of rewriting them
   --format <text|short|json>  text (default): each diagnostic with its source line
                               short: one line per diagnostic
                               json: the report as data (one-based lines and columns)
@@ -200,7 +210,7 @@ export function runCli(argv: readonly string[], host: CliHost, info: CliInfo): n
     host.stderr('tshc: --project belongs to tshc init.\n');
     return 2;
   }
-  if (args.command !== 'check' && args.command !== 'sync') {
+  if (args.command !== 'check' && args.command !== 'sync' && args.command !== 'migrate') {
     host.stderr(`tshc: unknown command ${JSON.stringify(args.command)}.\n\n${USAGE}`);
     return 2;
   }
@@ -220,6 +230,7 @@ export function runCli(argv: readonly string[], host: CliHost, info: CliInfo): n
   if (unique.length === 0) {
     if (args.allowEmpty) {
       if (args.command === 'sync') return sync([], host, args.check);
+      if (args.command === 'migrate') return migrate([], host, args.check);
       host.stdout(formatCheckReport(checkDocuments([]), args.format, new Map()));
       return 0;
     }
@@ -230,6 +241,7 @@ export function runCli(argv: readonly string[], host: CliHost, info: CliInfo): n
   }
 
   if (args.command === 'sync') return sync(unique, host, args.check);
+  if (args.command === 'migrate') return migrate(unique, host, args.check);
 
   const docs: CheckDocument[] = [];
   for (const path of unique) {
@@ -319,4 +331,38 @@ function sync(files: readonly string[], host: CliHost, check: boolean): number {
         : `${written} host view${s(written)} written, ${current} up to date.\n`,
     );
   return status;
+}
+
+/**
+ * `tshc migrate`: rewrite each file from the decorated form to the stage calls and attribute
+ * types of change 0111, or with `check`, name each file that would change and write nothing.
+ * A form the rewrite leaves as written is printed with its line; it does not fail the command.
+ */
+function migrate(files: readonly string[], host: CliHost, check: boolean): number {
+  let changed = 0;
+  for (const path of files) {
+    const shown = relativeTo(host.cwd, path);
+    const text = host.readFile(path);
+    if (text === undefined) {
+      host.stderr(`tshc: cannot read ${shown}.\n`);
+      return 2;
+    }
+    const result = migrateSource(text, path);
+    for (const why of result.skipped) host.stderr(`${shown}: ${why}; left as written.\n`);
+    if (result.text === text) continue;
+    changed++;
+    if (check) host.stderr(`${shown} is in the decorated form; run tshc migrate.\n`);
+    else {
+      host.writeFile(path, result.text);
+      host.stdout(`migrated ${shown}\n`);
+    }
+  }
+  const s = (n: number): string => (n === 1 ? '' : 's');
+  if (check) {
+    if (changed > 0) return 1;
+    host.stdout(`${files.length} file${s(files.length)} already in the plain form.\n`);
+    return 0;
+  }
+  host.stdout(`${changed} file${s(changed)} migrated, ${files.length - changed} unchanged.\n`);
+  return 0;
 }

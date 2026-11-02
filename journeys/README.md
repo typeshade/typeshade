@@ -41,6 +41,9 @@ The import journey also checks private kernel input projection (change 0082): he
 across two loops, a reduction, unchanged input objects, invalid unused fields, resident inputs
 and a two-call fused scope under `typeshade()` without a fusion flag.
 The scope must report one fused dispatch. Each result is compared with its plain-JavaScript reference.
+It also imports a class (change 0109): `app.ts` builds filters with `new`, ticks one on the CPU
+tier and runs a kernel function over a bank of the instances there, and `gpu.ts` runs the same
+kernel function on WebGPU, required, each instance written back in place and still an instance.
 The loop-fuse and MNIST timing controls use explicit `fuse: false` for their metadata-free builds.
 
 `fieldless-classes/` constructs method-only classes, dispatches an inherited method, and packs
@@ -152,6 +155,13 @@ A journey belongs with the change that makes it work. A pull request that improv
 `journeys/class-upcasts/` (change 0038, #429) passes a read-only derived material into a
 base-typed constructor. Its independent JavaScript classes verify the material response,
 one evaluation of a side-effecting factory and argument order on the CPU and WebGPU.
+
+`journeys/class-twins/` (change 0110) writes a bank of audio units as classes: a lowpass and
+a derived gain stage, a phasor with a getter, an envelope with no constructor, a counter that a
+helper advances through `@inout`, a panner with a vector field and a wavetable voice that reads
+a binding. An entry and a kernel function step a bank of filters through a block, and an entry
+plays a bank of voices, each against plain JavaScript. Its classes are also the corpus of the
+class arm of `bun run gate:differential`.
 
 The host-import journey also calls imported entries with `{ constants }` (0084): direct and
 resident calls at widths 32/64/128, tails, an indirect count, resolved report shapes and one

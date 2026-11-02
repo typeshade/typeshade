@@ -1318,7 +1318,7 @@ function lowerExpressionStatement(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
-): Stmt | undefined {
+): Stmt | Stmt[] | undefined {
   return lowerExpressionAsStatement(node.expression, node, sourceFile, scope, diagnostics);
 }
 
@@ -1352,7 +1352,8 @@ export function lowerVoidArrowBody(
   }
   const lowered = lowerExpressionAsStatement(expr, body, sourceFile, scope, diagnostics);
   if (lowered === undefined) return out;
-  out.push(withSpan(lowered, sourceFile, body));
+  for (const one of Array.isArray(lowered) ? lowered : [lowered])
+    out.push(withSpan(one, sourceFile, body));
   return out;
 }
 
@@ -1363,7 +1364,7 @@ function lowerExpressionAsStatement(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
-): Stmt | undefined {
+): Stmt | Stmt[] | undefined {
   // `discard;` — WGSL's fragment kill, which the IR already carries as its own statement and
   // both writers spell (`discard;` in WGSL, `discard;` in GLSL ES 3.00). It reads to the TS
   // parser as an expression statement naming `discard`, so it is caught here, before the
@@ -1447,7 +1448,10 @@ function lowerExpressionAsStatement(
       // never — so the author's `_` is a statement of intent, not a token to carry through.
       return { s: 'call', expr: dropped };
     }
-    return lowerAssign(expr.left, expr.right, sourceFile, scope, diagnostics);
+    return splitSwizzleWrite(
+      lowerAssign(expr.left, expr.right, sourceFile, scope, diagnostics),
+      scope,
+    );
   }
   if (ts.isBinaryExpression(expr)) {
     // `v ??= d` assigns an absent optional (Rule 7.10, change 0088).
@@ -1456,10 +1460,16 @@ function lowerExpressionAsStatement(
     }
     const bop = ASSIGN_OP[expr.operatorToken.kind];
     if (bop !== undefined)
-      return lowerAssignOp(expr.left, bop, expr.right, sourceFile, scope, diagnostics);
+      return splitSwizzleWrite(
+        lowerAssignOp(expr.left, bop, expr.right, sourceFile, scope, diagnostics),
+        scope,
+      );
     const bit = BITWISE_ASSIGN_OP[expr.operatorToken.kind];
     if (bit !== undefined)
-      return lowerBitwiseAssignOp(expr.left, bit, expr.right, sourceFile, scope, diagnostics);
+      return splitSwizzleWrite(
+        lowerBitwiseAssignOp(expr.left, bit, expr.right, sourceFile, scope, diagnostics),
+        scope,
+      );
     if (expr.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken) {
       // The same refusal `a >>> b` gets in lowerBinary, so the two spellings of an
       // unsupported operator do not disagree about why they are unsupported.
@@ -1485,6 +1495,100 @@ function lowerExpressionAsStatement(
   return undefined;
 }
 
+/** The component letter `field` names twice, or undefined: `xx` → `x`, `yxy` → `y`. */
+function repeatedComponent(field: string): string | undefined {
+  const seen = new Set<string>();
+  for (const c of field) {
+    if (seen.has(c)) return c;
+    seen.add(c);
+  }
+  return undefined;
+}
+
+/** An index made of names and constants only: no call, no element and no field read. A
+ *  component write cannot change it, since a component write changes a vector and such an index
+ *  reads only scalars by name, so it is not read into a `let`, and a kernel loop's proof keeps
+ *  reading the counter it indexes with (Rule 8.22). */
+function readsNoPlace(e: Expr): boolean {
+  switch (e.op) {
+    case 'lit':
+    case 'constref':
+    case 'overrideref':
+    case 'varref':
+    case 'param':
+      return true;
+    case 'binop':
+    case 'compare':
+      return readsNoPlace(e.a) && readsNoPlace(e.b);
+    case 'unop':
+      return readsNoPlace(e.a);
+    default:
+      return false;
+  }
+}
+
+/** An index that reads a place or calls, read once into a `let` ahead of the writes, so that the
+ *  writes and the snapshot of {@link splitSwizzleWrite} reach the one element the source names
+ *  even when the index reads what a component write changes (change 0106, item 3). */
+function bindIndexes(e: Expr, scope: LoweringScope, out: Stmt[]): Expr {
+  switch (e.op) {
+    case 'member':
+      return { ...e, base: bindIndexes(e.base, scope, out) };
+    case 'index': {
+      const base = bindIndexes(e.base, scope, out);
+      if (readsNoPlace(e.idx)) return { ...e, base };
+      const name = scope.defineTemp('_swi', e.idx.type);
+      out.push({ s: 'let', name, expr: e.idx });
+      return { ...e, base, idx: { op: 'varref', type: e.idx.type, name } };
+    }
+    default:
+      return e;
+  }
+}
+
+/**
+ * `d.xy = r` and `d.xy op= r` (change 0106): the old components the operation reads are read
+ * into one `let` before any is written, and each destination letter is then written from it.
+ * `d.xy *= d.yx` with `d = vec2(2, 3)` is `vec2(6, 6)`, not the `vec2(6, 18)` that two writes
+ * in order give. A non-constant index of the target is read once, first. The writes are the
+ * one-component writes every backend already has, so WGSL needs no `swizzle_assignment`
+ * extension and the GLSL writer and the CPU oracle evaluate the same IR (decisions D1, D2).
+ * Any other statement passes through.
+ */
+function splitSwizzleWrite(
+  stmt: Stmt | undefined,
+  scope: LoweringScope,
+): Stmt | Stmt[] | undefined {
+  if (stmt === undefined || (stmt.s !== 'assign' && stmt.s !== 'assignOp')) return stmt;
+  const t = stmt.target;
+  if (t.op !== 'member' || !isVec(t.base.type) || t.field.length < 2) return stmt;
+  const out: Stmt[] = [];
+  const base = bindIndexes(t.base, scope, out);
+  const read: Expr = { ...t, base };
+  const value: Expr =
+    stmt.s === 'assign'
+      ? stmt.expr
+      : { op: 'binop', type: t.type, bop: stmt.bop, a: read, b: stmt.expr };
+  const snap = scope.defineTemp('_sw', t.type);
+  out.push({ s: 'let', name: snap, expr: value });
+  const lanes = 'xyzw';
+  [...t.field].forEach((letter, i) => {
+    const one = parseSwizzle(t.base.type, letter);
+    if (!one.ok) return;
+    out.push({
+      s: 'assign',
+      target: { op: 'member', type: one.type, base, field: letter },
+      expr: {
+        op: 'member',
+        type: one.type,
+        base: { op: 'varref', type: t.type, name: snap },
+        field: lanes[i]!,
+      },
+    });
+  });
+  return out;
+}
+
 function lowerAssign(
   left: ts.Expression,
   right: ts.Expression,
@@ -1496,7 +1600,9 @@ function lowerAssign(
   const accessor = lowerAccessorTarget(left, false, sourceFile, scope, diagnostics);
   if (accessor === undefined) return undefined;
   const target =
-    accessor === 'not-an-accessor' ? lowerLValue(left, sourceFile, scope, diagnostics) : undefined;
+    accessor === 'not-an-accessor'
+      ? lowerLValue(left, sourceFile, scope, diagnostics, false, true)
+      : undefined;
   if (accessor === 'not-an-accessor' && !target) return undefined;
   if (target && refuseReadonlyWrite(target, left, sourceFile, scope, diagnostics)) return undefined;
   const want = target?.type ?? (accessor as AccessorTarget).type;
@@ -1564,7 +1670,7 @@ function lowerBitwiseAssignOpTo(
 ): Stmt | undefined {
   const target =
     accessor === 'not-an-accessor'
-      ? lowerLValue(left, sourceFile, scope, diagnostics)
+      ? lowerLValue(left, sourceFile, scope, diagnostics, false, true)
       : accessor.read;
   if (!target) return undefined;
   if (
@@ -1673,7 +1779,7 @@ function lowerAssignOpTo(
 ): Stmt | undefined {
   const target =
     accessor === 'not-an-accessor'
-      ? lowerLValue(left, sourceFile, scope, diagnostics)
+      ? lowerLValue(left, sourceFile, scope, diagnostics, false, true)
       : accessor.read;
   if (!target) return undefined;
   if (
@@ -1805,6 +1911,10 @@ export function lowerLValue(
   /** The write lands inside the place, as a method that changes its object does, and not on
    *  it: a static a base declares is then the base's (Rule 8.13). */
   into = false,
+  /** A swizzle of two to four distinct components is a place (change 0106). Only `=` and
+   *  `op=` pass it, and {@link splitSwizzleWrite} lowers what they build; an `@inout` argument,
+   *  `++` and the other places stay one component. */
+  multiSwizzle = false,
 ): Expr | undefined {
   // `(v) = a` and `(v).x = a` name the same targets `v = a` and `v.x = a` do, so the
   // parentheses come off once, here, rather than in each branch below (where only the member
@@ -1820,7 +1930,7 @@ export function lowerLValue(
     const statik = lowerStaticFieldTarget(node, sourceFile, scope, diagnostics, into);
     if (statik === 'refused') return undefined;
     if (statik !== undefined) return statik;
-    return lowerMemberLValue(node, sourceFile, scope, diagnostics);
+    return lowerMemberLValue(node, sourceFile, scope, diagnostics, multiSwizzle);
   }
   // `this` as a whole is a place inside a constructor or a method that changes its object,
   // where it is the local being built (§26); in a read-only method it is the parameter.
@@ -2008,8 +2118,9 @@ function staticRootOf(
  *  WGSL, GLSL ES 3.00 and the CPU oracle all assign a struct field or a single vector
  *  component in place — so the member expression `lowerExpression` already builds for the
  *  read is the target verbatim. Two things are checked that a read does not care about: the
- *  root binding must be writable, and a swizzle target must name exactly one component,
- *  which is what WGSL allows (`v.xy = …` is rejected there too). */
+ *  root binding must be writable, and a swizzle target names each component once; it names
+ *  one component except under `=` and `op=`, which {@link splitSwizzleWrite} lowers to one
+ *  write per component (change 0106). */
 function unwrapParens(node: ts.Expression): ts.Expression {
   return ts.isParenthesizedExpression(node) ? unwrapParens(node.expression) : node;
 }
@@ -2256,6 +2367,7 @@ function lowerMemberLValue(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  multiSwizzle = false,
 ): Expr | undefined {
   // THE ROOT'S ACCESS MODE IS CHECKED LAST, after the target is known to be a place at all,
   // because the read-only refusal now names the declaration that WOULD permit the write
@@ -2296,23 +2408,37 @@ function lowerMemberLValue(
   // A lane of an emulated-double vector is a read, never a place.
   if (refuseVec64LaneWrite(base, `the lane ".${target.field}"`, node, sourceFile, diagnostics))
     return undefined;
-  if (isVec(base) && target.field.length > 1) {
+  // A swizzle that names one component twice is no place on any target (change 0106).
+  const repeated = isVec(base) ? repeatedComponent(target.field) : undefined;
+  if (repeated !== undefined) {
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `Cannot assign to the swizzle ".${target.field}" — WGSL writes one component at a time. ` +
-        `Assign each component (e.g. v.x = …; v.y = …), or build a whole ${authorTypeText(base)} and assign that.`,
+      `Cannot assign to the swizzle ".${target.field}" — it names ".${repeated}" twice, so two ` +
+        `writes would land on one component. Name each component once.`,
+      TS_CODES.ASSIGN_TARGET,
+    );
+    return undefined;
+  }
+  if (isVec(base) && target.field.length > 1 && !multiSwizzle) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot write through the swizzle ".${target.field}" here — only "=" and "op=" write ` +
+        `several components. Write each component (e.g. v.x), or the whole ${authorTypeText(base)}.`,
       TS_CODES.ASSIGN_TARGET,
     );
     return undefined;
   }
   // LAST, once every "this is no place" refusal above has had its turn: all three of them —
-  // `.length`, an emulated-double lane and a multi-component swizzle — hold on either access
-  // mode, so a read-only sentence naming the writable declaration would name a line the next
-  // compile refuses. Measured: `dv[0].x = f64(1.)` and `v.xy = vec2(1., 2.)` on a read binding
-  // each drew `TS8005 … Write "declare const … "read_write">"`, and with that declaration each
-  // is `TS8018`.
+  // `.length`, an emulated-double lane and a swizzle that repeats a component — hold on either
+  // access mode, so a read-only sentence naming the writable declaration would name a line the
+  // next compile refuses. Measured: `dv[0].x = f64(1.)` and `v.xy = vec2(1., 2.)` on a read
+  // binding each drew `TS8005 … Write "declare const … "read_write">"`, and with that
+  // declaration each was `TS8018`. Since change 0106 `v.xy = …` is a place, so on a read binding
+  // it is `TS8005`; `v.xx = …` stays `TS8018` on both modes.
   if (!checkRootMutable(node.expression, sourceFile, scope, diagnostics, true)) return undefined;
   return target;
 }

@@ -30,6 +30,7 @@ import {
   createTypeshadeLanguageServiceWith,
 } from '../../language-service/service.js';
 import {
+  isTypeshadeScalar,
   isValueType,
   namesOf,
   rowTypes,
@@ -69,6 +70,13 @@ export function instancesOf(
     const domain: string[] =
       constraint === 'num' ? ['2', '3', '4'] : scalarDomain(constraint, matchers);
     binds = binds.flatMap((b) => domain.map((d) => ({ ...b, [param]: d })));
+  }
+  // A matcher written as the type itself (`iu32`, the lane of a subgroup broadcast or shuffle,
+  // change 0117): one instance per scalar it admits, bound under its own name.
+  for (const name of named) {
+    if (name in row.implicit || isTypeshadeScalar(name) || !(name in matchers)) continue;
+    const domain = scalarDomain(name, matchers);
+    binds = binds.flatMap((b) => domain.map((d) => ({ ...b, [name]: d })));
   }
   const subst = (t: Witnessable, b: Record<string, string>): Witnessable =>
     t.k === 'void'
@@ -142,8 +150,12 @@ export function witnessOf(inst: Instance, index: number): { text: string; call: 
       : inst.row.stages.length > 0 && !inst.row.stages.includes('fragment');
   const x = compute ? 'f32(gid.x)' : 'v.uv.x';
   const bindings: string[] = [];
+  // A `subgroupBroadcast` lane is a const-expression in WGSL (change 0117), so the witness
+  // writes it as the literal `1`, which both halves read as the row's `iu32`.
+  const literal = (j: number): boolean => inst.row.name === 'subgroupBroadcast' && j === 1;
   const names = inst.params.map((p, j) => {
     const name = `w${String(index)}_a${String(j)}`;
+    if (literal(j)) return '1';
     if (p.k === 'atomic')
       bindings.push(`declare const ${name}: storage<atomic<${p.s}>, "read_write">;`);
     else if (p.k === 'runtimeArray')
@@ -152,7 +164,9 @@ export function witnessOf(inst: Instance, index: number): { text: string; call: 
     return name;
   });
   const decls = inst.params.flatMap((p, j) =>
-    isValueType(p) ? [`  const a${String(j)}: ${authorSpelling(p)} = ${valueOf(p, x)};`] : [],
+    isValueType(p) && !literal(j)
+      ? [`  const a${String(j)}: ${authorSpelling(p)} = ${valueOf(p, x)};`]
+      : [],
   );
   const call = `${inst.row.name}(${names.join(', ')})`;
   const body = [...decls, inst.ret.k === 'void' ? `  ${call};` : `  const r = ${call};`];

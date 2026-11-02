@@ -103,7 +103,7 @@ export function corpus(): Case[] {
   }
   for (const f of readdirSync('examples').filter((x) => x.endsWith('.shade.ts'))) {
     const src = readFileSync(join('examples', f), 'utf8');
-    if (!src.includes('@compute')) continue;
+    if (!src.includes('@compute') && !/\bcompute\(/.test(src)) continue;
     const r = compile(src);
     if (r.diagnostics.some((d) => d.category === 'error')) continue;
     const m = r.module;

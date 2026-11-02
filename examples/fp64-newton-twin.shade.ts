@@ -26,30 +26,28 @@
 // the same packing on both surfaces, which is why no splitting is spelled in the shader.
 // Field ORDER is the std140 byte layout, so it matches the original field for field.
 class Uniforms {
-  center: vec2f64;
-  resolution: vec2;
-  zoom_exp: f32; // view span = 10^-zoom_exp complex units
-  fp64: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
+  center!: vec2f64;
+  resolution!: vec2;
+  zoom_exp!: f32; // view span = 10^-zoom_exp complex units
+  fp64!: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
 }
 
 declare const u: uniform<Uniforms>;
 
 // A `.shade.ts` file cannot import, so the fullscreen head `_fullscreen.ts` gives the original
 // is re-spelled here, exactly as `julia-twin.shade.ts` does.
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-}
+});
 
-@fragment
-export function fs_newton(vo: VsOut): vec4 {
+export const fs_newton = fragment(function fs_newton(vo: VsOut): vec4 {
   const span = 10.0 ** -u.zoom_exp;
   const half = vo.uv.x * 2.0;
   const sx = half - (vo.uv.x < 0.5 ? 0.0 : 1.0);
@@ -131,4 +129,4 @@ export function fs_newton(vo: VsOut): vec4 {
   // Emit-neutral: the WGSL and GLSL are byte-identical without it.
   const rgb: vec3 = base * mix(0.25, 1.0, speed);
   return vec4(rgb, 1.);
-}
+});

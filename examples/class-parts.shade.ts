@@ -18,22 +18,21 @@
 // - an interface that declares a method is a contract: `implements` and a type parameter's
 //   constraint, never a value's type (Rule 6.9).
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-class FsOut {
-  @location(0) color: vec4;
+interface FsOut {
+  color: location<0, vec4>;
 }
 
 // Fullscreen triangle, as `rng-method.shade.ts` draws it.
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
-}
+});
 
 /** Something that covers part of the screen, which a ring and a dot each supply. */
 interface Mark {
@@ -79,8 +78,7 @@ function coverOf<T extends Mark>(m: T, p: vec2): f32 {
   return m.cover(p);
 }
 
-@fragment
-export function fs(v: VsOut): FsOut {
+export const fs = fragment(function fs(v: VsOut): FsOut {
   // Nothing else holds what `new` built, so the const is the ring itself.
   const ring = new Ring();
   ring.center.vel = vec2(0.5, 0.2);
@@ -91,4 +89,4 @@ export function fs(v: VsOut): FsOut {
   col = mix(col, vec3(0.95, 0.7, 0.3), coverOf(ring, v.uv));
   col = mix(col, vec3(0.3, 0.7, 0.95), coverOf(spot, v.uv));
   return { color: vec4(col, 1.) };
-}
+});

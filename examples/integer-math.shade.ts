@@ -20,28 +20,26 @@
 // here as a compile failure rather than as nothing.
 
 class Grid {
-  origin: vec2i;
-  span: vec2u;
+  origin!: vec2i;
+  span!: vec2u;
 }
 
 declare const grid: uniform<Grid>;
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const xs = array(-1., 3., -1.);
   const ys = array(-1., -1., 3.);
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
   return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
-}
+});
 
-@fragment
-export function fs(v: VsOut): vec4 {
+export const fs = fragment(function fs(v: VsOut): vec4 {
   // The texel this fragment covers, as a signed and as an unsigned vector.
   const at: vec2i = vec2i(i32(v.uv.x * 64.), i32(v.uv.y * 64.));
   const cell: vec2u = vec2u(u32(at.x), u32(at.y));
@@ -68,4 +66,4 @@ export function fs(v: VsOut): vec4 {
   const bands: f32 = f32(spread % u32(53)) / 53.;
   const edge: f32 = f32(width % u32(7)) / 7.;
   return vec4(rings, bands, base + edge * 0.5 + radial * 0.5, 1. - f32(squared) / scale * 0.);
-}
+});

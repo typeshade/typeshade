@@ -1,6 +1,7 @@
 // === Completions: TypeScript user symbols/keywords merged with TypeShade context items (§5) ===
 
 import ts from 'typescript';
+import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
 import { ATTRIBUTE_DOCS, BUILTIN_DOCS } from './docs.js';
 import { nodeAtPosition } from './positions.js';
@@ -31,6 +32,8 @@ const BUILTINS_BY_STAGE: Readonly<Record<'vertex' | 'fragment' | 'compute', read
     'num_workgroups',
     'subgroup_invocation_id',
     'subgroup_size',
+    'subgroup_id',
+    'num_subgroups',
   ],
 };
 
@@ -61,6 +64,15 @@ function enclosingStage(
   let node: ts.Node | undefined = nodeAtPosition(sourceFile, offset);
   while (node !== undefined && !ts.isParameter(node)) node = node.parent;
   const fn = node?.parent;
+  // A stage call's function, `vertex(function vs(i: builtin<"…", u32>) { … })` (change 0111).
+  if (fn !== undefined && (ts.isFunctionExpression(fn) || ts.isArrowFunction(fn))) {
+    const call = fn.parent;
+    if (ts.isCallExpression(call) && ts.isIdentifier(call.expression)) {
+      const callee = call.expression.text;
+      if (callee === 'vertex' || callee === 'fragment' || callee === 'compute') return callee;
+    }
+    return undefined;
+  }
   if (fn === undefined || !ts.isFunctionDeclaration(fn)) return undefined;
   for (const d of decoratorsOf(fn)) {
     const text = d.getText(sourceFile);
@@ -343,6 +355,8 @@ function contextAt(sourceFile: ts.SourceFile, offset: number): CompletionContext
 /** Whether `literal` is the id argument of a `builtin(...)` call: the one string position where
  * completions are offered, since `WgslBuiltinName` is a closed vocabulary. */
 function isBuiltinIdLiteral(literal: ts.Node): boolean {
+  // The id of a `builtin<"…", T>` type (change 0111), as the decorator's argument.
+  if (isBuiltinTypeLiteral(literal)) return true;
   const call = literal.parent;
   return (
     ts.isStringLiteralLike(literal) &&

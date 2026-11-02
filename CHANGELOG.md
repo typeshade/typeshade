@@ -15,6 +15,20 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ## [Unreleased]
 
+### Added
+
+- **The subgroup built-in functions and values** (change 0117; Rule 11.21, surface §50 and
+  §77). The 21 functions of WGSL's `subgroups` extension (`subgroupAdd`, `subgroupBallot`,
+  `subgroupElect`, `subgroupBroadcast` and the rest) and the built-in values `subgroup_id` and
+  `num_subgroups` are authorable, with WGSL's signatures from `core.def` through the overlay. A
+  call derives `enable subgroups;` and the host feature, as the two existing built-in values do.
+  On the CPU oracle and on GLSL ES 3.00 a subgroup is one invocation, so a program stays usable
+  on WebGL2; the determinism report lists a float fold as `order` and a float broadcast or
+  shuffle as `target`. The front end refuses an argument no row takes, a computed
+  `subgroupBroadcast` lane, a vertex entry and a call outside uniform control flow, each in a
+  sentence. `examples/subgroup-reduce.shade.ts` is the use #536 asked for. No code or export is
+  added; `subgroupMatrix*`, the `quad*` functions and `@subgroup_size` stay out.
+
 ### Changed
 
 - **The design rules say what TypeShade borrows (change 0100).** `docs/language-design.md`
@@ -332,6 +346,28 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **The host view carries the author's JSDoc** (proposal 0108; Rules 8.20, 8.21 and 11.8, surface
+  §64). Each JSDoc block above an exported declaration of a shader module is written into the host
+  view, as the author wrote it and in source order: on a function, a constant, an `enum` and each
+  of its members, a class, an `interface` or a `type` and each of its fields, a `@compute` entry, a
+  kernel function, a full-screen `@fragment` entry and an export that is `never`. The comment of a
+  constructor, a method or an accessor of a class is not copied. A re-export of another shader file
+  carries the comment of the file that declares it. The sentence the view writes itself stands at
+  the end of the last block, after one empty comment line, so a hover shows the author's words
+  first. The sentence of a kernel function and of a `@compute` entry also says that a call whose
+  written arrays or bindings are all `Resident`s, and that returns nothing, may be made without
+  `await`. The generated module does not change. The baked views of `typeshade/algorithms` and
+  `typeshade/random` carry the comments of their shader sources.
+- **A swizzle of distinct components is an assignment target** (proposal 0106; Rules 7.1 and
+  7.2, surface §7 and §9). `v.xy = r`, `p.zx += r` and `c.rgb *= s` compile, for `=` and every
+  compound `op=` the vector has. Every old component the operation reads is read into one `let`
+  before any is written, so `d.xy *= d.yx` with `d = vec2(2., 3.)` gives `vec2(6., 6.)`; a
+  non-constant index of the target that reads a place or calls is read once, first. The emitted
+  code is one write per component on WGSL and GLSL ES 3.00, so WGSL's `swizzle_assignment`
+  extension is not needed. A swizzle that names a component twice (`v.xx = …`) stays `TS8018`
+  and names the component; an `@inout` argument, `++`, `--` and an emulated-double lane still
+  take one component. On a read binding `v.xy = …` is now `TS8005`.
+
 - **A `Math` member is bound to a short name with a `const`** (proposal 0113; Rules 6.3, 9.4 and
   9.5, surface §12 and §14). `const { sqrt, sin, PI } = Math`, `const { sqrt: s } = Math` and
   `const s = Math.sqrt` bind each name as an alias of the member, at module scope and in a
@@ -340,6 +376,23 @@ repository was published to npm before **`0.1.0`, the first release**.
   scope, so `sqrt(v)` on a vector is refused there in both halves, with a sentence that names the
   fix (`TS8003`). A `let` of a function member, a rest element, a default and an `export` of a
   bound member stay refused (`TS8099`, `TS8014`). No code, export or example is added.
+
+- **An exported class is a value of a module's host face** (change 0109; Rules 8.20 and 8.21,
+  surface §64). A host file imports a class of a `.shade.ts`, builds an instance with `new`,
+  which checks and converts its arguments and runs the class's constructor on the CPU tier, and
+  calls its methods, accessors and static functions there; a method that changes its object
+  writes the instance's fields back in place, and one that returns `this` returns the instance.
+  The host view declares `export declare class`, with `extends` where the class above is exported
+  as a class too and `abstract` where the class is, and the generated module exports a JavaScript
+  class whose chain follows, so `instanceof` holds. A member that fails Rule 8.20's conditions is
+  declared `never` with its reason, and the class stays a value; a class with a field that has no
+  host value stays a type, `export interface`; a generic class stays `never`. An instance is taken
+  wherever a struct's object is, and a struct a result holds is an instance of its class when the
+  class is exported and not abstract, built without its constructor. `HostFace.exports` reports a
+  class as its struct, so `hostFace` keeps the shape of its result. The class helpers in
+  `typeshade/runtime/internal` (`callMember`, `fromShaderIn`) are dropped from every subpath;
+  the budgets moved by 5 (runtime, split aggregate), 1 (fuse) and 6 (random) gzip bytes,
+  measured with Bun 1.4.4 against `78a9060`.
 
 - **A kernel function's loop runs over a trip count the device holds** (proposal 0094, stage 3;
   Rules 8.21, 8.22, 11.8 and 11.13, surface §65 and §71). The statements before a loop, its start

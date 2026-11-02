@@ -21,29 +21,27 @@
 // render harnesses bind it to 1.0.
 
 class Uniforms {
-  center: vec2f64; // camera/eye, one DF64Vec2 slot [hi.x, hi.y, lo.x, lo.y]
-  mark: vec2f64; // marker world position (eye + a few fractional units)
-  resolution: vec2;
-  zoom_exp: f32; // view span = 10^-zoom_exp world units (negative = zoom out)
-  fp64: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
+  center!: vec2f64; // camera/eye, one DF64Vec2 slot [hi.x, hi.y, lo.x, lo.y]
+  mark!: vec2f64; // marker world position (eye + a few fractional units)
+  resolution!: vec2;
+  zoom_exp!: f32; // view span = 10^-zoom_exp world units (negative = zoom out)
+  fp64!: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
 }
 
 declare const u: uniform<Uniforms>;
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-}
+});
 
-@fragment
-export function fs_rtc(vo: VsOut): vec4 {
+export const fs_rtc = fragment(function fs_rtc(vo: VsOut): vec4 {
   const span = 10.0 ** -u.zoom_exp;
   const half = vo.uv.x * 2.0;
   const sx = half - (vo.uv.x < 0.5 ? 0.0 : 1.0);
@@ -81,4 +79,4 @@ export function fs_rtc(vo: VsOut): vec4 {
     vec3(0.12, 0.9, 0.4) * (cross * 0.55) +
     vec3(1.0, 0.45, 0.25) * dotGlow;
   return vec4(rgb, 1.);
-}
+});

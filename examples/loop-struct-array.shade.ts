@@ -10,8 +10,8 @@
 */
 
 class Particle {
-  pos: vec4;
-  vel: vec4;
+  pos!: vec4;
+  vel!: vec4;
 }
 
 // One frame: gravity, then a bounce off the floor at y = 0 that keeps 80% of the speed.

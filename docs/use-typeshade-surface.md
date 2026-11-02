@@ -418,7 +418,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | an access word outside `"read"` and `"read_write"` | `TS8002`. `storage<T, Access> Access is "read" or "read_write"; got "write". A storage BUFFER has no write-only mode; that is a storage texture's, texture_storage_2d<Format, "write">.` Collected as `read_write` (§1); TS2344 in the editor |
 | a second type argument on a `uniform<T>` | `TS8002`. `uniform<T> takes one type argument. A uniform buffer is read-only, so it has no access mode to write.` TS2314 in the editor |
 | the retired `{ access }` option on the call form | `TS8099`, naming the type-argument spelling to write (§1). Reported and ignored: the mode comes from the type argument |
-| assign to a read resource: a `uniform<T>`, or a `storage<T>` with no `"read_write"` | `TS8005`, whose sentence names the `storage<T, "read_write">` line to write when the target is a storage binding, the compiler READ its declared type (a recovered type names no line: the line would drop what it could not read) and the target is a place on some mode (`md[0]` on an `f64` matrix, `src.length`, an emulated-double lane `dv[0].x` and a multi-component swizzle `v.xy` are each the same refusal on either mode, and name no line). TS2542 on an index and TS2540 on a field in the editor, before `compile()` is called (§1) |
+| assign to a read resource: a `uniform<T>`, or a `storage<T>` with no `"read_write"` | `TS8005`, whose sentence names the `storage<T, "read_write">` line to write when the target is a storage binding, the compiler READ its declared type (a recovered type names no line: the line would drop what it could not read) and the target is a place on some mode (`md[0]` on an `f64` matrix, `src.length`, an emulated-double lane `dv[0].x` and a swizzle that repeats a component `v.xx` are each the same refusal on either mode, and name no line). TS2542 on an index and TS2540 on a field in the editor, before `compile()` is called (§1) |
 | two resources share `@binding` | name both |
 | a decorator on a declaration: a binding, an override, a `const` or `let` at any depth, an enum, an interface, a type alias, a namespace, a function declared in another function's body, or a `static` field | `TS8028`, one per decorator, saying what it is: `@group` and `@binding` are WGSL's and not applied, since `reflect()` reports the group and slot each binding gets (§1); `@id` is not applied, since the host sets an override by its name; `@size` and `@align` are named as a struct field's (§51); an attribute the compiler reads elsewhere by what it marks (`"@fragment" does not apply to a local function: it marks an entry function. Remove it.`); a name WGSL does not have either is `Unknown attribute`. The editor shows this sentence alone, without TypeScript's TS1206, or its TS2304 on a name the ambient library does not declare |
 | `@size` on a function, a parameter or a class, `@align` on a function or a parameter | `TS8028`, `"@align" is WGSL's attribute for a struct field, not a function. Remove it.` On a field, and `@align` on a class, they keep their own sentences (§51) |
@@ -517,9 +517,18 @@ emitted as `p = 1.0;`, which Tint refuses; it is `TS8018` now, naming the local 
 through: it names the caller's place, so `p = 1.` and `p.x = 1.` write the variable the caller
 passed (§70).
 
-A swizzle target names exactly **one** component. `v.xy = …` and `c.rg = …` are rejected
-(`TS8018`), which is what WGSL does: assign each component, or build the whole vector and
-assign that. `v.r` `v.g` `v.b` `v.a` are components like `v.x` … `v.w` and are writable.
+A swizzle target of `=` and of every compound `op=` may name **two to four distinct**
+components (change 0106): `v.xy = r`, `p.zx += r`, `c.rgb *= s`. The right-hand side has the
+swizzle's type, or is a scalar where the operator has a vector-scalar overload. Every old
+component the operation reads is read before any is written, so `d.xy *= d.yx` with
+`d = vec2(2., 3.)` gives `vec2(6., 6.)`, and `e.yx *= vec2(0.5, 2.)` with `e = vec2(2., 3.)`
+gives `vec2(4., 1.5)`. A non-constant index of the target (`ps[next()].xy += r`) is read once,
+before the right-hand side. The emitted code is a `let` of the result and one write per
+component, on WGSL and on GLSL ES 3.00 alike, so no `swizzle_assignment` extension is needed.
+A swizzle that names a component twice (`v.xx = …`) is rejected with `TS8018`, which names the
+repeated component. A swizzle as an `@inout` or `@out` argument, `++` and `--` still take one
+component, and a lane of an emulated-double vector is no place (§39). `v.r` `v.g` `v.b` `v.a`
+are components like `v.x` … `v.w`.
 
 `++` and `--` step a **numeric scalar**: `f32`, `i32`, `u32` and `f64`. On a member or element
 target they lower to the compound form (`ps[i].a += 1.`), so the target is written once instead
@@ -2609,6 +2618,26 @@ declaration undefined where WGSL zeroes it, and a field the body never assigns h
 same on both. A struct with a matrix field falls back to the bare `var self_: M;` (the zero of a
 matrix is not spelled yet), which is WGSL's zero and GLSL's undefined value, as any local
 declared without an initializer is today.
+
+**A class means one thing wherever it stands** (Rule 8.29, change 0110). A class is its struct
+and its functions. What holds for a struct holds for the class's fields, and what holds for a
+function holds for its constructor, its methods, its accessors and its static functions. That is
+true in every place a struct or a function can be: a binding, a local, a workgroup variable, a
+kernel function's array, a `Resident`, the host face, the CPU tier, the oracle, the host view,
+reflection and a package. `new Ray(a, b)` is a call of `Ray_new` wherever you write it. A method
+that changes its object writes the object you call it on, as an `@inout` argument writes its
+place (§70), so `voices[v].tick()` in a kernel function's loop writes `voices` at `v` (§65).
+Where a host may call a function (§64), the same conditions decide for a method, and a method
+that fails one has the reason a function would have. The rule claims no more than that: a method
+that reaches a binding, a workgroup variable or a builtin only a GPU computes has no host call, a
+host call of a method runs on the CPU tier and never dispatches, and a read of a `Resident` is
+asynchronous. The class arm of `bun run gate:differential` holds the rule. For each exported class
+of the examples and of `journeys/class-twins/` it writes a twin module that builds the class with
+`new` and calls each member a host could call, in an entry and in a kernel function's loop, and it
+calls the member on the host class too (§64). Every result and every field after the call must be
+the oracle's bits on WebGPU, on WebGL2, on the CPU tier and on the host, or within the room a row
+of the determinism report leaves (§38). A member the host may not call must be refused by the host
+class with the same reason.
 
 **A method that reads its object reads it in place** (Rule 8.28, change 0103). When the object
 is a place (a `let` local, on WGSL any struct or array local (change 0105), a module variable, a uniform, a storage element, or a field or an
@@ -6100,24 +6129,32 @@ export function fs(@builtin("primitive_index") pi: u32): vec4 { // fragment INPU
 | `primitive_index` | fragment input | `u32` | `primitiveIndex` · `enable primitive_index;` · `primitive-index` |
 | `subgroup_invocation_id` | compute **or fragment** input | `u32` | `subgroups` · `enable subgroups;` · `subgroups` |
 | `subgroup_size` | compute **or fragment** input | `u32` | `subgroups` · `enable subgroups;` · `subgroups` |
+| `subgroup_id` | compute input | `u32` | `subgroups` · `enable subgroups;` · `subgroups` (change 0117) |
+| `num_subgroups` | compute input | `u32` | `subgroups` · `enable subgroups;` · `subgroups` (change 0117) |
 
 `@blend_src(0|1)` on a fragment output derives `dualSourceBlending` the same way (§53).
 
 `clip_distances` used to be admitted with no stage rule and no size rule at all: it sat on a
 fragment input and emitted WGSL Tint refused. Each row's stage, direction and type is now
 checked at the authoring line. The subgroup pair read as compute-only, which refused a legal
-fragment program; both stages are accepted.
+fragment program; both stages are accepted. `subgroup_id` and `num_subgroups` are compute inputs
+only, as Tint has them: on a fragment entry Tint answers `only valid as a compute shader input`,
+and the front end refuses the pair there first (`TS8025`).
 
-**Each of the four fails closed on GLSL ES 3.00.** That target has no row for any of these
-capabilities, so `emitGlslModule` throws `SD0030` naming it rather than emitting a varying a
-WebGL2 driver would reinterpret.
+**`clip_distances` and `primitive_index` fail closed on GLSL ES 3.00.** That target has no row
+for either capability, so `emitGlslModule` throws `SD0030` naming it rather than emitting a
+varying a WebGL2 driver would reinterpret. The four subgroup values do not fail closed: on GLSL
+ES 3.00, as on the CPU oracle, a subgroup is one invocation (Rule 11.21, change 0117), so
+`subgroup_invocation_id` is `0u`, `subgroup_size` is `1u`, `subgroup_id` is the local invocation
+index and `num_subgroups` is the workgroup size. §77 has the table, and the determinism report
+names what that meaning cannot keep.
 
 **The author spelling for the rest: a string directive beside `"use typeshade"`.** An
 extension no use in the file derives is turned on by the file itself. `f16` is the one no use can
-derive, since its type is not on this surface yet (Rule 4.7). `subgroups` is derived by
-`subgroup_invocation_id` and `subgroup_size` (the table above), and the directive turns it on for
-a file that reads neither; the subgroup built-in functions (`subgroupAdd` and the rest) are not
-on this surface, so those two values are the only use there is to derive it from:
+derive, since its type is not on this surface yet (Rule 4.7). `subgroups` is derived by the four
+built-in values of the table above and by a call to any of the 21 subgroup built-in functions
+(§77, change 0117); the directive turns it on for a file that reads none and calls none, which is
+a file that only passes the module on to one that does:
 
 ```ts
 "use typeshade";
@@ -6719,8 +6756,8 @@ sentence also names the other way out, a value the whole workgroup shares to bra
 break, continue, bound the loop, test on the left side or test in the condition on; a
 derivative's names the explicit-LOD sample and the filter. The filter is offered where the file
 can carry it: on the entry when every entry is a top-level function, on a top-level function
-when an entry is a namespace's, since a namespace's function refuses `@diagnostic` (`TS8028`,
-§7) and the directive is read off any top-level function, and not at all in a file with no
+when an entry is a namespace's, since a namespace's function refuses `@diagnostic` and a
+namespace's stage call its `diagnostic` option (`TS8028`, §7), and the directive is read off any top-level function, and not at all in a file with no
 top-level function. The value is named as the author
 wrote it: a helper as it is called, `Lim.hit(…)` or `done(…)`, never the name the emit gives it,
 and a helper the walk cannot see through by its own name, not as "the expression".
@@ -7371,6 +7408,7 @@ entry runs on takes the limits and features that `configure({ limits, features }
 
 export const EPS: f32 = 0.001;
 
+/** The height of the terrain at `p`, from the four wave constants `k`. */
 export function height(p: vec2, k: vec4): f32 {
   return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
 }
@@ -7477,16 +7515,39 @@ bundle reads the source, through the plugin:
 // Generated by typeshade from terrain.shade.ts. Do not edit; `tshc sync` rewrites it.
 
 export declare const EPS: number;
+/** The height of the terrain at `p`, from the four wave constants `k`. */
 export declare function height(p: readonly [number, number], k: readonly [number, number, number, number]): number;
 export declare function normal(p: readonly [number, number], k: readonly [number, number, number, number]): [number, number, number];
 /** A full-screen `@fragment` entry: draws one frame into `target`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24). */
 export declare function fs(target: HTMLCanvasElement | OffscreenCanvas, bindings: {}): Promise<void>;
 ```
 
+**The author's comments** (change 0108). The view carries the JSDoc the author wrote. Each block
+(`/** … */`) above an exported declaration is copied into the view, as written and in source order,
+above the export. This holds for a function, a constant, a class, an `interface` or a `type` and each
+of its fields, an `enum` and each of its members, a `@compute` entry, a kernel function, a
+full-screen `@fragment` entry and an export that is `never`. What the module re-exports from a
+shader file it imports (§68) carries the comment of the file that declares it. A `//` comment, a
+`/* */` comment and a comment inside a body are not copied. The comment of a constructor, a method
+or an accessor of a class is not copied either. The tags are copied and are not checked.
+
+Where the view writes a sentence of its own, that sentence stands at the end of the last block, after
+one empty comment line. The editor shows the last block of a declaration, so a hover shows the
+author's words first and the contract second. An export with no JSDoc has the sentence alone. A
+class stands over several lines, so the comment of a field is on the line of the field. An
+`interface`, a `type` and an `enum` stand on one line, and over several lines when one of their
+fields or members has a comment. A field that an `interface`, or a class whose base is not exported
+as a class, takes from its base carries the comment of the base's field, as TypeScript's hover
+shows it.
+
+The sentence of a kernel function and of a `@compute` entry also says how a call is queued (Rule 11.8,
+§65, §67). A call whose written arrays or bindings are all `Resident`s, and that returns nothing, may
+be made without `await`. The signature that returns `void` is that call.
+
 The plugin rewrites a view when its module changes, in `vite dev` and in `vite build`. On a clean
 checkout `tsc` often runs before Vite (create-vite's `build` script is `tsc && vite build`), so
 `tshc sync` writes every view first; `tshc sync --check` fails on one that is missing or
-stale. The views are generated files, and git-ignored.
+stale. A change to a comment alone makes the view stale. The views are generated files, and git-ignored.
 
 **The default export is the program.** A module's host import has one more export than the module
 writes: its default export is the compiled program's manifest (§69), which the view types as
@@ -7502,10 +7563,13 @@ import { height } from './terrain.shade.ts'; // a helper, on the CPU tier
 
 **What a host can call** (Rule 8.20): an exported function that is not an entry point, is not
 generic, takes no function, has a host value for each parameter and for its result, and reaches
-no binding, no workgroup variable and no builtin only a GPU computes. An exported constant and an
-`enum` are values too, and an exported struct is a type, as is a struct another file declares
-where an export's signature names it; what the module re-exports from a shader file it imports
-(§68) is one of its exports. A `@compute` entry is called, and a
+no binding, no workgroup variable and no builtin only a GPU computes. An exported constant, an
+`enum` and a class are values too (change 0109): a class is built with `new`, and its
+constructor, methods, accessors and static functions run on the CPU tier, each admitted by the
+same conditions as a function (below). An exported `interface` or `type` is a type, as is a struct
+another file declares where an export's signature names it, and a class with a field that has no
+host value; what the module re-exports from a shader file it imports (§68) is one of its exports.
+A `@compute` entry is called, and a
 full-screen `@fragment` entry drawn, as §67 says, and a kernel function called as §65 says. Every other export is in the view as `never`, with the reason in a comment, so calling one
 is a type error at the host's own line.
 
@@ -7514,7 +7578,8 @@ is a type error at the host's own line.
 | a function a host can call                   | `export declare function f(…): …`                            |
 | a constant                                   | `export declare const K: …`, a frozen copy                   |
 | an `enum`                                    | its members as values, and a type of their numbers           |
-| a struct (`class`, `interface`, `type`)      | `export interface S { … }`                                   |
+| a `class` (§26)                              | `export declare class C { constructor(…); … }`, a value      |
+| an `interface` or a `type`; a `class` with a field that has no host value | `export interface S { … }`      |
 | a `@compute` entry                           | `export declare function e(bindings, workgroups): Promise<void>` (§67) |
 | a full-screen `@fragment` entry              | `export declare function e(target, bindings): Promise<void>` (§67) |
 | a kernel function (§65)                      | `export declare function k(…): Promise<R>`                   |
@@ -7531,7 +7596,7 @@ is a type error at the host's own line.
 | `vecNb`                                   | `readonly [boolean, …]` of N                               | `[boolean, …]` |
 | `matCxR`                                  | `readonly number[]` of C×R, column-major                   | `number[]`     |
 | `array<T, N>`                             | `readonly T[]` of N                                        | `T[]`          |
-| a struct                                  | an object of its fields                                    | the same       |
+| a struct                                  | an object of its fields, an instance of its class included | an instance of its class where the class is exported and not abstract, else an object of its fields |
 | an `enum`                                 | the member's number                                        | the same       |
 | a key type (§75)                          | one of its members, a string                               | the same       |
 | a `Record` over a key type (§75)          | an object with one property for each member                | the same       |
@@ -7551,6 +7616,92 @@ optional parameter `x?: T` (change 0093, decision D7): the host view declares su
 `its result: …`), which names the field through a struct, `its result: field R.w: an optional
 value, f32 | undefined, has no host value yet (Rule 8.21)`, and a host mapping
 such as `number | undefined` waits for a later proposal (change 0088, decision D4).
+
+**A class** (change 0109). An exported class is a value of the host face. A shader module
+declares a filter as a class, and a kernel function runs a bank of them:
+
+```ts
+"use typeshade";
+
+/** A one-pole lowpass with its state. */
+export class OnePole {
+  z: f32 = 0.;
+  k: f32;
+  constructor(k: f32) {
+    this.k = k;
+  }
+  /** One sample through the filter. */
+  tick(x: f32): f32 {
+    this.z = this.z + this.k * (x - this.z);
+    return this.z;
+  }
+}
+
+/** Runs every filter of the bank over its block, one lane per filter. */
+export function run(out: array<f32>, xs: array<f32>, filters: array<OnePole>, block: u32) {
+  for (let i: u32 = 0; i < filters.length; i++) {
+    for (let n: u32 = 0; n < block; n++) {
+      out[i * block + n] = filters[i].tick(xs[i * block + n]);
+    }
+  }
+}
+```
+
+That module is `filters.shade.ts`. A host file builds the bank with the class's own constructor,
+tests one filter on the CPU tier, and hands the instances to the kernel as the structs they are:
+
+```ts
+import { OnePole, run } from './filters.shade.ts';
+
+const filters = Array.from({ length: 64 }, () => new OnePole(0.1)); // the constructor, on the CPU tier
+filters[0].tick(1); // the method, on the CPU tier, with the same math the kernel runs
+await run(out, xs, filters, 1024); // the instances, taken as the structs they are
+```
+
+The view declares the class with the host type of each member, and carries the comment of the
+class (change 0108). The comment of a method is not copied:
+
+```ts
+/** A one-pole lowpass with its state. */
+export declare class OnePole {
+  constructor(k: number);
+  z: number;
+  k: number;
+  tick(x: number): number;
+}
+```
+
+`new OnePole(0.1)` checks and converts its arguments as a helper call does, runs the class's
+constructor on the CPU tier, field initializers included, and returns an instance whose own
+enumerable properties are the fields, each a host value. A class with no constructor builds its
+fields from their initializers, and a field with neither takes the zero value of its type, as
+`new` gives it in the module (§26). A method converts its arguments, runs with the instance as
+its object and returns a host value; a method that changes its object writes the instance's
+fields back in place. A static function is a static method of the class, a getter and a setter
+are an accessor property, and a field that holds a function is a method under the field's name.
+Each member is admitted by the conditions of a function a host can call: one that fails one is
+declared `never` in the class, with the reason in its comment, so a call of it is a type error at
+the host's line, and the class is still a value. An `abstract` class is declared `abstract`, and
+`new` of it is refused. A class that extends another is declared with its `extends` where the
+class above it is exported as a class too, and its class extends that class in the generated
+module, so `instanceof` holds along the chain; each class runs the functions the module lowers
+for it, so a call on an instance dispatches as it does in TypeScript. Where a member a host can
+call stands where the class above declares it `never` (or the other way round between an accessor
+and a `never` member), TypeScript refuses the override, so the view declares that class whole,
+without `extends`; its JavaScript class extends all the same.
+
+An instance is taken wherever a struct's object is: as a parameter, a field, an element of an
+`array<T, N>`, an element of a kernel function's array or a binding of an entry. The check reads
+the fields the struct declares and ignores the prototype, and a plain object of the fields is
+taken as before. A struct a result holds is an instance of its class where the class is exported
+and not abstract, built without running its constructor, so `tick()` works on what a helper
+returned. A generic
+class stays `never`. A class with a field that has no host value (an atomic, a texture, an
+optional value) stays a type, `export interface`, with the reason on its line. Nothing a class
+does on the host runs on the GPU: the GPU runs a method through a kernel function or an entry that
+calls it on an element of an array (§65, §67). A host method converts at the boundary at each
+call, as a helper does, so a host loop that ticks an instance once per sample pays that per
+sample: the host method is the reference, and the kernel is the fast path.
 
 **The name** (Rule 3.8). A shader module a host imports is named `*.shade.ts`. The plugin refuses
 a `.ts` the bundle reads that begins with `"use typeshade"` under any other name, with the
@@ -7700,6 +7851,10 @@ is selected. A smaller upload is a memory result; complete-call speed requires m
   it adds to is not read (`has`, `get`, `size`);
 - R5: a function it calls writes no module variable and no binding;
 - R6: it has no barrier, no workgroup memory and no `console` call.
+
+A method that changes its object, called on an element of an array parameter, is a write to that
+element at that index, as an `@inout` argument is (Rule 8.29), so `voices[v].tick()` is a write
+at `v`, which R3 admits.
 
 **A loop the proof refuses runs on the CPU**, with a warning, TS8070, on the loop. The program is
 correct either way. The first sentence names the line and your names, and the second the remedy:
@@ -9540,6 +9695,8 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 - F6: a loop that reduces (§65) can be the last call of a group, and the calls before it run as a prologue of each of its iterations. Nothing joins a group after it. A reduction alone is not fused.
 - F7: the calls of a group run at one workgroup size. A call with `@workgroup_size` (§65) sets it, and every call of a group that sets one sets the same size. A call with none takes the size of its group, which is 64 when no call sets one. A reduction runs at 256, so a call that sets a size joins it only at 256.
 
+The facts read a method call's accesses through the object it is called on (Rule 8.29), so a chain of methods fuses as the same chain written inline: `voices[i].level()` reads `voices` at `i`, and a call that reads `voices[i + 1].level()` stands apart with `` b reads `voices[i + 1]` ``.
+
 **What stays apart, and how the report says it.** A call that does not join the group before it starts a group of its own, and the `why` of that group says in your names which fact failed. Its words are `a and b run as two dispatches because` and a reason, where `a` is the call that the fact fails against and `b` the call that stands apart. An access is given as the compiler words it for `TS8070` (§65): the access as you wrote it, and the one-based line of its statement. These are all the reasons:
 
 | Fact                  | The reason, after `a and b run as two dispatches because`                                         |
@@ -10346,3 +10503,165 @@ declared absent and assigned on one path, a callback result through a function-t
 `array<f32 | undefined, 4>` filled on some indices and folded in a loop, and a helper with
 `limit?: f32` called with and without it; both are on the compile gate on Tint and WebGL2, with
 their emit goldens in `examples/__emit-goldens__/`.
+
+## 77. The subgroup built-in functions: `subgroupAdd` and the twenty beside it
+
+Change 0117 puts the 21 subgroup built-in functions of WGSL's `subgroups` extension on this
+surface, with WGSL's own names and signatures, and the two built-in values WGSL added beside the
+pair of §50: `@builtin("subgroup_id")` and `@builtin("num_subgroups")`, both `u32`, both compute
+inputs. A subgroup is the set of invocations a device runs together in lockstep, between the
+adapter's `subgroupMinSize` and `subgroupMaxSize` wide; a subgroup function reads or folds the
+values of every lane of it in one instruction, with no workgroup memory and no barrier. The use
+#536 asked for is a fold before an atomic: one `atomicAdd` per subgroup instead of one per lane.
+
+```ts
+"use typeshade";
+
+declare const src: storage<array<u32>>;
+declare const bins: storage<array<atomic<u32>>, "read_write">;
+
+@compute([64])
+export function main(@builtin("global_invocation_id") gid: vec3u): void {
+  const v = subgroupAdd(src[gid.x]); // the subgroup's sum, in every lane
+  if (subgroupElect()) {
+    atomicAdd(bins[0], v); // one atomic per subgroup instead of one per lane
+  }
+}
+```
+
+```wgsl
+enable subgroups;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let v = subgroupAdd(src[gid.x]);
+  if (subgroupElect()) {
+    _ = atomicAdd(&bins[0], v);
+  }
+}
+```
+
+**The names.** Every name is WGSL's (Rule 2.1(a)); no TypeShade spelling is added, so §9.3 does not
+change. The signatures come from Tint's overload table through the overlay (Rule 12.7, change
+0017), in a new family `subgroups`, so the editor's declarations and the compiler's typing are one
+table: `subgroupAdd(x)` on a `vec3u` is a `vec3u` in both halves, and a `bool` argument is refused
+by both. The `f16` instances of each row stay out, as Rule 4.7 keeps them out of every family.
+
+| Group | Names | Takes | Gives |
+| --- | --- | --- | --- |
+| reductions | `subgroupAdd`, `subgroupMul`, `subgroupMin`, `subgroupMax` | an `f32`, `i32` or `u32`, or a vector of them | the same type: the fold of every lane's value |
+| bit reductions | `subgroupAnd`, `subgroupOr`, `subgroupXor` | an `i32` or `u32`, or a vector of them | the same type |
+| scans | `subgroupExclusiveAdd`, `subgroupInclusiveAdd`, `subgroupExclusiveMul`, `subgroupInclusiveMul` | an `f32`, `i32` or `u32`, or a vector of them | the same type: the fold of the lanes before this one, without or with it |
+| votes | `subgroupAll(p)`, `subgroupAny(p)` | a `bool` | a `bool`: whether every lane's, or any lane's, `p` is true |
+| ballot | `subgroupBallot(p)` | a `bool` | a `vec4u`: one bit per lane, lane `i` at bit `i % 32` of word `i / 32` |
+| election | `subgroupElect()` | nothing | a `bool`: true in exactly one lane |
+| broadcasts | `subgroupBroadcast(x, lane)`, `subgroupBroadcastFirst(x)` | a scalar or vector of `f32`, `i32` or `u32`, and a lane written as a number in the call | the named lane's `x`, or the first active lane's |
+| shuffles | `subgroupShuffle(x, lane)`, `subgroupShuffleDown(x, delta)`, `subgroupShuffleUp(x, delta)`, `subgroupShuffleXor(x, mask)` | the same, and a `u32` lane or delta computed at run time | lane `lane`'s `x`, lane `id + delta`'s, lane `id - delta`'s, lane `id ^ mask`'s |
+
+A bare integer literal in a lane position is a `u32`, as WGSL materialises it there (§10): the
+WGSL for `subgroupBroadcast(x, 3)` is `subgroupBroadcast(x, 3u)`. `subgroupBroadcast`'s lane is a
+const-expression in WGSL (Tint: `must be a const-expression`), so it is written as a number in the
+call; a lane computed at run time is `subgroupShuffle`'s.
+
+**The capability.** A call derives `subgroups`, as the four built-in values do (§50): WGSL refuses
+the call without `enable subgroups;` (Tint: `cannot call built-in function 'subgroupAdd' without
+extension 'subgroups'`), so the use is the declaration. The WGSL writer emits the directive,
+`reflect().requiredFeatures` carries `subgroups`, and the compile gate requests the host feature
+from the modules themselves, which is how `examples/subgroup-reduce.shade.ts` compiles on its
+Tint. A function the file declares under one of the names is the file's own (Rule 9.5), is called
+as such and derives nothing. The string directive `"enable subgroups";` stays for a file that
+reads no subgroup value and calls no subgroup function.
+
+**The stage and the control flow.** A subgroup function is a fragment or compute call: a vertex
+entry that reaches one is refused with `WGSL allows a subgroup built-in function in a fragment or
+compute stage only.`, over the call graph as a barrier's rule is. `subgroup_id` and `num_subgroups`
+are compute inputs; on a fragment entry the front end refuses them (`TS8025`) where Tint says `only
+valid as a compute shader input`. And every invocation of the subgroup has to reach the call
+together: WGSL's `subgroup_uniformity` rule refuses the call where one may not, and §54's walk
+states it first, with the value the invocations do not share:
+
+```
+error[TS8052] subgroupAdd() is reached under "gid" (@builtin(global_invocation_id)), and every
+invocation of the subgroup has to reach it together: WGSL's subgroup_uniformity rule refuses the
+call where one may not.
+```
+
+Under a uniform, a constant or an override the call compiles, as Tint accepts it. The right side of
+`subgroupElect() && subgroupAny(p)` is reached by one lane and refused the same way, measured on
+Tint. A lane past the end of an array contributes an identity instead of returning early, as the
+example does: an early `return` is a lane the fold cannot wait for.
+
+**One invocation, on GLSL ES 3.00 and on the CPU oracle (Rule 11.21).** GLSL ES 3.00 has no
+subgroups, and the oracle runs invocations one after another. Both give a subgroup the meaning of
+one invocation, by decision D1 of change 0117 (the alternative was failing the GLSL emit closed, as
+§50 did until this change): `subgroup_size` is `1u`, `subgroup_invocation_id` is `0u`,
+`subgroup_id` is `local_invocation_index`, `num_subgroups` is the workgroup's invocation count,
+and each function gives the value it gives a subgroup of one lane, with `x` the lane's argument:
+
+| Function | Value |
+| --- | --- |
+| `subgroupAdd`, `subgroupMul`, `subgroupMin`, `subgroupMax`, `subgroupAnd`, `subgroupOr`, `subgroupXor` | `x` |
+| `subgroupInclusiveAdd`, `subgroupInclusiveMul` | `x` |
+| `subgroupExclusiveAdd` | `0` of `x`'s type |
+| `subgroupExclusiveMul` | `1` of `x`'s type |
+| `subgroupAll(p)`, `subgroupAny(p)` | `p` |
+| `subgroupBallot(p)` | `vec4u(u32(p), 0, 0, 0)` |
+| `subgroupElect()` | `true` |
+| `subgroupBroadcast(x, lane)`, `subgroupShuffle(x, lane)` | `x`; a `lane` other than 0 is a `target` row |
+| `subgroupBroadcastFirst(x)` | `x` |
+| `subgroupShuffleDown(x, delta)`, `subgroupShuffleUp(x, delta)`, `subgroupShuffleXor(x, mask)` | `x`; a `delta` or `mask` other than 0 is a `target` row |
+
+The GLSL writer rewrites each call to that value before any pass reads a call by its name
+(`src/core/passes/subgroups-one-lane.ts`), and the folder then does what it does with any
+constant: `subgroupExclusiveAdd(x) + x` is `x`. The oracle's own table gives the same values
+(`src/core/cpu-runtime.ts`), and a debug run's resolver the same four built-in values
+(`docs/debugging.md`). The GLSL for the example above is the lane's own value and one atomic per
+invocation, which sums to the same total: an integer sum has one value in any order. The
+determinism report (§38) lists what the meaning cannot keep:
+
+- a reduction or a scan on a float is an `order` row: the device folds its subgroup in its own
+  order, which differs by device and by subgroup size, and the two tiers fold one lane;
+- a broadcast or a shuffle on a float whose lane argument is not 0 is a `target` row: it reads a
+  lane the two tiers do not have. A read of lane 0 is not listed, since that is the lane they
+  have, and `subgroupBroadcastFirst` reads it. An integer read differs the same way and is not
+  listed, since the report is by float kind (§38); change 0117's record carries that as an open
+  deviation;
+- `subgroupMin`, `subgroupMax`, the bit folds, the votes, the ballot, the election and every
+  integer fold have one answer in any order and are not listed.
+
+Whether a device may report a subgroup size of 1 is not verified (#536's open point). The rule does
+not claim it may: the one-lane meaning is TypeShade's for its own tiers, recorded as a divergence,
+and the WebGPU tier runs the device's.
+
+**The refusals, in both halves (Rules 12.1, 12.5 and 12.7).** Each is one sentence at the argument
+or the call; the editor refuses the same programs over the generated declarations.
+
+| Program | Refusal |
+| --- | --- |
+| `subgroupAdd(p)` on a `bool` | `TS8003 subgroupAdd takes an f32, i32 or u32, or a vector of them; got bool.` |
+| `subgroupAnd(x)` on an `f32` | `TS8003 subgroupAnd takes an i32 or u32, or a vector of them; got f32.` |
+| `subgroupAll(x)` on an `f32` | `TS8003 subgroupAll takes a bool; got f32.` |
+| `subgroupAdd(x, x)` | `TS8019 subgroupAdd expects 1 argument(s), got 2.` |
+| `subgroupBroadcast(x, i)` with `i` a parameter | `TS8003 subgroupBroadcast's lane is a number written in the call (a const-expression in WGSL). For a lane computed at run time write subgroupShuffle(e, id).` |
+| `subgroupShuffle(x, i)` with `i` an `f32` | `TS8003 subgroupShuffle's lane must be a u32; got f32.` |
+| a vertex entry that reaches a subgroup call | `WGSL allows a subgroup built-in function in a fragment or compute stage only.` |
+| a call under a value the invocations do not share | `TS8052`, the sentence above (§54) |
+| `@builtin("subgroup_id")` on a fragment entry | `TS8025`, naming the compute stage |
+
+**Measured on Tint** (Chrome for Testing 153, SwiftShader, 2026-11-02, Rule 13.3): every function
+and the four values compile under `enable subgroups;`; a call without the directive is refused;
+a broadcast lane that is not a const-expression is refused and an `i32` literal lane accepted; a
+call under a non-uniform branch is refused and under a uniform one accepted; `subgroupAny` on the
+right of `&&` after `subgroupElect()` is refused; `subgroup_id` and `num_subgroups` on a fragment
+entry are refused.
+
+**What this does not reach**, by change 0117's section 6: the four `quad*` functions (a quad is
+four invocations of a fragment block, and a one-lane meaning for a swap says nothing true), the
+`subgroupMatrix*` family and `subgroup_matrix` types (a separate extension on its own types),
+`@subgroup_size` (`subgroup_size_control`, which the gate's adapter does not offer), and a fold
+the compiler emits on its own. `docs/performance.md` holds the measurement a proposal for the
+last would start from.
+
+`examples/subgroup-reduce.shade.ts` is the complete example: an integer fold before an atomic,
+with `subgroup_id` and `num_subgroups` on the entry, on the compile gate on Tint; WGSL-only on the
+gallery, since it is a compute entry over storage buffers.

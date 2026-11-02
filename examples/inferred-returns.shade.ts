@@ -21,22 +21,21 @@
 // language service writes the `vec2` the compiler infers into what TypeScript reads, so the
 // editor reads `orbit.at(t)` as the vector it is (surface §14, #162).
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-class FsOut {
-  @location(0) color: vec4;
+interface FsOut {
+  color: location<0, vec4>;
 }
 
 // Fullscreen triangle, as `rng-method.shade.ts` draws it.
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
-}
+});
 
 /** A linear congruential generator: `next` changes `seed` and returns a value in [0, 1). */
 class Rng {
@@ -75,8 +74,7 @@ function pick<T>(c: bool, a: T, b: T) {
   return b;
 }
 
-@fragment
-export function fs(v: VsOut): FsOut {
+export const fs = fragment(function fs(v: VsOut): FsOut {
   const p = v.uv;
   const orbit = new Orbit();
   orbit.span = 0.9;
@@ -91,7 +89,7 @@ export function fs(v: VsOut): FsOut {
   }
   const col = min(tint(glow, ring(p, orbit.radius * 0.6)), vec3(1.));
   return { color: vec4(col, 1.) };
-}
+});
 
 /** The dots' blue and the ring's amber, added. */
 function tint(glow: f32, lit: f32) {

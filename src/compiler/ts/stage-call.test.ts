@@ -81,6 +81,28 @@ export const scale = workgroup_size([TILE], function scale(xs: array<f32>, k: f3
 });
 `,
   },
+  {
+    // A local function and an arrow handed to a helper inside the entry: the closure walk finds
+    // the entry through the function the call wraps (#886 left `fs_petal` out of the WGSL).
+    name: 'an entry that declares a local function and hands an arrow to a helper',
+    decorated: `"use typeshade";
+function twice(f: (x: f32) => f32, x: f32): f32 { return f(f(x)); }
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+  const r = 0.1;
+  const petal = (q: vec2): f32 => length(q) - r;
+  return vec4(petal(p.xy), twice((x) => x * r, p.x), 0., 1.);
+}
+`,
+    called: `"use typeshade";
+function twice(f: (x: f32) => f32, x: f32): f32 { return f(f(x)); }
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+  const r = 0.1;
+  const petal = (q: vec2): f32 => length(q) - r;
+  return vec4(petal(p.xy), twice((x) => x * r, p.x), 0., 1.);
+});
+`,
+  },
 ];
 
 describe('a stage call compiles as the decorated entry does (change 0111, D1)', () => {
@@ -126,6 +148,36 @@ export const fs = fragment(
     expect(errors(SAMPLE.replace('OPTIONS', '{ blend: "add" }'))).toContainEqual(
       expect.stringContaining('TS8028 A stage call takes one option, "diagnostic"'),
     );
+  });
+});
+
+describe("a namespace's entry takes no options", () => {
+  // The option was dropped with no word, and the rule it meant to switch off still refused the
+  // sample; `@diagnostic` on a namespace's function is refused, and so is the option now.
+  const source = `"use typeshade";
+declare const t: texture_2d<f32>;
+declare const s: sampler;
+namespace N {
+  export const fs = fragment(
+    function fs(p: builtin<"position", vec4>): vec4 {
+      if (p.x > 10.) { return textureSample(t, s, p.xy); }
+      return vec4(0.);
+    },
+    { diagnostic: ["off", "derivative_uniformity"] },
+  );
+}
+`;
+  const refusal =
+    'TS8028 "diagnostic" does not apply to a namespace\'s entry: it marks an entry at the top of the file. Remove the options.';
+
+  it('the compiler refuses the options and emits no directive', () => {
+    const result = compiled(source);
+    expect(errors(source)).toContain(refusal);
+    expect(result.wgsl ?? '').not.toContain('diagnostic(');
+  });
+
+  it('the editor reports the same refusal', () => {
+    expect(editor(source)).toContainEqual(refusal);
   });
 });
 

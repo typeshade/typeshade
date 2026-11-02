@@ -9,7 +9,8 @@
 //     for the import in place of the shader source;
 //   - the GENERATED MODULE, the JavaScript a bundler reads for the import: the CPU tier's code
 //     for the callable functions at `f32` precision (Rule 11.7), each wrapped in a function that
-//     checks and converts its arguments and copies its result out.
+//     checks and converts its arguments and copies its result out, and a JavaScript class for
+//     each exported class (change 0109), whose constructor and methods are such calls.
 //
 // The IR does not keep the source's export list. A generic function exists only as its instances
 // and a function that takes a function only per use, a class method is `P_len` and an enum is
@@ -30,7 +31,7 @@ import type {
 import type { ShaderType } from '../../core/ir/types.js';
 import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
 import { fnReads, fnWrites } from '../../core/passes/effects.js';
-import { GPU_STUBS } from '../../core/cpu-runtime.js';
+import { GPU_STUBS, type CpuValue } from '../../core/cpu-runtime.js';
 import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../core/intrinsics.js';
 import { generateModuleJs } from '../../core/cpu-codegen.js';
 import type { HostType } from '../../core/host-values.js';
@@ -80,7 +81,21 @@ import {
   type compileTsSource,
   type TsCompilerDiagnostic,
 } from './source-file.js';
-import { emittedStructDecls } from './structs.js';
+import { emittedStructDecls, type CollectedStruct } from './structs.js';
+import {
+  accessorFnName,
+  baseClassOf,
+  emittedMemberName,
+  holdsFunction,
+  isPrivateName,
+  isReadonlyMember,
+  isStaticMember,
+  keywordAccessOf,
+  memberDeclarationInChain,
+  returnsThis,
+  writtenMemberName,
+} from './class-names.js';
+import { ctorFnName, methodFnName } from './lower/class-methods.js';
 import { staticConstName } from './module-const.js';
 import { authorTypeText } from './context.js';
 import { describeRead } from './kernel-loops.js';
@@ -96,6 +111,7 @@ import {
 } from '../../core/manifest.js';
 import type { PackLayout } from '../../core/manifest-types.js';
 import { collectionKeyOf, keyTypeText, keysOf, recordKeyText, recordOf } from './key-types.js';
+import { commentLines, exportDocs, type DocBlock, type ExportDocs } from './host-docs.js';
 
 /** How {@link hostFace} is called. */
 export interface HostFaceOptions {
@@ -201,6 +217,96 @@ export interface HostFace {
   readonly files: readonly string[];
 }
 
+// ─── classes (change 0109) ───────────────────────────────────────────────────────────────────
+//
+// An exported class is a value of the host face: the view declares it as a class, and the
+// generated module exports a JavaScript class of its name, whose instances are the struct's host
+// value (Rule 8.21) with the fields as their own properties. `exports` reports it as the struct
+// it is, so `hostFace` keeps the shape of its result; the view and the module read the class.
+
+/** A function of the module that a member of an exported class runs: its host signature, and
+ *  what the call does with the instance. */
+interface MemberCall {
+  /** The IR function: `OnePole_tick`, `OnePole_get_gain`, `OnePole_new`. */
+  readonly fn: string;
+  readonly params: readonly { readonly name: string; readonly type: HostType }[];
+  readonly result: HostType;
+  /** It takes its object by reference (Rule 8.10), so the call writes the instance back. */
+  readonly writes: boolean;
+  /** Every `return` is `return this` (Rule 8.10), so the call returns the instance itself. */
+  readonly self: boolean;
+}
+
+/** Why a host cannot call a member (Rule 8.20, D3): the member is declared `never`. */
+interface Refused {
+  readonly reason: string;
+}
+
+/** A member of an exported class: a method, a field that holds a function among them (Rule
+ *  8.16), or an accessor property, each part with its call or the reason it has none. */
+type ClassMember =
+  | {
+      readonly kind: 'method';
+      readonly name: string;
+      readonly static: boolean;
+      readonly abstract: boolean;
+      readonly call: MemberCall | Refused;
+    }
+  | {
+      readonly kind: 'accessor';
+      readonly name: string;
+      readonly static: boolean;
+      readonly abstract: boolean;
+      readonly get?: MemberCall;
+      readonly set?: MemberCall;
+      readonly reason?: string;
+    };
+
+/** A field of an exported class as the view declares it. */
+interface ClassField {
+  readonly name: string;
+  readonly type: HostType;
+  readonly access?: 'private' | 'protected';
+  readonly readonly: boolean;
+}
+
+/** An exported class a host builds with `new` (Rules 8.20 and 8.21). */
+interface ClassExport {
+  readonly kind: 'class';
+  readonly name: string;
+  /** The struct, whose host value an instance is. */
+  readonly type: HostType & { k: 'struct' };
+  readonly abstract: boolean;
+  /** The structs of the classes it extends, nearest first (Rule 8.9). */
+  readonly bases: readonly string[];
+  readonly fields: readonly ClassField[];
+  /** How `new` builds an instance: the constructor's function, the zero struct for a class with
+   *  none, as `new` gives it in the module (surface §26), or why a host cannot (D3). Absent on
+   *  an abstract class, which has no instance of its own. */
+  readonly ctor?: MemberCall | { readonly zero: CpuValue } | Refused;
+  readonly members: readonly ClassMember[];
+}
+
+/** A class with a field that has no host value (D4): a type of the host face, with each field
+ *  typed by its host value, `never` where it has none, and no value. */
+interface ShapeExport {
+  readonly kind: 'shape';
+  readonly name: string;
+  readonly reason: string;
+  readonly fields: readonly (readonly [string, HostType | undefined])[];
+}
+
+/** An export as the view and the module are built from it. */
+type FaceExport = HostExport | ClassExport | ShapeExport;
+
+/** An export as `HostFace.exports` reports it: a class as its struct, and a class whose struct
+ *  has no host value as an export of a type alone. */
+function reported(e: FaceExport): HostExport {
+  if (e.kind === 'class') return { kind: 'struct', name: e.name, type: e.type };
+  if (e.kind === 'shape') return { kind: 'never', name: e.name, reason: e.reason, typeOnly: true };
+  return e;
+}
+
 // ─── reasons (Rule 8.20) ─────────────────────────────────────────────────────────────────────
 
 const GPU_HALF = 'an entry takes it as a binding instead (Rule 8.24)';
@@ -234,6 +340,8 @@ const REASON = {
   reexport: 'a shader module is one file (TS8004), so it re-exports nothing',
   generic_type: 'it is generic, and its struct exists only as the instances the module uses',
   notStruct: 'it is not a struct, and a host view names a struct only',
+  abstract:
+    'it is abstract, so there is no instance of it to build; construct a class that extends it',
   unknown: 'the host view does not describe this kind of export',
 } as const;
 
@@ -351,8 +459,45 @@ function resultType(t: HostType, named: ReadonlyMap<string, string>): string {
   }
 }
 
-function structBody(t: HostType & { k: 'struct' }, named: ReadonlyMap<string, string>): string {
-  return `{ ${t.f.map(([n, ft]) => `${n}: ${resultType(ft, named)}`).join('; ')} }`;
+/** The body of a type of fields, each with the spelling of its type: one line, or, when the author
+ *  commented a field (change 0108), each field on its own line below its comment. */
+function fieldsBody(
+  fields: readonly (readonly [string, string])[],
+  fieldDocs?: ReadonlyMap<string, readonly DocBlock[]>,
+): string {
+  if (fieldDocs === undefined || !fields.some(([n]) => fieldDocs.has(n)))
+    return `{ ${fields.map(([n, t]) => `${n}: ${t}`).join('; ')} }`;
+  const lines = fields.flatMap(([n, t]) => [
+    ...commentLines(fieldDocs.get(n) ?? [], undefined, '  '),
+    `  ${n}: ${t};`,
+  ]);
+  return `{\n${lines.join('\n')}\n}`;
+}
+
+function structBody(
+  t: HostType & { k: 'struct' },
+  named: ReadonlyMap<string, string>,
+  fieldDocs?: ReadonlyMap<string, readonly DocBlock[]>,
+): string {
+  return fieldsBody(
+    t.f.map(([n, ft]) => [n, resultType(ft, named)] as const),
+    fieldDocs,
+  );
+}
+
+/** The type of an `enum`'s value: one line, or, when the author commented a member (change 0108),
+ *  each member on its own line below its comment. */
+function enumBody(
+  members: readonly (readonly [string, number])[],
+  memberDocs?: ReadonlyMap<string, readonly DocBlock[]>,
+): string {
+  if (memberDocs === undefined || !members.some(([n]) => memberDocs.has(n)))
+    return `{ ${members.map(([n, v]) => `readonly ${n}: ${v}`).join('; ')}; readonly [value: number]: string }`;
+  const lines = members.flatMap(([n, v]) => [
+    ...commentLines(memberDocs.get(n) ?? [], undefined, '  '),
+    `  readonly ${n}: ${v};`,
+  ]);
+  return `{\n${lines.join('\n')}\n  readonly [value: number]: string;\n}`;
 }
 
 /** `T` as the element of `T[]`, parenthesized when it would bind wrong. */
@@ -615,8 +760,16 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     return undefined;
   };
 
-  const exports: HostExport[] = [];
+  const exports: FaceExport[] = [];
+  // The author's JSDoc of each export, which the view carries (change 0108).
+  const docs = new Map<string, ExportDocs>();
+  const declaredAt = topLevelDeclarations(faceSource);
   for (const ref of exportsOf(faceSource)) {
+    const written =
+      ref.decl === undefined
+        ? undefined
+        : exportDocs(ref.decl, faceSource, declaredAt, linked?.linked);
+    if (written !== undefined) docs.set(ref.name, written);
     exports.push(
       faceOf(ref, {
         sf: faceSource,
@@ -653,6 +806,8 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
   const keep = new Set<string>();
   for (const e of exports) {
     if (e.kind === 'function') for (const g of closureOf(e.fn, callees)) keep.add(g);
+    if (e.kind === 'class')
+      for (const call of classCalls(e)) for (const g of closureOf(call.fn, callees)) keep.add(g);
     if ((e.kind === 'compute' || e.kind === 'fragment') && e.entry.noCpu === undefined)
       for (const g of closureOf(e.entry.fn, callees)) keep.add(g);
     if (e.kind === 'kernel') {
@@ -666,18 +821,21 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     { precision: 'f32' },
   );
   const fallbacks = new Set(gen.fallbacks);
-  const final = exports.map((e): HostExport => {
+  const generated = (fn: string): boolean =>
+    ![...closureOf(fn, callees)].some((g) => fallbacks.has(g));
+  const final = exports.map((e): FaceExport => {
     if (e.kind === 'function') {
-      for (const g of closureOf(e.fn, callees))
-        if (fallbacks.has(g)) return { kind: 'never', name: e.name, reason: REASON.fallback };
+      if (!generated(e.fn)) return { kind: 'never', name: e.name, reason: REASON.fallback };
       return e;
     }
+    // A member whose code the CPU tier cannot generate is declared never, as a function is.
+    if (e.kind === 'class') return generatedClass(e, generated);
     if (e.kind !== 'compute' && e.kind !== 'fragment') return e;
     if (e.entry.noCpu !== undefined) return e;
     // An entry whose code the CPU tier cannot generate still runs on the GPU.
     for (const g of closureOf(e.entry.fn, callees))
       if (fallbacks.has(g))
-        return { ...e, entry: { ...e.entry, noCpu: REASON.fallback } } as HostExport;
+        return { ...e, entry: { ...e.entry, noCpu: REASON.fallback } } as FaceExport;
     return e;
   });
 
@@ -706,9 +864,9 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
       );
       const reaches = (fn: string): boolean =>
         [...closureOf(fn, rCallees)].some((g) => rTouched.get(g)?.has(CONSOLE_NAMES.binding));
-      logged = final.map((e): HostExport => {
+      logged = final.map((e): FaceExport => {
         if ((e.kind === 'compute' || e.kind === 'fragment') && reaches(e.entry.fn))
-          return { ...e, entry: { ...e.entry, console: true } } as HostExport;
+          return { ...e, entry: { ...e.entry, console: true } } as FaceExport;
         return e;
       });
     }
@@ -737,8 +895,8 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
   );
   return {
     diagnostics: r.diagnostics,
-    exports: logged,
-    view: viewText(stem, logged, options.runtime ?? 'typeshade/runtime/internal', pack),
+    exports: logged.map(reported),
+    view: viewText(stem, logged, options.runtime ?? 'typeshade/runtime/internal', pack, docs),
     code: moduleText(
       stem,
       logged,
@@ -1746,7 +1904,7 @@ function isFunctionType(t: ts.TypeNode | undefined, sf: ts.SourceFile): boolean 
   return false;
 }
 
-function faceOf(ref: ExportRef, c: FaceCtx): HostExport {
+function faceOf(ref: ExportRef, c: FaceCtx): FaceExport {
   const { name, decl } = ref;
   if (decl === undefined) return never(name, ref.missing ?? REASON.unknown);
 
@@ -1832,6 +1990,12 @@ function faceOf(ref: ExportRef, c: FaceCtx): HostExport {
     if (decl.typeParameters !== undefined && decl.typeParameters.length > 0)
       return never(name, REASON.generic_type, typeOnly);
     const local = decl.name!.text;
+    // A class is a value (change 0109), a class of static functions alone too, which the module
+    // keeps as a namespace until something builds one (Rule 8.9).
+    if (ts.isClassDeclaration(decl)) {
+      const cls = c.collected.find((x) => x.decl.name === local);
+      return cls === undefined ? never(name, REASON.notStruct) : classFace(name, decl, cls, c);
+    }
     const s = c.collected.find((x) => x.decl.name === local && x.namespace !== true);
     if (s === undefined) return never(name, REASON.notStruct, typeOnly);
     const t = hostTypeOf({ kind: 'struct', name: local }, c.structs);
@@ -1841,6 +2005,272 @@ function faceOf(ref: ExportRef, c: FaceCtx): HostExport {
 
   if (ts.isModuleDeclaration(decl)) return never(name, REASON.namespace);
   return never(name, REASON.unknown);
+}
+
+// ─── an exported class (change 0109) ─────────────────────────────────────────────────────────
+
+/** `cls` and the classes it extends, nearest first, as far as the file declares them. */
+function classChain(cls: ts.ClassDeclaration): ts.ClassDeclaration[] {
+  const out: ts.ClassDeclaration[] = [];
+  let at: ts.ClassDeclaration | undefined = cls;
+  while (at !== undefined && !out.includes(at)) {
+    out.push(at);
+    at = baseClassOf(at);
+  }
+  return out;
+}
+
+/** Whether a member is generic in the sense of Rule 8.20: its type parameters are its own, and
+ *  not those of a static whose `this` parameter names the class a call builds (Rule 8.13). */
+const isGenericMember = (f: ts.SignatureDeclaration): boolean =>
+  (f.typeParameters?.length ?? 0) > 0 &&
+  !f.parameters.some((p) => ts.isIdentifier(p.name) && p.name.text === 'this');
+
+/**
+ * The call a member of an exported class runs, or why a host cannot call it (Rule 8.20, D3): the
+ * function must exist, take no function and no reference, have a host value for each parameter
+ * and for its result, and reach no binding, no workgroup variable and no builtin only a GPU
+ * computes. `instance` says its first parameter is the object (`self_`), which the call passes.
+ */
+function memberCall(
+  fn: string,
+  node: ts.SignatureDeclaration | undefined,
+  instance: boolean,
+  self: boolean,
+  c: FaceCtx,
+): MemberCall | Refused {
+  if (node !== undefined && isGenericMember(node)) return { reason: REASON.generic };
+  if (node?.parameters.some((p) => isFunctionType(p.type, c.sf)))
+    return { reason: REASON.takesFunction };
+  const f = c.byName.get(fn);
+  if (f === undefined) return { reason: REASON.notLowered };
+  const params: { name: string; type: HostType }[] = [];
+  for (const p of instance ? f.params.slice(1) : f.params) {
+    if (p.mode === 'inout') return { reason: REASON.reference(p.name) };
+    const t = hostTypeOf(p.type, c.structs);
+    if ('none' in t) return { reason: `parameter "${p.name}": ${t.none}` };
+    if (t.k === 'void') return { reason: `parameter "${p.name}" is void` };
+    params.push({ name: p.name, type: t });
+  }
+  const result = hostTypeOf(f.ret, c.structs);
+  if ('none' in result) return { reason: `its result: ${result.none}` };
+  const problem = c.reachProblem(f.name);
+  if (problem !== undefined) return { reason: problem };
+  const object = instance ? f.params[0] : undefined;
+  // A body that returns `this` as its own class hands back the object it ran on.
+  const own =
+    object?.type.kind === 'struct' && f.ret.kind === 'struct' && f.ret.name === object.type.name;
+  return { fn: f.name, params, result, writes: object?.mode === 'inout', self: self && own };
+}
+
+/** The first concrete struct that extends `struct`, whose functions run an abstract class's
+ *  bodies (Rule 8.9): an abstract class has none of its own. */
+function concreteBelow(struct: string, c: FaceCtx): string | undefined {
+  const byName = new Map(c.collected.map((x) => [x.decl.name, x]));
+  return c.collected.find((x) => {
+    if (x.abstract === true || x.namespace === true) return false;
+    const seen = new Set<string>();
+    for (
+      let at = x.bases?.[0];
+      at !== undefined && !seen.has(at);
+      at = byName.get(at)?.bases?.[0]
+    ) {
+      if (at === struct) return true;
+      seen.add(at);
+    }
+    return false;
+  })?.decl.name;
+}
+
+/** The members of an exported class a host reaches: each public method, field that holds a
+ *  function (Rule 8.16), accessor and static function of the class and of the classes it
+ *  extends, the nearest declaration of each name first, as TypeScript resolves it. A private or
+ *  protected member is the class's own (Rules 8.12 and 8.15). Each runs the function lowered for
+ *  this class (`Circle_area`, an inherited body lowered again for it), so a call dispatches as
+ *  TypeScript does; an abstract class runs the functions of a class below it, for their types. */
+function classMembers(
+  decl: ts.ClassDeclaration,
+  struct: CollectedStruct,
+  c: FaceCtx,
+): ClassMember[] {
+  const own = struct.decl.name;
+  const below = struct.abstract === true ? concreteBelow(own, c) : own;
+  const out: ClassMember[] = [];
+  const seen = new Set<string>();
+  for (const cls of classChain(decl)) {
+    for (const m of cls.members) {
+      if (m.name === undefined) continue;
+      const written = writtenMemberName(m.name);
+      if (written === undefined) continue;
+      const isStatic = isStaticMember(m);
+      const accessor = ts.isGetAccessorDeclaration(m) || ts.isSetAccessorDeclaration(m);
+      const holder = ts.isPropertyDeclaration(m) && holdsFunction(m) && !isStatic;
+      // A field is the struct's, and a static field a constant of the module.
+      if (!ts.isMethodDeclaration(m) && !accessor && !holder) continue;
+      const abstract = hasModifier(m, ts.SyntaxKind.AbstractKeyword);
+      // An overload signature: the declaration with the body is the member.
+      if (ts.isMethodDeclaration(m) && m.body === undefined && !abstract) continue;
+      const key = `${isStatic ? 'static ' : ''}${written}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (isPrivateName(written) || keywordAccessOf(m) !== undefined) continue;
+      // An abstract member is a body a class below supplies; only an abstract class declares it.
+      if (abstract && struct.abstract !== true) continue;
+      // A static is lowered for each class that has it (Rule 8.13); an instance member of an
+      // abstract class only for the classes below it.
+      const owner = isStatic ? own : below;
+      const isAbstract = abstract && struct.abstract === true;
+      if (accessor) {
+        const halves = cls.members.filter(
+          (x): x is ts.AccessorDeclaration =>
+            (ts.isGetAccessorDeclaration(x) || ts.isSetAccessorDeclaration(x)) &&
+            isStaticMember(x) === isStatic &&
+            writtenMemberName(x.name) === written,
+        );
+        const parts: { get?: MemberCall; set?: MemberCall } = {};
+        let reason: string | undefined;
+        for (const h of halves) {
+          const half = ts.isGetAccessorDeclaration(h) ? 'get' : 'set';
+          const call =
+            owner === undefined
+              ? { reason: REASON.notLowered }
+              : memberCall(accessorFnName(owner, half, written), h, !isStatic, false, c);
+          if ('reason' in call) reason ??= call.reason;
+          else parts[half] = call;
+        }
+        out.push({
+          kind: 'accessor',
+          name: written,
+          static: isStatic,
+          abstract: isAbstract,
+          ...(reason === undefined ? parts : { reason }),
+        });
+        continue;
+      }
+      const fn = holder ? (m.initializer as ts.ArrowFunction | ts.FunctionExpression) : m;
+      const self = !isStatic && ts.isMethodDeclaration(m) && returnsThis(m.body);
+      const call =
+        owner === undefined
+          ? { reason: REASON.notLowered }
+          : memberCall(
+              methodFnName(owner, emittedMemberName(written)),
+              fn as ts.SignatureDeclaration,
+              !isStatic,
+              self,
+              c,
+            );
+      out.push({ kind: 'method', name: written, static: isStatic, abstract: isAbstract, call });
+    }
+  }
+  return out;
+}
+
+/** The face of an exported class (change 0109): a value whose constructor, methods, accessors
+ *  and static functions are admitted member by member (Rule 8.20, D3), or, when a field of its
+ *  struct has no host value (Rule 8.21), a type alone with the reason (D4). */
+function classFace(
+  name: string,
+  decl: ts.ClassDeclaration,
+  struct: CollectedStruct,
+  c: FaceCtx,
+): FaceExport {
+  const local = struct.decl.name;
+  const t: HostType | { readonly none: string } =
+    struct.namespace === true
+      ? { k: 'struct', f: [], s: local }
+      : hostTypeOf({ kind: 'struct', name: local }, c.structs);
+  if ('none' in t) {
+    const fields = struct.decl.fields.map((f): readonly [string, HostType | undefined] => {
+      const ft = hostTypeOf(f.type, c.structs);
+      return [f.name, 'none' in ft ? undefined : ft];
+    });
+    return { kind: 'shape', name, reason: t.none, fields };
+  }
+  const type = t as HostType & { k: 'struct' };
+  const fields = type.f.map(([field, ft]): ClassField => {
+    // A private name `#x` is the field `x` (Rule 8.12), and the view keeps it private.
+    const written = struct.privateFields?.get(field)?.written ?? field;
+    const at = memberDeclarationInChain(decl, written, false);
+    const access = isPrivateName(written)
+      ? 'private'
+      : at === undefined
+        ? undefined
+        : keywordAccessOf(at);
+    return {
+      name: field,
+      type: ft,
+      ...(access !== undefined ? { access } : {}),
+      readonly: at !== undefined && isReadonlyMember(at),
+    };
+  });
+  const bases: string[] = [];
+  for (
+    let at = struct.bases?.[0];
+    at !== undefined && at !== local && !bases.includes(at);
+    at = c.collected.find((x) => x.decl.name === at)?.bases?.[0]
+  )
+    bases.push(at);
+  const abstract = struct.abstract === true;
+  let ctor: ClassExport['ctor'];
+  if (!abstract) {
+    // The constructor the class runs: its own, or the nearest a class above it declares.
+    const written = classChain(decl)
+      .flatMap((k) => k.members.filter(ts.isConstructorDeclaration))
+      .find((k) => k.body !== undefined);
+    const fn = ctorFnName(local);
+    // A class with no constructor, no field initializer and no `new` in the module has no
+    // constructor function: `new` builds the zero struct, as the module's own `new` does.
+    ctor =
+      written === undefined && !c.byName.has(fn)
+        ? { zero: zeroOf({ kind: 'struct', name: local }, c.structs) }
+        : memberCall(fn, written, false, false, c);
+  }
+  return {
+    kind: 'class',
+    name,
+    type,
+    abstract,
+    bases,
+    fields,
+    ...(ctor !== undefined ? { ctor } : {}),
+    members: classMembers(decl, struct, c),
+  };
+}
+
+/** Every call the generated class makes: its constructor's and each member's that a host can
+ *  call. An abstract class makes its static ones alone, since its instance members' functions
+ *  are those of a class below it. */
+function classCalls(e: ClassExport): MemberCall[] {
+  const out: MemberCall[] = [];
+  if (e.ctor !== undefined && 'fn' in e.ctor) out.push(e.ctor);
+  for (const m of e.members) {
+    if (e.abstract && !m.static) continue;
+    if (m.kind === 'method' && 'fn' in m.call) out.push(m.call);
+    if (m.kind === 'accessor') for (const h of [m.get, m.set]) if (h !== undefined) out.push(h);
+  }
+  return out;
+}
+
+/** `e` with each call whose code the CPU tier cannot generate refused, as a function's is. */
+function generatedClass(e: ClassExport, generated: (fn: string) => boolean): ClassExport {
+  const ok = <T extends MemberCall | Refused>(call: T): T | Refused =>
+    'fn' in call && !generated(call.fn) ? { reason: REASON.fallback } : call;
+  const members = e.members.map((m): ClassMember => {
+    if (m.kind === 'method') return { ...m, call: ok(m.call) };
+    const halves = [m.get, m.set].filter((h): h is MemberCall => h !== undefined);
+    const lost = halves.find((h) => !generated(h.fn));
+    return lost === undefined
+      ? m
+      : {
+          kind: 'accessor',
+          name: m.name,
+          static: m.static,
+          abstract: m.abstract,
+          reason: REASON.fallback,
+        };
+  });
+  const ctor = e.ctor === undefined || !('fn' in e.ctor) ? e.ctor : ok(e.ctor);
+  return { ...e, ...(ctor !== undefined ? { ctor } : {}), members };
 }
 
 // ─── the host view ───────────────────────────────────────────────────────────────────────────
@@ -1907,16 +2337,26 @@ function programType(pack: Pack): string {
 const WORKGROUPS =
   'number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }';
 
+/** What a call made without `await` is, which the sentence of a kernel function and of a `@compute`
+ *  entry say where the developer reads (change 0108; Rule 11.8). `written` names what the call
+ *  writes. */
+const queuedCall = (written: 'arrays' | 'bindings'): string =>
+  `A call whose written ${written} are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.`;
+
 function viewText(
   stem: string,
-  exports: readonly HostExport[],
+  exports: readonly FaceExport[],
   runtime: string,
   pack: Pack,
+  docs: ReadonlyMap<string, ExportDocs>,
 ): string {
   const program = programType(pack);
-  // An exported struct goes by its exported name wherever it stands in a result.
+  // An exported struct goes by its exported name wherever it stands in a result, and so does
+  // an exported class, whose instance a result is (change 0109); an abstract class has no
+  // instance, so its struct stays an object of its fields.
   const named = new Map<string, string>();
-  for (const e of exports) if (e.kind === 'struct') named.set(e.type.s, e.name);
+  for (const e of exports)
+    if (e.kind === 'struct' || (e.kind === 'class' && !e.abstract)) named.set(e.type.s, e.name);
   const out: string[] = [header(stem)];
   // A kernel function takes a `Resident` wherever it takes an array, and an entry wherever it
   // takes a storage array with no size (Rule 11.8); a `@compute` entry takes one for its
@@ -1942,31 +2382,57 @@ function viewText(
   )
     out.push(`import type { Texture } from ${JSON.stringify(runtime)};`);
   for (const e of exports) {
+    // The comment above an export: the author's JSDoc, and the view's own sentence, if it writes
+    // one, at the end of the last block (change 0108).
+    const doc = docs.get(e.name);
+    const above = (sentence?: string): string[] => commentLines(doc?.blocks ?? [], sentence);
     switch (e.kind) {
       case 'function': {
         const params = e.params.map((p) => `${p.name}: ${argType(p.type)}`).join(', ');
-        out.push(`export declare function ${e.name}(${params}): ${resultType(e.result, named)};`);
+        out.push(
+          ...above(),
+          `export declare function ${e.name}(${params}): ${resultType(e.result, named)};`,
+        );
         break;
       }
       case 'const':
-        out.push(`export declare const ${e.name}: ${constType(e.type)};`);
+        out.push(...above(), `export declare const ${e.name}: ${constType(e.type)};`);
         break;
       case 'enum': {
-        const members = e.members.map(([n, v]) => `readonly ${n}: ${v}`).join('; ');
         const values = [...new Set(e.members.map(([, v]) => v))].join(' | ') || 'never';
         out.push(
-          `export declare const ${e.name}: { ${members}; readonly [value: number]: string };`,
+          ...above(),
+          `export declare const ${e.name}: ${enumBody(e.members, doc?.members)};`,
           `export type ${e.name} = ${values};`,
         );
         break;
       }
       case 'struct':
-        out.push(`export interface ${e.name} ${structBody(e.type, named)}`);
+        out.push(
+          ...above(),
+          `export interface ${e.name} ${structBody(e.type, named, doc?.members)}`,
+        );
+        break;
+      case 'class':
+        out.push(...classView(e, exports, named, doc));
+        break;
+      case 'shape':
+        out.push(
+          ...above(`A type with no host value (Rule 8.21): ${e.reason}.`),
+          `export interface ${e.name} ${fieldsBody(
+            e.fields.map(
+              ([n, t]) => [n, t === undefined ? 'never' : resultType(t, named)] as const,
+            ),
+            doc?.members,
+          )}`,
+        );
         break;
       case 'compute': {
         const [x, y, z] = e.entry.wg;
         out.push(
-          `/** A \`@compute\` entry, \`@workgroup_size(${x}, ${y}, ${z})\`: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Resident a call wrote (change 0075); each binding the entry writes is read back into your value in place, or stays on the device in a Resident. The shape shown is its default; options.constants selects declared overrides without changing workgroups (Rules 8.24 and 11.8). */`,
+          ...above(
+            `A \`@compute\` entry, \`@workgroup_size(${x}, ${y}, ${z})\`: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Resident a call wrote (change 0075); each binding the entry writes is read back into your value in place, or stays on the device in a Resident. The shape shown is its default; options.constants selects declared overrides without changing workgroups (Rules 8.24 and 11.8). ${queuedCall('bindings')}`,
+          ),
           ...(e.queuedType !== undefined
             ? [
                 `export declare function ${e.name}(bindings: ${e.queuedType}, workgroups: ${WORKGROUPS}, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): void;`,
@@ -2018,7 +2484,9 @@ function viewText(
             ? " A loop whose trip count it reads from an array runs from a count the GPU computes, with nothing read back, and its writes past an array's end are dropped (Rule 8.21)."
             : '';
         out.push(
-          `/** A kernel function (Rule 8.22). ${where}. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8).${counted}${pushes} */`,
+          ...above(
+            `A kernel function (Rule 8.22). ${where}. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8).${counted}${pushes} ${queuedCall('arrays')}`,
+          ),
         );
         // With every written array a `Resident` and no result, nothing waits: the call queues.
         if (f.result.k === 'void' && f.params.some((p) => p.k === 'array' && p.writes))
@@ -2030,12 +2498,14 @@ function viewText(
       }
       case 'fragment':
         out.push(
-          `/** A full-screen \`@fragment\` entry: draws one frame into \`target\`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24). */`,
+          ...above(
+            `A full-screen \`@fragment\` entry: draws one frame into \`target\`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24).`,
+          ),
           `export declare function ${e.name}(target: HTMLCanvasElement | OffscreenCanvas, bindings: ${e.bindingsType}): Promise<void>;`,
         );
         break;
       case 'never': {
-        out.push(`/** Not callable from host code (Rule 8.20): ${e.reason}. */`);
+        out.push(...above(`Not callable from host code (Rule 8.20): ${e.reason}.`));
         if (e.typeOnly) out.push(`export type ${e.name} = never;`);
         else out.push(`export declare const ${e.name}: never;`);
         break;
@@ -2048,6 +2518,124 @@ function viewText(
     'export default program;',
   );
   return `${out.join('\n')}\n`;
+}
+
+/** The class an exported class extends in the view and in the module: the nearest class above
+ *  it that is exported as a class too (D2). */
+function baseClass(
+  e: ClassExport,
+  exports: readonly FaceExport[],
+): (FaceExport & { kind: 'class' }) | undefined {
+  for (const struct of e.bases) {
+    const found = exports.find(
+      (x): x is FaceExport & { kind: 'class' } => x.kind === 'class' && x.type.s === struct,
+    );
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+/** The view's lines of each member of an exported class, by the name and whether it is static:
+ *  its signature in host types, or `never` with the reason (Rule 8.20, D3). */
+function memberLines(
+  e: ClassExport,
+  named: ReadonlyMap<string, string>,
+): Map<string, { readonly kind: string; readonly lines: string[] }> {
+  const out = new Map<string, { readonly kind: string; readonly lines: string[] }>();
+  const params = (call: MemberCall): string =>
+    call.params.map((p) => `${p.name}: ${argType(p.type)}`).join(', ');
+  const refused = (head: string, reason: string): string[] => [
+    `  /** Not callable from host code (Rule 8.20): ${reason}. */`,
+    `  ${head}: never;`,
+  ];
+  for (const m of e.members) {
+    const lead = `${m.abstract ? 'abstract ' : ''}${m.static ? 'static ' : ''}`;
+    const key = `${m.static ? 'static ' : ''}${m.name}`;
+    if (m.kind === 'method') {
+      const call = m.call;
+      out.set(
+        key,
+        'reason' in call
+          ? { kind: 'never', lines: refused(`${m.static ? 'static ' : ''}${m.name}`, call.reason) }
+          : {
+              kind: 'method',
+              lines: [
+                `  ${lead}${m.name}(${params(call)}): ${call.self ? e.name : resultType(call.result, named)};`,
+              ],
+            },
+      );
+      continue;
+    }
+    if (m.reason !== undefined) {
+      out.set(key, {
+        kind: 'never',
+        lines: refused(`${m.static ? 'static ' : ''}${m.name}`, m.reason),
+      });
+      continue;
+    }
+    const lines: string[] = [];
+    if (m.get !== undefined)
+      lines.push(`  ${lead}get ${m.name}(): ${resultType(m.get.result, named)};`);
+    if (m.set !== undefined) {
+      const p = m.set.params[0];
+      lines.push(
+        `  ${lead}set ${m.name}(${p === undefined ? '' : `${p.name}: ${argType(p.type)}`});`,
+      );
+    }
+    out.set(key, { kind: 'accessor', lines });
+  }
+  return out;
+}
+
+/** The declaration of an exported class in the view (change 0109): `export declare class`, or
+ *  `abstract class`, with its constructor, its fields and its members in host types, and its
+ *  `extends` when the class above it is exported as a class too (D2). A class below declares
+ *  what it adds or changes; one whose member would change the kind of the one above it (a method
+ *  where the class above is `never`) is declared whole, with no `extends`. */
+function classView(
+  e: ClassExport,
+  exports: readonly FaceExport[],
+  named: ReadonlyMap<string, string>,
+  doc?: ExportDocs,
+): string[] {
+  const own = memberLines(e, named);
+  let base = baseClass(e, exports);
+  const above = base === undefined ? new Map() : memberLines(base, named);
+  for (const [key, m] of own) {
+    const was = above.get(key);
+    if (was !== undefined && was.kind !== m.kind) base = undefined;
+  }
+  const lines: string[] = [];
+  const ctor = e.ctor;
+  if (ctor !== undefined) {
+    if ('reason' in ctor)
+      lines.push(
+        `  /** Not callable from host code (Rule 8.20): ${ctor.reason}. */`,
+        '  protected constructor();',
+      );
+    else
+      lines.push(
+        `  constructor(${'fn' in ctor ? ctor.params.map((p) => `${p.name}: ${argType(p.type)}`).join(', ') : ''});`,
+      );
+  }
+  const inherited = new Set(base?.type.f.map(([n]) => n) ?? []);
+  for (const f of e.fields)
+    if (!inherited.has(f.name))
+      lines.push(
+        // The author's comment of a field stands on its line (change 0108); a method, a
+        // constructor and an accessor keep the lines this change declares.
+        ...commentLines(doc?.members.get(f.name) ?? [], undefined, '  '),
+        `  ${f.access !== undefined ? `${f.access} ` : ''}${f.readonly ? 'readonly ' : ''}${f.name}: ${resultType(f.type, named)};`,
+      );
+  for (const [key, m] of own)
+    if (base === undefined || above.get(key)?.lines.join('\n') !== m.lines.join('\n'))
+      lines.push(...m.lines);
+  return [
+    ...commentLines(doc?.blocks ?? []),
+    `export declare ${e.abstract ? 'abstract ' : ''}class ${e.name}${base !== undefined ? ` extends ${base.name}` : ''} {`,
+    ...lines,
+    '}',
+  ];
 }
 
 /** A constant's host type: read-only at every level, since the host gets a frozen copy. */
@@ -2073,7 +2661,7 @@ const MOD = '__ts_m';
  *  these. */
 function moduleText(
   stem: string,
-  exports: readonly HostExport[],
+  exports: readonly FaceExport[],
   gen: ReturnType<typeof generateModuleJs>,
   runtime: string,
   wgsl: string,
@@ -2086,6 +2674,11 @@ function moduleText(
   const constTable = consts.map((e) => `${q(e.const)}: ${gen.constIds.get(e.const)}`).join(', ');
   const hasPrivates = gen.fns.some((f) => f.startsWith('"$initPrivates"'));
   const specializes = pack.overrides.length !== 0 && exports.some((e) => e.kind === 'compute');
+  // A struct a result holds is an instance of its class when the class is exported (D1): the
+  // conversion is handed the classes' prototypes, `__ts_P`, which the module builds last.
+  const classes = exports.filter((e): e is FaceExport & { kind: 'class' } => e.kind === 'class');
+  const outOf = classes.length > 0 ? 'fromShaderIn' : 'fromShader';
+  const protos = classes.length > 0 ? ', __ts_P' : '';
   const out: string[] = [
     header(stem),
     `import * as ${RT} from ${q(runtime)};`,
@@ -2152,7 +2745,7 @@ function moduleText(
               ? [`const ${args.map((a, i) => `${held[i]} = ${a}`).join(', ')};`]
               : []),
             ...(hasPrivates ? [`${MOD}.F.$initPrivates();`] : []),
-            `return ${RT}.fromShader(${ret}, ${MOD}.F[${q(e.fn)}](${held.join(', ')}));`,
+            `return ${RT}.${outOf}(${ret}, ${MOD}.F[${q(e.fn)}](${held.join(', ')})${protos});`,
           ]),
         );
         break;
@@ -2169,6 +2762,8 @@ function moduleText(
         break;
       }
       case 'struct':
+      case 'class':
+      case 'shape':
         break;
       case 'compute': {
         const id = `__ts_e${t++}`;
@@ -2215,8 +2810,125 @@ function moduleText(
         break;
     }
   }
+  if (classes.length > 0) out.push(...classModule(classes, exports, bind));
   if (bound.length > 0) out.push(`export { ${bound.join(', ')} };`);
   return `${out.join('\n')}\n`;
+}
+
+/** The JavaScript classes of the module's exported classes (change 0109), each bound under a
+ *  name of the generator's own and exported under the file's, a class above another first.
+ *
+ *  An instance's fields are its own properties, each a host value. The constructor, each method,
+ *  each accessor half and each static function calls `callMember` with what it needs to check
+ *  and convert, run on the CPU tier and write back (`typeshade/runtime/internal`). A class below
+ *  another extends its JavaScript class, so `instanceof` holds along the chain (D2), and runs
+ *  its own constructor's function, which runs the classes above it as the module does: its
+ *  `super` hands the class above `__ts_skip`, which builds nothing. A member a host cannot call
+ *  throws the reason the view gives it (D3), and so does `new` of an abstract class. The class
+ *  bodies read no name but the generator's own (`__ts_`), and bind none: each class is the value
+ *  of a property named as the file names it, so it carries that name with no binding of it. */
+function classModule(
+  classes: readonly ClassExport[],
+  exports: readonly FaceExport[],
+  bind: (name: string) => string,
+): string[] {
+  const q = (s: string): string => JSON.stringify(s);
+  const out: string[] = ['const __ts_skip = {};'];
+  const ids = new Map<ClassExport, string>();
+  let n = 0;
+  const spec = (fields: readonly string[]): string => {
+    const id = `__ts_c${n++}`;
+    out.push(`const ${id} = { ${fields.join(', ')} };`);
+    return id;
+  };
+  const refusal = (name: string, reason: string): string => {
+    const id = `__ts_c${n++}`;
+    out.push(`const ${id} = /*#__PURE__*/ ${RT}.notCallable(${q(name)}, ${q(reason)});`);
+    return id;
+  };
+  const call = (call: MemberCall, shown: string, object: string | undefined): string =>
+    spec([
+      `n: ${q(shown)}`,
+      `fn: ${q(call.fn)}`,
+      `p: ${JSON.stringify(call.params.map((p) => [p.name, p.type]))}`,
+      `r: ${JSON.stringify(call.result)}`,
+      ...(object !== undefined ? [`o: ${object}`] : []),
+      ...(call.writes ? ['w: 1'] : []),
+      ...(call.self ? ['s: 1'] : []),
+    ]);
+  const run = (id: string, self: string, args: string): string =>
+    `${RT}.callMember(${MOD}, __ts_P, ${id}, ${self}, ${args})`;
+  const bases = new Set(classes.map((e) => baseClass(e, exports)).filter((b) => b !== undefined));
+  const emit = (e: ClassExport): void => {
+    if (ids.has(e)) return;
+    const base = baseClass(e, exports);
+    if (base !== undefined) emit(base);
+    const object = `__ts_o${ids.size}`;
+    out.push(`const ${object} = ${JSON.stringify(e.type)};`);
+    const body: string[] = [];
+    // The constructor: the class above builds nothing, then this one builds the instance, unless
+    // a class below is building it.
+    const head = [
+      ...(base !== undefined ? ['super(__ts_skip);'] : []),
+      ...(bases.has(e) ? ['if (arguments[0] === __ts_skip) return;'] : []),
+    ];
+    const ctor = e.ctor;
+    const built =
+      ctor === undefined
+        ? `${refusal(`new ${e.name}`, REASON.abstract)}();`
+        : 'reason' in ctor
+          ? `${refusal(`new ${e.name}`, ctor.reason)}();`
+          : 'zero' in ctor
+            ? `${run(spec([`n: ${q(`new ${e.name}`)}`, 'p: []', `o: ${object}`, 'c: 1', `z: ${JSON.stringify(ctor.zero)}`]), 'this', 'arguments')};`
+            : `${run(spec([`n: ${q(`new ${e.name}`)}`, `fn: ${q(ctor.fn)}`, `p: ${JSON.stringify(ctor.params.map((p) => [p.name, p.type]))}`, `o: ${object}`, 'c: 1']), 'this', 'arguments')};`;
+    body.push(`constructor() { ${[...head, built].join(' ')} }`);
+    for (const m of e.members) {
+      // An abstract class's instance members run in the classes below it.
+      if (e.abstract && !m.static) continue;
+      const lead = m.static ? 'static ' : '';
+      const self = m.static ? 'undefined' : 'this';
+      const shown = `${e.name}.${m.name}`;
+      const object_ = m.static ? undefined : object;
+      if (m.kind === 'method') {
+        const id =
+          'reason' in m.call ? refusal(shown, m.call.reason) : call(m.call, shown, object_);
+        body.push(
+          'reason' in m.call
+            ? `${lead}${q(m.name)}() { return ${id}(); }`
+            : `${lead}${q(m.name)}() { return ${run(id, self, 'arguments')}; }`,
+        );
+        continue;
+      }
+      if (m.reason !== undefined) {
+        const id = refusal(shown, m.reason);
+        body.push(`${lead}get ${q(m.name)}() { return ${id}(); }`);
+        body.push(`${lead}set ${q(m.name)}(__ts_v) { ${id}(); }`);
+        continue;
+      }
+      if (m.get !== undefined)
+        body.push(
+          `${lead}get ${q(m.name)}() { return ${run(call(m.get, shown, object_), self, '[]')}; }`,
+        );
+      if (m.set !== undefined)
+        body.push(
+          `${lead}set ${q(m.name)}(__ts_v) { ${run(call(m.set, shown, object_), self, '[__ts_v]')}; }`,
+        );
+    }
+    const id = bind(e.name);
+    ids.set(e, id);
+    out.push(
+      `const ${id} = { ${q(e.name)}: class${base !== undefined ? ` extends ${ids.get(base)}` : ''} {`,
+      ...body.map((line) => `  ${line}`),
+      `} }[${q(e.name)}];`,
+    );
+  };
+  for (const e of classes) emit(e);
+  // The prototype of each class whose instance a result is (D1): an abstract class has none.
+  const concrete = classes.filter((e) => !e.abstract);
+  out.push(
+    `const __ts_P = new Map([${concrete.map((e) => `[${q(e.type.s)}, ${ids.get(e)}.prototype]`).join(', ')}]);`,
+  );
+  return out;
 }
 
 /** Where the host view of the shader module at `path` goes: beside it, `name.shade.typeshade.ts`,

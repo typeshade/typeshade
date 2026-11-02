@@ -12,25 +12,24 @@
 // The `"use typeshade"` twin of `hillshade.ts`.
 
 class Uniforms {
-  time: f32;
-  resolution: vec2;
-  sun_az: f32;
-  exaggeration: f32;
+  time!: f32;
+  resolution!: vec2;
+  sun_az!: f32;
+  exaggeration!: f32;
 }
 
 declare const U: uniform<Uniforms>;
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-}
+});
 
 // normalize() is a builtin, but the original spells the reciprocal-length form inline; the
 // twin keeps that so the two surfaces build the same expression.
@@ -47,8 +46,7 @@ function terrain(p: vec2, t: f32): f32 {
   return h * 0.28 + 0.5;
 }
 
-@fragment
-export function fs(vo: VsOut): vec4 {
+export const fs = fragment(function fs(vo: VsOut): vec4 {
   const uv = vo.uv;
   const t = U.time;
   const az = radians(U.sun_az);
@@ -78,4 +76,4 @@ export function fs(vo: VsOut): vec4 {
   const base = mix(mix(low, mid, smoothstep(0.3, 0.55, h)), high, smoothstep(0.62, 0.85, h));
   const lit: vec3 = base * (shade * 0.8 + 0.3);
   return vec4(lit, 1.);
-}
+});

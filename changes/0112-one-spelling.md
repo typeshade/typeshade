@@ -29,6 +29,8 @@ downstream:
     what: Every page and snippet that writes arrayLength(…), a free PI, E, LN2, LN10, LOG2E or LOG10E, a free log10, log1p, expm1, cbrt or hypot, any(xs, p), all(xs, p), none(xs, p), sum(xs), or Math.* on a vector is rewritten to the kept spelling; the rule pages render the amended Rules 9.4 and 9.6 and the new Rule 9.9 from reqs/ at the pin. Not searched yet.
   - repo: vscode-typeshade
     what: The skill's builtin list, completions and snippets drop the removed names and name the kept spelling. Not searched yet.
+  - repo: typenn
+    what: In `src/kernels/binary.shade.ts`, the five `pow` calls on lines 263, 276, 290, 405 and 407 change to `a ** b` before pull request #899 merges, because `pow` is removed (decision D1). The TypeNN record in `compiler-changes.md` is added when the TypeNN pin moves past the implementation.
 ---
 
 <!-- doc-refs: skip-file — a draft proposal names rules and text its implementation adds -->
@@ -246,6 +248,18 @@ section.
 - 2026-11-02, the owner, in the Claude Code session ("추천대로 승인"): the scope is widened to
   declare surface §18 and §28, as recommended. Both sections name removed spellings and were not
   declared in the front matter, so `scripts/changes.ts` refused their edits.
+- 2026-11-02, the owner (Seungup), in the Claude Code session ("A안 추천대로 승인"): TypeNN
+  replaces `pow(a, b)` with `a ** b` before pull request #899 merges, and this proposal records
+  TypeNN as a downstream repository (front matter, `downstream`). `**` already works on the
+  current compiler.
+
+### Deviation record
+
+- 2026-11-02. Deviation: the downstream search at drafting did not name TypeNN. The drafting
+  agent could not search downstream repositories. The `TypeNN candidate (build + CPU)` check on
+  pull request #899 failed on `src/kernels/binary.shade.ts`: `TS8004 pow was removed: write a ** b.`
+  Disposition: recorded by this amendment. TypeNN is named in `downstream`, and its work is
+  owed in "What it owes downstream". Open until the TypeNN change lands and its pin moves.
 
 ### Configuration and validation record
 
@@ -260,5 +274,8 @@ reviewed goldens.
   9.6 and 9.9. The repository was not searched; it is outside this session's access.
 - vscode-typeshade: the skill's builtin list, completions and snippets. Not searched, for the same
   reason.
+- typenn: `src/kernels/binary.shade.ts`, five `pow` calls (lines 263, 276, 290, 405 and 407) change
+  to `a ** b` before pull request #899 merges (decision D1). Found by the `TypeNN candidate`
+  check on #899, not by the drafting search; see the deviation record.
 
 Each records 0112 in its `compiler-changes.md` when its pin moves past the implementation.

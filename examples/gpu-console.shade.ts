@@ -20,8 +20,8 @@
 // `console-log` journey runs it on WebGPU and holds the decoded events equal to the CPU's.
 
 class Sample {
-  value: f32;
-  scaled: vec2;
+  value!: f32;
+  scaled!: vec2;
 }
 
 declare const xs: storage<array<f32>>;
@@ -35,8 +35,7 @@ function doubled(v: f32): f32 {
   return s;
 }
 
-@compute([64])
-export function main(@builtin("global_invocation_id") gid: vec3u): void {
+export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= xs.length) {
     return;
   }
@@ -45,4 +44,4 @@ export function main(@builtin("global_invocation_id") gid: vec3u): void {
   console.log("i =", gid.x, sample, x > 1., mat2x2(1., 0., 0., x));
   console.table(mat2x2(1., 0., 0., x));
   out[gid.x] = doubled(x);
-}
+});

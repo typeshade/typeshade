@@ -673,6 +673,33 @@ export const BUILTINS: Record<string, Builtin> = {
     }
     return acc | 0;
   },
+  // ── The subgroup family (change 0117, Rule 11.21): a subgroup of one invocation. ──
+  //
+  // The oracle runs invocations one after another, so the only lane a subgroup function can
+  // see is its own: a fold of one value is the value, a scan before it is the identity, a vote
+  // is the lane's own bool, a ballot has one bit, the one lane is elected, and a broadcast or a
+  // shuffle from any lane gives the lane's own value (the determinism report says so, `target`).
+  subgroupAdd: (x) => x,
+  subgroupMul: (x) => x,
+  subgroupMin: (x) => x,
+  subgroupMax: (x) => x,
+  subgroupAnd: (x) => x,
+  subgroupOr: (x) => x,
+  subgroupXor: (x) => x,
+  subgroupInclusiveAdd: (x) => x,
+  subgroupInclusiveMul: (x) => x,
+  subgroupExclusiveAdd: (x) => (isArr(x) ? (x as number[]).map(() => 0) : 0),
+  subgroupExclusiveMul: (x) => (isArr(x) ? (x as number[]).map(() => 1) : 1),
+  subgroupAll: (p) => p,
+  subgroupAny: (p) => p,
+  subgroupBallot: (p) => [p ? 1 : 0, 0, 0, 0],
+  subgroupElect: () => true,
+  subgroupBroadcast: (x) => x,
+  subgroupBroadcastFirst: (x) => x,
+  subgroupShuffle: (x) => x,
+  subgroupShuffleDown: (x) => x,
+  subgroupShuffleUp: (x) => x,
+  subgroupShuffleXor: (x) => x,
   // `abs` on an unsigned value is the identity, and the integer `dot` is the sum of the
   // component-wise products (#154). Their own ids because GLSL ES 3.00 spells neither.
   absU: (x) => x,
