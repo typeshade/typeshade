@@ -1569,6 +1569,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   typeshade/webgl2: twiddle's pass program did not draw: WebGL2 reported INVALID_OPERATION (0x502)
   ```
 
+  The program runtime's WebGL2 tier refused the same entry when its dispatch was recorded
+  (`binding "_fp64" (texture_2d<f32>) is not given.`): the manifest lists the guard among the
+  entry's bindings, and the host never passes it. That tier now leaves the guard to the executor,
+  as its WebGPU tier binds a guard of its own.
+
 - **A kernel function's loop that writes at the counter added to a value the loop does not change
   runs on the GPU (#983).** `for (let n: u32 = 0; n < block.length; n++) tape[at + n] = block[n];`
   was refused with `TS8070`: the loop "writes `tape[at + n]`, an element two iterations can share",
