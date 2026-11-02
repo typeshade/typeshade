@@ -1414,6 +1414,63 @@ export function gather(out: array<f32>, t: array<f32>) {
     ]);
   });
 
+  it.each([
+    ['a namespace constant', 'namespace Ns {\n  export const K: u32 = 1;\n}\n', '', 't[i + Ns.K]'],
+    ['an enum member', 'enum Mode {\n  A,\n  B,\n}\n', '', 't[u32(i32(i) + Mode.B)]'],
+    [
+      'a local function',
+      '',
+      '  function shift(i: u32): u32 {\n    return i ^ 1;\n  }\n',
+      't[shift(i)]',
+    ],
+  ])(
+    'words a read of %s in the names of the source (#987)',
+    async (_what, declaration, local, read) => {
+      // The module emits a namespace constant as `Ns_K`, an enum member as `Mode_B` and a local
+      // function as `gather_shift`. The reason is written at build time from the loop's IR, and
+      // says what the source says.
+      const NAMED = `"use typeshade";
+${declaration}export function add(out: array<f32>, a: array<f32>, b: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i] + b[i];
+  }
+}
+export function gather(out: array<f32>, t: array<f32>) {
+${local}  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = ${read};
+  }
+}
+`;
+      const built = hostFace(NAMED, {
+        fileName: '/app/named.shade.ts',
+        runtime: RUNTIME,
+        fuse: true,
+      });
+      expect(built.diagnostics).toEqual([]);
+      const gpu = fakeGpu();
+      const m = (await loadCode(built.code!, 'named')) as unknown as Record<'add' | 'gather', Call>;
+      const [t, out] = [zeros(4), zeros(4)];
+      const [a, b] = [live(1, 2, 3, 4), live(1, 1, 1, 1)];
+      const report = await fuse(() => {
+        void m.add(t, a, b);
+        void m.gather(out, t);
+      });
+      const line = NAMED.split('\n').findIndex((l) => l.includes(`= ${read};`)) + 1;
+      // The read keeps the two calls apart, and the reason names what it reads as it is written.
+      expect(gpu.flow).toEqual([dispatch, dispatch, 'submit']);
+      expect(report.groups).toEqual([
+        { calls: ['add'], fused: false, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
+        {
+          calls: ['gather'],
+          fused: false,
+          tier: 'webgpu',
+          workgroupShapes: [[64, 1, 1]],
+          why: `add and gather run as two dispatches because gather reads \`${read}\` (line ${line})`,
+        },
+      ]);
+    },
+  );
+
   it('fuses the calls on either side of a refusal into groups of their own', async () => {
     const gpu = fakeGpu();
     const m = await loadFused();
