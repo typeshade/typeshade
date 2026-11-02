@@ -15,6 +15,10 @@ import { compileModule } from '../../core/oracle.js';
 import { hostFace } from './host-face.js';
 import { describeRead } from './kernel-loops.js';
 import { proveKernels } from '../../core/passes/parallel-loop.js';
+import { lowerKernel } from '../../core/passes/kernel-lower.js';
+import { emitModule } from '../../core/backends/wgsl.js';
+import { copy, runKernelPlan } from '../../core/testing/kernel-plan.js';
+import type { CpuValue } from '../../core/cpu-runtime.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const module = (body: string): string => `"use typeshade";\n${body}\n`;
@@ -1584,4 +1588,75 @@ function nudge(x: inout<f32>, d: f32): void {
       expect(verdict(method)).toEqual(verdict(inline));
     },
   );
+});
+
+describe('a static field read in a kernel function that has a parameter or a local named like the field (#999)', () => {
+  // The module emits `Voice.OFFSET` as the constant `Voice_OFFSET`. A parameter keeps the name its
+  // signature gives it and may share it (Rule 3.2, change 0039), and a local may too. The author
+  // wrote `Voice.OFFSET`, a read of the field, and the lookup of it found the parameter instead:
+  // `TS8022 "Voice" has no static field "OFFSET"`.
+  const VOICE = `class Voice {
+  static OFFSET: u32 = 1;
+}`;
+  const WITH_PARAMETER = `${VOICE}
+export function f(out: array<f32>, t: array<f32>, Voice_OFFSET: u32) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = t[i + Voice_OFFSET] + f32(Voice.OFFSET);
+  }
+}`;
+  const WITH_LOCAL = `${VOICE}
+export function f(out: array<f32>, t: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    const Voice_OFFSET: u32 = 2;
+    out[i] = t[i + Voice_OFFSET] + f32(Voice.OFFSET);
+  }
+}`;
+  const T = [10, 20, 30, 40, 50, 60];
+
+  /** The kernel function `f` as the GPU runs it: the WGSL of its plan, and what the plan and the
+   *  function itself, both on the `f32` oracle, leave in the `out` array for `extra`. */
+  const run = (body: string, extra: CpuValue[]) => {
+    const r = compile(module(body), { fileName: 'm.shade.ts' });
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const f = r.module.funcs.find((x) => x.name === 'f')!;
+    const plan = lowerKernel(
+      f,
+      r.module,
+      proveKernels(r.module).find((p) => p.fn === 'f')!,
+    );
+    if ('noGpu' in plan) throw new Error(plan.noGpu);
+    const args: CpuValue[] = [[0, 0, 0, 0], T, ...extra];
+    const want = args.map(copy);
+    compileModule(r.module, { precision: 'f32' }).fns.f!(...want);
+    return {
+      wgsl: emitModule(plan.module),
+      oracle: want[0],
+      plan: runKernelPlan(r.module, 'f', plan, args).arrays[0],
+    };
+  };
+
+  it.each([
+    ['a parameter', WITH_PARAMETER],
+    ['a local', WITH_LOCAL],
+  ])('is legal with %s of that name, in both halves', (_name, body) => {
+    expect(compiled(body)).toEqual([]);
+    expect(edited(body)).toEqual([]);
+  });
+
+  it('reads the field, and not the parameter, in the WGSL of the plan and on the oracle', () => {
+    // The parameter is 2 and the field is 1: reading one for the other changes every element.
+    const { wgsl, oracle, plan } = run(WITH_PARAMETER, [2]);
+    expect(wgsl).toContain('const Voice_OFFSET: u32 = 1u;');
+    expect(wgsl).toContain('out[i] = (t[(i + f_args.Voice_OFFSET)] + f32(Voice_OFFSET));');
+    expect(oracle).toEqual([31, 41, 51, 61]);
+    expect(plan).toEqual(oracle);
+  });
+
+  it('reads the field, and not the local, in the WGSL of the plan and on the oracle', () => {
+    const { wgsl, oracle, plan } = run(WITH_LOCAL, []);
+    expect(wgsl).toContain('const Voice_OFFSET: u32 = 1u;');
+    expect(wgsl).toContain('f32(Voice_OFFSET)');
+    expect(oracle).toEqual([31, 41, 51, 61]);
+    expect(plan).toEqual(oracle);
+  });
 });

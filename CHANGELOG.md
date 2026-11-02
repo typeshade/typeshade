@@ -1580,6 +1580,65 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   (`a mat2x2<f64> cannot be kept in state`), since the emulation reads no column of one. Such an
   entry also needs its `_fp64` guard bound on WebGL2 (#966).
 
+- **An entry that emulates `f64` runs on WebGL2, and a draw WebGL2 refuses rejects the call
+  (#966).** The pass program of such an entry declares the `_fp64` guard,
+  `uniform highp sampler2D _fp64;`, and the executor of change 0054 bound nothing to it. Its
+  sampler read unit 0, where a memory root's `usampler2DArray` is, so WebGL2 refused every draw
+  with `GL_INVALID_OPERATION` ("Two textures of different types use the same sampler location").
+  A refused draw writes no record, so the pass loop ran the same pass again for ever, and the
+  call's promise never settled. The executor now binds a 1 × 1 texture of 1.0 to the guard, on a
+  unit of its own, as a full-screen draw on WebGL2 binds it. After each group of draws it reads
+  the context's error, and a draw that WebGL2 refused rejects the call with an `Error` that names
+  the entry, the program and the error:
+
+  ```text
+  typeshade/webgl2: twiddle's pass program did not draw: WebGL2 reported INVALID_OPERATION (0x502)
+  ```
+
+  The program runtime's WebGL2 tier refused the same entry when its dispatch was recorded
+  (`binding "_fp64" (texture_2d<f32>) is not given.`): the manifest lists the guard among the
+  entry's bindings, and the host never passes it. That tier now leaves the guard to the executor,
+  as its WebGPU tier binds a guard of its own. The compile gate's compute cases gain `twiddle` and
+  `butterfly`, which compute a twiddle in the emulated double, the second across a barrier: both
+  WebGL2 tiers must run them and match WebGPU, and the CPU tier runs `twiddle` as well.
+
+- **A read of a static field in a function that has a parameter or a local named like the field's
+  emitted name draws no `TS8022` (#999).** The module emits `Voice.OFFSET` as the constant
+  `Voice_OFFSET`, and a parameter may have that name (Rule 3.2, change 0039). The read
+  `f32(Voice.OFFSET)` in `function f(out: array<f32>, t: array<f32>, Voice_OFFSET: u32)` was refused
+  with `TS8022 "Voice" has no static field "OFFSET".` The class declares the field. A local of that
+  name, an enum member read as `E.A` beside a parameter `E_A`, and a namespace constant read as
+  `Ns.K` beside a parameter `Ns_K` were refused the same way. `compile()` and the language service
+  said the same. The lookup asked the scope for the emitted name, and the scope answers with the
+  nearest declaration, which is the parameter. It now asks the module's values for it, so the read
+  is the field, and the program is legal in both halves.
+
+  The IR tells the parameter from the field (`param`, `constref`), but WGSL and GLSL print both as
+  the bare name, so a helper that reads the field would have read its parameter. The writers now
+  respell a helper's parameter, or a local, that has the name of a module constant its function
+  reads, as they do for a builtin its function calls (Proposal 0070, D-C10-1):
+
+  ```text
+  fn g(Voice_OFFSET_: u32) -> f32 { return (f32(Voice_OFFSET_) + f32(Voice_OFFSET)); }
+  ```
+
+  A kernel function needs no respelling, since its entry reads a scalar parameter as a field of the
+  call's uniform. The oracle and the debugger keep the authored names. A function that does not
+  read the constant keeps its parameter's name, and a module with no such parameter emits the text
+  it did.
+
+  Two reads stay refused, as they were: a static field the file writes, which is a module variable
+  read as a `varref` that the late rename takes for a parameter's own, and a static field read in
+  an entry, whose parameters the spelling plan owns.
+
+  The respelling adds code to the writers, so three caps of `scripts/bundle-budget.json` take the
+  measured gzip sizes, single file: `typeshade/runtime` 150,167 to 150,306 (+139),
+  `typeshade/emit` 116,731 to 116,857 (+126) and `typeshade/fuse` 111,508 to 111,631 (+123). The
+  split totals of the runtime and fuse move from 152,077 to 152,198 and from 111,959 to 112,066,
+  and their initial chunks from 36,508 to 36,511 and from 13,825 to 13,826. Bun 1.4.4 measured
+  them, as `.bun-version` pins it. These are bundle-size measurements, not GPU performance
+  measurements.
+
 - **The host view gives the instance members of an abstract class that no exported class extends the
   reason of an abstract class (#989).** An exported `abstract` class with no class below it that a
   host can build has its methods, accessors and function fields lowered for no class, since a member
