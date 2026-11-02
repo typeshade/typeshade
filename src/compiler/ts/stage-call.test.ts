@@ -81,6 +81,28 @@ export const scale = workgroup_size([TILE], function scale(xs: array<f32>, k: f3
 });
 `,
   },
+  {
+    // A local function and an arrow handed to a helper inside the entry: the closure walk finds
+    // the entry through the function the call wraps (#886 left `fs_petal` out of the WGSL).
+    name: 'an entry that declares a local function and hands an arrow to a helper',
+    decorated: `"use typeshade";
+function twice(f: (x: f32) => f32, x: f32): f32 { return f(f(x)); }
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+  const r = 0.1;
+  const petal = (q: vec2): f32 => length(q) - r;
+  return vec4(petal(p.xy), twice((x) => x * r, p.x), 0., 1.);
+}
+`,
+    called: `"use typeshade";
+function twice(f: (x: f32) => f32, x: f32): f32 { return f(f(x)); }
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+  const r = 0.1;
+  const petal = (q: vec2): f32 => length(q) - r;
+  return vec4(petal(p.xy), twice((x) => x * r, p.x), 0., 1.);
+});
+`,
+  },
 ];
 
 describe('a stage call compiles as the decorated entry does (change 0111, D1)', () => {
