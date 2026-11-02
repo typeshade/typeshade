@@ -182,6 +182,36 @@ downstream:
 | Review baseline               | `main` at `c9efde0f79df0e6b10883b87c8af21d0c72dfbc9` (the merge of pull request #870), read on 2026-11-02.                                                                                                                                                                                                                                                                                                                       |
 | Review and revision authority | Pull request [#875](https://github.com/typeshade/typeshade/pull/875) (branch `claude/proposal-0111-plain-typescript-entries`). Git records the revisions of this file. The review and merge of its pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                    |
 
+## Amendment 1 (2026-11-02)
+
+This revision amends the accepted text in one point, found while implementing milestone 1. The
+merge of its pull request is its acceptance. Git holds the earlier text.
+
+**The new names take WGSL's spelling.** The accepted text names a kernel function's stage call
+`workgroupSize` and the attribute types `Builtin<N, T>`, `Location<I, T>`, `InOut<T>` and
+`Out<T>`. None of these is a WGSL name or an ECMAScript name. Rule 13.6 admits a new
+author-facing name only from those two sources, and Rule 9.6 keeps the table of TypeShade's own
+names shrink-only. `src/core/spec-conformance/surface-names.test.ts` refused `workgroupSize` on
+pull request #886. The names become WGSL's attribute names as written:
+
+| Accepted text       | Amended             | Source                                           |
+| ------------------- | ------------------- | ------------------------------------------------ |
+| `workgroupSize`     | `workgroup_size`    | WGSL's `@workgroup_size` attribute               |
+| `Builtin<N, T, O>`  | `builtin<N, T, O>`  | WGSL's `@builtin` attribute                      |
+| `Location<I, T, O>` | `location<I, T, O>` | WGSL's `@location` attribute                     |
+| `InOut<T>`          | `inout<T>`          | the qualifier Rule 6.7 already admits (`@inout`) |
+| `Out<T>`            | `out<T>`            | the qualifier Rule 6.7 already admits (`@out`)   |
+
+The lower-case generic form is the form `uniform<T>` and `storage<T>` already have. A type and a
+function may share a name in TypeScript, so `builtin<…>` and the `builtin(…)` decorator of the
+migration release (D5) coexist. The option names of D7 were already WGSL's. The decisions D1 to
+D8 stand with these names.
+
+Re-measured on 2026-11-02 with `typescript@5.6.3` and the options of Evidence, with the amended
+names declared beside same-named decorator functions: the decided forms of `hello-vsout`,
+`array-length` and part of `reference-parameters`, and a `workgroup_size([128], f)` kernel
+function, give no diagnostic.
+
 ## What changes
 
 **Before.** An entry point is a function declaration with a decorator on the function and
@@ -227,38 +257,38 @@ class with only public fields by its structure, and `tsc --strict` accepts the r
    ```ts
    export const vs = vertex(function vs(input: VsIn): VsOut { … });
    export const fs = fragment((v: VsOut): Color => ({ color: … }));
-   export const main = compute([64], function main(id: Builtin<'global_invocation_id', vec3u>) { … });
+   export const main = compute([64], function main(id: builtin<'global_invocation_id', vec3u>) { … });
    ```
 
    `compute([x, y?, z?], f)` carries the workgroup size that `@compute([…])` carries today, and
-   `workgroupSize([…], f)` replaces `@workgroup_size([…])` on a kernel function (Rule 8.22).
+   `workgroup_size([…], f)` replaces `@workgroup_size([…])` on a kernel function (Rule 8.22).
 
-2. **An attribute of an input or an output is a type** (D2, decided). `Builtin<N, T>` and
-   `Location<I, T>` are types that mean `T`, and the compiler reads the attribute from the
-   written type: `i: Builtin<'vertex_index', u32>` on a parameter and
-   `uv: Location<0, vec2>` on a field. An entry I/O struct may be a `class`, an `interface` or a
+2. **An attribute of an input or an output is a type** (D2, decided). `builtin<N, T>` and
+   `location<I, T>` are types that mean `T`, and the compiler reads the attribute from the
+   written type: `i: builtin<'vertex_index', u32>` on a parameter and
+   `uv: location<0, vec2>` on a field. An entry I/O struct may be a `class`, an `interface` or a
    `type` (Rule 6.9), and no field needs a decorator or an initializer:
 
    ```ts
    interface VsOut {
-     pos: Builtin<'position', vec4>;
-     uv: Location<0, vec2>;
+     pos: builtin<'position', vec4>;
+     uv: location<0, vec2>;
    }
 
-   export const vs = vertex(function vs(i: Builtin<'vertex_index', u32>): VsOut {
+   export const vs = vertex(function vs(i: builtin<'vertex_index', u32>): VsOut {
      return { pos: vec4(0, 0, 0, 1), uv: vec2(0, 0) };
    });
    ```
 
    The other attributes of Rule 6.7 on an input or an output are a third type argument, an
-   object type of options: `Location<0, u32, { interpolate: 'flat' }>`,
-   `Builtin<'position', vec4, { invariant: true }>`, `Location<0, vec4, { blend_src: 1 }>` (D7).
+   object type of options: `location<0, u32, { interpolate: 'flat' }>`,
+   `builtin<'position', vec4, { invariant: true }>`, `location<0, vec4, { blend_src: 1 }>` (D7).
 
 3. **A field decorator on an entry I/O field is refused** after the migration period (D5), with
    the type form in the message. With D2 decided, D3 does not apply.
 
-4. **`@inout` and `@out`** (Rule 8.25) become the types `InOut<T>` and `Out<T>` on the
-   parameter (D4, decided): `function bump(x: InOut<f32>) { x += 1; }`. The call passes the
+4. **`@inout` and `@out`** (Rule 8.25) become the types `inout<T>` and `out<T>` on the
+   parameter (D4, decided): `function bump(x: inout<f32>) { x += 1; }`. The call passes the
    variable itself, as it does today.
 
 5. The editor's TS1206 filter for entries and the `strictPropertyInitialization` override are
@@ -298,7 +328,7 @@ sits inside ordinary TypeScript.
 already accepts, moves every parameter attribute into a struct, and needs `!` on every field
 for `--strict`. D2-b removes decorators from entry I/O completely and lets an `interface`
 describe entry I/O. The owner selected D2-b. Its cost: the attribute is in a type alias that
-TypeScript may erase, so hover and errors can show `vec4` and not `Builtin<"position", vec4>`.
+TypeScript may erase, so hover and errors can show `vec4` and not `builtin<"position", vec4>`.
 The language service reads the written type node for hover, and the implementation measures
 whether the ambient library also needs a brand (Configuration and validation record).
 
@@ -307,16 +337,16 @@ stage from the call in place of the decorator and gives the host the same signat
 
 ## What it touches
 
-- **Rule 6.6**: entry inputs and outputs carry their attributes as `Builtin<…>` and `Location<…>` types (D2).
+- **Rule 6.6**: entry inputs and outputs carry their attributes as `builtin<…>` and `location<…>` types (D2).
 - **Rule 6.7**: the attribute names stay; the places they are written change, and a decorator
   on a function or a parameter is refused with the new form in the message.
-- **Rule 7.2**: its table of divergences records that an assignment to an `InOut<T>` or
-  `Out<T>` parameter reaches the caller, which TypeScript's reading of the type does not show (D4).
-- **Rule 7.6**: a local that an `Out<T>` argument fills first is declared with `!` (D8).
+- **Rule 7.2**: its table of divergences records that an assignment to an `inout<T>` or
+  `out<T>` parameter reaches the caller, which TypeScript's reading of the type does not show (D4).
+- **Rule 7.6**: a local that an `out<T>` argument fills first is declared with `!` (D8).
 - **Rule 8.1**: an entry point is a top-level `const` initialized by a stage call (D1).
-- **Rule 8.2**: the position output is `Builtin<"position", vec4>` (D2).
-- **Rule 8.22**: `@workgroup_size([…])` on a kernel function becomes `workgroupSize([…], f)`.
-- **Rule 8.25**: `@inout` and `@out` become `InOut<T>` and `Out<T>` (D4).
+- **Rule 8.2**: the position output is `builtin<"position", vec4>` (D2).
+- **Rule 8.22**: `@workgroup_size([…])` on a kernel function becomes `workgroup_size([…], f)`.
+- **Rule 8.25**: `@inout` and `@out` become `inout<T>` and `out<T>` (D4).
 - **Surface §3, §53, §67, §70**: the sections that define these forms. Every other section
   that shows an entry is rewritten by the migration tool (D5).
 - **codes**: `TS8028 ATTRIBUTE_NAME` gains the warning of the migration release and, after it,
@@ -347,10 +377,10 @@ each to the recommendations that preceded it, and D8 by the go-ahead to merge, "
 the acceptance of the proposal:
 
 - **D1, decided.** The stage form is `export const vs = vertex(function vs(…) { … })`, with
-  `fragment`, `compute([…], f)` and `workgroupSize([…], f)` in the same shape.
-- **D2, decided.** The attribute form is D2-b, the types `Builtin<N, T>` and `Location<I, T>`.
+  `fragment`, `compute([…], f)` and `workgroup_size([…], f)` in the same shape.
+- **D2, decided.** The attribute form is D2-b, the types `builtin<N, T>` and `location<I, T>`.
 - **D3, closed.** It applied to D2-a only.
-- **D4, decided.** `@inout x: T` and `@out x: T` become the types `InOut<T>` and `Out<T>`,
+- **D4, decided.** `@inout x: T` and `@out x: T` become the types `inout<T>` and `out<T>`,
   the same form as D2. A type that means `T` keeps TypeScript's local reading, where an
   assignment to a parameter does not reach the caller; today's decorator form has the same
   difference. Rule 7.2 records it as a divergence.
@@ -368,13 +398,13 @@ the acceptance of the proposal:
   `@diagnostic` moves to an options argument of the stage call:
   `fragment(f, { diagnostic: ['off', 'derivative_uniformity'] })`.
 
-- **D8, decided.** A local that an `Out<T>` argument fills first. Rule 7.6 lets it be declared with no
+- **D8, decided.** A local that an `out<T>` argument fills first. Rule 7.6 lets it be declared with no
   value, `let q: vec2; project(p, q);`, and a plain `tsc --strict` reports `TS2454` at the call
   (Evidence). The local is written with TypeScript's definite assignment,
   `let q!: vec2;`, which `tsc --strict` accepts and which states the same fact, that a call fills
   it. With D8 so decided, the compiler will accept `!` on a local and refuse a read of such a
-  local that no assignment or `Out<T>` argument fills first (`TS8075`), as Rule 7.6 does today. The alternative is to require an initializer, which
-  removes the reason `Out<T>` exists.
+  local that no assignment or `out<T>` argument fills first (`TS8075`), as Rule 7.6 does today. The alternative is to require an initializer, which
+  removes the reason `out<T>` exists.
 
 ### Approval and plan record
 
@@ -411,16 +441,16 @@ Measured on 2026-11-02 with `typescript@5.6.3` (the version in `package.json`),
 `tsc --noEmit --strict --target es2022 --lib es2022`, and a minimal ambient file that declares
 `vec2`, `vec4`, `f32`, `u32`, the constructors, `builtin` and `location` as standard field
 decorators, `vertex` and `fragment` as functions that return their argument, and
-`Builtin<N, T> = T`, `Location<I, T> = T` (with an optional third parameter for the last row), and `InOut<T> = T`:
+`builtin<N, T> = T`, `location<I, T> = T` (with an optional third parameter for the last row), and `inout<T> = T`:
 
 | Source                                                                                                                                                                                           | Result                 |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- |
 | Today's form (`@vertex` function, parameter decorator, uninitialized field)                                                                                                                      | TS1206 (2), TS2564 (1) |
 | D1 with D2-a (`vertex(function …)`, field decorators with `!`)                                                                                                                                   | no diagnostic          |
-| D1 with D2-b (`vertex(function …)`, `Builtin<…>` and `Location<…>` types)                                                                                                                        | no diagnostic          |
-| D2-b with an options argument (`{ invariant: true }`, `{ interpolate: 'flat' }`) and D4 as `InOut<f32>`                                                                                          | no diagnostic          |
-| `hello-vsout`, `array-length` (a `compute([64, 1, 1], …)` entry) and a part of `reference-parameters` (`InOut<f32>`, `Out<vec2>`, a `diagnostic` option), rewritten by hand in the decided forms | no diagnostic          |
-| the same `reference-parameters` part with `let q: vec2;` filled by `Out<vec2>`                                                                                                                   | TS2454 (2) (D8)        |
+| D1 with D2-b (`vertex(function …)`, `builtin<…>` and `location<…>` types)                                                                                                                        | no diagnostic          |
+| D2-b with an options argument (`{ invariant: true }`, `{ interpolate: 'flat' }`) and D4 as `inout<f32>`                                                                                          | no diagnostic          |
+| `hello-vsout`, `array-length` (a `compute([64, 1, 1], …)` entry) and a part of `reference-parameters` (`inout<f32>`, `out<vec2>`, a `diagnostic` option), rewritten by hand in the decided forms | no diagnostic          |
+| the same `reference-parameters` part with `let q: vec2;` filled by `out<vec2>`                                                                                                                   | TS2454 (2) (D8)        |
 
 `examples/hello-vsout.shade.ts` at the baseline, with the same options and with
 `--experimentalDecorators`, gives TS1206 at lines 20, 21 and 39 and TS2564 on each of its three
