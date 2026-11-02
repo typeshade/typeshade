@@ -17,11 +17,17 @@ TypeShade must become faster when the compiler improves, with no change to its s
 must not have to know what the device supports. An `enable` that an author writes is against this.
 
 **Fact.** Changes 0103, 0104 and 0105 follow the principle. Each removes copies of a struct or an
-array in the emitted WGSL, and no source changes (Rule 8.28).
+array in the emitted WGSL, and no source changes (Rule 8.28). Issues #122 (inlining class methods), #841, #847 and #850
+(optimizations of the emitted code) work in the same direction.
 
-**Fact.** No rule in `docs/language-design.md` states the principle.
+**Fact.** Rule 1.5 states half of the principle: the representation of a form ECMAScript defines
+is the compiler's, and it may change between versions while every observable answer stays the one
+Rule 1.1 defines. `docs/computing-platform-plan.md` (Compiler owns semantics) and `docs/roadmap.md`
+(The DX bar: item 15 makes the same call faster without changing it) say the same in their scope.
 
-**Proposal.** State the principle as a design rule:
+**Fact.** No rule states the other half: that a later compiler never makes a program slower.
+
+**Proposal.** State the missing half as a design rule, beside Rule 1.5:
 
 > Performance is the compiler's responsibility. No optimization requires the author to change the
 > source. The same source gives the same values with a later compiler, and runs as fast or faster.
@@ -72,6 +78,10 @@ are `s` apart, not neighbours.
 observed result, which a gate checks on the devices it runs on. The WGSL text cannot guarantee it.
 Only integer arithmetic has bits that WGSL fixes.
 
+**Fact.** Issue #852 asks for a numerical contract that would authorize an `f32` rewrite that
+changes rounding, and states that the contract is a design rule that needs a proposal. The `fast`
+mode below is one such contract.
+
 **Proposal.** Four modes of an `f32` reduction:
 
 | Mode           | What the language fixes                                             | What the guarantee rests on                                                                                                                                                                          |
@@ -112,7 +122,8 @@ structure.
 
 **Proposal.** Normalize only where the value is kept. `if (x > m) m = x` is not `max(m, x)` when
 `x` is a NaN, and WGSL does not fix the NaN result of `max`. Such a rewrite is made only where it
-is proved equal. The normalization rules become part of the language document.
+is proved equal. The normalization rules become part of the language document. A rewrite that
+changes rounding is #852's numerical contract, not a normalization.
 
 **Proposal.** The intent is a statement of the operator's properties: associative, with an
 identity, and commutative. An author's combine function on a struct (an argmin, Welford's mean
@@ -155,6 +166,13 @@ and a sort needs a total order with a tie-break. The stored order may then chang
 and every result a program can observe stays the same. The oracle compares as a multiset. The
 lowering takes one atomic per workgroup.
 
+**Fact.** Changes 0078, 0080 and 0094 each leave an unordered append or map to a separate
+proposal. Change 0078 cites TypeCV's Rule 1.3, which asks that such an operation say so, with its
+own spelling and determinism report row. The unordered type above is one spelling of that.
+
+**Fact.** Issue #539 asks for a stable sort of `u32` keys with values, which the unordered type's
+sort needs.
+
 **Fact.** ECMAScript's `Set` keeps the insertion order, so no existing name means "unordered". The
 type needs a new name in the §9 extension table (Rule 2.1).
 
@@ -171,6 +189,10 @@ in a downstream repository (X-GIS #915).
 
 **Fact.** A WGSL module that spells `enable subgroups;` fails to compile on a device without the
 feature. A branch inside the shader cannot choose between a subgroup form and another form.
+
+**Fact.** A device difference is already met by a lowering, not by the author: on D3D12 (NVIDIA
+Blackwell), a workgroup whose idle lanes return before heavy loops hangs the device, so a lane past
+the trip count runs the last iteration instead (Rule 8.22, `docs/hardware-notes.md` A1, #703).
 
 **Proposal.** The branch is a variant that the host selects: the compiler emits each variant, and
 the runtime chooses one when it opens the device, as the emulated double does.
@@ -219,11 +241,21 @@ equals the `f16` result, since `f32` has 24 significand bits, more than `2 × 11
 **Proposal.** A lowering that a device without a capability gets must keep the value. It gives the
 same bits, or a result within a bound the language states, or the device refuses the program with a
 clear reason. Only an opt-in such as `fast` may differ, and the determinism report records it.
+
+**Fact.** Rule 1.5's second sentence already states the refusal: a form the compiler cannot
+represent on a target is refused there in one sentence, or a call the CPU tier can run runs there
+and says why. `docs/computing-platform-plan.md` asks that an allowed whole-call fallback preserve
+the authored contract and be observable. The proposal above extends both to a lowering for a
+missing device capability.
 Without this, one program gives different values on different devices with no signal, and the
 author has to care about the device after all.
 
 **Proposal.** The output of a compile becomes a set of variants and a table from capabilities and
 probes to variants, in the manifest. `requiredFeatures` (Rule 10.2) belongs to each variant.
+
+**Related issues.** #130 (every feature emits on both targets), #153 (`f16`, wired type and emit
+first), #536 (subgroups as authorable capabilities, still open after change 0117), #67 (one source,
+many pipelines through override axes) and #97 (the compiler manages the CPU and GPU boundary).
 
 **What it would touch.** Rules 10.1 to 10.4. `ModuleDecl.enables`, a public export, which needs a
 deprecation first. The `"enable subgroups"` directive that change 0117 keeps. Pages of
@@ -236,7 +268,8 @@ Each needs the owner's decision before a proposal is drafted on it.
 
 1. Whether the principle of section 1 becomes a design rule.
 2. Whether the canonical tree becomes the adjacent pairwise tree, and when (section 3).
-3. Which strict mode: `exact`, `reproducible`, both, or neither yet (section 3).
+3. Which strict mode: `exact`, `reproducible`, both, or neither yet, and how the `fast` mode
+   relates to #852's numerical contract (section 3).
 4. Whether a variant is selected by vendor signals or by a probe (section 6).
 5. How the direction of section 7 relates to change 0117, which keeps an author's
    `"enable subgroups"` and makes the subgroup functions authorable.
