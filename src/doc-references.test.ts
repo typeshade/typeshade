@@ -11,8 +11,11 @@
 // 2026-09-23 (693 files; path 582, rule 351, code 283, section 65, script 42, anchor 26), and
 // feed it a document with one dead reference of every kind, which it must report.
 
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  ROOT,
   deadRefs,
   extractRefs,
   formatRef,
@@ -25,6 +28,7 @@ import {
   changedRules,
   declaredNames,
   isProposal,
+  nameMentions,
   reshapedExports,
   surface,
 } from '../scripts/doc-impact.js';
@@ -200,5 +204,32 @@ describe('the impact reader', () => {
     ].join('\n');
     expect([...changedRules(text, new Set([3]))]).toEqual(['2.1']);
     expect([...changedRules(text, new Set([4, 6]))]).toEqual(['2.2']);
+  });
+
+  it('reads a short lowercase removed name as a mention only in call or member form', () => {
+    // `none` is an English word. In prose it is no reference to the removed name; `none(…)`,
+    // `none<…>` and `.none` are. The fixture is a file in the tree, because the reader reads
+    // the tree, and it is removed when the test ends.
+    const dir = mkdtempSync(join(ROOT, '.doc-impact-test-'));
+    try {
+      const file = join(basename(dir), 'prose.md');
+      writeFileSync(
+        join(dir, 'prose.md'),
+        [
+          '`a` none of them `b` is the word.',
+          'Change: none, `a` and `b` agree.',
+          'The call `none(xs, p)` is a mention.',
+          'The type argument `none<T>` is a mention.',
+          'The member `x.none` is a mention.',
+          'The member `Owner.none` is a mention.',
+        ].join('\n'),
+      );
+      expect(nameMentions('none', [file]).map((m) => m.line)).toEqual([3, 4, 5, 6]);
+      // A long name keeps the loose form: a bare backticked name is still a mention.
+      writeFileSync(join(dir, 'long.md'), 'Use `removedName` here.\n');
+      expect(nameMentions('removedName', [join(basename(dir), 'long.md')])).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
