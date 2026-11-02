@@ -1153,8 +1153,30 @@ describe('the view carries the comments of the members of an exported class (cha
   /** The sentence of change 0109 for a member the view declares `never`. */
   const refused = (reason: string): string => `Not callable from host code (Rule 8.20): ${reason}.`;
 
+  /** Both readers of the shader take the program with no diagnostic (Rule 12.7): `compile()` and
+   *  the editor's language service. `files` holds the module, `/app/m.shade.ts`, and the files it
+   *  imports. */
+  function bothHalvesTake(files: Readonly<Record<string, string>>): void {
+    const compiled = compile(files['/app/m.shade.ts']!, {
+      fileName: '/app/m.shade.ts',
+      readDocument: (name) => files[name],
+    });
+    expect(compiled.diagnostics).toEqual([]);
+    const service = createTypeshadeLanguageService({ readDocument: (name) => files[name] });
+    for (const [name, text] of Object.entries(files)) {
+      service.openDocument(name, text);
+      expect(service.getDiagnostics(name), name).toEqual([]);
+    }
+  }
+
+  /** The face of `source` as `m.shade.ts`, once both readers of the shader have taken it. */
+  function faceOf(source: string) {
+    bothHalvesTake({ '/app/m.shade.ts': source });
+    return face(source);
+  }
+
   it('writes the JSDoc of a constructor on its line', () => {
-    const f = face(`"use typeshade";
+    const f = faceOf(`"use typeshade";
 
 /** A one-pole lowpass with its state. */
 export class OnePole {
@@ -1193,7 +1215,7 @@ export declare class OnePole {
   });
 
   it('writes the JSDoc of a method on its line, every block of it, and that of a field that holds a function', () => {
-    const f = face(`"use typeshade";
+    const f = faceOf(`"use typeshade";
 
 export class OnePole {
   z: f32 = 0.;
@@ -1243,7 +1265,7 @@ export class OnePole {
   });
 
   it('writes the JSDoc of a getter and of a setter, each on the line of its half', () => {
-    const f = face(`"use typeshade";
+    const f = faceOf(`"use typeshade";
 
 export class Slider {
   v: f32 = 0.;
@@ -1285,7 +1307,7 @@ export class Slider {
   });
 
   it('leaves the comment of a static field out, since the view declares no static field (§26)', () => {
-    const f = face(`"use typeshade";
+    const f = faceOf(`"use typeshade";
 
 export class Limits {
   /** The upper limit. */
@@ -1313,7 +1335,7 @@ export class Limits {
   });
 
   it('writes the JSDoc of a static method and of a static accessor on their lines', () => {
-    const f = face(`"use typeshade";
+    const f = faceOf(`"use typeshade";
 
 export class OnePole {
   z: f32 = 0.;
@@ -1350,7 +1372,7 @@ export class OnePole {
   });
 
   it('writes the JSDoc of a member declared never before the sentence of change 0109, in one block', () => {
-    const f = face(`"use typeshade";
+    const f = faceOf(`"use typeshade";
 declare const gain: uniform<f32>;
 
 export class Probe {
@@ -1450,7 +1472,7 @@ export class Bare {
   });
 
   it('stands a member a derived class takes from an exported base in the base, with its comment', () => {
-    const f = face(`"use typeshade";
+    const f = faceOf(`"use typeshade";
 
 /** A shape. */
 export class Shape {
@@ -1508,7 +1530,7 @@ export declare class Circle extends Shape {
   });
 
   it('carries the comment of an abstract member, and the concrete member below it takes that comment', () => {
-    const f = face(`"use typeshade";
+    const f = faceOf(`"use typeshade";
 
 /** A shape with an area. */
 export abstract class Shape {
@@ -1607,6 +1629,7 @@ export class Base {
 }
 `,
     };
+    bothHalvesTake(files);
     const f = hostFace(files['/app/m.shade.ts']!, {
       fileName: '/app/m.shade.ts',
       runtime: RUNTIME,
@@ -1671,6 +1694,7 @@ export class Wave {
 }
 `,
     };
+    bothHalvesTake(files);
     const f = hostFace(files['/app/m.shade.ts']!, {
       fileName: '/app/m.shade.ts',
       runtime: RUNTIME,
@@ -1691,7 +1715,7 @@ export declare class Wave {
   });
 
   it('does not carry the comment of an overload signature: the face reads the implementation', () => {
-    const f = face(`"use typeshade";
+    const f = faceOf(`"use typeshade";
 
 export class Mixer {
   k: f32 = 1.;
