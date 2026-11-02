@@ -390,6 +390,35 @@ export function f(a: array<f32>) {
 }`,
     'This loop runs on the CPU because line 10 writes "Voice_shift", which the next iteration reads. Declare it inside the loop, or combine it with one of += *= min max & | ^.',
   ],
+  // A read carries no span of its own, so the sentence prints it from the IR with the names of the
+  // table: a parameter or a local in the index is worded as written too.
+  [
+    'R4, a read at a parameter named like the emitted name of a static field',
+    `class Voice {
+  static OFFSET: u32 = 1;
+}
+export function f(a: array<f32>, Voice_OFFSET: u32) {
+  for (let i: u32 = 1; i < a.length; i++) {
+    a[i] = a[i] + a[i - Voice_OFFSET];
+  }
+}`,
+    'This loop runs on the CPU because line 7 reads "a[i - Voice_OFFSET]", which another iteration writes. Read from an array the loop does not write.',
+  ],
+  [
+    'R4, a read at a local named like the emitted name of a class function',
+    `class Voice {
+  static shift(i: u32): u32 {
+    return i ^ 1;
+  }
+}
+export function f(a: array<f32>) {
+  const Voice_shift: u32 = 1;
+  for (let i: u32 = 1; i < a.length; i++) {
+    a[i] = a[i] + a[i - Voice_shift];
+  }
+}`,
+    'This loop runs on the CPU because line 10 reads "a[i - Voice_shift]", which another iteration writes. Read from an array the loop does not write.',
+  ],
   [
     'R3, a static field the loop writes keeps the name the author gave it',
     `class Voice {
