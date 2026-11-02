@@ -1,6 +1,7 @@
 // === Hover: TypeScript quick info for user symbols, TypeShade docs for the vocabulary (§5) ===
 
 import ts from 'typescript';
+import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
 import { qualifiersOf } from '../compiler/ts/lower/references.js';
 import type { CompileTsSourceResult } from '../compiler/ts/source-file.js';
 import type { DeclaredSymbol } from '../compiler/ts/symbols.js';
@@ -21,6 +22,8 @@ import {
 
 function isBuiltinStringLiteral(node: ts.Node): node is ts.StringLiteralLike {
   if (!ts.isStringLiteralLike(node)) return false;
+  // The id of a `builtin<"…", T>` type (change 0111) reads as the decorator's argument does.
+  if (isBuiltinTypeLiteral(node)) return true;
   const call = node.parent;
   return (
     ts.isCallExpression(call) &&
