@@ -14,6 +14,13 @@
 // `repeat`, and samples at texel centres, so each tier reads the same texels and the values are
 // exact. The CPU tier has no texture; WebGPU is the reference.
 //
+// `twiddle` and `butterfly` compute the twiddle of an FFT in the emulated double (§39), `sin` and
+// `cos` of an `f64` angle in a helper, as typeshade/typeaudio#9 does (#966). Each reads and writes
+// a storage array, so its pass program reads a memory root on unit 0 beside the `_fp64` guard,
+// whose texel of 1.0 the executor binds on a unit of its own. The emulation multiplies by the
+// guard, so a guard that reads anything else changes the values. `butterfly` reads its pair across
+// a barrier, so the guard is bound on every pass; `twiddle` reaches none, so the CPU tier runs it.
+//
 // `PROGRAM_CASES` are entries the call layer cannot call at all: they reach a texture that has
 // no host value there (#204), so the page dispatches each through the program runtime alone, on
 // WebGPU and on its WebGL2 tier, from the manifest `packModule` writes, and holds WebGL2 to
@@ -50,11 +57,51 @@ export const blurRow = compute([8, 1, 1], function blurRow(li: builtin<"local_in
   }
 });
 `,
+  twiddle: `"use typeshade";
+
+declare const data: storage<array<f32>, "read_write">;
+
+function rotation(k: u32, n: u32): vec2f {
+  const angle: f64 = f64(-6.283185307179586) * f64(f32(k)) / f64(f32(n));
+  return vec2f(f32(cos(angle)), f32(sin(angle)));
+}
+
+export const twiddle = compute([64, 1, 1], function twiddle(gid: builtin<"global_invocation_id", vec3u>): void {
+  const w = rotation(gid.x, 64);
+  data[gid.x] = data[gid.x] * w.x + w.y;
+});
+`,
+  butterfly: `"use typeshade";
+
+declare const data: storage<array<f32>, "read_write">;
+let tile: workgroup<array<f32, 64>>;
+
+function rotation(k: u32, n: u32): vec2f {
+  const angle: f64 = f64(-6.283185307179586) * f64(f32(k)) / f64(f32(n));
+  return vec2f(f32(cos(angle)), f32(sin(angle)));
+}
+
+export const butterfly = compute([64, 1, 1], function butterfly(li: builtin<"local_invocation_index", u32>): void {
+  tile[li] = data[li];
+  workgroupBarrier();
+  const k = li % 32;
+  const w = rotation(k, 64);
+  if (li < 32) {
+    data[li] = tile[k] + tile[k + 32] * w.x;
+  } else {
+    data[li] = tile[k] - tile[k + 32] * w.y;
+  }
+});
+`,
 } as const;
 
 /** The cases that must run on both WebGL2 tiers, the call layer's and the program runtime's: a
  *  case skipped there would pass the gate having shown nothing. */
-export const ON_WEBGL2: readonly (keyof typeof COMPUTE_CASES)[] = ['textured'];
+export const ON_WEBGL2: readonly (keyof typeof COMPUTE_CASES)[] = [
+  'textured',
+  'twiddle',
+  'butterfly',
+];
 
 /** A texture a program case binds, as the page makes it on each tier. */
 export interface ProgramTexture {
