@@ -30,11 +30,25 @@ import { KERNEL_TREE } from '../../core/kernel-tree.js';
 import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
 import { diagnosticAtSpan } from './diagnostic.js';
 
-/** What each IR name of a kernel function was written as, recorded when its body is lowered: its
- *  locals and parameters, and the functions and static fields of the module that the module emits
- *  under another name (`Voice_tally` is `Voice.tally`, `Ns_f` is `Ns.f`, `pick_u32` is `pick`,
- *  `Voice_count` and `Voice_OFFSET` are `Voice.count` and `Voice.OFFSET`). */
-export const kernelSourceNames = new WeakMap<FuncDecl, ReadonlyMap<string, string>>();
+/** What each IR name of a kernel function was written as, recorded when its body is lowered, in
+ *  three tables, since one IR name can be three things. A parameter keeps the name its signature
+ *  gives it and may share it with a value of the module (Rule 3.2), a local may share it with a
+ *  function the module emits under that name, and the words of a module value or a function are not
+ *  a parameter's (#988). Each kind of node reads the tables whose rows it can be. */
+export interface KernelNames {
+  /** The locals and the parameters: `i_1` is the second `i`, `_i` a `for…of`'s counter. */
+  readonly locals: ReadonlyMap<string, string>;
+  /** The static fields of the module that the module emits as a constant or a variable under
+   *  another name: `Voice_OFFSET` is `Voice.OFFSET`, `Voice_count` is `Voice.count`. */
+  readonly values: ReadonlyMap<string, string>;
+  /** The functions of the module that the module emits under another name: `Voice_tally` is
+   *  `Voice.tally`, `Ns_f` is `Ns.f`, `pick_u32` is `pick`. */
+  readonly functions: ReadonlyMap<string, string>;
+}
+
+export const kernelSourceNames = new WeakMap<FuncDecl, KernelNames>();
+
+const NO_NAMES: KernelNames = { locals: new Map(), values: new Map(), functions: new Map() };
 
 /** The `TS8070` warnings for the kernel functions of `m`; `sourceFileOf` is the file each was
  *  declared in, whose text its spans index. */
@@ -46,7 +60,7 @@ export function kernelLoopDiagnostics(
   const byName = new Map(m.funcs.map((f) => [f.name, f]));
   for (const proof of proveKernels(m)) {
     const f = byName.get(proof.fn)!;
-    const names = kernelSourceNames.get(f) ?? new Map<string, string>();
+    const names = kernelSourceNames.get(f) ?? NO_NAMES;
     const sourceFile = sourceFileOf(f);
     const w = new Wording(sourceFile, names);
     if (proof.shape !== undefined) {
@@ -97,7 +111,7 @@ export function describeRead(
 ): { readonly text: string; readonly line?: number } | undefined {
   const { first } = read;
   if (first === undefined) return undefined;
-  const words = new Wording(undefined, kernelSourceNames.get(f) ?? new Map<string, string>());
+  const words = new Wording(undefined, kernelSourceNames.get(f) ?? NO_NAMES);
   return {
     text: words.expr(first.place),
     ...(first.at !== undefined ? { line: first.at.line + 1 } : {}),
@@ -112,7 +126,7 @@ class Wording {
    *  printed from the IR. */
   constructor(
     private readonly sf: ts.SourceFile | undefined,
-    private readonly names: ReadonlyMap<string, string>,
+    private readonly names: KernelNames,
   ) {}
 
   /** `line 9`, one-based, as an editor numbers it. */
@@ -120,10 +134,22 @@ class Wording {
     return at === undefined ? 'a line' : `line ${at.line + 1}`;
   }
 
-  /** An IR name as the author wrote it: a local, a parameter, or a function or static field of the
-   *  module. */
-  private name(ir: string): string {
-    return this.names.get(ir) ?? ir;
+  /** The IR name of a local or a parameter as the author wrote it. A function or a static field
+   *  that the module emits under the same name is not it (#988). */
+  private local(ir: string): string {
+    return this.names.locals.get(ir) ?? ir;
+  }
+
+  /** The IR name of what a `varref` or a `constref` reads as the author wrote it: a static field of
+   *  the module that the module emits under another name, or a local. A parameter is a `param`,
+   *  and a function is a call, so neither is read here. */
+  private value(ir: string): string {
+    return this.names.values.get(ir) ?? this.local(ir);
+  }
+
+  /** The IR name of a function of the module as the author wrote it. */
+  private fn(ir: string): string {
+    return this.names.functions.get(ir) ?? ir;
   }
 
   /** The source text a span covers, on one line. */
@@ -148,9 +174,9 @@ class Wording {
           : `${why} ${this.line(r.at)} breaks out of it, so whether an iteration runs depends on the ones before it. Record the result in an array and read it after the loop.`;
       case 'R3':
         if (r.why === 'carried')
-          return `${why} ${this.line(r.at)} writes "${this.name(r.name)}", which the next iteration reads. Declare it inside the loop, or combine it with one of ${COMBINE}.`;
+          return `${why} ${this.line(r.at)} writes "${this.value(r.name)}", which the next iteration reads. Declare it inside the loop, or combine it with one of ${COMBINE}.`;
         if (r.why === 'push-mixed')
-          return `${why} ${this.line(r.at)} writes "${this.name(r.name)}" in place, and the loop also pushes onto it. Push every element, or write every element in place.`;
+          return `${why} ${this.line(r.at)} writes "${this.local(r.name)}" in place, and the loop also pushes onto it. Push every element, or write every element in place.`;
         if (r.target.type.kind === 'storage-texture')
           return `${why} ${this.line(r.at)} stores into "${this.expr(r.target)}" at a texel two iterations can share. ${this.texelRemedy(counter)}`;
         return `${why} ${this.line(r.at)} writes "${this.expr(r.target)}", an element two iterations can share. ${this.indexRemedy(counter)}`;
@@ -158,14 +184,14 @@ class Wording {
         // A Map or a Set the loop adds to (change 0080).
         if (r.why === 'reads-pushed' && r.read.type.kind === 'collection') {
           const what = r.read.type.value === undefined ? 'a Set' : 'a Map';
-          return `${why} ${this.line(r.at)} reads "${this.name(r.name)}", ${what} the loop adds to, whose entries depend on the iterations before. Read it after the loop, or in a later loop that does not add to it.`;
+          return `${why} ${this.line(r.at)} reads "${this.local(r.name)}", ${what} the loop adds to, whose entries depend on the iterations before. Read it after the loop, or in a later loop that does not add to it.`;
         }
         if (r.why === 'reads-pushed') {
           const read =
             r.read.op === 'call' && r.read.fn === 'pushCount'
-              ? `${this.name(r.name)}.length`
+              ? `${this.local(r.name)}.length`
               : this.expr(r.read);
-          return `${why} ${this.line(r.at)} reads "${read}", and "${this.name(r.name)}" is an array the loop pushes onto, whose length and elements depend on the iterations before. Read it after the loop.`;
+          return `${why} ${this.line(r.at)} reads "${read}", and "${this.local(r.name)}" is an array the loop pushes onto, whose length and elements depend on the iterations before. Read it after the loop.`;
         }
         if (r.why === 'push-result')
           return `${why} ${this.line(r.at)} uses the value push returns, the length before it, which depends on the iterations before. Call push as a statement of its own, and read the length after the loop.`;
@@ -175,36 +201,36 @@ class Wording {
           return `${why} ${this.line(r.at)} reads "${this.expr(r.read)}", which another iteration writes. Read from an array the loop does not write.`;
         return `${why} ${this.line(r.at)} uses the value ${r.fn} returns, which depends on the order the iterations run in. Call it as a statement of its own, and read the array after the loop.`;
       case 'R5':
-        return `${why} ${this.line(r.at)} calls "${this.name(r.callee)}", which writes "${this.name(r.writes)}". Return the value from "${this.name(r.callee)}" and combine it in the loop instead.`;
+        return `${why} ${this.line(r.at)} calls "${this.fn(r.callee)}", which writes "${this.value(r.writes)}". Return the value from "${this.fn(r.callee)}" and combine it in the loop instead.`;
       case 'R6':
         if (r.why === 'console')
           return `${why} ${this.line(r.at)} calls ${r.name}, whose lines would print in another order on the GPU. Log after the loop.`;
         if (r.why === 'barrier')
           return `${why} ${this.line(r.at)} calls ${r.name}(), and an iteration of a loop is not a workgroup. Write a compute([…], f) entry to use a barrier.`;
-        return `${why} ${this.line(r.at)} reads "${this.name(r.name)}", which is workgroup memory, and an iteration of a loop is not a workgroup. Write a compute([…], f) entry to use it.`;
+        return `${why} ${this.line(r.at)} reads "${this.value(r.name)}", which is workgroup memory, and an iteration of a loop is not a workgroup. Write a compute([…], f) entry to use it.`;
     }
   }
 
   shape(r: ShapeRefusal): string {
     if (r.why === 'split')
-      return `This loop runs on the CPU because ${this.line(r.at)} reads "${this.name(r.name)}", which the loop on ${this.line(r.reducedAt)} combines. Split the function: return "${this.name(r.name)}" from one kernel function and pass it to the next.`;
+      return `This loop runs on the CPU because ${this.line(r.at)} reads "${this.value(r.name)}", which the loop on ${this.line(r.reducedAt)} combines. Split the function: return "${this.value(r.name)}" from one kernel function and pass it to the next.`;
     const what =
       r.what !== undefined
-        ? `writes "${this.name(r.what)}" outside its loops`
+        ? `writes "${this.local(r.what)}" outside its loops`
         : `is neither a loop nor a statement that computes a value`;
     return `This function runs on the CPU because ${this.line(r.at)} ${what}. A kernel function's body is scalar statements, then its loops, then stores into its arrays and a return: move that line into a loop, after the last loop, or into the code that calls the function.`;
   }
 
   /** The remedy for a shared texel: the one coordinate form of Rule 8.22, R3 (change 0077). */
   private texelRemedy(counter: string | undefined): string {
-    const shown = counter === undefined ? undefined : this.name(counter);
+    const shown = counter === undefined ? undefined : this.local(counter);
     const i = shown === undefined || shown.startsWith('_') ? 'i' : shown;
     return `Store at vec2u(${i} % W, ${i} / W), with the same W at every store to the texture.`;
   }
 
   /** The remedy for a shared element: an index made from the loop's counter. */
   private indexRemedy(counter: string | undefined): string {
-    const shown = counter === undefined ? undefined : this.name(counter);
+    const shown = counter === undefined ? undefined : this.local(counter);
     // A `for…of`'s counter has no name the author wrote.
     return shown === undefined || shown.startsWith('_')
       ? 'Write at an index made from the loop counter of a counted for.'
@@ -223,12 +249,13 @@ class Wording {
       case 'lit':
         return typeof e.value === 'number' ? String(e.value) : String(e.value);
       case 'varref':
+        return this.value(e.name);
       case 'param':
-        return this.name(e.name);
+        return this.local(e.name);
       case 'constref':
         // A static field that nothing writes is a module constant, which the module emits as
         // `Voice_OFFSET` where the author wrote `Voice.OFFSET`.
-        return this.name(e.name);
+        return this.value(e.name);
       case 'overrideref':
       case 'externref':
         return e.name;
@@ -249,7 +276,7 @@ class Wording {
           return `${this.print(e.args[0]!, 9)}.length`;
         // A call through a declaration is a function of the module, which the author wrote as
         // `Voice.shift` where the module emits `Voice_shift`; a builtin keeps its id.
-        return `${e.declRef === undefined ? e.fn : this.name(e.fn)}(${e.args.map((a) => this.print(a, 0)).join(', ')})`;
+        return `${e.declRef === undefined ? e.fn : this.fn(e.fn)}(${e.args.map((a) => this.print(a, 0)).join(', ')})`;
       case 'construct':
         return `${e.type.kind === 'scalar' ? e.type.scalar : 'vec'}(${e.args.map((a) => this.print(a, 0)).join(', ')})`;
       default:
