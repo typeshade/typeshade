@@ -203,9 +203,7 @@ Required validation evidence:
 The owner (Seungup) approved the proposal in the Claude Code session on 2026-11-02 (UTC), in
 Korean ("수락"), in answer to a review that listed four corrections (the misfiled #841 candidates,
 the inlining order, the obligations of option B, the review baseline) and a recommendation for
-each of the six open decisions. The decisions above are those recommendations. The spelling
-`@numerics(...)` and the code `TS8078` were written into this revision after that answer and were
-put to the owner before the merge. The approved revision is the one this record is part of; the
+each of the six open decisions. The decisions above are those recommendations. The spelling `@numerics(...)` and the code `TS8078` were written into this revision after that answer, and the owner confirmed both the same day, before the merge. The approved revision is the one this record is part of; the
 merge of #861 with `status: accepted` records the decision.
 
 Responsibilities: an agent of this repository implements Rule 11.21, `@numerics` and `TS8078`
