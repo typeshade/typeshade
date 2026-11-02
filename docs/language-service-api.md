@@ -344,7 +344,8 @@ by an eighth (the last item):
   TS2551 with `TS8022` and `TS8035`; TS2353 and TS2561 with `TS8010`; TS2694 and TS2749 with
   `TS8002`; TS2349 with `TS8004`; TS7009, TS2351, TS2693, TS2511 and TS2708 with `TS8035`, a
   `new` of a function, a value, a type, an `abstract` class or a namespace of types, and TS2708
-  with `TS8022` too, such a namespace read as a value; TS7009
+  with `TS8022` too, such a namespace read as a value; TS2684 with `TS8035` too, a static that
+  builds its value with `new this()` (change 0020) called through an `abstract` class; TS7009
   and TS7017 with `TS8022`, a `new` of a name a file compiled on its own imports and cannot
   see, or of a member of `globalThis`; TS2693 with `TS8022` and `TS8004` too, a type the
   library declares read or called (`Number(x)`); TS2588 and TS2540 with `TS8005`;

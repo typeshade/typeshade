@@ -23,7 +23,11 @@
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
-import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import {
+  analyzeSourceFile,
+  createTypeshadeLanguageService,
+  createTypeshadeLanguageServiceWith,
+} from '../../language-service/service.js';
 import { TS_CODES } from './codes.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -820,6 +824,202 @@ export function run(): f32 { return Derived.make().x }${TAIL}`;
     const own = fixed.replace('Derived.make().x', 'Base.make().x');
     expect(compile(own).diagnostics).toEqual([]);
     expect(compile(own).wgsl).toContain('fn Base_make() -> Base_f32 {');
+  });
+
+  // #944: a static builder written on an `abstract` base. `new this()` there builds the class the
+  // call names, and the abstract class itself has no instance to build. TypeScript accepts the
+  // declaration, and refuses only a call through the abstract class (TS2684).
+  const OSCILLATORS = `"use typeshade";
+abstract class Oscillator {
+  protected phase: f32 = 0.;
+  protected inc: f32 = 0.;
+  protected abstract wave(p: f32): f32;
+  static at<C extends Oscillator>(this: { new (): C }, f: f32, sr: f32): C {
+    const o = new this();
+    o.inc = f / sr;
+    return o;
+  }
+  tick(): f32 {
+    this.phase += this.inc;
+    return this.wave(this.phase);
+  }
+}
+class Saw extends Oscillator {
+  protected wave(p: f32): f32 {
+    return 2. * p - 1.;
+  }
+}
+class Square extends Oscillator {
+  protected wave(p: f32): f32 {
+    return p < 0.5 ? 1. : -1.;
+  }
+}
+`;
+  /** The errors of `src` in the editor, merged as the editor shows them. */
+  const editorErrors = (src: string, unmerged = false): string[] => {
+    const service = unmerged
+      ? createTypeshadeLanguageServiceWith({}, analyzeSourceFile, { merge: false })
+      : createTypeshadeLanguageService();
+    service.openDocument('/m.shade.ts', src);
+    return service
+      .getDiagnostics('/m.shade.ts')
+      .filter((d) => d.severity === 'error')
+      .map((d) => `${d.source} ${d.code}: ${d.message}`);
+  };
+
+  it('new this() in a static of an abstract class builds each class that extends it, in both halves (#944)', () => {
+    const src = `${OSCILLATORS}export function run(): f32 {
+  let a = Saw.at(0.25, 1.);
+  let b = Square.at(0.125, 1.);
+  return a.tick() * 10. + b.tick();
+}${RUN_TAIL}`;
+    const r = compile(src);
+    expect(r.diagnostics).toEqual([]);
+    // The body is lowered for `Saw` and for `Square`, `this` being each; the abstract class has no
+    // function of that name, since there is no instance of it to build.
+    expect(r.wgsl).toContain(
+      'fn Saw_at_into(_dst: ptr<function, Saw>, f: f32, sr: f32) {\n  Saw_new_into(_dst);',
+    );
+    expect(r.wgsl).toContain(
+      'fn Square_at_into(_dst: ptr<function, Square>, f: f32, sr: f32) {\n  Square_new_into(_dst);',
+    );
+    expect(r.wgsl).not.toContain('Oscillator_at');
+    expect(r.glsl?.fragment).toContain('Saw Saw_at(float f, float sr) {\n  Saw o = Saw_new();');
+    expect(r.glsl?.fragment).toContain(
+      'Square Square_at(float f, float sr) {\n  Square o = Square_new();',
+    );
+    expect(r.glsl?.fragment).not.toContain('Oscillator_at');
+    // `Saw` at 0.25 reads 2 * 0.25 - 1 = -0.5 and `Square` at 0.125 reads 1, on the oracle, the CPU
+    // codegen and the debugger: -0.5 * 10 + 1.
+    expect(runAll(src)).toBe(-4);
+    // The editor reads the same program: no error, and each call is the class it names, as the
+    // compiler builds it.
+    expect(editorErrors(src)).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('/m.shade.ts', src);
+    const hover = (needle: string, skip = 0): unknown =>
+      service.getHover('/m.shade.ts', service.positionAt('/m.shade.ts', src.indexOf(needle) + skip))
+        ?.contents;
+    expect(hover('Saw.at(0.25', 'Saw.'.length)).toContain('at<Saw>(this: new () => Saw');
+    expect(hover('Square.at(0.125', 'Square.'.length)).toContain(
+      'at<Square>(this: new () => Square',
+    );
+    expect(hover('let a', 'let '.length)).toContain('let a: Saw');
+    expect(hover('let b', 'let '.length)).toContain('let b: Square');
+    // A call written nowhere is no mistake: the abstract class declares the static, and no
+    // function of it is made.
+    const unused = `${OSCILLATORS}${TAIL}`;
+    expect(compile(unused).diagnostics).toEqual([]);
+    expect(editorErrors(unused)).toEqual([]);
+  });
+
+  it('a call of that static through the abstract class is refused where it is written, naming the call (#944)', () => {
+    const through = (callee: string, head = ''): string =>
+      `${OSCILLATORS}${head}export function run(): f32 {
+  let a = ${callee}.at(0.25, 1.);
+  return a.tick();
+}${RUN_TAIL}`;
+    const first =
+      '"Oscillator.at()" builds its value with "new this()", and "Oscillator" is abstract, so ' +
+      'there is no instance of it to build. Call it through a class that extends it, "Saw.at()".';
+    const src = through('Oscillator');
+    // One diagnostic on the call, not on the `new this()` of the declaration (Rule 12.4).
+    const r = compile(src);
+    expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual([['TS8035', first]]);
+    const call = 'Oscillator.at(0.25, 1.)';
+    expect([r.diagnostics[0]!.start, r.diagnostics[0]!.length]).toEqual([
+      src.indexOf(call),
+      call.length,
+    ]);
+    expect(r.wgsl).toBeUndefined();
+    // The editor says the same, once: TypeScript's own report of the call (TS2684, on the class
+    // name) is there beside it until the merge drops it as the same mistake (Rule 12.7).
+    expect(editorErrors(src)).toEqual([`typeshade TS8035: ${first}`]);
+    const unmerged = editorErrors(src, true);
+    expect(unmerged).toHaveLength(2);
+    expect(unmerged[0]).toMatch(/^typescript 2684: The 'this' context of type 'typeof Oscillator'/);
+    expect(unmerged[1]).toBe(`typeshade TS8035: ${first}`);
+    // The remedy offers the first class that extends the abstract one, whichever abstract class
+    // the call names, and none when nothing extends it.
+    const mid = through(
+      'Mid',
+      'abstract class Mid extends Oscillator {}\n' +
+        'class Tri extends Mid {\n  protected wave(p: f32): f32 {\n    return p;\n  }\n}\n',
+    );
+    const midSaid =
+      '"Mid.at()" builds its value with "new this()", and "Mid" is abstract, so there is no ' +
+      'instance of it to build. Call it through a class that extends it, "Tri.at()".';
+    expect(compile(mid).diagnostics.map((d) => [d.code, d.message])).toEqual([['TS8035', midSaid]]);
+    expect(editorErrors(mid)).toEqual([`typeshade TS8035: ${midSaid}`]);
+    const alone = src.replace(/class Saw[^]*?\n}\nclass Square[^]*?\n}\n/, '');
+    expect(alone).not.toContain('class Saw');
+    const aloneSaid =
+      '"Oscillator.at()" builds its value with "new this()", and "Oscillator" is abstract, so ' +
+      'there is no instance of it to build. Call it through a class that extends it.';
+    expect(compile(alone).diagnostics.map((d) => [d.code, d.message])).toEqual([
+      ['TS8035', aloneSaid],
+    ]);
+    expect(editorErrors(alone)).toEqual([`typeshade TS8035: ${aloneSaid}`]);
+  });
+
+  it('of two statics of an abstract class that build with new this(), only the one without the this parameter is refused (#944)', () => {
+    // Without the `this` parameter, `this` is the abstract class itself and TypeScript refuses the
+    // `new` (TS2511), so the declaration is the mistake, whoever calls it. With it, `this` is a
+    // constructor and TypeScript accepts the `new` (above).
+    const src = `"use typeshade";
+abstract class S {
+  a: f32 = 1.;
+  static make(): f32 {
+    const s = new this();
+    return 1.;
+  }
+  static build<C extends S>(this: { new (): C }): C {
+    return new this();
+  }
+}
+class T extends S {}
+export function run(): f32 {
+  return T.make() + T.build().a;
+}${RUN_TAIL}`;
+    const said =
+      '"S" is abstract, so there is no instance of it to build. Construct a class that extends it.';
+    const r = compile(src);
+    expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual([['TS8035', said]]);
+    expect(r.diagnostics[0]!.start).toBe(src.indexOf('new this()'));
+    expect(editorErrors(src)).toEqual([`typeshade TS8035: ${said}`]);
+    // TypeScript's own half is the premise: it refuses the first `new` and takes the second.
+    const unmerged = editorErrors(src, true);
+    expect(unmerged).toEqual([
+      'typescript 2511: Cannot create an instance of an abstract class.',
+      `typeshade TS8035: ${said}`,
+    ]);
+    // With the first static gone the program is whole: `T.build()` builds a `T`.
+    const fixed = src
+      .replace(/  static make\(\): f32 \{[^]*?\n  \}\n/, '')
+      .replace('T.make() + ', '');
+    expect(fixed).not.toContain('static make');
+    expect(runAll(fixed)).toBe(1);
+    expect(editorErrors(fixed)).toEqual([]);
+  });
+
+  it('an error in the body of such a static is said for each class that extends the abstract one, called or not (#944)', () => {
+    // The abstract class has no lowering of the body, so a class that extends it is the only one
+    // there is, as with an abstract class's method (Rule 12.4 counts one mistake per class there).
+    const src = `${OSCILLATORS.replace('o.inc = f / sr;', 'o.incc = f / sr;')}${TAIL}`;
+    const said = (cls: string): string => `Unknown field "incc" on ${cls}. Did you mean "inc"?`;
+    expect(compile(src).diagnostics.map((d) => [d.code, d.message])).toEqual([
+      ['TS8022', said('Saw')],
+      ['TS8022', said('Square')],
+    ]);
+    // The editor shows the compiler's sentences, TypeScript's TS2551 of the same mistake merged.
+    expect(editorErrors(src)).toEqual([
+      `typeshade TS8022: ${said('Saw')}`,
+      `typeshade TS8022: ${said('Square')}`,
+    ]);
+    const unmerged = editorErrors(src, true);
+    expect(unmerged).toContain(
+      "typescript 2551: Property 'incc' does not exist on type 'C'. Did you mean 'inc'?",
+    );
   });
 
   it("a static a class inherits writes that class's own static through this", () => {

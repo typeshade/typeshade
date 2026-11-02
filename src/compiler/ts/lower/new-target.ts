@@ -35,7 +35,7 @@ import { removedCallSentence, removedConstantSentence } from '../removed-names.j
 import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../../core/intrinsics.js';
 import { isConsoleMethod } from '../../../core/console.js';
 import { isMixinApplication } from '../mixins.js';
-import { isStaticMember, staticThisClass } from '../class-names.js';
+import { isCallerClassThis, isStaticMember, staticThisClass } from '../class-names.js';
 import { namespaceMember, qualifiedParts } from '../namespaces.js';
 import { declarationOf } from './closures.js';
 import { namesInScope, unknownNameSentence } from '../unknown-names.js';
@@ -528,8 +528,12 @@ export function newRefusal(
     if (cls === undefined) {
       return { message: thisObjectNewMessage(node), code: TS_CODES.CLASS_MEMBER };
     }
-    // A static member of an abstract class builds no instance of it, as TypeScript says (TS2511).
-    return isAbstract(cls)
+    // A static member of an abstract class builds no instance of it, as TypeScript says (TS2511),
+    // unless its `this` parameter types `this` as a constructor (0020). The member is then lowered
+    // for each class that extends the abstract one, with `this` as that class, and a call that
+    // names the abstract class is refused where it is written, as TypeScript refuses it (TS2684;
+    // `abstractBuilderSentence` in class-methods.ts).
+    return isAbstract(cls) && !isCallerClassThis(target)
       ? { message: abstractNewMessage(cls.name?.text ?? ''), code: TS_CODES.CLASS_MEMBER }
       : undefined;
   }

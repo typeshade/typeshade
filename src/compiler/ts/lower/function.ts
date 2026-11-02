@@ -68,7 +68,7 @@ import { refuseRuntimeArraySignature } from './runtime-array.js';
 import { checkReferenceAliases, markOutParam, qualifiersOf } from './references.js';
 import { checkDefiniteAssignment } from '../definite.js';
 import { kernelSourceNames } from '../kernel-loops.js';
-import { emittedMemberName, writtenStaticFields } from '../class-names.js';
+import { buildsCallerClass, emittedMemberName, writtenStaticFields } from '../class-names.js';
 import { staticConstName } from '../module-const.js';
 import {
   captureArguments,
@@ -1924,7 +1924,9 @@ function stageRestrictedOpsOf(body: readonly Stmt[]): Set<string> {
  *  a function that is not a class's own (an entry, a top-level function), through any chain of
  *  calls; a class's function that nothing so reaches and that calls a dropped copy is dropped
  *  with it, so no call is left without its function. A copy of an `abstract` class's method is
- *  the only lowering its body gets, so what it says is said whether or not anything calls it. */
+ *  the only lowering its body gets, so what it says is said whether or not anything calls it;
+ *  so is a copy of its static that builds its value with `new this()` (0020), which the abstract
+ *  class itself has no lowering of. */
 function sayInherited(
   inherited: readonly { cf: ClassFunction; said: readonly TsCompilerDiagnostic[] }[],
   funcs: FuncDecl[],
@@ -1932,7 +1934,7 @@ function sayInherited(
   diagnostics: TsCompilerDiagnostic[],
 ): void {
   const onlyLowering = (cf: ClassFunction): boolean =>
-    cf.kind !== 'static' &&
+    (cf.kind !== 'static' || (cf.node !== undefined && buildsCallerClass(cf.node))) &&
     cf.node !== undefined &&
     ts.isClassLike(cf.node.parent) &&
     (cf.node.parent.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false);

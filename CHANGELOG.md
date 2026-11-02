@@ -1543,6 +1543,20 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   emits, ``gather reads `t[Voice_shift(i)]` ``, and now prints `t[Voice.shift(i)]`. An instance of a
   generic function of the top level (`pick_u32`) is not changed.
 
+- **`new this()` in a static builder of an `abstract` class builds each class that extends it
+  (#944).** A builder written on an `abstract` base,
+  `static at<C extends Oscillator>(this: { new (): C }): C`, was TS8035 at its `new this()`, with
+  TS8022 on each use of the object it built, where TypeScript takes the declaration and refuses
+  only a call through the abstract class (TS2684). The check read `this` as the class that holds
+  the static. The body is now lowered for each class that extends the abstract one, `this` being
+  that class, and the abstract class has no function of that name. `Oscillator.at(…)` is TS8035 on
+  the call, "Oscillator.at()" builds its value with "new this()", and "Oscillator" is abstract, so
+  there is no instance of it to build. Call it through a class that extends it, "Saw.at()". The
+  editor shows that sentence alone, with TypeScript's TS2684 merged into it. A static without the
+  `this` parameter is still refused at its `new`, as TypeScript refuses it (TS2511). An error in
+  the body is said for each class that extends the abstract one, whether or not a call reaches it,
+  as it is for an abstract class's method.
+
 - **A length read inside a storage index is declared in the WebGL2 pass program (#900).** An
   entry that read an array's length only inside an index, `out[g] = xs[(g + 3) % xs.length]`, ran
   on WebGPU and on the CPU tier, and its pass program did not compile on WebGL2: the program named
