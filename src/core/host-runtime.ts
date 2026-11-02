@@ -31,6 +31,7 @@ export {
   arity,
   notCallable,
   callMember,
+  fromShaderIn,
   type HostType,
   type HostNumber,
   type HostClasses,

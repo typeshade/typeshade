@@ -2590,6 +2590,7 @@ function moduleText(
   // A struct a result holds is an instance of its class when the class is exported (D1): the
   // conversion is handed the classes' prototypes, `__ts_P`, which the module builds last.
   const classes = exports.filter((e): e is FaceExport & { kind: 'class' } => e.kind === 'class');
+  const outOf = classes.length > 0 ? 'fromShaderIn' : 'fromShader';
   const protos = classes.length > 0 ? ', __ts_P' : '';
   const out: string[] = [
     header(stem),
@@ -2657,7 +2658,7 @@ function moduleText(
               ? [`const ${args.map((a, i) => `${held[i]} = ${a}`).join(', ')};`]
               : []),
             ...(hasPrivates ? [`${MOD}.F.$initPrivates();`] : []),
-            `return ${RT}.fromShader(${ret}, ${MOD}.F[${q(e.fn)}](${held.join(', ')})${protos});`,
+            `return ${RT}.${outOf}(${ret}, ${MOD}.F[${q(e.fn)}](${held.join(', ')})${protos});`,
           ]),
         );
         break;

@@ -11,8 +11,8 @@
 // An exported class (change 0109) is a JavaScript class of the generated module whose instances
 // are such objects: its fields are their own properties, and its constructor and methods run the
 // CPU tier's functions through {@link callMember}. A struct result whose class is exported is an
-// instance of it, built without its constructor (D1), when the module hands `fromShader` the
-// classes' prototypes.
+// instance of it, built without its constructor (D1), through {@link fromShaderIn}, which a
+// module with no class never calls.
 //
 // It is runtime code: a module the Vite plugin generates imports it through `typeshade/runtime`,
 // with the type of every parameter written into that module as a `HostType` literal. It imports
@@ -250,14 +250,9 @@ export function toShader(fn: string, param: string, t: HostType, v: unknown): Cp
   }
 }
 
-/** The prototype of each exported class by its struct's name (change 0109): a struct a result
- *  holds is an instance of its class, built without running the constructor (D1). */
-export type HostClasses = ReadonlyMap<string, object>;
-
 /** Copy a result of the CPU tier out to the host: a fresh array or object at every level, so
- *  it aliases no argument and nothing the module keeps (Rule 8.21). A struct whose class
- *  `classes` names is an instance of that class, its fields its own properties (D1). */
-export function fromShader(t: HostType, v: CpuValue, classes?: HostClasses): unknown {
+ *  it aliases no argument and nothing the module keeps (Rule 8.21). */
+export function fromShader(t: HostType, v: CpuValue): unknown {
   switch (t.k) {
     case 'num':
     case 'bool':
@@ -275,35 +270,59 @@ export function fromShader(t: HostType, v: CpuValue, classes?: HostClasses): unk
       return out;
     }
     case 'arr':
-      return Array.from(v as unknown as ArrayLike<CpuValue>, (x) => fromShader(t.e, x, classes));
+      return Array.from(v as unknown as ArrayLike<CpuValue>, (x) => fromShader(t.e, x));
     case 'rec': {
       const xs = v as unknown as ArrayLike<CpuValue>;
       const out: Record<string, unknown> = {};
-      t.m.forEach((name, i) => (out[name] = fromShader(t.e, xs[i]!, classes)));
+      t.m.forEach((name, i) => (out[name] = fromShader(t.e, xs[i]!)));
       return out;
     }
     case 'struct': {
-      const proto = classes?.get(t.s);
+      const o = v as unknown as Record<string, CpuValue>;
+      const out: Record<string, unknown> = {};
+      for (const [name, ft] of t.f) out[name] = fromShader(ft, o[name]!);
+      return out;
+    }
+  }
+}
+
+/** The prototype of each exported class by its struct's name (change 0109): a struct a result
+ *  holds is an instance of its class, built without running the constructor (D1). */
+export type HostClasses = ReadonlyMap<string, object>;
+
+/** {@link fromShader} in a module that exports a class (change 0109): a struct whose class
+ *  `classes` names is an instance of that class, its fields its own properties and its
+ *  constructor not run (D1), at every level. Apart from `fromShader`, so that what an
+ *  application ships for a module with no class is what it was. */
+export function fromShaderIn(t: HostType, v: CpuValue, classes: HostClasses): unknown {
+  switch (t.k) {
+    case 'arr':
+      return Array.from(v as unknown as ArrayLike<CpuValue>, (x) => fromShaderIn(t.e, x, classes));
+    case 'rec': {
+      const xs = v as unknown as ArrayLike<CpuValue>;
+      const out: Record<string, unknown> = {};
+      t.m.forEach((name, i) => (out[name] = fromShaderIn(t.e, xs[i]!, classes)));
+      return out;
+    }
+    case 'struct': {
+      const proto = classes.get(t.s);
       const out = (proto === undefined ? {} : Object.create(proto)) as Record<string, unknown>;
       assignFields(out, t, v, classes);
       return out;
     }
+    default:
+      return fromShader(t, v);
   }
 }
 
 /** Write a struct value of the CPU tier into `target`'s own properties, one host value for each
  *  field `t` declares, fresh at every level (change 0109): the fields of an instance a
  *  constructor built, or that a method which changes its object changed (Rule 8.10). */
-export function assignFields(
-  target: object,
-  t: HostType,
-  v: CpuValue,
-  classes?: HostClasses,
-): void {
+function assignFields(target: object, t: HostType, v: CpuValue, classes: HostClasses): void {
   if (t.k !== 'struct') return;
   const o = v as unknown as Record<string, CpuValue>;
   const out = target as Record<string, unknown>;
-  for (const [name, ft] of t.f) out[name] = fromShader(ft, o[name]!, classes);
+  for (const [name, ft] of t.f) out[name] = fromShaderIn(ft, o[name]!, classes);
 }
 
 /** The generated module's CPU tier, as a member call reads it: its functions, and the values a
@@ -371,7 +390,7 @@ export function callMember(
   }
   if (spec.w !== undefined) assignFields(self!, spec.o!, m.$.inout.values[0]!, classes);
   if (spec.s !== undefined) return self;
-  return spec.r === undefined ? undefined : fromShader(spec.r, result, classes);
+  return spec.r === undefined ? undefined : fromShaderIn(spec.r, result, classes);
 }
 
 /** A module constant as a host value: a copy, frozen at every level, so the host cannot write
