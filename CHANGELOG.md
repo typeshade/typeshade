@@ -1554,6 +1554,19 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A kernel function's loop that writes at the counter added to a value the loop does not change
+  runs on the GPU (#983).** `for (let n: u32 = 0; n < block.length; n++) tape[at + n] = block[n];`
+  was refused with `TS8070`: the loop "writes `tape[at + n]`, an element two iterations can share",
+  and the sentence told the author to write at an index made from `n`. `tape[n * 1 + at]` lowered.
+  The proof (Rule 8.22, R3) admits a write at one index whose coefficient of the counter is the same
+  in every iteration, and it read that coefficient from a product, so a counter that stood alone in
+  the sum had none. A bare counter is now `1 * n` in either order of the sum: `at + n` and `n + at`
+  are scaled writes with the coefficient 1 in the counter's type, and the call checks the tape
+  against the indices they write before it dispatches, as it does for `n * 1 + at`. `at + n * 2` and
+  `n * 2 + at` were accepted before and still are. A counter divided before the sum, or added to a
+  value each iteration declares, is still refused, and so is a sum of three terms that starts with
+  the counter (`n + at + off`), as `n * 2 + at + off` was.
+
 - **A refused `new this()` in a static of an abstract class says nothing more of the object it
   would have built (#973).** A static without the `this: { new (): C }` parameter of change 0020
   is refused at its `new` (`TS8035`), as TypeScript refuses it (TS2511). When a class extends the
