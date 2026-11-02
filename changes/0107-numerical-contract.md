@@ -1,28 +1,36 @@
 ---
 id: '0107'
 title: An author can opt a function or module into named floating-point rewrites that the default O2 refuses, each with a stated domain and a measured error bound
-status: draft
-rules: []
+status: accepted
+rules:
+  - '6.7'
+  - '11.21'
 surface:
   - 38
-  - 69
 exports: []
 exports-removed: []
-codes: []
+codes:
+  - TS8078
 examples: []
-downstream: []
+downstream:
+  - repo: typeshade.github.io
+    what: Document the @numerics annotation, its two classes and TS8078 on the pages generated from Rule 6.7, Rule 11.21 and surface §38, and record 0107 in compiler-changes.md
+  - repo: vscode-typeshade
+    what: Add @numerics and TS8078 to the plugin skill's attribute and diagnostics references, and record 0107 in compiler-changes.md
 ---
+
+<!-- doc-refs: skip-file — an accepted proposal names the rule and the code its implementation adds, which this tree does not have yet -->
 
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0107, `status: draft`. The front matter is the identity and lifecycle authority. No approval exists.                                                                                                                                                                                                                                                                                                            |
+| Identity and status           | Proposal 0107, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved it on 2026-11-02 (see Approval and plan record).                                                                                                                                                                                                                                                         |
 | Date and attribution          | Drafted 2026-11-01, Asia/Seoul, by an AI agent at the maintainer's request. The date is the drafting date. It is not an approval date. The maintainer owns every decision this proposal leaves open. Git authorship of the containing commit is not an approval signature.                                                                                                                                               |
 | Request source                | Issue [#852](https://github.com/typeshade/typeshade/issues/852), split out of [#841](https://github.com/typeshade/typeshade/issues/841) (body section 3). The comments on [#850](https://github.com/typeshade/typeshade/issues/850) (N5, N8) and issue [#851](https://github.com/typeshade/typeshade/issues/851) (N9, N10) name this contract as their prerequisite.                                                     |
 | Applicability / effectivity   | Expected: `src/core/passes/opt/algebraic.ts`, `src/core/passes/opt/optimize.ts` (`OptLevel`, `LEVEL_PASSES`), the `"use typeshade"` front end if an annotation is chosen, `src/core/passes/determinism.ts`, `docs/language-design.md` §11, `docs/use-typeshade-surface.md` §38 and §69, and the emit goldens. The default `'O2'` output does not change. The CPU oracle does not change. No release version is assigned. |
-| Review baseline               | `main` at `981b7c15` (merge of pull request #859), 2026-11-01.                                                                                                                                                                                                                                                                                                                                                           |
-| Review and revision authority | No pull request is assigned yet. Git records the revisions of this file. The merge of a proposal-only pull request with `status: accepted` will record the decision.                                                                                                                                                                                                                                                     |
+| Review baseline               | `main` at `981b7c15` (merge of pull request #859), 2026-11-01. Re-read on `main` at `5e0e532a` (merge of #920), 2026-11-02: `algebraic.ts`, `OptLevel`, `LEVEL_PASSES`, Rules 1.3, 2.1, 4.4, 6.7, 11.2, 11.5, 11.20 and 13.4, surface §38 and §69 and `docs/dx.md` still say what this proposal quotes.                                                                                                                  |
+| Review and revision authority | Pull request #861 (branch `docs/proposal-0107-numerical-contract`). Git records the revisions of this file. Its merge with `status: accepted` records the decision.                                                                                                                                                                                                                                                      |
 
 ## What changes
 
@@ -54,15 +62,27 @@ oracle is `-O0` (Rule 1.3).
      `0*x -> 0`, `x-x -> 0`, `mix(a, b, 0.0) -> a`, `mix(a, b, 1.0) -> b`. With finite operands
      these hold exactly, apart from the sign of a zero.
    - **reassociate.** Reassociation, distribution and factoring of `f32` arithmetic. These change
-     rounding even for finite operands. The #841 candidates belong here: hash normalization moved
-     to the end of fBm, factored palette and vignette, a shared palette phase, an eight-segment
-     fold specialization and a vignette early return.
-4. Let an author opt in through one mechanism. The mechanism is an open decision (see Why).
+     rounding even for finite operands. Of the #841 candidates (body section 3), two belong here:
+     the normalization moved to the end of fBm (3.1) and the factored palette, brightness and
+     vignette (3.2). The other three are not reassociation and are not in either class: the
+     shared palette phase (3.3) is a trigonometric identity, the eight-segment fold (3.4) a
+     specialization on a value's range, and the vignette early return (3.5) a consumer-driven exit
+     of the kind #851 tracks. Each needs its own class or proposal (amended 2026-11-02).
+4. Let an author opt in per function, with the annotation `@numerics(...)` on a function of the
+   file: `@numerics("finite-math")`, `@numerics("reassociate")` or both. Each argument names one
+   class; there is no catch-all. A class name the compiler does not know, a repeated class, an
+   annotation with no argument and `@numerics` anywhere but on a function are refused with
+   `TS8078`, in `compile()` and in the editor alike (Rule 12.7). Rule 6.7 gains the name, and the
+   ambient library declares it.
 5. Never apply a contract to lowered df64 arithmetic: any expression `fp64-lower` produced, or
    any operand of type `f64`, `vecNf64` or `matN<f64>`.
 6. Never apply a contract across an opaque function boundary. A rewrite inside an opted-in
    function stays inside it. Inlining an opted-in body into an exact caller does not extend the
-   contract to the caller.
+   contract to the caller. The IR records no function of origin on an expression, so the order is
+   fixed (amended 2026-11-02): the contract's rewrites run on an opted-in function before any pass
+   inlines it, and no pass inlines an exact function into an opted-in one before they run. An
+   inlined body then carries only rewrites already made, and the caller's own expressions stay
+   exact.
 7. Admit a rewrite into a class only with a supported domain and a measured error bound,
    recorded where the rewrite is defined.
 8. List each operation a contract rewrote in the determinism report (surface §38), in a new
@@ -71,7 +91,7 @@ oracle is `-O0` (Rule 1.3).
 ### Example
 
 ```ts
-// Hypothetical spelling; the mechanism is not decided.
+@numerics("finite-math")
 function tickRow(base: vec3, x: vec3, curl: f32, spread: f32): vec3 {
   // Under finite-math, a call with curl = 0 folds mix(...) to base,
   // and drops the sin/cos that fed X.
@@ -125,35 +145,42 @@ source what the oracle no longer matches bit for bit.
 - A GPU driver may already apply some of these rewrites. Then the gain on GPU time is smaller
   than the IR counts suggest (the #850 comment on N8 records the same inference).
 
-### Open decisions
+### Decisions (the owner, 2026-11-02)
 
-1. Which mechanism: A, B or C.
-2. The names of the classes, and whether finite-math and reassociate are separate switches.
-3. How a relaxed function and the CPU oracle compare: an error bound per rewrite, or a
-   per-function tolerance in the differential gate.
-4. Whether the existing `x + 0 -> x` exception moves into a class, as the `algebraic.ts`
-   header suggests. That move would change the default `'O2'` output.
-5. The rule number of the new rule in `docs/language-design.md` §11.
-6. Whether common modules (Rule 11.20) may ever opt in.
+1. **Mechanism: B**, per function, spelled `@numerics(...)` (proposed item 4).
+2. **Classes:** `finite-math` and `reassociate`, separate switches; an author names each one.
+3. **Comparison with the CPU oracle:** a `finite-math` function equals the oracle bit for bit on
+   finite inputs, apart from the sign of a zero; a `reassociate` function stays within the ulp
+   bound measured and recorded for each of its rewrites. The differential gate applies those
+   comparisons to an opted-in function and the exact one to every other.
+4. **`x + 0 -> x` stays where it is**, in the default `'O2'`. Moving it into a class would change
+   the default output; that is a proposal of its own.
+5. **The new rule is Rule 11.21**, after Rule 11.20.
+6. **Common modules (Rule 11.20) never opt in.** They promise the oracle's bits on every tier.
 
 ## What it touches
 
-- `rules`: empty in this draft. The change adds one rule to §11, next to Rule 11.2 and
-  Rule 11.5. Its number is open decision 5. Rule 1.3 and Rule 4.4 constrain it and do not
-  change.
-- `surface` 38: the determinism report must show which operations a contract rewrote.
-- `surface` 69: under option A, the emit options of `packModule` gain a level or a field.
-  Under B or C, §69 may not change. Remove the entry at acceptance if it does not.
-- `exports`: empty in this draft. Option A reshapes the exported type `OptLevel`. Option B or
-  C adds an author-facing annotation. Either is a proposed public surface, not a decided one.
-- `codes`: empty in this draft. Option B or C likely needs a code for a misplaced or unknown
-  annotation.
+- `rules`: Rule 11.21 is new: a numerical contract is opted into per function, by class, never
+  for df64 or `f64` operands, never across a function boundary, never in a common module, each
+  rewrite with its domain and measured bound. Rule 6.7 adds `@numerics` to the attribute names
+  the compiler reads. Rule 1.3 and Rule 4.4 constrain it and do not change. Rule 2.1 holds: the
+  name is an extension the compiler reads, listed with the others of Rule 6.7 and in §9's
+  extension table of `docs/language-design.md`.
+- `surface` 38: the determinism report shows which operations a contract rewrote. The annotation
+  itself is documented in a new surface section that the implementation numbers and adds to this
+  list when it lands.
+- `exports`: none. The annotation is source-level; the ambient library declares it for the editor.
+- `codes`: `TS8078`, a refused `@numerics` (an unknown or repeated class, no argument, or a place
+  other than a function). `TS8076` is reserved by draft 0052, so the next free number is taken.
 - `examples`: none.
 
 Required validation evidence:
 
 - Unit tests per rewrite in `src/core/passes/opt/`, with a NaN, an Inf and a signed-zero input
   that show the rewrite stays out of exact code.
+- A test that an opted-in function inlined into an exact caller leaves the caller's own
+  expressions exact, and that an exact function inlined into an opted-in one is not rewritten.
+- `TS8078` on each refused form, in `compile()` and in the editor (Rule 12.7).
 - A test that no rewrite reaches a df64 expression.
 - An unchanged default: `bun run bake:goldens` produces no diff at `'O2'`.
 - `bun run gate:differential` with the agreed comparison for relaxed functions.
@@ -168,15 +195,24 @@ Required validation evidence:
 - Estimate: option B is moderate work; option C is the largest. No duration or cost is
   estimated. Both are unknown.
 - Dependencies: #850 N5 and #851 wait on this contract.
-- Downstream: unknown until the mechanism is chosen. A public annotation or level would need a
-  page on typeshade.dev and a line in the editor's skill.
-- Open decisions 1 to 6 must be resolved before acceptance.
+- Downstream: the site and the editor (front matter `downstream`).
+- Decisions 1 to 6 are resolved above.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the maintainer's decision on the
-proposal-only pull request, the approved revision and scope, the resolved open decisions, the
-assigned responsibilities and the agreed milestones.
+The owner (Seungup) approved the proposal in the Claude Code session on 2026-11-02 (UTC), in
+Korean ("수락"), in answer to a review that listed four corrections (the misfiled #841 candidates,
+the inlining order, the obligations of option B, the review baseline) and a recommendation for
+each of the six open decisions. The decisions above are those recommendations. The spelling
+`@numerics(...)` and the code `TS8078` were written into this revision after that answer and were
+put to the owner before the merge. The approved revision is the one this record is part of; the
+merge of #861 with `status: accepted` records the decision.
+
+Responsibilities: an agent of this repository implements Rule 11.21, `@numerics` and `TS8078`
+in a pull request whose commits say `Change: 0107`, starting with the `finite-math` class that
+#850 N5 needs. Each `reassociate` rewrite enters with its measured bound, one at a time. The site
+and the editor do their work when their pins move. No milestone date is assigned. No duration or
+cost estimate is established.
 
 ### Configuration and validation record
 
@@ -186,10 +222,11 @@ validation evidence listed above.
 
 ## What it owes downstream
 
-None is declared in this draft. If the maintainer chooses a public level or annotation, the
-proposal must name, before acceptance:
+- **typeshade.github.io.** The pages generated from Rule 6.7, Rule 11.21 and surface §38 gain
+  `@numerics`, its two classes and `TS8078`. Record 0107 in `compiler-changes.md` when the pin
+  moves.
+- **vscode-typeshade.** The plugin skill's attribute and diagnostics references gain `@numerics`
+  and `TS8078`. Record 0107 in `compiler-changes.md` when the pin moves. The editor's diagnostics
+  come from the language service, so they change with the pin.
 
-- typeshade.github.io: the page that documents optimization levels or annotations.
-- The editor: its skill text on optimization.
-
-Search each repository for `O2` and `OptLevel` at that time. No downstream work is assigned.
+Radiance, TypeNN and TypeCV owe nothing: no program changes unless its author opts in.
