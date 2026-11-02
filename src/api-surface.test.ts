@@ -141,12 +141,18 @@ const READER_OPTIONS: ts.CompilerOptions = {
 /** A source of the reader's own, served from memory and named like a file no export reaches, so
  *  it can appear in no snapshot. The arms of 'the reader prints the same on every TypeScript CI
  *  runs' read it through the reader's own functions to say what it prints for the two things
- *  that moved with the TypeScript version. Slashes are forward because TypeScript hands its host
- *  a normalised path, and a `join` on Windows would not match it. */
+ *  that moved with the TypeScript version, and the arms of 'the reader sorts a union and leaves a
+ *  conditional type as written' say what it prints for a union and for a conditional type.
+ *  Slashes are forward because TypeScript hands its host a normalised path, and a `join` on
+ *  Windows would not match it. */
 const PROBE_FILE = `${PKG.split(sep).join('/')}/src/__api__/reader-probe.ts`;
 const PROBE_SOURCE = [
   'export declare function typedArrays(input: Float32Array, view: ArrayBufferView): Promise<Uint32Array>;',
   'export interface OptionalMembers { count?: number; note?: string }',
+  // The literals are new to the program, so TypeScript lists each union in the order written here
+  // (it lists the members in the order it first made them), and a sort can be seen to act (#924).
+  'export type Branches<T> = T extends string ? "cond-b" | "cond-a" : "cond-d" | "cond-c";',
+  'export type Unordered = "plain-c" | "plain-a" | "plain-b";',
 ].join('\n');
 const readerHost = ts.createCompilerHost(READER_OPTIONS);
 const readSourceFile = readerHost.getSourceFile.bind(readerHost);
@@ -237,6 +243,45 @@ function sortNumberRuns(printed: string): string {
   );
 }
 
+/** Whether `s` closes every `{`, `(`, `[` and `<` that it opens. */
+function balanced(s: string): boolean {
+  let depth = 0;
+  for (const ch of s) {
+    if (ch === '{' || ch === '(' || ch === '[' || ch === '<') depth++;
+    else if (ch === '}' || ch === ')' || ch === ']' || ch === '>') depth--;
+    if (depth < 0) return false;
+  }
+  return depth === 0;
+}
+
+/** Whether the printed form is, as a whole, a conditional type: `T extends X ? A | B : C | D`.
+ *  The TypeScript parser decides, not a pattern: ` extends ` and ` ? ` also stand inside a union
+ *  member that TypeScript put in parentheses, and in the type parameters of a signature. */
+function isConditionalType(printed: string): boolean {
+  if (!printed.includes(' extends ') || !printed.includes(' ? ')) return false;
+  const [alias] = ts.createSourceFile(
+    'printed.ts',
+    `type T = ${printed};`,
+    ts.ScriptTarget.ES2022,
+  ).statements;
+  return (
+    alias !== undefined && ts.isTypeAliasDeclaration(alias) && ts.isConditionalTypeNode(alias.type)
+  );
+}
+
+/** The members of a printed form that is a ` | ` join to sort, and `undefined` for any other
+ *  form. This is the one rule for what {@link typeText} sorts and what {@link topLevelUnions}
+ *  expects to find sorted. It is not a join when
+ *
+ *  - the text has no ` | ` at all,
+ *  - the text is a conditional type (#924), whose ` | `s join the members of its branches, or
+ *  - the parts of the split are not balanced (see {@link typeText}). */
+function unionMembers(printed: string): string[] | undefined {
+  if (!printed.includes(' | ') || isConditionalType(printed)) return undefined;
+  const parts = printed.split(' | ');
+  return parts.every(balanced) ? parts : undefined;
+}
+
 /** The printed form of a type, with a UNION's members sorted (#61).
  *
  *  TypeScript's constituent order for a union is a function of the whole program, not of the
@@ -253,6 +298,14 @@ function sortNumberRuns(printed: string): string {
  *  | z` — splits into unbalanced pieces and is left exactly as TypeScript printed it. So is
  *  anything that does not print as a ` | ` join at all: `boolean` is internally `false | true`
  *  and prints as one word, an enum prints as its name, and both fall through untouched.
+ *
+ *  A CONDITIONAL TYPE IS NO UNION (#924). `T extends X ? A | B : C | D` is one type, and its
+ *  ` | `s join the members of its branches. The pieces of a split there are balanced
+ *  (`T extends X ? A`, `B : C`, `D`), and sorting them wrote `B : C | D | T extends X ? A`.
+ *  {@link unionMembers} does not offer such a text, so a conditional type prints as TypeScript
+ *  wrote it. TypeScript puts a conditional type that is a member of a union in parentheses, so a
+ *  union of conditional types is still sorted. A run of number literals inside a conditional
+ *  type is still sorted in place by {@link sortNumberRuns}, as it is anywhere else.
  *
  *  Sorted by the default comparator, not `localeCompare`: this is machine output compared byte
  *  for byte by the snapshot, and a locale-aware collation reorders punctuation in ways that
@@ -274,19 +327,8 @@ function typeText(type: ts.Type, format: ts.TypeFormatFlags): string {
   const printed = sortNumberRuns(
     checker.typeToString(type, undefined, format).replace(/<ArrayBufferLike>/g, ''),
   );
-  if (!printed.includes(' | ')) return printed;
-  const parts = printed.split(' | ');
-  const balanced = (s: string): boolean => {
-    let depth = 0;
-    for (const ch of s) {
-      if (ch === '{' || ch === '(' || ch === '[' || ch === '<') depth++;
-      else if (ch === '}' || ch === ')' || ch === ']' || ch === '>') depth--;
-      if (depth < 0) return false;
-    }
-    return depth === 0;
-  };
-  if (!parts.every(balanced)) return printed;
-  return [...parts].sort().join(' | ');
+  const parts = unionMembers(printed);
+  return parts === undefined ? printed : [...parts].sort().join(' | ');
 }
 
 function shapeOf(sym: ts.Symbol): string {
@@ -337,23 +379,13 @@ const exportsOf = (sub: string): readonly Export[] => exportsOfFile(entryFile(su
 const perSubpath = new Map<string, readonly Export[]>(API_SUBPATHS.map((s) => [s, exportsOf(s)]));
 
 /** Every top-level ` | ` join in a rendered shape, as its members. A nested union (inside a
- *  signature or an object type) is not one of these — see `typeText`. */
+ *  signature or an object type) is not one of these, and a conditional type is not one either
+ *  (#924) — see `typeText`. */
 function topLevelUnions(text: string): string[][] {
   const out: string[][] = [];
   for (const line of text.split('\n')) {
-    const shape = line.split('  ').slice(2).join('  ');
-    if (!shape.includes(' | ')) continue;
-    const parts = shape.split(' | ');
-    const balanced = (s: string): boolean => {
-      let depth = 0;
-      for (const ch of s) {
-        if (ch === '{' || ch === '(' || ch === '[' || ch === '<') depth++;
-        else if (ch === '}' || ch === ')' || ch === ']' || ch === '>') depth--;
-        if (depth < 0) return false;
-      }
-      return depth === 0;
-    };
-    if (parts.every(balanced)) out.push(parts);
+    const parts = unionMembers(line.split('  ').slice(2).join('  '));
+    if (parts !== undefined) out.push(parts);
   }
   return out;
 }
@@ -470,9 +502,20 @@ describe('the reader sees the surface at all', () => {
 // across those versions, and each arm holds the reader to one of the two on the probe source
 // above. A leg that goes red here says the READER moved, and does not send anyone to re-bake the
 // snapshot on a version it was not baked with.
-describe('the reader prints the same on every TypeScript CI runs (#259)', () => {
-  const probe = new Map(exportsOfFile(PROBE_FILE).map((d) => [d.name, d.shape]));
+/** What the reader prints for each export of the probe source, by name. */
+const probe = new Map(exportsOfFile(PROBE_FILE).map((d) => [d.name, d.shape]));
 
+/** What TypeScript itself prints for an alias of the probe source, before the reader sorts. */
+function typeScriptPrints(alias: string): string | undefined {
+  const file = program.getSourceFile(PROBE_FILE);
+  const module = file && checker.getSymbolAtLocation(file);
+  const sym = module && checker.getExportsOfModule(module).find((s) => s.getName() === alias);
+  return (
+    sym && checker.typeToString(checker.getDeclaredTypeOfSymbol(sym), undefined, FORMAT_DECLARED)
+  );
+}
+
+describe('the reader prints the same on every TypeScript CI runs (#259)', () => {
   it('reads the probe source it holds itself to', () => {
     // The two arms below compare text, and a probe that was never read leaves them comparing
     // `undefined` under a message about typed arrays. So first: the source is in the program.
@@ -480,7 +523,7 @@ describe('the reader prints the same on every TypeScript CI runs (#259)', () => 
       [...probe.keys()].sort(),
       'the probe source is not in the program: PROBE_FILE is not the path TypeScript hands ' +
         'the reader host',
-    ).toEqual(['OptionalMembers', 'typedArrays']);
+    ).toEqual(['Branches', 'OptionalMembers', 'Unordered', 'typedArrays']);
   });
 
   it('prints a typed array as the source spells it, without its default type argument', () => {
@@ -501,6 +544,38 @@ describe('the reader prints the same on every TypeScript CI runs (#259)', () => 
         `off, so the reader says so. This is TypeScript ${ts.version}: fix the reader, do not ` +
         're-bake the snapshot here.',
     ).toBe('{ count?: number; note?: string }');
+  });
+});
+
+describe('the reader sorts a union and leaves a conditional type as written (#924)', () => {
+  const written = 'T extends string ? "cond-b" | "cond-a" : "cond-d" | "cond-c"';
+
+  it('prints a conditional type whose branches are unions as TypeScript wrote it', () => {
+    // The case can fail: cut at its ` | `s and sorted, as the reader once did, the text changes
+    // (`"cond-a" | "cond-c" : "cond-d" | T extends string ? "cond-b"`).
+    expect([...written.split(' | ')].sort().join(' | ')).not.toBe(written);
+    expect(typeScriptPrints('Branches')).toBe(written);
+    expect(probe.get('Branches')).toBe(written);
+  });
+
+  it('still sorts the members of a plain union', () => {
+    // The case can fail too: TypeScript lists the members in the order it made them, which is
+    // not the sorted order, so a reader that sorts nothing prints another text.
+    expect(typeScriptPrints('Unordered')).toBe('"plain-c" | "plain-a" | "plain-b"');
+    expect(probe.get('Unordered')).toBe('"plain-a" | "plain-b" | "plain-c"');
+  });
+
+  it('does not count the branches of a conditional type as a union to find sorted', () => {
+    // `topLevelUnions` reads the rendered snapshot, so a conditional type with unions in its
+    // branches would fail the arm that holds every union to sorted order, though it prints right.
+    const line = (shape: string): string => `src/a.ts#X  type  ${shape}`;
+    expect(topLevelUnions(line(written))).toEqual([]);
+    expect(topLevelUnions(line('T extends "a" | "b" ? 1 : 2'))).toEqual([]);
+    expect(topLevelUnions(line('"a" | "b"'))).toEqual([['"a"', '"b"']]);
+    // A union of conditional types is a union: TypeScript puts each member in parentheses.
+    expect(topLevelUnions(line('(T extends 1 ? 2 : 3) | (T extends 4 ? 5 : 6)'))).toEqual([
+      ['(T extends 1 ? 2 : 3)', '(T extends 4 ? 5 : 6)'],
+    ]);
   });
 });
 

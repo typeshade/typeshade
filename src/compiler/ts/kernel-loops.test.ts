@@ -110,6 +110,110 @@ export function count(a: array<u32>) {
 }`,
     'This loop runs on the CPU because line 9 calls "tally", which writes "calls". Return the value from "tally" and combine it in the loop instead.',
   ],
+  // #908: the sentence names a class's function and a namespace's function as the author wrote
+  // them (`Voice.tally`, `Ns.f`), not as the module emits them (`Voice_tally`, `Ns_f`).
+  [
+    'R5, a static function that writes a module variable',
+    `let calls: u32 = 0;
+class Voice {
+  static tally(): u32 {
+    calls += 1;
+    return calls;
+  }
+}
+export function count(a: array<u32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = Voice.tally();
+  }
+}`,
+    'This loop runs on the CPU because line 11 calls "Voice.tally", which writes "calls". Return the value from "Voice.tally" and combine it in the loop instead.',
+  ],
+  [
+    'R5, a static function that writes a static field',
+    `class Voice {
+  static count: u32 = 0;
+  static tally(): u32 {
+    Voice.count += 1;
+    return Voice.count;
+  }
+}
+export function count(a: array<u32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = Voice.tally();
+  }
+}`,
+    'This loop runs on the CPU because line 11 calls "Voice.tally", which writes "Voice.count". Return the value from "Voice.tally" and combine it in the loop instead.',
+  ],
+  [
+    'R5, a method that writes a module variable',
+    `let calls: u32 = 0;
+class Voice {
+  phase!: f32;
+  bump(): u32 {
+    calls += 1;
+    return calls;
+  }
+}
+export function count(a: array<u32>, vs: array<Voice>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = vs[i].bump();
+  }
+}`,
+    'This loop runs on the CPU because line 12 calls "Voice.bump", which writes "calls". Return the value from "Voice.bump" and combine it in the loop instead.',
+  ],
+  [
+    'R5, a namespace function that writes a module variable',
+    `let calls: u32 = 0;
+namespace Ns {
+  export function f(): u32 {
+    calls += 1;
+    return calls;
+  }
+}
+export function count(a: array<u32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = Ns.f();
+  }
+}`,
+    'This loop runs on the CPU because line 11 calls "Ns.f", which writes "calls". Return the value from "Ns.f" and combine it in the loop instead.',
+  ],
+  [
+    'R5, a function of a nested namespace that writes a module variable',
+    `let calls: u32 = 0;
+namespace A {
+  export namespace B {
+    export function f(): u32 {
+      calls += 1;
+      return calls;
+    }
+  }
+}
+export function count(a: array<u32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = A.B.f();
+  }
+}`,
+    'This loop runs on the CPU because line 13 calls "A.B.f", which writes "calls". Return the value from "A.B.f" and combine it in the loop instead.',
+  ],
+  [
+    'R5, a function whose own name looks like a namespace member keeps its name',
+    `let calls: u32 = 0;
+namespace Ns {
+  export function g(): u32 {
+    return 1;
+  }
+}
+function Ns_f(): u32 {
+  calls += 1;
+  return calls;
+}
+export function count(a: array<u32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = Ns_f();
+  }
+}`,
+    'This loop runs on the CPU because line 14 calls "Ns_f", which writes "calls". Return the value from "Ns_f" and combine it in the loop instead.',
+  ],
   [
     'R6, a console call',
     `export function noisy(a: array<f32>) {
