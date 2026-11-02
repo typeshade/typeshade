@@ -112,7 +112,14 @@ import {
 } from '../../core/manifest.js';
 import type { PackLayout } from '../../core/manifest-types.js';
 import { collectionKeyOf, keyTypeText, keysOf, recordKeyText, recordOf } from './key-types.js';
-import { commentLines, exportDocs, type DocBlock, type ExportDocs } from './host-docs.js';
+import {
+  CONSTRUCTOR,
+  commentLines,
+  exportDocs,
+  memberKey,
+  type DocBlock,
+  type ExportDocs,
+} from './host-docs.js';
 
 /** How {@link hostFace} is called. */
 export interface HostFaceOptions {
@@ -2543,6 +2550,11 @@ function programType(pack: Pack, types?: ViewTypes): string {
 const WORKGROUPS =
   'number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }';
 
+/** The sentence of the view for what a host cannot call (Rule 8.20): an export, and a member or the
+ *  constructor of an exported class declared `never` (change 0109). */
+const notCallable = (reason: string): string =>
+  `Not callable from host code (Rule 8.20): ${reason}.`;
+
 /** What a call made without `await` is, which the sentence of a kernel function and of a `@compute`
  *  entry say where the developer reads (change 0108; Rule 11.8). `written` names what the call
  *  writes. */
@@ -2703,7 +2715,7 @@ function viewText(
         );
         break;
       case 'never': {
-        out.push(...above(`Not callable from host code (Rule 8.20): ${e.reason}.`));
+        out.push(...above(notCallable(e.reason)));
         if (e.typeOnly) out.push(`export type ${e.name} = never;`);
         else out.push(`export declare const ${e.name}: never;`);
         break;
@@ -2769,65 +2781,94 @@ function baseClass(
   return undefined;
 }
 
-/** The view's lines of each member of an exported class, by the name and whether it is static:
- *  its signature in host types, or `never` with the reason (Rule 8.20, D3). A result names a
- *  struct by `named`, and an argument by `args` (change 0116, decision D7). */
+/** A member of an exported class as the view writes it (Rule 8.20, D3). */
+interface MemberView {
+  readonly kind: 'method' | 'accessor' | 'never';
+  /** What the view declares for it: one line for a method, a line for each half of an accessor
+   *  (a getter and a setter), one line for a member declared `never`. Each line has the keys of
+   *  the author's blocks that stand above it (change 0108): those of the method, of the half, and,
+   *  for a member declared `never`, of every declaration of it. */
+  readonly declarations: readonly { readonly keys: readonly string[]; readonly line: string }[];
+  /** Why a host cannot call a member declared `never`; its sentence ends the last block. */
+  readonly reason?: string;
+}
+
+/** The view's declarations of each member of an exported class, by the name and whether it is
+ *  static: its signature in host types, or `never` with the reason (Rule 8.20, D3). A result names
+ *  a struct by `named`, and an argument by `args` (change 0116, decision D7). */
 function memberLines(
   e: ClassExport,
   named: ReadonlyMap<string, string>,
   args: ReadonlyMap<string, string>,
-): Map<string, { readonly kind: string; readonly lines: string[] }> {
-  const out = new Map<string, { readonly kind: string; readonly lines: string[] }>();
+): Map<string, MemberView> {
+  const out = new Map<string, MemberView>();
   const params = (call: MemberCall): string =>
     call.params.map((p) => `${p.name}: ${argType(p.type, args)}`).join(', ');
-  const refused = (head: string, reason: string): string[] => [
-    `  /** Not callable from host code (Rule 8.20): ${reason}. */`,
-    `  ${head}: never;`,
-  ];
   for (const m of e.members) {
     const lead = `${m.abstract ? 'abstract ' : ''}${m.static ? 'static ' : ''}`;
     const key = `${m.static ? 'static ' : ''}${m.name}`;
+    const refused = (keys: readonly string[], reason: string): MemberView => ({
+      kind: 'never',
+      declarations: [{ keys, line: `  ${key}: never;` }],
+      reason,
+    });
     if (m.kind === 'method') {
       const call = m.call;
       out.set(
         key,
         'reason' in call
-          ? { kind: 'never', lines: refused(`${m.static ? 'static ' : ''}${m.name}`, call.reason) }
+          ? refused([memberKey(m.name, { isStatic: m.static })], call.reason)
           : {
               kind: 'method',
-              lines: [
-                `  ${lead}${m.name}(${params(call)}): ${call.self ? e.name : resultType(call.result, named)};`,
+              declarations: [
+                {
+                  keys: [memberKey(m.name, { isStatic: m.static })],
+                  line: `  ${lead}${m.name}(${params(call)}): ${call.self ? e.name : resultType(call.result, named)};`,
+                },
               ],
             },
       );
       continue;
     }
+    const half = (h: 'get' | 'set') => memberKey(m.name, { isStatic: m.static, half: h });
     if (m.reason !== undefined) {
-      out.set(key, {
-        kind: 'never',
-        lines: refused(`${m.static ? 'static ' : ''}${m.name}`, m.reason),
-      });
+      out.set(key, refused([half('get'), half('set')], m.reason));
       continue;
     }
-    const lines: string[] = [];
+    const declarations: { keys: string[]; line: string }[] = [];
     if (m.get !== undefined)
-      lines.push(`  ${lead}get ${m.name}(): ${resultType(m.get.result, named)};`);
+      declarations.push({
+        keys: [half('get')],
+        line: `  ${lead}get ${m.name}(): ${resultType(m.get.result, named)};`,
+      });
     if (m.set !== undefined) {
       const p = m.set.params[0];
-      lines.push(
-        `  ${lead}set ${m.name}(${p === undefined ? '' : `${p.name}: ${argType(p.type, args)}`});`,
-      );
+      declarations.push({
+        keys: [half('set')],
+        line: `  ${lead}set ${m.name}(${p === undefined ? '' : `${p.name}: ${argType(p.type, args)}`});`,
+      });
     }
-    out.set(key, { kind: 'accessor', lines });
+    out.set(key, { kind: 'accessor', declarations });
   }
   return out;
 }
+
+/** Whether the view declares two members alike: the same lines, and the same reason. The author's
+ *  blocks are not compared, so a member the view takes from the class above stands there. */
+const sameMember = (a: MemberView, b: MemberView): boolean =>
+  a.kind === b.kind &&
+  a.reason === b.reason &&
+  a.declarations.length === b.declarations.length &&
+  a.declarations.every((d, i) => d.line === b.declarations[i]!.line);
 
 /** The declaration of an exported class in the view (change 0109): `export declare class`, or
  *  `abstract class`, with its constructor, its fields and its members in host types, and its
  *  `extends` when the class above it is exported as a class too (D2). A class below declares
  *  what it adds or changes; one whose member would change the kind of the one above it (a method
- *  where the class above is `never`) is declared whole, with no `extends`. */
+ *  where the class above is `never`) is declared whole, with no `extends`. The author's comment
+ *  of the class stands above it, and that of each field, the constructor and each member the view
+ *  declares on its line (change 0108); a member declared `never` has the sentence of change 0109
+ *  at the end of the last block. */
 function classView(
   e: ClassExport,
   exports: readonly FaceExport[],
@@ -2837,21 +2878,25 @@ function classView(
 ): string[] {
   const own = memberLines(e, named, args);
   let base = baseClass(e, exports);
-  const above = base === undefined ? new Map() : memberLines(base, named, args);
+  const above = base === undefined ? new Map<string, MemberView>() : memberLines(base, named, args);
   for (const [key, m] of own) {
     const was = above.get(key);
     if (was !== undefined && was.kind !== m.kind) base = undefined;
   }
+  /** The author's blocks kept under `keys`, in the order of the keys. */
+  const blocks = (keys: readonly string[]): DocBlock[] =>
+    keys.flatMap((k) => doc?.members.get(k) ?? []);
   const lines: string[] = [];
   const ctor = e.ctor;
   if (ctor !== undefined) {
     if ('reason' in ctor)
       lines.push(
-        `  /** Not callable from host code (Rule 8.20): ${ctor.reason}. */`,
+        ...commentLines(blocks([CONSTRUCTOR]), notCallable(ctor.reason), '  '),
         '  protected constructor();',
       );
     else
       lines.push(
+        ...commentLines(blocks([CONSTRUCTOR]), undefined, '  '),
         `  constructor(${'fn' in ctor ? ctor.params.map((p) => `${p.name}: ${argType(p.type, args)}`).join(', ') : ''});`,
       );
   }
@@ -2859,14 +2904,16 @@ function classView(
   for (const f of e.fields)
     if (!inherited.has(f.name))
       lines.push(
-        // The author's comment of a field stands on its line (change 0108); a method, a
-        // constructor and an accessor keep the lines this change declares.
-        ...commentLines(doc?.members.get(f.name) ?? [], undefined, '  '),
+        ...commentLines(blocks([f.name]), undefined, '  '),
         `  ${f.access !== undefined ? `${f.access} ` : ''}${f.readonly ? 'readonly ' : ''}${f.name}: ${resultType(f.type, named)};`,
       );
-  for (const [key, m] of own)
-    if (base === undefined || above.get(key)?.lines.join('\n') !== m.lines.join('\n'))
-      lines.push(...m.lines);
+  for (const [key, m] of own) {
+    const was = above.get(key);
+    if (base !== undefined && was !== undefined && sameMember(was, m)) continue;
+    const sentence = m.reason === undefined ? undefined : notCallable(m.reason);
+    for (const d of m.declarations)
+      lines.push(...commentLines(blocks(d.keys), sentence, '  '), d.line);
+  }
   return [
     ...commentLines(doc?.blocks ?? []),
     `export declare ${e.abstract ? 'abstract ' : ''}class ${e.name}${base !== undefined ? ` extends ${base.name}` : ''} {`,

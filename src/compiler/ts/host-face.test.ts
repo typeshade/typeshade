@@ -19,6 +19,7 @@ import { hostFace, type HostExport } from './host-face.js';
 import { tscDiagnostics } from '../../core/testing/tsc-diagnostics.js';
 import { compile } from './compile.js';
 import { compileModule } from '../../core/oracle.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 /** The host type family (change 0116), which a view imports from its runtime. */
@@ -752,7 +753,7 @@ export declare class Circle extends Shape {
 `);
   });
 
-  it('writes the JSDoc of an exported class and of its fields, and leaves its other members as change 0109 declares them', () => {
+  it('writes the JSDoc of an exported class, of its fields and of its members, each on its line', () => {
     const f = face(`"use typeshade";
 declare const gain: uniform<f32>;
 
@@ -778,25 +779,30 @@ export class OnePole {
   static LIMIT: f32 = 4.;
 }
 `);
-    // The comment of the class and of each field is carried. The comment of the constructor, of a
-    // method, of a member declared `never` and of a static member is not: the approved text of
-    // change 0108 names the fields of a struct and not the other members of a class.
+    // The comment of the class, of each field and of each member the view declares is carried (item
+    // 4): the constructor, the method, and the member declared `never` with the sentence of change
+    // 0109 at the end of its block. A static field is no member of the host class (§26), so the view
+    // declares it nowhere and carries no comment of it.
     const lines = f.view.split('\n');
     const at = lines.indexOf('export declare class OnePole {');
-    expect(lines.slice(at - 1, at + 6)).toEqual([
+    expect(lines.slice(at - 1, at + 9)).toEqual([
       '/** A one-pole lowpass with its state. */',
       'export declare class OnePole {',
+      '  /** Builds the filter. */',
       '  constructor(k: f32);',
       '  /** The state of the filter. */',
       '  z: f32;',
       '  k: f32;',
+      '  /** One sample through the filter. */',
       '  tick(x: f32): f32;',
+      '  /** Reads a binding, so a host cannot call it.',
     ]);
-    expect(lines[at + 6]).toMatch(
-      /^ {2}\/\*\* Not callable from host code \(Rule 8\.20\): it reaches/,
+    expect(lines[at + 9]).toBe('   *');
+    expect(lines[at + 10]).toMatch(
+      /^ {3}\* Not callable from host code \(Rule 8\.20\): it reaches/,
     );
-    expect(lines.slice(at + 7, at + 9)).toEqual(['  scaled: never;', '}']);
-    expect(f.view).not.toMatch(/Builds the filter|One sample through|Reads a binding|static field/);
+    expect(lines.slice(at + 11, at + 14)).toEqual(['   */', '  scaled: never;', '}']);
+    expect(f.view).not.toMatch(/static field|LIMIT/);
   });
 
   it('writes the JSDoc of a class with a field that has no host value before the view’s sentence', () => {
@@ -1232,6 +1238,692 @@ export { h, s, p };
     expect(never.startsWith('Returns what it is given.')).toBe(true);
     expect(never).toContain(GENERIC);
     expect(never).not.toContain('The first block');
+  });
+});
+
+// Item 4 of change 0108 (Amendment 1): the members of an exported class. The view declares a class
+// over several lines (change 0109), so the comment of a member stands on the member's line, as that
+// of a field does. Each case reads the text of the view, which is what `tsc` and the editor take, and
+// the last one reads the editor's hover on a host file.
+describe('the view carries the comments of the members of an exported class (change 0108, item 4)', () => {
+  const BINDING =
+    'it reaches a resource binding, which a helper call passes none of; call the entry that uses it (Rule 8.24)';
+  const TAKES_FUNCTION =
+    'it takes a function, and such a function exists only as the copies the module uses; no proposal adds it yet';
+  /** The sentence of change 0109 for a member the view declares `never`. */
+  const refused = (reason: string): string => `Not callable from host code (Rule 8.20): ${reason}.`;
+
+  /** Both readers of the shader take the program with no diagnostic (Rule 12.7): `compile()` and
+   *  the editor's language service. `files` holds the module, `/app/m.shade.ts`, and the files it
+   *  imports. */
+  function bothHalvesTake(files: Readonly<Record<string, string>>): void {
+    const compiled = compile(files['/app/m.shade.ts']!, {
+      fileName: '/app/m.shade.ts',
+      readDocument: (name) => files[name],
+    });
+    expect(compiled.diagnostics).toEqual([]);
+    const service = createTypeshadeLanguageService({ readDocument: (name) => files[name] });
+    for (const [name, text] of Object.entries(files)) {
+      service.openDocument(name, text);
+      expect(service.getDiagnostics(name), name).toEqual([]);
+    }
+  }
+
+  /** The face of `source` as `m.shade.ts`, once both readers of the shader have taken it. */
+  function faceOf(source: string) {
+    bothHalvesTake({ '/app/m.shade.ts': source });
+    return face(source);
+  }
+
+  it('writes the JSDoc of a constructor on its line', () => {
+    const f = faceOf(`"use typeshade";
+
+/** A one-pole lowpass with its state. */
+export class OnePole {
+  z: f32 = 0.;
+  k: f32;
+  /**
+   * Builds the filter.
+   * @param k the smoothing factor
+   */
+  constructor(k: f32) {
+    this.k = k;
+  }
+}
+
+/** A class with no constructor has none to document. */
+export class Plain {
+  v: f32 = 1.;
+}
+`);
+    expect(f.view).toContain(`/** A one-pole lowpass with its state. */
+export declare class OnePole {
+  /**
+   * Builds the filter.
+   * @param k the smoothing factor
+   */
+  constructor(k: f32);
+  z: f32;
+  k: f32;
+}
+`);
+    expect(f.view).toContain(`export declare class Plain {
+  constructor();
+  v: f32;
+}
+`);
+  });
+
+  it('writes the JSDoc of a method on its line, every block of it, and that of a field that holds a function', () => {
+    const f = faceOf(`"use typeshade";
+
+export class OnePole {
+  z: f32 = 0.;
+  k: f32 = 0.5;
+  /**
+   * One sample through the filter.
+   * @param x the input sample
+   * @returns the filtered sample
+   */
+  tick(x: f32): f32 {
+    this.z = this.z + this.k * (x - this.z);
+    return this.z;
+  }
+  // A line comment is not JSDoc.
+  /** The first block. */
+  /** The second block, which the editor shows. */
+  peek(x: f32): f32 {
+    /** Inside a body, a comment belongs to nothing. */
+    return this.z + this.k * (x - this.z);
+  }
+  reset(): void {
+    this.z = 0.;
+  }
+  /** Called with the distance of a hit. */
+  onHit = (d: f32): f32 => d * this.k;
+}
+`);
+    expect(f.view).toContain(`export declare class OnePole {
+  constructor();
+  z: f32;
+  k: f32;
+  /**
+   * One sample through the filter.
+   * @param x the input sample
+   * @returns the filtered sample
+   */
+  tick(x: f32): f32;
+  /** The first block. */
+  /** The second block, which the editor shows. */
+  peek(x: f32): f32;
+  reset(): void;
+  /** Called with the distance of a hit. */
+  onHit(d: f32): f32;
+}
+`);
+    expect(f.view).not.toMatch(/line comment|Inside a body/);
+  });
+
+  it('writes the JSDoc of a getter and of a setter, each on the line of its half', () => {
+    const f = faceOf(`"use typeshade";
+
+export class Slider {
+  v: f32 = 0.;
+  /** The value, clamped to the unit range. */
+  get value(): f32 {
+    return clamp(this.v, 0., 1.);
+  }
+  /**
+   * Sets the value.
+   * The getter clamps it.
+   */
+  set value(x: f32) {
+    this.v = x;
+  }
+  /** A getter alone. */
+  get half(): f32 {
+    return this.v * 0.5;
+  }
+  set twice(x: f32) {
+    this.v = x * 0.5;
+  }
+}
+`);
+    expect(f.view).toContain(`export declare class Slider {
+  constructor();
+  v: f32;
+  /** The value, clamped to the unit range. */
+  get value(): f32;
+  /**
+   * Sets the value.
+   * The getter clamps it.
+   */
+  set value(x: f32);
+  /** A getter alone. */
+  get half(): f32;
+  set twice(x: f32);
+}
+`);
+  });
+
+  it('leaves the comment of a static field out, since the view declares no static field (§26)', () => {
+    const f = faceOf(`"use typeshade";
+
+export class Limits {
+  /** The upper limit. */
+  static MAX: f32 = 4.;
+  /** The unit. */
+  static readonly UNIT: f32 = 1.;
+  v: f32 = 0.;
+  /** Doubles \`x\`. */
+  static twice(x: f32): f32 {
+    return x * 2.;
+  }
+}
+`);
+    // A static field is the module constant `Limits_MAX` and no member of the host class (change
+    // 0109 declares the static functions), so no line of the view can carry its comment, and the
+    // comment of the static function beside it stays on its own line.
+    expect(f.view).toContain(`export declare class Limits {
+  constructor();
+  v: f32;
+  /** Doubles \`x\`. */
+  static twice(x: f32): f32;
+}
+`);
+    expect(f.view).not.toMatch(/upper limit|The unit|MAX|UNIT/);
+  });
+
+  it('writes the JSDoc of a static method and of a static accessor on their lines', () => {
+    const f = faceOf(`"use typeshade";
+
+export class OnePole {
+  z: f32 = 0.;
+  k: f32;
+  constructor(k: f32) {
+    this.k = k;
+  }
+  /** A filter that passes its input. */
+  static unit(): OnePole {
+    return new OnePole(1.);
+  }
+  /** The boiling point of water, in degrees. */
+  static get boiling(): f32 {
+    return 100.;
+  }
+  /** Sets nothing, but a static setter has a comment too. */
+  static set ignored(x: f32) {
+    const y = x;
+  }
+}
+`);
+    expect(f.view).toContain(`export declare class OnePole {
+  constructor(k: f32);
+  z: f32;
+  k: f32;
+  /** A filter that passes its input. */
+  static unit(): OnePole;
+  /** The boiling point of water, in degrees. */
+  static get boiling(): f32;
+  /** Sets nothing, but a static setter has a comment too. */
+  static set ignored(x: f32);
+}
+`);
+  });
+
+  it('writes the JSDoc of a member declared never before the sentence of change 0109, in one block', () => {
+    const f = faceOf(`"use typeshade";
+declare const gain: uniform<f32>;
+
+export class Probe {
+  k: f32 = 1.;
+  /**
+   * Scales by the uniform.
+   * @param x the sample
+   */
+  lit(x: f32): f32 {
+    return x * gain;
+  }
+  /** The first block, which the editor does not show. */
+  /** Takes a function. */
+  apply(g: (x: f32) => f32): f32 {
+    return g(this.k);
+  }
+  /** The brightness. */
+  static bright(): f32 {
+    return gain;
+  }
+  /** The getter reads the uniform. */
+  get dim(): f32 {
+    return gain;
+  }
+  /** The setter is part of the same member. */
+  set dim(v: f32) {
+    this.k = v;
+  }
+  unlit(x: f32): f32 {
+    return x * gain;
+  }
+}
+
+export class Lit {
+  k: f32;
+  /** Reads the uniform, so a host cannot build one. */
+  constructor() {
+    this.k = gain;
+  }
+}
+
+export class Bare {
+  k: f32;
+  constructor() {
+    this.k = gain;
+  }
+}
+`);
+    expect(f.view).toContain(`export declare class Probe {
+  constructor();
+  k: f32;
+  /**
+   * Scales by the uniform.
+   * @param x the sample
+   *
+   * ${refused(BINDING)}
+   */
+  lit: never;
+  /** The first block, which the editor does not show. */
+  /** Takes a function.
+   *
+   * ${refused(TAKES_FUNCTION)}
+   */
+  apply: never;
+  /** The brightness.
+   *
+   * ${refused(BINDING)}
+   */
+  static bright: never;
+  /** The getter reads the uniform. */
+  /** The setter is part of the same member.
+   *
+   * ${refused(BINDING)}
+   */
+  dim: never;
+  /** ${refused(BINDING)} */
+  unlit: never;
+}
+`);
+    // A constructor a host cannot call is declared `protected`, and carries its comment the same way.
+    expect(f.view).toContain(`export declare class Lit {
+  /** Reads the uniform, so a host cannot build one.
+   *
+   * ${refused(BINDING)}
+   */
+  protected constructor();
+  k: f32;
+}
+`);
+    // With no comment of the author's, the sentence stands alone on one line, as change 0109 writes it.
+    expect(f.view).toContain(`export declare class Bare {
+  /** ${refused(BINDING)} */
+  protected constructor();
+  k: f32;
+}
+`);
+  });
+
+  it('stands a member a derived class takes from an exported base in the base, with its comment', () => {
+    const f = faceOf(`"use typeshade";
+
+/** A shape. */
+export class Shape {
+  x: f32 = 0.;
+  /** Builds a shape at \`x\`. */
+  constructor(x: f32) {
+    this.x = x;
+  }
+  /** The area of the shape. */
+  area(): f32 {
+    return 0.;
+  }
+  /** Moves the shape along x. */
+  move(dx: f32): void {
+    this.x += dx;
+  }
+}
+
+/** A circle. */
+export class Circle extends Shape {
+  r: f32 = 1.;
+  /** The area of the circle, which the view takes from the base. */
+  area(): f32 {
+    return 3.14159 * this.r * this.r;
+  }
+  /** The radius, which only a circle has. */
+  radius(): f32 {
+    return this.r;
+  }
+}
+`);
+    // The base declares each member with its comment. The derived class declares what it adds, and
+    // its constructor, which runs the base's, with the comment of that constructor. `move` and `area`
+    // stand in the base: the view takes them from it, so it carries no second declaration of them.
+    expect(f.view).toContain(`/** A shape. */
+export declare class Shape {
+  /** Builds a shape at \`x\`. */
+  constructor(x: f32);
+  x: f32;
+  /** The area of the shape. */
+  area(): f32;
+  /** Moves the shape along x. */
+  move(dx: f32): void;
+}
+/** A circle. */
+export declare class Circle extends Shape {
+  /** Builds a shape at \`x\`. */
+  constructor(x: f32);
+  r: f32;
+  /** The radius, which only a circle has. */
+  radius(): f32;
+}
+`);
+    expect(f.view).not.toContain('which the view takes from the base');
+  });
+
+  it('carries the comment of an abstract member, and the concrete member below it takes that comment', () => {
+    const f = faceOf(`"use typeshade";
+
+/** A shape with an area. */
+export abstract class Shape {
+  x: f32 = 0.;
+  /** The area, which a class below computes. */
+  abstract area(): f32;
+  /** Moves the shape along x. */
+  move(dx: f32): void {
+    this.x += dx;
+  }
+}
+
+export class Square extends Shape {
+  s: f32 = 1.;
+  area(): f32 {
+    return this.s * this.s;
+  }
+}
+`);
+    expect(f.view).toContain(`/** A shape with an area. */
+export declare abstract class Shape {
+  x: f32;
+  /** The area, which a class below computes. */
+  abstract area(): f32;
+  /** Moves the shape along x. */
+  move(dx: f32): void;
+}
+export declare class Square extends Shape {
+  constructor();
+  s: f32;
+  /** The area, which a class below computes. */
+  area(): f32;
+}
+`);
+  });
+
+  it('gives a flat declaration the comments of the base members it takes, its own comment first', () => {
+    const files: Readonly<Record<string, string>> = {
+      '/app/m.shade.ts': `"use typeshade";
+import { Base } from "./lib.shade.ts";
+
+class Hidden {
+  h: f32 = 0.;
+  /** Builds a hidden one. */
+  constructor(h: f32) {
+    this.h = h;
+  }
+  /** Reads the hidden field. */
+  peek(): f32 {
+    return this.h;
+  }
+  /** The note of the hidden class. */
+  note(): f32 {
+    return 1.;
+  }
+  /** The gain of the hidden class. */
+  get gain(): f32 {
+    return this.h * 2.;
+  }
+}
+
+export class Shown extends Hidden {
+  s: f32 = 0.;
+  /** The note of the class that is shown. */
+  note(): f32 {
+    return 2.;
+  }
+}
+
+export class Derived extends Base {
+  /** Its own. */
+  n: f32 = 0.;
+  /** Its own method. */
+  own(): f32 {
+    return this.n;
+  }
+}
+`,
+      '/app/lib.shade.ts': `"use typeshade";
+
+export class Base {
+  /** The base's own field, from the library. */
+  id: f32 = 0.;
+  /** Builds the base, in the library. */
+  constructor(id: f32) {
+    this.id = id;
+  }
+  /** The base's method, from the library. */
+  twice(): f32 {
+    return this.id * 2.;
+  }
+  /** The library's constant, a static function. */
+  static zero(): f32 {
+    return 0.;
+  }
+}
+`,
+    };
+    bothHalvesTake(files);
+    const f = hostFace(files['/app/m.shade.ts']!, {
+      fileName: '/app/m.shade.ts',
+      runtime: RUNTIME,
+      readDocument: (name) => files[name],
+    });
+    expect(f.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    // `Hidden` is no export, so `Shown` is declared whole: the constructor, the accessor and the
+    // method it takes carry the comment of the base member, and its own `note` carries its own.
+    expect(f.view).toContain(`export declare class Shown {
+  /** Builds a hidden one. */
+  constructor(h: f32);
+  h: f32;
+  s: f32;
+  /** The note of the class that is shown. */
+  note(): f32;
+  /** Reads the hidden field. */
+  peek(): f32;
+  /** The gain of the hidden class. */
+  get gain(): f32;
+}
+`);
+    // A base another file declares is read in its own file, as its fields are.
+    expect(f.view).toContain(`export declare class Derived {
+  /** Builds the base, in the library. */
+  constructor(id: f32);
+  /** The base's own field, from the library. */
+  id: f32;
+  /** Its own. */
+  n: f32;
+  /** Its own method. */
+  own(): f32;
+  /** The base's method, from the library. */
+  twice(): f32;
+  /** The library's constant, a static function. */
+  static zero(): f32;
+}
+`);
+  });
+
+  it('writes the members of a class a module re-exports with the comments of the file that declares it (Rule 3.9)', () => {
+    const files: Readonly<Record<string, string>> = {
+      '/app/m.shade.ts': `"use typeshade";
+export { Wave } from "./lib.shade.ts";
+`,
+      '/app/lib.shade.ts': `"use typeshade";
+
+/** A wave. */
+export class Wave {
+  a: f32 = 1.;
+  /** Builds a wave. */
+  constructor(a: f32) {
+    this.a = a;
+  }
+  /** The height at \`x\`. */
+  at(x: f32): f32 {
+    return this.a * sin(x);
+  }
+  /** The period of every wave. */
+  static get period(): f32 {
+    return 6.28318;
+  }
+}
+`,
+    };
+    bothHalvesTake(files);
+    const f = hostFace(files['/app/m.shade.ts']!, {
+      fileName: '/app/m.shade.ts',
+      runtime: RUNTIME,
+      readDocument: (name) => files[name],
+    });
+    expect(f.diagnostics).toEqual([]);
+    expect(f.view).toContain(`/** A wave. */
+export declare class Wave {
+  /** Builds a wave. */
+  constructor(a: f32);
+  a: f32;
+  /** The height at \`x\`. */
+  at(x: f32): f32;
+  /** The period of every wave. */
+  static get period(): f32;
+}
+`);
+  });
+
+  it('does not carry the comment of an overload signature: the face reads the implementation', () => {
+    const f = faceOf(`"use typeshade";
+
+export class Mixer {
+  k: f32 = 1.;
+  /** The comment of the first signature. */
+  constructor(a: f32);
+  /** The comment of the second signature. */
+  constructor(a: f32);
+  /** Builds the mixer. */
+  constructor(a: f32) {
+    this.k = a;
+  }
+  /** The comment of the first signature. */
+  mix(a: f32): f32;
+  /** The comment of the second signature. */
+  mix(a: f32): f32;
+  /** Mixes \`a\` with the gain. */
+  mix(a: f32): f32 {
+    return a * this.k;
+  }
+  /** The comment of a signature whose implementation has none. */
+  scale(a: f32): f32;
+  scale(a: f32): f32 {
+    return a * this.k;
+  }
+}
+`);
+    expect(f.view).toContain(`export declare class Mixer {
+  /** Builds the mixer. */
+  constructor(a: f32);
+  k: f32;
+  /** Mixes \`a\` with the gain. */
+  mix(a: f32): f32;
+  scale(a: f32): f32;
+}
+`);
+    expect(f.view).not.toMatch(/first signature|second signature|whose implementation/);
+  });
+
+  it('shows the editor the comment of a constructor, a method, an accessor and a static member of a host class', () => {
+    const source = `"use typeshade";
+declare const gain: uniform<f32>;
+
+/** A one-pole lowpass with its state. */
+export class OnePole {
+  z: f32 = 0.;
+  k: f32;
+  /** Builds the filter with the smoothing factor \`k\`. */
+  constructor(k: f32) {
+    this.k = k;
+  }
+  /** One sample through the filter. */
+  tick(x: f32): f32 {
+    this.z = this.z + this.k * (x - this.z);
+    return this.z;
+  }
+  /** The gain of the filter. */
+  get gain(): f32 {
+    return this.k * 2.;
+  }
+  /** Sets the gain of the filter. */
+  set gain(g: f32) {
+    this.k = g / 2.;
+  }
+  /** A filter that passes its input. */
+  static unit(): OnePole {
+    return new OnePole(1.);
+  }
+  /** Scales by the uniform. */
+  lit(x: f32): f32 {
+    return x * gain;
+  }
+}
+`;
+    // Both halves read the same source: the compiler gives no diagnostic, the editor gives none, and
+    // the view the compiler writes is what the editor's TypeScript reads for the host file.
+    expect(compile(source, { fileName: 'm.shade.ts' }).diagnostics).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.shade.ts', source);
+    expect(service.getDiagnostics('m.shade.ts')).toEqual([]);
+    const f = hostFace(source, { fileName: '/app/m.shade.ts', runtime: './runtime.ts' });
+    expect(f.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const host = `import { OnePole } from './m.shade.ts';
+const f = new OnePole(0.1);
+const t = f.tick(1);
+const g = f.gain;
+f.gain = 2;
+const u = OnePole.unit();
+f.lit;
+export { t, g, u };
+`;
+    const read = (at: string) => hover(f.view!, host, at);
+    expect(read('tick(1').errors).toEqual([]);
+    expect(read('tick(1').documentation).toBe('One sample through the filter.');
+    expect(read('OnePole(0.1').documentation).toBe(
+      'Builds the filter with the smoothing factor `k`.',
+    );
+    // The editor shows the comment of both halves of an accessor, on a read and on a write.
+    expect(read('gain;').documentation).toBe(
+      'The gain of the filter.\nSets the gain of the filter.',
+    );
+    expect(read('gain = 2').documentation).toBe(
+      'The gain of the filter.\nSets the gain of the filter.',
+    );
+    expect(read('unit()').documentation).toBe('A filter that passes its input.');
+    // A member declared `never` shows the author's words first and the sentence of change 0109 after.
+    const never = read('lit;').documentation;
+    expect(never.startsWith('Scales by the uniform.')).toBe(true);
+    expect(never).toContain(refused(BINDING));
   });
 });
 

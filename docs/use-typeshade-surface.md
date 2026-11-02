@@ -7577,17 +7577,24 @@ above the export. This holds for a function, a constant, a class, an `interface`
 of its fields, an `enum` and each of its members, a `@compute` entry, a kernel function, a
 full-screen `@fragment` entry and an export that is `never`. What the module re-exports from a
 shader file it imports (§68) carries the comment of the file that declares it. A `//` comment, a
-`/* */` comment and a comment inside a body are not copied. The comment of a constructor, a method
-or an accessor of a class is not copied either. The tags are copied and are not checked.
+`/* */` comment and a comment inside a body are not copied. The tags are copied and are not checked.
 
 Where the view writes a sentence of its own, that sentence stands at the end of the last block, after
 one empty comment line. The editor shows the last block of a declaration, so a hover shows the
 author's words first and the contract second. An export with no JSDoc has the sentence alone. A
-class stands over several lines, so the comment of a field is on the line of the field. An
-`interface`, a `type` and an `enum` stand on one line, and over several lines when one of their
-fields or members has a comment. A field that an `interface`, or a class whose base is not exported
-as a class, takes from its base carries the comment of the base's field, as TypeScript's hover
-shows it.
+class stands over several lines, so the comment of a field is on the line of the field. So is the
+comment of each member the view declares: the constructor, a method, each half of an accessor and a
+static method. A member declared `never` (Rule 8.20) has the author's blocks first and the sentence
+of the view at the end of the last block, as an export has. An `interface`, a `type` and an `enum`
+stand on one line, and over several lines when one of their fields or members has a comment. A
+field that an `interface`, or a class whose base is not exported as a class, takes from its base
+carries the comment of the base's field, as TypeScript's hover shows it.
+
+The comment of a class member follows four more rules. A member that a class takes from an exported
+base class stands in the base, with its comment. A class that the view declares without `extends`
+carries the comment of each member it takes from its base. An overload signature with no body is not
+copied, because the view is written from the implementation. A static field is a constant of the
+module (§26) and not a member of the host class, so its comment has no line in the view.
 
 The sentence of a kernel function and of a `@compute` entry also says how a call is queued (Rule 11.8,
 §65, §67). A call whose written arrays or bindings are all `Resident`s, and that returns nothing, may
@@ -7710,8 +7717,8 @@ await run(out, xs, filters, 1024); // the instances, taken as the structs they a
 ```
 
 The view declares the class with the host type of each member, and carries the comment of the
-class (change 0108). The comment of a method is not copied. A kernel function's array is
-`array<T>`, and an array of the class's instances is `array<OnePole>` (decision D7):
+class and of each member (change 0108). A kernel function's array is `array<T>`, and an array of
+the class's instances is `array<OnePole>` (decision D7):
 
 ```ts
 /** A one-pole lowpass with its state. */
@@ -7719,6 +7726,7 @@ export declare class OnePole {
   constructor(k: f32);
   z: f32;
   k: f32;
+  /** One sample through the filter. */
   tick(x: f32): f32;
 }
 /** Runs every filter of the bank over its block, one lane per filter. … */
