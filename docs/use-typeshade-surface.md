@@ -3918,7 +3918,7 @@ has the rest of the operator surface.
 **And a host name is an unknown name.** `Date`, `window`, `JSON` and `fetch` have no source in a
 `"use typeshade"` file (Rule 2.1): not WGSL, not the part of ECMAScript the ambient library
 restates, and no §9.3 row. `Map` and `Set` have a source, but only as a kernel function's
-parameter (Rule 2.1(b), §74); anywhere else they are refused (`TS8002`). So `Date`, `window`,
+parameter (Rule 2.1(b), §74); anywhere else they are refused. So `Date`, `window`,
 `JSON` and `fetch` do not exist there, and a use of one is an unknown
 name like any other, said once where it is used, by the code that owns the position: `TS8022`
 for a value (`window`, `Date.now()`), a written target included (`Date = 1.`), and `TS8004` for
