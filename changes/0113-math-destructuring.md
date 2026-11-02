@@ -122,7 +122,8 @@ vector.`
 the two halves one vocabulary (Rule 12.7), and the fix is one edit. The alternative (a bound name
 that falls back to the WGSL builtin for a vector) would make the compiler accept what the editor's
 checker refuses, or would need a second type for the bound name that the editor cannot project
-(Rule 1.7). Open point O1 records the choice for the owner.
+(Rule 1.7). Decided on 2026-11-02 by the owner (O1): the refusal is accepted. Its message names
+the fix.
 
 ### 5. Exclusions
 
@@ -175,11 +176,11 @@ names the builtin and how to reach it.
 
 ### Assumptions and open points
 
-- **O1.** The refusal of `sqrt(v)` inside the scope of a bound `sqrt` (section 4). Proposed:
-  accept the refusal. The owner decides.
-- **O2.** `export const { sqrt } = Math` and an import of it from another shader module (surface
-  §68). Proposed: refused in this proposal, since an imported alias of a `Math` member is a new
-  path through the import resolver with no evidence of need. The owner decides.
+- **O1, decided on 2026-11-02.** A bound `sqrt` hides WGSL's `sqrt` in its scope, so `sqrt(v)` on
+  a vector is refused there (section 4). The refusal's message names the fix.
+- **O2, decided on 2026-11-02.** `export const { sqrt } = Math` and an import of it from another
+  shader module (surface §68) stay refused. An imported alias of a `Math` member is a new path
+  through the import resolver with no evidence of need.
 - **O3.** A `Math` member handed to a function that takes one (`ap(Math.sqrt, x)`, Rule 8.18).
   Out of scope; it stays refused.
 - The implementation assumes that the front end can resolve a bound name to its member before
@@ -215,8 +216,9 @@ names the builtin and how to reach it.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision on O1 and O2, and the
-merge of this proposal with `status: accepted`.
+- 2026-11-02, the owner (Seungup), in a Claude Code session, in Korean ("승인"): O1 and O2 decided
+  as proposed. O3 stays out of scope.
+- Acceptance requires the merge of this proposal with `status: accepted`.
 
 ### Configuration and validation record
 
