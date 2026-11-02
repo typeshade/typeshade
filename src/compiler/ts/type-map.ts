@@ -4,6 +4,7 @@
 
 import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
+import { ATTRIBUTE_TYPES } from './attribute-types.js';
 import { type ShaderType } from '../../core/ir/types.js';
 import {
   f32T,
@@ -228,6 +229,8 @@ export const BUILTIN_TYPE_NAMES: readonly string[] = [
   'workgroup',
   'atomic',
   'override',
+  // The attribute types of change 0111 (amendment 1).
+  ...Object.keys(ATTRIBUTE_TYPES),
 ];
 
 /** The file's type aliases that are NOT object types, by name (roadmap 0.3 item T2, #92).
@@ -445,6 +448,7 @@ const GENERIC_TYPE_NAMES: ReadonlySet<string> = new Set([
   'storage',
   'workgroup',
   'override',
+  ...Object.keys(ATTRIBUTE_TYPES),
 ]);
 
 /** Whether the ambient library declares a type of `name`: a WGSL type, bare or generic, or one of
@@ -1246,6 +1250,13 @@ function mapGeneric(
   }
   if (name === 'uniform' || name === 'storage') {
     return mapType(args[0], sourceFile, diagnostics, resolving, sizeOverrides);
+  }
+  // An attribute type of change 0111 is its value type, `builtin<'position', vec4>` a `vec4`;
+  // its attribute is read where it is written (`attribute-types.ts`).
+  if (name !== undefined && Object.hasOwn(ATTRIBUTE_TYPES, name)) {
+    const value = args[ATTRIBUTE_TYPES[name]!];
+    if (value !== undefined)
+      return mapType(value, sourceFile, diagnostics, resolving, sizeOverrides);
   }
   // `atomic<u32>` / `atomic<i32>` (roadmap 0.2 item 4): a location in storage memory for the
   // atomic builtins. Where it may be declared is decided by the declaration sites, not here.

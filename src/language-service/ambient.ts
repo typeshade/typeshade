@@ -41,6 +41,7 @@ import {
   ATTRIBUTE_DOCS,
   MATH_MEMBER_DOCS,
   STAGE_CALL_DOCS,
+  ATTRIBUTE_TYPE_DOCS,
 } from './docs.js';
 import { generatedOverloads, scalarOfDeclaration } from './builtin-signatures.js';
 
@@ -1669,6 +1670,14 @@ ${renderJSDoc(ATTRIBUTE_DOCS.out)}
 declare function out(target: unknown, context?: unknown, index?: number): void
 ${renderJSDoc(ATTRIBUTE_DOCS.diagnostic)}
 declare function diagnostic(severity: string, rule: string): (target: Function, context?: unknown) => void
+${renderJSDoc(ATTRIBUTE_TYPE_DOCS.builtin!)}
+type builtin<N extends ${WGSL_BUILTIN_NAMES.map((n) => `'${n}'`).join(' | ')}, T, O extends { readonly invariant?: true } = {}> = T
+${renderJSDoc(ATTRIBUTE_TYPE_DOCS.location!)}
+type location<I extends number, T, O extends { readonly interpolate?: 'perspective' | 'linear' | 'flat' | readonly [type: 'perspective' | 'linear' | 'flat', sampling: 'center' | 'centroid' | 'sample' | 'first' | 'either']; readonly blend_src?: 0 | 1 } = {}> = T
+${renderJSDoc(ATTRIBUTE_TYPE_DOCS.inout!)}
+type inout<T> = T
+${renderJSDoc(ATTRIBUTE_TYPE_DOCS.out!)}
+type out<T> = T
 ${renderJSDoc(STAGE_CALL_DOCS.vertex!)}
 declare function vertex<F extends (...args: never[]) => unknown>(entry: F, options?: { readonly diagnostic?: readonly [severity: string, rule: string] }): F
 ${renderJSDoc(STAGE_CALL_DOCS.fragment!)}
