@@ -292,8 +292,9 @@ export function qualifiedParts(decl: ts.ClassDeclaration | ts.FunctionDeclaratio
   return parts;
 }
 
-/** What the source calls each function a namespace declares, by the function the module emits for
- *  it: `Gate.open` for `Gate_open`, `A.B.f` for `A_B_f`. */
+/** What the source calls each function the module emits under another name, by the function the
+ *  module emits for it: `Gate.open` for the namespace function `Gate_open`, `A.B.f` for `A_B_f`,
+ *  and the name of its template for an instance or a copy of one (`pick` for `pick_u32`). */
 const writtenFunctions = new WeakMap<FuncDecl, string>();
 
 /** Records the name `decl`, a function written inside a namespace, has in the source. `stub` is the
@@ -304,10 +305,19 @@ export function recordNamespaceFunction(stub: FuncDecl, decl: ts.FunctionDeclara
   if (parts.length > 1) writtenFunctions.set(stub, parts.join('.'));
 }
 
-/** How a message names a function a namespace declares: `Gate.open` for the `Gate_open` the module
- *  emits. Undefined for any other function. */
-export const namespaceFunctionOf = (stub: FuncDecl): string | undefined =>
-  writtenFunctions.get(stub);
+/** Records the name `template` has in the source, for `stub`, an instance of it or a copy of it:
+ *  `pick` for `pick_u32`, `apply` for `apply_inc`, `Ns.pick` for `Ns_pick_u32`. The module names an
+ *  instance after its type arguments and a copy after the functions handed to it. The author wrote
+ *  neither as a name. To the author, all the instances of a template are the one function that a
+ *  message asks to change. */
+export function recordTemplateInstance(stub: FuncDecl, template: ts.FunctionDeclaration): void {
+  if (template.name !== undefined) writtenFunctions.set(stub, qualifiedParts(template).join('.'));
+}
+
+/** How a message names a function the module emits under another name than the author's:
+ *  `Gate.open` for the `Gate_open` of a namespace and `pick` for the `pick_u32` of an instance.
+ *  Undefined for any other function. */
+export const writtenFunctionOf = (stub: FuncDecl): string | undefined => writtenFunctions.get(stub);
 
 /** The class a short type name written at `node` names inside the namespaces around it, as the
  *  module emits it (`N_P`): the innermost namespace that declares a class of that name, in the

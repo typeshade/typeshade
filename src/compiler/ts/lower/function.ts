@@ -68,7 +68,12 @@ import { refuseRuntimeArraySignature } from './runtime-array.js';
 import { checkReferenceAliases, markOutParam, qualifiersOf } from './references.js';
 import { checkDefiniteAssignment } from '../definite.js';
 import { kernelSourceNames } from '../kernel-loops.js';
-import { buildsCallerClass, emittedMemberName, writtenStaticFields } from '../class-names.js';
+import {
+  buildsCallerClass,
+  emittedMemberName,
+  holdsFunction,
+  staticFieldDeclarations,
+} from '../class-names.js';
 import { staticConstName } from '../module-const.js';
 import {
   captureArguments,
@@ -114,10 +119,11 @@ import {
 } from '../recursion.js';
 import {
   eachNamespaceStatement,
-  namespaceFunctionOf,
   namespaceMemberName,
   recordNamespaceFunction,
+  recordTemplateInstance,
   refuseNamespaceStatement,
+  writtenFunctionOf,
 } from '../namespaces.js';
 import {
   classFunctionOf,
@@ -143,16 +149,20 @@ import {
 
 /** What the source calls each function and each static field of the module that the module emits
  *  under another name: `Voice.tally` for a class's `Voice_tally`, `Ns.f` for a namespace's `Ns_f`,
- *  `Voice.count` for the module variable `Voice_count` of a static field the file writes. A name
- *  declared at the top level is emitted as written and has no row. The functions are read from the
- *  callee table, which holds every function of the file before any body is lowered. */
+ *  `pick` for the instance `pick_u32` of a generic function, `Voice.count` for the module variable
+ *  `Voice_count` of a static field the file writes and `Voice.OFFSET` for the module constant
+ *  `Voice_OFFSET` of one it does not. A name declared at the top level is emitted as written and has
+ *  no row. The functions are read from the callee table, which holds every function of the file
+ *  before any body is lowered, and the instances made by the calls lowered so far. */
 function writtenModuleNames(scope: LoweringScope, sourceFile: ts.SourceFile): [string, string][] {
   const out: [string, string][] = [];
   for (const [emitted, decl] of scope.calleeTable()) {
-    const written = classFunctionOf(decl)?.shown ?? namespaceFunctionOf(decl);
+    const written = classFunctionOf(decl)?.shown ?? writtenFunctionOf(decl);
     if (written !== undefined && written !== emitted) out.push([emitted, written]);
   }
-  for (const field of writtenStaticFields(sourceFile)) {
+  for (const [field, decl] of staticFieldDeclarations(sourceFile)) {
+    // A static field that holds a function is a function of the module, named above.
+    if (holdsFunction(decl)) continue;
     const dot = field.indexOf('.');
     const member = emittedMemberName(field.slice(dot + 1));
     out.push([staticConstName(field.slice(0, dot), member), field]);
@@ -988,11 +998,12 @@ export function lowerSourceFunctions(
         refused.add(name);
         return undefined;
       }
-      // A function of a namespace is named as the author wrote it where a message says which
-      // function it is: `Ns.pick` for the instance `Ns_pick_u32`, and `Ns.apply` for the copy
-      // `Ns_apply_count_f`. Its stub is made here, not where the template is declared, so this
-      // is where the name is recorded (Rule 8.22).
-      recordNamespaceFunction(stub, generic.node);
+      // An instance or a copy is named as the author wrote its template where a message says which
+      // function it is: `pick` for the instance `pick_u32` and `apply` for the copy `apply_inc`,
+      // and `Ns.pick` for `Ns_pick_u32` and `Ns.apply` for `Ns_apply_count_f` in a namespace. Its
+      // stub is made here, not where the template is declared, so this is where the name is
+      // recorded (Rule 8.22).
+      recordTemplateInstance(stub, generic.node);
       // What the functions handed over capture (Rule 8.17), which this instance takes ahead of
       // its own parameters and hands on to them: typed as the calling body holds each.
       const keys: CaptureKey[] = [];
