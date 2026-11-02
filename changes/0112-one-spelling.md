@@ -133,8 +133,8 @@ An author who wants the short name writes it as ordinary TypeScript, for example
 - `mod`, `fill`, `zip`, `discard`, `random`: no ECMAScript spelling carries their meaning.
 
 **Decision D1, `pow`.** By the measurement, `**` carries every case of `pow`, so the test removes
-`pow`. `pow` is also a WGSL builtin with 15 example files and 31 source files that call it. The
-proposal recommends removal by the test. The owner decides.
+`pow`. `pow` is also a WGSL builtin with 15 example files and 31 source files that call it.
+Decided on 2026-11-02 by the owner: `pow` is removed.
 
 ### 4. `Math` takes scalars, as ECMAScript's does
 
@@ -195,10 +195,11 @@ section.
 
 - This proposal cites Rule 1.4 as proposal 0100 words it. If 0100's rule text lands in
   `docs/language-design.md` first, Rule 9.9 cites the rule; if not, it cites the proposal.
-- D1, `pow`: removed by the test, or kept as an exception with its reason. Recommended: removed.
-- D2, the refusal sentence of the `any`/`all` fold overloads: `TS8019` (arity) or `TS8004` with a
-  hint. Recommended: whichever the front end reaches first for a two-argument call, with the fix in
-  the sentence.
+- D1, `pow`: decided on 2026-11-02. `pow` is removed (section 3).
+- D2, open. The refusal of the `any`/`all` fold overloads: `TS8019` (arity) or `TS8004` with a
+  hint. Recommended: `TS8019`, with the fix in the sentence. Reason: `any` and `all` stay
+  declared, so a two-argument call is a wrong arity, and `TS8004` would call a known name
+  unknown.
 
 ## What it touches
 
@@ -233,8 +234,10 @@ section.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the owner's decision on D1 and D2 and the
-merge of this file with `status: accepted`.
+- 2026-11-02, the owner (Seungup), in a Claude Code session, in Korean ("승인"): D1 decided as
+  recommended. `pow` is removed.
+- D2 is open. Acceptance requires the owner's decision on D2 and the merge of this file with
+  `status: accepted`.
 
 ### Configuration and validation record
 
