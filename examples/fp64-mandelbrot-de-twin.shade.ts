@@ -22,31 +22,29 @@
 // from `reflect()` on both surfaces and present in both WGSL emits (§39, "The guard").
 
 class Uniforms {
-  center: vec2f64; // one DF64Vec2 slot; the host packs [hi.x, hi.y, lo.x, lo.y]
-  resolution: vec2;
-  zoom_exp: f32; // view span = 10^-zoom_exp complex units
-  fp64: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
+  center!: vec2f64; // one DF64Vec2 slot; the host packs [hi.x, hi.y, lo.x, lo.y]
+  resolution!: vec2;
+  zoom_exp!: f32; // view span = 10^-zoom_exp complex units
+  fp64!: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
 }
 
 declare const u: uniform<Uniforms>;
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-}
+});
 
 // The camera sits on a needle filament beside the period-3 minibrot (x ~ -1.7489); y = 0
 // keeps the never-escaping real axis, and so the set's boundary, mid-frame at every depth.
 // The centre and the zoom arrive through the uniform, so the twin spells neither.
-@fragment
-export function fs_de(vo: VsOut): vec4 {
+export const fs_de = fragment(function fs_de(vo: VsOut): vec4 {
   const span = pow(10.0, -u.zoom_exp);
   // Split screen: each half is a full view, so the right half's uv is folded back by one.
   const half = vo.uv.x * 2.0;
@@ -117,4 +115,4 @@ export function fs_de(vo: VsOut): vec4 {
   const body = exp(-t * 0.25) * escaped;
   const rgb = vec3(0.02, 0.03, 0.08) + vec3(0.12, 0.2, 0.42) * body + vec3(1.0, 0.85, 0.45) * glow;
   return vec4(rgb, 1.);
-}
+});

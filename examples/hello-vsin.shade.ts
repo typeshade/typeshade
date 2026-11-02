@@ -3,31 +3,29 @@
 /* @example
 {
   "title": "Hello vertex attributes",
-  "blurb": "Vertex input from a buffer rather than from `vertex_index`: a `VsIn` class of `@location`-tagged attributes becomes GLSL `in` declarations and WGSL struct parameters from the one declaration.",
+  "blurb": "Vertex input from a buffer rather than from `vertex_index`: a `VsIn` interface of `location<…>`-typed attributes becomes GLSL `in` declarations and WGSL struct parameters from the one declaration.",
   "renderable": true
 }
 */
 
-class VsIn {
-  @location(0) position: vec3;
-  @location(1) uv: vec2;
+interface VsIn {
+  position: location<0, vec3>;
+  uv: location<1, vec2>;
 }
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-class Color {
-  @location(0) color: vec4;
+interface Color {
+  color: location<0, vec4>;
 }
 
-@vertex
-export function vs(vin: VsIn): VsOut {
+export const vs = vertex(function vs(vin: VsIn): VsOut {
   return { pos: vec4(vin.position, 1.), uv: vin.uv };
-}
+});
 
-@fragment
-export function fs(v: VsOut): Color {
+export const fs = fragment(function fs(v: VsOut): Color {
   return { color: vec4(v.uv, 0.2, 1.) };
-}
+});

@@ -17,22 +17,21 @@
 // - a method takes one the same way, and its copy takes the object: `Ring_each_fs_dot`;
 // - a fold takes an arrow function the same way.
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-class FsOut {
-  @location(0) color: vec4;
+interface FsOut {
+  color: location<0, vec4>;
 }
 
 // Fullscreen triangle, as `rng-method.shade.ts` draws it.
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
-}
+});
 
 /** A distance field: how far `p` is outside a shape, negative inside it. */
 type Field = (p: vec2) => f32;
@@ -66,8 +65,8 @@ function circle(p: vec2): f32 {
 
 /** `n` dots evenly spaced on a circle of radius `radius`. */
 class Ring {
-  n: i32;
-  radius: f32;
+  n!: i32;
+  radius!: f32;
 
   constructor(n: i32, radius: f32) {
     this.n = n;
@@ -83,8 +82,7 @@ class Ring {
   }
 }
 
-@fragment
-export function fs(v: VsOut): FsOut {
+export const fs = fragment(function fs(v: VsOut): FsOut {
   const p = v.uv;
   const r = 0.1;
   // A local function, handed to `around4` inside an arrow that `cover` is handed.
@@ -112,4 +110,4 @@ export function fs(v: VsOut): FsOut {
     col = vec3(1.);
   }
   return { color: vec4(col, 1.) };
-}
+});

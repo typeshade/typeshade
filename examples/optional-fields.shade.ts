@@ -19,20 +19,20 @@
 // written `radius?: f32` that an object literal omits (`circle`), and a helper with `limit?: f32`
 // called with and without the argument (`clampTo`).
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-class Color {
-  @location(0) color: vec4;
+interface Color {
+  color: location<0, vec4>;
 }
 
 /** A hit along a ray: the distance, the normal where the surface has one, and the circle's
  *  radius where the object is a circle. */
 class Hit {
-  t: f32;
-  normal: vec2 | undefined;
+  t!: f32;
+  normal!: vec2 | undefined;
   radius?: f32;
 }
 
@@ -90,17 +90,15 @@ function sampleAll(samples: array<f32 | undefined, 4>): f32 {
   return s;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
   return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
-}
+});
 
-@fragment
-export function fs(v: VsOut): Color {
+export const fs = fragment(function fs(v: VsOut): Color {
   const o = v.uv * 2. - vec2(1., 1.);
   const hit = intersect(o - vec2(0., 2.), vec2(0., 1.), 0.5);
   const flat = circle(v.uv.x);
@@ -110,4 +108,4 @@ export function fs(v: VsOut): Color {
   const samples: array<f32 | undefined, 4> = [v.uv.x, undefined, v.uv.y, undefined];
   const b = clampTo(sampleAll(samples), 0.75) + clampTo(v.uv.x * 0.1);
   return { color: vec4(r, g, b, 1.) };
-}
+});

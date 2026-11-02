@@ -42,8 +42,7 @@ declare const acc: texture_storage_2d<"r32float", "read_write">;
 // one a `vec4i`. The conditional type in the ambient lib makes the editor say so too.
 declare const ids: texture_storage_2d<"rgba8uint", "write">;
 
-@compute([64, 1, 1])
-export function paint(@builtin("global_invocation_id") gid: vec3u): void {
+export const paint = compute([64, 1, 1], function paint(gid: builtin<"global_invocation_id", vec3u>): void {
   // One invocation per texel, addressed as a row-major index into the image: the workgroup is
   // one-dimensional (§25), so the two coordinates come out of the index rather than out of
   // `gid.y`. The guard is the standard one — a dispatch covers whole workgroups, so the last
@@ -68,4 +67,4 @@ export function paint(@builtin("global_invocation_id") gid: vec3u): void {
 
   // The same coordinate in an integer texture, as an id map is written.
   textureStore(ids, at, vec4u(x % u32(256), y % u32(256), u32(1), u32(255)));
-}
+});

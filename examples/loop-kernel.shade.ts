@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "A loop that runs as a kernel",
-  "blurb": "The roadmap's terrain: `render` loops over every texel of `out`, an array with no size, so it is a kernel function (Rule 8.22). The compiler proves its iterations independent, and a host that imports it calls `await render(k, 512, img)`: each loop runs on WebGPU, one invocation per iteration, and fills `img` in place, with no `@compute`, binding or `global_invocation_id` written. Where there is no WebGPU it runs on the CPU tier.",
+  "blurb": "The roadmap's terrain: `render` loops over every texel of `out`, an array with no size, so it is a kernel function (Rule 8.22). The compiler proves its iterations independent, and a host that imports it calls `await render(k, 512, img)`: each loop runs on WebGPU, one invocation per iteration, and fills `img` in place, with no `compute(…)`, binding or `global_invocation_id` written. Where there is no WebGPU it runs on the CPU tier.",
   "renderable": false,
   "reason": "no entry point"
 }

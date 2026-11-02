@@ -20,26 +20,24 @@
 // call cannot give, since it lowers each argument on its own and emits float literals there.
 // It takes no uniform, so nothing else has to be right for the gate to reach the lists.
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-class Color {
-  @location(0) color: vec4;
+interface Color {
+  color: location<0, vec4>;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
   return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
-}
+});
 
-@fragment
-export function fs(v: VsOut): Color {
+export const fs = fragment(function fs(v: VsOut): Color {
   // A list of vectors, and a list of integers written without a decimal point.
   const stops: array<vec3, 3> = [vec3(0.1, 0.1, 0.35), vec3(0.9, 0.4, 0.2), vec3(1., 0.95, 0.7)];
   const weights: array<i32, 3> = [1, 2, 1];
@@ -52,4 +50,4 @@ export function fs(v: VsOut): Color {
   const w = f32(weights[band]) * 0.25;
   const c: vec3 = stops[band] * (0.75 + w);
   return { color: vec4(c, 1.) };
-}
+});

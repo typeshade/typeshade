@@ -29,25 +29,23 @@ const PALETTE = array<vec4, 3>(
 const HALF: f32 = 0.5;
 const GREY = vec3(HALF, HALF, HALF);
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-class Color {
-  @location(0) color: vec4;
+interface Color {
+  color: location<0, vec4>;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   // UP.y is 1., so this is the same triangle with the constant read once per vertex.
   return { pos: vec4(x, y * UP.y, 0., 1.), uv: vec2(x, y) };
-}
+});
 
-@fragment
-export function fs(v: VsOut): Color {
+export const fs = fragment(function fs(v: VsOut): Color {
   const t = v.uv.x * HALF + HALF;
   let band: vec4 = SKY;
   if (t > STOPS[0]) {
@@ -61,4 +59,4 @@ export function fs(v: VsOut): Color {
   }
   const tinted: vec3 = band.rgb * HALF + GREY * HALF;
   return { color: vec4(tinted, 1.) };
-}
+});

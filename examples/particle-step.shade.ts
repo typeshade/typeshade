@@ -21,8 +21,8 @@ declare const ps: storage<array<Particle>, "read_write">;
 declare const delta: uniform<f32>;
 
 class Particle {
-  pos: vec2;
-  vel: vec2;
+  pos!: vec2;
+  vel!: vec2;
   age: u32 = 0;
   step(dt: f32): void {
     this.pos = this.pos + this.vel * dt;
@@ -43,8 +43,7 @@ class Particle {
   }
 }
 
-@compute([64, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= u32(ps.length)) {
     return;
   }
@@ -52,4 +51,4 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
   if (ps[gid.x].speed() < 0.01) {
     ps[gid.x].vel = vec2(0., 0.);
   }
-}
+});

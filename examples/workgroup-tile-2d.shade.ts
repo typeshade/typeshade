@@ -3,13 +3,13 @@
 /* @example
 {
   "title": "Two-dimensional workgroup",
-  "blurb": "`@compute([8, 8])` is WGSL's `@workgroup_size(8, 8)`: one invocation per pixel of an 8x8 tile, which loads the tile into workgroup memory, waits at a barrier, and blurs each pixel with its four neighbours inside the tile (§3, §24, §25). WGSL-only: WebGL2 has no compute stage.",
+  "blurb": "`compute([8, 8], f)` is WGSL's `@workgroup_size(8, 8)`: one invocation per pixel of an 8x8 tile, which loads the tile into workgroup memory, waits at a barrier, and blurs each pixel with its four neighbours inside the tile (§3, §24, §25). WGSL-only: WebGL2 has no compute stage.",
   "renderable": false,
   "reason": "missing capabilities: storageBuffer, compute"
 }
 */
 
-// A two-dimensional workgroup (§3). `@compute([8, 8])` gives each workgroup an 8x8 grid of
+// A two-dimensional workgroup (§3). `compute([8, 8], f)` gives each workgroup an 8x8 grid of
 // invocations, emitted as `@workgroup_size(8, 8)`, so `global_invocation_id.xy` is the pixel
 // and `local_invocation_id.xy` its place in the tile. The host dispatches
 // `ceil(width / 8) x ceil(height / 8)` workgroups, the extents `reflect()` reports as
@@ -29,11 +29,10 @@ declare const dst: storage<array<f32>, "read_write">;
 
 let tile: workgroup<array<f32, 64>>;
 
-@compute([8, 8])
-export function blur(
-  @builtin("global_invocation_id") gid: vec3u,
-  @builtin("local_invocation_id") lid: vec3u,
-  @builtin("local_invocation_index") li: u32,
+export const blur = compute([8, 8], function blur(
+  gid: builtin<"global_invocation_id", vec3u>,
+  lid: builtin<"local_invocation_id", vec3u>,
+  li: builtin<"local_invocation_index", u32>,
 ): void {
   const x: u32 = min(gid.x, size.x - 1);
   const y: u32 = min(gid.y, size.y - 1);
@@ -53,4 +52,4 @@ export function blur(
   if (gid.x < size.x && gid.y < size.y) {
     dst[gid.y * size.x + gid.x] = sum / 5.;
   }
-}
+});

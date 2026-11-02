@@ -29,8 +29,7 @@ declare const output: storage<array<f32>, "read_write">;
 // .x = number of output elements (one reduced window each).
 declare const params: uniform<vec4u>;
 
-@compute([64, 1, 1])
-export function reduce_windows(@builtin("global_invocation_id") gid: vec3u): void {
+export const reduce_windows = compute([64, 1, 1], function reduce_windows(gid: builtin<"global_invocation_id", vec3u>): void {
   const idx = gid.x;
   if (idx >= params.x) {
     return;
@@ -44,4 +43,4 @@ export function reduce_windows(@builtin("global_invocation_id") gid: vec3u): voi
   }
 
   output[idx] = sum;
-}
+});

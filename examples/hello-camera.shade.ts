@@ -12,8 +12,8 @@
 // Plain data with no field metadata, written as the type alias §2 of the surface document
 // illustrates for this very struct. A class, an interface and a type alias produce the same
 // `StructDecl`, so the spelling says what the shape is FOR rather than changing what it emits:
-// a class is the one that can carry `@location` and `@builtin`, which entry I/O needs and this
-// does not.
+// entry I/O carries `location<…>` and `builtin<…>` in its field types, which this does not
+// need.
 
 type Camera = {
   view: mat4;
