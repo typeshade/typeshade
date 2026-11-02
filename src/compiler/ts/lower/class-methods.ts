@@ -1261,7 +1261,7 @@ export function collectClassFunctions(
             sourceFile,
             at,
             `A decorator has no place on "${owner ?? name}.${member}"; an entry is a top-level ` +
-              `function.`,
+              `const that a stage call initializes, "export const vs = vertex(function vs(…) { … })".`,
           );
         }
         // An async method or a generator was refused where it is written (semantic.ts), once.

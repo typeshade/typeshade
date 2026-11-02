@@ -243,7 +243,9 @@ function declarationLine(
       const params = (symbol.params ?? [])
         .map((p) => {
           const q = qualifiers.get(p.name);
-          return `${q !== undefined ? `@${q} ` : ''}${p.name}: ${spellShaderType(p.type)}`;
+          // The qualifier as the type an author writes, `v: inout<f32>` (change 0111).
+          const shown = spellShaderType(p.type);
+          return `${p.name}: ${q !== undefined ? `${q}<${shown}>` : shown}`;
         })
         .join(', ');
       return `function ${symbol.name}(${params}): ${type}`;
@@ -335,7 +337,7 @@ export function getHover(
   const qualifier = declared?.kind === 'param' ? qualifierOfParam(sourceFile, declared) : undefined;
   const display =
     (qualifier !== undefined
-      ? `(parameter) @${qualifier} ${declared!.name}: ${spellShaderType(declared!.type)}`
+      ? `(parameter) ${declared!.name}: ${qualifier}<${spellShaderType(declared!.type)}>`
       : undefined) ??
     (declared !== undefined
       ? declarationLine(

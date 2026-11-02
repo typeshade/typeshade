@@ -78,18 +78,18 @@ describe('a GLSL or HLSL name is refused with TypeShade spelling as the remedy (
     gl_FragCoord: [
       '@fragment\nexport function f(): vec4 {\n  return vec4(gl_FragCoord.x);\n}',
       `${TS_CODES.UNKNOWN_NAME} Unknown identifier "gl_FragCoord". GLSL's gl_FragCoord is a ` +
-        'parameter here: @builtin("position") pos: vec4.',
+        'parameter here: pos: builtin<"position", vec4>.',
     ],
     // What a GLSL vertex shader ends with: an output, so a field of the entry's return.
     gl_Position: [
       '@vertex\nexport function f(): vec4 {\n  gl_Position = vec4(0.);\n  return vec4(0.);\n}',
       `${TS_CODES.UNKNOWN_NAME} Cannot assign to unknown name "gl_Position". GLSL's ` +
-        'gl_Position is a field of the entry\'s return here: @builtin("position") pos: vec4.',
+        'gl_Position is a field of the entry\'s return here: pos: builtin<"position", vec4>.',
     ],
     numthreads: [
       '@numthreads([64])\nexport function f(): void {}',
       `${TS_CODES.ATTRIBUTE_NAME} Unknown attribute "@numthreads". HLSL's numthreads is ` +
-        '@compute here.',
+        'compute([x, y, z], f) here.',
     ],
   };
   for (const [name, [source, sentence]] of Object.entries(rows)) {

@@ -126,7 +126,7 @@ describe('a message names a class by the name the author gave it', () => {
         ].join('\n'),
       ),
     ).toEqual([
-      'TS8003 "VO.b" is at a @location and is "In"; a value passed between stages is a numeric ' +
+      'TS8003 "VO.b" is at a location and is "In"; a value passed between stages is a numeric ' +
         'scalar or a numeric vector. Send its components as separate locations.',
     ]);
   });
@@ -316,7 +316,7 @@ describe('a message names a class in a namespace, and a generic one, as written'
       ).diagnostics.map((d) => `${d.code} ${d.message}`),
     ).toEqual([
       'TS8029 Struct "S.VOut" field "uv" is used as a vertex output but has neither ' +
-        '@builtin(...) nor @location(...): WGSL requires every entry output struct member to ' +
+        'a builtin<…> nor a location<…> type: WGSL requires every entry output struct member to ' +
         'declare one.',
     ]);
   });
@@ -475,9 +475,9 @@ describe('a class named while the structs are collected, and a sentence about a 
         ].join('\n'),
       ),
     ).toEqual([
-      'TS8003 "VO.b" is at a @location and is "N.In"; a value passed between stages is a ' +
+      'TS8003 "VO.b" is at a location and is "N.In"; a value passed between stages is a ' +
         'numeric scalar or a numeric vector. Send its components as separate locations.',
-      'TS8003 "VO.c" is at a @location and is "Slot<f32>"; a value passed between stages is a ' +
+      'TS8003 "VO.c" is at a location and is "Slot<f32>"; a value passed between stages is a ' +
         'numeric scalar or a numeric vector. Send its components as separate locations.',
     ]);
     // Said twice, at the field and at the entry, and now in one spelling.
@@ -512,8 +512,8 @@ describe('a class named while the structs are collected, and a sentence about a 
         ].join('\n'),
       ),
     ).toEqual([
-      'TS8020 "vs" is a @vertex entry, so what it returns has to carry the position: give ' +
-        '"S.VOut" a field with @builtin("position"), typed vec4.',
+      'TS8020 "vs" is a vertex entry, so what it returns has to carry the position: give ' +
+        '"S.VOut" a field typed builtin<"position", vec4>.',
     ]);
   });
 
@@ -580,7 +580,7 @@ describe('a class named while the structs are collected, and a sentence about a 
         ].join('\n'),
       ),
     ).toEqual([
-      'TS8010 Struct "S.VOut" puts "uv" and "c" both at @location(0); each slot carries one ' +
+      'TS8010 Struct "S.VOut" puts "uv" and "c" both at location<0, …>; each slot carries one ' +
         'value.',
       'TS8051 "S.L.xs" is a list of no fixed length and is not the last field of "S.L": nothing ' +
         'after it has an offset. Move it last, or give it a length.',
@@ -596,8 +596,8 @@ describe('a class named while the structs are collected, and a sentence about a 
         ].join('\n'),
       ).diagnostics.map((d) => `${d.code} ${d.message}`),
     ).toEqual([
-      'TS8010 Struct "S.FOut" declares @blend_src(0) and not @blend_src(1); a dual-source blend ' +
-        'mixes two colours, so both sit at the same @location.',
+      'TS8010 Struct "S.FOut" declares { blend_src: 0 } and not { blend_src: 1 }; a dual-source ' +
+        'blend mixes two colours, so both sit at the same location<…>.',
     ]);
   });
 

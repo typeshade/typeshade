@@ -150,7 +150,7 @@ export const derivative = fragment(function derivative(p: builtin<"position", ve
       'parameter "uv" is what a vertex entry writes, and a draw has no vertex entry but its full-screen triangle; #204, the rendering design, adds a mesh',
     );
     expect(reasonOf(f.exports, 'twoTargets')).toBe(
-      'a draw writes one @location(0) vec4 colour, a vec4 result or a struct of that one field',
+      'a draw writes one location<0, vec4> colour, a vec4 result or a struct of that one field',
     );
   });
 

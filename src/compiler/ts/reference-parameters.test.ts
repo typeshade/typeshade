@@ -332,7 +332,7 @@ export function run(): f32 { let x: f32 = 1.; g(x); return x; }
     const service = createTypeshadeLanguageService();
     service.openDocument('c.ts', source);
     const hover = service.getHover('c.ts', service.positionAt('c.ts', source.indexOf('p += 1.')));
-    expect(hover?.contents).toContain('(parameter) @inout p: f32');
+    expect(hover?.contents).toContain('(parameter) p: inout<f32>');
     expect(hover?.contents).toContain("Names the caller's place");
   });
 });
@@ -348,92 +348,92 @@ function add(a: f32, b: f32, c: out<f32>): void { c = a + b; }
     [
       'a literal',
       `export function r(): f32 { bump(1.0); return 0.; }`,
-      'TS8073 "bump" writes "v" back to the caller (@inout v: f32), and "1.0" is a value nothing holds, so there is no place to write. Keep it in a let and pass the let.',
+      'TS8073 "bump" writes "v" back to the caller (v: inout<f32>), and "1.0" is a value nothing holds, so there is no place to write. Keep it in a let and pass the let.',
     ],
     [
       'a computed value',
       `export function r(): f32 { let x: f32 = 1.; bump(x * 2.); return x; }`,
-      'TS8073 "bump" writes "v" back to the caller (@inout v: f32), and "x * 2." is a value nothing holds, so there is no place to write. Keep it in a let and pass the let.',
+      'TS8073 "bump" writes "v" back to the caller (v: inout<f32>), and "x * 2." is a value nothing holds, so there is no place to write. Keep it in a let and pass the let.',
     ],
     [
       'a const scalar',
       `export function r(): f32 { const c: f32 = 1.; bump(c); return c; }`,
-      'TS8073 "bump" writes "v" back to the caller (@inout v: f32), and "c" is declared with const; declare it with let.',
+      'TS8073 "bump" writes "v" back to the caller (v: inout<f32>), and "c" is declared with const; declare it with let.',
     ],
     [
       'a value parameter, through a field',
       `function g(o: Ob): void { bump(o.a); } export function r(): f32 { return 0.; }`,
-      'TS8073 "bump" writes "v" back to the caller (@inout v: f32), and "o" is a parameter that holds a copy of its caller\'s value, which this function cannot hand on as a place. Declare it "@inout o: Ob" to pass its caller\'s place on, or copy it into a let.',
+      'TS8073 "bump" writes "v" back to the caller (v: inout<f32>), and "o" is a parameter that holds a copy of its caller\'s value, which this function cannot hand on as a place. Declare it "o: inout<Ob>" to pass its caller\'s place on, or copy it into a let.',
     ],
     [
       'a read-only binding',
       `export function r(): f32 { bump(src[0]); return 0.; }`,
-      'TS8073 "bump" writes "v" back to the caller (@inout v: f32), and "src" is a read-only resource. Write "declare const src: storage<array<f32>, "read_write">" to write to it.',
+      'TS8073 "bump" writes "v" back to the caller (v: inout<f32>), and "src" is a read-only resource. Write "declare const src: storage<array<f32>, "read_write">" to write to it.',
     ],
     [
       "a vector's component",
       `export function r(): f32 { let v = vec3(1.); bump(v.x); return v.x; }`,
-      'TS8073 "bump" writes "v" back to the caller (@inout v: f32), and "v.x" is a component of the vector vec3, which no target takes the address of. Pass the whole vector, or copy the component into a let and pass the let.',
+      'TS8073 "bump" writes "v" back to the caller (v: inout<f32>), and "v.x" is a component of the vector vec3, which no target takes the address of. Pass the whole vector, or copy the component into a let and pass the let.',
     ],
     [
       "a component of a matrix's column",
       `export function r(): f32 { let m = mat2(1., 2., 3., 4.); bump(m[1].x); return 0.; }`,
-      'TS8073 "bump" writes "v" back to the caller (@inout v: f32), and "m[1].x" is a component of the vector vec2, which no target takes the address of. Pass the whole vector, or copy the component into a let and pass the let.',
+      'TS8073 "bump" writes "v" back to the caller (v: inout<f32>), and "m[1].x" is a component of the vector vec2, which no target takes the address of. Pass the whole vector, or copy the component into a let and pass the let.',
     ],
     [
       'a type of the wrong kind',
       `export function r(): f32 { let x: i32 = 1; bump(x); return 0.; }`,
-      'TS8073 "bump" writes "v" back to the caller (@inout v: f32), and "x" is i32. The place must be of exactly the parameter\'s type.',
+      'TS8073 "bump" writes "v" back to the caller (v: inout<f32>), and "x" is i32. The place must be of exactly the parameter\'s type.',
     ],
     [
       'a const handed to @out',
       `export function r(): f32 { const c: f32 = 1.; add(1., 2., c); return c; }`,
-      'TS8073 "add" writes "c" back to the caller (@out c: f32), and "c" is declared with const; declare it with let.',
+      'TS8073 "add" writes "c" back to the caller (c: out<f32>), and "c" is declared with const; declare it with let.',
     ],
     [
       "@inout on a method's parameter",
       `class C { v: f32; m(@inout p: f32): void { p = 1.; } } export function r(): f32 { return 0.; }`,
-      'TS8073 "p" is @inout, and "C.m", a member of a class, takes its parameters by value. A parameter that names the caller\'s place belongs to a function declared at the top of the file or of a namespace (Rule 8.25): move the code that changes the caller\'s value into one, or take the value and return the result.',
+      'TS8073 "p" is inout<T>, and "C.m", a member of a class, takes its parameters by value. A parameter that names the caller\'s place belongs to a function declared at the top of the file or of a namespace (Rule 8.25): move the code that changes the caller\'s value into one, or take the value and return the result.',
     ],
     [
       '@inout on a generic function, called or not',
       `function g<T>(@inout v: T): void { } export function r(): f32 { return 0.; }`,
-      'TS8073 "v" is @inout, and a generic function, whose instance is made from its arguments, takes its parameters by value. A parameter that names the caller\'s place belongs to a function declared at the top of the file or of a namespace (Rule 8.25): move the code that changes the caller\'s value into one, or take the value and return the result.',
+      'TS8073 "v" is inout<T>, and a generic function, whose instance is made from its arguments, takes its parameters by value. A parameter that names the caller\'s place belongs to a function declared at the top of the file or of a namespace (Rule 8.25): move the code that changes the caller\'s value into one, or take the value and return the result.',
     ],
     [
       '@out on an entry',
       `@compute([1, 1, 1]) export function m(@out x: f32): void { x = 1.; }`,
-      'TS8073 "x" is @out, and an entry, whose parameters the pipeline supplies, takes its parameters by value. A parameter that names the caller\'s place belongs to a function declared at the top of the file or of a namespace (Rule 8.25): move the code that changes the caller\'s value into one, or take the value and return the result.',
+      'TS8073 "x" is out<T>, and an entry, whose parameters the pipeline supplies, takes its parameters by value. A parameter that names the caller\'s place belongs to a function declared at the top of the file or of a namespace (Rule 8.25): move the code that changes the caller\'s value into one, or take the value and return the result.',
     ],
     [
       '@inout on a local function',
       `export function r(): f32 { function f(@inout p: f32): void { p = 1.; } return 0.; }`,
-      'TS8073 "p" is @inout, and "f" in "r", a local function, takes its parameters by value. A parameter that names the caller\'s place belongs to a function declared at the top of the file or of a namespace (Rule 8.25): move the code that changes the caller\'s value into one, or take the value and return the result.',
+      'TS8073 "p" is inout<T>, and "f" in "r", a local function, takes its parameters by value. A parameter that names the caller\'s place belongs to a function declared at the top of the file or of a namespace (Rule 8.25): move the code that changes the caller\'s value into one, or take the value and return the result.',
     ],
     [
       'two qualifiers on one parameter',
       `function h(@inout @out p: f32): void { p = 1.; } export function r(): f32 { return 0.; }`,
-      'TS8073 "p" carries @inout and @out, and a parameter takes one qualifier. Keep the one that says what the function does with it.',
+      'TS8073 "p" carries inout<T> and out<T>, and a parameter takes one qualifier. Keep the one that says what the function does with it.',
     ],
     [
       'a default on @inout',
       `function h(@inout p: f32 = 1.): void { p = 1.; } export function r(): f32 { return 0.; }`,
-      'TS8073 "p" is @inout, which names the place a call hands over; a default is a value and names no place. Remove the default, and pass a variable at every call.',
+      'TS8073 "p" is inout<T>, which names the place a call hands over; a default is a value and names no place. Remove the default, and pass a variable at every call.',
     ],
     [
       '@out read before it is written',
       `function h(@out c: f32): void { c = c + 1.; } export function r(): f32 { return 0.; }`,
-      'TS8075 "c" is @out, and is read here before h writes it: an @out parameter holds no value until the function writes it. Write "c" first, or declare it @inout (Rule 8.25).',
+      'TS8075 "c" is an out<T> parameter, and is read here before h writes it: it holds no value until the function writes it. Write "c" first, or declare it inout<T> (Rule 8.25).',
     ],
     [
       '@out left unwritten on a path',
       `function h(@out c: f32, k: bool): void { if (k) { c = 1.; } } export function r(): f32 { return 0.; }`,
-      'TS8075 "h" returns here without writing "c", which is @out: the caller\'s variable would hold no value. Write "c" on every path (Rule 8.25).',
+      'TS8075 "h" returns here without writing "c", an out<T> parameter: the caller\'s variable would hold no value. Write "c" on every path (Rule 8.25).',
     ],
     [
       'a field of @out written before the whole',
       `function h(@out o: Ob): void { o.a = 1.; o = new Ob(); } export function r(): f32 { return 0.; }`,
-      'TS8075 "o" is @out, and is read here before h writes it: an @out parameter holds no value until the function writes it. Write "o" first, or declare it @inout (Rule 8.25).',
+      'TS8075 "o" is an out<T> parameter, and is read here before h writes it: it holds no value until the function writes it. Write "o" first, or declare it inout<T> (Rule 8.25).',
     ],
     [
       'a local read before it is assigned',
@@ -461,6 +461,11 @@ function add(a: f32, b: f32, c: out<f32>): void { c = a + b; }
       'TS8074 This call hands "o" to "swap" by reference twice, as two places it may change: one variable reached two ways, which WGSL refuses and which GLSL\'s copy-in and copy-out would settle in no fixed order (Rule 8.25). Pass distinct variables, or copy one into a let and pass the let.',
     ],
     [
+      'a texture as inout<T>',
+      `declare const tex: texture_2d<f32>; function look(t: inout<texture_2d<f32>>): void { } export function r(): f32 { return 0.; }`,
+      'TS8073 "t" is inout<T>, and a texture is a handle to a resource, not a place a function writes. Declare it "t: texture_2d<f32>" to take it by value.',
+    ],
+    [
       'a module variable the callee also writes',
       `let counter: f32 = 0.; function bumpC(v: inout<f32>): void { v += counter; } export function r(): f32 { bumpC(counter); return counter; }`,
       'TS8074 This call hands "counter" to "bumpC" by reference, and "bumpC" also reads or writes "counter" by its name: one variable reached two ways, which WGSL refuses (Rule 8.25). Use the reference alone inside "bumpC", or pass a copy.',
@@ -478,7 +483,7 @@ function add(a: f32, b: f32, c: out<f32>): void { c = a + b; }
     const said = (body: string): string[] =>
       compile(`"use typeshade";\n${body}`).diagnostics.map((d) => d.message);
     expect(said(`export function f(v: vec2): f32 { v.x = 1.; return v.x; }`)[0]).toContain(
-      'To change the caller\'s value, declare "@inout v: vec2".',
+      'To change the caller\'s value, declare "v: inout<vec2>".',
     );
     expect(
       said(
@@ -523,7 +528,7 @@ export function run(): f32 { let x: f32 = 1.; bump(x); return x; }
     service.openDocument('h.ts', source);
     const at = service.positionAt('h.ts', source.indexOf('v += 1.'));
     const hover = service.getHover('h.ts', at)?.contents ?? '';
-    expect(hover).toContain('(parameter) @inout v: f32');
+    expect(hover).toContain('(parameter) v: inout<f32>');
     expect(hover).toContain("Names the caller's place");
     expect(hover).toContain('ptr<function, f32>');
   });
@@ -541,7 +546,7 @@ export function run(): f32 { let x: f32 = 0.; lift(x, 0.5); return x; }
     const at = (offset: number): string =>
       service.getHover('f.ts', service.positionAt('f.ts', offset))?.contents ?? '';
     for (const offset of [source.indexOf('lift(') + 1, source.lastIndexOf('lift(') + 1]) {
-      expect(at(offset)).toContain('function lift(@inout w: f32, k: f32): void');
+      expect(at(offset)).toContain('function lift(w: inout<f32>, k: f32): void');
     }
     // A kernel function's array is passed by reference too, and carries no qualifier (Rule 8.23).
     expect(at(source.indexOf('k2(') + 1)).toContain('function k2(out: array<f32>, n: i32): void');

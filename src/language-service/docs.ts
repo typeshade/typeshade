@@ -102,26 +102,29 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
 
 /** One Markdown sentence per attribute name in `ATTRIBUTE_NAMES`. */
 export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
-  vertex: "Marks a top-level exported function as the pipeline's vertex-stage entry point.",
-  fragment: "Marks a top-level exported function as the pipeline's fragment-stage entry point.",
+  vertex:
+    "The decorated form of `export const vs = vertex(function vs(…) { … })`, the pipeline's vertex-stage entry point.",
+  fragment:
+    "The decorated form of `export const fs = fragment(function fs(…) { … })`, the pipeline's fragment-stage entry point.",
   compute:
-    'Marks a top-level exported function as a compute-stage entry point, with an optional workgroup size: `@compute([64])`.',
+    'The decorated form of `export const main = compute([64], function main(…) { … })`, a compute-stage entry point with its workgroup size.',
   workgroup_size:
-    'On an exported function that takes an array with no size or a 2D storage texture, a kernel function: the workgroup size of each of its loops that does not reduce, as one extent in an array, `@workgroup_size([128])`. A loop that reduces runs at 256 whatever is written. An entry takes its size as `@compute([128])`.',
+    'The decorated form of `workgroup_size([128], f)`, the workgroup size of each loop that does not reduce in a kernel function, an exported function that takes an array with no size or a 2D storage texture. A loop that reduces runs at 256 whatever is written. An entry takes its size as `compute([128], f)`.',
   builtin:
-    'Binds a field or parameter to a WebGPU builtin value, such as `@builtin("vertex_index")`.',
-  location: 'Binds a field to a numeric shader IO location, such as `@location(0)`.',
+    'The decorated form of `builtin<N, T>`, a WebGPU builtin value: `i: builtin<"vertex_index", u32>` for `@builtin("vertex_index") i: u32`.',
+  location:
+    'The decorated form of `location<I, T>`, a numeric shader IO location: `uv: location<0, vec2>` for `@location(0) uv: vec2`.',
   interpolate:
-    'How a `@location` varying is interpolated: `@interpolate("flat")`, or a type and a sampling as in `@interpolate("linear", "centroid")`. An integer varying takes `flat` automatically. GLSL ES 3.00 has `smooth`, `flat` and `centroid` only, so `"linear"` and the `"sample"` position fail the module closed on that target.',
+    'The decorated form of the `interpolate` option, `location<0, u32, { interpolate: "flat" }>`, or a type and a sampling as `{ interpolate: ["linear", "centroid"] }`. An integer varying takes `flat` automatically. GLSL ES 3.00 has `smooth`, `flat` and `centroid` only, so `"linear"` and the `"sample"` position fail the module closed on that target.',
   invariant:
-    'On `@builtin("position")`: WGSL\'s promise that this position is computed the same way in two pipelines, so a depth pre-pass matches the shading pass. Emits `invariant gl_Position;` on GLSL ES 3.00.',
+    'The decorated form of the `invariant` option, `builtin<"position", vec4, { invariant: true }>`: WGSL\'s promise that this position is computed the same way in two pipelines, so a depth pre-pass matches the shading pass. Emits `invariant gl_Position;` on GLSL ES 3.00.',
   blend_src:
-    'Which of the two colours a dual-source blend mixes this fragment output is: `@blend_src(0)` and `@blend_src(1)`, both at `@location(0)`. Derives the `dualSourceBlending` capability; GLSL ES 3.00 has no second source, so a module using it fails closed there.',
+    'The decorated form of the `blend_src` option, `location<0, vec4, { blend_src: 0 }>` beside `{ blend_src: 1 }`: which of the two colours a dual-source blend mixes this fragment output is. Derives the `dualSourceBlending` capability; GLSL ES 3.00 has no second source, so a module using it fails closed there.',
   inout:
-    "On a parameter of a function of the file: the parameter names the caller's place, so reading `p` reads it and assigning to `p`, or to a field or element of it, writes it. The caller passes the variable itself, unmarked: `swap(x, y)`. WGSL `ptr<function, T>`, GLSL ES 3.00 `inout T`.",
-  out: "On a parameter of a function of the file: the parameter names a place of the caller's that the function writes before reading it and on every path. The caller passes a variable, which may have no value yet: `let s: f32; add(a, b, s);`. WGSL `ptr<function, T>`, GLSL ES 3.00 `inout T`.",
+    "The decorated form of `p: inout<T>`: the parameter names the caller's place, so reading `p` reads it and assigning to `p`, or to a field or element of it, writes it. The caller passes the variable itself, unmarked: `swap(x, y)`. WGSL `ptr<function, T>`, GLSL ES 3.00 `inout T`.",
+  out: "The decorated form of `p: out<T>`: the parameter names a place of the caller's that the function writes before reading it and on every path. The caller passes a variable, which may have no value yet: `let s!: f32; add(a, b, s);`. WGSL `ptr<function, T>`, GLSL ES 3.00 `inout T`.",
   diagnostic:
-    'Sets the severity of a WGSL diagnostic rule for the whole module, as in `@diagnostic("off", "derivative_uniformity")` on an entry. Written on the entry, emitted as the module-scope `diagnostic(off, derivative_uniformity);`, because WGSL\'s function attribute does not reach the functions the entry calls. One rule is analysed here: `derivative_uniformity`.',
+    'The decorated form of a stage call\'s option `{ diagnostic: ["off", "derivative_uniformity"] }`, which sets the severity of a WGSL diagnostic rule for the whole module. Emitted as the module-scope `diagnostic(off, derivative_uniformity);`, because WGSL\'s function attribute does not reach the functions the entry calls. One rule is analysed here: `derivative_uniformity`.',
 };
 
 /** One Markdown sentence per stage call of change 0111, the plain-TypeScript spelling of an

@@ -40,22 +40,20 @@ export function collectDiagnosticDirectives(
   const out: DiagnosticDirective[] = [];
   /** The first directive seen for a rule: its severity and the function carrying it, which the
    *  conflict message names so an author can find the other side. */
-  const firstOf = new Map<string, { severity: string; fn: string; form: 'decorator' | 'call' }>();
+  const firstOf = new Map<string, { severity: string; fn: string }>();
   /** Rules already reported as conflicting, so three directives on one rule are one
    *  diagnostic and not two. */
   const reported = new Set<string>();
-  for (const { fnName, d, args, form } of directiveSources(sourceFile, diagnostics)) {
+  for (const { fnName, d, args } of directiveSources(sourceFile, diagnostics)) {
     const [severity, rule] = args;
     if (args.length !== 2 || severity === undefined || rule === undefined) {
       diagnostics.push(
         makeDiagnostic(
           sourceFile,
           d,
-          form === 'call'
-            ? `diagnostic takes a severity and a rule, as strings: ` +
-                `{ diagnostic: ["off", "derivative_uniformity"] }.`
-            : `@diagnostic takes a severity and a rule, as strings: ` +
-                `@diagnostic("off", "derivative_uniformity").`,
+          // The stage call's option, whichever form was written (change 0111).
+          `diagnostic takes a severity and a rule, as strings: ` +
+            `{ diagnostic: ["off", "derivative_uniformity"] }.`,
           TS_CODES.ATTRIBUTE_NAME,
         ),
       );
@@ -101,10 +99,8 @@ export function collectDiagnosticDirectives(
             makeDiagnostic(
               sourceFile,
               d,
-              `"${rule}" is set to "${prior.severity}" by the ` +
-                `${prior.form === 'call' ? 'diagnostic option of' : '@diagnostic on'} ` +
-                `"${prior.fn}" and to "${severity}" by the one ` +
-                `${form === 'call' ? 'of' : 'on'} "${fnName}". WGSL takes ` +
+              `"${rule}" is set to "${prior.severity}" by the diagnostic option of ` +
+                `"${prior.fn}" and to "${severity}" by the one of "${fnName}". WGSL takes ` +
                 `one severity per rule per scope, and both would be emitted: "conflicting ` +
                 `diagnostic directive" on Tint. Keep one of the two.`,
               TS_CODES.ATTRIBUTE_NAME,
@@ -114,7 +110,7 @@ export function collectDiagnosticDirectives(
       }
       continue;
     }
-    firstOf.set(rule, { severity, fn: fnName, form });
+    firstOf.set(rule, { severity, fn: fnName });
     out.push({ severity: severity as DiagnosticDirective['severity'], rule });
   }
   return out;

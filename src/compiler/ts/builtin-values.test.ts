@@ -244,8 +244,8 @@ describe('the clip_distances type rule holds on every authoring surface', () => 
     // declaration alone emitted `enable clip_distances;` over an `array<f32, 9>`. The front
     // end checked the two sites an entry reaches; this one it did not.
     const d = diagnose(
-      `class Unused { @builtin("position") p: vec4; @builtin("clip_distances") cd: f32 }
-@fragment export function fs(): vec4 { return vec4(0.) }`,
+      `class Unused { p!: builtin<"position", vec4>; cd!: builtin<"clip_distances", f32> }
+export const fs = fragment(function fs(): vec4 { return vec4(0.) })`,
     );
     expect(d.code).toBe(TS_CODES.TYPE_MISMATCH);
     expect(d.message).toContain('WGSL gives it array<f32, N> with N from 1 to 8');

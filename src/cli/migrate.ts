@@ -193,13 +193,23 @@ export function migrateSource(text: string, fileName = 'a.shade.ts'): MigrateRes
 
   // Classes whose every member is a field: attributes in the field types, and the class an
   // interface, since a plain `tsc --strict` refuses a class field with no initializer (TS2564).
-  // A class something builds with `new` stays a class: an interface has no constructor.
+  // A class something builds with `new` stays a class: an interface has no constructor. So
+  // does a class nothing names (below).
   const built = new Set<string>();
   const visitNew = (n: ts.Node): void => {
     if (ts.isNewExpression(n) && ts.isIdentifier(n.expression)) built.add(n.expression.text);
     ts.forEachChild(n, visitNew);
   };
   visitNew(sf);
+  // A class the file names nowhere but in its own declaration stays a class: the compiler emits
+  // a class as a struct, and checks it, whether or not an entry uses it, and an interface only
+  // when something names it. So an unused class keeps its emit as an interface would not.
+  const named = new Map<string, number>();
+  const visitNames = (n: ts.Node): void => {
+    if (ts.isIdentifier(n)) named.set(n.text, (named.get(n.text) ?? 0) + 1);
+    ts.forEachChild(n, visitNames);
+  };
+  visitNames(sf);
   // A field a class keeps takes `!`, which tells a plain `tsc --strict` that it is assigned
   // (TS2564): a struct's field is zero until something writes it.
   const definite = (m: ts.PropertyDeclaration): void => {
@@ -253,6 +263,7 @@ export function migrateSource(text: string, fileName = 'a.shade.ts'): MigrateRes
       if (decorated) {
         const plain =
           !built.has(n.name.text) &&
+          (named.get(n.name.text) ?? 0) > 1 &&
           n.heritageClauses === undefined &&
           n.typeParameters === undefined &&
           decoratorsOf(n).length === 0 &&

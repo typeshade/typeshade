@@ -58,7 +58,7 @@ export function kernelLoopDiagnostics(
           sourceFile,
           sourceSpanOf(reducing.loop),
           undefined,
-          `"${f.name}" has a loop that reduces, which always runs in workgroups of ${KERNEL_TREE}. Remove @workgroup_size from "${f.name}", or put the reduction in a function of its own.`,
+          `"${f.name}" has a loop that reduces, which always runs in workgroups of ${KERNEL_TREE}. Declare "${f.name}" without workgroup_size, or put the reduction in a function of its own.`,
           TS_CODES.KERNEL_WORKGROUP_REDUCES,
           'error',
         ),
@@ -174,8 +174,8 @@ class Wording {
         if (r.why === 'console')
           return `${why} ${this.line(r.at)} calls ${r.name}, whose lines would print in another order on the GPU. Log after the loop.`;
         if (r.why === 'barrier')
-          return `${why} ${this.line(r.at)} calls ${r.name}(), and an iteration of a loop is not a workgroup. Write a @compute entry to use a barrier.`;
-        return `${why} ${this.line(r.at)} reads "${this.name(r.name)}", which is workgroup memory, and an iteration of a loop is not a workgroup. Write a @compute entry to use it.`;
+          return `${why} ${this.line(r.at)} calls ${r.name}(), and an iteration of a loop is not a workgroup. Write a compute([…], f) entry to use a barrier.`;
+        return `${why} ${this.line(r.at)} reads "${this.name(r.name)}", which is workgroup memory, and an iteration of a loop is not a workgroup. Write a compute([…], f) entry to use it.`;
     }
   }
 

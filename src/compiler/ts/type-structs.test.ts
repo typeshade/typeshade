@@ -234,7 +234,7 @@ describe('the three spellings agree', () => {
   });
 });
 
-describe('entry I/O still needs a decorator, which only a class can carry', () => {
+describe('entry I/O needs an attribute type, which every spelling carries (change 0111)', () => {
   const VS = (decl: string) => `
     ${decl}
     export const vs = vertex(function vs(p: location<0, vec2>): VsOut {
@@ -246,24 +246,22 @@ describe('entry I/O still needs a decorator, which only a class can carry', () =
     uv: vec2
   `;
 
-  it('tells a type-alias author to declare it as a class', () => {
-    expect(diagnoseCode(VS(`type VsOut = {${FIELDS}}`), 'TS8029')).toBe(
-      'Struct "VsOut" field "pos" is used as a vertex output but has neither @builtin(...) nor ' +
-        '@location(...): WGSL requires every entry output struct member to declare one, and a ' +
-        'type alias member cannot carry a decorator — declare "VsOut" as a class.',
-    );
+  // An interface or a type alias member carries the attribute in its type as a class field
+  // does, so no spelling is told to become a class (the remedy before change 0111).
+  const SAID =
+    'Struct "VsOut" field "pos" is used as a vertex output but has neither a builtin<…> nor ' +
+    'a location<…> type: WGSL requires every entry output struct member to declare one.';
+
+  it('asks a type-alias author for the attribute type', () => {
+    expect(diagnoseCode(VS(`type VsOut = {${FIELDS}}`), 'TS8029')).toBe(SAID);
   });
 
-  it('tells an interface author the same, with the right article', () => {
-    expect(diagnoseCode(VS(`interface VsOut {${FIELDS}}`), 'TS8029')).toContain(
-      'an interface member cannot carry a decorator — declare "VsOut" as a class.',
-    );
+  it('asks an interface author the same', () => {
+    expect(diagnoseCode(VS(`interface VsOut {${FIELDS}}`), 'TS8029')).toBe(SAID);
   });
 
-  it('asks a class author only for the decorator itself', () => {
-    const message = diagnoseCode(VS(`class VsOut {${FIELDS}}`), 'TS8029');
-    expect(message).toContain('WGSL requires every entry output struct member to declare one.');
-    expect(message).not.toContain('declare "VsOut" as a class');
+  it('asks a class author the same', () => {
+    expect(diagnoseCode(VS(`class VsOut {${FIELDS}}`), 'TS8029')).toBe(SAID);
   });
 });
 

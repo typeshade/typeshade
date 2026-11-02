@@ -14,6 +14,7 @@ import type {
   OverrideDecl,
 } from '../../core/ir/nodes.js';
 import { stageOf } from '../../core/ir/nodes.js';
+import { stageCallOf } from './stage-call.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import { kernelLoopDiagnostics } from './kernel-loops.js';
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js';
@@ -401,18 +402,19 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
     // the module. `off` drops the derivative rows, `info` and `warning` demote them.
     const severity = derivativeUniformitySeverity(directives);
     const calleeText = calleesAsWritten(sourceFile, funcs);
-    // `@diagnostic` is read off any top-level function (`collectDiagnosticDirectives`), and a
-    // namespace's entry refuses the attribute (`TS8028`). So the sentence offers it on the entry
-    // when every entry is top-level, on a top-level function when one is not and the file has
-    // one, and not at all when it has none.
-    const namespaceEntry = funcs.some(
-      (f) => stageOf(f) !== undefined && entryDeclaration(sourceFile, f.name) === undefined,
-    );
-    const directivePlace = !namespaceEntry
-      ? 'the entry'
-      : sourceFile.statements.some((st) => ts.isFunctionDeclaration(st) && st.body !== undefined)
-        ? 'a top-level function'
-        : undefined;
+    // The `diagnostic` option is read off a top-level stage call (`collectDiagnosticDirectives`,
+    // change 0111), and a namespace's entry refuses it (`TS8028`). So the sentence offers it on
+    // the entry when every entry is top-level, on a top-level entry when one is not and the file
+    // has one, and not at all when it has none. The decorated form's `@diagnostic` on any
+    // top-level function is not offered: the next release refuses it.
+    const entries = funcs.filter((f) => stageOf(f) !== undefined);
+    const topLevel = entries.filter((f) => entryDeclaration(sourceFile, f.name) !== undefined);
+    const directivePlace =
+      topLevel.length === entries.length
+        ? 'the entry'
+        : topLevel.length > 0
+          ? 'a top-level entry'
+          : undefined;
     for (const v of uniformityViolations(shaped, { builtIfs, calleeText })) {
       if (v.kind === 'derivative' && severity === 'off') continue;
       const category =
@@ -787,12 +789,15 @@ export function reportCrossDeclarationCollisions(
   }
 }
 
-/** The `function <name>` statement an entry was lowered from, so a whole-module diagnostic can
- *  anchor at the declaration rather than at the file's first line. `undefined` when the name
- *  names no top-level function, which {@link makeDiagnostic} already handles. */
+/** The `function <name>` statement an entry was lowered from, or the `const <name> = stage(…)`
+ *  statement of a stage call (change 0111), so a whole-module diagnostic can anchor at the
+ *  declaration rather than at the file's first line. `undefined` when the name names no
+ *  top-level function, which {@link makeDiagnostic} already handles. */
 function entryDeclaration(sourceFile: ts.SourceFile, name: string): ts.Node | undefined {
   return sourceFile.statements.find(
-    (st): st is ts.FunctionDeclaration => ts.isFunctionDeclaration(st) && st.name?.text === name,
+    (st) =>
+      (ts.isFunctionDeclaration(st) && st.name?.text === name) ||
+      stageCallOf(st)?.declaration.name.text === name,
   );
 }
 
@@ -915,7 +920,7 @@ const UNIFORMITY_SITES: Readonly<
  *  `directivePlace`, where the file can carry it, and not at all when it has no such place. */
 function uniformityMessage(
   v: UniformityViolation,
-  directivePlace: 'the entry' | 'a top-level function' | undefined,
+  directivePlace: 'the entry' | 'a top-level entry' | undefined,
 ): string {
   const site = UNIFORMITY_SITES[v.via];
   const reached = `${site.reached} ${v.cause}`;
@@ -924,7 +929,7 @@ function uniformityMessage(
       `${v.callee}() is reached ${reached}, and every invocation of the subgroup has to reach ` +
       `it together: WGSL's subgroup_uniformity rule refuses the call where one may not. ` +
       `${site.move}, or ${site.on} a value the whole workgroup shares (a uniform, a module ` +
-      `const, @builtin("workgroup_id")).`
+      `const, builtin<"workgroup_id", vec3u>).`
     );
   }
   if (v.kind === 'barrier') {
@@ -932,7 +937,7 @@ function uniformityMessage(
       `${v.callee}() is reached ${reached}, and every invocation of the workgroup has ` +
       `to reach it: one that does not is a workgroup that waits forever. ${site.move}, or ` +
       `${site.on} a value the whole workgroup shares (a uniform, a module const, ` +
-      `@builtin("workgroup_id")).`
+      `builtin<"workgroup_id", vec3u>).`
     );
   }
   // Two fixes, not one. A SAMPLE has a same-shape alternative that carries the level the
@@ -953,8 +958,8 @@ function uniformityMessage(
     }, and one that did not run has no value to difference against. ${fix}${
       directivePlace === undefined
         ? '.'
-        : `, or write @diagnostic("off", "derivative_uniformity") on ${directivePlace} to ` +
-          `take the module as written.`
+        : `, or give the stage call of ${directivePlace} the option ` +
+          `{ diagnostic: ["off", "derivative_uniformity"] } to take the module as written.`
     }`
   );
 }

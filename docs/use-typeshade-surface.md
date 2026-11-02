@@ -322,7 +322,7 @@ export const fs = fragment(function fs(
   compiles with a warning (`TS8026`) naming the limit, since only a device requested with that
   limit raised runs it. `createRuntime({ programs })` requests that limit, where the adapter supports it (§69). The runtime checks a selected shape against the active device's per-axis
   and total-invocation limits before creating the pipeline:
-  `@compute workgroup shape [16, 16, 2] has 512 invocations, over maxComputeInvocationsPerWorkgroup (256). WebGPU guarantees no more, so a device requested without raising that limit refuses the pipeline.`
+  `compute workgroup shape [16, 16, 2] has 512 invocations, over maxComputeInvocationsPerWorkgroup (256). WebGPU guarantees no more, so a device requested without raising that limit refuses the pipeline.`
 - A `portable` kernel's workgroup stays one-dimensional (`SD0111`): the WebGL2 lowering draws one
   texel per invocation and has no workgroup to give `y` and `z` to.
 - `compute({ workgroup: [64, 1, 1] }, f)` is refused (`TS8037`):
@@ -6067,9 +6067,10 @@ compiler accepts is clean in the editor and under `tsc` (§70). What the checker
 value handed where a place is taken, two references to one variable in one call, an `out<T>`
 parameter read before it is written) is the compiler's to say, `TS8073`, `TS8074` and `TS8075`,
 and the service shows its diagnostics with its own; TypeScript's TS2454 gives way to the
-compiler's `TS8075`, which knows that an `out<T>` argument assigns. A hover is the compiler's, and it still spells the qualifier as the decorated form does:
-`(parameter) @inout v: f32` on the parameter, then that it names the caller's place and how
-WGSL and GLSL ES 3.00 take it, and `function bump(@inout v: f32): void` on the function, where
+compiler's `TS8075`, which knows that an `out<T>` argument assigns. A hover is the compiler's,
+and it spells the qualifier as the type an author writes, whichever form the file uses:
+`(parameter) v: inout<f32>` on the parameter, then that it names the caller's place and how
+WGSL and GLSL ES 3.00 take it, and `function bump(v: inout<f32>): void` on the function, where
 it is declared and where it is called. The call site carries no mark; an editor may show one as
 an inlay hint, from the qualifier on the declaration. `src/compiler/ts/reference-parameters.test.ts`
 reads each program and each refusal in both halves.
@@ -6508,7 +6509,7 @@ arrays are not copyable value parameters.
 
 A write through such a parameter (`r.origin = …` on `r: Ray`) is `TS8018`, and its message
 names a local copy to change; in a function that may take a reference, one declared at the top
-of the file or of a namespace, it names the second remedy too, `@inout r: Ray`, to change the
+of the file or of a namespace, it names the second remedy too, `r: inout<Ray>`, to change the
 caller's value (§70). A parameter declared `inout<T>` takes no copy: `p = v` writes the caller's
 place, which is the difference its qualifier makes, as GLSL's `inout` makes it from `in`.
 
@@ -6729,8 +6730,8 @@ textureSample() is reached under "VsOut.uv" (a fragment input at @location(0)), 
 derivative_uniformity rule refuses: the implicit level of detail is a difference between
 neighbouring invocations, and one that did not run has no value to difference against. Hoist
 the call above the branch, or use textureSampleLevel or textureSampleGrad, whose level of
-detail is the one you wrote, or write @diagnostic("off", "derivative_uniformity") on the entry
-to take the module as written.
+detail is the one you wrote, or give the stage call of the entry the option
+{ diagnostic: ["off", "derivative_uniformity"] } to take the module as written.
 ```
 
 The sentence names the statement that made the flow non-uniform, and the move that fits it.
@@ -6755,10 +6756,11 @@ uniform inside a loop the value bounds leaves the loop's condition as the reason
 sentence also names the other way out, a value the whole workgroup shares to branch, return,
 break, continue, bound the loop, test on the left side or test in the condition on; a
 derivative's names the explicit-LOD sample and the filter. The filter is offered where the file
-can carry it: on the entry when every entry is a top-level function, on a top-level function
-when an entry is a namespace's, since a namespace's function refuses `@diagnostic` and a
-namespace's stage call its `diagnostic` option (`TS8028`, §7), and the directive is read off any top-level function, and not at all in a file with no
-top-level function. The value is named as the author
+can carry it, as the `diagnostic` option of a stage call: on the entry when every entry is
+top-level, on a top-level entry when another entry is a namespace's, since a namespace's stage
+call refuses its `diagnostic` option and a namespace's function `@diagnostic` (`TS8028`, §7),
+and not at all in a file whose every entry is a namespace's. The decorated form's
+`@diagnostic` on a top-level function is still read, and is not offered. The value is named as the author
 wrote it: a helper as it is called, `Lim.hit(…)` or `done(…)`, never the name the emit gives it,
 and a helper the walk cannot see through by its own name, not as "the expression".
 
@@ -7873,7 +7875,7 @@ The editor shows the same warning. Only a kernel function's loops are candidates
 entry, a helper or a fragment shader stays per-invocation code, as it always was.
 
 **The workgroup size.** A kernel function may set the workgroup of its loops with a stage call, `export const scale = workgroup_size([128], function scale(xs: array<f32>) { … })` (change 0111): one whole number in the array, or a `u32` or `i32` module constant, as `compute` reads its extent (§3). The decorated form, `@workgroup_size([128])` on a function declaration, stays accepted until the release after the migration release. Each loop that does not reduce runs at that size on WebGPU, and at 64 without a size. A loop that reduces runs in workgroups of 256 (Rule 7.2), so a size on a function with such a loop is refused:
-`"total" has a loop that reduces, which always runs in workgroups of 256. Remove @workgroup_size from "total", or put the reduction in a function of its own.` (`TS8077`). The size changes how long a loop takes. It does not change what the loop writes, since each element comes from its own index. WebGL2 and the CPU tier have no workgroup and ignore it.
+`"total" has a loop that reduces, which always runs in workgroups of 256. Declare "total" without workgroup_size, or put the reduction in a function of its own.` (`TS8077`). The size changes how long a loop takes. It does not change what the loop writes, since each element comes from its own index. WebGL2 and the CPU tier have no workgroup and ignore it.
 
 **The call.** A host file imports a kernel function like any export (§64) and awaits it:
 

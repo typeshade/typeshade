@@ -165,7 +165,7 @@ describe('the host view of an entry', () => {
     expect(f.view).toContain(
       'export declare function scale(bindings: { readonly k: number; readonly xs: Float32Array | Resident<Float32Array>; readonly ys: Float32Array | Resident<Float32Array>; readonly pts: Float32Array | Resident<Float32Array> }, workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): Promise<void>;',
     );
-    expect(f.view).toContain('`@workgroup_size(8, 1, 1)`');
+    expect(f.view).toContain('A `compute([8, 1, 1], f)` entry:');
   });
 
   it('takes a Resident for a storage array with no size, and only queues when every written binding is one (Rule 11.8)', () => {

@@ -1,5 +1,5 @@
 // Stage 3 TypeShade checks (design doc §5, §10 step 5): builtin allow-list, builtin-to-stage
-// compatibility, @compute workgroup shape, missing return annotation on an entry function, and
+// compatibility, compute workgroup shape, missing return annotation on an entry function, and
 // (optional) mat2/mat3 rejection. Each gets a positive (stays clean) and a negative (fires with
 // the right code) case.
 //
@@ -153,7 +153,7 @@ describe('builtin stage/direction compatibility (BUILTIN_STAGE)', () => {
   });
 });
 
-describe('@compute workgroup shape', () => {
+describe('compute workgroup shape', () => {
   it('carries a two-dimensional shape to the emitted attribute and the reflection', () => {
     const r = compile(`"use typeshade";
 declare const dst: storage<array<u32>, "read_write">;
@@ -248,7 +248,7 @@ describe('@compute argument shapes (#118, WORKGROUP_ARG)', () => {
       expect(d, `expected WORKGROUP_ARG for @compute(${written})`).toBeDefined();
       expect(d!.category).toBe('error');
       expect(d!.message).toContain(`"${written}" is not a workgroup shape`);
-      expect(d!.message).toContain('@compute([64, 1, 1])');
+      expect(d!.message).toContain('"compute([64, 1, 1], f)"');
     }
   });
 
@@ -492,8 +492,8 @@ describe('attribute name allow-list (ATTRIBUTE_NAME)', () => {
       `@compute
 @workgroup_size(64)
 export function cs(): void { }`,
-      '"@workgroup_size" is WGSL\'s attribute, written here as @compute\'s argument: ' +
-        '@compute([64]) or @compute([8, 8]).',
+      '"@workgroup_size" is WGSL\'s attribute, written here as compute\'s first argument: ' +
+        'compute([64], f) or compute([8, 8], f).',
     ],
     [
       '@size on a field',
@@ -871,7 +871,7 @@ describe('a decorator where nothing reads it (Rule 6.7)', () => {
     `"@${name}" does not apply to a parameter of a function that is not an entry: it marks an ` +
     "entry's input or output. Remove it.";
   const METHOD = (shown: string): string =>
-    `A decorator has no place on "${shown}"; an entry is a top-level function.`;
+    `A decorator has no place on "${shown}"; an entry is a top-level const that a stage call initializes, "export const vs = vertex(function vs(…) { … })".`;
   it.each([
     [
       'an unknown name on a constructor',
