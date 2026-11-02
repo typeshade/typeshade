@@ -9,8 +9,7 @@
 // and text, Rule 12.5) or its emit and the oracle's values, and the language service's
 // `getDiagnostics`, with `getHover` where the type is the point.
 //
-// Rule 9.4 (docs/language-design.md). Its Verifies tag joins the rule text when a person has
-// reviewed Rule 9.4 (`doorstop review RULE-0904`).
+// Verifies: Rule 9.4 (docs/language-design.md; traced in reqs/).
 // Change 0112.
 
 import { describe, expect, it } from 'vitest';
