@@ -30,7 +30,7 @@ downstream:
   - repo: vscode-typeshade
     what: The skill's builtin list, completions and snippets drop the removed names and name the kept spelling. Not searched yet.
   - repo: typenn
-    what: In `src/kernels/binary.shade.ts`, the five `pow` calls on lines 263, 276, 290, 405 and 407 change to `a ** b` before pull request #899 merges, because `pow` is removed (decision D1). The TypeNN record in `compiler-changes.md` is added when the TypeNN pin moves past the implementation.
+    what: In `src/kernels/binary.shade.ts`, the five `pow` calls on lines 263, 276, 290, 405 and 407 change to `a ** b`, because `pow` is removed (decision D1). Done: part 1 is delivered in #899 (merge `6229368`), and the pin moved in #909. The TypeNN record in `compiler-changes.md` is added when the TypeNN pin moves past the implementation.
 ---
 
 <!-- doc-refs: skip-file — a draft proposal names rules and text its implementation adds -->
@@ -258,8 +258,11 @@ section.
 - 2026-11-02. Deviation: the downstream search at drafting did not name TypeNN. The drafting
   agent could not search downstream repositories. The `TypeNN candidate (build + CPU)` check on
   pull request #899 failed on `src/kernels/binary.shade.ts`: `TS8004 pow was removed: write a ** b.`
-  Disposition: recorded by this amendment. TypeNN is named in `downstream`, and its work is
-  owed in "What it owes downstream". Open until the TypeNN change lands and its pin moves.
+  Disposition: closed, 2026-11-02. TypeNN is named in `downstream`, and its work is owed in
+  "What it owes downstream". Evidence: TypeNN's `pow` calls are spelled `a ** b`; the TypeNN pin
+  moved in #909 (merge `cd896372`, pin `3a7d66c`); part 1 of this proposal is delivered in #899
+  (merge `6229368`, head `e4bd9d6`), where the `TypeNN candidate (build + CPU)` check completed
+  with success. Part 2 (section 4, `Math` takes scalars) remains to do.
 
 ### Configuration and validation record
 
@@ -275,7 +278,8 @@ reviewed goldens.
 - vscode-typeshade: the skill's builtin list, completions and snippets. Not searched, for the same
   reason.
 - typenn: `src/kernels/binary.shade.ts`, five `pow` calls (lines 263, 276, 290, 405 and 407) change
-  to `a ** b` before pull request #899 merges (decision D1). Found by the `TypeNN candidate`
-  check on #899, not by the drafting search; see the deviation record.
+  to `a ** b` (decision D1). Done: delivered in #899 (merge `6229368`), with the pin moved in #909.
+  Found by the `TypeNN candidate` check on #899, not by the drafting search; see the deviation
+  record.
 
 Each records 0112 in its `compiler-changes.md` when its pin moves past the implementation.
