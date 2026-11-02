@@ -8,6 +8,12 @@
 // copied into a fresh value, and each result is copied out again, so the call neither reads a
 // value that does not fit nor hands back one that aliases an argument (Rule 8.8).
 //
+// An exported class (change 0109) is a JavaScript class of the generated module whose instances
+// are such objects: its fields are their own properties, and its constructor and methods run the
+// CPU tier's functions through {@link callMember}. A struct result whose class is exported is an
+// instance of it, built without its constructor (D1), through {@link fromShaderIn}, which a
+// module with no class never calls.
+//
 // It is runtime code: a module the Vite plugin generates imports it through `typeshade/runtime`,
 // with the type of every parameter written into that module as a `HostType` literal. It imports
 // nothing, so what an application ships for it is this file.
@@ -278,6 +284,113 @@ export function fromShader(t: HostType, v: CpuValue): unknown {
       return out;
     }
   }
+}
+
+/** The prototype of each exported class by its struct's name (change 0109): a struct a result
+ *  holds is an instance of its class, built without running the constructor (D1). */
+export type HostClasses = ReadonlyMap<string, object>;
+
+/** {@link fromShader} in a module that exports a class (change 0109): a struct whose class
+ *  `classes` names is an instance of that class, its fields its own properties and its
+ *  constructor not run (D1), at every level. Apart from `fromShader`, so that what an
+ *  application ships for a module with no class is what it was. */
+export function fromShaderIn(t: HostType, v: CpuValue, classes: HostClasses): unknown {
+  switch (t.k) {
+    case 'arr':
+      return Array.from(v as unknown as ArrayLike<CpuValue>, (x) => fromShaderIn(t.e, x, classes));
+    case 'rec': {
+      const xs = v as unknown as ArrayLike<CpuValue>;
+      const out: Record<string, unknown> = {};
+      t.m.forEach((name, i) => (out[name] = fromShaderIn(t.e, xs[i]!, classes)));
+      return out;
+    }
+    case 'struct': {
+      const proto = classes.get(t.s);
+      const out = (proto === undefined ? {} : Object.create(proto)) as Record<string, unknown>;
+      assignFields(out, t, v, classes);
+      return out;
+    }
+    default:
+      return fromShader(t, v);
+  }
+}
+
+/** Write a struct value of the CPU tier into `target`'s own properties, one host value for each
+ *  field `t` declares, fresh at every level (change 0109): the fields of an instance a
+ *  constructor built, or that a method which changes its object changed (Rule 8.10). */
+function assignFields(target: object, t: HostType, v: CpuValue, classes: HostClasses): void {
+  if (t.k !== 'struct') return;
+  const o = v as unknown as Record<string, CpuValue>;
+  const out = target as Record<string, unknown>;
+  for (const [name, ft] of t.f) out[name] = fromShaderIn(ft, o[name]!, classes);
+}
+
+/** The generated module's CPU tier, as a member call reads it: its functions, and the values a
+ *  function with an `inout` parameter publishes as it returns (`$.inout`, cpu-runtime.ts). */
+interface ClassCpu {
+  readonly F: Readonly<Record<string, ((...a: CpuValue[]) => CpuValue) | undefined>>;
+  readonly $: { readonly inout: { readonly values: readonly CpuValue[] } };
+}
+
+/** One constructor, method, accessor half or static function of an exported class (change
+ *  0109), as the generated module writes it. */
+export interface MemberSpec {
+  /** How a refusal names it: `new OnePole`, `OnePole.tick`. */
+  readonly n: string;
+  /** The CPU tier's function it runs; absent for a constructor with none, which builds `z`. */
+  readonly fn?: string;
+  /** Its parameters, as a host call has them. */
+  readonly p: readonly (readonly [string, HostType])[];
+  /** Its result. */
+  readonly r?: HostType;
+  /** The instance's struct: an instance member passes the instance as the function's object,
+   *  and a constructor writes what it built into the instance. */
+  readonly o?: HostType;
+  /** A constructor. */
+  readonly c?: 1;
+  /** Takes its object by reference (Rule 8.10): the call writes the instance's fields back. */
+  readonly w?: 1;
+  /** Every `return` is `return this` (Rule 8.10): the call returns the instance itself. */
+  readonly s?: 1;
+  /** The zero struct a constructor with no function builds, as `new` gives it (surface §26). */
+  readonly z?: CpuValue;
+}
+
+/**
+ * Run one member of an exported class on the CPU tier (change 0109): check and convert each
+ * argument as a host call does (Rule 8.21), and the instance as the function's object, start
+ * the module's private variables over, run the function, write the instance's fields back when
+ * the member changes its object, and return its result as a host value, the instance itself for
+ * a member that returns `this`. A constructor writes what the function built, or the zero
+ * struct, into the instance.
+ *
+ * @throws `TypeError` naming the member, the parameter and its TypeShade type, when a value does
+ *   not fit, as {@link toShader} does; `this` names the instance.
+ */
+export function callMember(
+  m: ClassCpu,
+  classes: HostClasses,
+  spec: MemberSpec,
+  self: object | undefined,
+  args: ArrayLike<unknown>,
+): unknown {
+  arity(spec.n, spec.p.length, args.length);
+  const values: CpuValue[] = [];
+  if (spec.o !== undefined && spec.c === undefined)
+    values.push(toShader(spec.n, 'this', spec.o, self));
+  for (let i = 0; i < spec.p.length; i++) {
+    const [name, t] = spec.p[i]!;
+    values.push(toShader(spec.n, name, t, args[i]));
+  }
+  m.F['$initPrivates']?.();
+  const result = spec.fn === undefined ? spec.z! : m.F[spec.fn]!(...values);
+  if (spec.c !== undefined) {
+    assignFields(self!, spec.o!, result, classes);
+    return undefined;
+  }
+  if (spec.w !== undefined) assignFields(self!, spec.o!, m.$.inout.values[0]!, classes);
+  if (spec.s !== undefined) return self;
+  return spec.r === undefined ? undefined : fromShaderIn(spec.r, result, classes);
 }
 
 /** A module constant as a host value: a copy, frozen at every level, so the host cannot write

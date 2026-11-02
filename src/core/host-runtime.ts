@@ -30,8 +30,12 @@ export {
   constantOf,
   arity,
   notCallable,
+  callMember,
+  fromShaderIn,
   type HostType,
   type HostNumber,
+  type HostClasses,
+  type MemberSpec,
 } from './host-values.js';
 
 /** Where a `console.*` call in a host-called function goes: the host's own console, as a line

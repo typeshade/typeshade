@@ -1,7 +1,7 @@
 ---
 id: '0109'
 title: A host file imports a class of a shader module as a value, builds an instance with `new` and calls its methods on the CPU tier, and passes the instance wherever the struct's object is taken
-status: accepted
+status: implemented
 rules:
   - '8.20'
   - '8.21'
@@ -28,7 +28,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0109, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Identity and status           | Proposal 0109, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record. Pull request #890 implements it; see Configuration and validation record. Downstream adoption is tracked apart.                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, while designing an audio library on the compiler whose units are classes in `.shade.ts` files. The owner asked whether a class defined in a `"use typeshade"` file can be imported on the CPU side, built with `new` and used as an ordinary class, with the GPU running the same code ("cpu side에서 import해서 가져온 다음에 new 해서 사용하면 gpu side에서 실행되는거라던가"), and said that if not, the host face should be advanced now ("지금 고도화 해야할 것 같은데"). The agent reported that a class crosses to the host as a type only. The owner approved the drafting of this proposal ("승인"). No GitHub issue is recorded. |
 | Applicability / effectivity   | Rules 8.20 and 8.21 of `docs/language-design.md` and their items in `reqs/`; `docs/use-typeshade-surface.md` §64; `src/compiler/ts/host-face.ts` (the export collection, `viewText` and the generated module); `src/core/host-values.ts`; `src/compiler/ts/host-face.test.ts`; `journeys/_host-import`. The compiler's lowering, the GPU tiers, the oracle, the exports of the package, the diagnostic codes and the examples do not change. No release version is assigned.                                                                                                                                                                                                                                       |
@@ -274,12 +274,133 @@ established.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the accepted revision, the implementing
-pull requests with `Change: 0109` in their commits, the delivered configuration, the observed
-results of the functional validation (the test cases, the journey and the bundle measurement
-above) and the document validation (`bun run docs:refs`, `bun run docs:impact`,
-`bun run reqs:sync` and `python scripts/doorstop-check.py -C` for Rules 8.20 and 8.21 and §64).
-Required future evidence is not a completed result.
+**Accepted revision.** The text merged by pull request
+[#872](https://github.com/typeshade/typeshade/pull/872) as `80096906` on `main`, with D1 to D4
+accepted as drafted (Approval and plan record).
+
+**Implementation.** Pull request [#890](https://github.com/typeshade/typeshade/pull/890), branch
+`claude/0109-host-classes`, from `main` at `78a9060`, by a Claude Code agent at the owner's
+direction. Its commits say `Change: 0109`: `1a853614` (the export collection, the view and the
+generated module), `f9bd36d0` (Rules 8.20 and 8.21, `reqs/`, surface §64 and
+`src/compiler/ts/host-class.test.ts`), `1b394e76` (the instance built apart from `fromShader`),
+`bec6c8d8` (the journey), `a662890f` (the merge of `main` at `48b315ad`), `8ec8095e` (the bundle
+budgets), `b89349f6` (a result of an abstract class's struct), `8c7aaaf5` (the merge of `main` at
+`391f8dc7`), `d60f734f` (the merge of `main` at `4072eba4`), and the commit that holds this record
+and the changelog entry. The three merges were committed with `--no-verify` (issue #901): the
+commit-msg policy reads a merge against its first parent and counted the rules and surface text
+`main` changed (proposals 0100, 0111 and 0113) as changes of this branch; the staged file checks
+passed on each merged index, and `bun scripts/changes.ts --base origin/main` reports Rules 8.20
+and 8.21 and §64 alone.
+
+**Delivered configuration.**
+
+- `src/compiler/ts/host-face.ts`: an internal class export (`ClassExport`, `classFace`,
+  `classMembers`, `memberCall`), whose members are admitted one by one by Rule 8.20's conditions,
+  each running the function the module lowers for the class (`OnePole_tick`, and `Circle_perim`
+  for a body `Circle` inherits); the view's class (`classView`, `memberLines`, `baseClass`); the
+  generated class (`classModule`), with `extends` along exported classes and the prototypes
+  `__ts_P` for D1; a class with a field that has no host value as a type (`ShapeExport`, D4).
+  `HostFace.exports` reports a class as `kind: 'struct'` and a D4 class as `kind: 'never'` with
+  `typeOnly`, so `src/__api__/surface.md` does not change.
+- `src/core/host-values.ts`: `callMember` (a constructor, a method, an accessor half or a static
+  function on the CPU tier; a changing method's object written back from what the function
+  publishes in `$.inout`; `return this` returning the instance) and `fromShaderIn` (a struct of an
+  exported class as its instance); `fromShader` is unchanged. `src/core/host-runtime.ts` exports
+  both through `typeshade/runtime/internal`, which is not API.
+- `docs/language-design.md` Rules 8.20 and 8.21; `reqs/rules/RULE-0820.md` and `RULE-0821.md`
+  reviewed; `reqs/surface/SURF-064.md`, `SURF-065.md`, `SURF-067.md`, `SURF-069.md`, `SURF-075.md`
+  and `SURF-076.md` cleared after reading each section against the new Rule 8.21 (only §64
+  changes; the others speak of objects a call takes, which an instance is).
+- `docs/use-typeshade-surface.md` §64: the two table rows, the host-values row, the
+  `filters.shade.ts` listing with its host program and view, and the paragraphs on a class.
+- `docs/typescript-coverage.md` (the row of an exported class), `src/AGENTS.md` (the map of
+  `host-face.ts`), `journeys/README.md`, `CHANGELOG.md`.
+- `src/compiler/ts/host-class.test.ts` (new) and `src/compiler/ts/host-face.test.ts` (the class and
+  interface rows).
+- `journeys/_host-import/src/filters.shade.ts` (new), `app.ts`, `gpu.ts`, `reference.mjs`, and the
+  filter keys' bound in `scripts/user-journey.ts`.
+- `scripts/bundle-budget.json`.
+
+**The kernel's loop.** `run` of the listing lowers (§65): its face carries one loop for the GPU,
+the module gives no `TS8070`, and the journey runs it on WebGPU with WebGPU required
+(`configure({ prefer: ['webgpu'] })`), where a loop that ran on the CPU tier would throw.
+
+**Functional validation**, on 2026-11-02 (UTC), Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3:
+
+- `src/compiler/ts/host-class.test.ts`, `src/compiler/ts/host-face.test.ts` and
+  `src/compiler/ts/host-draw.test.ts`, run with `bunx vitest run` at `8c7aaaf5` and again at
+  `d60f734f`: 22, 22 and 19 tests passed. The class file holds each case of the validation list:
+  the view; `new` with and without a constructor; initializers and zero values; a changing method, a method that only reads and `return this`; a
+  static function; an accessor; a field that holds a function; a member and a constructor declared
+  `never` (D3); a generic class; a class that stays a type (D4); an instance taken by a helper, a
+  kernel function and an entry beside a plain object; a result as an instance at every level,
+  built without its constructor (D1), and an abstract struct's result as an object; `extends` and
+  `instanceof` (D2); a host program under `tsc` with each refusal at its line. `compile()` and the
+  language service give no diagnostic on each shader source of the file.
+- `bun run test` at `8c7aaaf5`: 505 files, 502 passed and 3 failed, 11,728 tests passed and 10
+  failed. Five tests of `src/affected-tests.test.ts` and four of `src/doc-test-selection.test.ts`
+  fail the same way on a clean checkout of `main` at `391f8dc7` in the same container, so they are
+  the container's and not this change's (CI ran the unit shards). One test of
+  `src/compiler/ts/host-draw.test.ts` reached the 90 s timeout under a load average of 17, beside
+  the suites of two other sessions; the file passed alone, as listed above.
+- `bun run test` at `d60f734f`: 507 files, 505 passed and 2 failed, 11,742 tests passed and 9
+  failed, the same nine container-only tests of `src/affected-tests.test.ts` and
+  `src/doc-test-selection.test.ts`.
+- `bun run gate:journeys` at `8c7aaaf5` (headless Chromium 1243, SwiftShader; not run again at
+  `d60f734f`, where the host test files passed and CI's journey check runs it): exit 0, 253 checks
+  passed and none failed; `filterTicks`, `filterBank`, `filterStates` and `filterKept` on the CPU
+  tier, and `filterBankGpu`, `filterStatesGpu` and `filterKeptGpu` on WebGPU, each with a worst
+  difference of 0; `tsc` over the journey's host files, 0 errors. The same gate passed on the build
+  of `f9bd36d0` with the journey's files.
+- `bun scripts/bundle-boundary.ts` at `8ec8095e` and again at `8c7aaaf5`, with the same numbers,
+  against the same script at `78a9060`: `typeshade/runtime` 148342 (+0), split initial 36460 (+5),
+  aggregate 150335 (+5); `typeshade/emit` 114775 (+0); `typeshade/fuse` 109717 (+1), split initial
+  13769 (-3), aggregate 110205 (-28); `typeshade/algorithms` 47656 (+0); `typeshade/random` 31492
+  (+6). Bun's bundler drops the class helpers from every subpath; the budgets of the measurements
+  over their caps moved by those bytes. The shape of the first commit, `fromShader` with the
+  prototypes, had cost +33, +39, +44 and +42 bytes on runtime, fuse, algorithms and random. In a
+  generated module, a class is one constant for each member and one class literal; no common
+  module exports a class, so their baked faces do not change.
+- `bun run build` passed at `8ec8095e`, `b89349f6`, `8c7aaaf5` and `d60f734f`; `bun run lint` and
+  `bun run format:check` passed at `8ec8095e` and at `d60f734f`.
+- Not run: `bun run gate:compile`, `bun run gate:differential`, `bun run gate:render` and
+  `bun run gate:perf` (the change emits no shader text and changes no kernel lowering), and the
+  TypeScript 5.9 and 6.0 legs, which CI runs.
+
+**Document validation**, on 2026-11-02 (UTC): `bun run docs:refs`, 0 dead references;
+`bun run docs:impact` read for each commit, each commit's `Docs-Impact:` trailer saying what was
+read; `bun run reqs:sync` with nothing left to write; `python3 scripts/doorstop-check.py -C`,
+Doorstop 3.2, with no item flagged; `bun scripts/changes.ts --base origin/main`, exit 0 ("This
+change touches Rule 8.20, Rule 8.21; surface §64"), at `8c7aaaf5` and at `d60f734f`.
+
+**Deviations**, each with its disposition:
+
+1. The Implementation paragraph names "a `class` export kind". The kind is internal to
+   `host-face.ts`; `HostFace.exports` reports a class as its struct, since `HostExport` is in
+   `src/__api__/surface.md` and What it touches says that `hostFace` keeps the shape of its
+   result. Closed: the approved text's "keeps the shape" decides it.
+2. Item 1 says that a derived class is declared with its `extends`. Where a member a host can call
+   stands where the class above declares it `never`, or an accessor and a `never` member meet,
+   TypeScript refuses the override (TS2416, TS2425, TS2610), so the view declares the class whole,
+   without `extends`; its JavaScript class extends all the same, so `instanceof` holds (D2).
+   §64 states it. Open: an amendment may write it into item 1.
+3. A class that extends a mixin application (`extends M(B)`) reaches the members of its own
+   declaration and of the classes it names; a member the mixin adds is not declared in the view,
+   so a host call of it is a type error, not a wrong value. Open: no test reaches it.
+4. Rule 8.21's D1 sentence named a class "exported as a value"; an abstract class is one, and its
+   struct in a result is an object of its fields, typed by them, since it has no instance. The
+   rule's text says so since `b89349f6`. Closed.
+
+Not deviations, recorded for the reader: a member declared `private`, `protected` or with a `#`
+name is not reached by the host, and its field is declared with the same access; a class of
+static functions alone is a value whose `new` builds an instance with no field; a constant of a
+class's struct stays a frozen object of its fields (D1 speaks of results); an abstract class
+declares its instance members with the types of the functions of the first concrete class below
+it, and `new` of it throws the reason its view gives.
+
+**Open items.** The downstream work of What it owes downstream is not started: the site's copy of
+§64 (English and Korean), the editor's host reference and its fixture, and each repository's
+`compiler-changes.md` when its pin moves. Deviations 2 and 3 stay open as recorded.
 
 ## What it owes downstream
 

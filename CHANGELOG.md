@@ -341,6 +341,23 @@ repository was published to npm before **`0.1.0`, the first release**.
   fix (`TS8003`). A `let` of a function member, a rest element, a default and an `export` of a
   bound member stay refused (`TS8099`, `TS8014`). No code, export or example is added.
 
+- **An exported class is a value of a module's host face** (change 0109; Rules 8.20 and 8.21,
+  surface §64). A host file imports a class of a `.shade.ts`, builds an instance with `new`,
+  which checks and converts its arguments and runs the class's constructor on the CPU tier, and
+  calls its methods, accessors and static functions there; a method that changes its object
+  writes the instance's fields back in place, and one that returns `this` returns the instance.
+  The host view declares `export declare class`, with `extends` where the class above is exported
+  as a class too and `abstract` where the class is, and the generated module exports a JavaScript
+  class whose chain follows, so `instanceof` holds. A member that fails Rule 8.20's conditions is
+  declared `never` with its reason, and the class stays a value; a class with a field that has no
+  host value stays a type, `export interface`; a generic class stays `never`. An instance is taken
+  wherever a struct's object is, and a struct a result holds is an instance of its class when the
+  class is exported and not abstract, built without its constructor. `HostFace.exports` reports a
+  class as its struct, so `hostFace` keeps the shape of its result. The class helpers in
+  `typeshade/runtime/internal` (`callMember`, `fromShaderIn`) are dropped from every subpath;
+  the budgets moved by 5 (runtime, split aggregate), 1 (fuse) and 6 (random) gzip bytes,
+  measured with Bun 1.4.4 against `78a9060`.
+
 - **A kernel function's loop runs over a trip count the device holds** (proposal 0094, stage 3;
   Rules 8.21, 8.22, 11.8 and 11.13, surface §65 and §71). The statements before a loop, its start
   and its bound may read the elements of the function's arrays and what an earlier loop of the same

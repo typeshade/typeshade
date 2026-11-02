@@ -32,6 +32,7 @@ import {
   stats,
   tally,
 } from './loops.shade.ts';
+import { OnePole, run as runFilters } from './filters.shade.ts';
 // Copied in by the journey from journeys/particles and journeys/plasma.
 import { step } from './particles.shade.ts';
 import { fs } from './plasma.shade.ts';
@@ -486,6 +487,15 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   const pushApartOut = await pushFused(false);
   // The WebGL2 tier, required (Rule 11.8): a map that writes one f32 array at `i` runs as a
   // fragment program, one texel per iteration.
+  // A bank of filters built with the class's own constructor (change 0109), handed to the kernel
+  // function as the structs they are: its loop on WebGPU, required, so a fall back to the CPU tier
+  // cannot pass for it, and each instance written back in place, an instance still.
+  const bank = Array.from({ length: 64 }, (_, i) => new OnePole(0.01 * (i + 1)));
+  const bankKept = [...bank];
+  const bankXs = Float32Array.from({ length: 64 * 16 }, (_, i) => Math.sin(i * 0.37));
+  const bankOut = new Float32Array(64 * 16);
+  configure({ prefer: ['webgpu'] });
+  await runFilters(bankOut, bankXs, bank, 16).finally(() => configure({}));
   const glImg = new Float32Array(64 * 64);
   const glSkip = Float32Array.from({ length: 512 }, () => -1);
   const glXs = Float32Array.from({ length: 512 }, (_, i) => Math.sin(i) * 10);
@@ -530,5 +540,8 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     pushPairs: [...pPairs],
     pushFused: pushFusedOut,
     pushApart: pushApartOut,
+    filterBankGpu: [...bankOut],
+    filterStatesGpu: bank.map((p) => p.z),
+    filterKeptGpu: bank.map((p, i) => (p === bankKept[i] && p instanceof OnePole ? 1 : 0)),
   };
 }

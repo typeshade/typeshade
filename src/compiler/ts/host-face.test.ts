@@ -130,14 +130,30 @@ export function tex(t: texture_2d<f32>, uv: vec2i): vec4 { return textureLoad(t,
     expect(kinds(f.exports).tex).toMatch(/^parameter "t": a texture_2d<f32> has no host value/);
   });
 
-  it('carries a constant and an enum as values, and a struct as a type', () => {
+  it('carries a constant, an enum and a class as values, and an interface as a type', () => {
     const f = face(`"use typeshade";
 export const K: f32 = 2.;
 export enum Mode { A, B = 4 }
 export class P { x: f32 = 0.; v: vec2 = vec2(0., 0.); }
+export interface I { x: f32; }
 export function mk(a: f32): P { const p = new P(); p.x = a; return p; }
+export function ix(i: I): f32 { return i.x; }
 `);
-    expect(kinds(f.exports)).toEqual({ K: 'const', Mode: 'enum', P: 'struct', mk: 'function' });
+    // `exports` reports a class as the struct it is (change 0109): the view and the module carry
+    // the class, a value besides.
+    expect(kinds(f.exports)).toEqual({
+      K: 'const',
+      Mode: 'enum',
+      P: 'struct',
+      I: 'struct',
+      mk: 'function',
+      ix: 'function',
+    });
+    expect(f.view).toContain('export declare class P {');
+    expect(f.view).toContain('export interface I { x: number }');
+    expect(f.code).toContain('__ts_x');
+    expect(f.code).toMatch(/__ts_x\d+ as P\b/);
+    expect(f.code).not.toMatch(/__ts_x\d+ as I\b/);
   });
 
   it('carries a re-export of a shader file, and a struct another file declares (Rule 3.9)', async () => {
@@ -229,6 +245,8 @@ export function fs(v: VsOut): vec4 { return textureSample(albedo, samp, v.uv); }
   it('declares every row of the host value table', () => {
     const f = face(`"use typeshade";
 export class S { a: f32 = 0.; v: vec2 = vec2(0., 0.); }
+export interface J { a: f32; v: vec2; }
+export function jx(j: J): J { return j; }
 export function scalars(a: f32, b: i32, c: u32, d: bool): f32 { return a; }
 export function vectors(a: vec3, b: vec2i, c: vec4u, d: vec2b): vec2b { return d; }
 export function matrix(m: mat2x3): mat2x3 { return m; }
@@ -246,7 +264,11 @@ export function nothing(x: f32) { let y = x; }
     expect(f.view).toContain(
       'export declare function list(xs: readonly number[]): [number, number][];',
     );
-    expect(f.view).toContain('export interface S { a: number; v: [number, number] }');
+    // A class is a value and an interface a type (change 0109): the row of a struct splits.
+    expect(f.view).toContain(
+      'export declare class S {\n  constructor();\n  a: number;\n  v: [number, number];\n}',
+    );
+    expect(f.view).toContain('export interface J { a: number; v: [number, number] }');
     expect(f.view).toContain(
       'export declare function record(s: { readonly a: number; readonly v: readonly [number, number] }): S;',
     );
