@@ -89,6 +89,7 @@ export function stageCallOf(stmt: ts.Statement): StageCall | undefined {
 
 const declarations = new WeakMap<ts.VariableStatement, ts.FunctionDeclaration>();
 const calls = new WeakMap<ts.FunctionDeclaration, StageCall>();
+const byFunction = new WeakMap<ts.Node, ts.FunctionDeclaration>();
 
 /** Gives a synthesized node the text range of `range` and the parent `parent`, so that
  *  `getStart`, `getText` and a walk up the tree work on it as on a parsed node. */
@@ -138,7 +139,15 @@ export function stageDeclarationOf(sc: StageCall): ts.FunctionDeclaration {
   if (!ts.isBlock(sc.fn.body)) place(body, sc.fn.body, decl);
   declarations.set(sc.statement, decl);
   calls.set(decl, sc);
+  byFunction.set(sc.fn, decl);
   return decl;
+}
+
+/** The declaration a stage call's wrapped function stands as, once `stageDeclarationOf` has
+ *  made it: the function the front end lowers, and so the one a walk up from a node of its
+ *  body must find. Undefined for any other node. */
+export function stageDeclarationOfFunction(fn: ts.Node): ts.FunctionDeclaration | undefined {
+  return byFunction.get(fn);
 }
 
 /** The stage call a declaration made by `declarationOf` stands for. */

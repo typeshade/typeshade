@@ -85,11 +85,21 @@ function variableBlocks(d: ts.VariableDeclaration, sf: ts.SourceFile): DocBlock[
   return [...above, ...blocksAbove(d, sf)];
 }
 
-/** The members an `enum` or a struct declaration lists. */
+/** Whether `member` is one the view writes with the author's comment: a member of an `enum` or a
+ *  field of a struct. A method, a constructor, an accessor and a static member are not, since
+ *  change 0108 names the members of an `enum` and the fields of a struct. */
+function carriesComment(member: ts.Node): boolean {
+  if (ts.isEnumMember(member) || ts.isPropertySignature(member)) return true;
+  if (!ts.isPropertyDeclaration(member)) return false;
+  return !(ts.getModifiers(member) ?? []).some((m) => m.kind === ts.SyntaxKind.StaticKeyword);
+}
+
+/** The members of an `enum` or a struct declaration that the view writes with a comment. */
 function membersOf(decl: ts.Node): readonly ts.Node[] {
   if (ts.isEnumDeclaration(decl) || ts.isClassDeclaration(decl) || ts.isInterfaceDeclaration(decl))
-    return decl.members;
-  if (ts.isTypeAliasDeclaration(decl) && ts.isTypeLiteralNode(decl.type)) return decl.type.members;
+    return decl.members.filter(carriesComment);
+  if (ts.isTypeAliasDeclaration(decl) && ts.isTypeLiteralNode(decl.type))
+    return decl.type.members.filter(carriesComment);
   return [];
 }
 

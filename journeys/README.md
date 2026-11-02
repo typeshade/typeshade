@@ -41,6 +41,9 @@ The import journey also checks private kernel input projection (change 0082): he
 across two loops, a reduction, unchanged input objects, invalid unused fields, resident inputs
 and a two-call fused scope under `typeshade()` without a fusion flag.
 The scope must report one fused dispatch. Each result is compared with its plain-JavaScript reference.
+It also imports a class (change 0109): `app.ts` builds filters with `new`, ticks one on the CPU
+tier and runs a kernel function over a bank of the instances there, and `gpu.ts` runs the same
+kernel function on WebGPU, required, each instance written back in place and still an instance.
 The loop-fuse and MNIST timing controls use explicit `fuse: false` for their metadata-free builds.
 
 `fieldless-classes/` constructs method-only classes, dispatches an inherited method, and packs

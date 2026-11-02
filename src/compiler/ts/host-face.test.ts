@@ -130,14 +130,30 @@ export function tex(t: texture_2d<f32>, uv: vec2i): vec4 { return textureLoad(t,
     expect(kinds(f.exports).tex).toMatch(/^parameter "t": a texture_2d<f32> has no host value/);
   });
 
-  it('carries a constant and an enum as values, and a struct as a type', () => {
+  it('carries a constant, an enum and a class as values, and an interface as a type', () => {
     const f = face(`"use typeshade";
 export const K: f32 = 2.;
 export enum Mode { A, B = 4 }
 export class P { x: f32 = 0.; v: vec2 = vec2(0., 0.); }
+export interface I { x: f32; }
 export function mk(a: f32): P { const p = new P(); p.x = a; return p; }
+export function ix(i: I): f32 { return i.x; }
 `);
-    expect(kinds(f.exports)).toEqual({ K: 'const', Mode: 'enum', P: 'struct', mk: 'function' });
+    // `exports` reports a class as the struct it is (change 0109): the view and the module carry
+    // the class, a value besides.
+    expect(kinds(f.exports)).toEqual({
+      K: 'const',
+      Mode: 'enum',
+      P: 'struct',
+      I: 'struct',
+      mk: 'function',
+      ix: 'function',
+    });
+    expect(f.view).toContain('export declare class P {');
+    expect(f.view).toContain('export interface I { x: number }');
+    expect(f.code).toContain('__ts_x');
+    expect(f.code).toMatch(/__ts_x\d+ as P\b/);
+    expect(f.code).not.toMatch(/__ts_x\d+ as I\b/);
   });
 
   it('carries a re-export of a shader file, and a struct another file declares (Rule 3.9)', async () => {
@@ -229,6 +245,8 @@ export function fs(v: VsOut): vec4 { return textureSample(albedo, samp, v.uv); }
   it('declares every row of the host value table', () => {
     const f = face(`"use typeshade";
 export class S { a: f32 = 0.; v: vec2 = vec2(0., 0.); }
+export interface J { a: f32; v: vec2; }
+export function jx(j: J): J { return j; }
 export function scalars(a: f32, b: i32, c: u32, d: bool): f32 { return a; }
 export function vectors(a: vec3, b: vec2i, c: vec4u, d: vec2b): vec2b { return d; }
 export function matrix(m: mat2x3): mat2x3 { return m; }
@@ -246,7 +264,11 @@ export function nothing(x: f32) { let y = x; }
     expect(f.view).toContain(
       'export declare function list(xs: readonly number[]): [number, number][];',
     );
-    expect(f.view).toContain('export interface S { a: number; v: [number, number] }');
+    // A class is a value and an interface a type (change 0109): the row of a struct splits.
+    expect(f.view).toContain(
+      'export declare class S {\n  constructor();\n  a: number;\n  v: [number, number];\n}',
+    );
+    expect(f.view).toContain('export interface J { a: number; v: [number, number] }');
     expect(f.view).toContain(
       'export declare function record(s: { readonly a: number; readonly v: readonly [number, number] }): S;',
     );
@@ -462,7 +484,7 @@ export type Shading = 0 | 4 | 5;
 `);
   });
 
-  it('writes the JSDoc of a struct above it, and that of a field on the field line', () => {
+  it('writes the JSDoc of a class, an interface and a type above it, and that of a field on its line', () => {
     const f = face(`"use typeshade";
 
 /** A particle. */
@@ -496,9 +518,10 @@ export function use(p: Probe, q: Pair): f32 {
   return p.value + q.left + q.right;
 }
 `);
-    // A class, an interface and a type alias are the three spellings of a struct (Rule 8.21).
+    // A class is declared as a class (change 0109), and its fields carry their comments.
     expect(f.view).toContain(`/** A particle. */
-export interface Particle {
+export declare class Particle {
+  constructor();
   /**
    * Where it is, in world units.
    */
@@ -508,6 +531,7 @@ export interface Particle {
   mass: number;
 }
 `);
+    // An interface and a type alias stay `export interface`, where the module uses them as structs.
     // The continuation lines of a block take the indentation of the view, not that of the source.
     expect(f.view).toContain(`/** What a probe read. */
 export interface Probe {
@@ -544,6 +568,15 @@ export class Circle extends Shape {
   r: f32 = 1.;
 }
 
+class Hidden {
+  /** The hidden field. */
+  h: f32 = 0.;
+}
+
+export class Shown extends Hidden {
+  s: f32 = 0.;
+}
+
 export interface Named {
   /** The id. */
   id: u32;
@@ -578,13 +611,28 @@ export class Base {
     });
     expect(f.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     const view = f.view!;
-    expect(view).toContain(`/** A circle. */
-export interface Circle {
+    // A class below an exported class extends it (change 0109), so the field comes from the base,
+    // which carries its comment.
+    expect(view).toContain(`/** A shape. */
+export declare class Shape {
+  constructor();
   /** The x position. */
   x: number;
   y: number;
+}
+/** A circle. */
+export declare class Circle extends Shape {
+  constructor();
   /** The radius. */
   r: number;
+}
+`);
+    // A base the module does not export is not extended: the class holds its fields, and their comments.
+    expect(view).toContain(`export declare class Shown {
+  constructor();
+  /** The hidden field. */
+  h: number;
+  s: number;
 }
 `);
     expect(view).toContain(`export interface Tagged {
@@ -595,7 +643,8 @@ export interface Circle {
 }
 `);
     // A base another file declares is found in the linked source and read in its own file.
-    expect(view).toContain(`export interface Derived {
+    expect(view).toContain(`export declare class Derived {
+  constructor();
   /** The base's own field, from the library. */
   id: number;
   /** Its own. */
@@ -604,19 +653,95 @@ export interface Circle {
 `);
   });
 
-  it('keeps a struct and an enum with no comment on a member on one line, as before', () => {
+  it('writes the JSDoc of an exported class and of its fields, and leaves its other members as change 0109 declares them', () => {
+    const f = face(`"use typeshade";
+declare const gain: uniform<f32>;
+
+/** A one-pole lowpass with its state. */
+export class OnePole {
+  /** The state of the filter. */
+  z: f32 = 0.;
+  k: f32;
+  /** Builds the filter. */
+  constructor(k: f32) {
+    this.k = k;
+  }
+  /** One sample through the filter. */
+  tick(x: f32): f32 {
+    this.z = this.z + this.k * (x - this.z);
+    return this.z;
+  }
+  /** Reads a binding, so a host cannot call it. */
+  scaled(x: f32): f32 {
+    return x * gain;
+  }
+  /** A static field is no field of the struct. */
+  static LIMIT: f32 = 4.;
+}
+`);
+    // The comment of the class and of each field is carried. The comment of the constructor, of a
+    // method, of a member declared `never` and of a static member is not: the approved text of
+    // change 0108 names the fields of a struct and not the other members of a class.
+    const lines = f.view.split('\n');
+    const at = lines.indexOf('export declare class OnePole {');
+    expect(lines.slice(at - 1, at + 6)).toEqual([
+      '/** A one-pole lowpass with its state. */',
+      'export declare class OnePole {',
+      '  constructor(k: number);',
+      '  /** The state of the filter. */',
+      '  z: number;',
+      '  k: number;',
+      '  tick(x: number): number;',
+    ]);
+    expect(lines[at + 6]).toMatch(
+      /^ {2}\/\*\* Not callable from host code \(Rule 8\.20\): it reaches/,
+    );
+    expect(lines.slice(at + 7, at + 9)).toEqual(['  scaled: never;', '}']);
+    expect(f.view).not.toMatch(/Builds the filter|One sample through|Reads a binding|static field/);
+  });
+
+  it('writes the JSDoc of a class with a field that has no host value before the view’s sentence', () => {
+    const f = face(`"use typeshade";
+
+/** Holds a count and an optional value. */
+export class Holder {
+  /** The count. */
+  n: u32 = 0;
+  v?: f32;
+}
+`);
+    const above = commentAbove(f.view, 'export interface Holder');
+    expect(above.slice(0, 2)).toEqual(['/** Holds a count and an optional value.', ' *']);
+    expect(above[2]).toMatch(/^ \* A type with no host value \(Rule 8\.21\): /);
+    expect(above[3]).toBe(' */');
+    expect(f.view).toContain(`export interface Holder {
+  /** The count. */
+  n: number;
+  v: never;
+}
+`);
+  });
+
+  it('keeps an enum and an interface with no comment on a member on one line, as before', () => {
     const f = face(`"use typeshade";
 
 /** The shading. */
 export enum Shading { Flat, Smooth }
 /** A particle. */
 export class Particle { pos: vec2 = vec2(0., 0.); mass: f32 = 1.; }
+/** A probe. */
+export interface Probe { value: f32; id: u32; }
+export function read(p: Probe): f32 { return p.value; }
 `);
     expect(f.view).toContain(
       '/** The shading. */\nexport declare const Shading: { readonly Flat: 0; readonly Smooth: 1; readonly [value: number]: string };\n',
     );
     expect(f.view).toContain(
-      '/** A particle. */\nexport interface Particle { pos: [number, number]; mass: number }\n',
+      '/** A probe. */\nexport interface Probe { value: number; id: number }\n',
+    );
+    // A class is written as change 0109 declares it, with the comment of the class above it.
+    expect(f.view).toContain(
+      '/** A particle. */\nexport declare class Particle {\n  constructor();\n  pos: [number, number];\n  mass: number;\n}\n',
     );
   });
 
@@ -763,7 +888,8 @@ export const LIMIT: f32 = 4.;
       ' */',
     ]);
     expect(view).toContain(`/** A particle of the library. */
-export interface Particle {
+export declare class Particle {
+  constructor();
   /** Position, in the library's units. */
   pos: [number, number];
 }
@@ -882,6 +1008,7 @@ declare const fixed: storage<array<f32, 8>, "read_write">;
 export const EPS: f32 = 0.001;
 export enum Mode { A, B = 4 }
 export class Particle { pos: vec2 = vec2(0., 0.); mass: f32 = 1.; }
+export class Holder { n: u32 = 0; v?: f32; }
 
 export function twice(x: f32): f32 {
   return x * 2.;
@@ -924,7 +1051,19 @@ export function ident<T>(x: T): T {
     expect(lines).toContain(
       'export declare const Mode: { readonly A: 0; readonly B: 4; readonly [value: number]: string };',
     );
-    expect(lines).toContain('export interface Particle { pos: [number, number]; mass: number }');
+    const at = lines.indexOf('export declare class Particle {');
+    expect(lines.slice(at, at + 5)).toEqual([
+      'export declare class Particle {',
+      '  constructor();',
+      '  pos: [number, number];',
+      '  mass: number;',
+      '}',
+    ]);
+    // A class with a field that has no host value is a type, with the reason on its line (change 0109).
+    expect(lines).toContain('export interface Holder { n: number; v: never }');
+    expect(commentAbove(f.view, 'export interface Holder')).toEqual([
+      expect.stringMatching(/^\/\*\* A type with no host value \(Rule 8\.21\): .* \*\/$/),
+    ]);
     expect(lines).toContain('export declare function twice(x: number): number;');
     // The sentences of a kernel function and of a @compute entry, each ending with the queue sentence.
     const one = (declaration: string): string[] => commentAbove(f.view, declaration);

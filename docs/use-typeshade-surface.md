@@ -7462,18 +7462,21 @@ export declare function fs(target: HTMLCanvasElement | OffscreenCanvas, bindings
 
 **The author's comments** (change 0108). The view carries the JSDoc the author wrote. Each block
 (`/** … */`) above an exported declaration is copied into the view, as written and in source order,
-above the export. This holds for a function, a constant, a struct and each of its fields, an `enum`
-and each of its members, a `@compute` entry, a kernel function, a full-screen `@fragment` entry and
-an export that is `never`. What the module re-exports from a shader file it imports (§68) carries
-the comment of the file that declares it. A `//` comment, a `/* */` comment and a comment inside a
-body are not copied. The tags are copied and are not checked.
+above the export. This holds for a function, a constant, a class, an `interface` or a `type` and each
+of its fields, an `enum` and each of its members, a `@compute` entry, a kernel function, a
+full-screen `@fragment` entry and an export that is `never`. What the module re-exports from a
+shader file it imports (§68) carries the comment of the file that declares it. A `//` comment, a
+`/* */` comment and a comment inside a body are not copied. The comment of a constructor, a method
+or an accessor of a class is not copied either. The tags are copied and are not checked.
 
 Where the view writes a sentence of its own, that sentence stands at the end of the last block, after
 one empty comment line. The editor shows the last block of a declaration, so a hover shows the
 author's words first and the contract second. An export with no JSDoc has the sentence alone. A
-struct with a commented field, and an `enum` with a commented member, are written over several lines,
-so each comment stands on the line of its field or member. A field that a struct takes from the class
-or interface it extends carries the comment of the base's field, as TypeScript's hover shows it.
+class stands over several lines, so the comment of a field is on the line of the field. An
+`interface`, a `type` and an `enum` stand on one line, and over several lines when one of their
+fields or members has a comment. A field that an `interface`, or a class whose base is not exported
+as a class, takes from its base carries the comment of the base's field, as TypeScript's hover
+shows it.
 
 The sentence of a kernel function and of a `@compute` entry also says how a call is queued (Rule 11.8,
 §65, §67). A call whose written arrays or bindings are all `Resident`s, and that returns nothing, may
@@ -7498,10 +7501,13 @@ import { height } from './terrain.shade.ts'; // a helper, on the CPU tier
 
 **What a host can call** (Rule 8.20): an exported function that is not an entry point, is not
 generic, takes no function, has a host value for each parameter and for its result, and reaches
-no binding, no workgroup variable and no builtin only a GPU computes. An exported constant and an
-`enum` are values too, and an exported struct is a type, as is a struct another file declares
-where an export's signature names it; what the module re-exports from a shader file it imports
-(§68) is one of its exports. A `@compute` entry is called, and a
+no binding, no workgroup variable and no builtin only a GPU computes. An exported constant, an
+`enum` and a class are values too (change 0109): a class is built with `new`, and its
+constructor, methods, accessors and static functions run on the CPU tier, each admitted by the
+same conditions as a function (below). An exported `interface` or `type` is a type, as is a struct
+another file declares where an export's signature names it, and a class with a field that has no
+host value; what the module re-exports from a shader file it imports (§68) is one of its exports.
+A `@compute` entry is called, and a
 full-screen `@fragment` entry drawn, as §67 says, and a kernel function called as §65 says. Every other export is in the view as `never`, with the reason in a comment, so calling one
 is a type error at the host's own line.
 
@@ -7510,7 +7516,8 @@ is a type error at the host's own line.
 | a function a host can call                   | `export declare function f(…): …`                            |
 | a constant                                   | `export declare const K: …`, a frozen copy                   |
 | an `enum`                                    | its members as values, and a type of their numbers           |
-| a struct (`class`, `interface`, `type`)      | `export interface S { … }`                                   |
+| a `class` (§26)                              | `export declare class C { constructor(…); … }`, a value      |
+| an `interface` or a `type`; a `class` with a field that has no host value | `export interface S { … }`      |
 | a `@compute` entry                           | `export declare function e(bindings, workgroups): Promise<void>` (§67) |
 | a full-screen `@fragment` entry              | `export declare function e(target, bindings): Promise<void>` (§67) |
 | a kernel function (§65)                      | `export declare function k(…): Promise<R>`                   |
@@ -7527,7 +7534,7 @@ is a type error at the host's own line.
 | `vecNb`                                   | `readonly [boolean, …]` of N                               | `[boolean, …]` |
 | `matCxR`                                  | `readonly number[]` of C×R, column-major                   | `number[]`     |
 | `array<T, N>`                             | `readonly T[]` of N                                        | `T[]`          |
-| a struct                                  | an object of its fields                                    | the same       |
+| a struct                                  | an object of its fields, an instance of its class included | an instance of its class where the class is exported and not abstract, else an object of its fields |
 | an `enum`                                 | the member's number                                        | the same       |
 | a key type (§75)                          | one of its members, a string                               | the same       |
 | a `Record` over a key type (§75)          | an object with one property for each member                | the same       |
@@ -7547,6 +7554,92 @@ optional parameter `x?: T` (change 0093, decision D7): the host view declares su
 `its result: …`), which names the field through a struct, `its result: field R.w: an optional
 value, f32 | undefined, has no host value yet (Rule 8.21)`, and a host mapping
 such as `number | undefined` waits for a later proposal (change 0088, decision D4).
+
+**A class** (change 0109). An exported class is a value of the host face. A shader module
+declares a filter as a class, and a kernel function runs a bank of them:
+
+```ts
+"use typeshade";
+
+/** A one-pole lowpass with its state. */
+export class OnePole {
+  z: f32 = 0.;
+  k: f32;
+  constructor(k: f32) {
+    this.k = k;
+  }
+  /** One sample through the filter. */
+  tick(x: f32): f32 {
+    this.z = this.z + this.k * (x - this.z);
+    return this.z;
+  }
+}
+
+/** Runs every filter of the bank over its block, one lane per filter. */
+export function run(out: array<f32>, xs: array<f32>, filters: array<OnePole>, block: u32) {
+  for (let i: u32 = 0; i < filters.length; i++) {
+    for (let n: u32 = 0; n < block; n++) {
+      out[i * block + n] = filters[i].tick(xs[i * block + n]);
+    }
+  }
+}
+```
+
+That module is `filters.shade.ts`. A host file builds the bank with the class's own constructor,
+tests one filter on the CPU tier, and hands the instances to the kernel as the structs they are:
+
+```ts
+import { OnePole, run } from './filters.shade.ts';
+
+const filters = Array.from({ length: 64 }, () => new OnePole(0.1)); // the constructor, on the CPU tier
+filters[0].tick(1); // the method, on the CPU tier, with the same math the kernel runs
+await run(out, xs, filters, 1024); // the instances, taken as the structs they are
+```
+
+The view declares the class with the host type of each member, and carries the comment of the
+class (change 0108). The comment of a method is not copied:
+
+```ts
+/** A one-pole lowpass with its state. */
+export declare class OnePole {
+  constructor(k: number);
+  z: number;
+  k: number;
+  tick(x: number): number;
+}
+```
+
+`new OnePole(0.1)` checks and converts its arguments as a helper call does, runs the class's
+constructor on the CPU tier, field initializers included, and returns an instance whose own
+enumerable properties are the fields, each a host value. A class with no constructor builds its
+fields from their initializers, and a field with neither takes the zero value of its type, as
+`new` gives it in the module (§26). A method converts its arguments, runs with the instance as
+its object and returns a host value; a method that changes its object writes the instance's
+fields back in place. A static function is a static method of the class, a getter and a setter
+are an accessor property, and a field that holds a function is a method under the field's name.
+Each member is admitted by the conditions of a function a host can call: one that fails one is
+declared `never` in the class, with the reason in its comment, so a call of it is a type error at
+the host's line, and the class is still a value. An `abstract` class is declared `abstract`, and
+`new` of it is refused. A class that extends another is declared with its `extends` where the
+class above it is exported as a class too, and its class extends that class in the generated
+module, so `instanceof` holds along the chain; each class runs the functions the module lowers
+for it, so a call on an instance dispatches as it does in TypeScript. Where a member a host can
+call stands where the class above declares it `never` (or the other way round between an accessor
+and a `never` member), TypeScript refuses the override, so the view declares that class whole,
+without `extends`; its JavaScript class extends all the same.
+
+An instance is taken wherever a struct's object is: as a parameter, a field, an element of an
+`array<T, N>`, an element of a kernel function's array or a binding of an entry. The check reads
+the fields the struct declares and ignores the prototype, and a plain object of the fields is
+taken as before. A struct a result holds is an instance of its class where the class is exported
+and not abstract, built without running its constructor, so `tick()` works on what a helper
+returned. A generic
+class stays `never`. A class with a field that has no host value (an atomic, a texture, an
+optional value) stays a type, `export interface`, with the reason on its line. Nothing a class
+does on the host runs on the GPU: the GPU runs a method through a kernel function or an entry that
+calls it on an element of an array (§65, §67). A host method converts at the boundary at each
+call, as a helper does, so a host loop that ticks an instance once per sample pays that per
+sample: the host method is the reference, and the kernel is the fast path.
 
 **The name** (Rule 3.8). A shader module a host imports is named `*.shade.ts`. The plugin refuses
 a `.ts` the bundle reads that begins with `"use typeshade"` under any other name, with the
