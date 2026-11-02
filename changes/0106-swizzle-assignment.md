@@ -1,7 +1,7 @@
 ---
 id: '0106'
 title: Assign to a multi-component swizzle (`d.xy = r`, `d.xy *= r`), with each operand evaluated once and the old components read before any write
-status: accepted
+status: implemented
 rules:
   - '7.1'
   - '7.2'
@@ -25,7 +25,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                          |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0106, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved it on 2026-11-02 (see Approval and plan record).                                                                                                                                                                                                                |
+| Identity and status           | Proposal 0106, `status: implemented`. The front matter is the identity and lifecycle authority. Accepted on 2026-11-02 by #860; implemented by #914 (see Configuration and validation record).                                                                                                                                                                                  |
 | Date and attribution          | Drafted 2026-11-01, Asia/Seoul, by an AI agent at the maintainer's request. The date is the drafting date, not an approval date. The maintainer (Seungup) owns the decision. Git authorship of the containing commit is not an approval signature.                                                                                                                              |
 | Request source                | GitHub issue [#846](https://github.com/typeshade/typeshade/issues/846), split out of [#841](https://github.com/typeshade/typeshade/issues/841) (its requirement 3). #841 keeps the full analysis and the reproduction artifacts.                                                                                                                                                |
 | Applicability / effectivity   | `docs/language-design.md` (Rules 7.1 and 7.2), `reqs/` (their items), `docs/use-typeshade-surface.md` §7 and §9, `src/compiler/ts/lower/statement.ts`, the language service diagnostics (`src/language-service/`), the WGSL and GLSL ES 3.00 writers, the CPU oracle, `src/core/coverage/wgsl.ts` and the tests that pin `TS8018` on a swizzle. No release version is assigned. |
@@ -215,20 +215,74 @@ estimate is established.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require:
+**Accepted revision.** `68475299`, merged to `main` as `ff050b62` by #860 on 2026-11-02 (UTC).
 
-- the accepted proposal revision and the implementation pull requests, with commits that say
-  `Change: 0106`;
-- the delivered configuration, file by file;
-- functional validation: the unit suite, the compile gate, the GPU differential and the user
-  journeys, each with its date, commit and result;
-- document validation: `bun run docs:refs`, Rules 7.1 and 7.2, surface §7 and §9 and `reqs/`
-  reviewed against the delivered behaviour;
-- each deviation from this text, with its disposition.
+**Implementation.** Pull request #914, branch `feat/846-swizzle-assignment`, one commit
+`826d6491` (`Change: 0106`), rebased onto `main` at `8c088df7` and merged as `16e7577d` on
+2026-11-02. Its first head `3ebce995` conflicted with `main` (`CHANGELOG.md`, and
+`reqs/surface/SURF-071.md`, which #883 gave a RULE-0829 link), so no CI ran on it; the rebase kept
+both sides of each conflict. Issue #846 closes with it. Delivered configuration: `main` at
+`16e7577d`.
+
+**What was delivered.** `src/compiler/ts/lower/statement.ts`: `lowerLValue` and
+`lowerMemberLValue` take a `multiSwizzle` flag that only `lowerAssign`, `lowerAssignOpTo` and
+`lowerBitwiseAssignOpTo` pass, so an `@inout` argument, `++`, `--`, `??=` and a method receiver keep
+one component (exclusions); `repeatedComponent` refuses a repeated component with `TS8018` before
+the access check (item 6); `splitSwizzleWrite` lowers the statement to a snapshot `let` and one
+component write per destination letter, and `bindIndexes` reads an index that reads a place or
+calls into a `let` first (items 3 to 5); `readsNoPlace` leaves an index of names and constants as
+written. No writer or CPU tier changed (D1, D2). Rules 7.1 (a sentence) and 7.2 (a row); surface
+§7 and §9; `src/core/coverage/wgsl.ts` (the `swizzle_assignment` row, now covered) and its bake in
+`docs/capability-coverage.md` and Appendix C; `CHANGELOG.md`; `reqs/` synced.
+
+**Functional validation.** Evidence items 1 to 12 of "What it touches":
+
+- `src/compiler/ts/swizzle-assign.test.ts` (new, `Verifies: Rule 7.1, Rule 7.2`), every case with
+  the compiler's and the editor's diagnostics compared (Rule 12.7, item 6): the two regressions on
+  the oracle and the JS CPU tier (item 2); the WGSL and GLSL ES 3.00 shape, with no
+  multi-component left-hand side and no extension; `=`, `+=`, `-=`, `*=`, `/=` with a vector and a
+  scalar, and an integer vector (item 3); a struct field and an array element (item 3); an index
+  that calls, called once before the right-hand side (item 4); a `storage<…, "read_write">`
+  element and a `workgroup` vector (item 10); a kernel function's `v[i].yx = v[i]`, accepted by
+  the proof and run on the CPU tier (item 9); the duplicate refusal (item 5); the read-binding
+  codes (item 12, compiler half: the editor adds TypeScript's own read-only error first, surface
+  §7); the emulated-double lane (D3).
+- `member-assign.test.ts` and `remedy-lines.test.ts` moved from the old refusal to the duplicate
+  one (item 1).
+- Locally on `826d6491` (2026-11-02, Bun 1.4.4, Node 22.23.4): `bun run build`, `lint`,
+  `format:check`, `gate:boundary` pass; `bun run test` 11,902 passed, 9 failed in
+  `src/affected-tests.test.ts` and `src/doc-test-selection.test.ts`, which fail on `main` in the
+  same container; `bun run bake:goldens` changed no golden (on `3ebce995`). The compile gate did
+  not run locally (the pinned Playwright's browser build is absent there).
+- CI run 41433364479 on `826d6491`: all 26 checks green, among them the unit shards on the pinned
+  TypeScript and on TypeScript 5 and 6, the compile gate (Tint and WebGL2, item 7) with the GPU
+  differential it runs (`gate:differential`), the render gate, the perf gate and the user
+  journeys.
+
+**Document validation** (2026-11-02): `bun run docs:impact` (0 must fix; the review items in the
+commit's `Docs-Impact:` trailer), `bun run docs:refs` (0 dead references), `bun run reqs:sync`,
+`python scripts/doorstop-check.py -C -e -F` (pass after `doorstop review` of RULE-0701 and RULE-0702
+and `doorstop clear` of SURF-010, 014, 016, 017, 018, 026, 027, 031, 038, 049, 062, 063, 065, 071,
+072 and 076, each read against the changed rules; item 11), the `swizzle_assignment` row closed and
+baked (item 8).
+
+**Deviations.**
+
+1. Evidence item 3 asks for a case of each compound operator group. A bitwise `op=` (`&=`, `|=`,
+   `^=`, `<<=`, `>>=`) on a vector, whole or swizzled, is refused with `TS8003` before and after
+   this change, so the vector type has no such form to test, and item 2 of "What changes" ("every
+   compound `op=` the vector type has") does not reach it. Disposition: closed; the test file says
+   so beside the integer case.
+2. The refusal sentence of the paths that keep one component changed from "WGSL writes one
+   component at a time" to "only `=` and `op=` write several components", since the old reason is
+   no longer true. "What it touches" names only the duplicate sentence. Disposition: closed; `TS8018`
+   keeps its number, and no test pinned the old wording outside the two updated files.
+
+Open: the downstream work below.
 
 ## What it owes downstream
 
-Expected work, not yet agreed:
+Expected work:
 
 - **typeshade.github.io.** The constructs and diagnostics pages generated from surface §7 and
   §9 say a swizzle target names one component and show `v.xy = …` as a `TS8018` example. Both
