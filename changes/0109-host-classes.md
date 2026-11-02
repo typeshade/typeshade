@@ -1,7 +1,7 @@
 ---
 id: '0109'
 title: A host file imports a class of a shader module as a value, builds an instance with `new` and calls its methods on the CPU tier, and passes the instance wherever the struct's object is taken
-status: draft
+status: accepted
 rules:
   - '8.20'
   - '8.21'
@@ -28,7 +28,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0109, `status: draft`. The front matter is the identity and lifecycle authority. No approval is recorded.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Identity and status           | Proposal 0109, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, while designing an audio library on the compiler whose units are classes in `.shade.ts` files. The owner asked whether a class defined in a `"use typeshade"` file can be imported on the CPU side, built with `new` and used as an ordinary class, with the GPU running the same code ("cpu side에서 import해서 가져온 다음에 new 해서 사용하면 gpu side에서 실행되는거라던가"), and said that if not, the host face should be advanced now ("지금 고도화 해야할 것 같은데"). The agent reported that a class crosses to the host as a type only. The owner approved the drafting of this proposal ("승인"). No GitHub issue is recorded. |
 | Applicability / effectivity   | Rules 8.20 and 8.21 of `docs/language-design.md` and their items in `reqs/`; `docs/use-typeshade-surface.md` §64; `src/compiler/ts/host-face.ts` (the export collection, `viewText` and the generated module); `src/core/host-values.ts`; `src/compiler/ts/host-face.test.ts`; `journeys/_host-import`. The compiler's lowering, the GPU tiers, the oracle, the exports of the package, the diagnostic codes and the examples do not change. No release version is assigned.                                                                                                                                                                                                                                       |
@@ -196,7 +196,7 @@ its `self`, after the conversion a helper call makes, and a changing method's wr
 can be written back into the instance's fields. The implementation measures what each class shim
 adds to the generated module (`scripts/bundle-boundary.ts`).
 
-**Decisions to resolve before acceptance.**
+**Decisions, resolved at acceptance** (Approval and plan record).
 
 - **D1.** A struct-typed result of an exported class is an instance of that class (the draft),
   or a plain object of its fields as today. The draft chooses the instance: an instance is still
@@ -261,10 +261,16 @@ Duration and cost: unknown, no basis for an estimate.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the actual approval decision and its
-pull request reference, the approved revision of this file with D1 to D4 resolved, assigned
-responsibilities and the required validation evidence named above. No approver, schedule or
-result is recorded here.
+The owner (Seungup) approved the proposal in the Claude Code session on 2026-11-02 (UTC), in
+Korean ("승인", approve), in answer to the agent's report that listed pull requests #871 and #872
+with their open decisions and the draft's recommendations, and asked for the word that accepts
+them as drafted. D1 to D4 are accepted as drafted: a struct-typed result of an exported class is an instance of that class; `instanceof` holds along `extends`; a class one of whose members fails Rule 8.20's conditions is still a value, with that member declared `never` and its reason; a class with a field that has no host value stays a type, with the reason. The approved revision is the one
+this record is part of. The merge of [#872](https://github.com/typeshade/typeshade/pull/872)
+with `status: accepted` records the decision.
+
+Responsibilities: an agent of this repository implements items 1 to 5, Rules 8.20 and 8.21 and the §64 text in pull requests
+whose commits say `Change: 0109`. No milestone date is assigned. No duration or cost estimate is
+established.
 
 ### Configuration and validation record
 
