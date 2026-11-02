@@ -1417,6 +1417,14 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   counter as well. Both places that give this text now name `let i: i32 = <start>` and
   `let i: u32 = <start>`, in `compile()` and in the editor alike.
 
+- **O2 binds a repeat inside the right operand of `&&` and `||` (#868).** Statement-local CSE
+  refused every repeat under a short-circuit operand, so a value that reads a `var` and repeats
+  there was computed each time it was written. typecv's `directionCompatible` computed one f64
+  difference four times, once per lane of `length`. When the operand holds such a repeat, the
+  short circuit now becomes `var _sc: bool = a; if (_sc) { _sc = b; }` (`_sc == false` for
+  `||`), and the repeat is bound once inside the `if`. The operand still runs only when the
+  authored code runs it. No golden changes.
+
 - **O2 unrolls a loop bounded by an integer module constant, and a one-iteration loop (#869).**
   The unroll proof read only a literal start or bound, so `for (let i = 0; i < AA; i++)` with
   `const AA: i32 = 1` stayed a loop. It now also reads an `i32` or `u32` module constant whose
