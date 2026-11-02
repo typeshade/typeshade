@@ -66,8 +66,16 @@ function reduction(n, folds) {
       buffers: 3,
     },
     // On WebGL2 `add` and `mul` draw, and `total` has no program there: it runs on the CPU tier,
-    // which says nothing of why.
-    webgl2: { dispatches: 2, why: [undefined, 'WebGL2 runs the calls apart', undefined] },
+    // and its group says why in the words the call layer gives WebGL2 (change 0118).
+    webgl2: {
+      dispatches: 2,
+      why: [
+        undefined,
+        'WebGL2 runs the calls apart',
+        'total runs on the CPU, it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for',
+      ],
+      tiers: ['webgl2', 'webgl2', 'cpu'],
+    },
     reads: 0,
   };
 }

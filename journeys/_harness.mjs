@@ -51,8 +51,9 @@
 // plugin generates under `typeshade({ fuse: true })`, runs the host on WebGPU, WebGL2 and the CPU
 // tier, counts the dispatches, the submissions and the buffers of one array's size that the device
 // itself is given, and holds the host's report (its groups, which of them fused and why the others
-// did not) and its result to the journey's numbers and reference. A scratch array a group holds as
-// a local is a buffer the device is never asked for, which the count of buffers shows.
+// did not, and the tier each group ran on, change 0118) and its result to the journey's numbers
+// and reference. A scratch array a group holds as a local is a buffer the device is never asked
+// for, which the count of buffers shows.
 
 import { compile, compileModule, packModule } from 'typeshade';
 import { createTypeshadeLanguageService } from 'typeshade/language-service';
@@ -1178,11 +1179,13 @@ for (const job of engines) {
 /** The fuse runs, on each tier. What the report says is held to what the device was given.
  *  Only WebGPU fuses: on WebGL2 each loop is a draw of its own and the report says the calls run
  *  apart, and the CPU tier runs them one after another and says nothing. `groups` are the calls of
- *  each group, in order, and `why` is each group's reason to stand apart (none for the first). */
+ *  each group, in order, `why` is each group's reason to stand apart (none for the first), and
+ *  `tiers` is the tier each group ran on (change 0118). */
 const FUSE_TIERS = {
   webgpu: (run) => ({
     groups: run.webgpu.groups,
     why: run.webgpu.why ?? [],
+    tiers: run.webgpu.groups.map(() => 'webgpu'),
     dispatches: run.webgpu.dispatches,
     submissions: run.webgpu.submissions,
     buffers: run.webgpu.buffers,
@@ -1190,10 +1193,12 @@ const FUSE_TIERS = {
   }),
   webgl2: (run) => ({
     groups: run.calls.map((c) => [c]),
-    // A call WebGL2 has no program for runs on the CPU tier, which says nothing: `webgl2.why`.
+    // A call WebGL2 has no program for runs on the CPU tier, and its group says why (change
+    // 0118): `webgl2.why` and `webgl2.tiers`.
     why:
       run.webgl2.why ??
       run.calls.map((_, i) => (i === 0 ? undefined : 'WebGL2 runs the calls apart')),
+    tiers: run.webgl2.tiers ?? run.calls.map(() => 'webgl2'),
     dispatches: run.webgl2.dispatches,
     submissions: 0,
     buffers: run.webgpu.buffers === undefined ? undefined : 0,
@@ -1202,6 +1207,7 @@ const FUSE_TIERS = {
   cpu: (run) => ({
     groups: run.calls.map((c) => [c]),
     why: [],
+    tiers: run.calls.map(() => 'cpu'),
     dispatches: 0,
     submissions: 0,
     buffers: run.webgpu.buffers === undefined ? undefined : 0,
@@ -1314,6 +1320,13 @@ for (const job of fuses) {
       fail(
         at,
         `the report's reasons are ${JSON.stringify(why)}; expected ${JSON.stringify(n.groups.map((_, i) => n.why[i]))}`,
+      );
+    // The tier each group ran on (change 0118).
+    const tiers = r.groups.map((g) => g.tier);
+    if (JSON.stringify(tiers) !== JSON.stringify(n.tiers))
+      fail(
+        at,
+        `the report's groups ran on ${JSON.stringify(tiers)}; expected ${JSON.stringify(n.tiers)}`,
       );
     done.push(`${tier} ${w.text}`);
   }

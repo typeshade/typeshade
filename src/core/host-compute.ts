@@ -52,6 +52,7 @@ import { glContext } from './gl-context.js';
 import { runGlCompute, type GlComputeReport } from './gl-compute.js';
 import type { PlanRun } from './host-kernel.js';
 import type { GlComputeProgram } from './passes/gl-compute.js';
+import type { Tier } from './tiers.js';
 import { uploadImage } from './host-draw.js';
 
 function checkArity(e: ComputeEntry, argc: number): void {
@@ -205,9 +206,10 @@ export function checkEntryCall(
   };
 }
 
-/** What a scope borrows of this file to record and run an entry call (change 0069), so that
- *  `typeshade/fuse` does not import the tiers of an entry (WebGL2, the CPU) to hold the plan. */
-export const entryHost = { residentsOf, indirectOf, checkEntryCall, runEntry };
+/** What a scope borrows of this file to record an entry call, settle its tier and run it
+ *  (changes 0069 and 0118), so that `typeshade/fuse` does not import the tiers of an entry
+ *  (WebGL2, the CPU) to hold the plan. */
+export const entryHost = { residentsOf, indirectOf, checkEntryCall, entryTierFit, runEntry };
 
 /**
  * Call a `@compute` entry from host code (Rule 8.24): dispatch `workgroups` workgroups of it,
@@ -281,6 +283,44 @@ export function callCompute(
   return call;
 }
 
+/** What one tier of the call layer makes of an entry call (Rule 11.8): the reason it cannot run
+ *  the call, or what it runs the call with. */
+export type EntryTierFit =
+  | { readonly why: string }
+  | { readonly why?: undefined; readonly tier: 'webgpu'; readonly d: GpuDevice }
+  | { readonly why?: undefined; readonly tier: 'webgl2'; readonly gl: WebGL2RenderingContext }
+  | { readonly why?: undefined; readonly tier: 'cpu' };
+
+/**
+ * Whether `tier` can run a call of the entry `e` for `owner` (Rule 11.8). It gives the WebGPU
+ * device, the WebGL2 context, or the CPU tier. Otherwise it gives the reason in the words that the
+ * `Error` of a call no tier can run gives the tier, after `webgpu: `, `webgl2: ` or `cpu: `.
+ *
+ * This is the one place that words the reason of each tier for an entry call. `runEntry` runs a
+ * call on the first tier that can run it. The planner of a `fuse` scope settles the same tier
+ * before anything runs, through `entryHost`, and a group that runs on a later tier than its
+ * plan's says the reasons of the tiers before its own (Rule 11.13, change 0118).
+ */
+export async function entryTierFit(
+  e: ComputeEntry,
+  owner: CallOwner,
+  tier: Tier,
+): Promise<EntryTierFit> {
+  if (tier === 'webgpu') {
+    const d = await owner.device();
+    return d === null ? { why: 'there is no WebGPU device' } : { tier, d };
+  }
+  if (tier === 'webgl2') {
+    if (e.gl === undefined) return { why: e.noGl ?? 'the entry has no WebGL2 program' };
+    const gl = glContext();
+    return gl === null ? { why: 'there is no WebGL2 context' } : { tier, gl };
+  }
+  if (e.barrier !== undefined)
+    return { why: `it reaches ${e.barrier}, and a barrier has no CPU tier` };
+  if (e.noCpu !== undefined) return { why: `${e.noCpu}, and the CPU tier cannot` };
+  return { tier: 'cpu' };
+}
+
 /**
  * Run a checked entry call on the first tier that can run it (Rule 11.8). Outside a scope
  * (`run` absent) the dispatch is its own submission. In the plan of a scope (`run`, change 0069)
@@ -306,12 +346,14 @@ export async function runEntry(
   if ('state' in wg) resources.push(['"workgroups.indirect"', ownerOf(wg.state)]);
   const owner = inferOwner(`${e.name}()`, resources, run?.owner ?? c.owner);
   for (const tier of owner.tiers()) {
-    if (tier === 'webgpu') {
-      const d = await owner.device();
-      if (d === null) {
-        why.push('webgpu: there is no WebGPU device');
-        continue;
-      }
+    const fit = await entryTierFit(e, owner, tier);
+    if (fit.why !== undefined) {
+      why.push(`${tier}: ${fit.why}`);
+      if (tier === 'cpu') noCpu = fit.why;
+      continue;
+    }
+    if (fit.tier === 'webgpu') {
+      const { d } = fit;
       checkEntryLimits(e, d.limits ?? {});
       const onDevice = new Map<string, GpuBuffer>();
       for (const [b, s] of states)
@@ -340,34 +382,16 @@ export async function runEntry(
       await run.batchOn(d).add(ge, { ...checked, onDevice }, grid);
       return;
     }
-    if (tier === 'webgl2') {
-      if (e.gl === undefined) {
-        why.push(`webgl2: ${e.noGl ?? 'the entry has no WebGL2 program'}`);
-        continue;
-      }
-      const gl = glContext();
-      if (gl === null) {
-        why.push('webgl2: there is no WebGL2 context');
-        continue;
-      }
+    if (fit.tier === 'webgl2') {
+      const { gl } = fit;
       await run?.flush();
       run?.tiers.add('webgl2');
       const grid = await gridOf(wg, owner, run);
       if (grid === undefined) return;
       await hostCopies(states, checked.values, run);
-      const passes = await onGl(gl, e, e.gl, checked, grid);
+      const passes = await onGl(gl, e, e.gl!, checked, grid);
       if (run !== undefined) run.counts.dispatches += passes;
       return;
-    }
-    noCpu =
-      e.barrier !== undefined
-        ? `it reaches ${e.barrier}, and a barrier has no CPU tier`
-        : e.noCpu !== undefined
-          ? `${e.noCpu}, and the CPU tier cannot`
-          : undefined;
-    if (noCpu !== undefined) {
-      why.push(`cpu: ${noCpu}`);
-      continue;
     }
     await run?.flush();
     run?.tiers.add('cpu');
