@@ -3836,6 +3836,102 @@ export function lift3(out: array<vec3>) {
   });
 });
 
+// ─── a Resident of instances, on a recording device (change 0109, Amendment 1) ──────────────
+
+/** A class a kernel function runs over: each voice moves one frame on, one lane per voice. */
+const VOICES = `"use typeshade";
+export class Voice {
+  phase: f32 = 0.;
+  step: f32;
+  constructor(step: f32) {
+    this.step = step;
+  }
+  tick(): f32 {
+    this.phase = fract(this.phase + this.step);
+    return this.phase;
+  }
+}
+export function render(out: array<f32>, voices: array<Voice>) {
+  for (let i: u32 = 0; i < voices.length; i++) {
+    out[i] = voices[i].tick();
+  }
+}
+`;
+const voicesGenerated = hostFace(VOICES, { fileName: '/app/voices.shade.ts', runtime: RUNTIME });
+expect(voicesGenerated.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+
+/** A voice as the host sees it. */
+type Osc = { phase: number; step: number; tick(): number };
+
+/** The generated module of `VOICES`, loaded. */
+const loadVoices = async () =>
+  (await loadCode(voicesGenerated.code!, 'voices')) as unknown as {
+    readonly Voice: new (step: number) => Osc;
+    readonly render: Call;
+  };
+
+/** A recording device on which a staging buffer of the size of `bytes` maps to `bytes`: what the
+ *  device holds after a call, as a read downloads it. */
+const deviceHolding = (bytes: Float32Array) =>
+  fakeGpu({
+    mapped: (size) => (size === bytes.byteLength ? bytes.slice().buffer : new ArrayBuffer(size)),
+  });
+
+describe('a Resident of instances on WebGPU, on a recording device (Rule 11.8, change 0109 Amendment 1)', () => {
+  it('reads the device buffer into the host copy in place, and read() returns instances of the class', async () => {
+    // What the device holds once the call has run: each voice one frame on, its phase and step.
+    const gpu = deviceHolding(Float32Array.of(0.25, 0.25, 0.5, 0.5));
+    const { Voice, render } = await loadVoices();
+    const bank = resident([new Voice(0.25), new Voice(0.5)]);
+    const held = [...(residentState(bank)!.host as object[])];
+    void render(resident(new Float32Array(2)), bank);
+    const back = await bank.read();
+    // The call ran on the device, and the bank's buffer holds the fields: no class is in it.
+    expect(gpu.flow).toContain('dispatch 1 1 1');
+    const uploaded = gpu.made.find((b) => b.usage === RESIDENT_BUFFER && b.size === 16);
+    expect(new Float32Array(uploaded!.contents!)).toEqual(Float32Array.of(0, 0.25, 0, 0.5));
+    // The read wrote the device's bytes into the host copy's own objects, which stay instances.
+    const host = residentState(bank)!.host as Osc[];
+    host.forEach((o, i) => {
+      expect(o).toBe(held[i]);
+      expect(o).toBeInstanceOf(Voice);
+    });
+    expect(host.map((o) => ({ ...o }))).toEqual([
+      { phase: 0.25, step: 0.25 },
+      { phase: 0.5, step: 0.5 },
+    ]);
+    // read() returns a new copy, each element an instance with the device's fields, and a method
+    // runs on it on the CPU tier.
+    back.forEach((v, i) => {
+      expect(v).toBeInstanceOf(Voice);
+      expect(v).not.toBe(held[i]);
+    });
+    expect(back.map((v) => ({ ...v }))).toEqual(host.map((o) => ({ ...o })));
+    expect(back[0]!.tick()).toBe(0.5);
+    expect(back[1]!.tick()).toBe(0);
+  });
+
+  it('uploads what write() gave it as its fields, and a Resident of plain objects reads back as given', async () => {
+    const gpu = deviceHolding(Float32Array.of(0.75, 0.125));
+    const { Voice, render } = await loadVoices();
+    const bank = resident([new Voice(0.25)]);
+    bank.write([new Voice(0.125)]);
+    void render(resident(new Float32Array(1)), bank);
+    const back = await bank.read();
+    const uploaded = gpu.made.find((b) => b.usage === RESIDENT_BUFFER && b.size === 8);
+    expect(new Float32Array(uploaded!.contents!)).toEqual(Float32Array.of(0, 0.125));
+    expect(back[0]).toBeInstanceOf(Voice);
+    expect({ ...back[0]! }).toEqual({ phase: 0.75, step: 0.125 });
+    expect(back[0]!.tick()).toBe(0.875);
+    // A Resident of plain objects reads back as plain objects, as before.
+    const plain = resident([{ phase: 0, step: 0.125 }]);
+    void render(resident(new Float32Array(1)), plain);
+    const p = await plain.read();
+    expect(Object.getPrototypeOf(p[0])).toBe(Object.prototype);
+    expect(p).toEqual([{ phase: 0.75, step: 0.125 }]);
+  });
+});
+
 // ─── gpuTime, on a device with timestamp queries (change 0066) ──────────────────────────────
 
 describe('a fuse report gives gpuTime to each WebGPU group, when the device measures it', () => {

@@ -1560,6 +1560,61 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
     );
   });
 
+  it('copies each host value level by level, with no structuredClone (change 0109, Amendment 1)', async () => {
+    /** Every object `v` reaches, itself included: an array's elements, an object's properties,
+     *  a Map's keys and values, a Set's values. */
+    const objects = (v: unknown, into = new Set<object>()): Set<object> => {
+      if (typeof v !== 'object' || v === null) return into;
+      into.add(v);
+      if (ArrayBuffer.isView(v)) return into;
+      const inner = v instanceof Map ? [...v].flat() : v instanceof Set ? [...v] : Object.values(v);
+      for (const x of inner) objects(x, into);
+      return into;
+    };
+    const values: unknown[] = [
+      3,
+      true,
+      Float32Array.of(1.5, 2),
+      Int32Array.of(-1, 2),
+      Uint32Array.of(7),
+      Float64Array.of(0.1),
+      [1, 2, 3, 4],
+      [
+        [1, 2],
+        [3, 4],
+      ],
+      { viewProj: new Array<number>(16).fill(0.5), time: 1, tint: Float32Array.of(1, 0, 0, 1) },
+      [{ pos: [1, 2], vel: { x: 3 } }],
+      new Map([
+        [1, [0.5, 0.25]],
+        [2, [1, 2]],
+      ]),
+      new Set([3, 1, 2]),
+    ];
+    // An AudioWorkletGlobalScope has no structuredClone, and resident(), write() and read() do not
+    // need it: each level of the copy is a new value of the same kind, equal to what it copies.
+    const saved = globalThis.structuredClone;
+    Reflect.deleteProperty(globalThis, 'structuredClone');
+    try {
+      for (const v of values) {
+        const r = resident(v);
+        const back = await r.read();
+        expect(back).toStrictEqual(v);
+        const given = objects(v);
+        for (const o of objects(back)) expect(given.has(o)).toBe(false);
+        r.write(v);
+        expect(await r.read()).toStrictEqual(v);
+        r.destroy();
+      }
+      // Each place holds a copy of its own, also where the value given shares one array.
+      const p = [0, 0];
+      const [a, b] = await resident([{ pos: p }, { pos: p }]).read();
+      expect(a!.pos).not.toBe(b!.pos);
+    } finally {
+      globalThis.structuredClone = saved;
+    }
+  });
+
   it("hands the call layer a Texture's view, which it binds as it is", async () => {
     const fake = fakeDevice();
     const rt = await createRuntime({ device: fake.device });

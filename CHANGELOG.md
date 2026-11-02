@@ -463,6 +463,22 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   the budgets moved by 5 (runtime, split aggregate), 1 (fuse) and 6 (random) gzip bytes,
   measured with Bun 1.4.4 against `78a9060`.
 
+- **A `Resident` of instances reads back as instances** (change 0109, Amendment 1; Rule 11.8,
+  surface §65). `resident(value)`, `device.array(value)` and `r.write(value)` copy the value with
+  the class of each object kept: an element of an array of structs, and a struct that a field
+  holds. `await r.read()` returns a new copy with the same classes, each instance made from its
+  class's prototype with the fields its own properties and its constructor not run, as a struct
+  that a result holds is made; a plain object stays a plain object. A call that writes the
+  `Resident` changes the fields on every tier, so `instanceof Voice` holds on what `read()`
+  returns and `tick()` runs on it, as `Resident<Voice[]>` said (issue #945). The bytes that a GPU
+  tier binds do not change. The copy no longer calls `structuredClone`, which an
+  `AudioWorkletGlobalScope` does not have: a typed array is sliced, an array, a `Map` and a `Set`
+  are copied entry by entry, and any other object level by level, so each place of the copy is a
+  value of its own, also where the value given shares one array between two places. The runtime
+  bundle grew by 33 gzip bytes (split initial +39, aggregate +40) and `typeshade/fuse` by 47
+  (split initial +57, aggregate +57), measured with Bun 1.4.4 against `480b6a64`; the budgets
+  moved by those bytes.
+
 - **A kernel function's loop runs over a trip count the device holds** (proposal 0094, stage 3;
   Rules 8.21, 8.22, 11.8 and 11.13, surface §65 and §71). The statements before a loop, its start
   and its bound may read the elements of the function's arrays and what an earlier loop of the same
