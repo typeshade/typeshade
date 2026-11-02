@@ -30,7 +30,7 @@ downstream:
   - repo: vscode-typeshade
     what: The skill's builtin list, completions and snippets drop the removed names and name the kept spelling. Not searched yet.
   - repo: typenn
-    what: In `src/kernels/binary.shade.ts`, the five `pow` calls on lines 263, 276, 290, 405 and 407 change to `a ** b` before pull request #899 merges, because `pow` is removed (decision D1). The TypeNN record in `compiler-changes.md` is added when the TypeNN pin moves past the implementation.
+    what: In `src/kernels/binary.shade.ts`, the five `pow` calls on lines 263, 276, 290, 405 and 407 changed to `a ** b` (typenn#26, merged as `3a7d66c` on 2026-11-02, before #899 merged), because `pow` is removed (decision D1). The TypeNN record in `compiler-changes.md` is added when the TypeNN pin moves past the implementation.
 ---
 
 <!-- doc-refs: skip-file — a draft proposal names rules and text its implementation adds -->
@@ -39,7 +39,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0112, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02; see Approval and plan record. No implementation exists.                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Identity and status           | Proposal 0112, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02; see Approval and plan record. Part 1 (sections 3 and 5, the removals and the refusal; Rules 9.4 and 9.9) is implemented by pull request #899, merged into `main` as `6229368` on 2026-11-02. Part 2 (section 4, `Math` takes scalars) is pending, so the status stays `accepted`; see Configuration and validation record.                                                                                                                                 |
 | Date and attribution          | Authored 2026-11-02, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean. The owner asked why `arrayLength` exists when `.length` is more TypeScript-like, and said there are many such names ("이런게 좀 많다고 느껴져요"). The agent surveyed the ambient library and proposed a test by Rule 1.4 of proposal 0100. The owner also asked whether every author should have to write `Math.` for math; the agent recommended that `Math` keep ECMAScript's scalar meaning and that vector math stay on the WGSL names. The owner answered "승인" to drafting this proposal. No GitHub issue is recorded. |
 | Applicability / effectivity   | `docs/language-design.md` (Rules 9.4 and 9.6, the §9.3 table, a new Rule 9.9, Appendix B), `reqs/`, `docs/use-typeshade-surface.md` (the sections in the front matter), `src/language-service/ambient.ts`, `src/compiler/ts/math-alias.ts` and the fold lowering, `src/core/spec-conformance/surface-names.test.ts`, the tests and four examples that call a removed name. No export, diagnostic code or example id changes. No release version is assigned.                                                                                                                                           |
@@ -252,21 +252,115 @@ section.
   replaces `pow(a, b)` with `a ** b` before pull request #899 merges, and this proposal records
   TypeNN as a downstream repository (front matter, `downstream`). `**` already works on the
   current compiler.
+- 2026-11-02, the owner, in a Claude Code session ("머지 승인"): typenn#26 (`a ** b` in
+  `src/kernels/binary.shade.ts`, with a `playwright-core` 1.64.1 pin carried as a recorded
+  deviation) is merged into typenn `main` as `3a7d66c`.
+- 2026-11-02, the owner, in the same session ("승인", twice): #909 (the `TypeNN candidate` gate's
+  typenn pin moves to `3a7d66c`) is merged into `main` as `cd89637`; then #899, part 1 of this
+  proposal, is merged into `main` as `6229368` after `main` was merged into its branch twice.
+- 2026-11-02, the owner, in the same session ("둘 다 승인하겟습니다"): this record is written, and
+  the `ci` workflow of `main` at `6229368` is checked.
 
 ### Deviation record
 
 - 2026-11-02. Deviation: the downstream search at drafting did not name TypeNN. The drafting
   agent could not search downstream repositories. The `TypeNN candidate (build + CPU)` check on
   pull request #899 failed on `src/kernels/binary.shade.ts`: `TS8004 pow was removed: write a ** b.`
-  Disposition: recorded by this amendment. TypeNN is named in `downstream`, and its work is
-  owed in "What it owes downstream". Open until the TypeNN change lands and its pin moves.
+  Disposition: closed on 2026-11-02. TypeNN is named in `downstream`; typenn#26 landed as
+  typenn `3a7d66c`, and #909 moved the gate's pin to it (`main` at `cd89637`). The
+  `TypeNN candidate (build + CPU)` check passed on #899 at `e4bd9d6` and on `main` at `6229368`
+  (run 41443217694).
+- 2026-11-02. Deviation: the draft estimated one implementing pull request for sections 3 and
+  5 and one for section 4. Part 1 took one pull request (#899) after #894, its first attempt,
+  was abandoned: #894 was based on `10847cc`, and a merge of `main` into it could not pass the
+  commit hooks. Disposition: closed; #899 applied the same change on `main` at `cb17347`.
+- 2026-11-02. Deviation: the `pow` removal (D1) moved fifteen examples to `**`, where "What it
+  touches" names four examples for `arrayLength` and one for `any`. Disposition: closed by D1;
+  the goldens are byte-identical except `higher-order`, whose `some` is a helper call.
+- 2026-11-02. Deviation: `scripts/doc-impact.ts` changed so that a short lowercase name counts
+  as a mention only in call or member form; the tool is not in "What it touches". Disposition:
+  closed; the same change landed on `main` by #896, and the diff vanished at the merge.
+- 2026-11-02. Deviation: `src/language-service/diagnostics.ts` drops TypeScript's TS7006 on the
+  callback of a removed call, and `LANG_CONST` is `TAU` alone with the removed names' docs moved
+  into `MATH_MEMBER_DOCS`. Neither is named in "What it touches". Disposition: closed; both are
+  the editor half of section 5 (one sentence on both halves).
+- 2026-11-02. Deviation: Rule 9.4 was amended and Rule 9.9 added in commit `366326d`, which
+  needed `doorstop review` of `RULE-0904` and `RULE-0909` by a person; the owner read the items
+  in the Claude Code session ("추천대로 승인") before the review ran. Disposition: closed; the
+  rules are on `main` at `6229368`.
+- 2026-11-02. Deviation: while #899 was open, `main` gained three files that use a removed
+  spelling, none named in "What it touches": `examples/subgroup-reduce.shade.ts` (#919,
+  `arrayLength(src)`), `scripts/class-arm.ts` (#883, the generated twin's bounds guard) and
+  `journeys/class-twins/units.shade.ts` (#883, three `arrayLength` calls). Each changed to
+  `.length` in merge commit `c4fa59b`. Without the last, the class arm of `gate:differential`
+  held 0 classes under its floor of 6. Disposition: closed; recorded here, no emit changed.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require: both halves asserted for each refusal and
-each kept spelling (CLAUDE.md, A test reads both halves); `bun run reqs:sync` and
-`python scripts/doorstop-check.py -C`; the compile gate over the edited examples; and re-baked,
-reviewed goldens.
+This record covers part 1: sections 3 and 5 (the removals and the refusal), Rule 9.4 as amended
+and Rule 9.9. Part 2, section 4 (`Math` takes scalars), is pending, so `status` stays `accepted`;
+the pull request that delivers section 4 sets `status: implemented` and extends this record.
+
+Accepted revision: the file as merged in [#878](https://github.com/typeshade/typeshade/pull/878)
+(`main` at `10847cc`), amended by [#895](https://github.com/typeshade/typeshade/pull/895)
+(`c4e99ae`, surface §18 and §28) and [#906](https://github.com/typeshade/typeshade/pull/906)
+(`7f4e916`, TypeNN as a downstream repository). Implementation: pull request
+[#899](https://github.com/typeshade/typeshade/pull/899), branch `claude/0112-removals-v2`, by
+Claude Code agents, superseding #894. The work started from `main` at
+`cb1734749e3ee8c60becf8d993428e45995d6cfd`. Merged into `main` as
+`6229368a0f26290aa3bd45740c02ca247e93d0b9` on 2026-11-02 with the owner's go-ahead.
+
+Commits with `Change: 0112`:
+
+- `e08760af`: the removals, the refusal sentences on both halves (`TS8004`, `TS8022`, `TS8019`),
+  the tests, the surface sections and the §9.3 table.
+- `eb36913f`: surface §18 and §28 examples.
+- `366326d4`: Rule 9.4 amended and Rule 9.9 added; `doorstop review` on `RULE-0904` and
+  `RULE-0909`, `doorstop clear` on `SURF-012`.
+- `afb77e52`: the compile gate's inline sources written without the removed spellings.
+- `c4fa59b9`: merge of `main` at `cdb12dc`. Ten examples and
+  `src/compiler/ts/lower/expression-call.ts` conflicted; each resolution takes `main`'s entry
+  form (change 0111) and keeps this change's spelling. Three files `main` added changed to
+  `.length` (Deviation record).
+- `e4bd9d67`: merge of `main` at `4ace586`. Two code blocks of `docs/use-typeshade-surface.md`
+  conflicted and were resolved the same way.
+
+The two merge commits were made with `--no-verify`: the `commit-msg` check reads a merge against
+its first parent (issue #901), so the commits of `main` showed as changes of this proposal. Each
+message says so. `bun run precommit` passed on the staged files of each, and CI's
+`scripts/changes.ts --base origin/main` read the pull request range, where the diff is this
+change's alone (`change scope` and `source and policy checks` green on `e4bd9d6`).
+
+Delivered configuration on `main` at `6229368`: `docs/language-design.md` (Rules 9.4 and 9.9,
+the §9.3 table, Appendix B), `reqs/` synced, `docs/use-typeshade-surface.md` (the sections in
+the front matter), `src/language-service/ambient.ts` and `docs.ts`, `src/compiler/ts/math-alias.ts`,
+`src/compiler/ts/lower/expression-call.ts` and `expression.ts`, `src/language-service/diagnostics.ts`,
+`src/core/spec-conformance/surface-names.test.ts`, one refusal test per removed name, fifteen
+examples spelled with `**` and four with `.length`, and the re-baked goldens.
+
+Functional validation, by the author session on `afb77e5` (base `cb17347`): `npx vitest run
+src/compiler src/language-service` (206 files, 5498 pass, 1 todo); `bun run build`;
+`bun run format:check`; `bun run docs:refs` (0 dead); `bun run bake:goldens` (353 pass, no
+unstaged golden diff); `gate:compile` (194 examples on Tint, 134 on WebGL2, 0 failures). By the
+merging session on `e4bd9d6`, 2026-11-02: `bun run build`; `bun run format:check`;
+`bun run docs:refs` (0 dead in 1426 files); `vitest run src/compiler src/language-service
+src/core/intrinsic-coverage.test.ts src/doc-references.test.ts` (212 files, 5631 pass, 1 todo);
+`bun run bake:goldens` on `c4fa59b` (354 pass, no golden changed); `bun run gate:compile`
+(195 examples on Tint, 134 on WebGL2, 0 failures); `bun run gate:differential` (class arm
+6 classes, 13 members, every arm 0 failures). CI on `e4bd9d6`: all 26 checks green, among them
+`typecheck + unit`, `traceability (Doorstop)`, `compile gate (Tint + WebGL2)`,
+`user journeys (packed tarball, WebGPU)` and `TypeNN candidate (build + CPU)` against typenn
+`3a7d66c`. On `main` at `6229368`: `downstream` (run 41443217694) and `package compatibility`
+(run 41443217792) green; the `ci` run (41443218087) was cancelled by the next push to `main`
+(`1cb928f`, #926, which holds this change), whose `ci` run stands in for it.
+
+Document validation: `bun run reqs:sync` and `python scripts/doorstop-check.py -C` clean on
+`e4bd9d6`; `RULE-0904` and `RULE-0909` reviewed and `SURF-012` cleared in `366326d`; the
+`Docs-Impact:` trailer of each commit names the locations read. The downstream search of the
+draft missed TypeNN (Deviation record).
+
+Pending: section 4 (`Math` takes scalars, the one sentence of Rule 9.4 and the `ambient-parity`
+`Math` table); the downstream work below.
 
 ## What it owes downstream
 
@@ -274,8 +368,10 @@ reviewed goldens.
   9.6 and 9.9. The repository was not searched; it is outside this session's access.
 - vscode-typeshade: the skill's builtin list, completions and snippets. Not searched, for the same
   reason.
-- typenn: `src/kernels/binary.shade.ts`, five `pow` calls (lines 263, 276, 290, 405 and 407) change
-  to `a ** b` before pull request #899 merges (decision D1). Found by the `TypeNN candidate`
-  check on #899, not by the drafting search; see the deviation record.
+- typenn: `src/kernels/binary.shade.ts`, five `pow` calls (lines 263, 276, 290, 405 and 407)
+  changed to `a ** b` in typenn#26, merged as typenn `3a7d66c` on 2026-11-02, before #899 merged
+  (decision D1). Found by the `TypeNN candidate` check on #899, not by the drafting search; see
+  the deviation record. The gate's pin moved to `3a7d66c` in #909 (`main` at `cd89637`).
+  Still owed: the 0112 record in typenn's `compiler-changes.md` when its pin moves past `6229368`.
 
 Each records 0112 in its `compiler-changes.md` when its pin moves past the implementation.
