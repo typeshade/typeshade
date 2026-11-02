@@ -1,7 +1,7 @@
 ---
 id: '0111'
 title: The host view spells each type with the shader's own name, from a family of host types that `typeshade/runtime` exports one for one with the ambient library's value types, whose values stay the host values of Rule 8.21
-status: draft
+status: accepted
 rules:
   - '8.21'
 surface:
@@ -75,7 +75,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0111, `status: draft`. The front matter is the identity and lifecycle authority. No approval is recorded.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Identity and status           | Proposal 0111, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, reading the listing of proposal 0109: the host view should have types that match one for one what the `.shade.ts` file writes, `array<T>` among them, provided by TypeShade itself, because the spelled-out form is spread out and unpleasant to read, and `vecN` and `matCxR` should be provided as types too ("1:1로 매칭되는거요. TypeShade 자체에서 제공해야할 것 같은데요 너무 펼쳐져있어서 보기 거슬리네요. vecN, matCxR 도 타입으로 제공되어야하지 않을까 싶어요"). The agent reported a design with a prototype that type-checks, and the owner approved the drafting ("승인"). No GitHub issue is recorded.                                        |
 | Applicability / effectivity   | Rule 8.21 of `docs/language-design.md` and its item in `reqs/`; `docs/use-typeshade-surface.md` §64; a new `src/runtime/host-types.ts` exported from `typeshade/runtime` and listed in `src/__api__/surface.md`; `src/compiler/ts/host-face.ts` (`argType`, `resultType`, `constType`, `structBody`, `programType` and the view's import line); `src/compiler/ts/host-face.test.ts` and every test that pins a view's text; a parity test against the ambient library (`src/language-service/ambient.ts`); the examples' generated views. The host values, their checks and `TypeError` texts (`src/core/host-values.ts`), the generated module's code, the GPU tiers and the oracle do not change. No release version is assigned. |
@@ -215,7 +215,7 @@ prototype ran on 5.6.3, and the implementation runs the parity test on every ver
 shards use. The view's import of type-only names from the runtime specifier adds nothing to a
 bundle.
 
-**Decisions to resolve before acceptance.**
+**Decisions, resolved at acceptance** (Approval and plan record).
 
 - **D1.** A result is `readonly` (the draft), so that one name serves an argument and a result,
   or stays a mutable tuple with a second name. The draft takes `readonly`: a program that must
@@ -268,10 +268,20 @@ in typenn or typecv. Duration and cost: unknown, no basis for an estimate.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the actual approval decision and its
-pull request reference, the approved revision of this file with D1 to D6 resolved, assigned
-responsibilities and the required validation evidence named above. No approver, schedule or
-result is recorded here.
+The owner (Seungup) approved the proposal in the Claude Code session on 2026-11-02 (UTC), in
+Korean ("승인", approve), in answer to the agent's report that pull request #876 was green and
+ready for review and that D1 to D6 would be accepted as drafted by that word. D1 to D6 are
+accepted as drafted: a result is `readonly`; the family lives in `typeshade/runtime`; `Resident`
+is inside `array<T>`; `array<T, N>` is `readonly T[]`; a vector's element is the flavored scalar;
+`bool` is flavored as the scalars are. The approved revision is the one this record is part of.
+The merge of [#876](https://github.com/typeshade/typeshade/pull/876) with `status: accepted`
+records the decision.
+
+Responsibilities: an agent of this repository implements the family, the view's spelling, the
+parity test, Rule 8.21 and §64 in pull requests whose commits say `Change: 0111`, before the
+view printer of proposal 0109 is finished, or by changing that printer's spelling in the same
+pull request where 0109 lands first. No milestone date is assigned. No duration or cost estimate
+is established.
 
 ### Configuration and validation record
 
