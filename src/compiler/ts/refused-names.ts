@@ -12,7 +12,10 @@
 // that one reads, whose refusal is then the reason it could not be lowered either. That is
 // checked, not assumed, so a path that dropped a name without saying why still reports every
 // use of it — the silent version of this bug would be a statement quietly missing from a
-// function whose module then compiled.
+// function whose module then compiled. An error stands there when the list the body is lowered
+// into holds it, or when the semantic pass refused a node inside the declaration: it said so once
+// for the file, and a body lowered into a list of its own, as the copy a class inherits is,
+// holds none of that.
 //
 // Which declaration a name resolves to follows TypeScript's own lexical rule: the innermost
 // enclosing block, loop header or parameter list that declares it before the use (a function
@@ -24,6 +27,7 @@
 
 import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
+import { refusalWithin } from './semantic.js';
 
 /** A half-open `[start, end)` UTF-16 range in the file. */
 interface Range {
@@ -254,6 +258,7 @@ function refusedWithReason(
   seen: Set<ts.Node> = new Set(),
 ): boolean {
   if (hasErrorWithin(rangeOf(declaration, sourceFile), sourceFile, diagnostics)) return true;
+  if (refusalWithin(declaration)) return true;
   if (typesNamed(declaration).some((name) => typeRefused(name, sourceFile, diagnostics))) {
     return true;
   }

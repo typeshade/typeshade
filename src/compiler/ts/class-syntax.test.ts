@@ -1002,6 +1002,95 @@ export function run(): f32 {
     expect(editorErrors(fixed)).toEqual([]);
   });
 
+  it('a new this() refused in such a static says nothing more of the object it would have built, in both halves (#973)', () => {
+    // The refusal is said once for the file, where the `new` is written. The static is lowered
+    // again for each class that extends the abstract one, and a call reaches that copy. The four
+    // uses of the object the `new` would have built, a write, a compound write, a call of a method
+    // and a read, say nothing: the `new` is the one mistake, so it is the one diagnostic (Rule 12.4).
+    const said =
+      '"Shape" is abstract, so there is no instance of it to build. Construct a class that extends it.';
+    const src = `"use typeshade";
+abstract class Shape {
+  area: f32 = 0.;
+  grow(by: f32): void {
+    this.area += by;
+  }
+  static fill(): void {
+    const s = new this();
+    s.area = 1.;
+    s.area += 2.;
+    s.grow(1.);
+    const a: f32 = s.area;
+  }
+}
+class Square extends Shape {}
+export function run(): f32 {
+  Square.fill();
+  return 1.;
+}${RUN_TAIL}`;
+    const r = compile(src);
+    expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual([['TS8035', said]]);
+    expect(r.diagnostics[0]!.start).toBe(src.indexOf('new this()'));
+    expect(editorErrors(src)).toEqual([`typeshade TS8035: ${said}`]);
+    // TypeScript's own half is the premise: it refuses the `new` too.
+    expect(editorErrors(src, true)).toEqual([
+      'typescript 2511: Cannot create an instance of an abstract class.',
+      `typeshade TS8035: ${said}`,
+    ]);
+    // A static that returns the object: the sentence about the call (above) and the `new`'s, and
+    // no sentence about `s`.
+    const returned = `"use typeshade";
+abstract class Shape {
+  area: f32 = 0.;
+  static unit(): Shape {
+    const s = new this();
+    s.area = 1.;
+    return s;
+  }
+}
+class Square extends Shape {}
+export function run(): f32 {
+  return Square.unit().area;
+}${RUN_TAIL}`;
+    const call =
+      '"Shape.unit" builds its value with "new this()", so "Square.unit()" returns a Square, but it is declared to return a Shape, which is the type the editor gives the call. Declare the class the call names: static unit<C extends Shape>(this: { new (): C }): C';
+    expect(compile(returned).diagnostics.map((d) => [d.code, d.message])).toEqual([
+      ['TS8035', call],
+      ['TS8035', said],
+    ]);
+    expect(editorErrors(returned)).toEqual([
+      `typeshade TS8035: ${call}`,
+      `typeshade TS8035: ${said}`,
+    ]);
+  });
+
+  it('any refusal of the semantic pass in a copy a class inherits leaves the names it declares unspoken of (#973)', () => {
+    // The `new` is not the whole cause. The check for a name that a refusal already covers reads
+    // the list the body is lowered into, and the copy a class inherits is lowered into a list of
+    // its own. An `await`, which the semantic pass also refuses once for the file, is the same case.
+    const said = 'await is host control flow. Shader functions are synchronous.';
+    const src = `"use typeshade";
+function next(): f32 {
+  return 1.;
+}
+class Base {
+  static make(): f32 {
+    const x = await next();
+    return x;
+  }
+}
+class D extends Base {}
+export function run(): f32 {
+  return D.make();
+}${RUN_TAIL}`;
+    expect(compile(src).diagnostics.map((d) => [d.code, d.message])).toEqual([['TS8013', said]]);
+    expect(editorErrors(src)).toEqual([`typeshade TS8013: ${said}`]);
+    expect(editorErrors(src, true)).toEqual([
+      "typescript 1308: 'await' expressions are only allowed within async functions and at the top levels of modules.",
+      `typeshade TS8013: ${said}`,
+    ]);
+  });
+
   it('an error in the body of such a static is said for each class that extends the abstract one, called or not (#944)', () => {
     // The abstract class has no lowering of the body, so a class that extends it is the only one
     // there is, as with an abstract class's method (Rule 12.4 counts one mistake per class there).

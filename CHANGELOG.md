@@ -1534,6 +1534,16 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A refused `new this()` in a static of an abstract class says nothing more of the object it
+  would have built (#973).** A static without the `this: { new (): C }` parameter of change 0020
+  is refused at its `new` (`TS8035`), as TypeScript refuses it (TS2511). When a class extends the
+  abstract one and a call reaches the copy of the static that class inherits, each use of the
+  object the `new` would have built drew `TS8022` (`Unknown identifier "s"`) beside the one
+  mistake. That copy is lowered into a list of its own. The check for a name that a refusal already
+  covers read only that list, which holds nothing the semantic pass said once for the file. It now
+  asks that pass too, so an `await` or any other refusal of it in such a copy is one diagnostic as
+  well.
+
 - **The host view carries the comment of a field with a private name (#951).** A field written
   `#n` with a JSDoc block above it was declared `private n: u32;` with no comment, where a public
   field, a `protected` one and one written `private` carry theirs (change 0108, item 4). The reader
