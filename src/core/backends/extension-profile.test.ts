@@ -258,10 +258,10 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
     // profile-row deletion is diagnosable (§12 cut-the-mechanism).
     expect((caught as { code?: string }).code).toBe('SD0030');
     expect((caught as { message?: string }).message).toContain('f16');
-    // …and subgroups, the other opt-in language cap, likewise.
-    expect(() => emitGlslModule(fragMod(['subgroups']), 'fragment')).toThrow(
-      UnsupportedFeatureError,
-    );
+    // …while subgroups, the other opt-in language cap, EMITS since change 0117: a subgroup is
+    // one invocation on this target (Rule 11.21), so the row exists and nothing is declared.
+    expect(() => emitGlslModule(fragMod(['subgroups']), 'fragment')).not.toThrow();
+    expect(emitGlslModule(fragMod(['subgroups']), 'fragment')).not.toContain('subgroups');
   });
 
   // ── 7. GREEN-PIN — enables-free byte-neutrality on BOTH backends ──
@@ -295,6 +295,9 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
   it('the GLSL and WGSL capProfiles are pinned row-for-row (incl. the hostFeature column)', () => {
     expect(glslEs300Backend.capProfile).toEqual({
       floatRenderTarget: { hostFeature: 'EXT_color_buffer_float' },
+      // A subgroup is one invocation on this target (change 0117, Rule 11.21): supported
+      // outright, with no directive and no host feature.
+      subgroups: {},
       float32Blend: { hostFeature: 'EXT_float_blend' },
       float32Filterable: { hostFeature: 'OES_texture_float_linear' },
       multiview: { directive: 'GL_OVR_multiview2', hostFeature: 'OVR_multiview2' },

@@ -700,14 +700,16 @@ perspective-divided value in a default run `NaN`, which reads as a bug in the sh
 never runs. Both are keyed by builtin id rather than by stage, so a struct field carrying
 `@builtin("position")` gets the same value a loose parameter does.
 
-Four builtins the front end accepts as an entry input have no row above: `sample_mask` and
-`primitive_index` (fragment), and `subgroup_invocation_id` and `subgroup_size` (compute and
-fragment). (`clip_distances` is a vertex output only, `TS8025` as an input.) Nothing special
-happens to them. The resolver is keyed
-by the entry's OWN declarations rather than by this table, so each of the four is namable where
-an entry declares it, and each reads as the zero of its type when omitted, the same default
-every other omitted input gets. The table is what a reader needs, not what the resolver
-consults.
+Six builtins the front end accepts as an entry input have no row above: `sample_mask` and
+`primitive_index` (fragment), `subgroup_invocation_id` and `subgroup_size` (compute and
+fragment), and `subgroup_id` and `num_subgroups` (compute, change 0117). (`clip_distances` is a
+vertex output only, `TS8025` as an input.) Nothing special happens to the first two. The resolver
+is keyed by the entry's OWN declarations rather than by this table, so each is namable where an
+entry declares it, and each reads as the zero of its type when omitted, the same default every
+other omitted input gets. The four subgroup values take the one-invocation meaning of Rule 11.21
+on a debug run as on the oracle (`src/core/debug/dispatch.ts`): `subgroup_invocation_id` is 0,
+`subgroup_size` is 1, `subgroup_id` is the local invocation index and `num_subgroups` the
+workgroup size. The table is what a reader needs, not what the resolver consults.
 
 For compute, supplying `global_invocation_id` alone is the common case, so three of the others
 are **derived** from it and the entry's workgroup size rather than left at zero:

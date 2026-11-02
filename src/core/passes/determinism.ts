@@ -48,6 +48,7 @@
 import type { Expr, ModuleDecl, ShaderType } from '../ir/index.js';
 import { eachExpr, eachStmtExpr } from '../ir/visit.js';
 import { proveKernels } from './parallel-loop.js';
+import { SUBGROUP_FOLDS, SUBGROUP_LANE_READS } from '../intrinsics.js';
 
 /** Why an operation's result may differ by driver, in WGSL §15.7.4's own categories plus
  *  four of TypeShade's. `ulp` and `absolute` are the spec's numeric bounds (`absolute` also
@@ -278,6 +279,10 @@ const MATRIX_PRODUCT: Readonly<Record<string, DeterminismAccuracy>> = {
  *  `f64Guard`, `f64FromParts`, `f64Parts`). `textureSample` and `textureGather` are checked
  *  first, so the `texture` prefixes here never reach a filtered read. */
 const EXACT_PREFIXES: readonly string[] = [
+  // The subgroup family (change 0117): `min`, `max`, the bit folds, the votes, the ballot and
+  // the election have one answer in any order; a float fold and a read of another lane are
+  // answered by `hitOf` before this column is consulted (`order`, `target`).
+  'subgroup',
   'textureLoad',
   'textureDimensions',
   'textureNum',
@@ -473,6 +478,18 @@ function hitOf(e: Expr): Hit | undefined {
   else return undefined;
   const elem = floatElemOf(e.op === 'call' ? floatReadOf(op, e) : e.type);
   if (elem === undefined) return undefined;
+  // The subgroup family (change 0117, Rule 11.21): a float fold or scan has the order the
+  // device's subgroup gives it, and the oracle and GLSL ES 3.00 fold one lane; a broadcast or a
+  // shuffle whose lane argument is not 0 reads a lane the two tiers do not have (lane 0 is the
+  // one lane they have, and `subgroupBroadcastFirst` reads it). An integer fold has one value in
+  // any order and is not listed; the report is by float kind, so an integer lane read is not
+  // either, which the proposal's record carries as an open deviation (§77).
+  if (SUBGROUP_FOLDS.has(op)) return { op, elem, kind: 'order', accuracy: SUBGROUP_ORDER_BOUND };
+  if (SUBGROUP_LANE_READS.has(op) && e.op === 'call') {
+    const lane = e.args[1];
+    if (lane === undefined || (lane.op === 'lit' && lane.value === 0)) return undefined;
+    return { op, elem, kind: 'target', accuracy: SUBGROUP_LANE_BOUND, note: SUBGROUP_LANE_NOTE };
+  }
   const acc = accuracyOf(op);
   if (elem === 'f64') {
     const listed =
@@ -487,6 +504,16 @@ function hitOf(e: Expr): Hit | undefined {
     ? { op, elem, kind: acc.kind, accuracy: acc.bound }
     : { op, elem, kind: acc.kind, accuracy: acc.bound, note: acc.note };
 }
+
+/** The bound of a subgroup fold's `order` row (change 0117): the device folds its subgroup in
+ *  its own order, and the oracle and GLSL ES 3.00 fold one lane. */
+const SUBGROUP_ORDER_BOUND =
+  "the order the device folds its subgroup in, which differs by device and by subgroup size; on the CPU oracle and on GLSL ES 3.00 a subgroup is one invocation (Rule 11.21), so the fold is the lane's own value";
+/** The bound of a subgroup broadcast's or shuffle's `target` row (change 0117). */
+const SUBGROUP_LANE_BOUND =
+  "the named lane's value on WebGPU; on the CPU oracle and on GLSL ES 3.00 a subgroup is one invocation (Rule 11.21), so the call gives the lane's own value";
+const SUBGROUP_LANE_NOTE =
+  'a program that reads another lane computes something else on a subgroup of one; a read of lane 0 is not listed, since that is the lane the two tiers have, and an integer read differs the same way and is not listed, since this report is by float kind';
 
 /** The bound of an `order` row (surface §38). */
 const ORDER_BOUND =

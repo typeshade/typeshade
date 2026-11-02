@@ -161,11 +161,12 @@ bun scripts/bench-reduction-barrier.mjs --base /path/to/baseline --samples 61 --
 A kernel function that reduces folds each workgroup's 256 values by the workgroup tree: eight
 barriers per workgroup, then one dispatch per level of partials (`src/core/kernel-tree.ts`,
 Rule 7.2). WGSL's `subgroups` extension folds a subgroup's lanes in one instruction with no
-barrier. Subgroup operations are placed after 1.0 (`docs/roadmap.md`), and #536 asks for them
-with a use in view: a subgroup fold before `atomicAdd`. Before a proposal spends a design on
-either, `bun run bench:subgroup-reduce` (`scripts/bench-subgroup-reduce.ts`) measures what the
-change would buy on the device it runs on. It is a measurement, not a gate: it enforces no
-threshold.
+barrier. Change 0117 gives an author the subgroup functions to write by hand (surface §77,
+`examples/subgroup-reduce.shade.ts`), and #536 asked for them with this use in view: a subgroup
+fold before `atomicAdd`. A fold the compiler emits on its own is not part of that change, so
+before a proposal spends a design on one, `bun run bench:subgroup-reduce`
+(`scripts/bench-subgroup-reduce.ts`) measures what it would buy on the device it runs on. It is a
+measurement, not a gate: it enforces no threshold.
 
 **What it runs.** Two families, every variant in the compiler's own binding layout, with the same
 dispatches and the same uniform words, so the only difference timed is the fold.

@@ -93,7 +93,11 @@ import { lowerStatements, lowerVoidArrowBody } from './statement.js';
 import { lowerExpression } from './expression.js';
 import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js';
-import { ATOMIC_INTRINSICS, isBarrierIntrinsic } from '../../../core/intrinsics.js';
+import {
+  ATOMIC_INTRINSICS,
+  isBarrierIntrinsic,
+  SUBGROUP_INTRINSICS,
+} from '../../../core/intrinsics.js';
 import { diagnosticAtSpan, makeDiagnostic } from '../diagnostic.js';
 import { spanOf, withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
@@ -1817,6 +1821,9 @@ export const FRAGMENT_ONLY_CALLS: ReadonlySet<string> = new Set([
 export const FRAGMENT_OR_COMPUTE_CALLS: ReadonlySet<string> = new Set([
   'textureStore',
   ...Object.keys(ATOMIC_INTRINSICS),
+  // The subgroup built-in functions (change 0117): `core.def` stages every one
+  // `fragment, compute`, and a vertex stage has no subgroup to fold.
+  ...SUBGROUP_INTRINSICS,
 ]);
 
 /** Why a call of {@link FRAGMENT_OR_COMPUTE_CALLS} is not in a vertex shader, by family. The
@@ -1827,9 +1834,11 @@ const whyNotVertex = (op: string): string =>
     ? `WGSL allows a texture write in a fragment or compute stage only.`
     : ATOMIC_NAMES.has(op)
       ? `WGSL allows an atomic built-in in a fragment or compute stage only.`
-      : `A storage texture declared "read_write" must not be reached from a vertex stage at ` +
-        `all, so reading or measuring one there is refused with writing it. (A "write" one ` +
-        `refuses the read itself, whatever the stage.)`;
+      : SUBGROUP_INTRINSICS.has(op)
+        ? `WGSL allows a subgroup built-in function in a fragment or compute stage only.`
+        : `A storage texture declared "read_write" must not be reached from a vertex stage at ` +
+          `all, so reading or measuring one there is refused with writing it. (A "write" one ` +
+          `refuses the read itself, whatever the stage.)`;
 
 const ATOMIC_NAMES: ReadonlySet<string> = new Set(Object.keys(ATOMIC_INTRINSICS));
 

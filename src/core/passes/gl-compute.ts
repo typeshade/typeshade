@@ -813,6 +813,15 @@ export function buildGlCompute(
         return ref('wid', vec3uT);
       case 'num_workgroups':
         return v3(nwg(0), nwg(1), nwg(2));
+      // A subgroup is one invocation on this target (Rule 11.21, change 0117).
+      case 'subgroup_invocation_id':
+        return lit(0);
+      case 'subgroup_size':
+        return lit(1);
+      case 'subgroup_id':
+        return lidx;
+      case 'num_subgroups':
+        return lit(size[0] * size[1] * size[2]);
       case 'global_invocation_id':
         return {
           op: 'binop',

@@ -49,6 +49,7 @@ import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js';
 import { lowerAtomicCall } from './atomics.js';
 import { lowerCollectionCall } from './collections.js';
 import { lowerWorkgroupUniformLoad } from './barriers.js';
+import { lowerSubgroupCall } from './subgroups.js';
 import { lowerClassCall } from './class-methods.js';
 import { MAT_CTOR, VEC_CTOR, isValueConstructor, type VecCtorElem } from './constructors.js';
 import { isArrayMethod, lowerArrayMethod, otherArrayMethod } from './array-methods.js';
@@ -58,6 +59,7 @@ import {
   isAtomicIntrinsic,
   isBarrierIntrinsic,
   PACKED_4X8_IDS,
+  SUBGROUP_INTRINSICS,
 } from '../../../core/intrinsics.js';
 import { divergentIntegerId } from '../../../core/ir/divergent-int.js';
 import { lowerArrayCtor, lowerArrayFold, lowerFill } from './expression-array.js';
@@ -558,6 +560,7 @@ export function lowerCall(
         name === 'mod' ||
         TEXTURE_CALLS.has(name) ||
         BIT_CALLS.has(name) ||
+        SUBGROUP_INTRINSICS.has(name) ||
         isCanonicalMathFn(name)
       )
         intrinsicId = name;
@@ -840,6 +843,11 @@ export function lowerCall(
   }
   if (intrinsicId !== undefined && BIT_CALLS.has(intrinsicId)) {
     return lowerBitBuiltinCall(intrinsicId, args, node, sourceFile, diagnostics);
+  }
+  // The subgroup family (change 0117): its own file, since its rows take a bool, answer a
+  // `vec4<u32>`, take a lane, or take nothing, which the math path's shapes do not cover.
+  if (intrinsicId !== undefined && SUBGROUP_INTRINSICS.has(intrinsicId)) {
+    return lowerSubgroupCall(intrinsicId, args, node, sourceFile, diagnostics);
   }
   if (!intrinsicId) {
     // A callee that is not a name (`(f)(x)`, `f()(x)`): a name was answered above.
@@ -2814,6 +2822,7 @@ export function builtinCalleeNames(): readonly string[] {
       ...Object.keys(MATH_EXPAND_ALIAS),
       ...TEXTURE_CALLS,
       ...BIT_CALLS,
+      ...SUBGROUP_INTRINSICS,
       ...[...Object.keys(MATH_FN_ARITY), ...Object.values(MATH_FN_ALIAS)].filter(isCanonicalMathFn),
     ]),
   ];
