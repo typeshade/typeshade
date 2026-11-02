@@ -139,10 +139,10 @@ export function lowerReferenceArgument(
     diagnostics.push(makeDiagnostic(sourceFile, node, message, TS_CODES.REFERENCE));
     return undefined;
   };
-  const qualifier = isOutParam(param) ? '@out' : '@inout';
+  const qualifier = isOutParam(param) ? 'out' : 'inout';
   const takes =
-    `"${shown}" writes "${param.name}" back to the caller (${qualifier} ` +
-    `${param.name}: ${authorTypeText(param.type)})`;
+    `"${shown}" writes "${param.name}" back to the caller ` +
+    `(${param.name}: ${qualifier}<${authorTypeText(param.type)}>)`;
   const place = bare(arg);
   // A qualified parameter the caller holds is passed on as the same place (Rule 8.25), and so is
   // one a local function captures, which the local function then takes by reference (Rule 8.17).
@@ -167,8 +167,8 @@ export function lowerReferenceArgument(
       return push(
         place,
         `${takes}, and "${root.text}" is a parameter that holds a copy of its caller's value, ` +
-          `which this function cannot hand on as a place. Declare it "@inout ${root.text}: ` +
-          `${authorTypeText(b.type)}" to pass its caller's place on, or copy it into a let.`,
+          `which this function cannot hand on as a place. Declare it "${root.text}: ` +
+          `inout<${authorTypeText(b.type)}>" to pass its caller's place on, or copy it into a let.`,
       );
     }
     // `const v = new V(); f(v)`: a `const` that holds a value nothing else does is written

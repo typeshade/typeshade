@@ -2313,8 +2313,9 @@ export function parseParams(
         diagnostics,
         sourceFile,
         p.type,
-        `"${p.name.text}" is @${referenced}, and a ${pType.kind} is a handle to a resource, ` +
-          `not a place a function writes. Remove "@${referenced}" to take it by value.`,
+        `"${p.name.text}" is ${referenced}<T>, and a ${pType.kind} is a handle to a resource, ` +
+          `not a place a function writes. Declare it "${p.name.text}: ${authorTypeText(pType)}" to take it ` +
+          `by value.`,
         TS_CODES.REFERENCE,
       );
       return undefined;
@@ -2396,8 +2397,8 @@ export function parseParams(
         diagnostics,
         sourceFile,
         p,
-        `@interpolate belongs on a @location parameter: it says how a VARYING is interpolated, ` +
-          `and a @builtin carries its own rule.`,
+        `The interpolate option belongs on a location<…> parameter: it says how a VARYING is ` +
+          `interpolated, and a builtin<…> carries its own rule.`,
         TS_CODES.ATTRIBUTE_NAME,
       );
     }
@@ -2414,8 +2415,8 @@ export function parseParams(
           diagnostics,
           sourceFile,
           p,
-          `"${p.name.text}" is at a @location on a compute entry, which has no user IO: a ` +
-            `compute shader reads its work from resources and the @builtin invocation ids.`,
+          `"${p.name.text}" is at a location<…> on a compute entry, which has no user IO: a ` +
+            `compute shader reads its work from resources and the builtin<…> invocation ids.`,
           TS_CODES.STRUCT_FIELD_MISSING_ATTR,
         );
       }
@@ -2429,8 +2430,8 @@ export function parseParams(
           diagnostics,
           sourceFile,
           p,
-          `"${fnName}" puts "${prior}" and "${p.name.text}" both at @location(` +
-            `${String(location)}); each slot carries one value.`,
+          `"${fnName}" puts "${prior}" and "${p.name.text}" both at location<` +
+            `${String(location)}, …>; each slot carries one value.`,
           TS_CODES.STRUCT_FIELD,
         );
       } else paramLocations.set(location, p.name.text);
@@ -2469,7 +2470,7 @@ function refuseQualifiedParameter(
     return {
       at: qualifiers[1]!.node,
       message:
-        `"${name}" carries ${qualifiers.map((q) => `@${q.name}`).join(' and ')}, and a ` +
+        `"${name}" carries ${qualifiers.map((q) => `${q.name}<T>`).join(' and ')}, and a ` +
         `parameter takes one qualifier. Keep the one that says what the function does with it.`,
     };
   }
@@ -2486,7 +2487,7 @@ function refuseQualifiedParameter(
     return {
       at: first.node,
       message:
-        `"${name}" is @${first.name}, and ${site} takes its parameters by value. A ` +
+        `"${name}" is ${first.name}<T>, and ${site} takes its parameters by value. A ` +
         `parameter that names the caller's place belongs to a function declared at the top ` +
         `of the file or of a namespace (Rule 8.25): move the code that changes the caller's ` +
         `value into one, or take the value and return the result.`,
@@ -2496,7 +2497,7 @@ function refuseQualifiedParameter(
     return {
       at: p.initializer,
       message:
-        `"${name}" is @${first.name}, which names the place a call hands over; a default is a ` +
+        `"${name}" is ${first.name}<T>, which names the place a call hands over; a default is a ` +
         `value and names no place. Remove the default, and pass a variable at every call.`,
     };
   }
@@ -2921,8 +2922,8 @@ function refuseVertexWithoutPosition(
       diagnostics,
       sourceFile,
       node,
-      `"${name}" is a @vertex entry, so what it returns has to carry the position: give ` +
-        `"${authorTypeText(ret)}" a field with @builtin("position"), typed vec4.`,
+      `"${name}" is a vertex entry, so what it returns has to carry the position: give ` +
+        `"${authorTypeText(ret)}" a field typed builtin<"position", vec4>.`,
       TS_CODES.FUNCTION_SHAPE,
     );
     return;
@@ -2931,8 +2932,8 @@ function refuseVertexWithoutPosition(
     diagnostics,
     sourceFile,
     node,
-    `"${name}" is a @vertex entry, so it returns the position: a vec4, which takes ` +
-      `@builtin("position") on its own, or a struct with a vec4 field that carries it. ` +
+    `"${name}" is a vertex entry, so it returns the position: a vec4, which is the position ` +
+      `on its own, or a struct with a field typed builtin<"position", vec4>. ` +
       `${typeKey(ret) === 'void' ? 'It returns nothing' : `It returns ${authorTypeText(ret)}`}.`,
     TS_CODES.FUNCTION_SHAPE,
   );
@@ -3700,20 +3701,26 @@ function settleKernelWorkgroup(
     if (diagnostics.some((x) => x.start === start && x.message === message)) return;
     diagnostics.push(makeDiagnostic(sourceFile, d, message, code, category));
   };
+  // Each message names the stage call, the form an author writes (change 0111), whichever form
+  // was written; the decorated form has its own warning (TS8028).
   if (!kernel || !isExported(node)) {
     once(
-      call
-        ? `"workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Declare "${node.name?.text ?? 'this function'}" without it.`
-        : `"@workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Remove it from "${node.name?.text ?? 'this function'}".`,
+      `"workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Declare "${node.name?.text ?? 'this function'}" without it.`,
       TS_CODES.ATTRIBUTE_NAME,
     );
     return undefined;
   }
   if (attr.size === undefined) {
+    // The argument as written: the call's first, or the decorator's list.
+    const args = call
+      ? d.arguments.slice(0, 1)
+      : ts.isCallExpression(d.expression)
+        ? d.expression.arguments
+        : [];
+    const written =
+      args.length === 0 ? d.getText(sourceFile) : args.map((a) => a.getText(sourceFile)).join(', ');
     once(
-      call
-        ? `workgroup_size takes an array of one whole number before its function, as "workgroup_size([64], f)", or a module constant in it, as "workgroup_size([TILE], f)"; "${d.arguments[0]?.getText(sourceFile) ?? ''}" is not one.`
-        : `@workgroup_size takes an array of one whole number on a kernel function, as "@workgroup_size([64])", or a module constant in it, as "@workgroup_size([TILE])"; "${d.getText(sourceFile)}" is not one.`,
+      `workgroup_size takes an array of one whole number before its function, as "workgroup_size([64], f)", or a module constant in it, as "workgroup_size([TILE], f)"; "${written}" is not one.`,
       TS_CODES.WORKGROUP_ARG,
     );
     return undefined;
@@ -3722,7 +3729,7 @@ function settleKernelWorkgroup(
   const over = overDefaultWorkgroupLimit(shape);
   if (over !== undefined)
     once(
-      `${call ? 'workgroup_size' : '@workgroup_size'} shape [${attr.size}, 1, 1] ${over}. WebGPU guarantees no more, so a device requested without raising that limit refuses the pipeline.`,
+      `workgroup_size shape [${attr.size}, 1, 1] ${over}. WebGPU guarantees no more, so a device requested without raising that limit refuses the pipeline.`,
       TS_CODES.WORKGROUP_SHAPE,
       'warning',
     );
@@ -3760,11 +3767,7 @@ function parseStage(
   // used to fall through to 64 with no diagnostic — `@compute({ workgroup: [8, 8, 1] })`,
   // `@compute(128)`, `@compute(SIZE)` — so the author asked for one size and dispatched against
   // another. It is reported now, at the argument.
-  const readCompute = (
-    args: readonly ts.Expression[],
-    anchor: ts.Node,
-    form: 'decorator' | 'call',
-  ): void => {
+  const readCompute = (args: readonly ts.Expression[], anchor: ts.Node): void => {
     stage = 'compute';
     workgroupShape = [64, 1, 1];
     if (args.length > 0) {
@@ -3828,11 +3831,9 @@ function parseStage(
           diagnostics,
           sourceFile,
           args[0]!,
-          form === 'call'
-            ? `compute takes an array of one to three whole numbers before its function, ` +
-                `"compute([64, 1, 1], f)"; "${written}" is not a workgroup shape.`
-            : `@compute takes an array of one to three whole numbers, "@compute([64, 1, 1])", or ` +
-                `no argument for the default of 64; "${written}" is not a workgroup shape.`,
+          // The stage call's spelling, whichever form was written (change 0111).
+          `compute takes an array of one to three whole numbers before its function, ` +
+            `"compute([64, 1, 1], f)"; "${written}" is not a workgroup shape.`,
           TS_CODES.WORKGROUP_ARG,
         );
       } else {
@@ -3846,7 +3847,7 @@ function parseStage(
             makeDiagnostic(
               sourceFile,
               anchor,
-              `${form === 'call' ? 'compute' : '@compute'} workgroup shape [${sizes.join(', ')}] ${over}. WebGPU guarantees no ` +
+              `compute workgroup shape [${sizes.join(', ')}] ${over}. WebGPU guarantees no ` +
                 `more, so a device requested without raising that limit refuses the pipeline.`,
               TS_CODES.WORKGROUP_SHAPE,
               'warning',
@@ -3861,8 +3862,7 @@ function parseStage(
   const sc = stageCallOfDeclaration(node);
   if (sc !== undefined) {
     if (sc.callee === 'workgroup_size') kernelWorkgroup = kernelWorkgroupOf(sc.call, consts);
-    else if (sc.callee === 'compute')
-      readCompute(sc.size === undefined ? [] : [sc.size], sc.call, 'call');
+    else if (sc.callee === 'compute') readCompute(sc.size === undefined ? [] : [sc.size], sc.call);
     else if (sc.callee !== 'numerics') stage = sc.callee;
     numerics = numericsOf(sc);
   }
@@ -3883,7 +3883,7 @@ function parseStage(
     if (/^@vertex\b/.test(text)) stage = 'vertex';
     else if (/^@fragment\b/.test(text)) stage = 'fragment';
     else if (/^@compute\b/.test(text)) {
-      readCompute(ts.isCallExpression(d.expression) ? d.expression.arguments : [], d, 'decorator');
+      readCompute(ts.isCallExpression(d.expression) ? d.expression.arguments : [], d);
     }
   }
   return {
@@ -3949,15 +3949,9 @@ function checkStructBuiltinFields(
   if (!collected) return;
   // The struct as the author wrote it, `N.VOut` for the `N_VOut` a namespace's class emits as.
   const shown = authorTypeText(structT(structName));
-  // Only a class can carry the decorator the message asks for: writing `@location(0)` on an
-  // interface or type-literal member is a TypeScript syntax error, so telling that author to
-  // add one names a fix they cannot apply. Say what they can do instead.
-  const remedy =
-    collected.spelling === 'class'
-      ? `WGSL requires every entry ${direction} struct member to declare one.`
-      : `WGSL requires every entry ${direction} struct member to declare one, and ` +
-        `${collected.spelling === 'interface' ? 'an interface' : 'a type alias'} member cannot ` +
-        `carry a decorator — declare "${structName}" as a class.`;
+  // A class, an interface and a type alias each carry the attribute in a field's type
+  // (change 0111), so one remedy fits every spelling.
+  const remedy = `WGSL requires every entry ${direction} struct member to declare one.`;
   // The slot-collision and varying-type rules read the struct alone and live in `structs.ts`,
   // which sees each declaration once: raised here they printed one mistake twice, because a
   // vertex output and a fragment input are the SAME struct. What is left below reads the
@@ -3972,9 +3966,9 @@ function checkStructBuiltinFields(
         diagnostics,
         sourceFile,
         node,
-        `Struct "${shown}" field "${field.name}" is at a @location and "${shown}" is ` +
+        `Struct "${shown}" field "${field.name}" is at a location<…> and "${shown}" is ` +
           `a compute entry ${direction}, which has no user IO: a compute shader reads its work ` +
-          `from resources and the @builtin invocation ids.`,
+          `from resources and the builtin<…> invocation ids.`,
         TS_CODES.STRUCT_FIELD_MISSING_ATTR,
       );
       continue;
@@ -3985,7 +3979,7 @@ function checkStructBuiltinFields(
         sourceFile,
         node,
         `Struct "${shown}" field "${field.name}" is used as a ${stage} ${direction} but ` +
-          `has neither @builtin(...) nor @location(...): ${remedy}`,
+          `has neither a builtin<…> nor a location<…> type: ${remedy}`,
         TS_CODES.STRUCT_FIELD_MISSING_ATTR,
       );
       continue;

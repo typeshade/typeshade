@@ -89,8 +89,8 @@ export function interpolateDecoratorArg(
         makeDiagnostic(
           sourceFile,
           d,
-          `@interpolate takes a type, and optionally a sampling, as strings: ` +
-            `@interpolate("flat") or @interpolate("linear", "centroid").`,
+          `interpolate takes a type, and optionally a sampling, as strings: ` +
+            `{ interpolate: "flat" } or { interpolate: ["linear", "centroid"] }.`,
           TS_CODES.ATTRIBUTE_NAME,
         ),
       );
@@ -102,7 +102,7 @@ export function interpolateDecoratorArg(
         makeDiagnostic(
           sourceFile,
           d,
-          `@interpolate type "${type}" is not one WGSL has: ` +
+          `interpolate type "${type}" is not one WGSL has: ` +
             `${Object.keys(INTERPOLATE_TYPES).join(', ')}.`,
           TS_CODES.ATTRIBUTE_NAME,
         ),
@@ -114,7 +114,7 @@ export function interpolateDecoratorArg(
         makeDiagnostic(
           sourceFile,
           d,
-          `@interpolate("${type}") takes the sampling ${samplings.join(' or ')}, ` +
+          `interpolate type "${type}" takes the sampling ${samplings.join(' or ')}, ` +
             `not "${sampling}".`,
           TS_CODES.ATTRIBUTE_NAME,
         ),
@@ -211,8 +211,8 @@ export const WGSL_MEMBER_ATTRIBUTES: readonly string[] = ['size', 'align'];
 export const WGSL_ATTRIBUTES_ELSEWHERE: ReadonlyMap<string, string> = new Map(
   Object.entries({
     workgroup_size:
-      '"@workgroup_size" is WGSL\'s attribute, written here as @compute\'s argument: ' +
-      '@compute([64]) or @compute([8, 8]).',
+      '"@workgroup_size" is WGSL\'s attribute, written here as compute\'s first argument: ' +
+      'compute([64], f) or compute([8, 8], f).',
     size:
       '"@size" is WGSL\'s attribute, and is not applied: a field takes the size WGSL\'s layout ' +
       'gives its type, which reflect() reports. Add a field where you need padding.',
@@ -388,8 +388,8 @@ export function checkLocationType(
       makeDiagnostic(
         sourceFile,
         node,
-        `"${name}" is "${authorTypeText(type)}" at a @location, so its interpolation is "flat"; ` +
-          `@interpolate(${interpolate}) is not one an integer has. Drop the attribute — it is ` +
+        `"${name}" is "${authorTypeText(type)}" at a location, so its interpolation is "flat"; ` +
+          `"${interpolate}" is not one an integer has. Drop the interpolate option — it is ` +
           `derived from the type — or send an f32.`,
         TS_CODES.TYPE_MISMATCH,
       ),
@@ -410,7 +410,7 @@ export function checkLocationType(
     makeDiagnostic(
       sourceFile,
       node,
-      `"${name}" is at a @location and is "${authorTypeText(type)}"; a value passed between stages ` +
+      `"${name}" is at a location and is "${authorTypeText(type)}"; a value passed between stages ` +
         `is a numeric scalar or a numeric vector. ` +
         (typeKey(type) === 'bool' || (type.kind === 'vec' && type.elem === 'bool')
           ? 'Send a u32 and compare it.'
