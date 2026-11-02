@@ -1548,6 +1548,42 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A refused `new this()` in a static of an abstract class says nothing more of the object it
+  would have built (#973).** A static without the `this: { new (): C }` parameter of change 0020
+  is refused at its `new` (`TS8035`), as TypeScript refuses it (TS2511). When a class extends the
+  abstract one and a call reaches the copy of the static that class inherits, each use of the
+  object the `new` would have built drew `TS8022` (`Unknown identifier "s"`) beside the one
+  mistake. That copy is lowered into a list of its own. The check for a name that a refusal already
+  covers read only that list, which holds nothing the semantic pass said once for the file. It now
+  asks that pass too, so an `await` or any other refusal of it in such a copy is one diagnostic as
+  well.
+
+- **The host view gives the static builder of an abstract class the reason the compiler gives
+  (#974).** A static of an `abstract` class that builds its value with `new this()` under the
+  `this` parameter of change 0020 has no function of the abstract class: it is lowered for each
+  class that extends it (#944). The view declared it `static at: never` with the reason of every
+  member that was not lowered, `it was not lowered to one function of the module`, and the
+  generated module threw that. The reason is now the sentence `TS8035` gives a call through the
+  abstract class, with the first exported class that extends it:
+
+  ```text
+  "Oscillator.at()" builds its value with "new this()", and "Oscillator" is abstract, so there is no instance of it to build. Call it through a class that extends it, "Saw.at()".
+  ```
+
+  The editor's hover over the member in a host program shows it, and so does the `TypeError` of a
+  call. An exported abstract class that extends another declares the static again, with its own
+  name in the sentence.
+
+- **An instance of a generic function of the top level, and a static field inside an index, are
+  worded as the author wrote them (#972).** After #955 the `TS8070` sentence names `Ns.pick` for an
+  instance of a generic function of a namespace, but an instance of one of the top level and the
+  copy of a top-level function that takes a function kept the name the module emits: `"pick_u32"`
+  and `"apply_inc"`. They now record the name of the function they are made from, `pick` and
+  `apply`, with no type arguments, as `Ns.pick` has none. The reason a fuse scope gives for two
+  dispatches printed a static field that nothing writes, a module constant, with the name the module
+  emits, ``gather reads `t[i + Voice_OFFSET]` ``, and now prints `t[i + Voice.OFFSET]`. A static
+  field a derived class inherits is named by the class that declares it.
+
 - **The host view carries the comment of a field with a private name (#951).** A field written
   `#n` with a JSDoc block above it was declared `private n: u32;` with no comment, where a public
   field, a `protected` one and one written `private` carry theirs (change 0108, item 4). The reader

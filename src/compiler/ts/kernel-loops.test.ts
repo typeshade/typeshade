@@ -270,6 +270,56 @@ export function count(a: array<u32>) {
 }`,
     'This loop runs on the CPU because line 13 calls "A.B.pick", which writes "calls". Return the value from "A.B.pick" and combine it in the loop instead.',
   ],
+  // #972: the same for a generic function of the top level and a function of the top level that
+  // takes a function. The instance `pick_u32` and the copy `apply_inc` are made where a call asks
+  // for them, and the sentence names the function the author wrote, `pick` and `apply`, as it names
+  // `Ns.pick`. The type arguments are left out: the author edits the one function, and may have
+  // written no type argument at all.
+  [
+    'R5, an instance of a generic function of the top level that writes a module variable',
+    `let calls: u32 = 0;
+function pick<T>(x: T): T {
+  calls += 1;
+  return x;
+}
+export function count(a: array<u32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = pick(a[i]);
+  }
+}`,
+    'This loop runs on the CPU because line 9 calls "pick", which writes "calls". Return the value from "pick" and combine it in the loop instead.',
+  ],
+  [
+    'R5, an instance whose type arguments the call writes is named without them',
+    `let calls: u32 = 0;
+function pick<T>(x: T): T {
+  calls += 1;
+  return x;
+}
+export function count(a: array<u32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = pick<u32>(a[i]);
+  }
+}`,
+    'This loop runs on the CPU because line 9 calls "pick", which writes "calls". Return the value from "pick" and combine it in the loop instead.',
+  ],
+  [
+    'R5, a copy of a function of the top level that takes a function and writes a module variable',
+    `let calls: u32 = 0;
+function inc(x: u32): u32 {
+  return x + 1;
+}
+function apply(f: (x: u32) => u32, x: u32): u32 {
+  calls += 1;
+  return f(x);
+}
+export function count(a: array<u32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = apply(inc, a[i]);
+  }
+}`,
+    'This loop runs on the CPU because line 12 calls "apply", which writes "calls". Return the value from "apply" and combine it in the loop instead.',
+  ],
   [
     'R6, a console call',
     `export function noisy(a: array<f32>) {
@@ -852,6 +902,48 @@ describe("the first access that is not at the loop counter, in the author's word
       't[shift(i)]',
     );
     expect(worded(reading('', 'min(i + 1, 3)'), 'f', 't')?.text).toBe('t[min(i + 1, 3)]');
+  });
+
+  it("prints a static field in the index with the author's name for it (#972)", () => {
+    // A static field that nothing writes is the module constant `Voice_OFFSET`, and one the file
+    // writes is the module variable `Voice_count`; the report says `Voice.OFFSET` and `Voice.count`.
+    const reading = (declaration: string, index: string): string =>
+      `${declaration}\nexport function f(out: array<f32>, t: array<f32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = t[${index}];\n  }\n}`;
+    expect(
+      worded(reading('class Voice {\n  static OFFSET: u32 = 1;\n}', 'i + Voice.OFFSET'), 'f', 't')
+        ?.text,
+    ).toBe('t[i + Voice.OFFSET]');
+    expect(
+      worded(
+        reading('class Voice {\n  static readonly OFFSET: u32 = 1;\n}', 'i + Voice.OFFSET'),
+        'f',
+        't',
+      )?.text,
+    ).toBe('t[i + Voice.OFFSET]');
+    // The static field the file writes was named already, and still is.
+    expect(
+      worded(
+        reading(
+          'class Voice {\n  static count: u32 = 1;\n  static bump(): void {\n    Voice.count += 1;\n  }\n}',
+          'i + Voice.count',
+        ),
+        'f',
+        't',
+      )?.text,
+    ).toBe('t[i + Voice.count]');
+    // A constant of the top level keeps its own name, also one named like a static field that its
+    // class does not declare.
+    expect(worded(reading('const K: u32 = 1;', 'i + K'), 'f', 't')?.text).toBe('t[i + K]');
+    expect(
+      worded(
+        reading(
+          'const Voice_OFFSET: u32 = 1;\nclass Voice {\n  static ON: u32 = 1;\n}',
+          'i + Voice_OFFSET',
+        ),
+        'f',
+        't',
+      )?.text,
+    ).toBe('t[i + Voice_OFFSET]');
   });
 
   it('prints a length as the author wrote it, `xs.length`, and not as the IR spells it', () => {

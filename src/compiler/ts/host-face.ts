@@ -85,6 +85,7 @@ import { emittedStructDecls, type CollectedStruct } from './structs.js';
 import {
   accessorFnName,
   baseClassOf,
+  buildsCallerClass,
   emittedMemberName,
   holdsFunction,
   isPrivateName,
@@ -95,7 +96,7 @@ import {
   returnsThis,
   writtenMemberName,
 } from './class-names.js';
-import { ctorFnName, methodFnName } from './lower/class-methods.js';
+import { abstractBuilderText, ctorFnName, methodFnName } from './lower/class-methods.js';
 import { staticConstName } from './module-const.js';
 import { authorTypeText } from './context.js';
 import { HANDLE_TYPE_NAMES, SUPPORTED_TYPE_NAMES } from './type-map.js';
@@ -2244,23 +2245,45 @@ function memberCall(
   return { fn: f.name, params, result, writes: object?.mode === 'inout', self: self && own };
 }
 
+/** Whether the struct `x` extends `struct`, directly or through the classes between. */
+function extendsStruct(
+  x: CollectedStruct,
+  struct: string,
+  byName: ReadonlyMap<string, CollectedStruct>,
+): boolean {
+  const seen = new Set<string>();
+  for (let at = x.bases?.[0]; at !== undefined && !seen.has(at); at = byName.get(at)?.bases?.[0]) {
+    if (at === struct) return true;
+    seen.add(at);
+  }
+  return false;
+}
+
 /** The first concrete struct that extends `struct`, whose functions run an abstract class's
  *  bodies (Rule 8.9): an abstract class has none of its own. */
 function concreteBelow(struct: string, c: FaceCtx): string | undefined {
   const byName = new Map(c.collected.map((x) => [x.decl.name, x]));
-  return c.collected.find((x) => {
-    if (x.abstract === true || x.namespace === true) return false;
-    const seen = new Set<string>();
-    for (
-      let at = x.bases?.[0];
-      at !== undefined && !seen.has(at);
-      at = byName.get(at)?.bases?.[0]
-    ) {
-      if (at === struct) return true;
-      seen.add(at);
-    }
-    return false;
-  })?.decl.name;
+  return c.collected.find(
+    (x) => x.abstract !== true && x.namespace !== true && extendsStruct(x, struct, byName),
+  )?.decl.name;
+}
+
+/** The name a host imports for the first exported class that extends `struct`, is not abstract
+ *  and is a class in the view: the class a static builder of `struct` is called through, since
+ *  that static is lowered for the classes that extend `struct` alone (Rule 8.13). */
+function exportedBelow(struct: string, c: FaceCtx): string | undefined {
+  const byName = new Map(c.collected.map((x) => [x.decl.name, x]));
+  for (const ref of exportsOf(c.sf)) {
+    const decl = ref.decl;
+    if (decl === undefined || !ts.isClassDeclaration(decl) || decl.name === undefined) continue;
+    if ((decl.typeParameters?.length ?? 0) > 0) continue;
+    const x = byName.get(decl.name.text);
+    if (x === undefined || x.abstract === true || x.namespace === true) continue;
+    if (!extendsStruct(x, struct, byName)) continue;
+    if ('none' in hostTypeOf({ kind: 'struct', name: x.decl.name }, c.structs)) continue;
+    return ref.name;
+  }
+  return undefined;
 }
 
 /** The members of an exported class a host reaches: each public method, field that holds a
@@ -2270,6 +2293,7 @@ function concreteBelow(struct: string, c: FaceCtx): string | undefined {
  *  this class (`Circle_area`, an inherited body lowered again for it), so a call dispatches as
  *  TypeScript does; an abstract class runs the functions of a class below it, for their types. */
 function classMembers(
+  name: string,
   decl: ts.ClassDeclaration,
   struct: CollectedStruct,
   c: FaceCtx,
@@ -2330,8 +2354,14 @@ function classMembers(
       }
       const fn = holder ? (m.initializer as ts.ArrowFunction | ts.FunctionExpression) : m;
       const self = !isStatic && ts.isMethodDeclaration(m) && returnsThis(m.body);
-      const call =
-        owner === undefined
+      // A static of an abstract class that builds its value with `new this()` under the `this`
+      // parameter of change 0020 has no function of its own: it is lowered for each class that
+      // extends the abstract one (Rule 8.13). The reason is what the compiler says of a call
+      // through the abstract class (`abstractBuilderText`), with the class a host calls it through.
+      const builder = isStatic && struct.abstract === true && buildsCallerClass(m);
+      const call = builder
+        ? { reason: abstractBuilderText(name, written, exportedBelow(own, c)) }
+        : owner === undefined
           ? { reason: REASON.notLowered }
           : memberCall(
               methodFnName(owner, emittedMemberName(written)),
@@ -2414,7 +2444,7 @@ function classFace(
     bases,
     fields,
     ...(ctor !== undefined ? { ctor } : {}),
-    members: classMembers(decl, struct, c),
+    members: classMembers(name, decl, struct, c),
   };
 }
 
