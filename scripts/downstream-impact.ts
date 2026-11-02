@@ -7,11 +7,12 @@
 // libraries built on the call layer, install the compiler from a source tarball instead
 // (`package.json`); they are downstream repositories too (proposal 0071, D6), and run this script
 // with a checkout of the compiler at `--submodule` and the two pins as `--old` and `--new`, since
-// a tarball carries no git history. Everything this repository does to keep its own
-// prose true stops at its own root, so a compiler change that removed an export the site's copy
-// still names, or rewrote a section the editor's docs restate, arrived downstream as a green pin
-// with stale text beside it. This script runs IN the downstream repository, from the pinned
-// compiler, over the range the pin moves:
+// a tarball carries no git history. TypeAudio (`typeaudio`), a third library built on the call
+// layer, is a downstream repository too; it has no compiler pin yet. Everything this repository
+// does to keep its own prose true stops at its own root, so a compiler change that removed an
+// export the site's copy still names, or rewrote a section the editor's docs restate, arrived
+// downstream as a green pin with stale text beside it. This script runs IN the downstream
+// repository, from the pinned compiler, over the range the pin moves:
 //
 //   must fix   an export the compiler's `src/__api__/surface.md` lists at the old pin and not at
 //              the new one, still named in a downstream file on a line the downstream branch did
