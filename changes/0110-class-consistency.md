@@ -1,7 +1,7 @@
 ---
 id: '0110'
 title: A class is its struct and its functions in every place a struct or a function can be, and a class arm of the differential gate holds each exported class's methods to one result on every tier, on the host and on the oracle
-status: draft
+status: accepted
 rules:
   - '8.29'
 surface:
@@ -29,7 +29,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0110, `status: draft`. The front matter is the identity and lifecycle authority. No approval is recorded.                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Identity and status           | Proposal 0110, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record.                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                   |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, asked what it takes to advance the compiler's class support so that it is consistent ("고도화하려면 어떻게 되어야하나요? 일관되어야 의미 있어보이는데"). The agent proposed the rule sentence below and a class arm of the differential gate. The owner approved the drafting ("승인"). Proposals 0108 (pull request #871) and 0109 (pull request #872) are the related drafts of the same session. No GitHub issue is recorded.                                                                                        |
 | Applicability / effectivity   | `docs/language-design.md` (a new rule in §8, numbered per D1), `reqs/` (its item), `docs/use-typeshade-surface.md` §26, §65 and §71, `scripts/gpu-differential.ts` and a new `scripts/class-arm.ts`, a new `journeys/class-twins/`, `src/core/fuse-plan.test.ts` and `src/compiler/ts/kernel-loops.test.ts` (D4), and the CI job `compile gate (Tint + WebGL2)`, which runs `bun run gate:differential`. The lowering, the proof, the planner, the host face and reflection do not change by this proposal; what the arm finds in them is fixed under its rule. No release version is assigned. |
@@ -167,7 +167,7 @@ them (`hostFace`, `src/compiler/ts/host-face.ts`), and compile it through `compi
 module the Vite plugin generates, as the common-module arm compiles its calls. The entry leg on
 the CPU tier runs through the passes of change 0092. The host leg depends on 0109.
 
-**Decisions to resolve before acceptance.**
+**Decisions, resolved at acceptance** (Approval and plan record).
 
 - **D1.** The number and the section: Rule 8.29 in §8 (the draft), since the rule is about
   functions and the places they stand, or a rule in §6 beside Rule 6.9. The open proposals 0106
@@ -217,10 +217,21 @@ sections. Duration and cost: unknown, no basis for an estimate.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the actual approval decision and its
-pull request reference, the approved revision of this file with D1 to D5 resolved, assigned
-responsibilities and the required validation evidence named above. No approver, schedule or
-result is recorded here.
+The owner (Seungup) approved the proposal in the Claude Code session on 2026-11-02 (UTC), in
+Korean ("승인", approve), in answer to the agent's report that pull request #873 was green and
+ready for review and that D1 to D5 would be accepted as drafted by that word. D1 to D5 are
+accepted as drafted: Rule 8.29 in §8; the corpus is every admissible exported class of
+`examples/*.shade.ts` and `journeys/class-twins/`; the arm runs under `gate:differential` in the
+existing `compile gate (Tint + WebGL2)` job; fusion through methods is a fact the rule requires
+and the test holds; the WebGL2 legs are required where the twin has a WebGL2 tier and skipped
+with the reason otherwise. The approved revision is the one this record is part of. The merge of
+[#873](https://github.com/typeshade/typeshade/pull/873) with `status: accepted` records the
+decision.
+
+Responsibilities: an agent of this repository implements the rule, the arm, the journey, the two
+tests and the three sections in pull requests whose commits say `Change: 0110`. The host leg of
+the arm follows the implementation of proposal 0109. No milestone date is assigned. No duration
+or cost estimate is established.
 
 ### Configuration and validation record
 
