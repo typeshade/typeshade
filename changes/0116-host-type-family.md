@@ -374,7 +374,8 @@ D10 accepted as drafted (Approval and plan record).
 direction. Its commits say `Change: 0116`: `6350b629` (the family, its parity test, the 48 names
 in `src/__api__/surface.md` and one gzip byte of the runtime's split budget), `e276b254` (the
 `CHANGELOG.md` entry of that part), `2413db45` (the merge of `main` at `334b9fc4`), `e4a0ad78`
-(item 3 with D7 and D8), and the commit that holds this record. The merge was committed with
+(item 3 with D7 and D8), `a6b05a20` (this record), `941a594d` (the merge of `main` at
+`c0daa442`) and the commit that names it here. The merge was committed with
 `--no-verify` (issue #901): the commit-msg policy reads a merge against its first parent and
 counted the rules, surface sections, exports and an example `main` changed as changes of this
 branch. The staged file checks passed on the merged index, and it resolved
@@ -450,13 +451,23 @@ branch is deleted.
   `bun run gate:perf`. The change emits no shader text and changes no kernel lowering; CI runs
   them.
 
+- On the tree of `941a594d`, the merge of `main` at `c0daa442`, which Git made with no conflict:
+  `bun run build` passed; the suites under `src/compiler/ts`, `src/runtime` and
+  `src/language-service` with the same eight test files as above, 231 files, 6144 passed and 1
+  todo; `bun run gate:boundary` exit 0 with the budgets unchanged; `bun run lint`,
+  `bun run format:check`, `tshc sync --check` and `tsc -p examples/hosts/tsconfig.json --noEmit`
+  passed; `bun run bake:api-surface` changed nothing. The merge passed the commit policy, which
+  judges a merge by what it adds beyond its parents since #932.
+
 **Document validation**, on 2026-11-02 (UTC), at `e4a0ad78`: `bun run docs:refs`, 0 dead
 references; `bun run docs:impact` read for each commit, each commit's `Docs-Impact:` trailer saying
 what was read; `bun run reqs:sync` with nothing left to write; `python3 scripts/doorstop-check.py -C`,
 Doorstop 3.2, with no item flagged; `bun scripts/changes.ts --base origin/main`, exit 0 ("This change
 touches Rule 8.21; surface §64, surface §74"; the 48 names and the twenty reshaped exports, each
 declared); `bun scripts/ifchange.ts --base origin/main`, passed; `bun scripts/doc-impact.ts --check
---base origin/main`, exit 0.
+--base origin/main`, exit 0. `changes.ts`, `ifchange.ts` and `doc-impact.ts --check` gave the
+same results at `a6b05a20`; on the tree of `941a594d`, `docs:refs` found 0 dead references,
+`reqs:sync` wrote nothing new and Doorstop flagged nothing.
 
 **Deviations**, each with its disposition:
 
