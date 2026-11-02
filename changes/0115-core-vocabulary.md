@@ -58,14 +58,14 @@ reference of that meaning. A name of layer 3 means what its target specification
 
 ### 2. The interim rule (accepted)
 
-**Rule 13.6 (amended, accepted), added sentence.** Until decision D4 of change 0115 is made, a
-new author-facing name must not be declared as an ambient global. A name of layer 3 that a new
-WGSL feature needs waits for the decision, or is added by an amendment of this proposal that
-names it.
+**Rule 13.6 (amended, accepted), added sentence.** Until the target-feature module
+(`typeshade/gpu`) exists on `main`, a new author-facing name must not be declared as an ambient
+global. A name of layer 3 that a new WGSL feature needs waits for that module, or is added by an
+amendment of this proposal that names it.
 
 - Rationale: a global name cannot be versioned. It is the most expensive kind of name to retire,
   and after `1.0.0` each retirement costs a deprecation window (Rule 13.10). Every global added
-  now is a name decision D4 must then move or keep.
+  before the module exists is a name that the module move must then move or keep.
 - Effect today (fact): the roadmap places subgroups and `f16` after `1.0.0` (§14). No item before
   `1.0.0` is known to need a new global.
 
@@ -143,7 +143,7 @@ where that helps.
 
 Decision (2026-11-02): option (a), as recommended.
 
-**D7. What must be measured before D4 and D5 are decided.**
+**D7. What must be measured before the module move is implemented.**
 
 1. The editor's auto-import for a name of `typeshade/gpu`: completion offers it, and accepting it
    writes the import line (Rule 1.7: the form must project to TypeScript).
@@ -151,8 +151,8 @@ Decision (2026-11-02): option (a), as recommended.
 3. The message a global use of a moved name gets: one sentence that names the import line
    (Rule 12.1).
 
-No recommendation is recorded for D7. Its three measurements are not made. They stay open; see
-the approval record.
+No recommendation is recorded for D7. Its three measurements are not made. They are owed before
+the module move is implemented; see O-1 in the open items.
 
 ## Why
 
@@ -221,7 +221,8 @@ TypeScript shape; a global name with no source in ECMAScript is not.
 - **Rule 13.6:** the interim sentence of section 2.
 - **No export, code, surface section or example** changes in this proposal. If D4 takes (b), an
   amendment adds the subpath to `exports`, a diagnostic for a global use of a moved name to
-  `codes`, and the surface sections of the moved families to `surface`, before acceptance.
+  `codes`, and the surface sections of the moved families to `surface`, before the first
+  implementing pull request of the module move (scope of acceptance, approval record).
 
 ### Draft impact estimate
 
@@ -234,25 +235,35 @@ TypeScript shape; a global name with no source in ECMAScript is not.
 
 ### Approval and plan record
 
-- 2026-11-02, the owner, in a Claude Code session, in Korean ("0115 추천대로 승인"): D1 to D6 are
-  decided as recommended. D1 takes option (a), D2 (a), D3 (b), D4 (b), D5 (a) and D6 (a). The
-  interim sentence of section 2 is accepted.
-- Inference, to confirm by the owner: the interim sentence applies "until decision D4 is made".
-  This decision makes D4, so its condition is met. From this date a new layer 3 name is a module
-  export under D4 (b). A layer 2 name stays global.
+- 2026-11-02, the owner, in a Claude Code session: "0115 as recommended". D1 to D6 are decided as
+  recommended. D1 takes option (a), D2 (a), D3 (b), D4 (b), D5 (a) and D6 (a). The interim sentence
+  of section 2 is accepted.
+- 2026-11-02, the owner, later in the same session: "as recommended" for the four refinements of
+  this record. They are: the interim rule holds until the target-feature module exists on `main`
+  (section 2); the scope of acceptance (next bullet); the D7 order (O-1); and this record in English.
+- Scope of acceptance. Proposal 0115 is accepted as the principle (Rule 2.5, the three layers),
+  decisions D1 to D6, and the interim rule of section 2. Implementing the module move of D4 and D5
+  requires a later amendment of this proposal, or a new proposal, that declares the export, the
+  diagnostic code(s) and the surface sections it moves. That amendment comes before any implementing
+  pull request.
+- Reading of the interim rule, confirmed by the owner in the refinements above: the rule holds
+  until `typeshade/gpu` exists on `main`. The decision of D4 does not end it. Until that module
+  exists, no new ambient global name is added. A layer 2 name stays global.
 - The status `accepted` is set by the commit that carries this record. The merge of #879 records
   the acceptance (`changes/README.md`, item 2).
 
 ### Open items at acceptance
 
-- **O-1. D7 measurements not made.** Section 3 says these measurements come before D4 and D5 are
-  decided. D4 and D5 were decided first. Next action: measure items 1 to 3 of D7 before the first
-  implementing pull request for a layer 3 module.
-- **O-2. Impact declarations for D4 (b) and D5 (a) not declared.** The last bullet of "What it
-  touches" says an amendment adds the subpath to `exports`, a diagnostic to `codes` and the moved
-  families to `surface`, before acceptance. The front matter has `exports: []`, `codes: []` and
-  `surface: []`. The owner's decision does not name them. This is an open deviation from that
-  text. Next action: an amendment that declares them, before the first implementing pull request.
+- **O-1. D7 measurements not made. Closed (disposition: order recorded).** Section 3 places the D7
+  measurements before the module move is implemented, not before D4 and D5 were decided. D4 and D5
+  were decided first. The owner approved this order on 2026-11-02 (second decision, above). The
+  measurements remain owed: items 1 to 3 of D7 must be made before the first implementing pull
+  request for the module move.
+- **O-2. Impact declarations for D4 (b) and D5 (a) not declared. Closed (disposition: scope of
+  acceptance).** The front matter has `exports: []`, `codes: []` and `surface: []`, as the scope of
+  acceptance requires. The declarations are not part of this acceptance. A later amendment of this
+  proposal, or a new proposal, declares them before the first implementing pull request for the
+  module move.
 - **O-3. Downstream work not searched.** The rule pages, the guide pages and the editor's
   auto-import are owed by D4 (b). Next action: search each named repository by name, as
   `changes/README.md` item 5 requires, when the compiler pin moves.
