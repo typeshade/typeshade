@@ -128,13 +128,15 @@ export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
  *  entry point and of a kernel function's workgroup size. */
 export const STAGE_CALL_DOCS: Readonly<Record<string, string>> = {
   vertex:
-    "Declares the pipeline's vertex-stage entry point: `export const vs = vertex(function vs(…) { … })`. The entry takes the constant's name. Options: `{ diagnostic: [severity, rule] }`.",
+    "Declares the pipeline's vertex-stage entry point: `export const vs = vertex(function vs(…) { … })`. The entry takes the constant's name. Options: `{ diagnostic: [severity, rule], numerics: [...] }`.",
   fragment:
-    "Declares the pipeline's fragment-stage entry point: `export const fs = fragment(function fs(…) { … })`. The entry takes the constant's name. Options: `{ diagnostic: [severity, rule] }`.",
+    "Declares the pipeline's fragment-stage entry point: `export const fs = fragment(function fs(…) { … })`. The entry takes the constant's name. Options: `{ diagnostic: [severity, rule], numerics: [...] }`.",
   compute:
-    'Declares a compute-stage entry point with its workgroup size, one to three extents: `export const main = compute([64], function main(…) { … })`. Options: `{ diagnostic: [severity, rule] }`.',
+    'Declares a compute-stage entry point with its workgroup size, one to three extents: `export const main = compute([64], function main(…) { … })`. Options: `{ diagnostic: [severity, rule], numerics: [...] }`.',
   workgroup_size:
-    'Sets the workgroup size of a kernel function, an exported function that takes an array with no size or a 2D storage texture, as one extent: `export const scale = workgroup_size([128], function scale(xs: array<f32>) { … })`. A loop that reduces runs at 256 whatever is written.',
+    'Sets the workgroup size of a kernel function, an exported function that takes an array with no size or a 2D storage texture, as one extent: `export const scale = workgroup_size([128], function scale(xs: array<f32>) { … })`. A loop that reduces runs at 256 whatever is written. Options: `{ numerics: [...] }`.',
+  numerics:
+    'Opts a function into floating-point rewrites the default optimizer refuses (Rule 11.22, surface §78): `const f = numerics(["finite-math"], function f(…) { … })`. `"finite-math"` assumes finite, non-NaN operands, so `x * 0` is `0`; `"reassociate"` reorders `f32` arithmetic. The CPU oracle keeps the exact meaning. An entry takes `{ numerics: [...] }` as its stage call\'s option.',
 };
 
 /** One Markdown sentence per attribute type of change 0111, the plain-TypeScript spelling of

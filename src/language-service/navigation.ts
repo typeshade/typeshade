@@ -9,7 +9,7 @@
 // renamable program symbol, and `prepareRename` and `rename` share one predicate for that.
 
 import ts from 'typescript';
-import { stageCallOf } from '../compiler/ts/stage-call.js';
+import { declaresEntry, stageCallOf } from '../compiler/ts/stage-call.js';
 import type { CompileTsSourceResult } from '../compiler/ts/source-file.js';
 import { isUseTypeshadeDirective } from '../compiler/ts/directive.js';
 import { AMBIENT_LIB_URI } from './host.js';
@@ -234,7 +234,7 @@ export function getDocumentSymbols(
       // `const vs = vertex(function vs(…) { … })`, the stage call of change 0111: an entry, as
       // a decorated function is, or a kernel function under `workgroup_size([…], f)`.
       const sc = stageCallOf(stmt)!;
-      const stage = sc.callee === 'workgroup_size' ? undefined : sc.callee;
+      const stage = declaresEntry(sc.callee) ? sc.callee : undefined;
       const children: TypeshadeDocumentSymbol[] = [];
       for (const param of sc.fn.parameters) {
         if (ts.isIdentifier(param.name)) {

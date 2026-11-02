@@ -169,6 +169,10 @@ export function lowerCall(
   const callee = node.expression;
   // `o?.m()` and `f?.()` test a function value, which a shader has none of (Rule 7.10).
   if (refuseOptionalCall(node, sourceFile, diagnostics)) return undefined;
+  // `numerics(...)` wraps a function at the top of the file (change 0107); `collectNumerics` has
+  // refused one written anywhere else with TS8078, which is the one sentence it gets (Rule 12.4).
+  if (ts.isIdentifier(callee) && callee.text === 'numerics' && declarationOf(callee) === undefined)
+    return undefined;
   let intrinsicId: string | undefined;
   let viaMath = false;
   let ctor: { n: 2 | 3 | 4; elem: VecCtorElem } | undefined;
