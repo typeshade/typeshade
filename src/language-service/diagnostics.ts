@@ -3,6 +3,7 @@
 import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
+import { READONLY_WRITE_PREFIX } from '../compiler/ts/context.js';
 import { isRemovedCall } from '../compiler/ts/removed-names.js';
 import {
   foreignNameReport,
@@ -1577,6 +1578,13 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     reason: 'A write to a `const` local or a read-only resource.',
   },
   {
+    typescript: 1354,
+    typeshade: new Set(['TS8002']),
+    reason:
+      '`readonly array<f32>`: `readonly` is TypeScript\'s on `T[]` alone. The compiler names ' +
+      '`readonly f32[]` (change 0114, S1).',
+  },
+  {
     typescript: 2540,
     typeshade: new Set(['TS8005']),
     reason: 'A write to a `readonly` field outside its constructor.',
@@ -2600,6 +2608,7 @@ export function mergeDiagnostics(
     if (isInRefusedDecorator(context, diagnostic, compilerErrors)) return false;
     if (repeatsRefusal(context, diagnostic, refusals, compilerErrors)) return false;
     if (repeatsStrictModeRefusal(context, diagnostic, compilerErrors)) return false;
+    if (repeatsReadonlyWrite(diagnostic, compilerErrors)) return false;
     if (readsDeclarationAsValue(context, diagnostic, compilerErrors)) return false;
     // `Cannot find global type 'Promise'`, which TypeScript reports at the top of the file for
     // an `import(...)` the compiler refuses as an import (TS8072, Rule 3.9): the same mistake.
@@ -2624,6 +2633,28 @@ export function mergeDiagnostics(
     ),
     ...typeshade,
   ];
+}
+
+/**
+ * Whether a TypeScript error is the same refusal as the compiler's write through a name declared
+ * `readonly T[]` or `ReadonlyArray<T>` (change 0114, S1): TS2542 on `xs[i] = v` ("Index signature
+ * in type 'readonly f32[]' only permits reading") and TS2339 on `xs.push(v)` or `xs.fill(v)`
+ * ("Property 'push' does not exist on type 'readonly f32[]'"). The compiler says it once, in one
+ * sentence, as TS8005 on the target or the call, and the merge keeps that one, so the editor and
+ * `compile()` give the same code and the same text for the same mistake (Rule 12.7).
+ */
+function repeatsReadonlyWrite(
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  const code = ruleCodeOf(diagnostic.code);
+  if (code !== 2542 && code !== 2339) return false;
+  return compilerErrors.some(
+    (error) =>
+      error.code === TS_CODES.CONST_ASSIGN &&
+      error.message.startsWith(READONLY_WRITE_PREFIX) &&
+      within(diagnostic.span, error.span),
+  );
 }
 
 /**

@@ -589,6 +589,14 @@ export function writableRemedy(binding: Binding, sourceFile?: ts.SourceFile): st
   return ` Write "${line}" to write to it.`;
 }
 
+/** The refusal of a write through a name declared `readonly T[]` or `ReadonlyArray<T>` (change
+ *  0114, S1). The editor shows this sentence in place of TypeScript's TS2542 and TS2339 for that
+ *  write (`diagnostics.ts`), so the two halves say it once and alike. */
+export const READONLY_WRITE_PREFIX = 'Cannot write through "';
+export const readonlyWriteSentence = (name: string): string =>
+  `${READONLY_WRITE_PREFIX}${name}" — it is declared readonly, so nothing writes through it. ` +
+  `Remove "readonly" from its type to write through it.`;
+
 /** The base constructor a `super(...)` runs, and the fields it decides (roadmap 0.3 item T5,
  *  #92). Declared here, where both the collector that fills it and the statement lowering that
  *  reads it can see it without either importing the other. */
@@ -637,6 +645,10 @@ export interface Binding {
    *  `byRef`, which makes the parameter a reference to the variable, the way a closure writes
    *  the variable itself, the first time something writes it. */
   readonly capture?: { readonly of: Binding; readonly byRef: () => void };
+  /** For a parameter or a storage binding whose type the author wrote `readonly T[]` or
+   *  `ReadonlyArray<T>` (change 0114, S1): a promise that nothing writes through the name. The
+   *  type is the array's own, `array<T>`; a write is refused where it is written. */
+  readonly readonlyArray?: boolean;
   /** For an `@inout` or `@out` parameter (Rule 8.25): the binding names the caller's place, which the body
    *  reads and writes as a local, and which a local function captures as any variable
    *  (Rule 8.17). */

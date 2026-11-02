@@ -43,7 +43,7 @@ import {
 } from '../context.js';
 import type { CollectedStruct } from '../structs.js';
 import { recordDeclaration, recordInferredReturn, type DeclaredSymbolSink } from '../symbols.js';
-import { mapTsTypeToShaderType, withCollections } from '../type-map.js';
+import { isReadonlyArrayNode, mapTsTypeToShaderType, withCollections } from '../type-map.js';
 import {
   absentOf,
   isOptional,
@@ -3325,6 +3325,7 @@ export function fillFunctionBody(
       type: p.type,
       mutable: true,
       ...(storage ? { space: 'storage' as const } : {}),
+      ...(isReadonlyArrayNode(declared.type, sourceFile) ? { readonlyArray: true } : {}),
     });
     // What a local function in this body that captures the parameter passes for it (Rule 8.17).
     scope.bindDeclaration(declared, stored);

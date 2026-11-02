@@ -1690,7 +1690,9 @@ declare function compute(target: Function, context?: unknown): void
 // method (#177) is added here and named there, and nowhere else. See the note above
 // \`ArrayOps\` for what a MUTATING member costs.
 interface Array<T> {
-  readonly length: number
+  // A \`u32\`, as an \`array<T>\`'s is (surface section 20): \`T[]\` is the same array with no size
+  // in TypeScript's spelling (change 0114, S1), so \`xs.length\` types as the compiler reads it.
+  readonly length: u32
   [n: number]: T
   // A list literal is an \`Array\` here, and it has to stay assignable to an iterable \`array<T, N>\`.
   [Symbol.iterator](): { next(): { done: false; value: T } | { done: true; value: undefined } }
@@ -1720,6 +1722,28 @@ interface Array<T> {
   fill(value: T): void
   findIndex<N extends number>(this: array<T, N>, predicate: (value: T, index: i32, array: array<T, N>) => bool): i32
   findLastIndex<N extends number>(this: array<T, N>, predicate: (value: T, index: i32, array: array<T, N>) => bool): i32
+  indexOf(searchElement: T): i32
+  lastIndexOf(searchElement: T): i32
+  includes(searchElement: T): bool
+}
+// \`readonly T[]\` and \`ReadonlyArray<T>\` (change 0114, S1): the same array as \`Array<T>\`, with
+// the promise that nothing writes it. The index signature is \`readonly\`, so \`xs[i] = v\` is
+// TypeScript's TS2542, and the two members that write (\`push\`, \`fill\`) are not declared, so a
+// call is TS2339. The compiler refuses the same writes with one sentence (TS8005,
+// \`readonlyWriteSentence\`), and the merge of the two halves keeps that one. \`length\` is a
+// \`u32\` as \`Array<T>\`'s is. The callback's array is the read-only array itself.
+interface ReadonlyArray<T> {
+  readonly length: u32
+  readonly [n: number]: T
+  [Symbol.iterator](): { next(): { done: false; value: T } | { done: true; value: undefined } }
+  map<U>(callbackfn: (value: T, index: i32, array: ReadonlyArray<T>) => U): array<U>
+  forEach(callbackfn: (value: T, index: i32, array: ReadonlyArray<T>) => void): void
+  some(predicate: (value: T, index: i32, array: ReadonlyArray<T>) => bool): bool
+  every(predicate: (value: T, index: i32, array: ReadonlyArray<T>) => bool): bool
+  reduce(callbackfn: (previousValue: T, currentValue: T, currentIndex: i32, array: ReadonlyArray<T>) => T): T
+  reduce<U>(callbackfn: (previousValue: U, currentValue: T, currentIndex: i32, array: ReadonlyArray<T>) => U, initialValue: U): U
+  findIndex(predicate: (value: T, index: i32, array: ReadonlyArray<T>) => bool): i32
+  findLastIndex(predicate: (value: T, index: i32, array: ReadonlyArray<T>) => bool): i32
   indexOf(searchElement: T): i32
   lastIndexOf(searchElement: T): i32
   includes(searchElement: T): bool

@@ -17,6 +17,7 @@ import {
   dropsRecoveredUse,
   irNameOf,
   readOnlyPhrase,
+  readonlyWriteSentence,
   writableRemedy,
   writeRules,
   type Binding,
@@ -2244,6 +2245,11 @@ function checkRootNamed(
   }
   // A captured variable's parameter keeps the variable's rules (Rule 8.17).
   const rules = writeRules(binding);
+  // `readonly` on an array is the author's promise not to write it (change 0114, S1).
+  if (rules.readonlyArray === true) {
+    pushDiag(diagnostics, sourceFile, node, readonlyWriteSentence(rootName), TS_CODES.CONST_ASSIGN);
+    return false;
+  }
   // A kernel function's array is the caller's storage, written in place (Rule 8.23).
   if (rules.kind === 'param' && rules.space !== 'storage') {
     pushDiag(
