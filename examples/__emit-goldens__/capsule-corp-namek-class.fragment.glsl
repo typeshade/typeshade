@@ -469,11 +469,6 @@ NamekTrees NamekTrees_new() {
   return self_;
 }
 
-vec2 _flow34_shared(vec2 _flow29_input, float _flow30_input, float _flow31_input, float _flow32_input, float _flow33_input) {
-  float _cse0 = ((0.5 * PI) * _flow31_input);
-  return mix(_flow29_input, (_flow30_input * vec2(sin(_cse0), (_flow32_input * (1.0 - cos(_cse0))))), _flow33_input);
-}
-
 float ShipDetails_tickRow(ShipDetails self_, vec2 q, vec2 seed, int n, float gap, float len, float bend, float curl, float spread, float lw) {
   float _licm0 = max((-bend), 0.0);
   float _licm1 = (0.4 * gap);
@@ -482,6 +477,7 @@ float ShipDetails_tickRow(ShipDetails self_, vec2 q, vec2 seed, int n, float gap
   float radius = (((2.0 * mid) * gap) / PI);
   float bendSign = ((bend < 0.0) ? -1.0 : 1.0);
   float distance = 1000000000.0;
+  float _cse0 = (0.5 * PI);
   for (int k = 0; (k < 9); k = (k + 1)) {
     if ((k >= n)) {
       break;
@@ -491,7 +487,8 @@ float ShipDetails_tickRow(ShipDetails self_, vec2 q, vec2 seed, int n, float gap
     float fk = (_gv0 / mid);
     vec4 h = vec4(Noise_hash12(((seed + (_gv1 * 3.1)) + 51.0)), Noise_hash12(((seed + (_gv1 * 5.7)) + 63.0)), Noise_hash12(((seed + (_gv1 * 2.3)) + 77.0)), Noise_hash12(((seed + (_gv1 * 4.9)) + 89.0)));
     vec2 base = vec2((gap * _gv0), (((bend * fk) * fk) + _licm0));
-    base = _flow34_shared(base, radius, fk, bendSign, curl);
+    float _lc1 = (_cse0 * fk);
+    base = mix(base, (radius * vec2(sin(_lc1), (bendSign * (1.0 - cos(_lc1))))), curl);
     base += vec2((_licm1 * (h.x - 0.5)), (_licm2 * h.y));
     float bladeLength = (len * (1.0 - (spread * Noise_hash12(((seed + (_gv1 * 6.1)) + 97.0)))));
     float angle = (0.5 * (h.z - 0.5));
@@ -878,13 +875,11 @@ float Terrain_dirtField(vec2 xw) {
   return (Noise_fbm(((xw * 0.7) + vec2(-13.7, 31.9))) - 0.62);
 }
 
-float Terrain_tickRow(vec2 q, vec2 seed, int n, float gap, float len, float bend, float curl, float spread, float lw) {
+float terrainTickRow_k0(vec2 q, vec2 seed, int n, float gap, float len, float bend, float lw) {
   float _licm0 = max((-bend), 0.0);
   float _licm1 = (0.4 * gap);
   float _licm2 = (0.35 * len);
   float mid = (0.5 * float((n - 1)));
-  float radius = (((2.0 * mid) * gap) / PI);
-  float signBend = ((bend < 0.0) ? -1.0 : 1.0);
   float distance = 1000000000.0;
   for (int k = 0; (k < 9); k = (k + 1)) {
     if ((k >= n)) {
@@ -895,11 +890,10 @@ float Terrain_tickRow(vec2 q, vec2 seed, int n, float gap, float len, float bend
     float fk = (_gv0 / mid);
     vec4 h = vec4(Noise_hash12(((seed + (_gv1 * 3.1)) + 51.0)), Noise_hash12(((seed + (_gv1 * 5.7)) + 63.0)), Noise_hash12(((seed + (_gv1 * 2.3)) + 77.0)), Noise_hash12(((seed + (_gv1 * 4.9)) + 89.0)));
     vec2 base = vec2((gap * _gv0), (((bend * fk) * fk) + _licm0));
-    base = _flow34_shared(base, radius, fk, signBend, curl);
+    base = base;
     base += vec2((_licm1 * (h.x - 0.5)), (_licm2 * h.y));
-    float bladeLength = (len * (1.0 - (spread * Noise_hash12(((seed + (_gv1 * 6.1)) + 97.0)))));
     float angle = (0.5 * (h.z - 0.5));
-    distance = min(distance, (SDF_segment(q, base, (base + (bladeLength * vec2(sin(angle), cos(angle))))) - ((0.5 + h.w) * lw)));
+    distance = min(distance, (SDF_segment(q, base, (base + (len * vec2(sin(angle), cos(angle))))) - ((0.5 + h.w) * lw)));
   }
   return distance;
 }
@@ -942,7 +936,7 @@ float Terrain_grassInk(vec2 x, vec3 ro, float t, float pixA, float lineA) {
       float rowT = ((t * alongRay) / distanceToPoint);
       float lw = (_licm1 * rowT);
       float aa = (_licm2 * rowT);
-      float distance = Terrain_tickRow(local, cell, count, 0.02, 0.015, bend, 0.0, 0.0, lw);
+      float distance = terrainTickRow_k0(local, cell, count, 0.02, 0.015, bend, lw);
       ink = max(ink, (1.0 - smoothstep((-aa), aa, distance)));
     }
   }
