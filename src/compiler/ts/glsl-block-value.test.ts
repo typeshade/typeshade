@@ -41,17 +41,16 @@ import { reflect } from '../../core/reflect.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { checkDocuments } from '../../language-service/check.js';
 
-const VS = `class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+const VS = `interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") idx: u32): VsOut {
+export const vs = vertex(function vs(idx: builtin<"vertex_index", u32>): VsOut {
   const x = f32(idx & 1) * 4. - 1.;
   const y = f32(idx >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
-}`;
+});`;
 
 const program = (decls: string, body: string): string => `"use typeshade";
 
@@ -59,10 +58,9 @@ ${decls}
 
 ${VS}
 
-@fragment
-export function fs(v: VsOut): vec4 {
+export const fs = fragment(function fs(v: VsOut): vec4 {
 ${body}
-}
+});
 `;
 
 const U = `class U {
@@ -277,10 +275,9 @@ function f(x: U): f32 {
 
 ${VS.replace('return {', 'let c: U = u;\n  return {').replace('uv: vec2(x, y)', 'uv: vec2(x, y * f(c))')}
 
-@fragment
-export function fs(v: VsOut): vec4 {
+export const fs = fragment(function fs(v: VsOut): vec4 {
   return vec4(v.uv, u.a, 1.);
-}
+});
 `;
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);

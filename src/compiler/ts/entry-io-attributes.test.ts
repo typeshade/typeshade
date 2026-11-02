@@ -44,15 +44,15 @@ function diagnose(source: string): { code?: string; message: string } {
   return { code: errors[0]!.code, message: errors[0]!.message };
 }
 
-const VARYINGS = `class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) id: u32
-  @location(1) uv: vec2
+const VARYINGS = `interface VsOut {
+  pos: builtin<"position", vec4>
+  id: location<0, u32>
+  uv: location<1, vec2>
 }
-@vertex export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   return { pos: vec4(0., 0., 0., 1.), id: vi, uv: vec2(0., 0.) }
-}
-@fragment export function fs(v: VsOut): vec4 { return vec4(f32(v.id), v.uv, 1.) }`;
+});
+export const fs = fragment(function fs(v: VsOut): vec4 { return vec4(f32(v.id), v.uv, 1.) });`;
 
 describe('an integer varying is flat, because neither target can interpolate one', () => {
   it('emits @interpolate(flat) on every integer varying and GLSL keeps flat', () => {
@@ -67,17 +67,17 @@ describe('an integer varying is flat, because neither target can interpolate one
   });
 
   it('derives it from the type, for a vector and for a fragment input alike', () => {
-    const c = compiled(`class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) cell: vec2u
-  @location(1) sign: i32
+    const c = compiled(`interface VsOut {
+  pos: builtin<"position", vec4>
+  cell: location<0, vec2u>
+  sign: location<1, i32>
 }
-@vertex export function vs(): VsOut {
+export const vs = vertex(function vs(): VsOut {
   return { pos: vec4(0., 0., 0., 1.), cell: vec2u(1, 2), sign: -1 }
-}
-@fragment export function fs(v: VsOut): vec4 {
+});
+export const fs = fragment(function fs(v: VsOut): vec4 {
   return vec4(f32(v.cell.x), f32(v.cell.y), f32(v.sign), 1.)
-}`);
+});`);
     expect(c.wgsl).toContain('@location(0) @interpolate(flat) cell: vec2<u32>,');
     expect(c.wgsl).toContain('@location(1) @interpolate(flat) sign: i32,');
     expect(c.glsl!.fragment).toContain('flat in uvec2 cell;');
@@ -86,14 +86,14 @@ describe('an integer varying is flat, because neither target can interpolate one
 });
 
 describe('a varying spelled as a bare entry parameter, not a struct field', () => {
-  const VS = `class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) id: u32
-  @location(1) uv: vec2
+  const VS = `interface VsOut {
+  pos: builtin<"position", vec4>
+  id: location<0, u32>
+  uv: location<1, vec2>
 }
-@vertex export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   return { pos: vec4(0., 0., 0., 1.), id: vi, uv: vec2(0., 0.) }
-}`;
+});`;
 
   it('derives flat for an integer varying taken as a parameter', () => {
     // The struct rewrite reaches no struct here, so this spelling stayed bare: Tint answers
@@ -101,9 +101,9 @@ describe('a varying spelled as a bare entry parameter, not a struct field', () =
     // while the GLSL writer, which reads the field's own type wherever it finds one, emitted
     // `flat in uint id;` — one source, two programs.
     const c = compiled(`${VS}
-@fragment export function fs(@location(0) id: u32, @location(1) uv: vec2): vec4 {
+export const fs = fragment(function fs(id: location<0, u32>, uv: location<1, vec2>): vec4 {
   return vec4(f32(id), uv, 1.)
-}`);
+});`);
     expect(c.wgsl).toContain('fn fs(@location(0) @interpolate(flat) id: u32');
     expect(c.wgsl).toContain('@location(1) uv: vec2<f32>');
     expect(c.glsl!.fragment).toContain('flat in uint id;');
@@ -112,14 +112,14 @@ describe('a varying spelled as a bare entry parameter, not a struct field', () =
   it('carries an @interpolate written on a parameter to both targets', () => {
     // It was read on a struct field and nowhere else, so the attribute an author wrote here
     // was dropped silently and reached neither target.
-    const c = compiled(`class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) @interpolate("perspective", "centroid") uv: vec2
+    const c = compiled(`interface VsOut {
+  pos: builtin<"position", vec4>
+  uv: location<0, vec2, { interpolate: ["perspective", "centroid"] }>
 }
-@vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) } }
-@fragment export function fs(@location(0) @interpolate("perspective", "centroid") uv: vec2): vec4 {
+export const vs = vertex(function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) } });
+export const fs = fragment(function fs(uv: location<0, vec2, { interpolate: ["perspective", "centroid"] }>): vec4 {
   return vec4(uv, 0., 1.)
-}`);
+});`);
     expect(c.wgsl).toContain('@location(0) @interpolate(perspective, centroid) uv: vec2<f32>');
     expect(c.glsl!.fragment).toContain('smooth centroid in vec2 uv;');
   });
@@ -156,12 +156,12 @@ describe('a varying spelled as a bare entry parameter, not a struct field', () =
 
 describe('@interpolate, @invariant and @blend_src', () => {
   it('passes @interpolate and @invariant through on WGSL and as qualifiers on GLSL', () => {
-    const c = compiled(`class VsOut {
-  @builtin("position") @invariant pos: vec4
-  @location(0) @interpolate("perspective", "centroid") uv: vec2
+    const c = compiled(`interface VsOut {
+  pos: builtin<"position", vec4, { invariant: true }>
+  uv: location<0, vec2, { interpolate: ["perspective", "centroid"] }>
 }
-@vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) } }
-@fragment export function fs(v: VsOut): vec4 { return vec4(v.uv, 0., 1.) }`);
+export const vs = vertex(function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) } });
+export const fs = fragment(function fs(v: VsOut): vec4 { return vec4(v.uv, 0., 1.) });`);
     expect(c.wgsl).toContain('@invariant @builtin(position) pos: vec4<f32>,');
     expect(c.wgsl).toContain('@location(0) @interpolate(perspective, centroid) uv: vec2<f32>,');
     // GLSL ES 3.00 spells perspective interpolation `smooth`, and `invariant` is a statement
@@ -175,24 +175,24 @@ describe('@interpolate, @invariant and @blend_src', () => {
     // `linear` and the `sample` position are WGSL-only: GLSL ES 3.00 has `smooth`, `flat` and
     // `centroid` and nothing else, so a module using one has no GLSL form at all rather than
     // a silently different one.
-    for (const arg of ['"linear"', '"perspective", "sample"']) {
-      const c = compiled(`class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) @interpolate(${arg}) uv: vec2
+    for (const arg of ['"linear"', '["perspective", "sample"]']) {
+      const c = compiled(`interface VsOut {
+  pos: builtin<"position", vec4>
+  uv: location<0, vec2, { interpolate: ${arg} }>
 }
-@vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) } }
-@fragment export function fs(v: VsOut): vec4 { return vec4(v.uv, 0., 1.) }`);
+export const vs = vertex(function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) } });
+export const fs = fragment(function fs(v: VsOut): vec4 { return vec4(v.uv, 0., 1.) });`);
       expect(c.wgsl, arg).toContain('@interpolate(');
       expect(c.glsl, arg).toBeUndefined();
     }
   });
 
   it('derives dualSourceBlending from @blend_src and emits the directive', () => {
-    const c = compiled(`class Out {
-  @location(0) @blend_src(0) color: vec4
-  @location(0) @blend_src(1) mask: vec4
+    const c = compiled(`interface Out {
+  color: location<0, vec4, { blend_src: 0 }>
+  mask: location<0, vec4, { blend_src: 1 }>
 }
-@fragment export function fs(): Out { return { color: vec4(1., 1., 1., 1.), mask: vec4(0., 0., 0., 0.) } }`);
+export const fs = fragment(function fs(): Out { return { color: vec4(1., 1., 1., 1.), mask: vec4(0., 0., 0., 0.) } });`);
     expect(c.wgsl).toContain('enable dual_source_blending;');
     expect(c.wgsl).toContain('@location(0) @blend_src(0) color: vec4<f32>,');
     expect(c.wgsl).toContain('@location(0) @blend_src(1) mask: vec4<f32>,');
@@ -245,12 +245,12 @@ describe('the entry IO shapes that are refused, one sentence each', () => {
     expect(d.message).toContain('so its interpolation is "flat"');
     // `flat` with either of its samplings is what an integer HAS, so it stays legal.
     expect(
-      compiled(`class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) @interpolate("flat", "either") id: u32
+      compiled(`interface VsOut {
+  pos: builtin<"position", vec4>
+  id: location<0, u32, { interpolate: ["flat", "either"] }>
 }
-@vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), id: u32(1) } }
-@fragment export function fs(v: VsOut): vec4 { return vec4(f32(v.id)) }`).wgsl,
+export const vs = vertex(function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), id: u32(1) } });
+export const fs = fragment(function fs(v: VsOut): vec4 { return vec4(f32(v.id)) });`).wgsl,
     ).toContain('@interpolate(flat, either)');
   });
 
@@ -290,9 +290,10 @@ class CsIn {
   });
 
   it('refuses a builtin declared with a type WGSL does not give it', () => {
-    const d = diagnose(`@vertex export function vs(@builtin("vertex_index") i: f32): vec4 {
+    const d =
+      diagnose(`export const vs = vertex(function vs(i: builtin<"vertex_index", f32>): vec4 {
   return vec4(0., 0., 0., 1.)
-}`);
+});`);
     expect(d.code).toBe(TS_CODES.TYPE_MISMATCH);
     expect(d.message).toBe('Builtin "vertex_index" is "u32"; this declares it "f32".');
   });
@@ -349,16 +350,16 @@ class FsIn { @builtin("position") pos: vec4; @location(3) uv: vec2 }
 describe('the interstage shapes that stay legal', () => {
   it('takes a fragment that reads a SUBSET of the vertex output', () => {
     // WGSL constrains only the slots the fragment names, so an output it ignores is fine.
-    const c = compiled(`class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
-  @location(1) extra: vec2
+    const c = compiled(`interface VsOut {
+  pos: builtin<"position", vec4>
+  uv: location<0, vec2>
+  extra: location<1, vec2>
 }
-class FsIn { @builtin("position") pos: vec4; @location(0) uv: vec2 }
-@vertex export function vs(): VsOut {
+interface FsIn { pos: builtin<"position", vec4>; uv: location<0, vec2> }
+export const vs = vertex(function vs(): VsOut {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.), extra: vec2(1., 1.) }
-}
-@fragment export function fs(v: FsIn): vec4 { return vec4(v.uv, 0., 1.) }`);
+});
+export const fs = fragment(function fs(v: FsIn): vec4 { return vec4(v.uv, 0., 1.) });`);
     expect(c.wgsl).toContain('@location(1) extra: vec2<f32>,');
   });
 });

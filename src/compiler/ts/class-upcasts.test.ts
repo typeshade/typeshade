@@ -18,8 +18,7 @@ class LeafMaterial extends Material {
 `;
 const shader = (head: string, body: string) => `"use typeshade";
 ${head}
-@fragment
-export function fs(): vec4 { ${body} }
+export const fs = fragment(function fs(): vec4 { ${body} });
 `;
 
 function agrees(source: string, result: number[]): ReturnType<typeof compile> {

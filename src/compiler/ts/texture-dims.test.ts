@@ -40,11 +40,10 @@ declare const smp: sampler`;
 
 const fragment = (body: string, decls = DECLS): string => `"use typeshade"
 ${decls}
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   const dir: vec3 = normalize(vec3(p.xy, 1.))
 ${body}
-}
+});
 `;
 
 describe('the two new dims, on both targets', () => {
@@ -188,11 +187,10 @@ describe('bias and gradients', () => {
   const compute = (call: string): string => `"use typeshade"
 ${DECLS}
 declare const out: storage<array<vec4>, "read_write">
-@compute([64, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   const dir: vec3 = vec3(1., 0., 0.)
   out[gid.x] = ${call}
-}
+});
 `;
   it('refuses textureSampleBias in a compute entry, as both targets do', () => {
     // A bias shifts the IMPLICIT level of detail, which needs the derivatives only a fragment
@@ -502,10 +500,9 @@ declare const shadowSmp: sampler_comparison`;
     const errors = errorsOf(`"use typeshade"
 ${D}
 declare const out: storage<array<f32>, "read_write">
-@compute([64, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   out[gid.x] = textureSampleCompare(pointShadow, shadowSmp, vec3(1., 0., 0.), 0.5)
-}
+});
 `);
     expect(errors).toEqual([
       '"textureSampleCompare" is only valid in a fragment shader; "cs" is a compute entry.',
@@ -592,10 +589,9 @@ declare const smp: sampler`;
 
   const scalar = (body: string): string => `"use typeshade"
 ${SCALAR_DECLS}
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
 ${body}
-}
+});
 `;
 
   const LEVEL = scalar('  return textureSampleLevel(atlas, smp, p.xy, u.lvl)');

@@ -18,10 +18,9 @@ const U = `class U { k: u32; s: i32; v: vec2i; m: mat4; w: vec4 }
 declare const u: uniform<U>`;
 const FS = (body: string) => `"use typeshade"
 ${U}
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
 ${body}
-}
+});
 `;
 // k = 0xF0, s = -8 (0xFFFFFFF8), v = (-8, 0), m = the column-major matrix with columns
 // (2, 0, 0, 0), (1, 3, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1); w = (1, 2, 3, 4).
@@ -238,10 +237,9 @@ describe('builtin breadth: the coarse and fine derivatives', () => {
     expect(r.eval('fs', [[0.5, 0.5]])).toEqual([0, 0, 0, 1]);
     expect(
       errorsOf(`"use typeshade";
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): vec4 {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
   return vec4(dpdyCoarse(f32(vi)));
-}
+});
 `),
     ).toEqual(['TS8099 "dpdyCoarse" is only valid in a fragment shader; "vs" is a vertex entry.']);
   });
@@ -251,10 +249,9 @@ export function vs(@builtin("vertex_index") vi: u32): vec4 {
 function reflect(a: vec3, b: vec3): vec3 {
   return a + b;
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(reflect(vec3(1.), vec3(2.)), 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('fn reflect_(a: vec3<f32>, b: vec3<f32>) -> vec3<f32> {');
@@ -271,10 +268,9 @@ describe('the bit-level builtins: pack, unpack, bitcast and quantizeToF16', () =
   /** `fs` over no bindings, on both CPU paths. */
   const value = (body: string): number[] => {
     const r = compile(`"use typeshade"
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
 ${body}
-}
+});
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     const out: number[][] = [];
@@ -298,10 +294,9 @@ ${body}
 
   it('quantizeToF16 takes a vector, one id per width', () => {
     const r = compile(`"use typeshade";
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   return quantizeToF16(vec4(uv, 1.0009765625, 1.));
-}
+});
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('quantizeToF16(vec4<f32>(uv, 1.0009765625, 1.0))');
@@ -381,14 +376,13 @@ export function fs(@location(0) uv: vec2): vec4 {
   // Each component is the scalar form's answer, on both CPU paths.
   it('bitcast takes a vector, each component read as the scalar form reads it', () => {
     const r = compile(`"use typeshade";
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   const a = bitcast<vec2u>(uv);
   const b = bitcast<vec3u>(vec3(uv, 1.));
   const c = bitcast<vec4u>(vec4(uv, 0., 1.));
   const d = bitcast<vec4>(c);
   return d + vec4(f32(a.x + b.z), 0., 0., 0.);
-}
+});
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     for (const spelling of [
@@ -441,8 +435,7 @@ export function fs(@location(0) uv: vec2): vec4 {
 
   it('spells each one on both targets', () => {
     const r = compile(`"use typeshade";
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   const a = pack4x8unorm(vec4(uv, 0., 1.));
   const b = pack4x8snorm(vec4(uv, 0., 1.));
   const c = pack2x16float(uv);
@@ -451,7 +444,7 @@ export function fs(@location(0) uv: vec2): vec4 {
   const f = unpack4x8unorm(a) + unpack4x8snorm(b);
   const g = unpack2x16float(c) + unpack2x16unorm(d) + unpack2x16snorm(e);
   return f + vec4(g, 0., 0.) + vec4(f32(bitcast<u32>(uv.x)), quantizeToF16(uv.y), 0., 1.);
-}
+});
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     const wgsl = r.wgsl ?? '';
@@ -511,10 +504,9 @@ export function fs(@location(0) uv: vec2): vec4 {
   it('a bare number in an unpack is retargeted, as every integer position is', () => {
     // The bit pattern is written as a number; nobody should have to spell `u32(65536)`.
     const r = compile(`"use typeshade";
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(unpack2x16unorm(65536), 0., 1.);
-}
+});
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('unpack2x16unorm(65536u)');
@@ -535,10 +527,9 @@ describe('the integer abs and dot spell GLSL forms that exist', () => {
   const bothOf = (body: string): { wgsl: string; glsl: string } => {
     const r = compile(`"use typeshade"
 ${U}
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
 ${body}
-}
+});
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error').map((d) => d.message)).toEqual([]);
     return { wgsl: r.wgsl ?? '', glsl: r.glsl?.fragment ?? '' };
@@ -605,10 +596,9 @@ ${body}
 describe('the oracle answers the scalar and wrapping forms the GPU does', () => {
   const value = (body: string): number[] => {
     const r = compile(`"use typeshade"
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
 ${body}
-}
+});
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     const out: number[][] = [];

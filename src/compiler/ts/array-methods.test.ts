@@ -337,15 +337,14 @@ export function run(k: f32): f32 {
 describe('on a runtime-sized storage array, and on one a binding holds', () => {
   const LIGHTS = `"use typeshade";
 class Light {
-  pos: vec2;
-  radius: f32;
-  power: f32;
+  pos!: vec2;
+  radius!: f32;
+  power!: f32;
 }
 declare const lights: storage<array<Light>>;
 declare const data: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
-@compute([1])
-export function main(@builtin("global_invocation_id") gid: vec3u) {
+export const main = compute([1], function main(gid: builtin<"global_invocation_id", vec3u>) {
   const p = vec2(f32(gid.x), 0.);
   const lit = lights.some((l) => distance(l.pos, p) < l.radius);
   const dark = lights.every((l) => distance(l.pos, p) > l.radius);
@@ -355,7 +354,7 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
   });
   const total = data.reduce((a, x) => a + x, 0.);
   out[gid.x] = glow + total + (lit ? 100. : 0.) + (dark ? 1000. : 0.);
-}
+});
 `;
 
   it('forEach, some, every and reduce read the binding in place, as long as the host bound it', () => {
@@ -384,14 +383,13 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
   it('writes to a read_write binding ahead of the loop are read, and an index on the way is read once', () => {
     const src = `"use typeshade";
 class Cell {
-  xs: array<f32, 3>;
-  w: f32;
+  xs!: array<f32, 3>;
+  w!: f32;
 }
 declare const buf: storage<array<f32>, "read_write">;
 declare const cells: storage<array<Cell>, "read_write">;
 declare const out: storage<array<f32>, "read_write">;
-@compute([1])
-export function main(@builtin("global_invocation_id") gid: vec3u) {
+export const main = compute([1], function main(gid: builtin<"global_invocation_id", vec3u>) {
   buf.forEach((x, i) => {
     if (i + 1 < i32(buf.length)) {
       buf[i + 1] += x;
@@ -405,7 +403,7 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
     }
   });
   out[gid.x] = buf[3] + cells[gid.x].xs[2] * 100. + f32(j) * 1000.;
-}
+});
 `;
     const got = kernel(
       src,
@@ -475,8 +473,7 @@ describe('fill and the searches (change 0079)', () => {
 declare const data: storage<array<i32>>;
 declare const buf: storage<array<i32>, "read_write">;
 declare const out: storage<array<f32>, "read_write">;
-@compute([1])
-export function main(@builtin("global_invocation_id") gid: vec3u) {
+export const main = compute([1], function main(gid: builtin<"global_invocation_id", vec3u>) {
   buf.fill(i32(gid.x) + 5);
   out[gid.x] =
     f32(data.indexOf(4)) +
@@ -484,7 +481,7 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
     f32(data.findIndex((x) => x < 0)) * 100. +
     (data.includes(9) ? 1000. : 0.) +
     f32(buf[1]) * 10000.;
-}
+});
 `;
     expect(kernel(src, { data: [3, 4, -1, 4], buf: [0, 0], out: [0, 0] }, 1)).toEqual([
       1 + 3 * 10 + 2 * 100 + 0 + 5 * 10000,
@@ -600,10 +597,9 @@ function id<T>(x: T): T {
     const K = (body: string): string => `"use typeshade";
 declare const data: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
-@compute([1])
-export function main(@builtin("global_invocation_id") gid: vec3u) {
+export const main = compute([1], function main(gid: builtin<"global_invocation_id", vec3u>) {
   ${body}
-}
+});
 `;
     expect(only(K('out[0] = data.map((x) => x * 2.)[0];'))).toBe(
       `${F.UNSUPPORTED} "data.map" would build an array as long as "data", which has no size before the host binds it, and an array with none exists only in storage. Run "data.forEach(…)" instead and store each value into a storage binding.`,

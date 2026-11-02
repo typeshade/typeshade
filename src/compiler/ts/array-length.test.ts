@@ -14,13 +14,12 @@ import { compileModuleJs } from '../../core/cpu-codegen.js';
 const KERNEL = `"use typeshade";
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
-@compute([64, 1, 1])
-export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
+export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= arrayLength(src)) {
     return;
   }
   dst[gid.x] = src[gid.x] * 2.;
-}
+});
 `;
 
 const errorsOf = (src: string) =>
@@ -37,10 +36,9 @@ describe('arrayLength(xs)', () => {
 
   it('takes a trailing array field of a storage struct', () => {
     const r = compileTsSource(`"use typeshade";
-class Buf { n: u32; xs: array<f32>; }
+class Buf { n!: u32; xs!: array<f32>; }
 declare const b: storage<Buf>;
-@fragment
-export function fs(): vec4 { return vec4(f32(arrayLength(b.xs)), 0., 0., 1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(f32(arrayLength(b.xs)), 0., 0., 1.); });
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('arrayLength(&b.xs)');
@@ -49,11 +47,10 @@ export function fs(): vec4 { return vec4(f32(arrayLength(b.xs)), 0., 0., 1.); }
   it('follows a local that copies the binding', () => {
     const r = compileTsSource(`"use typeshade";
 declare const src: storage<array<f32>>;
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const a = src;
   return vec4(f32(arrayLength(a)), 0., 0., 1.);
-}
+});
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('arrayLength(&src)');
@@ -64,8 +61,7 @@ export function fs(): vec4 {
     expect(
       errorsOf(`"use typeshade";
 declare const src: storage<array<f32>>;
-@fragment
-export function fs(): vec4 { return vec4(f32(arrayLength(src[0])), 0., 0., 1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(f32(arrayLength(src[0])), 0., 0., 1.); });
 `),
     ).toEqual([
       `${TS_CODES.TYPE_MISMATCH} arrayLength takes a runtime-sized storage array, not a f32.`,
@@ -76,8 +72,7 @@ export function fs(): vec4 { return vec4(f32(arrayLength(src[0])), 0., 0., 1.); 
     expect(
       errorsOf(`"use typeshade";
 declare const src: storage<array<f32, 8>>;
-@fragment
-export function fs(): vec4 { return vec4(f32(arrayLength(src)), 0., 0., 1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(f32(arrayLength(src)), 0., 0., 1.); });
 `),
     ).toEqual([
       `${TS_CODES.TYPE_MISMATCH} arrayLength takes a runtime-sized array; this one has a fixed size of 8. Write 8, or read ".length".`,
@@ -87,8 +82,7 @@ export function fs(): vec4 { return vec4(f32(arrayLength(src)), 0., 0., 1.); }
   it('refuses an unsized array outside storage with the fix that works for it', () => {
     const uniform = errorsOf(`"use typeshade";
 declare const u: uniform<array<f32>>;
-@fragment
-export function fs(): vec4 { return vec4(f32(arrayLength(u)), 0., 0., 1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(f32(arrayLength(u)), 0., 0., 1.); });
 `);
     // Two independent problems, so both are reported: the `arrayLength` call below, and the
     // declaration itself — a runtime-sized array cannot live in the uniform address space at
@@ -113,8 +107,7 @@ function n(xs: array<f32>): u32 { return arrayLength(xs); }
     expect(
       errorsOf(`"use typeshade";
 declare const src: storage<array<f32>>;
-@fragment
-export function fs(): vec4 { return vec4(f32(arrayLength(src, 1)), 0., 0., 1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(f32(arrayLength(src, 1)), 0., 0., 1.); });
 `),
     ).toEqual([`${TS_CODES.ARITY_MISMATCH} arrayLength expects 1 argument, got 2.`]);
   });
@@ -125,8 +118,7 @@ export function fs(): vec4 { return vec4(f32(arrayLength(src, 1)), 0., 0., 1.); 
     // WGSL does not predeclare, and the call through it with that name.
     const r = compileTsSource(`"use typeshade";
 function arrayLength(x: f32): f32 { return x * 2.; }
-@fragment
-export function fs(): vec4 { return vec4(arrayLength(1.5), 0., 0., 1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(arrayLength(1.5), 0., 0., 1.); });
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('fn arrayLength_(x: f32) -> f32 {');

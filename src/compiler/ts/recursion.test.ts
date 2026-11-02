@@ -78,8 +78,7 @@ export function fact(n: i32): i32 {
   if (n <= 1) { return i32(1); }
   return n * fact(n - 1);
 }
-@fragment
-export function main_fs(): vec4 { return vec4(0., 0., 0., 1.); }
+export const main_fs = fragment(function main_fs(): vec4 { return vec4(0., 0., 0., 1.); });
 `,
     );
     expect(errors).toHaveLength(1);
@@ -235,8 +234,7 @@ export function helper(n: i32): i32 { if (n <= 0) { return i32(1); } return top(
         'a.ts',
         `"use typeshade";
 export function fact(n: i32): i32 { if (n <= 1) { return i32(1); } return n * fact(n - 1); }
-@fragment
-export function fs(): vec4 { return vec4(f32(fact(i32(5))), 0., 0., 1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(f32(fact(i32(5))), 0., 0., 1.); });
 `,
       ),
     ]);

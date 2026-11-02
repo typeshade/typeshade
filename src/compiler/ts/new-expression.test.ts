@@ -21,10 +21,9 @@ const errorsOf = (src: string) =>
     .map((d) => `${d.code} ${d.message}`);
 
 const file = (head: string, body: string) => `"use typeshade"
-${head}@fragment
-export function fs(): vec4 {
+${head}export const fs = fragment(function fs(): vec4 {
 ${body}
-}
+});
 `;
 const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
   for (const make of [compileModule, compileModuleJs]) {

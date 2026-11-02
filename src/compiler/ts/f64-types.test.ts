@@ -496,13 +496,12 @@ export function whole(a: vec3f64, b: vec3f64, c: bool): vec3f64 { return select(
 
   it('emits one df64 comparator per lane on both targets, and no guard binding', () => {
     const r = clean(`"use typeshade";
-class U { a: vec3f64; b: vec3f64; }
+class U { a!: vec3f64; b!: vec3f64; }
 declare const u: uniform<U>;
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   const m = u.a < u.b;
   return vec4(select(vec3(0.), vec3(1.), m), 1.);
-}
+});
 `);
     expect(r.wgsl).toContain('df64_v3_lt(u.a, u.b)');
     expect(r.wgsl).toContain('fn df64_v3_lt(a: DF64Vec3, b: DF64Vec3) -> vec3<bool>');
@@ -813,20 +812,18 @@ class C { @location(0) color: vec4; }
   // same reason; only the sentence improved, so the expectations move with it.
   it('refuses an f64 in every f32 slot naming the argument to narrow', () => {
     expect(
-      errorsOf(`${TEXTURE}@fragment
-export function fs(@location(0) uv: vec2): C {
+      errorsOf(`${TEXTURE}export const fs = fragment(function fs(uv: location<0, vec2>): C {
   const l: f64 = 0.5
   return { color: textureSampleLevel(t, s, uv, l) }
-}
+});
 `),
     ).toEqual(['textureSampleLevel level must be an f32; got f64. Write f32(l).']);
 
     expect(
-      errorsOf(`${TEXTURE}@fragment
-export function fs(@location(0) uv: vec2): C {
+      errorsOf(`${TEXTURE}export const fs = fragment(function fs(uv: location<0, vec2>): C {
   const b: f64 = 0.5
   return { color: textureSampleBias(t, s, uv, b) }
-}
+});
 `),
     ).toEqual(['textureSampleBias bias must be an f32; got f64. Write f32(b).']);
 
@@ -834,12 +831,11 @@ export function fs(@location(0) uv: vec2): C {
       errorsOf(`"use typeshade";
 declare const shadow: texture_depth_2d;
 declare const cmp: sampler_comparison;
-class C { @location(0) color: vec4; }
-@fragment
-export function fs(@location(0) uv: vec2): C {
+interface C { color: location<0, vec4>; }
+export const fs = fragment(function fs(uv: location<0, vec2>): C {
   const d: f64 = 0.5;
   return { color: vec4(textureSampleCompare(shadow, cmp, uv, d)) };
-}
+});
 `),
     ).toEqual(['textureSampleCompare depth_ref must be an f32; got f64. Write f32(d).']);
   });
@@ -850,11 +846,10 @@ export function fs(@location(0) uv: vec2): C {
     // ELEMENT rather than the width, because the width is the one thing this coordinate got
     // right: a `vec2<f64>` is two wide, as a 2D sample wants, and f64 where f32 is wanted.
     expect(
-      errorsOf(`${TEXTURE}@fragment
-export function fs(@location(0) uv: vec2): C {
+      errorsOf(`${TEXTURE}export const fs = fragment(function fs(uv: location<0, vec2>): C {
   const c = vec2f64(f64(uv.x), f64(uv.y))
   return { color: textureSample(t, s, c) }
-}
+});
 `),
     ).toEqual(['textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2f64.']);
   });
@@ -898,9 +893,8 @@ export function vs(@builtin("vertex_index") i: u32): VsOut {
     // front end must not be stricter than the pass in the other direction either.
     expect(
       errorsOf(`"use typeshade";
-class V { @builtin("position") pos: vec4; }
-@vertex
-export function vs(@location(0) p: f64): V { return { pos: vec4(f32(p), 0., 0., 1.) }; }
+interface V { pos: builtin<"position", vec4>; }
+export const vs = vertex(function vs(p: location<0, f64>): V { return { pos: vec4(f32(p), 0., 0., 1.) }; });
 `),
     ).toEqual([]);
   });

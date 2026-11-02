@@ -246,8 +246,7 @@ namespace N {
     return s;
   }
 }
-@compute([1])
-export function main(): void { g(); out[4] = N.h(); }
+export const main = compute([1], function main(): void { g(); out[4] = N.h(); });
 `);
     expect(r.diagnostics).toEqual([]);
   });

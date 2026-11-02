@@ -46,10 +46,9 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 };
 
 const file = (head: string, body: string) => `"use typeshade"
-${head}@fragment
-export function fs(): vec4 {
+${head}export const fs = fragment(function fs(): vec4 {
 ${body}
-}
+});
 `;
 
 describe('a derived struct is its base plus its own', () => {
@@ -348,10 +347,9 @@ class Derived extends Base {
 function f(): f32 {
   return super.v();
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(f(), 0., 0., 1.);
-}
+});
 `)[0],
     ).toContain('"super" names the class above the one whose body it is written in');
   });
@@ -419,11 +417,10 @@ describe('what inheritance refuses, and why', () => {
 ${HEAD}function take(b: Base): f32 {
   return b.x
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const d: Derived = { x: 1., y: 2. }
   return vec4(take(d), 0., 0., 1.)
-}
+});
 `)[0],
     ).toContain(note);
   });
@@ -456,8 +453,7 @@ describe('an abstract member is checked where it is declared', () => {
   // TypeScript refuses each of these too (TS1244, TS1245, TS1253, TS1267, TS1318, TS2515,
   // TS2654), and the editor shows the compiler's sentence in place of its report (`bothHalves`).
   const M = TS_CODES.CLASS_MEMBER;
-  const FS = `@fragment
-export function fs(): vec4 { return vec4(1.) }
+  const FS = `export const fs = fragment(function fs(): vec4 { return vec4(1.) });
 `;
 
   it('one with a body, on the class that declares it, once', () => {
@@ -717,10 +713,9 @@ ${FS}`),
     ).toEqual([`${M} A signature of "C.m" is abstract, and its body is not; remove "abstract".`]);
     // What the sentence offers compiles, with the body D inherits.
     const r = compile(`"use typeshade";
-abstract class C { x: f32; m(): f32; m(): f32 { return this.x + 1.; } }
+abstract class C { x!: f32; m(): f32; m(): f32 { return this.x + 1.; } }
 class D extends C { }
-@fragment
-export function fs(): vec4 { const d = new D(); d.x = 1.; return vec4(d.m()); }
+export const fs = fragment(function fs(): vec4 { const d = new D(); d.x = 1.; return vec4(d.m()); });
 `);
     expect(r.diagnostics).toEqual([]);
   });
