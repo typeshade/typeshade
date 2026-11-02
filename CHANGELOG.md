@@ -1534,6 +1534,22 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **The host view gives the static builder of an abstract class the reason the compiler gives
+  (#974).** A static of an `abstract` class that builds its value with `new this()` under the
+  `this` parameter of change 0020 has no function of the abstract class: it is lowered for each
+  class that extends it (#944). The view declared it `static at: never` with the reason of every
+  member that was not lowered, `it was not lowered to one function of the module`, and the
+  generated module threw that. The reason is now the sentence `TS8035` gives a call through the
+  abstract class, with the first exported class that extends it:
+
+  ```text
+  "Oscillator.at()" builds its value with "new this()", and "Oscillator" is abstract, so there is no instance of it to build. Call it through a class that extends it, "Saw.at()".
+  ```
+
+  The editor's hover over the member in a host program shows it, and so does the `TypeError` of a
+  call. An exported abstract class that extends another declares the static again, with its own
+  name in the sentence.
+
 - **The host view carries the comment of a field with a private name (#951).** A field written
   `#n` with a JSDoc block above it was declared `private n: u32;` with no comment, where a public
   field, a `protected` one and one written `private` carry theirs (change 0108, item 4). The reader
