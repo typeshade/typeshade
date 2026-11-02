@@ -37,7 +37,7 @@ downstream:
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean. The owner asked whether `T[]` can replace `array<T>`, whether `array<T, N>` should be replaced by `Array<T, N>` or by a type of TypeShade's own, and how `readonly T[]` fits. The owner approved the direction this draft records ("승인"). |
 | Applicability / effectivity   | `docs/language-design.md` (Rules 4.5, 6.1, 6.2, 9.6), `docs/use-typeshade-surface.md` (§1, §7, §14, §18, §20, §28, §63), `docs/typeshade-plan.md` (area B), the front end, the language service's ambient library, the binding reflection and the runtime's bind-group layout. No release version is assigned.      |
 | Review baseline               | `main` at `9afe73a` (2026-11-02).                                                                                                                                                                                                                                                                                   |
-| Review and revision authority | No pull request is assigned yet. Git records the revisions of this file; the merge of its pull request with `status: accepted` records the decision.                                                                                                                                                                |
+| Review and revision authority | Pull request [#880](https://github.com/typeshade/typeshade/pull/880) (branch `claude/proposal-0114-arrays`). Git records the revisions of this file; the merge of its pull request with `status: accepted` records the decision.                                                                                    |
 
 ## What changes
 
