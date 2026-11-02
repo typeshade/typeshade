@@ -234,7 +234,8 @@ table of `docs/language-design.md` §9, and `argument-access.test.ts` holds
   every entry of the `.shade.ts` examples called on each tier. Run it for any change to emitted
   text or to the runtime.
 - `bun run gate:differential`: generated kernel functions, chains of kernel calls and functions
-  drawn on WebGL2, held to the `f32` oracle on a GPU. Run it for any change to the kernel
+  drawn on WebGL2, the common modules and the members of every exported class of the examples
+  and of `journeys/class-twins/` (change 0110), held to the `f32` oracle on a GPU. Run it for any change to the kernel
   lowering, the fuse planner or the fused entry; `core/testing/random-chain.test.ts` is its
   oracle half for the chains.
 - `bun run gate:journeys` (after `build`): the packed tarball checked the way a user meets it.

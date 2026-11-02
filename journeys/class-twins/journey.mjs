@@ -52,7 +52,7 @@ function filtered(gain) {
 const VOICES = 40;
 const tableRnd = generator(37);
 const table = Array.from({ length: 37 }, () => dyadic(tableRnd, -1, 1));
-const voices = Array.from({ length: VOICES }, (_, v) => ({ at: (v * 5) % 50 }));
+const voices = Array.from({ length: VOICES }, (_, v) => ({ at: (v * 5) % table.length }));
 
 /** Each voice reads its block of the table from where it starts, wrapping at the table's end. */
 function played() {

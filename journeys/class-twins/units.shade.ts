@@ -23,6 +23,10 @@ export class OnePole {
   peek(scale: f32): f32 {
     return this.z * scale;
   }
+  /** Sets the fraction of the way the filter moves each sample, clamped as `coefficient` does. */
+  set cutoff(step: f32) {
+    this.k = OnePole.coefficient(step);
+  }
   /** The fraction of the way a filter moves each sample, clamped to [0, 1]. */
   static coefficient(step: f32): f32 {
     return clamp(step, 0., 1.);
@@ -121,10 +125,10 @@ export class Wavetable {
   constructor(start: u32) {
     this.at = start;
   }
-  /** The next sample of the table. */
+  /** The next sample of the table; the position stays inside the table. */
   next(): f32 {
-    const v = table[this.at % arrayLength(table)];
-    this.at = this.at + 1;
+    const v = table[this.at];
+    this.at = (this.at + 1) % arrayLength(table);
     return v;
   }
 }
