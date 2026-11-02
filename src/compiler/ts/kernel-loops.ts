@@ -244,7 +244,9 @@ class Wording {
         // The IR spells `xs.length` as `arrayLength(xs)`; the author wrote the first.
         if (e.fn === 'arrayLength' && e.declRef === undefined && e.args.length === 1)
           return `${this.print(e.args[0]!, 9)}.length`;
-        return `${e.fn}(${e.args.map((a) => this.print(a, 0)).join(', ')})`;
+        // A call through a declaration is a function of the module, which the author wrote as
+        // `Voice.shift` where the module emits `Voice_shift`; a builtin keeps its id.
+        return `${e.declRef === undefined ? e.fn : this.name(e.fn)}(${e.args.map((a) => this.print(a, 0)).join(', ')})`;
       case 'construct':
         return `${e.type.kind === 'scalar' ? e.type.scalar : 'vec'}(${e.args.map((a) => this.print(a, 0)).join(', ')})`;
       default:
