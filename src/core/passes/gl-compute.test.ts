@@ -433,8 +433,7 @@ export const main = compute([4], function main(i: builtin<"local_invocation_inde
 describe('an emulated double kept in state across a barrier (#970)', () => {
   /** An FFT entry that keeps its twiddle, an emulated double, in a local across a barrier, as
    *  typeshade/typeaudio#9 wrote it; `local` is the double's declaration. */
-  const entry = (local: string, use: string) =>
-    compile(`"use typeshade";
+  const source = (local: string, use: string): string => `"use typeshade";
 declare const data: storage<array<f32>, "read_write">;
 let tile: workgroup<array<f32, 64>>;
 export const fftSmallDouble = compute([64, 1, 1], function fftSmallDouble(li: builtin<"local_invocation_index", u32>): void {
@@ -443,14 +442,20 @@ export const fftSmallDouble = compute([64, 1, 1], function fftSmallDouble(li: bu
   workgroupBarrier();
   data[li] = tile[(li + 1) % 64] * ${use};
 });
-`);
+`;
+  const entry = (local: string, use: string) => compile(source(local, use));
 
   it('keeps an f64 as its two words, hi and lo, and a vec3f64 as three pairs', () => {
-    const scalar = entry(
+    const twiddle: [string, string] = [
       'const angle: f64 = f64(-6.283185307179586) * f64(f32(li)) / f64(64.);',
       'f32(cos(angle)) + f32(sin(angle))',
-    );
+    ];
+    const scalar = entry(...twiddle);
     expect(scalar.diagnostics).toEqual([]);
+    // The editor reads the entry clean too: the refusal was the WebGL2 tier's alone.
+    const service = createTypeshadeLanguageService();
+    service.openDocument('fft.shade.ts', source(...twiddle));
+    expect(service.getDiagnostics('fft.shade.ts')).toEqual([]);
     const p = buildGlCompute(scalar.module, 'fftSmallDouble');
     // The state of `angle` is two words, zeros before the first pass.
     expect(p.init.filter(([, words]) => words.length === 2)).toEqual([

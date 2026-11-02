@@ -1577,8 +1577,9 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   emulated double is now kept as the two `f32` words the GPU holds it as, `hi` and `lo`, and a
   `vecN<f64>` as a pair for each lane; the next pass reads back their sum, which is the same pair.
   A matrix of doubles is still refused, now with its own reason
-  (`a mat2x2<f64> cannot be kept in state`), since the emulation reads no column of one. Such an
-  entry also needs its `_fp64` guard bound on WebGL2 (#966).
+  (`a mat2x2<f64> cannot be kept in state`), since the emulation reads no column of one. The
+  compile gate's compute case `across` keeps an `f64` and a `vec2f64` across a barrier: both WebGL2
+  tiers must run it, with the `_fp64` guard bound as #966 binds it, and match WebGPU.
 
 - **An entry that emulates `f64` runs on WebGL2, and a draw WebGL2 refuses rejects the call
   (#966).** The pass program of such an entry declares the `_fp64` guard,
