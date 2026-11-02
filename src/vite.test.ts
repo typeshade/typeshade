@@ -467,7 +467,7 @@ describe('tshc sync', () => {
     const a = memoryHost(files);
     expect(runCli(['sync', 'src/app.shade.ts'], a.host, info)).toBe(0);
     expect(files['/p/src/app.shade.typeshade.ts']).toContain(
-      'export declare function brighten(x: number): number;',
+      'export declare function brighten(x: f32): f32;',
     );
   });
 
@@ -484,7 +484,7 @@ describe('tshc sync', () => {
     const a = memoryHost(files, '/p/app');
     expect(runCli(['sync', 'src/app.shade.ts'], a.host, info)).toBe(0);
     expect(files['/p/app/src/app.shade.typeshade.ts']).toContain(
-      'export declare function brighten(x: number): number;',
+      'export declare function brighten(x: f32): f32;',
     );
     // An error is printed at its file: relative to the working directory, or in full above it.
     files['/p/node_modules/shade-tint/src/tint.shade.ts'] = LIB.replace('x * t.gain', 'x * t.gian');

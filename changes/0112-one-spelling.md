@@ -1,7 +1,7 @@
 ---
 id: '0112'
 title: A meaning that an ECMAScript form carries in every case has that one spelling, and `Math` takes scalars as ECMAScript's does
-status: accepted
+status: implemented
 rules:
   - '9.4'
   - '9.6'
@@ -39,7 +39,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0112, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02; see Approval and plan record. Part 1 (sections 3 and 5, the removals and the refusal; Rules 9.4 and 9.9) is implemented by pull request #899, merged into `main` as `6229368` on 2026-11-02. Part 2 (section 4, `Math` takes scalars) is pending, so the status stays `accepted`; see Configuration and validation record.                                                                                                                                 |
+| Identity and status           | Proposal 0112, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02; see Approval and plan record. Part 1 (sections 3 and 5, the removals and the refusal; Rules 9.4 and 9.9) is implemented by pull request #899, merged into `main` as `6229368` on 2026-11-02. Part 2 (section 4, `Math` takes scalars) is implemented by pull request #933, merged into `main` as `ef10f96` on 2026-11-02; see Configuration and validation record.                                                                                      |
 | Date and attribution          | Authored 2026-11-02, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean. The owner asked why `arrayLength` exists when `.length` is more TypeScript-like, and said there are many such names ("이런게 좀 많다고 느껴져요"). The agent surveyed the ambient library and proposed a test by Rule 1.4 of proposal 0100. The owner also asked whether every author should have to write `Math.` for math; the agent recommended that `Math` keep ECMAScript's scalar meaning and that vector math stay on the WGSL names. The owner answered "승인" to drafting this proposal. No GitHub issue is recorded. |
 | Applicability / effectivity   | `docs/language-design.md` (Rules 9.4 and 9.6, the §9.3 table, a new Rule 9.9, Appendix B), `reqs/`, `docs/use-typeshade-surface.md` (the sections in the front matter), `src/language-service/ambient.ts`, `src/compiler/ts/math-alias.ts` and the fold lowering, `src/core/spec-conformance/surface-names.test.ts`, the tests and four examples that call a removed name. No export, diagnostic code or example id changes. No release version is assigned.                                                                                                                                           |
@@ -297,9 +297,11 @@ section.
 
 ### Configuration and validation record
 
-This record covers part 1: sections 3 and 5 (the removals and the refusal), Rule 9.4 as amended
-and Rule 9.9. Part 2, section 4 (`Math` takes scalars), is pending, so `status` stays `accepted`;
-the pull request that delivers section 4 sets `status: implemented` and extends this record.
+This record covers both parts. Part 1 is sections 3 and 5 (the removals and the refusal), Rule 9.4
+as amended and Rule 9.9. Part 2 is section 4 (`Math` takes scalars), recorded after part 1. Part 2
+is the last implementing pull request, so it sets `status: implemented`.
+
+**Part 1** (pull request #899):
 
 Accepted revision: the file as merged in [#878](https://github.com/typeshade/typeshade/pull/878)
 (`main` at `10847cc`), amended by [#895](https://github.com/typeshade/typeshade/pull/895)
@@ -359,8 +361,48 @@ Document validation: `bun run reqs:sync` and `python scripts/doorstop-check.py -
 `Docs-Impact:` trailer of each commit names the locations read. The downstream search of the
 draft missed TypeNN (Deviation record).
 
-Pending: section 4 (`Math` takes scalars, the one sentence of Rule 9.4 and the `ambient-parity`
-`Math` table); the downstream work below.
+**Part 2** (section 4, `Math` takes scalars; pull request #933).
+
+Implementation: pull request [#933](https://github.com/typeshade/typeshade/pull/933), by Claude Code
+agents, with the owner's go-ahead. Head `e02c0de`. Merged into `main` as
+`ef10f96fd16b7e91d6dcae74345fd5adac6657c4` on 2026-11-02 (squash), with the commit `Change: 0112`.
+
+Delivered configuration on `main` at `ef10f96`:
+
+- `docs/language-design.md`: the Rule 9.4 sentence, "A `Math` member takes the scalar arguments
+  ECMAScript gives it; the vector form of the same operation is the WGSL name."
+- `docs/use-typeshade-surface.md`: §7 (the `TS8003` row for a vector argument to a `Math` member, and
+  the scalar paragraph) and §10.
+- `reqs/rules/RULE-0904.md`, `reqs/surface/SURF-010.md` and `reqs/surface/SURF-012.md` (two lines).
+  `RULE-0904` and `SURF-010` were reviewed after the owner read them on 2026-11-02.
+- `src/compiler/ts/lower/expression-call.ts` and `expression-misc.ts`: one `TS8003` sentence per
+  vector argument, which names the WGSL builtin that takes the vector.
+- `src/language-service/ambient.ts` and `docs.ts`: the `MathObject` vector overloads of `max` and `min`
+  are removed. `Math.sqrt(v)` is refused in both halves.
+- `src/compiler/ts/math-scalar.test.ts` (new, 17 tests), `math-args.test.ts` and `math-binding.test.ts`.
+
+Functional validation, by the part-2 session on head `e02c0de`, run locally and reported here; this
+pull request does not re-run them: `bun run build`; `bun run format:check`; `bun run docs:refs`;
+`bun scripts/changes.ts`; `bun run bake:goldens` (no golden diff); `bun run gate:compile` (195 examples
+on Tint, 0 failures); the 17 math-scalar tests and the spec-conformance tests (the count was not
+recorded).
+
+CI on head `e02c0de`: 26 checks green, among them `typecheck + unit`, `traceability (Doorstop)`,
+`compile gate (Tint + WebGL2)`, `user journeys (packed tarball, WebGPU)` and `TypeNN candidate (build + CPU)`.
+
+Deviations of part 2:
+
+- 2026-11-02. Deviation: a `min` or `max` bound to a name by a `const` (change 0113) took the vector
+  overloads before #933. It now takes the scalar signature, as every `Math` member does. Section 4
+  names the removal of the vector overloads of `Math.max` and `Math.min`; the bound name is one
+  of those members. Disposition: closed; surface §7 records it ("`min` and `max` included").
+- 2026-11-02. Deviation: `Math.random(seed)` keeps its existing exclusion from the scalar rule (#181).
+  Disposition: closed, out of scope of section 4.
+- 2026-11-02. Deviation: the `ambient-parity` `Math` table named in the earlier pending note is not in
+  #933's file list. The two-half check of the scalar rows is in `src/compiler/ts/math-scalar.test.ts`,
+  which reads `compile()` and `getDiagnostics` on the same source (Rule 12.7). Disposition: closed.
+
+Open items: none in the compiler repository. Downstream work is below.
 
 ## What it owes downstream
 
@@ -372,6 +414,6 @@ Pending: section 4 (`Math` takes scalars, the one sentence of Rule 9.4 and the `
   changed to `a ** b` in typenn#26, merged as typenn `3a7d66c` on 2026-11-02, before #899 merged
   (decision D1). Found by the `TypeNN candidate` check on #899, not by the drafting search; see
   the deviation record. The gate's pin moved to `3a7d66c` in #909 (`main` at `cd89637`).
-  Still owed: the 0112 record in typenn's `compiler-changes.md` when its pin moves past `6229368`.
+  Still owed: the 0112 record in typenn's `compiler-changes.md` when its pin moves past `ef10f96`.
 
 Each records 0112 in its `compiler-changes.md` when its pin moves past the implementation.

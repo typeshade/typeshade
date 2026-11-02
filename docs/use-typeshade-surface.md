@@ -327,7 +327,7 @@ export const fs = fragment(function fs(
   texel per invocation and has no workgroup to give `y` and `z` to.
 - `compute({ workgroup: [64, 1, 1] }, f)` is refused (`TS8037`):
   `compute takes an array of one to three whole numbers before its function, "compute([64, 1, 1], f)"; "{ workgroup: [64, 1, 1] }" is not a workgroup shape.`
-- A stage call takes one option after the function, `diagnostic` (§54):
+- A stage call takes two options after the function, `diagnostic` (§54) and `numerics` (§78):
   `fragment(f, { diagnostic: ["off", "derivative_uniformity"] })`. Another option is refused
   (`TS8028`).
 - A kernel function (§65) takes one extent in the same spelling as an entry:
@@ -467,6 +467,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
 | `.length` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 | a call of a name that change 0112 removed: `arrayLength`, `log10`, `log1p`, `expm1`, `cbrt`, `hypot`, `sum`, `none`, `pow`; a read of `PI`, `E`, `LN2`, `LN10`, `LOG2E` or `LOG10E`; `any(xs, p)` or `all(xs, p)` | `TS8004` for a call, `TS8022` for a read, `TS8019` for the two folds, each in one sentence that names the spelling to write: `arrayLength was removed: write xs.length.`, `PI was removed: write Math.PI.`, `any expects 1 argument, got 2; the array fold was removed: write xs.some(p).` (§10) |
+| a vector or matrix argument to a `Math` member: `Math.sqrt(v)`, `Math.max(v, 0.)`, `Math.pow(v, w)` | `TS8003`, in one sentence that names the WGSL name or operator that takes the vector: `Math.sqrt takes a number; for a vec3 write sqrt(v).`, `Math.pow takes a number; for a vec3 write v ** w.` The editor reports the same sentence (§10) |
 | A module variable declared or used where its address space forbids | `TS8033`. A `let` with neither type nor initializer, a resource type without `declare` (`"dst" is a storage binding the host provides, and needs declare: write "declare const dst: storage<array<f32>, "read_write">".` — the mode is the one the `let` asked for, and a resource with no type argument names the shape `storage<...>`), a `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
 | A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, or used as a value (§25). One under a branch the invocations may not share is `TS8052` (§54) |
 | A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A static field that holds a function, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a member a class that extends declares as another kind than its base, `super.f` on a field that holds a function, a method that changes its object called on a `const` whose value something else may hold, a parameter or a dropped value, one that returns nothing used as a value, a `private`, `protected` or `#x` member named where TypeScript does not allow it, or a changing call on the copy a `return this` method hands back inside an expression (§26) |
@@ -666,6 +667,13 @@ declaration hides a predeclared function. `fract(x)` and `fract(1.25)` beside a 
 `fract` both call it, and the editor's hover shows it. A call of a builtin the file never wrote
 keeps meaning the builtin: the `fract` that `random(p)` expands to, and a `Math.pow(a, b)` beside
 a declared `pow`.
+
+A `Math` member takes and returns scalars, as ECMAScript's does (Rule 9.4, change 0112): the
+ambient `MathObject` declares no vector overload, and `Math.sqrt(v)` or `Math.max(v, 0.)` on a
+`vec3` is refused in the compiler and in the editor with the same `TS8003` sentence, which names
+the builtin that takes the vector (`sqrt(v)`, `max(v, 0.)`; `v ** w` for `pow`). The vector math
+stays on the free WGSL names above. A name bound to a member (§12) takes the member's scalar
+signature the same way, `min` and `max` included.
 
 A value constructor is the one thing that does not give way. A declaration named like a scalar
 cast, a vector, a matrix or `array` (`f32`, `vec3`, `mat2x2f` …) does not take a call of that
@@ -4876,6 +4884,7 @@ the grouping is computed in integers, or in values no step rounds.
 | `emulated`  | an `f64` operation: f32 pairs whose error terms hold while the driver neither reassociates nor fuses them                                  | every arithmetic operator, `floor`, and every bounded builtin on `f64`, `vecNf64` and `matNf64`                                            |
 | `order`     | a floating-point reduction of a kernel function's loop (§65): one answer on every tier, the tree of Rule 7.2, which is not the loop's sequential order | `s += x` and `s *= x` on `f32` or `f64`, listed under the kernel function after its own operations                                          |
 | `order`     | an `f32` scatter with `+=` at a computed index (§65): one answer on the CPU tier, the tree of Rule 7.2 over the iterations; no GPU tier lowers it yet, so the answer holds only where it runs | `g[idx[i]] += x[i]` on an `f32` parameter array, listed under the kernel function after its own operations                                                     |
+| `contract`  | a numerical contract a function opted into (§78, Rule 11.22): the GPU tiers apply its rewrites and the CPU oracle does not; one row per class, its `op` the class and its `where` the functions under it | `finite-math`, listed after every other row; its `accuracy` names the folds and the inputs on which the oracle differs |
 
 **What is not listed.** Integer arithmetic, comparisons and the bit builtins, which have a correct
 result. A reduction by `min` or `max`, or on integers, which is exact in any order, and one in a
@@ -7429,8 +7438,8 @@ That module is `terrain.shade.ts`. A host file calls it like any other module:
 import { height, normal } from './terrain.shade.ts';
 
 const k = [1, 0.5, 2, 0.25] as const;
-const h = height([0.5, 0.5], k); // a number
-const n = normal([0.5, 0.5], k); // [number, number, number]
+const h = height([0.5, 0.5], k); // an f32: a number
+const n = normal([0.5, 0.5], k); // a vec3: a readonly tuple of three numbers
 ```
 
 **The setup.** Run `npx tshc init` after installing TypeShade in an existing Vite project (change 0085).
@@ -7513,13 +7522,54 @@ bundle reads the source, through the plugin:
 ```ts
 // Generated by typeshade from terrain.shade.ts. Do not edit; `tshc sync` rewrites it.
 
-export declare const EPS: number;
+import type { f32, vec2, vec3, vec4 } from "typeshade/runtime/internal";
+export declare const EPS: f32;
 /** The height of the terrain at `p`, from the four wave constants `k`. */
-export declare function height(p: readonly [number, number], k: readonly [number, number, number, number]): number;
-export declare function normal(p: readonly [number, number], k: readonly [number, number, number, number]): [number, number, number];
+export declare function height(p: vec2, k: vec4): f32;
+export declare function normal(p: vec2, k: vec4): vec3;
 /** A full-screen `@fragment` entry: draws one frame into `target`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24). */
 export declare function fs(target: HTMLCanvasElement | OffscreenCanvas, bindings: {}): Promise<void>;
 ```
+
+**The names in the view** (change 0116). The view spells each type with the name the shader
+writes: `f32`, `vec3`, `mat4x4`, `array<f32>`. `typeshade/runtime` exports each name as a type,
+one for each value type of the shader's vocabulary, and the view imports the names it writes
+from the runtime it imports `Pack` from. A host file imports them the same way:
+
+```ts
+import type { f32, vec2, vec4 } from 'typeshade/runtime';
+import { height } from './terrain.shade.ts';
+
+const k: vec4 = [1, 0.5, 2, 0.25];
+const h: f32 = height([0.5, 0.5], k);
+```
+
+Each name is a name for a host value of the table below, and the values do not change. A scalar
+is the `number` or `boolean` it is, with its name as an optional phantom property, so a plain
+literal is an `f32` and an `f32` is a `number`. A vector is a `readonly` tuple of its scalar. A
+matrix is a `readonly` tuple of its components, column-major, with its name as a scalar has its
+name, so an array of `mat2x2` is an array of matrices and not the typed array an array of `vec4`
+is. `array<T, N>` is a `readonly T[]`. `array<T>`, an array with no size, is what a kernel
+function and an entry's binding take: the typed array of the scalar of `T`, or an array of
+structs, each with its `Resident` (§65). Two names are two types: an `f32` is not a `u32`, and a
+`vec3` is not a `vec2`. A result is `readonly`, as an argument is (decision D1), so copy a result
+before you write into it.
+
+A struct goes by its name, as an argument and as a result (decision D7). An `interface` or a
+`type` is the object of its fields. An exported class is the class, so a host passes an instance
+it built with `new`; the call still takes a plain object of the fields (Rule 8.21), and `tsc`
+refuses one where the class has a method or an accessor the object lacks, since TypeScript
+compares types by their shape. A struct the view declares no name for is its fields, and so is
+a constant of a struct, which is a frozen object of its fields. In a binding and in an array with
+no size, a struct that holds a key or a `Record` is its fields too, since they hold a key as its
+id. An enum, a key type and a `Record` keep their spelling.
+
+A host program that holds each value in the shape the old spelling gave it keeps type-checking
+(decision D10), with these exceptions, each a type error at the host's line that one annotation
+fixes: a program that writes into a result in place copies it first; a value of one name where
+another goes, an `f32` held as a `u32`, is refused; a matrix held in a type of unknown length
+(`number[]`) takes the family's name; a result held in a mutable tuple type takes the family's
+name; and a plain object where an exported class's instance goes is built with `new`.
 
 **The author's comments** (change 0108). The view carries the JSDoc the author wrote. Each block
 (`/** … */`) above an exported declaration is copied into the view, as written and in source order,
@@ -7551,7 +7601,9 @@ stale. A change to a comment alone makes the view stale. The views are generated
 **The default export is the program.** A module's host import has one more export than the module
 writes: its default export is the compiled program's manifest (§69), which the view types as
 `Pack<{ vs: …; fs: … }>`: for each entry, the bindings it reaches, each with the values a draw or
-a dispatch may pass for it (change 0030). The module's own default export, if it writes one, has
+a dispatch may pass for it (change 0030). A binding of a struct type is the struct's name, where
+the view declares one, beside the packed forms the runtime takes (change 0116, decision D8). The
+module's own default export, if it writes one, has
 no host face, as it never had. A bundle that imports the default export alone carries the
 manifest and none of the CPU tier.
 
@@ -7586,19 +7638,19 @@ is a type error at the host's own line.
 
 **Host values** (Rule 8.21) are the representation the CPU tier already runs on:
 
-| TypeShade type                            | argument                                                   | result         |
-| ----------------------------------------- | ---------------------------------------------------------- | -------------- |
-| `f32`, `f64`                              | `number` (an `f32` is rounded as a buffer write rounds it) | `number`       |
-| `i32`, `u32`                              | `number`, an integer in the type's range                   | `number`       |
-| `bool`                                    | `boolean`                                                  | `boolean`      |
-| `vecN` and its `f`, `i`, `u`, `f64` forms | `readonly [number, …]` of N                                | `[number, …]`  |
-| `vecNb`                                   | `readonly [boolean, …]` of N                               | `[boolean, …]` |
-| `matCxR`                                  | `readonly number[]` of C×R, column-major                   | `number[]`     |
-| `array<T, N>`                             | `readonly T[]` of N                                        | `T[]`          |
-| a struct                                  | an object of its fields, an instance of its class included | an instance of its class where the class is exported and not abstract, else an object of its fields |
-| an `enum`                                 | the member's number                                        | the same       |
-| a key type (§75)                          | one of its members, a string                               | the same       |
-| a `Record` over a key type (§75)          | an object with one property for each member                | the same       |
+| TypeShade type                            | spelled in the view as                              | argument                                                   | result         |
+| ----------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------- | -------------- |
+| `f32`, `f64`                              | `f32`, `f64`                                        | `number` (an `f32` is rounded as a buffer write rounds it) | `number`       |
+| `i32`, `u32`                              | `i32`, `u32`                                        | `number`, an integer in the type's range                   | `number`       |
+| `bool`                                    | `bool`                                              | `boolean`                                                  | `boolean`      |
+| `vecN` and its `f`, `i`, `u`, `f64` forms | `vec3`, `vec3i`, `vec3u`, `vec3f64`                 | `readonly [number, …]` of N                                | the same       |
+| `vecNb`                                   | `vec3b`                                             | `readonly [boolean, …]` of N                               | the same       |
+| `matCxR`                                  | `mat2x3`, `mat4x4`; `mat4x4<f64>` for a `mat4<f64>` | `readonly [number, …]` of C×R, column-major                | the same       |
+| `array<T, N>`                             | `array<T, N>`                                       | `readonly T[]` of N                                        | the same       |
+| a struct                                  | its name, the class for an exported class; its fields where the view declares no name | an object of its fields, an instance of its class included | an instance of its class where the class is exported and not abstract, else an object of its fields |
+| an `enum`                                 | `i32`                                               | the member's number                                        | the same       |
+| a key type (§75)                          | the union of its members                            | one of its members, a string                               | the same       |
+| a `Record` over a key type (§75)          | an object of its members                            | an object with one property for each member                | the same       |
 
 Each argument is checked and converted at the call, for the caller `tsc` did not read: an
 `ArrayLike` of the right length, a `Float32Array` included, becomes a fresh array, and a value
@@ -7658,16 +7710,19 @@ await run(out, xs, filters, 1024); // the instances, taken as the structs they a
 ```
 
 The view declares the class with the host type of each member, and carries the comment of the
-class (change 0108). The comment of a method is not copied:
+class (change 0108). The comment of a method is not copied. A kernel function's array is
+`array<T>`, and an array of the class's instances is `array<OnePole>` (decision D7):
 
 ```ts
 /** A one-pole lowpass with its state. */
 export declare class OnePole {
-  constructor(k: number);
-  z: number;
-  k: number;
-  tick(x: number): number;
+  constructor(k: f32);
+  z: f32;
+  k: f32;
+  tick(x: f32): f32;
 }
+/** Runs every filter of the bank over its block, one lane per filter. … */
+export declare function run(out: array<f32>, xs: array<f32>, filters: array<OnePole>, block: u32): Promise<void>;
 ```
 
 `new OnePole(0.1)` checks and converts its arguments as a helper call does, runs the class's
@@ -7692,7 +7747,8 @@ without `extends`; its JavaScript class extends all the same.
 An instance is taken wherever a struct's object is: as a parameter, a field, an element of an
 `array<T, N>`, an element of a kernel function's array or a binding of an entry. The check reads
 the fields the struct declares and ignores the prototype, and a plain object of the fields is
-taken as before. A struct a result holds is an instance of its class where the class is exported
+taken as before at run time; the view writes the class's name there (change 0116, decision D7),
+so `tsc` asks for an instance. A struct a result holds is an instance of its class where the class is exported
 and not abstract, built without running its constructor, so `tick()` works on what a helper
 returned. A generic
 class stays `never`. A class with a field that has no host value (an atomic, a texture, an
@@ -9999,8 +10055,9 @@ Its entries are there before the loop, and when the call resolves the new entrie
 insertion order. A key it held keeps its place and takes the value set last. The call refuses,
 with a `TypeError` that names the parameter, a value that is not the `Map` or the `Set` the
 parameter says, and the first key or value that does not fit its type. The host view types the
-parameter as `Set<number>` or `Map<number, V>` for numeric keys, and as
-`Set<K>` or `Map<K, V>` with the string literal union for a key type.
+parameter as `Set<u32>` or `Map<u32, V>` for numeric keys, with the name of the key's type from
+the host type family (§64), and as `Set<K>` or `Map<K, V>` with the string literal union for a
+key type.
 
 **The tiers.** The CPU tier runs the function with JavaScript's own `Map` and `Set`, and it is the
 oracle. On WebGPU a loop that adds runs as a loop that pushes (§65): each `add` or `set` pushes a
@@ -10665,3 +10722,84 @@ last would start from.
 `examples/subgroup-reduce.shade.ts` is the complete example: an integer fold before an atomic,
 with `subgroup_id` and `num_subgroups` on the entry, on the compile gate on Tint; WGSL-only on the
 gallery, since it is a compute entry over storage buffers.
+
+## 78. A numerical contract: `numerics(["finite-math"], f)`
+
+Change 0107 lets an author opt one function into floating-point rewrites that the default
+optimizer refuses. The default `-O2` folds only the float identities that hold for every value,
+NaN and infinities included (`x * 1`, `x / 1`, `-(-x)`); it keeps `x * 0`, `x - x` and
+`mix(a, b, 0.0)`, because each of them is NaN when an operand is NaN or infinite. A function whose
+author knows its values are finite says so, and the compiler drops that work in that function and
+in no other (Rule 11.22).
+
+```ts
+"use typeshade";
+
+function hash(p: vec2f): f32 {
+  return fract(sin(dot(p, vec2f(12.9898, 78.233))) * 43758.5453);
+}
+
+const tick = numerics(["finite-math"], function tick(base: vec3f, x: vec3f, spread: f32): vec3f {
+  return mix(base, x, 0.) + spread * hash(base.xy) + (x - x);
+});
+
+export const fs = fragment(
+  function fs(p: builtin<"position", vec4f>): vec4f {
+    return vec4f(tick(p.xyz, p.zyx, 0.5), 1.);
+  },
+  { numerics: ["finite-math"] },
+);
+```
+
+```wgsl
+fn tick(base: vec3<f32>, x: vec3<f32>, spread: f32) -> vec3<f32> {
+  return ((base + (spread * hash(base.xy))) + vec3<f32>(0.0, 0.0, 0.0));
+}
+```
+
+**The spelling.** A function of the file is wrapped in a call to `numerics`, in the form change
+0111 gives every attribute (§3): `const f = numerics([...], function f(…) { … })`. An entry or a
+kernel function names its classes as its stage call's `numerics` option, beside `diagnostic`:
+`fragment(f, { numerics: ["finite-math"] })`, `workgroup_size([128], f, { numerics: [...] })`. The
+name is TypeShade's (§9.3, the "contracts" family); nothing in the emitted text names it.
+
+**The classes.** Each element of the list names one class. No class is on by default, and there is
+no catch-all.
+
+| Class | Assumes | Rewrites | Against the oracle |
+| --- | --- | --- | --- |
+| `finite-math` | every operand is finite and not NaN | `x * 0` and `0 * x` to `0`, `x - x` to `0`, `mix(a, b, 0)` to `a`, `mix(a, b, 1)` to `b` | bit for bit on finite inputs, apart from the sign of a zero |
+| `reassociate` | the function tolerates a change of rounding | none yet: each reassociation enters with its measured ulp bound | within each rewrite's recorded bound |
+
+Each rewrite is recorded with its domain and its bound where it is defined
+(`src/core/passes/finite-math.ts`). A rewrite matches `f32` operands only, scalar or vector: an
+`f64` operand is never matched, so no rewrite reaches the emulated double, whose error terms a
+rewrite would cancel (Rule 4.4). An operand the rewrite would drop is kept when it has an effect: a
+call that writes a binding, or an atomic.
+
+**The boundary.** A rewrite stays in the function whose author asked for it. No pass inlines an
+opted-in function into another function, and none inlines another function into it, the `inline()`
+plugin of `typeshade/emit-prod` included. A caller's own expressions stay exact, and so does a
+helper the opted-in function calls. The rewrites run at `-O2`, after the calls are specialized and
+before any `f64` is lowered; `O0` and `O1` emit the function as written.
+
+**The oracle.** The CPU oracle does not apply a contract: it keeps the meaning of the source, so a
+NaN or an infinity still reads there as the source says (Rule 1.3). A common module (Rule 11.20)
+does not opt in, since it promises the oracle's bits on every tier.
+
+**What is refused.** `TS8078` refuses a wrong list and a misplaced call, in `compile()` and in the
+editor alike (Rule 12.7):
+
+- `"fast" is not a numerics class. The classes are "finite-math" and "reassociate".`
+- `"finite-math" is named twice in this numerics list. Name each class once.`
+- `An empty numerics list opts into nothing. Name a class: "finite-math" or "reassociate".`
+- `numerics takes an array of class names, as strings: const f = numerics(["finite-math"], function f(…) { … }).`
+- a `numerics(...)` call inside a function, inside a namespace, or anywhere but as a top-level
+  `const`'s initializer: `numerics(...) wraps a function declared at the top of the file: …`
+
+A `@numerics` decorator is `TS8028`, as any decorator outside Rule 6.7's list is.
+
+The determinism report (§38) lists each class a function opted into as a `contract` row, after
+every other row: its `op` is the class, its `where` the functions under it, and its `accuracy` the
+folds and the inputs on which the GPU tiers and the oracle differ. `reassociate` is listed too,
+with no rewrite yet.

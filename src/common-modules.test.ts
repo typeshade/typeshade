@@ -8,7 +8,7 @@
 // is given the faces and the arrays of a chain and groups them as §72 says. The GPU tiers are the
 // differential gate's (`scripts/gpu-differential.ts`, the common-module arm).
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { configure, resident } from 'typeshade/runtime';
@@ -33,6 +33,20 @@ describe('the baked host faces', () => {
           read(files[key]),
           `${files[key]} is stale; run bun scripts/bake-common-modules.ts`,
         ).toBe(baked[key]);
+    });
+  }
+});
+
+describe('a common module keeps the exact meaning (Rule 11.22)', () => {
+  // A common module promises the oracle's bits on every tier (Rule 11.20), so no function of it
+  // opts into a numerical contract (change 0107, decision 6).
+  for (const module of COMMON_MODULES) {
+    it(`${module.dir} writes no numerics(...) and no numerics option`, () => {
+      const dir = resolve(ROOT, module.dir);
+      const sources = readdirSync(dir).filter((f) => f.endsWith('.shade.ts'));
+      expect(sources.length).toBeGreaterThan(0);
+      for (const file of sources)
+        expect(readFileSync(resolve(dir, file), 'utf8'), file).not.toMatch(/\bnumerics\b/);
     });
   }
 });
