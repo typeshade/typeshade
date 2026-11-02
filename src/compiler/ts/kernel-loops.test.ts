@@ -408,6 +408,46 @@ export function count(a: array<u32>) {
 }`,
     'This loop runs on the CPU because line 12 calls "apply", which writes "calls". Return the value from "apply" and combine it in the loop instead.',
   ],
+  // #987: a read carries no span of its own, so the sentence prints it from the IR with the
+  // names the table holds: a namespace's constant (`Ns.K`, emitted `Ns_K`), an enum's member
+  // (`Mode.B`, emitted `Mode_B`) and a call of a local function (`behind`, emitted `f_behind`).
+  [
+    'R4, a read at a namespace constant',
+    `namespace Ns {
+  export const K: u32 = 1;
+}
+export function f(a: array<f32>) {
+  for (let i: u32 = 1; i < a.length; i++) {
+    a[i] = a[i] + a[i - Ns.K];
+  }
+}`,
+    'This loop runs on the CPU because line 7 reads "a[i - Ns.K]", which another iteration writes. Read from an array the loop does not write.',
+  ],
+  [
+    'R4, a read at an enum member',
+    `enum Mode {
+  A,
+  B,
+}
+export function f(a: array<f32>) {
+  for (let i: u32 = 1; i < a.length; i++) {
+    a[i] = a[i] + a[u32(i32(i) - Mode.B)];
+  }
+}`,
+    'This loop runs on the CPU because line 8 reads "a[u32(i32(i) - Mode.B)]", which another iteration writes. Read from an array the loop does not write.',
+  ],
+  [
+    'R4, a read at a call of a local function',
+    `export function f(a: array<f32>) {
+  function behind(i: u32): u32 {
+    return i - 1;
+  }
+  for (let i: u32 = 1; i < a.length; i++) {
+    a[i] = a[i] + a[behind(i)];
+  }
+}`,
+    'This loop runs on the CPU because line 7 reads "a[behind(i)]", which another iteration writes. Read from an array the loop does not write.',
+  ],
   [
     'R6, a console call',
     `export function noisy(a: array<f32>) {
