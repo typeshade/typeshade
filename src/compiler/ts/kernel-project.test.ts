@@ -77,7 +77,7 @@ describe('private kernel input projection', () => {
     expect(result.wgsl).not.toContain('Item_projected');
     expect(face.gpu!.wgsl).not.toContain('Item_projected');
     expect(face.gpu!.projected!.wgsl).toContain('array<Item_projected>');
-    expect(host.view).toContain('unused: number');
+    expect(host.view).toContain('unused: f32');
   });
 
   it('retains field read order and checks unused values during physical packing', () => {

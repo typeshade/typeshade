@@ -32,6 +32,60 @@ export type {
 } from './runtime/program.js';
 export type { Sampler, SamplerOptions, Texture, TextureOptions } from './runtime/resources.js';
 export type { Pack } from './core/manifest-types.js';
+// The host type family (change 0116): each authorable value type of Appendix A of
+// `docs/language-design.md` spelled as the shader spells it, a name for the host value of Rule
+// 8.21. The host view imports the names it spells, and a host file imports them from here. Types
+// only, so the bundle gains no byte.
+export type {
+  f32,
+  f64,
+  i32,
+  u32,
+  bool,
+  vec2,
+  vec3,
+  vec4,
+  vec2f,
+  vec3f,
+  vec4f,
+  vec2i,
+  vec3i,
+  vec4i,
+  vec2u,
+  vec3u,
+  vec4u,
+  vec2b,
+  vec3b,
+  vec4b,
+  vec2f64,
+  vec3f64,
+  vec4f64,
+  vec2d,
+  vec3d,
+  vec4d,
+  mat2x2,
+  mat2x3,
+  mat2x4,
+  mat3x2,
+  mat3x3,
+  mat3x4,
+  mat4x2,
+  mat4x3,
+  mat4x4,
+  mat2,
+  mat3,
+  mat4,
+  mat2x2f,
+  mat2x3f,
+  mat2x4f,
+  mat3x2f,
+  mat3x3f,
+  mat3x4f,
+  mat4x2f,
+  mat4x3f,
+  mat4x4f,
+  array,
+} from './runtime/host-types.js';
 export { resident, configure, type Resident } from './core/resident.js';
 export {
   createDevice,

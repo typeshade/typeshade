@@ -150,12 +150,14 @@ function directiveSources(
           (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))
             ? prop.name.text
             : undefined;
+        // `numerics` is the numerical contract's option (change 0107), which `numerics.ts` reads.
+        if (key === 'numerics' && ts.isPropertyAssignment(prop)) continue;
         if (key !== 'diagnostic' || !ts.isPropertyAssignment(prop)) {
           diagnostics.push(
             makeDiagnostic(
               sourceFile,
               prop,
-              `A stage call takes one option, "diagnostic"; ` +
+              `A stage call takes two options, "diagnostic" and "numerics"; ` +
                 `"${prop.getText(sourceFile)}" is not one.`,
               TS_CODES.ATTRIBUTE_NAME,
             ),

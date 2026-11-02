@@ -45,7 +45,7 @@
 //
 // Implements: Rule 11.5 (docs/language-design.md; traced in reqs/).
 
-import type { Expr, ModuleDecl, ShaderType } from '../ir/index.js';
+import type { Expr, ModuleDecl, NumericsClass, ShaderType } from '../ir/index.js';
 import { eachExpr, eachStmtExpr } from '../ir/visit.js';
 import { proveKernels } from './parallel-loop.js';
 import { SUBGROUP_FOLDS, SUBGROUP_LANE_READS } from '../intrinsics.js';
@@ -61,12 +61,22 @@ import { SUBGROUP_FOLDS, SUBGROUP_LANE_READS } from '../intrinsics.js';
  *  answer differently on some input; `emulated` is an `f64` operation, computed in f32 pairs
  *  whose error terms a driver may fold; `order` is a floating-point reduction of a kernel
  *  function's loop, which every tier folds in Rule 7.2's tree, so it has one answer on every
- *  tier but not the one the loop's sequential reading gives.
+ *  tier but not the one the loop's sequential reading gives; `contract` is a numerical contract
+ *  a function opted into (Rule 11.22, change 0107), whose rewrites the GPU tiers apply and the
+ *  CPU oracle does not.
  *
  *  Exported from `typeshade`.
  */
 export type DeterminismKind =
-  'ulp' | 'absolute' | 'inherited' | 'unbounded' | 'filtered' | 'target' | 'emulated' | 'order';
+  | 'ulp'
+  | 'absolute'
+  | 'inherited'
+  | 'unbounded'
+  | 'filtered'
+  | 'target'
+  | 'emulated'
+  | 'order'
+  | 'contract';
 
 /** What {@link accuracyOf} says about one operation: `exact` when WGSL gives it one answer
  *  (a correct or correctly rounded result, with the rounding-mode assumption the module header
@@ -80,7 +90,7 @@ export type DeterminismKind =
 export type DeterminismAccuracy =
   | { readonly kind: 'exact'; readonly note?: string }
   | {
-      readonly kind: Exclude<DeterminismKind, 'emulated' | 'order'>;
+      readonly kind: Exclude<DeterminismKind, 'emulated' | 'order' | 'contract'>;
       readonly bound: string;
       readonly note?: string;
     };
@@ -515,6 +525,27 @@ const SUBGROUP_LANE_BOUND =
 const SUBGROUP_LANE_NOTE =
   'a program that reads another lane computes something else on a subgroup of one; a read of lane 0 is not listed, since that is the lane the two tiers have, and an integer read differs the same way and is not listed, since this report is by float kind';
 
+/** The bound of each numerical contract's row (Rule 11.22, surface §38 and §78), by class. */
+const CONTRACT_BOUND: Readonly<Record<NumericsClass, string>> = {
+  'finite-math':
+    'the GPU tiers fold x * 0, x - x, mix(a, b, 0) and mix(a, b, 1) on f32, which the CPU oracle evaluates as written: the same bits on finite operands, apart from the sign of a zero; a NaN or an infinity in a folded operand gives the oracle NaN and the GPU tiers the folded value',
+  reassociate:
+    'no rewrite yet; each reassociation enters with its measured ulp bound, and the row names it then',
+};
+
+/** One row per numerical contract the module's functions opted into, after every other row:
+ *  the class is the row's `op`, and its `where` names the functions under it (Rule 11.22). */
+function contractHits(m: ModuleDecl): readonly { hit: Hit; fn: string }[] {
+  const out: { hit: Hit; fn: string }[] = [];
+  for (const fn of m.funcs)
+    for (const c of fn.numerics ?? [])
+      out.push({
+        fn: fn.name,
+        hit: { op: c, elem: 'f32', kind: 'contract', accuracy: CONTRACT_BOUND[c] },
+      });
+  return out;
+}
+
 /** The bound of an `order` row (surface §38). */
 const ORDER_BOUND =
   "one answer on every tier: the 256-wide tree of Rule 7.2, which may differ from the loop's sequential order in the last places";
@@ -556,7 +587,8 @@ function orderHits(m: ModuleDecl): ReadonlyMap<string, readonly Hit[]> {
  *  or gather, an operation the GLSL ES 3.00 spelling may answer differently (the `pack`
  *  builtins, `quantizeToF16`), every emulated `f64` arithmetic operator and bounded builtin,
  *  and each floating-point reduction of a kernel function's loop, which runs in the tree order
- *  (`order`, after the function's own operations). Empty
+ *  (`order`, after the function's own operations), and each numerical contract a function
+ *  opted into (`contract`, one row per class, after every other row; Rule 11.22). Empty
  *  when every operation in the module has one answer under the assumption the module header
  *  states, which is when a GPU result and the CPU oracle can differ only by the oracle's own
  *  rounding and never by the driver's choice. A `raw` statement is opaque and contributes
@@ -568,7 +600,7 @@ function orderHits(m: ModuleDecl): ReadonlyMap<string, readonly Hit[]> {
 export function determinismReport(m: ModuleDecl): readonly DeterminismEntry[] {
   const rows = new Map<string, { hit: Hit; count: number; where: Set<string> }>();
   const add = (hit: Hit, site: string) => {
-    const key = `${hit.kind === 'order' ? 'order ' : ''}${hit.elem} ${hit.op}`;
+    const key = `${hit.kind === 'order' || hit.kind === 'contract' ? `${hit.kind} ` : ''}${hit.elem} ${hit.op}`;
     const row = rows.get(key);
     if (row === undefined) rows.set(key, { hit, count: 1, where: new Set([site]) });
     else {
@@ -589,5 +621,6 @@ export function determinismReport(m: ModuleDecl): readonly DeterminismEntry[] {
     for (const s of fn.body) eachStmtExpr(s, (e) => eachExpr(e, visit));
     for (const hit of orders.get(fn.name) ?? []) add(hit, fn.name);
   }
+  for (const { hit, fn } of contractHits(m)) add(hit, fn);
   return [...rows.values()].map(({ hit, count, where }) => ({ ...hit, count, where: [...where] }));
 }

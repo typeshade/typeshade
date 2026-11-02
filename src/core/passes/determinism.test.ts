@@ -7,7 +7,7 @@
 // never listed. And `accuracyOf` places EVERY id the compiler can emit, so a new builtin
 // cannot be added without deciding which column it belongs in.
 //
-// Verifies: Rule 1.3, Rule 11.2 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 1.3, Rule 11.2, Rule 11.22 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
@@ -705,5 +705,54 @@ export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation
     expect(service.getDiagnostics(uri).map((d) => `${d.source} ${d.code}: ${d.message}`)).toEqual([
       `typeshade TS8003: ${text}`,
     ]);
+  });
+});
+
+describe('a numerical contract is a row of its own (change 0107, stage 2)', () => {
+  const SOURCE = `"use typeshade";
+const a = numerics(["finite-math"], function a(x: f32): f32 {
+  return x * 0. + 1.;
+});
+const b = numerics(["finite-math", "reassociate"], function b(x: f32): f32 {
+  return x - x;
+});
+export const fs = fragment(
+  function fs(p: builtin<"position", vec4f>): vec4f {
+    return vec4f(a(p.x), b(p.y), 0., 1.);
+  },
+  { numerics: ["finite-math"] },
+);
+`;
+
+  it('lists one contract row per class, naming each function under it, after every other row', () => {
+    const r = compile(SOURCE, { fileName: 'c.shade.ts' });
+    expect(r.diagnostics).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('c.shade.ts', SOURCE);
+    expect(service.getDiagnostics('c.shade.ts')).toEqual([]);
+    const contracts = r.determinism.filter((e) => e.kind === 'contract');
+    expect(contracts.map(({ op, elem, count, where }) => ({ op, elem, count, where }))).toEqual([
+      { op: 'finite-math', elem: 'f32', count: 3, where: ['a', 'b', 'fs'] },
+      { op: 'reassociate', elem: 'f32', count: 1, where: ['b'] },
+    ]);
+    expect(contracts[0]!.accuracy).toMatch(/CPU oracle evaluates as written/);
+    const firstContract = r.determinism.findIndex((e) => e.kind === 'contract');
+    expect(r.determinism.slice(firstContract).every((e) => e.kind === 'contract')).toBe(true);
+  });
+
+  it('lists no contract row where no function opted in', () => {
+    const r = compile(
+      `"use typeshade";
+function a(x: f32): f32 {
+  return x * 0. + 1.;
+}
+export const fs = fragment(function fs(p: builtin<"position", vec4f>): vec4f {
+  return vec4f(a(p.x), 0., 0., 1.);
+});
+`,
+      { fileName: 'c.shade.ts' },
+    );
+    expect(r.diagnostics).toEqual([]);
+    expect(determinismReport(r.module!).some((e) => e.kind === 'contract')).toBe(false);
   });
 });

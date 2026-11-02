@@ -9,6 +9,9 @@ import { OnePole, run } from './filters.shade.ts';
 // The host face of a common module (change 0072): a kernel function and the host generator, from
 // the same specifier a shader file imports the device face by.
 import { fillUniform, generator } from 'typeshade/random';
+// The host type family (change 0116): the names the view spells each host value with, from the
+// runtime of the packed tarball.
+import type { vec3 } from 'typeshade/runtime';
 
 const k = [1, 0.5, 2, 0.25] as const;
 const points: [number, number][] = [
@@ -19,7 +22,8 @@ const points: [number, number][] = [
 ];
 
 const heights: number[] = points.map((p) => height(p, k));
-const normals: [number, number, number][] = points.map((p) => normal(p, k));
+// A result is a `readonly` tuple (decision D1), so it is held as the family's `vec3`.
+const normals: vec3[] = points.map((p) => normal(p, k));
 // `ridged` reaches a function of another shader file, which the host never imports itself.
 const ridges: number[] = points.map((p) => ridged(p, k));
 // `relief` reaches the functions of a package npm installed, imported by its name (change 0024).

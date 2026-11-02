@@ -25,6 +25,7 @@ import type { Expr, ModuleDecl, FuncDecl } from '../ir/index.js';
 import { mapStmt } from './opt/ir-transform.js';
 import { bodyHasRaw } from './opt/dce.js';
 import { inlineFn } from './inline.js';
+import { outsideContracts } from './contract-boundary.js';
 
 // Shared stage predicate (X-GIS #763 S4 — this site was MISSED in the Phase-S sweep:
 // it lives under passes/, not passes/opt/, and the sweep grepped opt/ only).
@@ -115,6 +116,11 @@ function pickCandidate(m: ModuleDecl): string | undefined {
 
 /** Auto-inline small / single-call helpers throughout a module. Pure (module -> module). */
 export function autoInline(m: ModuleDecl): ModuleDecl {
+  // A function under a numerical contract is held out of it (change 0107, `contract-boundary.ts`).
+  return outsideContracts(m, autoInlineOf);
+}
+
+function autoInlineOf(m: ModuleDecl): ModuleDecl {
   // A raw WGSL stmt may call a helper textually (invisible to the IR walk) — bail.
   if (m.funcs.some((f) => bodyHasRaw(f.body))) return m;
   let cur = m;
