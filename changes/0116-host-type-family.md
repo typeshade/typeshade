@@ -1,7 +1,7 @@
 ---
 id: '0116'
 title: The host view spells each type with the shader's own name, from a family of host types that `typeshade/runtime` exports one for one with the ambient library's value types, whose values stay the host values of Rule 8.21
-status: accepted
+status: implemented
 rules:
   - '8.21'
 surface:
@@ -96,7 +96,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0116, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Identity and status           | Proposal 0116, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal and its Amendment 1 on 2026-11-02 (UTC); see Approval and plan record. Pull request #918 implements it; see Configuration and validation record. Downstream adoption is tracked apart.                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, reading the listing of proposal 0109: the host view should have types that match one for one what the `.shade.ts` file writes, `array<T>` among them, provided by TypeShade itself, because the spelled-out form is spread out and unpleasant to read, and `vecN` and `matCxR` should be provided as types too ("1:1로 매칭되는거요. TypeShade 자체에서 제공해야할 것 같은데요 너무 펼쳐져있어서 보기 거슬리네요. vecN, matCxR 도 타입으로 제공되어야하지 않을까 싶어요"). The agent reported a design with a prototype that type-checks, and the owner approved the drafting ("승인"). No GitHub issue is recorded.                                        |
 | Applicability / effectivity   | Rule 8.21 of `docs/language-design.md` and its item in `reqs/`; `docs/use-typeshade-surface.md` §64; a new `src/runtime/host-types.ts` exported from `typeshade/runtime` and listed in `src/__api__/surface.md`; `src/compiler/ts/host-face.ts` (`argType`, `resultType`, `constType`, `structBody`, `programType` and the view's import line); `src/compiler/ts/host-face.test.ts` and every test that pins a view's text; a parity test against the ambient library (`src/language-service/ambient.ts`); the examples' generated views. The host values, their checks and `TypeError` texts (`src/core/host-values.ts`), the generated module's code, the GPU tiers and the oracle do not change. No release version is assigned. |
@@ -363,20 +363,144 @@ decision. The agent of pull request #918 lands item 3 on that branch, with the t
 
 ### Configuration and validation record
 
-Partial delivery, 2026-11-02: pull request [#918](https://github.com/typeshade/typeshade/pull/918)
-(draft, branch `claude/0116-host-type-family`), commit `6350b629`, delivers items 1, 2 and 5 and
-decisions D2 to D6 (`src/runtime/host-types.ts`, its parity test `src/runtime/host-types.test.ts`,
-the 48 names in `src/__api__/surface.md`, one gzip byte in `scripts/bundle-budget.json`), and
-commit `e276b254` the `CHANGELOG.md` entry. The branch `claude/0116-item3-wip` (`0bad98ca`) holds
-item 3 as implemented before Amendment 1, not for merge. The record below is written when item 3
-lands.
+**Accepted revision.** The text merged by pull request
+[#876](https://github.com/typeshade/typeshade/pull/876) as `8b1a8fe` (as proposal 0111, renumbered
+0116 on 2026-11-02, see Renumbering), with D1 to D6 accepted as drafted; and Amendment 1, merged
+by pull request [#925](https://github.com/typeshade/typeshade/pull/925) as `334b9fc4`, with D7 to
+D10 accepted as drafted (Approval and plan record).
 
-This record does not yet apply in full. Delivery will require the accepted revision, the implementing
-pull requests with `Change: 0116` in their commits, the delivered configuration, the observed
-results of the functional validation (the tests, the parity test per TypeScript version, the
-journeys gate and the build) and the document validation (`bun run docs:refs`,
-`bun run docs:impact`, `bun run reqs:sync`, `python scripts/doorstop-check.py -C`). Required
-future evidence is not a completed result.
+**Implementation.** Pull request [#918](https://github.com/typeshade/typeshade/pull/918), branch
+`claude/0116-host-type-family`, from `main` at `77ced440`, by a Claude Code agent at the owner's
+direction. Its commits say `Change: 0116`: `6350b629` (the family, its parity test, the 48 names
+in `src/__api__/surface.md` and one gzip byte of the runtime's split budget), `e276b254` (the
+`CHANGELOG.md` entry of that part), `2413db45` (the merge of `main` at `334b9fc4`), `e4a0ad78`
+(item 3 with D7 and D8), `a6b05a20` (this record), `941a594d` (the merge of `main` at
+`c0daa442`) and the commit that names it here. The merge was committed with
+`--no-verify` (issue #901): the commit-msg policy reads a merge against its first parent and
+counted the rules, surface sections, exports and an example `main` changed as changes of this
+branch. The staged file checks passed on the merged index, and it resolved
+`src/__api__/surface.md` by baking it again and `scripts/bundle-budget.json` by measuring it. Item
+3 was first implemented before Amendment 1 and kept on the branch `claude/0116-item3-wip`
+(`0bad98ca`); its content was applied after the merge, with D7 and D8, in `e4a0ad78`, and that
+branch is deleted.
+
+**Delivered configuration.**
+
+- `src/runtime/host-types.ts`: the family, 48 type-only exports (items 1 and 2, D2 to D6 and D9).
+  A scalar is a `number` or a `boolean` with its name as an optional phantom property; a vector a
+  `readonly` tuple of its scalar; a matrix a `readonly` tuple of its components, column-major, with
+  its name; `array<T, N extends number = number>` resolves to the typed array of the scalar of `T`
+  for a scalar or a vector, and to `readonly T[]` otherwise, each with its `Resident`, and to
+  `readonly T[]` for an array with a size. `src/runtime.ts` exports the names from
+  `typeshade/runtime`, and `src/core/host-runtime.ts` re-exports them through
+  `typeshade/runtime/internal`, the runtime a view imports from.
+- `src/runtime/host-types.test.ts` (item 5): the names against the value types of the ambient
+  library in both directions, in the shape of Rule 9.6's test, with its instrument proved on
+  doctored copies; each type against the shape the compiler gives its name; the flavor's behaviour
+  under `tsc`.
+- `src/compiler/ts/host-face.ts` (item 3): `argType`, `resultType`, `constType`, `bindingTsType`,
+  `unsizedType`, `residentOf`, `bindingsTypes`, `packHostType`, `packUnsizedType` and `programType`
+  spell with the family; `structNames` and `boundName` give a struct its name (D7), and an entry's
+  bindings object is written again with the names once every export has its face
+  (`namedBindings`); `packHostType` writes a struct binding's name beside its packed forms (D8);
+  `viewImports` imports the names the declarations write, read off them by the TypeScript parser,
+  with `Resident` and `Texture` where they are written.
+- Baked: `src/algorithms/view.ts`, `src/random/view.ts`; `src/__api__/surface.md` with the 48 names
+  and the twenty reshaped exports of the front matter (Amendment 1).
+- Tests: `src/compiler/ts/host-face.test.ts` (the rows in the family's names, a host program that
+  writes the family's names, a test of D7 and D8), `host-class.test.ts` (the class's name as a
+  parameter and in a kernel function's array; instances built with `new` under `tsc`, and a plain
+  object where the class goes refused, TS2345 and TS2769, beside the run-time cases that take one),
+  `host-entry.test.ts`, `host-draw.test.ts`, `host-kernel.test.ts`, `host-kernel-push.test.ts`,
+  `host-kernel-texture.test.ts`, `host-kernel-collections.test.ts`, `kernel-loops.test.ts`,
+  `kernel-project.test.ts`, `key-types.test.ts`, `src/vite.test.ts`.
+- `docs/language-design.md` Rule 8.21 and `reqs/rules/RULE-0821.md`, reviewed;
+  `docs/use-typeshade-surface.md` §64 (the column of the view's names, the listings, D7, D8 and
+  the exceptions of item 4) and §74; `reqs/surface/SURF-064.md`, `SURF-065.md`, `SURF-067.md`,
+  `SURF-069.md`, `SURF-075.md` and `SURF-076.md` cleared after reading each section against the new
+  rule (only §64 and §74 change; the others speak of values, which do not change).
+- `journeys/_host-import/src/app.ts` holds a result as the family's `vec3` (D1, an exception of
+  item 4). `CHANGELOG.md`, `src/AGENTS.md`, `scripts/bundle-budget.json`.
+
+**Functional validation**, on 2026-11-02 (UTC), Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3:
+
+- At `6350b629`: `bun run build`, `bun run lint` and `bun run format:check` passed; `bunx vitest run`
+  over `src/runtime`, `src/language-service` and the API, documentation, manifest and change tests,
+  46 files, 1590 passed and 1 skipped; `bun run gate:boundary` passed after the budget moved by one
+  gzip byte (the entry chunk is 19938 bytes before and after, and differs only in the names Bun's
+  minifier gives its symbols).
+- At `e4a0ad78`: `bun run build`, `bun run lint` and `bun run format:check` passed.
+  `bunx vitest run src/compiler/ts src/runtime src/language-service` with `src/reqs.test.ts`,
+  `src/doc-references.test.ts`, `src/api-surface.test.ts`, `src/api-doc-coverage.test.ts`,
+  `src/common-modules.test.ts`, `src/vite.test.ts`, `src/changes.test.ts` and
+  `examples/host-examples.test.ts`: 230 files, 6115 passed and 1 todo. `bun run test`: 513 files,
+  11957 passed, 9 failed, 4 skipped and 1 todo; the 9 are five tests of
+  `src/affected-tests.test.ts` and four of `src/doc-test-selection.test.ts`, which fail on the
+  container's `NODE_OPTIONS` and pass with `env -u NODE_OPTIONS` (88 tests).
+- The TypeScript legs, run in a worktree of `e4a0ad78` with its own dependencies:
+  `src/runtime/host-types.test.ts`, `host-face.test.ts`, `host-class.test.ts`,
+  `host-kernel-push.test.ts`, `typed-bindings.test.ts` and `src/api-surface.test.ts` passed, 120
+  tests, on TypeScript 5.9.3 and on 6.0.3. CI runs every leg.
+- `bun run gate:journeys` (headless Chromium 1243 through `TYPESHADE_CHROMIUM`, SwiftShader), on
+  the tree committed as `e4a0ad78`: exit 0, 256 checks, `tsc` over each journey's host files
+  against its views among them. `bun run gate:boundary` at `e4a0ad78`: exit 0, with the runtime's
+  split build at 36461 initial and 150555 total gzip bytes, one byte over `main` for the reason
+  above. `bun scripts/bake-common-modules.ts --check`: exit 0. `tshc sync --check` over
+  `examples/hosts`: 9 views up to date. `tsc -p examples/hosts/tsconfig.json --noEmit`: exit 0.
+- Not run: `bun run gate:compile`, `bun run gate:differential`, `bun run gate:render` and
+  `bun run gate:perf`. The change emits no shader text and changes no kernel lowering; CI runs
+  them.
+
+- On the tree of `941a594d`, the merge of `main` at `c0daa442`, which Git made with no conflict:
+  `bun run build` passed; the suites under `src/compiler/ts`, `src/runtime` and
+  `src/language-service` with the same eight test files as above, 231 files, 6144 passed and 1
+  todo; `bun run gate:boundary` exit 0 with the budgets unchanged; `bun run lint`,
+  `bun run format:check`, `tshc sync --check` and `tsc -p examples/hosts/tsconfig.json --noEmit`
+  passed; `bun run bake:api-surface` changed nothing. The merge passed the commit policy, which
+  judges a merge by what it adds beyond its parents since #932.
+
+**Document validation**, on 2026-11-02 (UTC), at `e4a0ad78`: `bun run docs:refs`, 0 dead
+references; `bun run docs:impact` read for each commit, each commit's `Docs-Impact:` trailer saying
+what was read; `bun run reqs:sync` with nothing left to write; `python3 scripts/doorstop-check.py -C`,
+Doorstop 3.2, with no item flagged; `bun scripts/changes.ts --base origin/main`, exit 0 ("This change
+touches Rule 8.21; surface §64, surface §74"; the 48 names and the twenty reshaped exports, each
+declared); `bun scripts/ifchange.ts --base origin/main`, passed; `bun scripts/doc-impact.ts --check
+--base origin/main`, exit 0. `changes.ts`, `ifchange.ts` and `doc-impact.ts --check` gave the
+same results at `a6b05a20`; on the tree of `941a594d`, `docs:refs` found 0 dead references,
+`reqs:sync` wrote nothing new and Doorstop flagged nothing.
+
+**Deviations**, each with its disposition:
+
+1. The first revision's item 2 made a matrix a bare tuple; `6350b629` gave it its name, so that
+   `array<mat2x2>` is an array of matrices. Closed: Amendment 1 (D9) makes it the approved text.
+2. The first revision's listing wrote `filters: array<OnePole>`, and the work before Amendment 1
+   wrote a struct argument by its fields. Closed: Amendment 1 decides it (D7), and `e4a0ad78`
+   applies D7, `filters: array<OnePole>`.
+3. The first revision named a struct binding of the manifest `Camera`, and the work before
+   Amendment 1 wrote its fields. Closed: Amendment 1 decides it (D8), and `e4a0ad78` writes the
+   name beside the packed forms.
+4. The first revision's item 4 claimed full compatibility. Closed: Amendment 1 (D10) names the
+   exceptions; `e4a0ad78` lists them in §64, and the journey's annotation is one of them.
+
+Not deviations, recorded for the reader: a struct is written by its fields where the view declares
+no name for it, in a constant (a frozen object of its fields, change 0109), in a result of an
+abstract class's struct (an object of its fields, change 0109, D1) and, in a binding or an array
+with no size, where it holds a key or a `Record`, which those hold as ids (Rule 8.21); in each, the
+name would spell another value than the one the position takes (item 2). An abstract class's
+struct goes by the class as an argument, as D7 says of an exported class. A class of fields alone
+takes a plain object under `tsc`, since TypeScript compares types by their shape; the refusal of
+item 4 holds where the class has a method or an accessor. The view imports the family's names in
+the order of the compiler's type table (`SUPPORTED_TYPE_NAMES`). A written binding of one scalar
+stays a typed array of length one, and an array with no size inside a struct stays its typed
+array: the family has no name for either value. `bun scripts/changes.ts` lists 17 of the family's
+names (`f32` … `vec4f64`) as still to do, because the API surface already held those names under
+`./core/ir`, so the check reads no new name for them; the `./runtime` section of
+`src/__api__/surface.md` lists all 48.
+
+**Open items.** The downstream work of What it owes downstream is not started: the site's copy of
+§64 (English and Korean) and its API reference, the editor's host reference and its fixtures, the
+annotations item 4 names where the host code of typenn and typecv needs them, and each
+repository's `compiler-changes.md` when its pin moves.
 
 ## What it owes downstream
 

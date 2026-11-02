@@ -17,6 +17,17 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **A numerical contract, opted into per function** (change 0107, stages 1 and 2; Rule 6.7, Rule 9.6,
+  Rule 11.22, surface §3, §38 and §78). `const f = numerics(["finite-math"], function f(…) { … })`, or
+  a stage call's `{ numerics: [...] }` option, lets `-O2` fold `x * 0`, `x - x`, `mix(a, b, 0)`
+  and `mix(a, b, 1)` in that function, which the default keeps because a NaN or an infinity can
+  observe them. Only `f32` operands are matched, so no rewrite reaches the emulated double, and
+  no inlining pass moves a body into or out of an opted-in function. The CPU oracle keeps the
+  source's meaning. `reassociate` is a valid class with no rewrite yet. A wrong list, and the
+  call anywhere but as a top-level `const`'s initializer, is the new code `TS8078`. The IR gains
+  `FuncDecl.numerics` and the exported type `NumericsClass`. The determinism report lists each class
+  a function opted into as a `contract` row (the new `DeterminismKind` value), after every other
+  row.
 - **The subgroup built-in functions and values** (change 0117; Rule 11.21, surface §50 and
   §77). The 21 functions of WGSL's `subgroups` extension (`subgroupAdd`, `subgroupBallot`,
   `subgroupElect`, `subgroupBroadcast` and the rest) and the built-in values `subgroup_id` and
@@ -346,6 +357,30 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **The host view spells each type with the shader's name, from the host type family** (change
+  0116 with its Amendment 1; Rule 8.21, surface §64 and §74). `typeshade/runtime` exports, as
+  types only, one name for each value type a shader writes: `f32`, `f64`, `i32`, `u32` and
+  `bool`; `vec2` to `vec4` with their `f`, `i`, `u`, `b`, `f64` and `d` forms; every `matCxR`
+  with its `matCxRf` alias and the `matN` spelling, a square one taking `f64` as a type argument;
+  and `array<T>` and `array<T, N>`. Each is a name for a host value of Rule 8.21, which does not
+  change. A scalar is the `number` or `boolean` it is, with its name as an optional phantom
+  property, so a plain literal is one and an `f32` is not a `u32`. A vector and a matrix are
+  `readonly` tuples of their components, and a matrix also has its name. `array<T>` is the typed
+  array, or the array of structs, with its `Resident`; `array<T, N>` is a `readonly T[]`. The host
+  view writes every parameter, result, constant, field and binding with those names and imports
+  the ones it writes: `run(out: array<f32>, xs: array<f32>, filters: array<OnePole>, block: u32)`.
+  A struct goes by its name as an argument and as a result, the class for an exported class, so
+  a host passes an instance it built with `new`; the call still takes a plain object of the
+  fields. A struct binding in the manifest's `Pack` is its name beside its packed forms. A result
+  is `readonly`. A host program keeps type-checking where it holds each value in the shape the
+  old spelling gave it; the exceptions are listed in §64 (a result written in place, a value of
+  one name where another goes, a matrix of unknown length, a result held in a mutable tuple type,
+  a plain object where a class's instance goes). The baked views of `typeshade/algorithms` and
+  `typeshade/random` spell their scalars with the names (`axis: u32`, `Promise<f32>`), and a
+  kernel function's numeric `Set` or `Map` key is `u32`, `i32` or `f32`. The family is held to
+  the ambient library's value types, one for one, by `src/runtime/host-types.test.ts`. The
+  runtime's split build moved by 1 gzip byte, from the names Bun's minifier gives the entry
+  chunk, measured with Bun 1.4.4.
 - **The host view carries the author's JSDoc** (proposal 0108; Rules 8.20, 8.21 and 11.8, surface
   §64). Each JSDoc block above an exported declaration of a shader module is written into the host
   view, as the author wrote it and in source order: on a function, a constant, an `enum` and each

@@ -16,7 +16,7 @@ import type { CompileTsSourceResult } from '../compiler/ts/source-file.js';
 import { WGSL_BUILTIN_NAMES } from './ambient.js';
 import { TYPE_DOCS } from './docs.js';
 import { stageOf } from './navigation.js';
-import { stageCallOf } from '../compiler/ts/stage-call.js';
+import { declaresEntry, stageCallOf } from '../compiler/ts/stage-call.js';
 import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
 import { offsetAt, positionAt } from './positions.js';
 import type {
@@ -130,7 +130,7 @@ function collectOverlay(sourceFile: ts.SourceFile): Overlay {
       // `const vs = vertex(function vs(…) { … })` (change 0111): the constant and the function
       // expression's own name are the entry.
       const sc = stageCallOf(node);
-      if (sc !== undefined && sc.callee !== 'workgroup_size') {
+      if (sc !== undefined && declaresEntry(sc.callee)) {
         entryNameStarts.add(sc.declaration.name.getStart());
         if (ts.isFunctionExpression(sc.fn) && sc.fn.name)
           entryNameStarts.add(sc.fn.name.getStart());

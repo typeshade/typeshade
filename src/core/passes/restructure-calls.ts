@@ -19,6 +19,7 @@ import { memberFold } from './opt/member-fold.js';
 import { scalarizeLocals } from './scalarize-locals.js';
 import { outlineRegions } from './outline-regions.js';
 import { connectLocalCalls } from './connect-local-calls.js';
+import { outsideContracts } from './contract-boundary.js';
 
 function count(f: FuncDecl): number {
   let n = 0;
@@ -27,6 +28,11 @@ function count(f: FuncDecl): number {
 }
 
 export function restructureCalls(m: ModuleDecl): ModuleDecl {
+  // A function under a numerical contract is held out of it (change 0107, `contract-boundary.ts`).
+  return outsideContracts(m, restructure);
+}
+
+function restructure(m: ModuleDecl): ModuleDecl {
   if (!m.funcs.some((f) => stageOf(f) !== undefined) || m.funcs.some((f) => bodyHasRaw(f.body)))
     return m;
   const names = new Set<string>();
