@@ -1554,6 +1554,15 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A local function and its copy, a namespace constant and an enum member are worded as the author
+  wrote them (#987).** After #979 a `TS8070` sentence still named a local function, and the copy of a
+  local function that takes a function, as the module emits them (`count_bump`, `count_apply_inc`),
+  and the reason of a fusion report printed a namespace constant, an enum member and a call of a
+  local function the same way (`Ns_K`, `Mode_B`, `count_bump(i)`). They are now `bump`, `apply`,
+  `Ns.K`, `Mode.B` and `bump(i)`. A local function is called by the name it is declared with, and
+  TypeScript has no spelling like `count.bump`, so the sentence names it so; a copy is named as the
+  local function it is made from, as the copy of a function of the top level is (#972).
+
 - **A kernel function's loop that writes at the counter added to a value the loop does not change
   runs on the GPU (#983).** `for (let n: u32 = 0; n < block.length; n++) tape[at + n] = block[n];`
   was refused with `TS8070`: the loop "writes `tape[at + n]`, an element two iterations can share",

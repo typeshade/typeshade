@@ -294,7 +294,8 @@ export function qualifiedParts(decl: ts.ClassDeclaration | ts.FunctionDeclaratio
 
 /** What the source calls each function the module emits under another name, by the function the
  *  module emits for it: `Gate.open` for the namespace function `Gate_open`, `A.B.f` for `A_B_f`,
- *  and the name of its template for an instance or a copy of one (`pick` for `pick_u32`). */
+ *  the name of its template for an instance or a copy of one (`pick` for `pick_u32`), and the name
+ *  a local function is declared with, also for a copy of it (`bump` for `count_bump`). */
 const writtenFunctions = new WeakMap<FuncDecl, string>();
 
 /** Records the name `decl`, a function written inside a namespace, has in the source. `stub` is the
@@ -314,9 +315,19 @@ export function recordTemplateInstance(stub: FuncDecl, template: ts.FunctionDecl
   if (template.name !== undefined) writtenFunctions.set(stub, qualifiedParts(template).join('.'));
 }
 
+/** Records the name a local function is declared with, for `stub`, the function the module emits
+ *  for it or for a copy of it: `bump` for `count_bump`, and `apply` for the `count_apply_inc` of a
+ *  local function that takes a function. The module names a local function after the body that
+ *  declares it and a copy after the functions handed to it. The author wrote neither as a name,
+ *  and TypeScript has no spelling like `count.bump`: a local function is called by the name it is
+ *  declared with, and the line of a message says where. */
+export function recordLocalFunction(stub: FuncDecl, written: string): void {
+  writtenFunctions.set(stub, written);
+}
+
 /** How a message names a function the module emits under another name than the author's:
- *  `Gate.open` for the `Gate_open` of a namespace and `pick` for the `pick_u32` of an instance.
- *  Undefined for any other function. */
+ *  `Gate.open` for the `Gate_open` of a namespace, `pick` for the `pick_u32` of an instance and
+ *  `bump` for the `count_bump` of a local function. Undefined for any other function. */
 export const writtenFunctionOf = (stub: FuncDecl): string | undefined => writtenFunctions.get(stub);
 
 /** The class a short type name written at `node` names inside the namespaces around it, as the
