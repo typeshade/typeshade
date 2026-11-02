@@ -202,6 +202,9 @@ describe('the judge', () => {
       '\n',
     );
     expect([...sectionsAt(doc, new Set([2, 4, 6]))]).toEqual([1, 2]);
+    // The blank line a new section's heading needs before it is no change to the section above.
+    const appended = ['## 1. One', 'a', '', '## 2. Two', 'b'].join('\n');
+    expect([...sectionsAt(appended, new Set([3, 4, 5]))]).toEqual([2]);
     const table = codeTable("  LOOP_BOUND: 'TS8006',", '  SD0013: {');
     expect([...table]).toEqual([
       ['LOOP_BOUND', 'TS8006'],
