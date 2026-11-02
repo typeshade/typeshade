@@ -277,19 +277,17 @@ describe('"use typeshade" examples — passes (change 0026)', () => {
   /** A program with a fullscreen vertex entry and a fragment entry that declares `decls`. */
   const program = (decls: string, entries = 'both'): ReturnType<typeof compile>['module'] => {
     const vs = `
-class VsOut { @builtin("position") pos: vec4; @location(0) uv: vec2; }
-class Color { @location(0) color: vec4; }
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+interface VsOut { pos: builtin<"position", vec4>; uv: location<0, vec2>; }
+interface Color { color: location<0, vec4>; }
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) * 0.5 + vec2(0.5, 0.5) };
-}`;
+});`;
     const fs = `
-@fragment
-export function fs(v: VsOut): Color {
+export const fs = fragment(function fs(v: VsOut): Color {
   return { color: vec4(v.uv, 0., 1.) };
-}`;
+});`;
     const src = `"use typeshade";\n${decls}\n${vs}\n${entries === 'both' ? fs : ''}`;
     const { diagnostics, module } = compile(src, { fileName: 'probe.shade.ts' });
     const errors = diagnostics.filter((d) => d.category === 'error');
