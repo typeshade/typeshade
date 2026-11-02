@@ -8,10 +8,23 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { removedExports, touchedLines } from '../scripts/downstream-impact.js';
+import {
+  downstreamImpact,
+  locateCompiler,
+  removedExports,
+  touchedLines,
+} from '../scripts/downstream-impact.js';
 
 const bake = (...names: string[]): string =>
   ['## `.` — exports', '```', ...names, '```'].join('\n');
@@ -246,4 +259,95 @@ describe('the compiler checkout the script reads', () => {
   it('reads the same checkout named by --submodule with a path outside the repository', () => {
     reportsTheFindings(tarballRun('--submodule', '../typeshade-pinref'));
   }, 60_000);
+
+  it('returns the four findings, each at its file and line, for a checkout outside', () => {
+    const { mustFix } = downstreamImpact({
+      root: tarball,
+      repo: 'typeaudio',
+      compiler: '../typeshade-pinref',
+      ...pins,
+      base: 'main',
+    });
+    expect(mustFix.map((f) => `${f.kind} ${f.file}:${f.line}`)).toEqual([
+      'removed docs/notes.md:2',
+      'removed docs/notes.md:4',
+      'ifchange docs/mirror.md:1',
+      'proposal compiler-changes.md:1',
+    ]);
+  });
+
+  it('needs --old when the checkout lies outside, since there is no gitlink to read it from', () => {
+    const result = run(tarball, '--repo', 'typeaudio', '--compiler', '../typeshade-pinref');
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('--old <sha> is needed');
+    expect(result.stdout).toBe('');
+  }, 60_000);
+
+  it('refuses a checkout named twice, and a checkout that is not there', () => {
+    const twice = run(tarball, '--repo', 'typeaudio', '--compiler', compiler, '--submodule', 'x');
+    expect(twice.status).toBe(2);
+    expect(twice.stderr).toContain('name the compiler checkout once');
+    const absent = run(tarball, '--repo', 'typeaudio', '--compiler', '../nowhere');
+    expect(absent.status).toBe(2);
+    expect(absent.stderr).toContain(`no compiler checkout at ${join(root, 'nowhere')}`);
+  }, 60_000);
+
+  it('prints the two forms with --help, and the same text when --repo is missing', () => {
+    const help = run(tarball, '--help');
+    expect(help.status).toBe(0);
+    for (const word of ['--submodule <path>', '--compiler <path>', 'tarball', '--old <sha>'])
+      expect(help.stdout, word).toContain(word);
+    const missing = run(tarball);
+    expect(missing.status).toBe(2);
+    expect(missing.stderr).toContain('usage: downstream-impact.ts --repo <name>');
+  }, 60_000);
+});
+
+describe('where the compiler checkout lies', () => {
+  let root: string;
+
+  beforeAll(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'downstream-locate-')));
+    for (const dir of ['repo/vendor/typeshade', 'beside/typeshade']) {
+      mkdirSync(join(root, dir), { recursive: true });
+    }
+  });
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const locate = (compiler: string) => locateCompiler(join(root, 'repo'), compiler);
+
+  it('gives the path from the root for a checkout the repository holds', () => {
+    expect(locate('vendor/typeshade').inTree).toBe('vendor/typeshade');
+    expect(locate('./vendor/typeshade/').inTree).toBe('vendor/typeshade');
+    expect(locate(join(root, 'repo', 'vendor', 'typeshade')).inTree).toBe('vendor/typeshade');
+  });
+
+  it('gives null for a checkout beside the repository, by a relative or an absolute path', () => {
+    expect(locate('../beside/typeshade').inTree).toBeNull();
+    expect(locate(join(root, 'beside', 'typeshade')).inTree).toBeNull();
+    expect(locate('../repo-two').inTree).toBeNull();
+  });
+
+  it('gives null for the root itself, and for a path that is not there but lies outside', () => {
+    expect(locate('.').inTree).toBeNull();
+    expect(locate('../nowhere').inTree).toBeNull();
+    expect(locate('vendor/absent').inTree).toBe('vendor/absent');
+  });
+
+  it('gives the directory the path names, resolved against the root', () => {
+    expect(locate('../beside/typeshade').dir).toBe(join(root, 'beside', 'typeshade'));
+    expect(locate('vendor/typeshade').dir).toBe(join(root, 'repo', 'vendor', 'typeshade'));
+  });
+
+  it('follows a link: a link inside the repository to a checkout outside it lies outside', () => {
+    try {
+      symlinkSync(join(root, 'beside', 'typeshade'), join(root, 'repo', 'linked'), 'dir');
+    } catch {
+      return; // a system that refuses a link to a user has none to test
+    }
+    expect(locate('linked').inTree).toBeNull();
+  });
 });

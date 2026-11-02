@@ -1570,6 +1570,24 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **`scripts/downstream-impact.ts` reads a compiler checkout that lies outside the repository it
+  runs in (#1000).** TypeNN, TypeCV and TypeAudio install the compiler from a source tarball, so
+  they have no checkout of it in their tree. The script took the checkout only as `--submodule`, a
+  path inside the repository, and used that path as the exclude pathspec of its own `git diff`. A
+  checkout beside the repository, `--submodule ../typeshade-pinref`, died there:
+  `fatal: :!../typeshade-pinref: '../typeshade-pinref' is outside repository`. The checkout is now
+  named with `--compiler <path>`, at any path, absolute or relative to the repository, and
+  `--submodule <path>` stays for a git submodule inside it. A `--submodule` path outside the
+  repository works as well. The script reads `changes/`, the API surface and the two commits in
+  that checkout. It adds the exclude pathspec, and leaves the checkout out of the files it scans,
+  only when the checkout lies inside the repository. A link inside the repository to a checkout
+  outside it counts as outside.
+
+  A checkout outside the repository has no gitlink on `--base`, so `--old <sha>` is needed there,
+  and the script says so instead of failing in `git`. It also refuses a checkout named twice and a
+  checkout that is not there. `--help` prints the options. `AGENTS.md` (Docs follow the code) says
+  which form each kind of pin uses. The run of the site, the editor and Radiance reads what it read.
+
 - **A read of a static field in a function that has a parameter or a local named like the field's
   emitted name draws no `TS8022` (#999).** The module emits `Voice.OFFSET` as the constant
   `Voice_OFFSET`, and a parameter may have that name (Rule 3.2, change 0039). The read
