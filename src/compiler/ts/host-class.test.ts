@@ -624,6 +624,9 @@ export class Ball extends Shape {
     return p - 1.;
   }
 }
+export function asShape(w: f32): Shape {
+  return { w: w };
+}
 `;
 
 describe('extends and instanceof (D2)', () => {
@@ -638,6 +641,8 @@ describe('extends and instanceof (D2)', () => {
     expect(v).toContain(
       'export declare class Ball extends Shape {\n  constructor();\n  sdf(p: number): number;\n}',
     );
+    // An abstract class has no instance: its struct in a result is an object of its fields.
+    expect(v).toContain('export declare function asShape(w: number): { w: number };');
   });
 
   it('holds instanceof along the chain, and a call dispatches as in TypeScript', async () => {
@@ -659,6 +664,9 @@ describe('extends and instanceof (D2)', () => {
     const b = new Ball();
     expect(b).toBeInstanceOf(Shape);
     expect(b.scaled(5)).toBe(12);
+    const s = (m.asShape as (w: number) => object)(2);
+    expect(Object.getPrototypeOf(s)).toBe(Object.prototype);
+    expect(s).toEqual({ w: 2 });
     expect(() => new Shape()).toThrow(
       new TypeError(
         'new Shape cannot be called from host code: it is abstract, so there is no instance of it to build; construct a class that extends it',

@@ -2292,10 +2292,11 @@ function viewText(
 ): string {
   const program = programType(pack);
   // An exported struct goes by its exported name wherever it stands in a result, and so does
-  // an exported class, whose instance a result is (change 0109).
+  // an exported class, whose instance a result is (change 0109); an abstract class has no
+  // instance, so its struct stays an object of its fields.
   const named = new Map<string, string>();
   for (const e of exports)
-    if (e.kind === 'struct' || e.kind === 'class') named.set(e.type.s, e.name);
+    if (e.kind === 'struct' || (e.kind === 'class' && !e.abstract)) named.set(e.type.s, e.name);
   const out: string[] = [header(stem)];
   // A kernel function takes a `Resident` wherever it takes an array, and an entry wherever it
   // takes a storage array with no size (Rule 11.8); a `@compute` entry takes one for its

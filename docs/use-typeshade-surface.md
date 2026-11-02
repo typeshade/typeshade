@@ -7464,7 +7464,7 @@ is a type error at the host's own line.
 | `vecNb`                                   | `readonly [boolean, …]` of N                               | `[boolean, …]` |
 | `matCxR`                                  | `readonly number[]` of C×R, column-major                   | `number[]`     |
 | `array<T, N>`                             | `readonly T[]` of N                                        | `T[]`          |
-| a struct                                  | an object of its fields, an instance of its class included | an instance of its class where the class is exported, else an object of its fields |
+| a struct                                  | an object of its fields, an instance of its class included | an instance of its class where the class is exported and not abstract, else an object of its fields |
 | an `enum`                                 | the member's number                                        | the same       |
 | a key type (§75)                          | one of its members, a string                               | the same       |
 | a `Record` over a key type (§75)          | an object with one property for each member                | the same       |
@@ -7551,13 +7551,17 @@ the host's line, and the class is still a value. An `abstract` class is declared
 `new` of it is refused. A class that extends another is declared with its `extends` where the
 class above it is exported as a class too, and its class extends that class in the generated
 module, so `instanceof` holds along the chain; each class runs the functions the module lowers
-for it, so a call on an instance dispatches as it does in TypeScript.
+for it, so a call on an instance dispatches as it does in TypeScript. Where a member a host can
+call stands where the class above declares it `never` (or the other way round between an accessor
+and a `never` member), TypeScript refuses the override, so the view declares that class whole,
+without `extends`; its JavaScript class extends all the same.
 
 An instance is taken wherever a struct's object is: as a parameter, a field, an element of an
 `array<T, N>`, an element of a kernel function's array or a binding of an entry. The check reads
 the fields the struct declares and ignores the prototype, and a plain object of the fields is
-taken as before. A struct a result holds is an instance of its class where the class is exported,
-built without running its constructor, so `tick()` works on what a helper returned. A generic
+taken as before. A struct a result holds is an instance of its class where the class is exported
+and not abstract, built without running its constructor, so `tick()` works on what a helper
+returned. A generic
 class stays `never`. A class with a field that has no host value (an atomic, a texture, an
 optional value) stays a type, `export interface`, with the reason on its line. Nothing a class
 does on the host runs on the GPU: the GPU runs a method through a kernel function or an entry that
