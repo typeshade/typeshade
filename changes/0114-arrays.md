@@ -1,7 +1,7 @@
 ---
 id: '0114'
 title: An array is written as TypeScript writes it, T[] when the size is unknown and from its value when it is known, array<T, N> stays the one sized type, and a storage binding's access follows from what the program does
-status: draft
+status: accepted
 rules:
   - '4.5'
   - '6.1'
@@ -32,7 +32,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                              |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0114, `status: draft`. The front matter is the identity and lifecycle authority. No implementation exists.                                                                                                                                                                                                 |
+| Identity and status           | Proposal 0114, `status: accepted`, approved by the owner on 2026-11-02 (decisions D1 to D4 as recommended). The front matter is the identity and lifecycle authority. No implementation exists.                                                                                                                     |
 | Date and attribution          | Authored 2026-11-02, UTC, by a Claude Code agent. The date is the authorship date, not an approval date.                                                                                                                                                                                                            |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean. The owner asked whether `T[]` can replace `array<T>`, whether `array<T, N>` should be replaced by `Array<T, N>` or by a type of TypeShade's own, and how `readonly T[]` fits. The owner approved the direction this draft records ("승인"). |
 | Applicability / effectivity   | `docs/language-design.md` (Rules 4.5, 6.1, 6.2, 9.6), `docs/use-typeshade-surface.md` (§1, §7, §14, §18, §20, §28, §63), `docs/typeshade-plan.md` (area B), the front end, the language service's ambient library, the binding reflection and the runtime's bind-group layout. No release version is assigned.      |
@@ -190,6 +190,8 @@ which is what Rule 1.6 of proposal 0100 asks the compiler to support instead.
 
 ### Assumptions and open points
 
+- Decisions D1 to D4 are closed by the owner's approval on 2026-11-02 (see Decisions). The open
+  point on #148 below remains open.
 - S3 makes the bind-group layout depend on the program's body. A host that builds its layout
   from an older reflection, or shares one layout between two modules, sees a different mode after
   an edit that adds or removes a write. The stage measures where the runtime and the manifest
@@ -198,13 +200,15 @@ which is what Rule 1.6 of proposal 0100 asks the compiler to support instead.
   (the integer-literal default, #148). The literal rule follows whatever Rule 5.1 says when S2
   lands.
 
-### Decisions for the owner
+### Decisions
 
-1. **D1. Stage order.** Recommended: S1, S2, S3, S4. S4 needs S1 and S2 so every removed spelling
+Decided by the owner on 2026-11-02, as recommended in each item.
+
+1. **D1. Stage order.** Decided: S1, S2, S3, S4. S4 needs S1 and S2 so every removed spelling
    has its replacement on `main`.
-2. **D2. Untyped literal of mixed integer and float elements** (`[1, 2.5]`). Recommended: refused,
+2. **D2. Untyped literal of mixed integer and float elements** (`[1, 2.5]`). Decided: refused,
    with the element types the compiler found, until #148 settles the integer default.
-3. **D3. The explicit `"read_write"` argument after S3.** Recommended: removed in S4. With
+3. **D3. The explicit `"read_write"` argument after S3.** Decided: removed in S4. With
    inference, the argument either repeats what the compiler knows or contradicts it; an argument
    that says `"read_write"` on a binding nothing writes would change only the layout. A host that
    must force a read-write layout (a buffer shared with another pipeline that writes it) is the
@@ -212,7 +216,7 @@ which is what Rule 1.6 of proposal 0100 asks the compiler to support instead.
    argument that disagrees with the program is a warning.
 4. **D4. Rule 6.2.** S3 reverses the first sentence of Rule 6.2 ("a storage binding's access mode is
    its second type argument") and its rationale ("the access mode is part of the WGSL type, so it
-   belongs in the type"), from proposal 0006. Recommended: Rule 6.2 is rewritten to say the mode is
+   belongs in the type"), from proposal 0006. Decided: Rule 6.2 is rewritten to say the mode is
    inferred, `readonly` is the promise, and the write refusal in both halves stays.
 
 ## What it touches
@@ -250,8 +254,12 @@ vocabulary and module isolation.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the owner's decisions D1 to D4 and the merge
-of this file with `status: accepted`.
+- **2026-11-02.** The owner approved proposal 0114 in a Claude Code session, in Korean: "0114 추천대로 승인"
+  ("approve 0114 as recommended"). The owner decided D1 to D4 as recommended.
+- The approved revision is this file at the commit on pull request #880 that sets
+  `status: accepted`. The approval is the owner's go-ahead in the conversation, recorded here.
+- The proposal is accepted on `main` when pull request #880 merges. Until then, no implementation
+  may cite proposal 0114 as accepted.
 
 ### Configuration and validation record
 
