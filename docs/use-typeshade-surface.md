@@ -3915,9 +3915,11 @@ operator whose meaning the **operand's** kind fixes — `>>` on a `u32` is alrea
 shift, and on an `i32` the arithmetic one — so there is no third operator for `>>>` to be. §52
 has the rest of the operator surface.
 
-**And a host name is an unknown name.** `Date`, `Map`, `window`, `JSON` and `fetch` have no
-source in a `"use typeshade"` file (Rule 2.1): not WGSL, not the part of ECMAScript the ambient
-library restates, and no §9.3 row. So they do not exist there, and a use of one is an unknown
+**And a host name is an unknown name.** `Date`, `window`, `JSON` and `fetch` have no source in a
+`"use typeshade"` file (Rule 2.1): not WGSL, not the part of ECMAScript the ambient library
+restates, and no §9.3 row. `Map` and `Set` have a source, but only as a kernel function's
+parameter (Rule 2.1(b), §74); anywhere else they are refused. So `Date`, `window`,
+`JSON` and `fetch` do not exist there, and a use of one is an unknown
 name like any other, said once where it is used, by the code that owns the position: `TS8022`
 for a value (`window`, `Date.now()`), a written target included (`Date = 1.`), and `TS8004` for
 a callee (`fetch("x")`, where a string or a function handed to it adds nothing), in a body a call
