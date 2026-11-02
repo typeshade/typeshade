@@ -207,7 +207,9 @@ export function sectionsAt(text: string, lines: ReadonlySet<number> | undefined)
     const h = fence ? null : /^## (\d+)\. /.exec(line);
     if (h) current = Number(h[1]);
     else if (!fence && /^## /.test(line)) current = null;
-    if (current !== null && lines.has(i + 1)) out.add(current);
+    // A blank line is no change to the section it falls in: the one a new section's heading
+    // needs before it would otherwise charge the section above with the addition.
+    if (current !== null && lines.has(i + 1) && line.trim() !== '') out.add(current);
   });
   return out;
 }
