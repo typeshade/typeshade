@@ -4876,6 +4876,7 @@ the grouping is computed in integers, or in values no step rounds.
 | `emulated`  | an `f64` operation: f32 pairs whose error terms hold while the driver neither reassociates nor fuses them                                  | every arithmetic operator, `floor`, and every bounded builtin on `f64`, `vecNf64` and `matNf64`                                            |
 | `order`     | a floating-point reduction of a kernel function's loop (§65): one answer on every tier, the tree of Rule 7.2, which is not the loop's sequential order | `s += x` and `s *= x` on `f32` or `f64`, listed under the kernel function after its own operations                                          |
 | `order`     | an `f32` scatter with `+=` at a computed index (§65): one answer on the CPU tier, the tree of Rule 7.2 over the iterations; no GPU tier lowers it yet, so the answer holds only where it runs | `g[idx[i]] += x[i]` on an `f32` parameter array, listed under the kernel function after its own operations                                                     |
+| `contract`  | a numerical contract a function opted into (§78, Rule 11.22): the GPU tiers apply its rewrites and the CPU oracle does not; one row per class, its `op` the class and its `where` the functions under it | `finite-math`, listed after every other row; its `accuracy` names the folds and the inputs on which the oracle differs |
 
 **What is not listed.** Integer arithmetic, comparisons and the bit builtins, which have a correct
 result. A reduction by `min` or `max`, or on integers, which is exact in any order, and one in a
@@ -10742,5 +10743,7 @@ editor alike (Rule 12.7):
 
 A `@numerics` decorator is `TS8028`, as any decorator outside Rule 6.7's list is.
 
-The determinism report (§38) does not yet list the operations a contract rewrote: that is the
-second stage of change 0107.
+The determinism report (§38) lists each class a function opted into as a `contract` row, after
+every other row: its `op` is the class, its `where` the functions under it, and its `accuracy` the
+folds and the inputs on which the GPU tiers and the oracle differ. `reassociate` is listed too,
+with no rewrite yet.
