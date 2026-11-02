@@ -619,8 +619,11 @@ async function hook(): Promise<number> {
   const file = /(?:-F|--file)[=\s]+(\S+)/.exec(command)?.[1];
   if (file && existsSync(file)) message += readFileSync(file, 'utf8');
   const all = /\scommit\b[^|;&]*\s(-a|--all|-\w*a\w*)\b/.test(command);
-  const diff = all ? readDiff('HEAD', false) : readDiff('HEAD', true);
-  return checkCommit(diff, message);
+  // A merge in progress is judged by what it adds beyond its parents, as the Git hooks judge it
+  // (`diffBase`, #901). Any other commit is judged against HEAD.
+  const { diffBase } = await import('./precommit.js');
+  const base = diffBase(git, git('rev-parse', '--absolute-git-dir').trim());
+  return checkCommit(readDiff(base, !all), message);
 }
 
 // LINT.ThenChange(AGENTS.md:docs-follow-the-code, CLAUDE.md:the-prose-follows-the-code)
