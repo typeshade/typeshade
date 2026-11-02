@@ -29,7 +29,7 @@ downstream:
 | Date and attribution          | Drafted 2026-11-01, Asia/Seoul, by an AI agent at the maintainer's request. The date is the drafting date, not an approval date. The maintainer (Seungup) owns the decision. Git authorship of the containing commit is not an approval signature.                                                                                                                              |
 | Request source                | GitHub issue [#846](https://github.com/typeshade/typeshade/issues/846), split out of [#841](https://github.com/typeshade/typeshade/issues/841) (its requirement 3). #841 keeps the full analysis and the reproduction artifacts.                                                                                                                                                |
 | Applicability / effectivity   | `docs/language-design.md` (Rules 7.1 and 7.2), `reqs/` (their items), `docs/use-typeshade-surface.md` §7 and §9, `src/compiler/ts/lower/statement.ts`, the language service diagnostics (`src/language-service/`), the WGSL and GLSL ES 3.00 writers, the CPU oracle, `src/core/coverage/wgsl.ts` and the tests that pin `TS8018` on a swizzle. No release version is assigned. |
-| Review baseline               | `main` at commit `981b7c15` (merge of #859), 2026-11-01.                                                                                                                                                                                                                                                                                                                        |
+| Review baseline               | `main` at commit `981b7c15` (merge of #859), 2026-11-01. Re-read on `main` at `9dbc2985` (merge of #890), 2026-11-02: every location this proposal names still says what it quotes, and the branch merges onto it without conflict.                                                                                                                                             |
 | Review and revision authority | No pull request is assigned yet. Branch `docs/proposal-0106-swizzle-assign` carries the draft. Git records the revisions of this file. The merge of the proposal pull request with `status: accepted` will record the decision.                                                                                                                                                 |
 
 ## What changes
@@ -53,7 +53,9 @@ The proposed behaviour:
 5. The writer never emits a multi-component swizzle on the left (`d.xy *= dm`) in WGSL. It
    emits a whole-vector write or one write per component instead.
 6. A swizzle that names one component twice (`d.xx = r`, `d.yxy += r`) stays refused with
-   `TS8018`. Its sentence names the repeated component.
+   `TS8018`. Its sentence names the repeated component. The refusal comes before the access
+   check, as the one-component rule does today (`lowerMemberLValue`): `v.xx = …` on a read
+   binding is `TS8018`, not `TS8005`, since it is no place on either access mode.
 7. Every existing access check holds: a `const` root and a read binding are `TS8005`, a
    parameter is `TS8018`, and a lane of an emulated-double vector (`vec2f64`) stays `TS8018`.
 
@@ -75,10 +77,18 @@ d.x = _sw0.x;
 d.y = _sw0.y;
 ```
 
-When the base has an index with an effect (`ps[next()].xy += r`), the writer binds the index or
-a pointer to the base once, ahead of the read, as Rule 7.9 does for a call that writes. When
+When the base has an index with an effect (`ps[next()].xy += r`), the lowering binds the index
+or a pointer to the base once, ahead of the read, as Rule 7.9 does for a call that writes. When
 the swizzle covers the whole vector in any order, one whole-vector write may replace the
 component writes. The exact spelling is an implementation choice inside items 3 to 5.
+
+**Where the lowering happens** (amended 2026-11-02). The front end lowers the assignment into
+IR that every backend already has: a `let` that holds the snapshot and one component assignment
+per destination letter (or one whole-vector assignment). `lowerMemberLValue` and the assignment
+lowering of `src/compiler/ts/lower/statement.ts` do it. The WGSL writer, the GLSL ES 3.00 writer
+and the CPU oracle then need no change, and they cannot disagree on the order of items 3 and 4.
+This settles D1 and D2 as recommended. The optimizer may remove a snapshot that no destination
+reads back.
 
 Exclusions: a swizzle of an emulated-double vector, a swizzle used as an `@inout` or `@out`
 argument, and `++` / `--` on a swizzle (a vector has no step, surface §9) stay as they are.
@@ -101,16 +111,16 @@ source letters.
 
 **Alternatives.**
 
-| Alternative                                                     | Why it is not chosen                                                                                                                                                                            |
-| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Keep the refusal                                                | The target languages allow the form, and the refusal costs authors a rewrite on a common pattern.                                                                                               |
-| Emit `d.xy *= dm` under the WGSL `swizzle_assignment` extension | A device that does not report the extension refuses the shader. One lowering that needs no extension works on every WebGPU device. See D1.                                                      |
-| Accept duplicate destinations with last-write-wins              | WGSL and GLSL both refuse a repeated component on the left. The result would depend on an order the source does not show.                                                                       |
-| Lower in the front end to separate source-level statements      | The language service and the compiler must agree on one target shape (Rule 12.7). One IR assignment that each backend spells keeps the editor, the oracle and the GPU writers on one tree walk. |
+| Alternative                                                     | Why it is not chosen                                                                                                                                                                        |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Keep the refusal                                                | The target languages allow the form, and the refusal costs authors a rewrite on a common pattern.                                                                                           |
+| Emit `d.xy *= dm` under the WGSL `swizzle_assignment` extension | A device that does not report the extension refuses the shader. One lowering that needs no extension works on every WebGPU device. See D1.                                                  |
+| Accept duplicate destinations with last-write-wins              | WGSL and GLSL both refuse a repeated component on the left. The result would depend on an order the source does not show.                                                                   |
+| A new IR form that each backend spells                          | Three implementations (WGSL, GLSL ES 3.00, the CPU oracle) of one evaluation order, each needing its own tests. The front-end lowering above keeps one implementation (amended 2026-11-02). |
 
-Assumption: the oracle and both GPU writers already evaluate a compound component write
-(`v.x *= s`) in the order item 3 names. The implementation must confirm it with a test that
-can fail.
+Assumption: the oracle and both GPU writers already evaluate a one-component write (`v.x = e`)
+as the front end orders it. The front-end lowering relies on that form only. The implementation
+must confirm it with a test that can fail.
 
 ## What it touches
 
@@ -128,8 +138,11 @@ can fail.
 - No export or example changes.
 
 Rule 12.7 is not edited. It is an obligation: a program the compiler accepts must draw no error
-in the editor or in `tshc check`. The language service must therefore accept the same swizzle
-targets and refuse the same duplicates (`src/language-service/diagnostics.ts`).
+in the editor or in `tshc check`. **Fact** (checked on `9dbc2985`, 2026-11-02). The editor has no
+swizzle-target refusal of its own: the ambient vector types declare every swizzle writable, and
+the editor's `TS8018` for `d.xy *= d.yx` and `d.xx = a` comes from the same front-end lowering
+as the compiler's. So the change in `lowerMemberLValue` moves both halves at once. The parity
+test below still pins that they agree.
 
 Required implementation evidence:
 
@@ -143,16 +156,22 @@ Required implementation evidence:
 7. Run the compile gate over WGSL (Tint) and GLSL ES 3.00 (WebGL2).
 8. Close the `swizzle_assignment` rows in `src/core/coverage/wgsl.ts` and regenerate
    `docs/capability-coverage.md`.
+9. Add a kernel function whose loop writes `out[i].xy = …` (Rule 8.22): the proof accepts the
+   component stores, and the GPU lowering and the CPU tier write the same values.
+10. Add a swizzle target on a `storage<…, "read_write">` element and on a `workgroup` vector.
+11. Run `bun run reqs:sync` and `python scripts/doorstop-check.py -C` after editing Rules 7.1
+    and 7.2, and review `RULE-0701` and `RULE-0702` (`reqs/README.md`).
+12. Add the read-binding case of item 6: `v.xx = …` is `TS8018` and `v.xy = …` is `TS8005`.
 
 ### Draft impact estimate
 
 Known work:
 
-- `src/compiler/ts/lower/statement.ts`: accept the target, bind the base and index once, and
-  refuse duplicates.
-- The WGSL and GLSL ES 3.00 writers: spell the snapshot and the writes.
-- The CPU oracle: evaluate the same IR with the same order.
-- The language service: drop its swizzle-target refusal and add the duplicate one.
+- `src/compiler/ts/lower/statement.ts`: accept the target, bind the base and index once, refuse
+  duplicates, and lower to the snapshot and the component writes.
+- The WGSL and GLSL ES 3.00 writers and the CPU oracle: no change expected (the IR they read is
+  the one they read today).
+- The language service: no change of its own; its diagnostics follow the front end.
 - Tests and goldens as listed above. Goldens change only where a test program uses the form.
 
 Compatibility: the change accepts programs that were refused. No accepted program changes
@@ -164,8 +183,8 @@ Duration and cost: unknown. No basis for an estimate exists.
 
 Decisions to resolve before acceptance:
 
-- **D1.** WGSL spelling. Recommendation: lower to component writes after a snapshot, and do not
-  require the `swizzle_assignment` extension. The alternative emits the native form where the
+- **D1.** WGSL spelling. Recommendation: lower to component writes after a snapshot, in the
+  front end (above), and do not require the `swizzle_assignment` extension. The alternative emits the native form where the
   device reports the extension, at the cost of two spellings to test.
 - **D2.** GLSL ES 3.00 spelling. GLSL allows `v.xy *= r` natively. Recommendation: use the same
   snapshot lowering as WGSL, so one walk and one test set cover both writers. The alternative
