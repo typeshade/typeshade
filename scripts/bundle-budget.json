@@ -5,7 +5,7 @@
     "split": {
       "initial": 36461,
       "floor": 18000,
-      "total": 150335
+      "total": 150336
     }
   },
   "typeshade/emit": {
