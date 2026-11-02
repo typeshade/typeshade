@@ -241,7 +241,9 @@ Accepted revision: the file as merged in #873 (`main` at
 commits with `Change: 0110`, by a Claude Code agent: `dedb532` (the journey), `7a42103` (the class
 arm), `be95734` (the tests of D4), `e5f52da` (Rule 8.29), `de9f81f` (the three sections),
 `72850ed`, `9b6d3af`, `bb51ae9` and `e1f1f47` (merges of `main` at `48b315a`, `391f8dc`, `4072eba`
-and `7f4e916`) and the commit of this record. Delivered configuration:
+and `7f4e916`), `0c85280` (the first form of this record), `399b84b` (the merge of `main` at
+`9dbc298`, which carries change 0109), `d05f26c` (the host leg) and the commit of this entry.
+Delivered configuration:
 
 - `docs/language-design.md`: Rule 8.29 in §8 (D1), the sentence of item 1 with its Rationale,
   Derives from and Enforced by lines. `reqs/` synced: RULE-0829 is new, and SURF-026, SURF-065
@@ -271,8 +273,16 @@ are skipped with the host face's reason: `Wavetable`, whose one member reaches t
 Functional validation, local, 2026-11-02 (UTC), Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3,
 Vitest 5.0.5, Chromium headless shell 1243 (Chrome for Testing 153.0.8010.12) on SwiftShader:
 
+- `TYPESHADE_DIFF_ARMS=class bun scripts/gpu-differential.ts` on `d05f26c`, with the host leg:
+  failures 0 on 9 legs, 67,200 values. `host/cpu` holds the 13 members on the host class of
+  change 0109 at 0 ULP and 0 absolute over 8,400 values, and the host class refuses
+  `Phasor.shaped` and `Wavetable.next` with the reason a function has. 88 member legs are held
+  bit for bit and 16 under the envelope of the `fract` row. The instrument is still reported at
+  element 0. The host leg can fail: run once with each numeric constructor argument of the host
+  class made one greater, it reported 11 of the 13 members on `host/cpu` and exited 1; the two
+  it did not report take no such argument, and the file was then restored.
 - `TYPESHADE_DIFF_ARMS=class bun scripts/gpu-differential.ts` on `7a42103`, `9b6d3af`, `bb51ae9`
-  and `e1f1f47`: failures 0, the same counts on each. Every leg that ran is bit for bit: the largest
+  and `e1f1f47`, before the host leg: failures 0, the same counts on each. Every leg that ran is bit for bit: the largest
   distance is 0 ULP and 0 absolute on `entry/webgpu`, `entry/webgl2`, `entry/cpu`, `entry/oracle`,
   `kernel/webgpu`, `kernel/cpu` and `kernel/oracle`, 8,400 values each. 77 member legs are held
   bit for bit and 14 under the envelope of the `fract` row (the two members of `Phasor`), at
@@ -280,11 +290,11 @@ Vitest 5.0.5, Chromium headless shell 1243 (Chrome for Testing 153.0.8010.12) on
   with the face's reason (`loop 1 writes more than one array, and WebGL2 draws one`; for the two
   setters, `loop 1 writes "xs", whose element is not one f32, i32 or u32`). The instrument:
   `OnePole.tick` on `entry/webgpu` with element 0 given element 1's arguments, reported at
-  element 0. The arm prints `host leg: not available (change 0109)`.
-- `bun run gate:differential`, every arm, on `72850ed` and on `9b6d3af`: failures 0 on each arm
-  (kernel, chain, GLSL, compute, common modules and classes).
+  element 0. The arm printed `host leg: not available (change 0109)`.
+- `bun run gate:differential`, every arm, on `72850ed`, `9b6d3af` and `d05f26c`: failures 0 on
+  each arm (kernel, chain, GLSL, compute, common modules and classes).
 - `bunx vitest run src/compiler/ts/kernel-loops.test.ts src/core/fuse-plan.test.ts` on `9b6d3af`,
-  `bb51ae9` and `e1f1f47`: 66 tests pass, 19 of them new. No form showed the facts or the proof
+  `bb51ae9`, `e1f1f47` and `d05f26c`: 66 tests pass, 19 of them new. No form showed the facts or the proof
   treating a member unlike the inline form; the one difference is the order the proof lists a
   statement's stores in, which the planner does not read.
 - `bun run test` on `72850ed`: 11,691 tests pass and 9 fail, in `src/affected-tests.test.ts` and
@@ -296,14 +306,14 @@ Vitest 5.0.5, Chromium headless shell 1243 (Chrome for Testing 153.0.8010.12) on
   pass and 9 fail, the same 9.
 - `bun run gate:journeys` on `72850ed`, `9b6d3af` and `bb51ae9`: 34 journeys, 123 runs, every
   check passed; `class-twins` gives the reference's values exactly on WebGPU and WebGL2.
-- `bun run build`, `bun run lint` and `bun run format:check` on `72850ed`, `9b6d3af`, `bb51ae9` and
-  `e1f1f47`: pass.
+- `bun run build`, `bun run lint` and `bun run format:check` on `72850ed`, `9b6d3af`, `bb51ae9`,
+  `e1f1f47` and `d05f26c`: pass. `bun run check` is not run: `package.json` has no such script.
 
-Document validation on `e1f1f47`: `bun run docs:refs` (0 dead references in 1,408 files);
+Document validation on `d05f26c`: `bun run docs:refs` (0 dead references in 1,413 files);
 `bun scripts/doc-impact.ts --base origin/main --check` (every review item read);
 `bun scripts/ifchange.ts --base origin/main`; `bun scripts/changes.ts --base origin/main` (the
 change touches Rule 8.29 and surface §26, §65 and §71, as declared); `bun run reqs:sync -- --check`
-and `python scripts/doorstop-check.py -C -e -F`, Doorstop 3.2, clean.
+and `python scripts/doorstop-check.py -C` and `-C -e -F`, Doorstop 3.2, clean.
 
 Deviations:
 
@@ -317,9 +327,10 @@ Deviations:
   entry calls the member on a local, and the kernel function calls it on the element of its array
   (`xs[i].m(…)`), the form of §65's new sentence. Closed by this record, the reading of item 2.
 - Appendix B. The host half of Rule 8.29 was not enforced while an exported class was a type of
-  the host face, with no method; Appendix B recorded it, and §26 said so. Closed when change 0109
-  reached `main` (`9dbc298`, #890): the host leg (c) holds each member on the host class, and the
-  row of Appendix B and the sentence of §26 are removed.
+  the host face, with no method; Appendix B recorded it, and §26 said so. Closed on 2026-11-02
+  (UTC) by `d05f26c`, after change 0109 reached `main` (`9dbc298`, #890): the host leg (c) holds
+  each member on the host class, as the class arm's run on `d05f26c` above shows, and the row of
+  Appendix B and the sentence of §26 are removed.
 - The journey's wavetable voice keeps its position inside the table. Its first form,
   `table[this.at % arrayLength(table)]`, failed the WebGL2 leg of the CI check
   `user journeys (packed tarball, WebGPU)` on `dedb532`. The cause, reproduced here: the pass
