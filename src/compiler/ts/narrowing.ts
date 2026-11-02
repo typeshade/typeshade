@@ -40,6 +40,7 @@
 // Implements: Rule 7.10 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
+import { qualifiersOf } from './lower/references.js';
 import { isUndefinedLiteral, optionalTestOperand, writesUndefinedUnion } from './optional.js';
 
 /** What the flow says of a name at a read: absent, or present when each of its sources is. A
@@ -259,8 +260,8 @@ function referenceParams(sourceFile: ts.SourceFile): ReadonlyMap<string, Readonl
     if (ts.isFunctionDeclaration(n) && n.name !== undefined) {
       const refs = new Set<number>();
       n.parameters.forEach((p, i) => {
-        const decorators = ts.canHaveDecorators(p) ? (ts.getDecorators(p) ?? []) : [];
-        if (decorators.some((d) => /^@(inout|out)\b/.test(d.getText(sourceFile)))) refs.add(i);
+        // `@inout x: T`, or the type that stands for it, `x: inout<T>` (change 0111).
+        if (qualifiersOf(p).length > 0) refs.add(i);
       });
       if (refs.size > 0) out.set(n.name.text, refs);
     }
