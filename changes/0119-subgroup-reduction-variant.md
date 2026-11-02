@@ -1,7 +1,7 @@
 ---
 id: '0119'
 title: A kernel function's integer reduction and its scatter fold inside a subgroup first on a device that has `subgroups`, as a second WGSL variant the runtime selects by feature and probe; no source changes
-status: draft
+status: accepted
 rules:
   - '8.22'
   - '10.2'
@@ -43,12 +43,12 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0119, `status: draft`. The front matter is the identity and lifecycle authority. No approval has been given; see Approval and plan record.                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Identity and status           | Proposal 0119, `status: accepted`. The front matter is the identity and lifecycle authority. The owner accepted the proposal on 2026-11-02 with O1, O3 and O4 decided as the draft assumed; see Approval and plan record. No implementation has started.                                                                                                                                                                                                                                                                                                                              |
 | Date and attribution          | Authored 2026-11-02, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, after change 0117 landed and typeshade/web PR #22 put the measurement on the site: the owner asked whether TypeShade code "naturally" becomes subgroup operations, pointed at `docs/compiler-owns-performance.md` (PR #930) as the principle the pointer changes 0103 to 0105 followed, and approved this draft before answering that note's open decisions ("승인"). Issue #536 (2026-10-08) is the earlier request; TypeCV's `docs/gpu-throughput.md` gap G2 is the downstream use.                         |
 | Applicability / effectivity   | `docs/language-design.md` (Rule 8.22, Rule 10.2, a new Rule 11.22), `reqs/`, `docs/use-typeshade-surface.md` (§38, §65, §69), `AUTHORING.md`, `docs/roadmap.md`, `docs/performance.md`, `src/core/passes/kernel-lower.ts`, `src/core/fuse-group.ts`, `src/core/emit.ts`, `src/core/emit-identity.ts`, `src/core/reflect.ts`, `src/core/manifest-types.ts`, `src/compiler/ts/pack.ts`, `src/compiler/ts/host-face.ts`, `src/core/host-entry.ts`, `src/core/device-info.ts`, `src/runtime/device.ts`, `src/runtime/runtime.ts`, `scripts/perf-gate.ts`. No release version is assigned. |
 | Review baseline               | `main` at `3f74848` (2026-11-02), the merge of #964.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Review and revision authority | No pull request is assigned at authoring. The proposal-only pull request opened from branch `claude/0119-subgroup-reduction` is the review; Git records the revisions of this file, and the merge of that pull request with `status: accepted` records the decision.                                                                                                                                                                                                                                                                                                                  |
+| Review and revision authority | Pull request [#977](https://github.com/typeshade/typeshade/pull/977) (branch `claude/0119-subgroup-reduction`). Git records the revisions of this file; the merge of that pull request with `status: accepted` records the decision.                                                                                                                                                                                                                                                                                                                                                  |
 
 ## What changes
 
@@ -242,23 +242,20 @@ nothing from 0117 unless someone rewrites each of them by hand, with the device'
 
 ### Assumptions and open points
 
-- O1. Selection by probe, not by vendor signals (the note's decision 4). Assumed for this draft;
-  if the owner decides for signals, section 4's probe becomes a feature check alone and
-  `DeviceInfo.subgroups` holds the adapter's size range only.
+- O1. Selection by probe, not by vendor signals (the note's decision 4). Decided on 2026-11-02
+  by the owner's approval of the draft as written: the probe.
 - O2. The note's decision 5, how 0117's authorable functions relate to this direction: this
   draft keeps them and adds the variant beside them (section 6, last item). If the owner decides
   that the directive and the functions are to go, that is a separate proposal and this one does
   not depend on it.
-- O3. The cost rule for the scatter variant (section 3): emit it for every integer scatter, or
-  only where a static fact (a small bin count, a key that is a function of the lane's data with
-  few values) says the keys repeat. The measurement on hardware decides; the draft proposes to
-  emit it for every integer scatter and to let the probe's timing of the two texts on the device
-  choose per entry (a second axis of the probe, O4), with the simpler rule "always" as the
-  fallback if the timing probe is refused.
+- O3. The cost rule for the scatter variant (section 3). Decided on 2026-11-02 by the owner's
+  approval of the draft as written: the variant is emitted for every integer scatter. A static
+  rule that reads the keys, or a timing probe that chooses per entry, is a later proposal once
+  hardware ratios exist.
 - O4. Whether the probe also times the two texts and selects the faster one per entry, or only
-  checks the value. Timing on the device needs `timestamp-query` or a wall clock, and the note's
-  section 2 says the numbers that decide come from a hardware adapter. The draft proposes the
-  value check only; the timing probe is a later proposal once hardware ratios exist.
+  checks the value. Decided on 2026-11-02 by the owner's approval of the draft as written: the
+  value check only. A timing probe needs `timestamp-query` or a wall clock, and the note's
+  section 2 says the numbers that decide come from a hardware adapter; it is a later proposal.
 - O5. The Rule number 11.22 assumes no accepted proposal takes it first; the implementing pull
   request renumbers if one does. Proposal 0118 (PR #959, a fuse report's tier) does not take a
   rule number.
@@ -333,17 +330,27 @@ nothing from 0117 unless someone rewrites each of them by hand, with the device'
   field are the site's work; TypeCV and radiance record the id and say which form they use;
   Korean translation of the new AUTHORING.md paragraphs: unknown.
 - Duration: unknown. No basis for an estimate is recorded.
-- Decisions before acceptance: O1 (probe or signals), O3 (the scatter's cost rule), O4 (value
-  probe only, or timing too). O2, O5 and O6 do not block acceptance.
+- Decisions before acceptance: O1, O3 and O4, decided on 2026-11-02 (section Assumptions and
+  open points). O2, O5 and O6 stay open and do not block acceptance.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require: the owner's decision on O1, O3 and O4 in
-the proposal-only pull request's conversation or in the Claude Code session, recorded here with
-its date; the merge of that pull request with `status: accepted`; the approved scope stated as a
-list of this proposal's sections; the responsibility for the implementing pull requests (each
-with `Change: 0119`) and any agreed milestone. No approver, signature, schedule or result is
-recorded here before that.
+- Decision: the owner (Seungup) accepted the proposal on 2026-11-02 in the Claude Code session,
+  in Korean ("승인"), in answer to the report of pull request #977 that listed O1, O3 and O4
+  with the draft's assumption for each; the approval takes those assumptions as the decisions
+  (section Assumptions and open points). The owner cannot approve their own pull request, so
+  this go-ahead is the review (CLAUDE.md, Merging).
+- Record: pull request #977, merged with this file at `status: accepted`. Git records the
+  revision; the merge is the evidence.
+- Approved scope: section 1 (what an author sees), section 2 (the reduction variant and the
+  amended sentence of Rule 8.22), section 3 (the scatter variant, emitted for every integer
+  scatter), section 4 (Rule 11.22, the probe, the option, the device report, the reflection),
+  section 5 (the emit and the manifest), section 6 (the exclusions).
+- Responsibilities: the implementing pull requests are the owner's agent sessions' to open, each
+  with `Change: 0119`; no person is assigned by name. No milestone date is agreed.
+- Required validation at implementation: the functional and document lists under Draft impact
+  estimate, and the Configuration and validation record below. No duration or cost estimate is
+  established.
 
 ### Configuration and validation record
 
