@@ -1,7 +1,7 @@
 ---
 id: '0117'
 title: The subgroup built-in functions and the `subgroup_id` and `num_subgroups` built-in values are authorable behind `enable subgroups`, with a one-invocation meaning on the oracle and on GLSL ES 3.00
-status: draft
+status: accepted
 rules:
   - '11.21'
 surface:
@@ -27,12 +27,12 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0117, `status: draft`. The front matter is the identity and lifecycle authority. No approval has been recorded.                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Identity and status           | Proposal 0117, `status: accepted`. The front matter is the identity and lifecycle authority. The owner accepted the proposal on 2026-11-02 with D1 decided for the lowering; see Approval and plan record. No implementation has started.                                                                                                                                                                                                                                                                                    |
 | Date and attribution          | Authored 2026-11-02, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                         |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean. The owner asked what a subgroup optimization would buy the compiler, had a measurement built first (PR #903, merged as `c0f61a7`; typeshade/web PR #22, draft), and then asked that the test run on code built from TypeShade source. The owner approved this proposal's drafting in the same session ("네 승인합니다"). Issue #536 (typeshade/radiance, 2026-10-09) is the earlier request.                                                         |
 | Applicability / effectivity   | `docs/language-design.md` (a new Rule 11.21, the §13 decisions table, Appendix B), `reqs/`, `docs/use-typeshade-surface.md` (§50, a new §77), `AUTHORING.md`, `docs/roadmap.md` (the After 1.0 row), `src/core/builtins/overlay.ts`, `src/core/intrinsics.ts`, `src/core/sot.ts`, `src/compiler/ts/builtin-check.ts`, `src/core/passes/required-caps.ts`, `src/core/passes/uniformity.ts`, `src/core/passes/determinism.ts`, the oracle, the GLSL writer, the language service, `examples/`. No release version is assigned. |
 | Review baseline               | `main` at `9dbc2988` (2026-11-02), the merge of #890.                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Review and revision authority | No pull request is assigned yet. Git records the revisions of this file; the merge of the proposal-only pull request with `status: accepted` records the decision.                                                                                                                                                                                                                                                                                                                                                           |
+| Review and revision authority | Pull request [#911](https://github.com/typeshade/typeshade/pull/911) (branch `proposal/subgroup-operations`). Git records the revisions of this file; the merge of that pull request with `status: accepted` records the decision.                                                                                                                                                                                                                                                                                           |
 
 ## What changes
 
@@ -133,7 +133,7 @@ today. #536 asks the opposite for radiance: a feature it uses stays usable on We
 lowering. The proposal takes #536's side, through the last sentence of Rule 11.21: the GLSL
 writer spells each function by the table above, and a module that uses one compiles on GLSL. The
 alternative, failing closed, keeps Rule 9.3 as written and leaves every subgroup program
-WebGPU-only. This is the owner's decision; the proposal is written for the lowering.
+WebGPU-only. Decided on 2026-11-02 by the owner, in the Claude Code session, in Korean ("D1은 lowering으로"): the lowering.
 
 ### 4. Uniform control flow
 
@@ -224,7 +224,7 @@ decision concrete:
 
 ### Assumptions and open points
 
-- D1 above (the GLSL lowering) is the owner's decision.
+- D1 was decided on 2026-11-02: the lowering (section 3).
 - The Rule number 11.21 assumes no other accepted proposal takes it first; the implementing pull
   request renumbers if one does.
 - The surface section number 77 assumes §76 stays the last section at acceptance.
@@ -273,14 +273,24 @@ decision concrete:
   web PR #22's follow-up; the editor's declarations are generated. Translation of the new
   AUTHORING.md section into Korean: unknown.
 - Duration: unknown. No basis for an estimate is recorded.
-- Decisions before acceptance: D1.
+- Decisions before acceptance: D1, decided for the lowering on 2026-11-02.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires: the owner's decision in the conversation or a
-review on the proposal-only pull request, with D1 decided; the approved revision of this file;
-the agreed scope (section 1, section 3's table, section 6's exclusions); the validation list
-above.
+- Decision: the owner (Seungup) accepted the proposal on 2026-11-02 in the Claude Code session,
+  in Korean ("D1은 lowering으로 하고 0117 accept해서 머지해"), with D1 decided for the GLSL ES
+  3.00 lowering. The owner cannot approve their own pull request, so this go-ahead is the review
+  (CLAUDE.md, Merging).
+- Record: pull request #911, merged with this file at `status: accepted`. Git records the
+  revision; the merge is the evidence.
+- Approved scope: section 1 (the 21 functions and the two built-in values), section 2 (the
+  derived capability), section 3 (Rule 11.21 and its table, with the lowering), section 4 (the
+  uniformity kind), section 5 (both halves and the Tint measurement), section 6 (the
+  exclusions).
+- Responsibilities: the implementing pull requests are the owner's agent sessions' to open, each
+  with `Change: 0117`; no person is assigned by name. No milestone date is agreed.
+- Required validation at implementation: the list under Draft impact estimate, and the
+  Configuration and validation record below. No duration or cost estimate is established.
 
 ### Configuration and validation record
 
