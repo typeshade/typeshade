@@ -9,8 +9,10 @@ rules:
   - '7.6'
   - '8.1'
   - '8.2'
+  - '8.7'
   - '8.22'
   - '8.25'
+  - '12.1'
 surface:
   - 1
   - 2
@@ -22,6 +24,7 @@ surface:
   - 8
   - 9
   - 10
+  - 13
   - 14
   - 15
   - 16
@@ -43,6 +46,7 @@ surface:
   - 43
   - 49
   - 50
+  - 51
   - 52
   - 53
   - 54
@@ -181,6 +185,28 @@ downstream:
 | Applicability / effectivity   | `docs/language-design.md` Rules 6.6, 6.7, 8.1, 8.2, 8.22 and 8.25, `reqs/`, `docs/use-typeshade-surface.md` §3, §53, §67 and §70 and every section that shows an entry, the front end (`src/compiler/ts/`), the ambient library and the diagnostic filter (`src/language-service/`), the host face, every `examples/**/*.shade.ts` that declares an entry, and the five downstream repositories. No release version is assigned. |
 | Review baseline               | `main` at `c9efde0f79df0e6b10883b87c8af21d0c72dfbc9` (the merge of pull request #870), read on 2026-11-02.                                                                                                                                                                                                                                                                                                                       |
 | Review and revision authority | Pull request [#875](https://github.com/typeshade/typeshade/pull/875) (branch `claude/proposal-0111-plain-typescript-entries`). Git records the revisions of this file. The review and merge of its pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                    |
+
+## Amendment 4 (2026-11-02)
+
+This revision amends the accepted scope in one point, found while implementing milestone 4. The
+merge of its pull request is its acceptance. Git holds the earlier text.
+
+**Two rules and two surface sections quote what milestone 4 changes.** Milestone 4 makes every
+message name the new form (pull request #938) and removes the editor's
+`strictPropertyInitialization` override for a file in the new form (pull request #949). Four
+places the front matter did not list owe an edit for it:
+
+- **Rule 8.7** quotes the `TS8037` message of `@compute`, whose text now names
+  `compute([64, 1, 1], f)`.
+- **Rule 12.1** names the `gl_FragCoord` remedy as "a `@builtin("position")` parameter", which
+  is now `pos: builtin<"position", vec4>`.
+- **Surface §13** and **surface §51** each show a struct class with a field and no initializer.
+  The editor now reports TS2564 on such a field in a file in the new form, as a plain
+  `tsc --strict` does, so each field takes `!` (`doc-snippets.test.ts` reads both fences).
+
+No decision changes. The rules change only in their quoted text, and the sections only in a `!`.
+
+The owner's approval is recorded when this pull request merges.
 
 ## Amendment 3 (2026-11-02)
 
