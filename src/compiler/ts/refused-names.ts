@@ -365,3 +365,26 @@ export function unknownNameAlreadyReported(
   const declaration = visibleDeclaration(use, name, sourceFile);
   return declaration !== undefined && refusedWithReason(declaration, sourceFile, diagnostics);
 }
+
+/**
+ * Whether the variable `decl` declares holds no value because a refusal stands in its
+ * declaration, or in a declaration that its initializer reads (`refusedWithReason`). `decl` is
+ * what a function's capture names (`lower/closures.ts`): a variable declaration, an element of a
+ * destructuring pattern, or a parameter. Its declaration is the statement, the loop header or the
+ * parameter that declares it, as `visibleDeclaration` answers for a read of it.
+ */
+export function variableRefused(
+  decl: ts.Node,
+  sourceFile: ts.SourceFile,
+  diagnostics: readonly TsCompilerDiagnostic[],
+): boolean {
+  for (let at: ts.Node | undefined = decl; at !== undefined; at = at.parent) {
+    if (
+      ts.isVariableStatement(at) ||
+      ts.isParameter(at) ||
+      (ts.isVariableDeclarationList(at) && !ts.isVariableStatement(at.parent))
+    )
+      return refusedWithReason(at, sourceFile, diagnostics);
+  }
+  return false;
+}

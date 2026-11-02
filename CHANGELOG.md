@@ -1570,6 +1570,17 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A function handed over that reads a local whose declaration was refused says nothing more
+  (#967).** `const TAU_DOUBLE: f64 = 6.283185307179586;` is refused with `TS8003`, as a module
+  constant of the emulated double is not here yet. A local initialized from it,
+  `const step = TAU_DOUBLE / 8.;`, holds no value, and an arrow function handed to a call that read
+  `step` drew `TS8022` as well: "The function written here reads "step", which is not declared yet
+  where it runs", although `step` is declared above the call. The same held for every refusal such
+  a local reads, and for an arrow function handed to an array's method or to `zip`, or one that
+  calls a local function that reads the local. Such a function is now not lifted, and the refusal
+  is the one diagnostic, in `compile()` and in the editor (Rule 12.4). A variable declared below
+  the call still draws `TS8022`, since it is not declared yet where the function runs.
+
 - **A local function and its copy, a namespace constant and an enum member are worded as the author
   wrote them (#987).** After #979 a `TS8070` sentence still named a local function, and the copy of a
   local function that takes a function, as the module emits them (`count_bump`, `count_apply_inc`),
