@@ -156,6 +156,92 @@ the current checkout first. Run from the current repository root:
 bun scripts/bench-reduction-barrier.mjs --base /path/to/baseline --samples 61 --warmup 10 --n 262144 --output artifacts/barrier-repeat.json
 ```
 
+## Subgroup pre-fold: the measurement before a proposal
+
+A kernel function that reduces folds each workgroup's 256 values by the workgroup tree: eight
+barriers per workgroup, then one dispatch per level of partials (`src/core/kernel-tree.ts`,
+Rule 7.2). WGSL's `subgroups` extension folds a subgroup's lanes in one instruction with no
+barrier. Subgroup operations are placed after 1.0 (`docs/roadmap.md`), and #536 asks for them
+with a use in view: a subgroup fold before `atomicAdd`. Before a proposal spends a design on
+either, `bun run bench:subgroup-reduce` (`scripts/bench-subgroup-reduce.ts`) measures what the
+change would buy on the device it runs on. It is a measurement, not a gate: it enforces no
+threshold.
+
+**What it runs.** Two families, every variant in the compiler's own binding layout, with the same
+dispatches and the same uniform words, so the only difference timed is the fold.
+
+| Family   | Case                     | What runs                                                                                                                                                                                                                           |
+| -------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `reduce` | `<elem>/compiler`        | The compiler's emit of `total` (`f32`) and `totalU` (`u32`), lowered by `lowerKernel`, scheduled by `scheduleKernelPlan` and dispatched step for step as the call layer does.                                                       |
+| `reduce` | `<elem>/tree`            | The same reduction hand-written in the compiler's shape, barrier for barrier. It must time like `compiler`, or the hand-written variants say nothing about the emit.                                                                |
+| `reduce` | `<elem>/subgroup`        | One `subgroupAdd` per subgroup, each subgroup's lane 0 writes its value to workgroup memory, and lane 0 of the workgroup sums the `num_subgroups` values. Correct on any lane-to-subgroup mapping.                                  |
+| `reduce` | `<elem>/subgroup/2`      | A second `subgroupAdd` level over the partials. Correct only where a subgroup's lanes are consecutive `local_invocation_index` values; the probe reports whether they are, and the value check catches a device where they are not. |
+| `reduce` | `<elem>/map`             | Each element read once and written once, no fold: the floor a reduction cannot go below on this device.                                                                                                                             |
+| `atomic` | `atomic/lane/<bins>`     | Each live lane adds its `u32` into a counter with `atomicAdd`.                                                                                                                                                                      |
+| `atomic` | `atomic/subgroup/<bins>` | A `subgroupAdd` first, and one lane of each subgroup adds: #536's pre-reduction.                                                                                                                                                    |
+| `atomic` | `atomic/tree/<bins>`     | The workgroup tree first, and lane 0 adds: what the compiler could do with no extension.                                                                                                                                            |
+
+`one` is one counter for every lane. `bins` gives each run of 1024 consecutive elements its own
+bin, so a workgroup of 256 always shares one bin and the pre-reduction stays exact on any lane
+mapping. Every variant's value is checked against the sum computed in JavaScript; the inputs are
+small integers, so an `f32` sum is exact in every order and the check is exact too. A wrong value
+fails the run. The GPU time is the sum of the compute passes' timestamps where the device has
+`timestamp-query`; the wall time is from the first submit to `queue.onSubmittedWorkDone()`. The
+cases take turns, sample by sample. A probe reports the adapter's `subgroupMinSize` and
+`subgroupMaxSize`, the `subgroup_size` one workgroup saw, and whether its subgroups were
+consecutive lanes. The `--output` file holds every sample, the adapter, the browser, the commit
+and the WGSL of every variant.
+
+**The run in this container, 2026-11-02.** SwiftShader, Chrome for Testing 153.0.8010.12, on
+the container's processor; commit `c4e99ae`, `n = 1048576`, 11 samples after 3 warm-up runs.
+The adapter reports subgroup sizes 4 to 4, and the probe saw `subgroup_size` 4, `num_subgroups`
+64 and consecutive lanes. Medians of the GPU time, in milliseconds; every check `ok`.
+
+| Case                   | GPU ms  | Of its reference |
+| ---------------------- | ------- | ---------------- |
+| `f32/compiler`         | 525.393 | 1.00             |
+| `f32/tree`             | 513.196 | 0.98             |
+| `f32/subgroup`         | 394.891 | 0.75             |
+| `f32/subgroup/2`       | 392.028 | 0.75             |
+| `f32/map`              | 7.563   | 0.01             |
+| `u32/compiler`         | 486.529 | 1.00             |
+| `u32/tree`             | 521.426 | 1.07             |
+| `u32/subgroup`         | 368.169 | 0.76             |
+| `u32/subgroup/2`       | 421.476 | 0.87             |
+| `u32/map`              | 6.926   | 0.01             |
+| `atomic/lane/one`      | 57.547  | 1.00             |
+| `atomic/subgroup/one`  | 27.253  | 0.47             |
+| `atomic/tree/one`      | 524.502 | 9.11             |
+| `atomic/lane/bins`     | 8.685   | 1.00             |
+| `atomic/subgroup/bins` | 7.680   | 0.88             |
+| `atomic/tree/bins`     | 510.024 | 58.72            |
+
+What this run says: the instrument works. The hand-written tree times like the compiler's emit,
+every variant computes the right value, and the subgroup built-in values and functions compile
+on this Tint. What it does not say: anything about a GPU. A software device runs a barrier as a
+thread switch, so the tree costs seventy times the map here, which no hardware adapter shows.
+The numbers that decide anything come from the owner's device (`docs/hardware-notes.md`).
+
+**To run on a hardware adapter.** On Windows, in PowerShell, from the repository root:
+
+```powershell
+bun install --frozen-lockfile
+bun run bench:subgroup-reduce --hardware --samples 31 --warmup 5 --output artifacts/subgroup-reduce.json
+```
+
+1. Read the first line: the adapter key, whether it has `subgroups`, and its subgroup sizes.
+2. Read the probe line: the `subgroup_size` seen and whether the lanes were consecutive.
+3. Read `vsReference` of `f32/subgroup`, `u32/subgroup` and `atomic/subgroup/one`: the fraction of
+   the compiler's time a subgroup fold would leave.
+4. Attach the `--output` file to the issue or the proposal the decision goes into.
+
+What the numbers decide: `u32/subgroup` against `u32/compiler` is the saving a pre-fold of an
+integer reduction would bring with no change to any rule, since an integer sum has one value in
+every order. `f32/subgroup` against `f32/compiler` is the saving that would need Rule 7.2
+amended, since a subgroup's size differs by device and so would the `f32` bits.
+`atomic/subgroup/one` against `atomic/lane/one` is #536's use. Each is one device; a decision
+cites the adapter key and the commit the run names.
+
 ## Recording a baseline
 
 Run on the machine the baseline is for, after `bun run build`. On Windows, in PowerShell:

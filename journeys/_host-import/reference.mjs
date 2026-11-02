@@ -32,7 +32,44 @@ export default {
   jitters: [0, 1, 2, 3].map((i) => uniform(xorshift32((12345 ^ i) >>> 0))),
   uniforms: Array.from({ length: 8 }, (_, i) => uniform(lowbias32((12345 ^ i) >>> 0))),
   generated: Array.from({ length: 8 }, (_, i) => uniform(lowbias32((12345 ^ i) >>> 0))),
+  // The one-pole filter of change 0109: one ticked over five samples, and a bank of four run over
+  // their blocks, each holding its last output.
+  ...(({ ticks, bank, states, kept }) => ({
+    filterTicks: ticks,
+    filterBank: bank,
+    filterStates: states,
+    filterKept: kept,
+  }))(filterReference(4, 8, (i) => 0.1 * (i + 1))),
 };
+
+/** A filter's tick in f32, as the CPU tier and the GPU round each operation. */
+function onePole(k) {
+  const f = Math.fround;
+  const kk = f(k);
+  let z = 0;
+  return {
+    tick: (x) => (z = f(z + f(kk * f(f(x) - z)))),
+    get z() {
+      return z;
+    },
+  };
+}
+
+/** What the bank of filters gives: `count` filters, `k(i)` each, over blocks of `block` samples
+ *  of `sin(i * 0.37)`; with the five ticks of one filter at 0.1 for the CPU half. */
+function filterReference(count, block, k) {
+  const one = onePole(0.1);
+  const bank = Array.from({ length: count }, (_, i) => onePole(k(i)));
+  const out = bank.flatMap((p, i) =>
+    Array.from({ length: block }, (_, n) => p.tick(Math.sin((i * block + n) * 0.37))),
+  );
+  return {
+    ticks: [1, 1, 0.5, 0, -1].map((x) => one.tick(x)),
+    bank: out,
+    states: bank.map((p) => p.z),
+    kept: bank.map(() => 1),
+  };
+}
 
 function xorshift32(x) {
   x = (x ^ (x << 13)) >>> 0;
@@ -235,6 +272,12 @@ export function loopReference() {
       const x = f(Math.sin(i) * 10);
       return x < 0 ? -1 : f(x * 0.5);
     }),
+    // The bank of filters built with `new` (change 0109), its loop on WebGPU, one lane a filter.
+    ...(({ bank, states, kept }) => ({
+      filterBankGpu: bank,
+      filterStatesGpu: states,
+      filterKeptGpu: kept,
+    }))(filterReference(64, 16, (i) => 0.01 * (i + 1))),
   };
 }
 
