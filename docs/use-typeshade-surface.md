@@ -6695,8 +6695,8 @@ sentence also names the other way out, a value the whole workgroup shares to bra
 break, continue, bound the loop, test on the left side or test in the condition on; a
 derivative's names the explicit-LOD sample and the filter. The filter is offered where the file
 can carry it: on the entry when every entry is a top-level function, on a top-level function
-when an entry is a namespace's, since a namespace's function refuses `@diagnostic` (`TS8028`,
-§7) and the directive is read off any top-level function, and not at all in a file with no
+when an entry is a namespace's, since a namespace's function refuses `@diagnostic` and a
+namespace's stage call its `diagnostic` option (`TS8028`, §7), and the directive is read off any top-level function, and not at all in a file with no
 top-level function. The value is named as the author
 wrote it: a helper as it is called, `Lim.hit(…)` or `done(…)`, never the name the emit gives it,
 and a helper the walk cannot see through by its own name, not as "the expression".

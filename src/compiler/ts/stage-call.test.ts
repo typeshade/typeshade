@@ -151,6 +151,36 @@ export const fs = fragment(
   });
 });
 
+describe("a namespace's entry takes no options", () => {
+  // The option was dropped with no word, and the rule it meant to switch off still refused the
+  // sample; `@diagnostic` on a namespace's function is refused, and so is the option now.
+  const source = `"use typeshade";
+declare const t: texture_2d<f32>;
+declare const s: sampler;
+namespace N {
+  export const fs = fragment(
+    function fs(p: builtin<"position", vec4>): vec4 {
+      if (p.x > 10.) { return textureSample(t, s, p.xy); }
+      return vec4(0.);
+    },
+    { diagnostic: ["off", "derivative_uniformity"] },
+  );
+}
+`;
+  const refusal =
+    'TS8028 "diagnostic" does not apply to a namespace\'s entry: it marks an entry at the top of the file. Remove the options.';
+
+  it('the compiler refuses the options and emits no directive', () => {
+    const result = compiled(source);
+    expect(errors(source)).toContain(refusal);
+    expect(result.wgsl ?? '').not.toContain('diagnostic(');
+  });
+
+  it('the editor reports the same refusal', () => {
+    expect(editor(source)).toContainEqual(refusal);
+  });
+});
+
 describe('the editor reads a stage call as the compiler does', () => {
   it('reports nothing on an entry the compiler accepts', () => {
     const source = `"use typeshade";
