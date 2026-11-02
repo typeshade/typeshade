@@ -5,6 +5,7 @@
 import { EPS, height, normal, ridged } from './terrain.shade.ts';
 import { relief } from './relief.shade.ts';
 import { jitter } from './jitter.shade.ts';
+import { OnePole, run } from './filters.shade.ts';
 // The host face of a common module (change 0072): a kernel function and the host generator, from
 // the same specifier a shader file imports the device face by.
 import { fillUniform, generator } from 'typeshade/random';
@@ -32,7 +33,32 @@ await fillUniform(draws, 12345);
 const uniforms: number[] = Array.from(draws);
 const next = generator(12345);
 const generated: number[] = Array.from({ length: 8 }, () => next());
+// An exported class (change 0109): a filter built with the class's own constructor and ticked on
+// the CPU tier, and a bank of them handed to the kernel function `run` as the structs they are,
+// which runs on the CPU tier here (no WebGPU in Node) and writes each instance back in place.
+const one = new OnePole(0.1);
+const filterTicks: number[] = [1, 1, 0.5, 0, -1].map((x) => one.tick(x));
+const filters = Array.from({ length: 4 }, (_, i) => new OnePole(0.1 * (i + 1)));
+const filterXs = Float32Array.from({ length: 4 * 8 }, (_, i) => Math.sin(i * 0.37));
+const filterOut = new Float32Array(4 * 8);
+await run(filterOut, filterXs, filters, 8);
+const filterBank: number[] = Array.from(filterOut);
+const filterStates: number[] = filters.map((p) => p.z);
+const filterKept: number[] = filters.map((p) => (p instanceof OnePole ? 1 : 0));
 
 console.log(
-  JSON.stringify({ eps: EPS, heights, normals, ridges, reliefs, jitters, uniforms, generated }),
+  JSON.stringify({
+    eps: EPS,
+    heights,
+    normals,
+    ridges,
+    reliefs,
+    jitters,
+    uniforms,
+    generated,
+    filterTicks,
+    filterBank,
+    filterStates,
+    filterKept,
+  }),
 );

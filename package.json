@@ -86,6 +86,7 @@
     "bench:stepping": "bun scripts/bench-stepping.ts",
     "bench:scatter": "bun scripts/scatter-scratch.ts",
     "bench:pack": "bun scripts/pack-bench.ts",
+    "bench:subgroup-reduce": "bun scripts/bench-subgroup-reduce.ts",
     "gate:compile": "bun scripts/compile-gate.ts",
     "gate:journeys": "bun scripts/user-journey.ts",
     "gate:perf": "bun scripts/perf-gate.ts",
