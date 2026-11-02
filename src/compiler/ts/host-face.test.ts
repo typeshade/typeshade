@@ -336,6 +336,815 @@ export function fs(@location(0) uv: vec2): vec4 { return vec4(uv, 0., 1.); }
   });
 });
 
+/** The lines of the comment that ends on the line above the first line of `view` that begins
+ *  with `declaration`. */
+function commentAbove(view: string, declaration: string): string[] {
+  const lines = view.split('\n');
+  const at = lines.findIndex((l) => l.startsWith(declaration));
+  expect(at, `the view declares ${declaration}`).toBeGreaterThan(-1);
+  let from = at;
+  while (from > 0 && /^(\/\*\*| \*)/.test(lines[from - 1]!)) from--;
+  return lines.slice(from, at);
+}
+
+/** What the editor shows on hover over the text `at` of `host`, a program that imports `./m.shade.ts`
+ *  and so reads `view`, `moduleSuffixes` resolving the import to it: the documentation, and any error
+ *  the view or the program has. The view's own `runtime` is the stub, so the program stays small. */
+function hover(
+  view: string,
+  host: string,
+  at: string,
+): { documentation: string; errors: string[] } {
+  const files = new Map([
+    ['/app/m.shade.typeshade.ts', view],
+    ['/app/runtime.ts', 'export type Resident<T> = T;\nexport type Pack<T> = T;\n'],
+    ['/app/app.ts', host],
+  ]);
+  const options: ts.CompilerOptions = {
+    strict: true,
+    noEmit: true,
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    allowImportingTsExtensions: true,
+    moduleSuffixes: ['.typeshade', ''],
+    lib: ['lib.es2022.d.ts'],
+    types: [],
+  };
+  const service = ts.createLanguageService({
+    getScriptFileNames: () => ['/app/app.ts'],
+    getScriptVersion: () => '1',
+    getScriptSnapshot: (name) => {
+      const text = files.get(name) ?? ts.sys.readFile(name);
+      return text === undefined ? undefined : ts.ScriptSnapshot.fromString(text);
+    },
+    getCurrentDirectory: () => '/app',
+    getCompilationSettings: () => options,
+    getDefaultLibFileName: (o) => ts.getDefaultLibFilePath(o),
+    fileExists: (name) => files.has(name) || ts.sys.fileExists(name),
+    readFile: (name) => files.get(name) ?? ts.sys.readFile(name),
+    directoryExists: (name) => name === '/app' || ts.sys.directoryExists(name),
+  });
+  const errors = ['/app/app.ts', '/app/m.shade.typeshade.ts'].flatMap((name) => [
+    ...service.getSyntacticDiagnostics(name),
+    ...service.getSemanticDiagnostics(name),
+  ]);
+  const position = host.indexOf(at);
+  expect(position, `the host program has ${at}`).toBeGreaterThan(-1);
+  const info = service.getQuickInfoAtPosition('/app/app.ts', position);
+  service.dispose();
+  return {
+    documentation: ts.displayPartsToString(info?.documentation ?? []),
+    errors: errors.map((d) => ts.flattenDiagnosticMessageText(d.messageText, ' ')),
+  };
+}
+
+// The view carries the author's JSDoc (change 0108, surface §64). A view is text that two readers
+// take: `tsc` and the editor. So each row of the proposal is checked on the text of the view, and the
+// editor's hover is checked on the rows a developer hovers: what the author wrote shows first, and
+// the compiler's sentence follows it.
+describe("the host view carries the author's JSDoc (change 0108)", () => {
+  // The sentences the view writes itself (the "Not callable" reason aside), as they stand.
+  const KERNEL =
+    'A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8).';
+  const compute = (shape: string): string =>
+    `A \`@compute\` entry, \`@workgroup_size(${shape})\`: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Resident a call wrote (change 0075); each binding the entry writes is read back into your value in place, or stays on the device in a Resident. The shape shown is its default; options.constants selects declared overrides without changing workgroups (Rules 8.24 and 11.8).`;
+  const FRAGMENT =
+    'A full-screen `@fragment` entry: draws one frame into `target`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24).';
+  const GENERIC =
+    'Not callable from host code (Rule 8.20): it is generic, and a generic function exists only as the instances the module uses; no proposal adds it yet.';
+  // Item 3: how a call made without `await` is queued and awaited.
+  const queued = (written: 'arrays' | 'bindings'): string =>
+    `A call whose written ${written} are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.`;
+
+  it('writes the JSDoc of a helper above it, verbatim, and no other comment', () => {
+    const f = face(`"use typeshade";
+
+// A line comment is not JSDoc.
+/* Neither is a block comment. */
+/**
+ * The height of the terrain at \`p\`.
+ *
+ * @param p the point
+ * @param k the four wave constants
+ */
+export function height(p: vec2, k: vec4): f32 {
+  /** Inside a body, a comment belongs to nothing. */
+  return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
+}
+`);
+    expect(commentAbove(f.view, 'export declare function height(')).toEqual([
+      '/**',
+      ' * The height of the terrain at `p`.',
+      ' *',
+      ' * @param p the point',
+      ' * @param k the four wave constants',
+      ' */',
+    ]);
+    expect(f.view).not.toMatch(/line comment|block comment|Inside a body/);
+  });
+
+  it('writes the JSDoc of a constant above it', () => {
+    const f = face(`"use typeshade";
+
+/** The step of the finite difference. */
+export const EPS: f32 = 0.001;
+`);
+    expect(f.view).toContain(
+      '/** The step of the finite difference. */\nexport declare const EPS: number;\n',
+    );
+  });
+
+  it('writes the JSDoc of an enum above it, and that of a member on the member', () => {
+    const f = face(`"use typeshade";
+
+/** How the terrain is shaded. */
+export enum Shading {
+  /** Flat colours. */
+  Flat,
+  Smooth = 4,
+  /**
+   * Smooth, with the normals of the wave.
+   */
+  Waves,
+}
+`);
+    expect(f.view).toContain(`/** How the terrain is shaded. */
+export declare const Shading: {
+  /** Flat colours. */
+  readonly Flat: 0;
+  readonly Smooth: 4;
+  /**
+   * Smooth, with the normals of the wave.
+   */
+  readonly Waves: 5;
+  readonly [value: number]: string;
+};
+export type Shading = 0 | 4 | 5;
+`);
+  });
+
+  it('writes the JSDoc of a class, an interface and a type above it, and that of a field on its line', () => {
+    const f = face(`"use typeshade";
+
+/** A particle. */
+export class Particle {
+  /**
+   * Where it is, in world units.
+   */
+  pos: vec2 = vec2(0., 0.);
+  /** How fast it moves. */
+  vel: vec2 = vec2(0., 0.);
+  mass: f32 = 1.;
+}
+
+/** What a probe read. */
+export interface Probe {
+    /**
+     * The reading, indented four spaces in the source.
+     */
+    value: f32;
+    id: u32;
+}
+
+export type Pair = {
+  /** The left one. */
+  left: f32;
+  right: f32;
+};
+
+// An interface and a type alias are structs where the module uses them.
+export function use(p: Probe, q: Pair): f32 {
+  return p.value + q.left + q.right;
+}
+`);
+    // A class is declared as a class (change 0109), and its fields carry their comments.
+    expect(f.view).toContain(`/** A particle. */
+export declare class Particle {
+  constructor();
+  /**
+   * Where it is, in world units.
+   */
+  pos: [number, number];
+  /** How fast it moves. */
+  vel: [number, number];
+  mass: number;
+}
+`);
+    // An interface and a type alias stay `export interface`, where the module uses them as structs.
+    // The continuation lines of a block take the indentation of the view, not that of the source.
+    expect(f.view).toContain(`/** What a probe read. */
+export interface Probe {
+  /**
+   * The reading, indented four spaces in the source.
+   */
+  value: number;
+  id: number;
+}
+`);
+    expect(f.view).toContain(`export interface Pair {
+  /** The left one. */
+  left: number;
+  right: number;
+}
+`);
+  });
+
+  it('gives a struct the comments of the fields it inherits, as TypeScript’s hover does', () => {
+    const files: Readonly<Record<string, string>> = {
+      '/app/m.shade.ts': `"use typeshade";
+import { Base } from "./lib.shade.ts";
+
+/** A shape. */
+export class Shape {
+  /** The x position. */
+  x: f32 = 0.;
+  y: f32 = 0.;
+}
+
+/** A circle. */
+export class Circle extends Shape {
+  /** The radius. */
+  r: f32 = 1.;
+}
+
+class Hidden {
+  /** The hidden field. */
+  h: f32 = 0.;
+}
+
+export class Shown extends Hidden {
+  s: f32 = 0.;
+}
+
+export interface Named {
+  /** The id. */
+  id: u32;
+}
+
+export interface Tagged extends Named {
+  /** The tag. */
+  tag: u32;
+}
+
+export function tagOf(t: Tagged): u32 {
+  return t.id + t.tag;
+}
+
+export class Derived extends Base {
+  /** Its own. */
+  n: f32 = 0.;
+}
+`,
+      '/app/lib.shade.ts': `"use typeshade";
+
+export class Base {
+  /** The base's own field, from the library. */
+  id: f32 = 0.;
+}
+`,
+    };
+    const f = hostFace(files['/app/m.shade.ts']!, {
+      fileName: '/app/m.shade.ts',
+      runtime: RUNTIME,
+      readDocument: (name) => files[name],
+    });
+    expect(f.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const view = f.view!;
+    // A class below an exported class extends it (change 0109), so the field comes from the base,
+    // which carries its comment.
+    expect(view).toContain(`/** A shape. */
+export declare class Shape {
+  constructor();
+  /** The x position. */
+  x: number;
+  y: number;
+}
+/** A circle. */
+export declare class Circle extends Shape {
+  constructor();
+  /** The radius. */
+  r: number;
+}
+`);
+    // A base the module does not export is not extended: the class holds its fields, and their comments.
+    expect(view).toContain(`export declare class Shown {
+  constructor();
+  /** The hidden field. */
+  h: number;
+  s: number;
+}
+`);
+    expect(view).toContain(`export interface Tagged {
+  /** The id. */
+  id: number;
+  /** The tag. */
+  tag: number;
+}
+`);
+    // A base another file declares is found in the linked source and read in its own file.
+    expect(view).toContain(`export declare class Derived {
+  constructor();
+  /** The base's own field, from the library. */
+  id: number;
+  /** Its own. */
+  n: number;
+}
+`);
+  });
+
+  it('writes the JSDoc of an exported class and of its fields, and leaves its other members as change 0109 declares them', () => {
+    const f = face(`"use typeshade";
+declare const gain: uniform<f32>;
+
+/** A one-pole lowpass with its state. */
+export class OnePole {
+  /** The state of the filter. */
+  z: f32 = 0.;
+  k: f32;
+  /** Builds the filter. */
+  constructor(k: f32) {
+    this.k = k;
+  }
+  /** One sample through the filter. */
+  tick(x: f32): f32 {
+    this.z = this.z + this.k * (x - this.z);
+    return this.z;
+  }
+  /** Reads a binding, so a host cannot call it. */
+  scaled(x: f32): f32 {
+    return x * gain;
+  }
+  /** A static field is no field of the struct. */
+  static LIMIT: f32 = 4.;
+}
+`);
+    // The comment of the class and of each field is carried. The comment of the constructor, of a
+    // method, of a member declared `never` and of a static member is not: the approved text of
+    // change 0108 names the fields of a struct and not the other members of a class.
+    const lines = f.view.split('\n');
+    const at = lines.indexOf('export declare class OnePole {');
+    expect(lines.slice(at - 1, at + 6)).toEqual([
+      '/** A one-pole lowpass with its state. */',
+      'export declare class OnePole {',
+      '  constructor(k: number);',
+      '  /** The state of the filter. */',
+      '  z: number;',
+      '  k: number;',
+      '  tick(x: number): number;',
+    ]);
+    expect(lines[at + 6]).toMatch(
+      /^ {2}\/\*\* Not callable from host code \(Rule 8\.20\): it reaches/,
+    );
+    expect(lines.slice(at + 7, at + 9)).toEqual(['  scaled: never;', '}']);
+    expect(f.view).not.toMatch(/Builds the filter|One sample through|Reads a binding|static field/);
+  });
+
+  it('writes the JSDoc of a class with a field that has no host value before the view’s sentence', () => {
+    const f = face(`"use typeshade";
+
+/** Holds a count and an optional value. */
+export class Holder {
+  /** The count. */
+  n: u32 = 0;
+  v?: f32;
+}
+`);
+    const above = commentAbove(f.view, 'export interface Holder');
+    expect(above.slice(0, 2)).toEqual(['/** Holds a count and an optional value.', ' *']);
+    expect(above[2]).toMatch(/^ \* A type with no host value \(Rule 8\.21\): /);
+    expect(above[3]).toBe(' */');
+    expect(f.view).toContain(`export interface Holder {
+  /** The count. */
+  n: number;
+  v: never;
+}
+`);
+  });
+
+  it('keeps an enum and an interface with no comment on a member on one line, as before', () => {
+    const f = face(`"use typeshade";
+
+/** The shading. */
+export enum Shading { Flat, Smooth }
+/** A particle. */
+export class Particle { pos: vec2 = vec2(0., 0.); mass: f32 = 1.; }
+/** A probe. */
+export interface Probe { value: f32; id: u32; }
+export function read(p: Probe): f32 { return p.value; }
+`);
+    expect(f.view).toContain(
+      '/** The shading. */\nexport declare const Shading: { readonly Flat: 0; readonly Smooth: 1; readonly [value: number]: string };\n',
+    );
+    expect(f.view).toContain(
+      '/** A probe. */\nexport interface Probe { value: number; id: number }\n',
+    );
+    // A class is written as change 0109 declares it, with the comment of the class above it.
+    expect(f.view).toContain(
+      '/** A particle. */\nexport declare class Particle {\n  constructor();\n  pos: [number, number];\n  mass: number;\n}\n',
+    );
+  });
+
+  it('writes the JSDoc of a @compute entry before the compiler’s sentence, in one block', () => {
+    const f = face(`"use typeshade";
+declare const out: storage<array<u32>, "read_write">;
+
+/** Fills \`out\` with the index of each invocation. */
+@compute([64])
+export function fill(@builtin("global_invocation_id") gid: vec3u) {
+  out[gid.x] = gid.x;
+}
+`);
+    // The comment sits above the first of the two signatures, as the sentence did.
+    expect(commentAbove(f.view, 'export declare function fill(')).toEqual([
+      '/** Fills `out` with the index of each invocation.',
+      ' *',
+      ` * ${compute('64, 1, 1')} ${queued('bindings')}`,
+      ' */',
+    ]);
+  });
+
+  it('writes the JSDoc of a kernel function before the compiler’s sentence, in one block', () => {
+    const f = face(`"use typeshade";
+
+/**
+ * Scales \`a\` in place.
+ * @param s the factor
+ */
+export function scale(a: array<f32>, s: f32): void {
+  for (let i = 0; i < a.length; i++) a[i] = a[i] * s;
+}
+`);
+    expect(commentAbove(f.view, 'export declare function scale(')).toEqual([
+      '/**',
+      ' * Scales `a` in place.',
+      ' * @param s the factor',
+      ' *',
+      ` * ${KERNEL} ${queued('arrays')}`,
+      ' */',
+    ]);
+  });
+
+  it('writes the JSDoc of a full-screen @fragment entry before the compiler’s sentence', () => {
+    const f = face(`"use typeshade";
+
+/** Paints the position. */
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+  return p;
+}
+`);
+    expect(commentAbove(f.view, 'export declare function fs(')).toEqual([
+      '/** Paints the position.',
+      ' *',
+      ` * ${FRAGMENT}`,
+      ' */',
+    ]);
+  });
+
+  it('writes the JSDoc of an export declared never before the reason', () => {
+    const f = face(`"use typeshade";
+
+/**
+ * Returns what it is given.
+ */
+export function ident<T>(x: T): T {
+  return x;
+}
+`);
+    expect(commentAbove(f.view, 'export declare const ident: never')).toEqual([
+      '/**',
+      ' * Returns what it is given.',
+      ' *',
+      ` * ${GENERIC}`,
+      ' */',
+    ]);
+  });
+
+  it('writes a re-export with the comment of the file that declares it (Rule 3.9)', () => {
+    const files: Readonly<Record<string, string>> = {
+      '/app/m.shade.ts': `"use typeshade";
+
+/** This comment is above the export list, and it is no one's comment. */
+export { scale, Particle, Shading, LIMIT } from "./lib.shade.ts";
+import { Wave, make } from "./lib.shade.ts";
+
+/** Makes a wave. */
+export function mk(a: f32): Wave {
+  return make(a);
+}
+
+/** The local helper, exported under another name. */
+function local(x: f32): f32 {
+  return x + 1.;
+}
+export { local as renamed };
+`,
+      '/app/lib.shade.ts': `"use typeshade";
+
+export class Wave {
+  amplitude: f32;
+}
+export function make(a: f32): Wave {
+  return { amplitude: a };
+}
+
+/**
+ * Scales by three.
+ * @param x the input
+ */
+export function scale(x: f32): f32 {
+  return x * 3.;
+}
+
+/** A particle of the library. */
+export class Particle {
+  /** Position, in the library's units. */
+  pos: vec2 = vec2(0., 0.);
+}
+
+/** A shading of the library. */
+export enum Shading {
+  /** Library flat. */
+  Flat,
+  Smooth,
+}
+
+/** The limit of the library. */
+export const LIMIT: f32 = 4.;
+`,
+    };
+    const f = hostFace(files['/app/m.shade.ts']!, {
+      fileName: '/app/m.shade.ts',
+      runtime: RUNTIME,
+      readDocument: (name) => files[name],
+    });
+    expect(f.diagnostics).toEqual([]);
+    const view = f.view!;
+    expect(commentAbove(view, 'export declare function scale(')).toEqual([
+      '/**',
+      ' * Scales by three.',
+      ' * @param x the input',
+      ' */',
+    ]);
+    expect(view).toContain(`/** A particle of the library. */
+export declare class Particle {
+  constructor();
+  /** Position, in the library's units. */
+  pos: [number, number];
+}
+`);
+    expect(view).toContain(`/** A shading of the library. */
+export declare const Shading: {
+  /** Library flat. */
+  readonly Flat: 0;
+  readonly Smooth: 1;
+  readonly [value: number]: string;
+};
+`);
+    expect(view).toContain(
+      '/** The limit of the library. */\nexport declare const LIMIT: number;\n',
+    );
+    // The module's own export and its renamed one keep the comment of their declarations.
+    expect(view).toContain('/** Makes a wave. */\nexport declare function mk(');
+    expect(view).toContain(
+      '/** The local helper, exported under another name. */\nexport declare function renamed(',
+    );
+    expect(view).not.toContain('no one');
+  });
+
+  it('copies every block attached to a declaration, in source order (decision D1)', () => {
+    const f = face(`"use typeshade";
+
+/** The first block. */
+// Between the blocks, a line comment is not copied.
+/** The second block. */
+export function dbl(x: f32): f32 {
+  return x * 2.;
+}
+
+/** The first of two. */
+/** The last of two. */
+export function bad<T>(x: T): T {
+  return x;
+}
+`);
+    expect(commentAbove(f.view, 'export declare function dbl(')).toEqual([
+      '/** The first block. */',
+      '/** The second block. */',
+    ]);
+    // The compiler's sentence goes in the last block, which is the one the editor shows.
+    expect(commentAbove(f.view, 'export declare const bad: never')).toEqual([
+      '/** The first of two. */',
+      '/** The last of two.',
+      ' *',
+      ` * ${GENERIC}`,
+      ' */',
+    ]);
+  });
+
+  it('copies the tags and does not check them (decision D2)', () => {
+    const f = face(`"use typeshade";
+
+/**
+ * @param nobody there is no such parameter
+ * @deprecated use something else
+ */
+export function old(x: f32): f32 {
+  return x;
+}
+`);
+    expect(commentAbove(f.view, 'export declare function old(')).toEqual([
+      '/**',
+      ' * @param nobody there is no such parameter',
+      ' * @deprecated use something else',
+      ' */',
+    ]);
+  });
+
+  it('gives the comment above a statement to its first declarator, as TypeScript does', () => {
+    const f = face(`"use typeshade";
+
+/** The pair. */
+export const A: f32 = 1., B: f32 = 2.;
+`);
+    expect(f.view).toContain(
+      '/** The pair. */\nexport declare const A: number;\nexport declare const B: number;\n',
+    );
+  });
+
+  it('gives a comment above the directive to no export', () => {
+    const f = face(`/** The module. */
+"use typeshade";
+
+export function f(): f32 {
+  return 1.;
+}
+`);
+    expect(f.view).not.toContain('The module.');
+  });
+
+  it('writes the same view for a source with Windows line breaks', () => {
+    const lf = `"use typeshade";
+
+/**
+ * Two lines.
+ * Of text.
+ */
+export function f(): f32 {
+  return 1.;
+}
+`;
+    expect(face(lf.replace(/\n/g, '\r\n')).view).toBe(face(lf).view);
+    expect(face(lf).view).not.toContain('\r');
+  });
+
+  it('changes the view of a module with no JSDoc by the queue sentence alone (item 3)', () => {
+    const f = face(`"use typeshade";
+declare const out: storage<array<u32>, "read_write">;
+declare const k: uniform<f32>;
+declare const fixed: storage<array<f32, 8>, "read_write">;
+
+export const EPS: f32 = 0.001;
+export enum Mode { A, B = 4 }
+export class Particle { pos: vec2 = vec2(0., 0.); mass: f32 = 1.; }
+export class Holder { n: u32 = 0; v?: f32; }
+
+export function twice(x: f32): f32 {
+  return x * 2.;
+}
+
+export function scale(a: array<f32>, s: f32): void {
+  for (let i = 0; i < a.length; i++) a[i] = a[i] * s;
+}
+
+export function total(a: array<f32>): f32 {
+  let sum = 0.;
+  for (let i = 0; i < a.length; i++) sum += a[i];
+  return sum;
+}
+
+@compute([64])
+export function fill(@builtin("global_invocation_id") gid: vec3u) {
+  out[gid.x] = gid.x;
+}
+
+@compute([8])
+export function sized(@builtin("global_invocation_id") gid: vec3u) {
+  fixed[gid.x] = k;
+}
+
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+  return p;
+}
+
+export function ident<T>(x: T): T {
+  return x;
+}
+`);
+    const lines = f.view.split('\n');
+    // No comment but the compiler's own, each on one line, as before.
+    expect(lines.filter((l) => l.startsWith('/**')).every((l) => l.endsWith(' */'))).toBe(true);
+    expect(lines.some((l) => l.startsWith(' *'))).toBe(false);
+    expect(lines).toContain('export declare const EPS: number;');
+    expect(lines).toContain(
+      'export declare const Mode: { readonly A: 0; readonly B: 4; readonly [value: number]: string };',
+    );
+    const at = lines.indexOf('export declare class Particle {');
+    expect(lines.slice(at, at + 5)).toEqual([
+      'export declare class Particle {',
+      '  constructor();',
+      '  pos: [number, number];',
+      '  mass: number;',
+      '}',
+    ]);
+    // A class with a field that has no host value is a type, with the reason on its line (change 0109).
+    expect(lines).toContain('export interface Holder { n: number; v: never }');
+    expect(commentAbove(f.view, 'export interface Holder')).toEqual([
+      expect.stringMatching(/^\/\*\* A type with no host value \(Rule 8\.21\): .* \*\/$/),
+    ]);
+    expect(lines).toContain('export declare function twice(x: number): number;');
+    // The sentences of a kernel function and of a @compute entry, each ending with the queue sentence.
+    const one = (declaration: string): string[] => commentAbove(f.view, declaration);
+    expect(one('export declare function scale(')).toEqual([`/** ${KERNEL} ${queued('arrays')} */`]);
+    expect(one('export declare function total(')).toEqual([`/** ${KERNEL} ${queued('arrays')} */`]);
+    expect(one('export declare function fill(')).toEqual([
+      `/** ${compute('64, 1, 1')} ${queued('bindings')} */`,
+    ]);
+    expect(one('export declare function sized(')).toEqual([
+      `/** ${compute('8, 1, 1')} ${queued('bindings')} */`,
+    ]);
+    // The sentences of a full-screen @fragment entry and of an export declared never are as they were.
+    expect(one('export declare function fs(')).toEqual([`/** ${FRAGMENT} */`]);
+    expect(one('export declare const ident: never')).toEqual([`/** ${GENERIC} */`]);
+  });
+
+  it('shows the editor the author’s words first and the compiler’s sentence after them', () => {
+    const files: Readonly<Record<string, string>> = {
+      '/app/m.shade.ts': `"use typeshade";
+
+/** The height of the terrain at \`p\`. */
+export function height(p: vec2, k: vec4): f32 {
+  return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
+}
+
+/** How the terrain is shaded. */
+export enum Shading {
+  /** Flat colours. */
+  Flat,
+  Smooth,
+}
+
+export class Particle {
+  /** Where it is. */
+  pos: vec2 = vec2(0., 0.);
+}
+
+/** Scales \`a\` in place. */
+export function scale(a: array<f32>, s: f32): void {
+  for (let i = 0; i < a.length; i++) a[i] = a[i] * s;
+}
+
+/** The first block, which the editor does not show. */
+/** Returns what it is given. */
+export function ident<T>(x: T): T {
+  return x;
+}
+`,
+    };
+    const f = hostFace(files['/app/m.shade.ts']!, {
+      fileName: '/app/m.shade.ts',
+      runtime: './runtime.ts',
+    });
+    expect(f.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const host = `import { height, Shading, scale, ident } from './m.shade.ts';
+import type { Particle } from './m.shade.ts';
+const h = height([1, 2], [1, 2, 3, 4]);
+let s = Shading.Flat;
+const p: Particle = { pos: [1, 2] };
+scale(new Float32Array(4), 2);
+ident;
+export { h, s, p };
+`;
+    const read = (at: string) => hover(f.view!, host, at);
+    expect(read('height([1').errors).toEqual([]);
+    expect(read('height([1').documentation).toBe('The height of the terrain at `p`.');
+    expect(read('Shading.Flat').documentation).toBe('How the terrain is shaded.');
+    expect(read('Flat;').documentation).toBe('Flat colours.');
+    expect(read('pos: [1').documentation).toBe('Where it is.');
+    const scaled = read('scale(new').documentation;
+    expect(scaled.startsWith('Scales `a` in place.')).toBe(true);
+    expect(scaled).toContain(KERNEL);
+    expect(scaled).toContain(queued('arrays'));
+    // The editor shows the last block of a declaration, which is where the sentence stands.
+    const never = read('ident;').documentation;
+    expect(never.startsWith('Returns what it is given.')).toBe(true);
+    expect(never).toContain(GENERIC);
+    expect(never).not.toContain('The first block');
+  });
+});
+
 describe('a host call (Rule 8.21)', () => {
   it('checks and converts each argument, a Float32Array vector included', async () => {
     const m = await load(TERRAIN);

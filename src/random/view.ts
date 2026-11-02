@@ -3,13 +3,28 @@
 
 import type { Resident } from "typeshade/runtime/internal";
 import type { Pack } from "typeshade/runtime/internal";
+/** One step of xorshift32 (shifts 13, 17 and 5). A zero state stays zero: seed with a non-zero
+ *  word. */
 export declare function xorshift32(state: number): number;
+/** A 32-bit integer finaliser, the `lowbias32` constants, for a stateless draw from an index:
+ *  every input word maps to one output word, and near inputs map to far outputs. */
 export declare function hash32(x: number): number;
+/** The 24 high bits of `word` as an `f32` in [0, 1): `f32(word >> 8) / 2^24`, exact in f32, so
+ *  the same word gives the same number on every tier. */
 export declare function uniform(word: number): number;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** Element `i` of `out` is `uniform(hash32(seed ^ i))`: the draw depends on the seed and the
+ *  index only, not on the tier or the dispatch shape, and `generator(seed)` on the host gives the
+ *  same numbers in the same order.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function fillUniform(out: Resident<Float32Array>, seed: number): void;
 export declare function fillUniform(out: Float32Array | Resident<Float32Array>, seed: number): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** Element `i` of `out` is `hash32(seed ^ i)`: the words `fillUniform` maps to [0, 1), for a
+ *  caller that wants the bits (a seed per element, a Bernoulli draw by a mask).
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function fillWords(out: Resident<Uint32Array>, seed: number): void;
 export declare function fillWords(out: Uint32Array | Resident<Uint32Array>, seed: number): Promise<void>;
 /** The compiled program, its manifest: the shader text, each binding with its byte layout and each entry with the bindings it reaches, which the program runtime loads (Rule 11.10). */
