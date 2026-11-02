@@ -195,7 +195,7 @@ describe('every place a name is written names the one it is spelled like (Rule 1
   it('an extension', () => {
     expect(
       errorsOf(
-        '"enable subgrops";\n@fragment\nexport function fs(): vec4 {\n  return vec4(0.);\n}',
+        '"enable subgrops";\nexport const fs = fragment(function fs(): vec4 {\n  return vec4(0.);\n});',
       ),
     ).toEqual([
       `${TS_CODES.ENABLE_NAME} Unknown WGSL extension "subgrops". Did you mean "subgroups"?`,
@@ -208,7 +208,7 @@ describe('every place a name is written names the one it is spelled like (Rule 1
         '"use typeshade";\nexport function luminance(c: vec3): f32 {\n  return c.x;\n}\n',
     };
     const r = compile(
-      '"use typeshade";\nimport { luminace } from "./light.shade";\n@fragment\nexport function fs(): vec4 {\n  return vec4(luminace(vec3(1.)));\n}\n',
+      '"use typeshade";\nimport { luminace } from "./light.shade";\nexport const fs = fragment(function fs(): vec4 {\n  return vec4(luminace(vec3(1.)));\n});\n',
       { fileName: 'main.shade.ts', readDocument: (f) => files[f] },
     );
     // On the imported name, and the call of it reports nothing more (Rule 12.4).
@@ -244,7 +244,9 @@ describe('the remedy keeps its order', () => {
 
   it('says discard is a statement when it is called', () => {
     expect(
-      errorsOf('@fragment\nexport function fs(): vec4 {\n  discard();\n  return vec4(0.);\n}'),
+      errorsOf(
+        'export const fs = fragment(function fs(): vec4 {\n  discard();\n  return vec4(0.);\n});',
+      ),
     ).toEqual([
       `${TS_CODES.UNKNOWN_FN} "discard" is a statement, not a function. Write it without the parentheses: "discard;".`,
     ]);
@@ -275,7 +277,8 @@ describe('a type declared nowhere is refused, not emitted as a struct (Rule 12.6
     'a parameter': 'export function f(l: Lihgt): f32 {\n  return 1.;\n}',
     'a binding':
       'declare const frame: uniform<Frmae>;\nexport function f(): f32 {\n  return 1.;\n}',
-    'a return type': '@vertex\nexport function vs(): VsOt {\n  return { pos: vec4(0.) };\n}',
+    'a return type':
+      'export const vs = vertex(function vs(): VsOt {\n  return { pos: vec4(0.) };\n});',
     'a local': 'export function f(a: f32): f32 {\n  const v: Vec3 = vec3(a);\n  return v.x;\n}',
   };
   for (const [what, src] of Object.entries(cases)) {

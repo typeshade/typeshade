@@ -258,7 +258,7 @@ const loopBody = (w: string, fn: string): string => {
 describe('synchronisation is an effect', () => {
   it('workgroupUniformLoad is effectful, and so is a helper that calls one or a barrier', () => {
     const m = compile(
-      WG + '@compute([4, 1, 1])\nexport function k(): void {\n  sync()\n}\n',
+      WG + 'export const k = compute([4, 1, 1], function k(): void {\n' + '  sync()\n' + '});\n',
     ).module;
     const w = fnWrites(m);
     expect([...w.get('ld')!]).toEqual([SYNC_WRITE]);

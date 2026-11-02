@@ -372,9 +372,9 @@ describe('the messages round one left on the key', () => {
       said(
         [
           out,
-          'class FIn { @location(0) uv: vec2 = vec2(0.); }',
+          'class FIn { uv: location<0, vec2> = vec2(0.); }',
           `export const vs = vertex(function vs(): ${vs} { return new ${vs}(); });`,
-          '@fragment export function fs(i: FIn): vec4 { return vec4(i.uv, 0., 1.); }',
+          'export const fs = fragment(function fs(i: FIn): vec4 { return vec4(i.uv, 0., 1.); });',
         ].join('\n'),
       );
     const vout = '{ @builtin("position") pos: vec4 = vec4(0.); @location(0) uv: vec3 = vec3(0.); }';

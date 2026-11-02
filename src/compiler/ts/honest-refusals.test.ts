@@ -1309,7 +1309,9 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
     [
       'a generic interface typing an entry output field',
       `"use typeshade";\n${G}class VO {\n  @builtin("position") pos: vec4;\n  @location(0) g: G<f32>;\n}\n` +
-        '@vertex\nexport function vs(): VO {\n  return { pos: vec4(0.), g: { x: 1. } };\n}\n' +
+        'export const vs = vertex(function vs(): VO {\n' +
+        '  return { pos: vec4(0.), g: { x: 1. } };\n' +
+        '});\n' +
         FS,
       [GENERIC('interface', 'x: T')],
     ],

@@ -360,16 +360,15 @@ describe("getHover: a runtime-sized array's length is the compiler's u32", () =>
     [
       '"use typeshade";',
       'class Buf {',
-      '  scale: f32;',
-      '  xs: array<f32>;',
+      '  scale!: f32;',
+      '  xs!: array<f32>;',
       '}',
       'declare const ro: storage<array<f32>>',
       'declare const rw: storage<array<u32>, "read_write">',
       'declare const b: storage<Buf>',
-      '@compute([64, 1, 1])',
-      'export function cs(@builtin("global_invocation_id") gid: vec3u): void {',
+      'export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {',
       body,
-      '}',
+      '});',
     ].join('\n');
   const source = program(
     [

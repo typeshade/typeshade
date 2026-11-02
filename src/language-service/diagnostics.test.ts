@@ -670,7 +670,7 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'typeshade TS8003',
     ],
     'a vector returned for an entry output struct (TS2741)': [
-      '"use typeshade"\nclass C {\n  @location(0) color: vec4;\n}\n@fragment\nexport function fs(): C {\n  return vec4(1.)\n}',
+      '"use typeshade"\ninterface C {\n  color: location<0, vec4>;\n}\nexport const fs = fragment(function fs(): C {\n  return vec4(1.)\n});',
       'typeshade TS8003',
     ],
     'a vector declared as a scalar (TS2322)': [
@@ -755,7 +755,7 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'typeshade TS8004',
     ],
     'a field TypeScript can correct (TS2561)': [
-      '"use typeshade"\nclass C {\n  @location(0) color: vec4;\n}\n@fragment\nexport function fs(): C {\n  return { colr: vec4(0.) };\n}',
+      '"use typeshade"\ninterface C {\n  color: location<0, vec4>;\n}\nexport const fs = fragment(function fs(): C {\n  return { colr: vec4(0.) };\n});',
       'typeshade TS8010',
     ],
     'a Math member TypeScript can correct (TS2551)': [
@@ -887,7 +887,7 @@ describe("the editor shows the compiler's one diagnostic, at its span (both halv
       'TS8003 Function "f" return type mismatch: declared vec3, got f32. @return x',
     ],
     'a vector returned for an entry output struct': [
-      '"use typeshade"\nclass C {\n  @location(0) color: vec4;\n}\n@fragment\nexport function fs(): C {\n  return vec4(1.)\n}\n',
+      '"use typeshade"\ninterface C {\n  color: location<0, vec4>;\n}\nexport const fs = fragment(function fs(): C {\n  return vec4(1.)\n});\n',
       'TS8003 Function "fs" return type mismatch: declared C, got vec4. @return vec4(1.)',
     ],
   };

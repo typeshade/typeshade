@@ -120,10 +120,9 @@ describe('a storage array is writable in the editor, as it is in the compiler', 
   const kernel = (body: string): string =>
     '"use typeshade"\n' +
     'declare const out: storage<array<f32>, "read_write">\n' +
-    '@compute([64, 1, 1])\n' +
-    'export function k(@builtin("global_invocation_id") gid: vec3u): void {\n' +
+    'export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {\n' +
     `  ${body}\n` +
-    '}\n';
+    '});\n';
 
   it('out[gid.x] = value reports no TS2542, and nothing else either', () => {
     const service = ambientService();
