@@ -9,6 +9,7 @@
 // renamable program symbol, and `prepareRename` and `rename` share one predicate for that.
 
 import ts from 'typescript';
+import { stageCallOf } from '../compiler/ts/stage-call.js';
 import type { CompileTsSourceResult } from '../compiler/ts/source-file.js';
 import { isUseTypeshadeDirective } from '../compiler/ts/directive.js';
 import { AMBIENT_LIB_URI } from './host.js';
@@ -227,6 +228,30 @@ export function getDocumentSymbols(
         ...(stage ? { detail: stage } : {}),
         range: rangeForSpan(sourceFile, spanOfNode(stmt)),
         selectionRange: rangeForSpan(sourceFile, spanOfNode(stmt.name)),
+        ...(children.length ? { children } : {}),
+      });
+    } else if (ts.isVariableStatement(stmt) && stageCallOf(stmt) !== undefined) {
+      // `const vs = vertex(function vs(…) { … })`, the stage call of change 0111: an entry, as
+      // a decorated function is, or a kernel function under `workgroup_size([…], f)`.
+      const sc = stageCallOf(stmt)!;
+      const stage = sc.callee === 'workgroup_size' ? undefined : sc.callee;
+      const children: TypeshadeDocumentSymbol[] = [];
+      for (const param of sc.fn.parameters) {
+        if (ts.isIdentifier(param.name)) {
+          children.push({
+            name: param.name.text,
+            kind: 'parameter',
+            range: rangeForSpan(sourceFile, spanOfNode(param)),
+            selectionRange: rangeForSpan(sourceFile, spanOfNode(param.name)),
+          });
+        }
+      }
+      symbols.push({
+        name: sc.declaration.name.text,
+        kind: stage ? 'entry' : 'function',
+        ...(stage ? { detail: stage } : {}),
+        range: rangeForSpan(sourceFile, spanOfNode(stmt)),
+        selectionRange: rangeForSpan(sourceFile, spanOfNode(sc.declaration.name)),
         ...(children.length ? { children } : {}),
       });
     } else if (ts.isVariableStatement(stmt)) {
