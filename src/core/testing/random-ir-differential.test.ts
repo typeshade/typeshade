@@ -242,3 +242,23 @@ describe('generated-program differentials (X-GIS #2406)', () => {
     expect(divergences).toEqual([]);
   });
 });
+
+describe('the contract corpus (change 0107, decision 3)', () => {
+  it('opts every function into finite-math and reaches the forms it folds', () => {
+    const corpus = Array.from({ length: 4 }, (_, i) =>
+      generateModule(1001 + i, { exact: true, contract: true }),
+    );
+    for (const c of corpus)
+      for (const f of c.module.funcs) expect(f.numerics, f.name).toEqual(['finite-math']);
+    expect(describeCorpus(corpus)['contractFold'] ?? 0).toBeGreaterThan(50);
+  });
+
+  it('leaves a corpus without the option as it was, seed for seed', () => {
+    const plain = generateModule(7, { exact: true });
+    expect(plain.module.funcs.some((f) => f.numerics !== undefined)).toBe(false);
+    expect(plain.features['contractFold']).toBeUndefined();
+    expect(JSON.stringify(generateModule(7, { exact: true, contract: false }))).toBe(
+      JSON.stringify(plain),
+    );
+  });
+});
