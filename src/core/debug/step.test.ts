@@ -440,10 +440,9 @@ describe('bindings, stubs and the ways a run can end', () => {
   const STORAGE = `"use typeshade";
 declare const scale: uniform<f32>;
 declare const out: storage<array<f32>, "read_write">;
-@compute([1, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([1, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   out[gid.x] = scale * 2.;
-}
+});
 `;
 
   it('a binding is visible as its own scope and reads its supplied value', () => {

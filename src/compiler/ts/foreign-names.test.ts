@@ -134,7 +134,7 @@ describe('an address space is refused where it is written, and names the wrapper
     ['shared', 'GLSL'],
   ] as const;
   const KERNEL =
-    '@compute([64])\nexport function k(@builtin("local_invocation_index") li: u32): void {\n';
+    '@compute([64])\nexport function k(li: builtin<"local_invocation_index", u32>): void {\n';
   const positions: Readonly<Record<string, (type: string) => string>> = {
     'a module let': (type) =>
       `let tile: ${type};\n${KERNEL}  tile[li] = 1.;\n  workgroupBarrier();\n}`,

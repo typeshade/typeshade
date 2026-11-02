@@ -113,7 +113,7 @@ export function run(): f32 { return id(2., 3.) + apply((x) => { x *= 2.; return 
 
   it('preserves entry input attributes and authored parameter names', () => {
     const r = compile(`"use typeshade";
-@fragment export function fs(@location(0) uv: vec2): vec4 { uv = uv + vec2(0.25); return vec4(uv, 0., 1.); }`);
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 { uv = uv + vec2(0.25); return vec4(uv, 0., 1.); });`);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('@location(0) uv: vec2<f32>');
     expect(r.wgsl).toContain('var uv_1: vec2<f32> = uv;');

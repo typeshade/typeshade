@@ -23,11 +23,10 @@ let bounces: u32 = 0;
 function lcg(x: u32): u32 {
   return (x * 1664525 + 1013904223) & 1023;
 }
-@compute([8, 1, 1])
-export function trace(
-  @builtin("global_invocation_id") gid: vec3u,
-  @builtin("local_invocation_id") lid: vec3u,
-  @builtin("workgroup_id") wid: vec3u,
+export const trace = compute([8, 1, 1], function trace(
+  gid: builtin<"global_invocation_id", vec3u>,
+  lid: builtin<"local_invocation_id", vec3u>,
+  wid: builtin<"workgroup_id", vec3u>,
 ): void {
   let s: u32 = seeds[gid.x];
   let e: f32 = 0.;
@@ -42,7 +41,7 @@ export function trace(
   scratch[lid.x] = e;
   accum[gid.x] += scratch[lid.x] + f32(bounces) + f32(wid.x);
   last = gid.x;
-}
+});
 `;
 
 function run(cm: CpuModule, how: 'dispatch' | 'fns') {
@@ -100,11 +99,10 @@ describe('dispatch on the codegen runs a barrier-free entry compiled (#467)', ()
   it('tags each console event with its invocation, as the oracle does', () => {
     const src = `"use typeshade";
 declare const out: storage<array<u32>, "read_write">;
-@compute([2, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([2, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   console.log(gid.x);
   out[gid.x] = gid.x;
-}
+});
 `;
     const r = compile(src);
     const seen: ConsoleEvent[][] = [];
@@ -133,12 +131,11 @@ let tile: workgroup<array<f32, 4>>;
 function sync(): void {
   workgroupBarrier();
 }
-@compute([4, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u, @builtin("local_invocation_id") lid: vec3u): void {
+export const k = compute([4, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>, lid: builtin<"local_invocation_id", vec3u>): void {
   tile[lid.x] = src[gid.x];
   sync();
   out[gid.x] = tile[3 - lid.x];
-}
+});
 `;
 
   it('runs a barrier in a helper in lockstep, without the compiled entry', () => {

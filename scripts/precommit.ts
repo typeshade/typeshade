@@ -15,6 +15,29 @@ import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CommitPhase } from './doc-impact.js';
 
+/**
+ * The tree the pending commit is judged against. A normal commit is judged against HEAD. A merge
+ * (`MERGE_HEAD` exists) is judged against the automatic merge of its parents, so the changes the
+ * second parent brings in are not attributed to the branch's change. Only the conflict resolutions
+ * and the extra edits remain in the diff. A conflicted file is in that tree with its conflict
+ * markers, so a resolution is judged line by line. Needs `git merge-tree --write-tree` (Git 2.38).
+ */
+export function diffBase(git: (...args: string[]) => string, gitDir: string): string {
+  if (!existsSync(join(gitDir, 'MERGE_HEAD'))) return 'HEAD';
+  const heads = readFileSync(join(gitDir, 'MERGE_HEAD'), 'utf8').split('\n').filter(Boolean);
+  if (heads.length !== 1) return 'HEAD'; // An octopus merge: keep the old, strict reading.
+  try {
+    return git('merge-tree', '--write-tree', '--no-messages', 'HEAD', heads[0]!)
+      .split('\n')[0]!
+      .trim();
+  } catch (error) {
+    // Exit 1 means conflicts; the tree is still on the first line of stdout.
+    const out = (error as { stdout?: string }).stdout?.split('\n')[0]?.trim();
+    if (out && /^[0-9a-f]{40,64}$/.test(out)) return out;
+    return 'HEAD';
+  }
+}
+
 export function runStagedChecks(
   root: string,
   options: { phase: CommitPhase; messageFile?: string },
@@ -87,7 +110,9 @@ if (import.meta.main) {
       if (process.env.TYPESHADE_COMMIT_SNAPSHOT !== '1') throw new Error('--snapshot is internal.');
       const { checkCommit, readDiff } = await import('./doc-impact.js');
       const message = messageFile ? readFileSync(messageFile, 'utf8') : '';
-      process.exitCode = await checkCommit(readDiff('HEAD', true), message, phase);
+      const git = (...a: string[]): string => execFileSync('git', a, { encoding: 'utf8' });
+      const base = diffBase(git, git('rev-parse', '--absolute-git-dir').trim());
+      process.exitCode = await checkCommit(readDiff(base, true), message, phase);
     } else {
       const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
       process.exitCode = runStagedChecks(root, { phase, messageFile });

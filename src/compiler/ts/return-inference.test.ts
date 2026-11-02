@@ -574,10 +574,9 @@ export function run(k: f32): f32 {
     );
     expect(
       only(`"use typeshade";
-@fragment
-export function fs() {
+export const fs = fragment(function fs() {
   return vec4(1., 0., 0., 1.);
-}
+});
 `),
     ).toBe(
       `${TS_CODES.RETURN_SHAPE} Entry function "fs" returns a value (inferred type vec4) but has no return type annotation; add ": vec4" to the signature.`,
@@ -681,10 +680,9 @@ export function run(k: f32) {
   const f = (x: f32) => twice(x) + k;
   return f(next()) + r.unit + spin(vec2(k)).y;
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(run(2.), 0., 0., 1.);
-}
+});
 `,
     );
     expect(
@@ -697,13 +695,12 @@ describe('an arrow function whose body is a barrier', () => {
   it('runs it as a statement and returns nothing', () => {
     const r = compile(`"use typeshade";
 declare const buf: storage<array<f32>, "read_write">;
-@compute([64])
-export function cs(@builtin("local_invocation_index") li: u32) {
+export const cs = compute([64], function cs(li: builtin<"local_invocation_index", u32>) {
   const sync = () => workgroupBarrier();
   buf[li] = 1.;
   sync();
   buf[li] = buf[li] + 1.;
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('fn cs_sync() {\n  workgroupBarrier();\n}');

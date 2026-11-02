@@ -318,7 +318,7 @@ describe('members, on the CPU tier (Rule 8.21)', () => {
 /** A class with members a host cannot call (decision D3), a constructor among them. */
 const PROBE = `"use typeshade";
 class Frame {
-  light: vec4;
+  light!: vec4;
 }
 declare const frame: uniform<Frame>;
 
@@ -339,7 +339,7 @@ export class Probe {
 }
 
 export class Lit {
-  k: f32;
+  k!: f32;
   constructor() {
     this.k = frame.light.x;
   }
@@ -354,11 +354,10 @@ export function lit(k: f32): Lit {
   return { k: k };
 }
 
-@fragment
-export function fs(@builtin("position") pos: vec4): vec4 {
+export const fs = fragment(function fs(pos: builtin<"position", vec4>): vec4 {
   const l = new Lit();
   return vec4(l.k, Probe.bright(), 0., 1.);
-}
+});
 `;
 
 describe('a member a host cannot call (Rule 8.20, D3)', () => {
@@ -459,7 +458,7 @@ export function first(x: f32): f32 { const r = new Reading(); r.w = x; return r.
 const BANK = `"use typeshade";
 export class OnePole {
   z: f32 = 0.;
-  k: f32;
+  k!: f32;
   constructor(k: f32) {
     this.k = k;
   }
@@ -473,13 +472,12 @@ declare const cfg: uniform<OnePole>;
 declare const bank: storage<array<OnePole>, "read_write">;
 declare const outs: storage<array<f32>, "read_write">;
 
-@compute([64])
-export function tickAll(@builtin("global_invocation_id") gid: vec3u) {
+export const tickAll = compute([64], function tickAll(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x >= bank.length) {
     return;
   }
   outs[gid.x] = bank[gid.x].tick(cfg.k);
-}
+});
 `;
 
 describe("an instance is the struct's host value (Rule 8.21)", () => {
@@ -679,7 +677,7 @@ describe('extends and instanceof (D2)', () => {
 
 describe('a host program type-checked against the view (Rule 8.20)', () => {
   it('takes what the class offers, and refuses what it does not at the host line', async () => {
-    const source = `${FILTERS}${SHAPES.replace('"use typeshade";\n', '')}${PROBE.replace('"use typeshade";\n', '').replace('@fragment\nexport function fs', '@fragment\nexport function fs2')}`;
+    const source = `${FILTERS}${SHAPES.replace('"use typeshade";\n', '')}${PROBE.replace('"use typeshade";\n', '').replace('export const fs = fragment(function fs(', 'export const fs2 = fragment(function fs2(')}`;
     const head = [
       "import { OnePole, run, pair, level, Base, Circle, Shape, Ball, Probe, Lit } from './filters.shade.ts';",
       'const p: OnePole = new OnePole(0.1);',

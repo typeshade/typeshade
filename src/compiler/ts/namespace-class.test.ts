@@ -32,7 +32,7 @@ describe('a class inside a namespace is the struct Ns_P', () => {
     const r = compile(`"use typeshade";
 namespace N {
   export class P {
-    x: f32;
+    x!: f32;
     constructor(x: f32) {
       this.x = x;
     }
@@ -44,11 +44,10 @@ namespace N {
     return new P(v);
   }
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const p = N.make(3.);
   return vec4(p.twice(), 0., 0., 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct N_P {');
@@ -71,7 +70,7 @@ export function fs(): vec4 {
     const r = compile(`"use typeshade";
 namespace N {
   export class P {
-    x: f32;
+    x!: f32;
     constructor(x: f32) {
       this.x = x;
     }
@@ -80,11 +79,10 @@ namespace N {
 function take(p: N.P): f32 {
   return p.x;
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const p = new N.P(4.);
   return vec4(take(p), p.x, 0., 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     // `p` is a `var` built through a pointer, and passed by one (change 0105).
@@ -98,19 +96,18 @@ export function fs(): vec4 {
 namespace A {
   export namespace B {
     export class Inner {
-      v: f32;
+      v!: f32;
     }
   }
   export class Outer {
-    i: A.B.Inner;
-    k: f32;
+    i!: A.B.Inner;
+    k!: f32;
   }
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const o: A.Outer = { i: { v: 2. }, k: 3. };
   return vec4(o.i.v, o.k, 0., 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct A_B_Inner {');
@@ -123,15 +120,14 @@ export function fs(): vec4 {
     const r = compile(`"use typeshade";
 namespace Scene {
   export class Camera {
-    pos: vec3;
-    zoom: f32;
+    pos!: vec3;
+    zoom!: f32;
   }
 }
 declare const cam: uniform<Scene.Camera>;
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(cam.pos, cam.zoom);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct Scene_Camera {');
@@ -147,21 +143,20 @@ describe('what the short name cannot answer', () => {
       errorsOf(`"use typeshade";
 namespace A {
   export class P {
-    x: f32;
+    x!: f32;
   }
 }
 namespace B {
   export class P {
-    y: f32;
+    y!: f32;
   }
 }
 function take(p: P): f32 {
   return 1.;
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(take({ x: 1. }), 0., 0., 1.);
-}
+});
 `)[0],
     ).toBe(`TS8002 "P" is declared in 2 namespaces ("A.P", "B.P"). Write the one you mean.`);
   });
@@ -169,19 +164,18 @@ export function fs(): vec4 {
   it('a top-level declaration of the same name wins, as it does in TypeScript', () => {
     const r = compile(`"use typeshade";
 class P {
-  top: f32;
+  top!: f32;
 }
 namespace N {
   export class P {
-    inner: f32;
+    inner!: f32;
   }
 }
 declare const u: uniform<N.P>;
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const p: P = { top: 1. };
   return vec4(p.top, u.inner, 0., 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct P {\n  top: f32,\n}');
@@ -193,16 +187,15 @@ export function fs(): vec4 {
       errorsOf(`"use typeshade";
 namespace N {
   export class P {
-    x: f32;
+    x!: f32;
   }
 }
 function take(q: N.Q): f32 {
   return 1.;
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(1.);
-}
+});
 `)[0],
     ).toBe(`TS8002 "N.Q" names no struct this file declares.`);
   });
@@ -215,10 +208,9 @@ namespace A {
     X,
   }
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(1.);
-}
+});
 `)[0],
     ).toContain(
       'A namespace holds functions, constants, classes and namespaces; an enum inside "A" has no flattened form.',

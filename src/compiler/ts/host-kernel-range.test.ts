@@ -196,7 +196,7 @@ describe('a trip count the device holds on the CPU tier (change 0094)', () => {
 
   it('does not run a call that would write past the end through a reference (decision S3-5)', () => {
     const source = `"use typeshade";
-function bump(@inout p: f32) { p = p + 1.; }
+function bump(p: inout<f32>) { p = p + 1.; }
 export function inc(count: array<u32>, out: array<f32>): u32 {
   for (let j: u32 = 0; j < count[0]; j++) {
     bump(out[j]);
@@ -321,7 +321,7 @@ describe('loops over a device range that still run on the CPU tier, and why (cha
     ],
     [
       'a loop that writes through a reference a call takes',
-      `function bump(@inout p: f32) { p = p + 1.; }
+      `function bump(p: inout<f32>) { p = p + 1.; }
 export function inc(count: array<u32>, out: array<f32>) {
   for (let j: u32 = 0; j < count[0]; j++) {
     bump(out[j]);

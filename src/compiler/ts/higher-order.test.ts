@@ -900,10 +900,9 @@ export function run(k: f32): f32 {
   const hit = xs.some((x) => x > k) || !xs.some((x) => x < 0.);
   return fold3((a, b) => a * b, k, 3., 4.) + s + z.reduce((a, b) => a + b) + min(xs) + max(xs) + (hit ? 1. : 0.);
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(run(2.), 0., 0., 1.);
-}
+});
 `,
     );
     expect(

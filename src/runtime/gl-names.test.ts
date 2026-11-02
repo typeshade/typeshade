@@ -158,16 +158,14 @@ describe('the std140 block lists the struct fields in host order (Proposal 0070,
   // A uniform struct of three fields, read by a fragment entry. The host reads the bytes at
   // `offset`, so the block must list each field in the order the record gives it.
   const SRC = `"use typeshade";
-class Frame { time: f32; count: u32; scale: f32; }
+class Frame { time!: f32; count!: u32; scale!: f32; }
 declare const frame: uniform<Frame>;
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): vec4 {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
   return vec4(f32(vi), 0., 0., 1.);
-}
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+});
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   return vec4(frame.time * frame.scale + f32(frame.count), p.x, 0., 1.);
-}
+});
 `;
 
   it('declares the fields in the record order, at the record offsets', () => {
@@ -279,17 +277,15 @@ describe('the kernel loop on WebGL2 locates respelled reads and uniforms (Propos
 
 describe('the std140 block of a nested struct with respelled fields follows reflection (Proposal 0070, C8)', () => {
   const SRC = `"use typeshade";
-class Inner { half: f32; texture: u32; }
-class Frame { inner: Inner; time: f32; }
+class Inner { half!: f32; texture!: u32; }
+class Frame { inner!: Inner; time!: f32; }
 declare const frame: uniform<Frame>;
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): vec4 {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
   return vec4(f32(vi), 0., 0., 1.);
-}
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+});
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   return vec4(frame.inner.half, f32(frame.inner.texture), frame.time, p.x);
-}
+});
 `;
 
   it('declares the block and the nested struct fields in the reflected order, at the reflected offsets', () => {

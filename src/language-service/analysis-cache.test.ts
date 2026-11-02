@@ -16,13 +16,12 @@ import {
 const WITH_RESOURCE =
   '"use typeshade";\n' +
   'class Camera {\n' +
-  '  position: vec4\n' +
+  '  position!: vec4\n' +
   '}\n' +
   'declare const camera: uniform<Camera>\n' +
-  '@fragment\n' +
-  'export function fs(): vec4 {\n' +
+  'export const fs = fragment(function fs(): vec4 {\n' +
   '  return camera.position\n' +
-  '}\n';
+  '});\n';
 
 // The same document with the resource binding turned into a plain module constant (a module
 // const must be a foldable scalar, so a vec4 initializer would be a TypeShade error).

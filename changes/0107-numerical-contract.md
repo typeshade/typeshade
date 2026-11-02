@@ -4,8 +4,10 @@ title: An author can opt a function or module into named floating-point rewrites
 status: accepted
 rules:
   - '6.7'
+  - '9.6'
   - '11.22'
 surface:
+  - 3
   - 38
   - 78
 exports:
@@ -280,6 +282,19 @@ top of the file. A decorator `@numerics` is refused with `TS8028`, as any other 
 outside Rule 6.7's list. Everything else this proposal and Amendment 1 declare stays as it is.
 The owner chose the call form in the Claude Code session on 2026-11-02, in answer to a question
 that listed both forms and recommended this one.
+
+### Amendment 3 (2026-11-02)
+
+The first implementing commit found two places the front matter left out, which the change-scope
+check refuses:
+
+- **Rule 9.6.** `numerics` is no WGSL or ECMAScript name, so it joins the §9.3 extension table
+  (Rule 9.6, in the order of Rule 9.7), as "What it touches" already says. The row opens a new
+  family, "contracts", and the family list under the table gains its paragraph.
+- **Surface §3.** Its list of stage-call forms says a stage call takes one option, `diagnostic`.
+  With Amendment 2 it takes two, `diagnostic` and `numerics`; §3 names both and points to §78.
+
+Nothing else changes.
 
 ### Configuration and validation record
 

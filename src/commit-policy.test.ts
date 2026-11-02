@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 const roots: string[] = [];
 const checker = resolve(import.meta.dirname, '../scripts/doc-impact.ts');
+const precommit = resolve(import.meta.dirname, '../scripts/precommit.ts');
 const reqs = resolve(import.meta.dirname, '../scripts/reqs-sync.ts');
 const hasPython = ['python3', 'python', 'py'].some(
   (py) => spawnSync(py, ['-c', 'pass'], { stdio: 'ignore' }).status === 0,
@@ -54,7 +55,17 @@ function fixture() {
       ],
       { cwd: root, env: { ...env, TEST_MESSAGE: message }, encoding: 'utf8' },
     );
-  return { root, git, write, check };
+  // The snapshot path of the hooks, which reads MERGE_HEAD, over this repository's index.
+  const hook = (message: string) => {
+    const file = join(root, '.git', 'MSG');
+    writeFileSync(file, message);
+    return spawnSync('bun', [precommit, '--snapshot', '--message-only', '--message-file', file], {
+      cwd: root,
+      env: { ...env, TYPESHADE_COMMIT_SNAPSHOT: '1' },
+      encoding: 'utf8',
+    });
+  };
+  return { root, git, write, check, hook };
 }
 
 describe('shared commit policy', () => {
@@ -119,6 +130,55 @@ Path('doorstop-ran').touch()
     const result = f.check('files');
     expect(result.status, result.stderr).toBe(0);
     expect(existsSync(join(f.root, 'doorstop-ran'))).toBe(true);
+  });
+
+  describe('merge commits', () => {
+    // `feature` edits src/widget.ts; `main` edits a rule. Left with `feature` checked out.
+    const diverge = (f: ReturnType<typeof fixture>, mainRule: string) => {
+      const main = f.git('rev-parse', '--abbrev-ref', 'HEAD').trim();
+      f.git('checkout', '-qb', 'feature');
+      f.write('src/widget.ts', 'export const value = 5;\n');
+      f.git('add', '.');
+      f.git('commit', '-qm', 'feature work');
+      f.git('checkout', '-q', main);
+      f.write('docs/language-design.md', mainRule);
+      f.git('add', '.');
+      f.git('commit', '-qm', 'main rule');
+      f.git('checkout', '-q', 'feature');
+      return main;
+    };
+
+    it('passes a clean merge without judging what main brought in', () => {
+      const f = fixture();
+      const main = diverge(f, '**Rule 1.1.** A rule from main.\n');
+      f.git('merge', '--no-commit', '--no-ff', main);
+      const out = f.hook('Merge main into feature');
+      expect(out.status, out.stderr).toBe(0);
+    });
+
+    it('still refuses an undeclared rule edited in the merge resolution', () => {
+      const f = fixture();
+      const main = diverge(f, '**Rule 1.1.** A rule from main.\n');
+      f.git('merge', '--no-commit', '--no-ff', main);
+      f.write(
+        'docs/language-design.md',
+        '**Rule 1.1.** A rule from main.\n\n**Rule 1.2.** Extra.\n',
+      );
+      f.git('add', '.');
+      const out = f.hook('merge main');
+      expect(out.status).toBe(2);
+      expect(out.stderr).toContain('Change proposal');
+    });
+
+    it('judges a normal commit against HEAD as before', () => {
+      const f = fixture();
+      f.write('docs/language-design.md', '**Rule 1.1.** A rule.\n');
+      f.git('add', '.');
+      const out = f.hook('edit rule');
+      expect(out.status).toBe(2);
+      expect(out.stderr).toContain('Change proposal');
+      expect(f.hook('Change: none, fixture instrumentation').status).toBe(0);
+    });
   });
 
   it('rejects malformed Claude input and leaves unrelated tool calls alone', () => {

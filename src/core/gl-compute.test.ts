@@ -121,10 +121,9 @@ describe('runGlCompute (change 0054)', () => {
 declare const photo: texture_2d<f32>;
 declare const smp: sampler;
 declare const out: storage<array<f32>, "read_write">;
-@compute([4])
-export function main(@builtin("global_invocation_id") gid: vec3u) {
+export const main = compute([4], function main(gid: builtin<"global_invocation_id", vec3u>) {
   out[gid.x] = textureSampleLevel(photo, smp, vec2f(0.5), 0.).x;
-}
+});
 `).module;
   const program = buildGlCompute(m, 'main');
 
@@ -198,8 +197,7 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
       compile(`"use typeshade";
 declare const gain: uniform<f32>;
 declare const out: storage<array<f32>, "read_write">;
-@compute([4])
-export function main(@builtin("global_invocation_id") gid: vec3u) { out[gid.x] = gain; }
+export const main = compute([4], function main(gid: builtin<"global_invocation_id", vec3u>) { out[gid.x] = gain; });
 `).module,
       'main',
     );

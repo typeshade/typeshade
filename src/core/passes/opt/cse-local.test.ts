@@ -311,20 +311,19 @@ describe('cse-local — indexing a binding (X-GIS #1886)', () => {
 describe('cse-local — a writing call in another statement', () => {
   const SRC = `"use typeshade";
 class Big {
-  a: vec4f;
+  a!: vec4f;
   sum(): f32 { return this.a.x + this.a.w; }
   bump(k: f32): void { this.a = this.a + vec4f(k); }
 }
-class Color { @location(0) color: vec4f; }
+interface Color { color: location<0, vec4f>; }
 function run(k: f32): vec4f {
   let b = new Big();
   b.bump(k);
   return vec4f(b.sum(), b.sum(), 0., 1.);
 }
-@fragment
-export function fs(@builtin("position") p: vec4f): Color {
+export const fs = fragment(function fs(p: builtin<"position", vec4f>): Color {
   return { color: run(p.x) };
-}`;
+});`;
 
   it('binds the repeat of the statement that writes nothing, on both targets', () => {
     const r = compile(SRC);

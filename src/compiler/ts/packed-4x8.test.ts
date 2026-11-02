@@ -28,10 +28,9 @@ const errorsOf = (src: string) =>
     .map((d) => `${d.code} ${d.message}`);
 
 const FS = (body: string) => `"use typeshade"
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
 ${body}
-}
+});
 `;
 
 describe('the packed 4x8 integer builtins are authorable, and WGSL-only', () => {
@@ -68,14 +67,13 @@ describe('the packed 4x8 integer builtins are authorable, and WGSL-only', () => 
     // program written against an `i32` array must be refused.
     const intoU32 = compile(`"use typeshade";
 declare const out: storage<array<u32>, "read_write">;
-@compute([1, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   out[0] = pack4xU8(vec4u(1, 2, 3, 4));
   out[1] = pack4xU8Clamp(vec4u(400, 2, 3, 4));
   out[2] = pack4xI8(vec4i(-1, 2, -3, 4));
   out[3] = pack4xI8Clamp(vec4i(400, -400, 3, 4));
   out[4] = dot4U8Packed(out[5], out[6]);
-}
+});
 `);
     expect(intoU32.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     // Compiled on Tint exactly as emitted, which is what makes the assertion mean anything.
@@ -87,10 +85,9 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
     // above would still pass if every result were widened to something assignable to both.
     const signedSlots = compile(`"use typeshade";
 declare const out: storage<array<i32>, "read_write">;
-@compute([1, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   out[0] = pack4xI8(vec4i(1, 2, 3, 4));
-}
+});
 `);
     expect(
       signedSlots.diagnostics.filter((d) => d.category === 'error').map((d) => d.message),
@@ -99,11 +96,10 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
     // `dot4I8Packed` IS an i32, and the unpacks carry their own signedness.
     const signed = compile(`"use typeshade";
 declare const out: storage<array<i32>, "read_write">;
-@compute([1, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   out[0] = dot4I8Packed(u32(out[1]), u32(out[2]));
   out[3] = unpack4xI8(u32(out[4])).y;
-}
+});
 `);
     expect(signed.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(signed.wgsl).toContain('dot4I8Packed(');
@@ -111,10 +107,9 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
 
     const unsignedUnpack = compile(`"use typeshade";
 declare const out: storage<array<u32>, "read_write">;
-@compute([1, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   out[0] = unpack4xU8(out[1]).z;
-}
+});
 `);
     expect(unsignedUnpack.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(unsignedUnpack.wgsl).toContain('unpack4xU8(');
@@ -188,11 +183,10 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
 export function pack4xU8(v: vec4u): u32 {
   return v.x;
 }
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   const p = pack4xU8(vec4u(7, 0, 0, 0));
   return vec4(f32(p) * 0., 0., 0., 1.);
-}
+});
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     // Under a name WGSL does not predeclare (change 0029): `pack4xU8` is WGSL's own builtin.
@@ -207,11 +201,10 @@ export function fs(@location(0) uv: vec2): vec4 {
   it('agrees between the tree-walk oracle and the generated one', () => {
     const r = compile(`"use typeshade";
 declare const o: storage<array<u32>, "read_write">;
-@compute([1, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   o[0] = dot4U8Packed(o[1], o[2]);
   o[3] = pack4xU8Clamp(unpack4xU8(o[4]));
-}
+});
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     for (const make of [compileModule, compileModuleJs]) {

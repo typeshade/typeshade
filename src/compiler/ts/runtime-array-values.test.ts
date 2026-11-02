@@ -39,32 +39,32 @@ const edited = (body: string): string[] => {
 const REFUSED: readonly (readonly [string, string, string])[] = [
   [
     'a parameter',
-    `function first(ps: array<f32>): f32 { return ps[0]; }\n@compute([1]) export function cs() { b[0] = first(b); }`,
+    `function first(ps: array<f32>): f32 { return ps[0]; }\nexport const cs = compute([1], function cs() { b[0] = first(b); });`,
     `TS8020 Parameter "ps" is array<f32>, ${WHY}. Give it a size, array<f32, N>, or read the binding by its name inside the function instead.`,
   ],
   [
     'a parameter of a struct whose last field has no size',
-    `function first(v: S): f32 { return v.xs[0]; }\n@compute([1]) export function cs() { b[0] = first(s); }`,
+    `function first(v: S): f32 { return v.xs[0]; }\nexport const cs = compute([1], function cs() { b[0] = first(s); });`,
     `TS8020 Parameter "v" is S, whose field "xs" is array<f32>, ${WHY}. Give it a size, array<f32, N>, or read the binding by its name inside the function instead.`,
   ],
   [
     'a result',
-    `function whole(): array<f32> { return b; }\n@compute([1]) export function cs() { b[0] = whole()[1]; }`,
+    `function whole(): array<f32> { return b; }\nexport const cs = compute([1], function cs() { b[0] = whole()[1]; });`,
     `TS8020 This function returns array<f32>, ${WHY}. Read the binding by its name where the value is needed.`,
   ],
   [
     'a local copy',
-    `@compute([1]) export function cs() { let a = b; b[0] = a[1]; }`,
+    `export const cs = compute([1], function cs() { let a = b; b[0] = a[1]; });`,
     `TS8099 "a" would copy "b", which is array<f32>, ${WHY}. Read "b" by its name instead.`,
   ],
   [
     'a local copy of a struct',
-    `@compute([1]) export function cs() { let v = s; b[0] = v.xs[0]; }`,
+    `export const cs = compute([1], function cs() { let v = s; b[0] = v.xs[0]; });`,
     `TS8099 "v" would copy "s", which is S, whose field "xs" is array<f32>, ${WHY}. Read "s" by its name instead.`,
   ],
   [
     'a declared local',
-    `@compute([1]) export function cs() { let a: array<f32>; b[0] = 1.; }`,
+    `export const cs = compute([1], function cs() { let a: array<f32>; b[0] = 1.; });`,
     `TS8099 "a" would be array<f32>, ${WHY}. Give the array a size: array<f32, N>.`,
   ],
   // Each type is spelled as the author writes it (Rule 12.7, proposal 0008 §5): `vec4`, not
@@ -72,36 +72,36 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
   // namespace by its written name, not the struct it is emitted as.
   [
     'a declared local of vectors, in the author spelling',
-    `@compute([1]) export function cs() { let a: array<vec4f>; b[0] = 1.; }`,
+    `export const cs = compute([1], function cs() { let a: array<vec4f>; b[0] = 1.; });`,
     `TS8099 "a" would be array<vec4>, ${WHY}. Give the array a size: array<vec4, N>.`,
   ],
   [
     'a parameter of a class in a namespace, by its written name',
-    `namespace N { export class T { n: u32; xs: array<f32>; } }\nfunction first(v: N.T): f32 { return v.xs[0]; }\n@compute([1]) export function cs() { b[0] = 1.; }`,
+    `namespace N { export class T { n!: u32; xs!: array<f32>; } }\nfunction first(v: N.T): f32 { return v.xs[0]; }\nexport const cs = compute([1], function cs() { b[0] = 1.; });`,
     `TS8020 Parameter "v" is N.T, whose field "xs" is array<f32>, ${WHY}. Give it a size, array<f32, N>, or read the binding by its name inside the function instead.`,
   ],
 ];
 
 /** What Tint accepts, beside each refusal. */
 const ACCEPTED: readonly (readonly [string, string])[] = [
-  ['a field read', `@compute([1]) export function cs() { b[0] = s.xs[0] + f32(s.n); }`],
-  ['the length', `@compute([1]) export function cs() { b[0] = f32(b.length); }`],
+  ['a field read', `export const cs = compute([1], function cs() { b[0] = s.xs[0] + f32(s.n); });`],
+  ['the length', `export const cs = compute([1], function cs() { b[0] = f32(b.length); });`],
   // A `const` that names the binding is the binding, as in TypeScript: nothing is copied.
   [
     'a const that names the binding',
-    `@compute([1]) export function cs() { const a = b; a[0] = a[1] + f32(a.length); }`,
+    `export const cs = compute([1], function cs() { const a = b; a[0] = a[1] + f32(a.length); });`,
   ],
   [
     'a const that names a struct binding',
-    `@compute([1]) export function cs() { const v = s; b[0] = v.xs[0]; }`,
+    `export const cs = compute([1], function cs() { const v = s; b[0] = v.xs[0]; });`,
   ],
   [
     'a loop over the binding',
-    `@compute([1]) export function cs() { let t = 0.; for (const x of b) { t += x; } b[0] = t; }`,
+    `export const cs = compute([1], function cs() { let t = 0.; for (const x of b) { t += x; } b[0] = t; });`,
   ],
   [
     'a sized array parameter',
-    `function ok(ps: array<f32, 4>): f32 { return ps[0]; }\n@compute([1]) export function cs() { b[0] = ok([1., 2., 3., 4.]); }`,
+    `function ok(ps: array<f32, 4>): f32 { return ps[0]; }\nexport const cs = compute([1], function cs() { b[0] = ok([1., 2., 3., 4.]); });`,
   ],
 ];
 

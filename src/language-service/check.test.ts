@@ -133,10 +133,9 @@ export function f(a: f32, b: f32): f32 {
     const render = `"use typeshade";
 declare const scale: uniform<f32>;
 
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(scale, 0., 0., 1.);
-}
+});
 `;
     const report = checkDocuments([doc('render.shade.ts', render)]);
     expect(report.diagnostics.map((d) => `${d.severity} ${d.code}`)).toEqual(['warning TS8015']);
@@ -148,10 +147,9 @@ export function fs(): vec4 {
     const compute = `"use typeshade";
 declare const data: storage<array<f32>, "read_write">;
 
-@compute([64])
-export function main(@builtin("global_invocation_id") gid: vec3u) {
+export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>) {
   data[gid.x] = 1.;
-}
+});
 `;
     expect(checkDocuments([doc('compute.shade.ts', compute)]).diagnostics).toEqual([]);
 
@@ -160,15 +158,13 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
     const both = `"use typeshade";
 declare const img: storage<array<f32>, "read_write">;
 
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   return vec4(img[u32(p.x)], 0., 0., 1.);
-}
+});
 
-@compute([4])
-export function cs(@builtin("global_invocation_id") g: vec3u) {
+export const cs = compute([4], function cs(g: builtin<"global_invocation_id", vec3u>) {
   img[g.x] = 2.;
-}
+});
 `;
     expect(checkDocuments([doc('both.shade.ts', both)]).diagnostics).toEqual([]);
     const textured = both
@@ -190,14 +186,13 @@ export function cs(@builtin("global_invocation_id") g: vec3u) {
   it('checks each file on its own, so two TypeScript scripts do not collide', () => {
     // No import and no export: each is a TypeScript script, whose top-level names are global.
     const script = `"use typeshade";
-class FsOut {
-  @location(0) color: vec4;
+interface FsOut {
+  color: location<0, vec4>;
 }
 
-@fragment
-function fs(): FsOut {
+const fs = fragment(function fs(): FsOut {
   return { color: vec4(1.) };
-}
+});
 `;
     const report = checkDocuments([doc('a.shade.ts', script), doc('b.shade.ts', script)]);
     expect(report.diagnostics).toEqual([]);
@@ -253,12 +248,11 @@ describe('checkOpenDocument: the same check over a service the caller keeps', ()
     const text = `"use typeshade";
 declare const scale: uniform<f32>;
 
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const y = 1.;
   y = 2.;
   return vec4(scale, colr, 0., 1.);
-}
+});
 `;
     const other = `"use typeshade";
 export function g(x: f32): f32 {

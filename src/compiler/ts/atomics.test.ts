@@ -26,10 +26,9 @@ const HISTOGRAM = `"use typeshade";
 declare const src: storage<array<f32>>;
 declare const bins: storage<array<atomic<u32>>, "read_write">;
 declare const total: storage<atomic<u32>, "read_write">;
-class Stats { hits: atomic<u32>; peak: atomic<i32>; }
+class Stats { hits!: atomic<u32>; peak!: atomic<i32>; }
 declare const stats: storage<Stats, "read_write">;
-@compute([64, 1, 1])
-export function histogram(@builtin("global_invocation_id") gid: vec3u): void {
+export const histogram = compute([64, 1, 1], function histogram(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= src.length) {
     return;
   }
@@ -41,7 +40,7 @@ export function histogram(@builtin("global_invocation_id") gid: vec3u): void {
     atomicStore(stats.hits, 7);
   }
   atomicXor(stats.hits, 1);
-}
+});
 `;
 
 const SRC = [0.1, 0.3, 0.3, 0.9, 0.5];
@@ -89,11 +88,10 @@ describe('atomics: the WGSL', () => {
   it('a bare integer literal takes the atomic element type, u32 or i32', () => {
     const r = compile(`"use typeshade";
 declare const counts: storage<array<atomic<i32>>, "read_write">;
-@compute([64, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   atomicSub(counts[gid.x], 3);
   atomicStore(counts[0], -1);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('_ = atomicSub(&counts[gid.x], 3);');
@@ -136,8 +134,7 @@ describe('atomics: the CPU backends', () => {
     const src = `"use typeshade";
 declare const xs: storage<array<atomic<u32>>, "read_write">;
 declare const out: storage<array<u32>, "read_write">;
-@compute([1, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([1, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   out[0] = atomicLoad(xs[0]);
   out[1] = atomicExchange(xs[1], 42);
   out[2] = atomicAnd(xs[2], 65280);
@@ -146,7 +143,7 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
   out[5] = atomicSub(xs[5], 9);
   out[6] = atomicMin(xs[0], 4);
   out[7] = atomicMax(xs[1], 40);
-}
+});
 `;
     for (const make of [compileModule, compileModuleJs]) {
       const xs = [10, 3, 61680, 5, 4294967295, 7];
@@ -162,11 +159,10 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
   it('an atomic<i32> wraps as a signed integer', () => {
     const src = `"use typeshade";
 declare const xs: storage<array<atomic<i32>>, "read_write">;
-@compute([1, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([1, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   atomicAdd(xs[0], 1);
   atomicSub(xs[1], 1);
-}
+});
 `;
     for (const make of [compileModule, compileModuleJs]) {
       const xs = [2147483647, -2147483648];
@@ -180,11 +176,10 @@ describe('atomics: the optimizer and the effect table', () => {
   it('keeps two atomicAdds on one location and never merges them', () => {
     const r = compile(`"use typeshade";
 declare const bins: storage<array<atomic<u32>>, "read_write">;
-@compute([64, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   atomicAdd(bins[gid.x], 1);
   atomicAdd(bins[gid.x], 1);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     const w = emitModule(optimizeAt(r.module, 'O2'));
@@ -196,11 +191,10 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
         ? ''
         : `"use typeshade";
 declare const bins: storage<array<atomic<u32>>, "read_write">;
-@compute([64, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   atomicAdd(bins[gid.x], 1);
   atomicAdd(bins[gid.x], 1);
-}
+});
 `,
       'k',
       3,
@@ -213,13 +207,12 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
     const src = `"use typeshade";
 declare const bins: storage<array<atomic<u32>>, "read_write">;
 declare const out: storage<array<u32>, "read_write">;
-@compute([64, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   const a = atomicLoad(bins[gid.x]);
   atomicStore(bins[gid.x], 5);
   const b = atomicLoad(bins[gid.x]);
   out[gid.x] = a + b;
-}
+});
 `;
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
@@ -240,11 +233,10 @@ function bump(i: u32): void {
 function peek(i: u32): u32 {
   return atomicLoad(bins[i]);
 }
-@compute([64, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   bump(gid.x);
   atomicStore(bins[0], peek(gid.x));
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     const w = fnWrites(r.module);
@@ -318,15 +310,13 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
     expect(
       errorsOf(`"use typeshade";
 function f(a: atomic<u32>): u32 { return 1; }
-@fragment
-export function fs(): vec4 { return vec4(1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(1.); });
 `),
     ).toEqual([where('a parameter')]);
     expect(
       errorsOf(`"use typeshade";
 declare const u: uniform<array<atomic<u32>>>;
-@fragment
-export function fs(): vec4 { return vec4(1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(1.); });
 `),
     ).toEqual([
       `${TS_CODES.UNSUPPORTED} "u" holds an atomic<u32>, which lives in storage memory only: write "declare const u: storage<array<atomic<u32>>, "read_write">".`,
@@ -336,8 +326,7 @@ export function fs(): vec4 { return vec4(1.); }
   it('an element type that is not u32 or i32', () => {
     const errors = errorsOf(`"use typeshade";
 declare const b: storage<array<atomic<f32>>, "read_write">;
-@fragment
-export function fs(): vec4 { return vec4(1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(1.); });
 `);
     expect(errors[0]).toContain('atomic<T> T must be u32 or i32.');
   });
@@ -349,14 +338,13 @@ export function fs(): vec4 { return vec4(1.); }
     // (wgsl.txt:15342). Nothing checked the stage, so the module emitted clean and Tint refused
     // it. A fragment entry is legal and stays so.
     const vs = (body: string): string => `"use typeshade"
-class Clip { @builtin("position") pos: vec4 }
+interface Clip { pos: builtin<"position", vec4> }
 declare const total: storage<atomic<u32>, "read_write">
 ${body}
-@vertex
-export function vs(@builtin("vertex_index") i: u32): Clip {
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
   const n = ${body === '' ? 'atomicAdd(total, 1)' : 'bump()'}
   return { pos: vec4(f32(n), 0., 0., 1.) }
-}
+});
 `;
     expect(errorsOf(vs(''))).toEqual([
       `${TS_CODES.UNSUPPORTED} "atomicAdd" is only valid in a fragment or compute shader; "vs" is a vertex entry. WGSL allows an atomic built-in in a fragment or compute stage only.`,
@@ -369,13 +357,12 @@ export function vs(@builtin("vertex_index") i: u32): Clip {
     // Every atomic builtin, not just the one: the set is read off the intrinsic catalogue.
     expect(
       errorsOf(`"use typeshade";
-class Clip { @builtin("position") pos: vec4; }
+interface Clip { pos: builtin<"position", vec4>; }
 declare const total: storage<atomic<u32>, "read_write">;
-@vertex
-export function vs(@builtin("vertex_index") i: u32): Clip {
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
   const n = atomicLoad(total);
   return { pos: vec4(f32(n), 0., 0., 1.) };
-}
+});
 `),
     ).toEqual([
       `${TS_CODES.UNSUPPORTED} "atomicLoad" is only valid in a fragment or compute shader; "vs" is a vertex entry. WGSL allows an atomic built-in in a fragment or compute stage only.`,
@@ -383,13 +370,12 @@ export function vs(@builtin("vertex_index") i: u32): Clip {
     // A fragment entry is where an atomic is legal outside a compute one.
     expect(
       errorsOf(`"use typeshade";
-class Color { @location(0) color: vec4; }
+interface Color { color: location<0, vec4>; }
 declare const total: storage<atomic<u32>, "read_write">;
-@fragment
-export function fs(): Color {
+export const fs = fragment(function fs(): Color {
   atomicAdd(total, 1);
   return { color: vec4(1., 0., 0., 1.) };
-}
+});
 `),
     ).toEqual([]);
   });
@@ -397,8 +383,7 @@ export function fs(): Color {
   it('a function the file declares under an atomic name keeps winning the call', () => {
     const r = compileTsSource(`"use typeshade";
 function atomicAdd(a: u32, b: u32): u32 { return a + b; }
-@fragment
-export function fs(): vec4 { return vec4(f32(atomicAdd(1, 2)), 0., 0., 1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(f32(atomicAdd(1, 2)), 0., 0., 1.); });
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('fn atomicAdd_(a: u32, b: u32) -> u32 {');
@@ -413,12 +398,11 @@ describe('atomicCompareExchangeWeak answers a struct WGSL will not let you name'
   const CAS = `"use typeshade";
 declare const lock: storage<atomic<u32>, "read_write">;
 declare const o: storage<array<u32>, "read_write">;
-@compute([1, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   const r = atomicCompareExchangeWeak(lock, 0, 7);
   o[0] = r.old_value;
   o[1] = r.exchanged ? 1 : 0;
-}
+});
 `;
 
   it('emits the pointer form and binds the result by inference', () => {
@@ -459,11 +443,10 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
       compileTsSource(`"use typeshade"
 declare const lock: storage<atomic<u32>, "read_write">
 declare const o: storage<array<u32>, "read_write">
-@compute([1, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   const r = ${call}
   o[0] = r.old_value
-}
+});
 `)
         .diagnostics.filter((d) => d.category === 'error')
         .map((d) => d.message);
@@ -484,11 +467,10 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
     const r = compile(`"use typeshade";
 declare const lock: storage<atomic<i32>, "read_write">;
 declare const o: storage<array<i32>, "read_write">;
-@compute([1, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   const r = atomicCompareExchangeWeak(lock, -1, 7);
   o[0] = r.old_value;
-}
+});
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('atomicCompareExchangeWeak(&lock, -1, 7)');
@@ -497,11 +479,10 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
       compileTsSource(`"use typeshade";
 declare const lock: storage<atomic<u32>>;
 declare const o: storage<array<u32>, "read_write">;
-@compute([1, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   const r = atomicCompareExchangeWeak(lock, 0, 7);
   o[0] = r.old_value;
-}
+});
 `)
         .diagnostics.filter((d) => d.category === 'error')
         .map((d) => d.message)[0],
@@ -525,13 +506,12 @@ describe('a lockstep dispatch performs atomic operations in the phased order (ch
   const APPEND = `"use typeshade";
 declare const count: storage<atomic<u32>, "read_write">;
 declare const slots: storage<array<u32>, "read_write">;
-@compute([4, 1, 1])
-export function append(@builtin("local_invocation_index") li: u32): void {
+export const append = compute([4, 1, 1], function append(li: builtin<"local_invocation_index", u32>): void {
   const first = atomicAdd(count, 1);
   slots[first] = li * 10;
   const second = atomicAdd(count, 1);
   slots[second] = li * 10 + 1;
-}
+});
 `;
 
   it('gives every invocation its first slot before any its second, on both CPU modules', () => {

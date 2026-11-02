@@ -21,10 +21,9 @@ import { stageOf } from '../../core/ir/index.js';
  *  carries only what its entry reaches, holds the functions under test. */
 const program = (body: string, call = '0.'): string => `"use typeshade";
 ${body}
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   return vec4(uv, ${call}, 1.);
-}
+});
 `;
 
 const errorsOf = (source: string): string[] =>
@@ -412,13 +411,12 @@ describe('the compiler follows the narrowing forms TypeScript follows (Rule 7.10
     // `if (v === undefined) { discard; }` is TS18048 to the editor. The compiler follows
     // TypeScript, and both halves refuse the read with the compiler's one sentence.
     const source = `"use typeshade";
-@fragment
-export function fs(@location(0) uv: vec2, @location(1) w: f32): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>, w: location<1, f32>): vec4 {
   let v: f32 | undefined;
   if (uv.x > 0.5) { v = w; }
   if (v === undefined) { discard; }
   return vec4(v, 0., 0., 1.);
-}
+});
 `;
     const errors = errorsOf(source);
     expect(errors).toHaveLength(1);
@@ -485,14 +483,12 @@ export function run(): f32 { return 1.; }`,
     ],
     [
       "an entry point's parameter",
-      `@fragment
-export function fs2(@location(0) uv: vec2, @location(1) w: f32 | undefined): vec4 { return vec4(1.); }`,
+      `export const fs2 = fragment(function fs2(uv: location<0, vec2>, w: location<1, f32 | undefined>): vec4 { return vec4(1.); });`,
       [POSITION('f32 | undefined', "an entry point's parameter", 'f32')],
     ],
     [
       "an entry point's result",
-      `@fragment
-export function fs2(@location(0) uv: vec2): vec4 | undefined { return vec4(1.); }`,
+      `export const fs2 = fragment(function fs2(uv: location<0, vec2>): vec4 | undefined { return vec4(1.); });`,
       [POSITION('vec4 | undefined', "an entry point's result", 'vec4')],
     ],
     [
@@ -1130,14 +1126,12 @@ describe('a layout that holds an optional is refused where it is declared, namin
     ],
     [
       "an entry point's parameter",
-      `@fragment
-export function fs2(@location(0) uv: vec2, v: V): vec4 { return vec4(1.); }`,
+      `export const fs2 = fragment(function fs2(uv: location<0, vec2>, v: V): vec4 { return vec4(1.); });`,
       HOLDS('V', 'u.w', 'f32', "an entry point's parameter"),
     ],
     [
       "an entry point's result",
-      `@fragment
-export function fs2(@location(0) uv: vec2): U { return { w: 1., k: 1. }; }`,
+      `export const fs2 = fragment(function fs2(uv: location<0, vec2>): U { return { w: 1., k: 1. }; });`,
       HOLDS('U', 'w', 'f32', "an entry point's result"),
     ],
     [
@@ -1240,9 +1234,9 @@ export function opt(x: f32, k?: f32): f32 { return x + (k ?? 0.); }`,
 });
 
 describe('a member path rooted at a local or a parameter is narrowed (Rule 7.10, change 0093, decision D2)', () => {
-  const HIT = `class Inner { d: f32 | undefined; }
-class Hit { t: f32; n: vec2 | undefined; k: f32 | undefined; a: Inner; bump(): void { this.k = undefined; } peek(): f32 { return this.t; } }
-function setK(@inout h: Hit, v: f32): void { h.k = v; }`;
+  const HIT = `class Inner { d!: f32 | undefined; }
+class Hit { t!: f32; n!: vec2 | undefined; k!: f32 | undefined; a!: Inner; bump(): void { this.k = undefined; } peek(): f32 { return this.t; } }
+function setK(h: inout<Hit>, v: f32): void { h.k = v; }`;
   const UNNARROWED = (path: string, inner: string, takes: string, zero: string): string =>
     `TS8003 "${path}" is "${inner} | undefined" here, and ${takes} ${inner}. Test it first, ` +
     `"if (${path} !== undefined)", or give the absent case a value, "${path} ?? ${zero}".`;
@@ -1415,8 +1409,7 @@ export function run(): f32 { return f() + f(1., 2, 3); }`,
   for (const [name, decl, sentence] of [
     [
       "an entry point's parameter",
-      `@fragment
-export function fs2(@location(0) uv: vec2, @location(1) w?: f32): vec4 { return vec4(1.); }`,
+      `export const fs2 = fragment(function fs2(uv: location<0, vec2>, w?: location<1, f32>): vec4 { return vec4(1.); });`,
       'TS8020 An entry\'s parameters come from the pipeline, not from a call, so "w" cannot be ' +
         'optional. Write "w: T".',
     ],
@@ -1762,7 +1755,7 @@ return c.count + (x === undefined ? k : 0.); }`,
     [
       'nullish conversion fallback preserves short circuit',
       `class C { count: f32 = 0.; next(): f32 | null { this.count += 1.; return null; } }
-function f(x: f32 | undefined, @inout c: C): f32 | null | undefined { return x ?? c.next(); }
+function f(x: f32 | undefined, c: inout<C>): f32 | null | undefined { return x ?? c.next(); }
 function run(k: f32): f32 { let c = new C(); const x = f(k, c); return c.count + (x ?? 0.); }`,
       4,
     ],
@@ -1878,7 +1871,7 @@ return (before ?? 1.) + (c.item ?? 2.) + (c.pick(null) ?? 4.) + (N.pick(-1.) ?? 
       program('let value: f32 | null = null;'),
       program('class C { static value: f32 | null = null; }'),
       program('class C { value: f32 | null; } declare const c: uniform<C>;'),
-      `"use typeshade"; @fragment export function fs(@location(0) x: f32 | null): vec4 { return vec4(1.); }`,
+      `"use typeshade"; export const fs = fragment(function fs(x: location<0, f32 | null>): vec4 { return vec4(1.); });`,
     ]) {
       expect(errorsOf(source).length).toBeGreaterThan(0);
       expect(editorCompilerSentences(source).sort()).toEqual(errorsOf(source).sort());

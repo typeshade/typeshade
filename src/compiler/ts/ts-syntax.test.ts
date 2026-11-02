@@ -176,16 +176,15 @@ describe('the bitwise compound assignments', () => {
     // …and GLSL ES 3.00, which allows the mixed signedness that produces.
     const c = compile(`
       "use typeshade";
-      class Color {
-        @location(0) color: vec4;
+      interface Color {
+        color: location<0, vec4>;
       }
-      @fragment
-      export function fs(@builtin("position") p: vec4): Color {
+      export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
         let y: i32 = i32(p.x);
         let k: i32 = i32(p.y);
         y <<= k;
         return { color: vec4(f32(y), 0., 0., 1.) };
-      }
+      });
     `);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     // A run-time amount is masked on GLSL, as WGSL masks it (Rule 11.12).
