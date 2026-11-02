@@ -2,6 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { startDebugSession } from '../../core/debug/session.js';
 
 describe('function lexical shadowing (#429)', () => {
   it('a top-level noise local shadows the module uniform', () => {
@@ -291,10 +293,16 @@ export const fs = fragment(function fs(): vec4 {
     expect(service.getDiagnostics('m.shade.ts')).toEqual([]);
     for (const text of c.wgsl) expect(r.wgsl).toContain(text);
     for (const text of c.glsl) expect(r.glsl!.fragment).toContain(text);
-    // The oracle reads the parameter once and the constant once.
-    expect(r.eval(c.source.includes('static at') ? 'Voice_at' : 'g', c.args as never[])).toBe(
-      c.value,
-    );
+    // The oracle reads the parameter once and the constant once, and the CPU codegen and the
+    // debugger read the IR as it does.
+    const fn = c.source.includes('static at') ? 'Voice_at' : 'g';
+    const args = c.args as never[];
+    expect(r.eval(fn, args)).toBe(c.value);
+    expect(compileModuleJs(r.module).fns[fn]!(...args)).toBe(c.value);
+    const stepped = startDebugSession(r.module, fn, args);
+    stepped.continue();
+    expect(stepped.done).toBe(true);
+    expect(stepped.result).toBe(c.value);
   });
 
   it('a local of that name is a fresh name in the text, and the field is still the constant', () => {

@@ -295,9 +295,25 @@ const callOf = (
 ): Expr =>
   withSpan({ op: 'call', type: decl.ret, fn: decl.name, args, declRef: decl }, sourceFile, at);
 
+/** Whether a parameter of the function being lowered has the name the writers print for the
+ *  module value `b`. A parameter keeps the name its signature gives it, so the IR tells it from the
+ *  value by the node (`param`, `constref`) and the text does not: WGSL and GLSL print both as the
+ *  bare name. The writers respell a helper's parameter that hides a constant its function reads
+ *  (`sanitizeVariableNames`). They cannot respell the parameter of an entry, which the spelling
+ *  plan owns, and the late rename takes a `varref` of a name the function has a parameter of for
+ *  the parameter's own, so a module variable cannot be read there. Those two reads stay refused,
+ *  as they were before the lookup found the module value. */
+function hiddenByParameter(b: Binding, scope: LoweringScope): boolean {
+  const holder = scope.resolveIr(b.name);
+  if (holder === undefined || holder === b || holder.kind !== 'param') return false;
+  return b.kind === 'modvar' || scope.currentStage() !== undefined;
+}
+
 /** The read of a static member `owner.written`: a static field, a module constant or, when the
  *  file writes it, a module variable (Rule 8.13), or undefined when `owner` has none. A private
- *  static and a public member of one name are two members, so each name reaches its own. */
+ *  static and a public member of one name are two members, so each name reaches its own. The value
+ *  is the module's, found by the class and the member the author wrote: a parameter or a local that
+ *  has the name the module emits for it, `Voice_OFFSET`, does not hide it (Rule 3.2). */
 export function staticFieldBinding(
   owner: string,
   written: string,
@@ -305,8 +321,9 @@ export function staticFieldBinding(
   sourceFile: ts.SourceFile,
 ): Binding | undefined {
   const emitted = emittedMemberName(written);
-  const b = scope.resolve(staticConstName(owner, emitted));
+  const b = scope.resolveModuleValue(staticConstName(owner, emitted));
   if (b === undefined || (b.kind !== 'module' && b.kind !== 'modvar')) return undefined;
+  if (hiddenByParameter(b, scope)) return undefined;
   const isPrivate = privateStaticFields(sourceFile).has(`${owner}.${emitted}`);
   return isPrivate === isPrivateName(written) ? b : undefined;
 }
