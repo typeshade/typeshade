@@ -463,7 +463,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | an attribute where the place does not apply it: `@location`, `@builtin`, `@interpolate`, `@invariant` or `@diagnostic` on a class, `@location` or `@builtin` on a function, a stage or `@diagnostic` on a field or a parameter, `@blend_src` on a parameter, `@diagnostic` on a namespace's function | `TS8028`, naming what it marks: `"@location" does not apply to a class: it marks an entry's input or output. Remove it.` Each was dropped with no word |
 | `@builtin`, `@location`, `@interpolate`, `@invariant` or `@blend_src` on a parameter of a function that is not an entry: a helper, a local function, a method, a constructor | `TS8028`, `"@location" does not apply to a parameter of a function that is not an entry: it marks an entry's input or output. Remove it.` Tint refuses the WGSL it was (`'@location' is not valid for non-entry point function parameters`) |
 | builtin parameter on an incompatible stage | stage mismatch |
-| `@compute` method on a class | entries are top-level functions |
+| `@compute` method on a class | an entry is declared at the top level, not on a class (Rule 8.1) |
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
 | `.length` or `arrayLength(x)` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 | A module variable declared or used where its address space forbids | `TS8033`. A `let` with neither type nor initializer, a resource type without `declare` (`"dst" is a storage binding the host provides, and needs declare: write "declare const dst: storage<array<f32>, "read_write">".` — the mode is the one the `let` asked for, and a resource with no type argument names the shape `storage<...>`), a `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
@@ -2809,7 +2809,7 @@ TypeScript refuses would compile. They were accepted and meant nothing until thi
 
 **Refused, with the fix (TS8035).** A static block (give each static field its value where it
 is declared), a static field holding a function (a static method), a decorator on a method (an
-entry is a top-level function), an `async` or generator method, two bodies for one constructor
+entry is declared at the top level, not on a class), an `async` or generator method, two bodies for one constructor
 or one method, in a class or in the class a mixin returns (overload signatures above the one
 body compile), a static and an instance method of one name (they would be emitted under one
 name), an `abstract` member written with a body or an initializer (remove `abstract`, or the
