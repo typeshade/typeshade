@@ -40,7 +40,7 @@ export function collectDiagnosticDirectives(
   const out: DiagnosticDirective[] = [];
   /** The first directive seen for a rule: its severity and the function carrying it, which the
    *  conflict message names so an author can find the other side. */
-  const firstOf = new Map<string, { severity: string; fn: string }>();
+  const firstOf = new Map<string, { severity: string; fn: string; form: 'decorator' | 'call' }>();
   /** Rules already reported as conflicting, so three directives on one rule are one
    *  diagnostic and not two. */
   const reported = new Set<string>();
@@ -101,8 +101,10 @@ export function collectDiagnosticDirectives(
             makeDiagnostic(
               sourceFile,
               d,
-              `"${rule}" is set to "${prior.severity}" by the diagnostic on ` +
-                `"${prior.fn}" and to "${severity}" by the one on "${fnName}". WGSL takes ` +
+              `"${rule}" is set to "${prior.severity}" by the ` +
+                `${prior.form === 'call' ? 'diagnostic option of' : '@diagnostic on'} ` +
+                `"${prior.fn}" and to "${severity}" by the one ` +
+                `${form === 'call' ? 'of' : 'on'} "${fnName}". WGSL takes ` +
                 `one severity per rule per scope, and both would be emitted: "conflicting ` +
                 `diagnostic directive" on Tint. Keep one of the two.`,
               TS_CODES.ATTRIBUTE_NAME,
@@ -112,7 +114,7 @@ export function collectDiagnosticDirectives(
       }
       continue;
     }
-    firstOf.set(rule, { severity, fn: fnName });
+    firstOf.set(rule, { severity, fn: fnName, form });
     out.push({ severity: severity as DiagnosticDirective['severity'], rule });
   }
   return out;
