@@ -1,12 +1,15 @@
 // Verifies: Rule 8.20 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 8.21 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 11.8 (docs/language-design.md; traced in reqs/).
 //
 // An exported class of a shader module is a value of its host face (change 0109). The view
 // declares it as a class, and the generated module exports a JavaScript class of its name, whose
 // constructor, methods, accessors and static functions run on the CPU tier. Each part is read by
 // both of its readers: `tsc` reads the view in a host program resolved the way the documented
 // `tsconfig` resolves it, and the program imports the generated module and runs it. The shader
-// source itself is read by both halves, `compile()` and the language service.
+// source itself is read by both halves, `compile()` and the language service. A `Resident` made
+// from instances reads back as instances (Amendment 1, decision D5): its copy keeps the class of
+// each object, through a kernel call that writes it.
 
 import { afterAll, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -20,6 +23,7 @@ import { compileModule } from '../../core/oracle.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { tscDiagnostics } from '../../core/testing/tsc-diagnostics.js';
 import type { KernelFace } from '../../core/host-kernel.js';
+import { residentState } from '../../core/resident.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const dirs: string[] = [];
@@ -148,7 +152,7 @@ const tick = (s: { z: number; k: number }, x: number): number =>
 
 describe('the class in the view (Rule 8.20)', () => {
   it('compiles with no diagnostic, and the editor gives none', () => {
-    for (const [name, source] of Object.entries({ FILTERS, PROBE, BANK, SHAPES })) {
+    for (const [name, source] of Object.entries({ FILTERS, PROBE, BANK, SHAPES, VOICES })) {
       expect([name, compile(source, { fileName: 'm.shade.ts' }).diagnostics]).toEqual([name, []]);
       const service = createTypeshadeLanguageService();
       service.openDocument('m.shade.ts', source);
@@ -745,5 +749,229 @@ describe('a host program type-checked against the view (Rule 8.20)', () => {
       'p.z = [1];: TS2322',
       'console.log(y, same, u, z, t, ok);: ',
     ]);
+  });
+});
+
+/** A bank of voices (Amendment 1): a class a kernel function runs over, an array of its instances
+ *  in a `Resident`, and a struct whose field holds an instance of another class. */
+const VOICES = `"use typeshade";
+
+/** One oscillator's phase, which moves by its step each frame. */
+export class Voice {
+  phase: f32 = 0.;
+  step: f32;
+  constructor(step: f32) {
+    this.step = step;
+  }
+  /** One frame: the phase moves by the step and wraps at 1. */
+  tick(): f32 {
+    this.phase = fract(this.phase + this.step);
+    return this.phase;
+  }
+}
+
+/** Runs every voice of the bank for its frames, one lane per voice. */
+export function render(out: array<f32>, voices: array<Voice>, frames: u32) {
+  for (let i: u32 = 0; i < voices.length; i++) {
+    for (let n: u32 = 0; n < frames; n++) {
+      out[i * frames + n] = voices[i].tick();
+    }
+  }
+}
+
+export class Cell {
+  n: f32 = 7.;
+  constructor() {
+    this.n = this.n + 1.;
+  }
+  twice(): f32 {
+    return this.n * 2.;
+  }
+}
+
+export interface Slot {
+  cell: Cell;
+  w: f32;
+}
+
+/** Grows the cell of each slot by the slot's weight. */
+export function grow(slots: array<Slot>) {
+  for (let i: u32 = 0; i < slots.length; i++) {
+    slots[i].cell.n = slots[i].cell.n + slots[i].w;
+  }
+}
+`;
+
+/** A voice as the host sees it. */
+type Osc = { phase: number; step: number; tick(): number };
+
+/** What `Voice.tick` computes in f32. The steps of these tests are exact, so nothing rounds. */
+const tickVoice = (v: { phase: number; step: number }): number => {
+  const x = f(v.phase + v.step);
+  return (v.phase = f(x - Math.floor(x)));
+};
+
+/** The generated module of `VOICES`, and the runtime it imports, whose `resident` is the one the
+ *  module's calls read. */
+async function voices() {
+  const m = await load(VOICES);
+  const rt = (await import(
+    /* @vite-ignore */ pathToFileURL(RUNTIME).href
+  )) as typeof import('../../core/host-runtime.js');
+  return {
+    m,
+    rt,
+    Voice: m.Voice as new (step: number) => Osc,
+    render: m.render as (out: unknown, voices: unknown, frames: number) => Promise<void>,
+  };
+}
+
+/** Run a host program over the generated module of `source`, as a bundler runs it: its import of
+ *  `./filters.shade.ts` reaches the generated module. Resolves to the program's exports. */
+async function runHost(source: string, program: string): Promise<Record<string, unknown>> {
+  const dir = mkdtempSync(join(tmpdir(), 'typeshade-class-run-'));
+  dirs.push(dir);
+  writeFileSync(join(dir, 'filters.shade.mjs'), face(source, 'filters').code);
+  const js = ts.transpileModule(program.replace("'./filters.shade.ts'", "'./filters.shade.mjs'"), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+  }).outputText;
+  const file = join(dir, 'app.mjs');
+  writeFileSync(file, js);
+  return (await import(/* @vite-ignore */ pathToFileURL(file).href)) as Record<string, unknown>;
+}
+
+describe('a Resident of instances reads back as instances (Rule 11.8, Amendment 1, D5)', () => {
+  it('reads back what a kernel call wrote on the CPU tier, each element an instance of its class', async () => {
+    const { rt, Voice, render } = await voices();
+    const steps = [0.25, 0.5, 0.375];
+    const given = steps.map((s) => new Voice(s));
+    const bank = rt.resident(given);
+    // The host copy the CPU tier runs on holds instances, and the call writes their fields.
+    const held = [...(residentState(bank)!.host as object[])];
+    for (const o of held) expect(o).toBeInstanceOf(Voice);
+    const frames = 3;
+    const out = new Float32Array(steps.length * frames);
+    await render(out, bank, frames);
+    const want = steps.map((step) => ({ phase: 0, step }));
+    expect([...out]).toEqual(
+      want.flatMap((v) => Array.from({ length: frames }, () => tickVoice(v))),
+    );
+    (residentState(bank)!.host as object[]).forEach((o, i) => expect(o).toBe(held[i]));
+    const back = await bank.read();
+    expect(back).toHaveLength(steps.length);
+    back.forEach((v, i) => {
+      expect(v).toBeInstanceOf(Voice);
+      expect(Object.keys(v)).toEqual(['phase', 'step']);
+      expect({ ...v }).toEqual(want[i]);
+      // A new copy: neither the host copy's object nor the caller's.
+      expect(v).not.toBe(held[i]);
+      expect(v).not.toBe(given[i]);
+    });
+    // The caller's instances hold what they held: the Resident holds its own copy.
+    expect(given.map((v) => ({ ...v }))).toEqual(steps.map((step) => ({ phase: 0, step })));
+    // A method runs on what read() returned, on the CPU tier, and changes that copy alone.
+    const next = { ...want[1]! };
+    expect(back[1]!.tick()).toBe(tickVoice(next));
+    expect({ ...back[1]! }).toEqual(next);
+    expect({ ...(await bank.read())[1]! }).toEqual(want[1]);
+  });
+
+  it('keeps the class of each instance write() gives it, before a call and after one', async () => {
+    const { rt, Voice, render } = await voices();
+    const bank = rt.resident([new Voice(0.25)]);
+    const given = [new Voice(0.5), new Voice(0.125)];
+    bank.write(given);
+    const written = await bank.read();
+    written.forEach((v, i) => {
+      expect(v).toBeInstanceOf(Voice);
+      expect(v).not.toBe(given[i]);
+    });
+    expect(written.map((v) => ({ ...v }))).toEqual([
+      { phase: 0, step: 0.5 },
+      { phase: 0, step: 0.125 },
+    ]);
+    await render(new Float32Array(4), bank, 2);
+    const want = [0.5, 0.125].map((step) => ({ phase: 0, step }));
+    for (const v of want) for (let n = 0; n < 2; n++) tickVoice(v);
+    const back = await bank.read();
+    for (const v of back) expect(v).toBeInstanceOf(Voice);
+    expect(back.map((v) => ({ ...v }))).toEqual(want);
+    expect(back[0]!.tick()).toBe(tickVoice({ ...want[0]! }));
+  });
+
+  it('keeps the classes in a Resident that a device makes with array(), as resident() does', async () => {
+    const { createDevice } = await import('../../runtime/device.js');
+    const { Voice, render } = await voices();
+    const dev = await createDevice({ prefer: ['cpu'] });
+    try {
+      const bank = dev.array([new Voice(0.25), new Voice(0.375)]);
+      await render(new Float32Array(2), bank, 1);
+      const back = await bank.read();
+      for (const v of back) expect(v).toBeInstanceOf(Voice);
+      expect(back.map((v) => ({ ...v }))).toEqual([
+        { phase: 0.25, step: 0.25 },
+        { phase: 0.375, step: 0.375 },
+      ]);
+      expect(back[1]!.tick()).toBe(0.75);
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it('reads back a plain object as a plain object, and an instance that a field holds as that instance', async () => {
+    const { m, rt, Voice, render } = await voices();
+    const Cell = m.Cell as new () => { n: number; twice(): number };
+    const grow = m.grow as (slots: unknown) => Promise<void>;
+    const weights = [0.5, 1.5];
+    const slots = rt.resident(weights.map((w) => ({ cell: new Cell(), w })));
+    await grow(slots);
+    const back = await slots.read();
+    back.forEach((s, i) => {
+      expect(Object.getPrototypeOf(s)).toBe(Object.prototype);
+      expect(s.cell).toBeInstanceOf(Cell);
+      // `new Cell()` makes n 8. read() runs no constructor, so the cell holds what the call left.
+      expect(s.cell.n).toBe(8 + weights[i]!);
+      expect(s.cell.twice()).toBe(2 * (8 + weights[i]!));
+    });
+    // A Resident of plain objects reads back as plain objects, as before.
+    const plain = rt.resident([{ phase: 0, step: 0.25 }]);
+    await render(new Float32Array(2), plain, 2);
+    const p = await plain.read();
+    expect(Object.getPrototypeOf(p[0])).toBe(Object.prototype);
+    expect(p).toEqual([{ phase: 0.5, step: 0.25 }]);
+    // One Resident may hold both: each object reads back as it was given.
+    const mixed = rt.resident<object[]>([new Voice(0.25), { phase: 0, step: 0.5 }]);
+    await render(new Float32Array(2), mixed, 1);
+    const [a, b] = await mixed.read();
+    expect(a).toBeInstanceOf(Voice);
+    expect(Object.getPrototypeOf(b)).toBe(Object.prototype);
+    expect([{ ...a }, b]).toEqual([
+      { phase: 0.25, step: 0.25 },
+      { phase: 0.5, step: 0.5 },
+    ]);
+  });
+
+  it('types await bank.read() as Voice[] in a host program, and tick() runs on what it returns (Rule 12.7)', async () => {
+    const head = [
+      "import { Voice, render } from './filters.shade.ts';",
+      `import { resident, type Resident } from ${JSON.stringify(RUNTIME)};`,
+      '',
+    ].join('\n');
+    const lines = [
+      'const bank: Resident<Voice[]> = resident([new Voice(0.25), new Voice(0.5)]);',
+      'await render(new Float32Array(4), bank, 2);',
+      'bank.write([...(await bank.read()), new Voice(0.375)]);',
+      'const voices: Voice[] = await bank.read();',
+      'export const kept: boolean = voices.every((v) => v instanceof Voice);',
+      'export const ticked: number[] = voices.map((v) => v.tick());',
+    ];
+    // `tsc` reads the program against the view: no diagnostic, in the program or in the view.
+    const { elsewhere, byLine } = await hostCodes(VOICES, head, lines);
+    expect(elsewhere).toEqual([]);
+    expect(byLine).toEqual(lines.map((l) => `${l}: `));
+    // The same program runs over the generated module, and gets the values `tsc` typed.
+    const app = await runHost(VOICES, `${head}${lines.join('\n')}\n`);
+    expect(app.kept).toBe(true);
+    expect(app.ticked).toEqual([0.75, 0.5, 0.375]);
   });
 });
