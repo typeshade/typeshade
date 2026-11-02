@@ -3,15 +3,15 @@ active: true
 derived: false
 level: 3
 links:
-- RULE-0606: qXyf0FpXuS4xir_HpHadSIsWFZT2WtMx8M-wm9BvJOE=
-- RULE-0801: H1wCXs_NQPF7wMxgl8OGv3K-wybB6bXXiXjf4QV5xhs=
-- RULE-0802: FgAY5P_i-A9LSYxEANs3TSaIVQPKPFN-2BXhAIwzE0Q=
+- RULE-0606: 2moXxSw3cZPNxiaa9uRTWOFZn7M2pZk2ypG0F6f0ymk=
+- RULE-0801: FzGeB6fjTFKLKtQkxhURR9wS5Gmpka4mXRRq5VoTOgk=
+- RULE-0802: nyxRfZorEhJjCiM7R2CvtM1KmxMZJbu2xMOWsq0lO7g=
 - RULE-0807: 6nXwFhkduvfWc5DgkjOLkznHD8X0n6kYTNs5_bU7BjI=
-- RULE-0822: KZX4br5aY4KJfRtQvkYd5jJ4drnkFSbO1ngvskHPhJw=
+- RULE-0822: tU4KW4DgphHYhjdPzBs7vzpMXCfL1pXKA33p31nrIpE=
 - RULE-1206: kuInDVEKCI_Qu_9zVLzT--W8UeBj0WgdX22sRWA_VNY=
 normative: true
 ref: ''
-reviewed: xOe0YglAQ7b4-ZszMKtoJrv25jgE8gtXI5jovIzRpJc=
+reviewed: AnlOPnEJd3wVTpf2yC0pauzlkp_IxA0WxncLMUjt62s=
 source: docs/use-typeshade-surface.md §3
 ---
 
