@@ -27,18 +27,21 @@ describe('array DX', () => {
     if (ret!.s === 'return' && ret.expr?.op === 'lit') expect(ret.expr.value).toBe(4);
   });
 
-  it('rejects Array<f32> and f32[]', () => {
-    const js = compileTsSource(`
+  it('takes Array<f32> and f32[] as the array with no size (change 0114, S1)', () => {
+    const run = (t: string): string => {
+      const r = compileTsSource(`
       "use typeshade";
-      export function f(xs: Array<f32>): f32 { return 0.; }
+      export function f(xs: ${t}): f32 { return 0.; }
     `);
-    expect(js.diagnostics.some((d) => /JS Array/.test(d.message))).toBe(true);
-
-    const bracket = compileTsSource(`
-      "use typeshade";
-      export function f(xs: f32[]): f32 { return 0.; }
-    `);
-    expect(bracket.diagnostics.some((d) => /T\[\]/.test(d.message))).toBe(true);
+      return JSON.stringify(
+        [r.funcs, r.diagnostics.map((d) => `${d.code} ${d.message}`)],
+        (k, v: unknown) => (k === 'span' ? undefined : v),
+      );
+    };
+    const unsized = run('array<f32>');
+    expect(run('Array<f32>')).toBe(unsized);
+    expect(run('f32[]')).toBe(unsized);
+    expect(unsized).not.toContain('TS80');
   });
 
   it('rejects xs.filter, which is not one of the methods an array has (surface §63)', () => {

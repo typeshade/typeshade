@@ -1581,7 +1581,7 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     typescript: 1354,
     typeshade: new Set(['TS8002']),
     reason:
-      '`readonly array<f32>`: `readonly` is TypeScript\'s on `T[]` alone. The compiler names ' +
+      "`readonly array<f32>`: `readonly` is TypeScript's on `T[]` alone. The compiler names " +
       '`readonly f32[]` (change 0114, S1).',
   },
   {

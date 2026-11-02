@@ -337,6 +337,7 @@ export const LIBRARY_TYPE_NAMES: ReadonlySet<string> = new Set([
   'Object',
   'Pick',
   'ReadView',
+  'ReadonlyArray',
   // A table over a key type (change 0081): `mapRecord` takes it with its type arguments.
   'Record',
   'ReadWriteStorageFormat',
@@ -789,7 +790,13 @@ function mapType(
     return undefined;
   }
   if (isReadonlyArrayType(typeNode)) {
-    return unsizedArray(typeNode.type.elementType, sourceFile, diagnostics, resolving, sizeOverrides);
+    return unsizedArray(
+      typeNode.type.elementType,
+      sourceFile,
+      diagnostics,
+      resolving,
+      sizeOverrides,
+    );
   }
 
   if (ts.isTypeReferenceNode(typeNode)) {
