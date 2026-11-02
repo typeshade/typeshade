@@ -10,7 +10,8 @@
 // and text) or its emit and the oracle's values, and the language service's `getDiagnostics`,
 // with `getHover` where the type is the point.
 //
-// Rules 6.3, 9.4 and 9.5 (docs/language-design.md; the reqs tag is added once a person reviews them).
+// Verifies: Rule 6.3, Rule 9.4, Rule 9.5 (docs/language-design.md; traced in reqs/).
+// Change 0113.
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

@@ -1,8 +1,8 @@
 // A `const` that binds a `Math` member to a name: `const { sqrt, PI } = Math`,
 // `const { sqrt: s } = Math` and `const s = Math.sqrt`.
 //
-// Rules 6.3, 9.4 and 9.5 (docs/language-design.md; the reqs tag is added once a person reviews them),
-// change 0113.
+// Implements: Rule 6.3, Rule 9.4, Rule 9.5 (docs/language-design.md; traced in reqs/).
+// Change 0113.
 //
 // A bound name is an alias, not a value (Rule 9.4). The declaration lowers to nothing: no local,
 // no module constant and no function value exist for it. A call of the name is the call of the
