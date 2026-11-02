@@ -227,7 +227,7 @@ async function hostErrors(source: string, app: string): Promise<string[]> {
 describe('the host view of a draw', () => {
   it('types the target and the bindings object exactly', () => {
     expect(face(PLASMA).view).toContain(
-      'export declare function fs(target: HTMLCanvasElement | OffscreenCanvas, bindings: { readonly frame: { readonly time: number; readonly scale: number } }): Promise<void>;',
+      'export declare function fs(target: HTMLCanvasElement | OffscreenCanvas, bindings: { readonly frame: { readonly time: f32; readonly scale: f32 } }): Promise<void>;',
     );
   });
 
@@ -353,7 +353,7 @@ export function show(@builtin("position") p: vec4): vec4 {
   it('types a storage array with no size as the typed array or a Resident of it, and still waits', () => {
     const view = face(SHOWN).view;
     expect(view).toContain(
-      'export declare function show(target: HTMLCanvasElement | OffscreenCanvas, bindings: { readonly data: Float32Array | Resident<Float32Array>; readonly k: number }): Promise<void>;',
+      'export declare function show(target: HTMLCanvasElement | OffscreenCanvas, bindings: { readonly data: array<f32>; readonly k: f32 }): Promise<void>;',
     );
     // A draw writes no binding, so it has no queued signature.
     expect(view).not.toMatch(/function show\([^)]*\): void/);
@@ -476,7 +476,7 @@ export function deep(@builtin("position") p: vec4): vec4 {
     expect(e.entry.gl?.samplers).toHaveProperty('_fp64', null);
     expect(e.entry.noCpu).toBeUndefined();
     expect(face(DEEP).view).toContain(
-      'bindings: { readonly zoom: { readonly cx: number; readonly scale: number } }',
+      'bindings: { readonly zoom: { readonly cx: f64; readonly scale: f64 } }',
     );
   });
 

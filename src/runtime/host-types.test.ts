@@ -1,3 +1,5 @@
+// Verifies: Rule 8.21 (docs/language-design.md; traced in reqs/).
+//
 // The host type family (change 0116) and the shader's vocabulary are one set of names (Rule
 // 12.7). A shader file has `f32`, `vec3`, `mat4x4` and `array<T>` from the ambient library, and a
 // host file has the same names from `typeshade/runtime` (`host-types.ts`), each a name for the

@@ -34,7 +34,7 @@ import { fnReads, fnWrites } from '../../core/passes/effects.js';
 import { GPU_STUBS, type CpuValue } from '../../core/cpu-runtime.js';
 import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../core/intrinsics.js';
 import { generateModuleJs } from '../../core/cpu-codegen.js';
-import type { HostType } from '../../core/host-values.js';
+import type { HostNumber, HostType } from '../../core/host-values.js';
 import { zeroOf } from '../../core/cpu-runtime.js';
 import { optionalInner } from './optional.js';
 import { typeLayout } from '../../core/reflect.js';
@@ -98,6 +98,7 @@ import {
 import { ctorFnName, methodFnName } from './lower/class-methods.js';
 import { staticConstName } from './module-const.js';
 import { authorTypeText } from './context.js';
+import { HANDLE_TYPE_NAMES, SUPPORTED_TYPE_NAMES } from './type-map.js';
 import { describeRead } from './kernel-loops.js';
 import { pushedParams } from './lower/kernel-push.js';
 import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
@@ -410,25 +411,38 @@ export function hostTypeOf(
   }
 }
 
+// The view spells each host value with the name of the host type family (change 0116,
+// `src/runtime/host-types.ts`): a scalar, a vector, a matrix and an array by the name the shader
+// writes, which `typeshade/runtime` exports as a name for the same host value. A struct, an enum,
+// a key type and a `Record` keep the spelling the view gives them. The view imports the names it
+// writes (`viewText`).
+
+/** The family's name of a vector of `n` components of `e`: `vec3`, `vec3i`, `vec3u`, `vec3b`,
+ *  `vec3f64`. */
+const vecName = (n: number, e: HostNumber | 'bool'): string =>
+  `vec${n}${{ f32: '', i32: 'i', u32: 'u', bool: 'b', f64: 'f64' }[e]}`;
+
+/** The family's name of a matrix of `c` columns and `r` rows: `mat4x4`, or `mat4x4<f64>`. */
+const matName = (c: number, r: number, e: 'f32' | 'f64'): string =>
+  `mat${c}x${r}${e === 'f64' ? '<f64>' : ''}`;
+
 /** The TypeScript type a host passes for `t`: read-only at every level. */
 function argType(t: HostType): string {
   switch (t.k) {
     case 'num':
-      return 'number';
+      return t.t;
     case 'bool':
-      return 'boolean';
+      return 'bool';
     case 'key':
       return t.s;
     case 'void':
       return 'void';
     case 'vec':
-      return `readonly [${Array(t.n)
-        .fill(t.e === 'bool' ? 'boolean' : 'number')
-        .join(', ')}]`;
+      return vecName(t.n, t.e);
     case 'mat':
-      return 'readonly number[]';
+      return matName(t.c, t.r, t.e);
     case 'arr':
-      return `readonly ${arrayElem(argType(t.e))}[]`;
+      return `array<${argType(t.e)}, ${t.n}>`;
     case 'rec':
       return `{ ${t.m.map((m) => `readonly ${JSON.stringify(m)}: ${argType(t.e)}`).join('; ')} }`;
     case 'struct':
@@ -436,22 +450,19 @@ function argType(t: HostType): string {
   }
 }
 
-/** The TypeScript type a host gets back for `t`. An exported struct goes by its name. */
+/** The TypeScript type a host gets back for `t`, as read-only as an argument (decision D1). An
+ *  exported struct goes by its name. */
 function resultType(t: HostType, named: ReadonlyMap<string, string>): string {
   switch (t.k) {
     case 'num':
     case 'bool':
     case 'key':
     case 'void':
-      return argType(t);
     case 'vec':
-      return `[${Array(t.n)
-        .fill(t.e === 'bool' ? 'boolean' : 'number')
-        .join(', ')}]`;
     case 'mat':
-      return 'number[]';
+      return argType(t);
     case 'arr':
-      return `${arrayElem(resultType(t.e, named))}[]`;
+      return `array<${resultType(t.e, named)}, ${t.n}>`;
     case 'rec':
       return `{ ${t.m.map((m) => `${JSON.stringify(m)}: ${resultType(t.e, named)}`).join('; ')} }`;
     case 'struct':
@@ -637,26 +648,40 @@ const TYPED_NAME = {
   f64: 'Float64Array',
 } as const;
 
-/** The TypeScript type of a binding's host value in the bindings object: read-only where the
- *  entry only reads it, mutable where the call writes it back in place (Rule 8.21). */
+/** The TypeScript type of a binding's host value in the bindings object, spelled with the host
+ *  type family (change 0116): a struct's fields read-only where the entry only reads it, and
+ *  mutable where the call writes it back in place (Rule 8.21). A written binding of one scalar
+ *  is a typed array of length one. An array with no size inside a struct is the typed array of
+ *  its scalar, or an array of its elements. */
 function bindingTsType(l: Layout, writes: boolean, top = true): string {
   const ro = writes ? '' : 'readonly ';
   switch (l.k) {
     case 's':
-      return top && writes ? TYPED_NAME[l.t] : 'number';
+      return top && writes ? TYPED_NAME[l.t] : l.t;
     case 'v':
-      return `${ro}[${Array(l.n).fill('number').join(', ')}]`;
+      return vecName(l.n, l.t);
     case 'm':
-      return `${ro}number[]`;
+      return matName(l.c, l.r, 'f32');
     case 'a': {
-      if (l.n === null && (l.e.k === 's' || l.e.k === 'v')) return TYPED_NAME[l.e.t];
-      const el = bindingTsType(l.e, writes, false);
-      return `${ro}${el.startsWith('readonly ') ? `(${el})` : el}[]`;
+      if (l.n !== null) return `array<${bindingTsType(l.e, writes, false)}, ${l.n}>`;
+      if (l.e.k === 's' || l.e.k === 'v') return TYPED_NAME[l.e.t];
+      return `${ro}${arrayElem(bindingTsType(l.e, writes, false))}[]`;
     }
     case 'o':
       return `{ ${l.f.map(([n, , fl]) => `${ro}${n}: ${bindingTsType(fl, writes, false)}`).join('; ')} }`;
   }
 }
+
+/** The type of an array with no size that a kernel function or an entry takes (Rules 8.21 and
+ *  11.8): `array<T>`, the host type family's name for its host value with its `Resident`
+ *  (change 0116, decision D3). */
+const unsizedType = (l: Layout & { k: 'a' }, writes: boolean): string =>
+  `array<${bindingTsType(l.e, writes, false)}>`;
+
+/** What a `Resident` of an array with no size holds, for the call that only queues: the typed
+ *  array of its scalar, or an array of its elements. */
+const residentOf = (l: Layout & { k: 'a' }, writes: boolean): string =>
+  `Resident<${bindingTsType(l, writes)}>`;
 
 /** The first barrier `fn` reaches, as `workgroupBarrier() at file:line`, if any. */
 function barrierIn(
@@ -1021,13 +1046,13 @@ function entryBindings(
     const writes = f.stage === 'compute' && space === 'storage' && written.has(b.name);
     const rw = space === 'storage' && b.access === 'read_write';
     bindings.push({ ...at, space, writes, ...(rw ? { rw: true as const } : {}), layout });
-    const t = bindingTsType(layout, writes);
     // An entry's storage array with no size may be a `Resident` of it (Rule 11.8).
     if (space === 'storage' && layout.k === 'a' && layout.n === null) {
-      types.push(`readonly ${b.name}: ${t} | Resident<${t}>`);
-      queued.push(`readonly ${b.name}: ${writes ? `Resident<${t}>` : `${t} | Resident<${t}>`}`);
-    } else {
+      const t = unsizedType(layout, writes);
       types.push(`readonly ${b.name}: ${t}`);
+      queued.push(`readonly ${b.name}: ${writes ? residentOf(layout, writes) : t}`);
+    } else {
+      types.push(`readonly ${b.name}: ${bindingTsType(layout, writes)}`);
       queued.push(types.at(-1)!);
     }
   }
@@ -2288,27 +2313,44 @@ const GPU_BUFFER = '{ readonly mapAsync: unknown; readonly getMappedRange: unkno
 const NUMBERS = 'Float32Array | Int32Array | Uint32Array | Float64Array';
 
 /** A buffer binding's host value (Rule 8.21) as a draw or a dispatch passes it, from its
- *  manifest layout: what the runtime's `pack` takes for each shape. */
+ *  manifest layout: what the runtime's `pack` takes for each shape, spelled with the host type
+ *  family (change 0116), and any typed array of numbers for a vector, a matrix and an array of
+ *  scalars with a size, which the runtime takes by its length. An array with no size inside a
+ *  struct is the typed array of its scalar, or an array of its elements. */
 function packHostType(l: PackLayout): string {
   switch (l.kind) {
     case 'scalar':
-      return 'number';
+      return l.type;
     case 'vector':
-      return `readonly [${Array(l.size).fill('number').join(', ')}] | ${NUMBERS}`;
+      return `${vecName(l.size, l.type)} | ${NUMBERS}`;
     case 'matrix':
-      return `readonly number[] | ${NUMBERS}`;
+      return `${matName(l.columns, l.rows, 'f32')} | ${NUMBERS}`;
     case 'array': {
       const e = l.element;
-      // An array with no size of scalars or vectors is the typed array of its element alone.
-      if (l.length === null && (e.kind === 'scalar' || e.kind === 'vector'))
-        return TYPED_NAME[e.type];
-      if (e.kind === 'scalar') return `readonly number[] | ${NUMBERS}`;
-      return `readonly (${packHostType(e)})[]`;
+      if (l.length === null)
+        return e.kind === 'scalar' || e.kind === 'vector'
+          ? TYPED_NAME[e.type]
+          : `readonly (${packHostType(e)})[]`;
+      if (e.kind === 'scalar') return `array<${e.type}, ${l.length}> | ${NUMBERS}`;
+      return `array<${packHostType(e)}, ${l.length}>`;
     }
     case 'struct':
       return `{ ${l.fields.map((f) => `readonly ${f.name}: ${packHostType(f.layout)}`).join('; ')} }`;
   }
 }
+
+/** A binding's array with no size as a draw or a dispatch passes it: `array<T>`, its host value
+ *  with its `Resident` (change 0116, decision D3), with each element as the runtime's `pack`
+ *  takes it. */
+function packUnsizedType(l: PackLayout & { kind: 'array' }): string {
+  const e = l.element;
+  return `array<${e.kind === 'scalar' || e.kind === 'vector' ? packElementName(e) : packHostType(e)}>`;
+}
+
+/** The family's name of a scalar or a vector element of an array with no size, whose host value
+ *  is the typed array of its scalar. */
+const packElementName = (e: PackLayout & { kind: 'scalar' | 'vector' }): string =>
+  e.kind === 'scalar' ? e.type : vecName(e.size, e.type);
 
 /** The type argument of the view's `Pack`: for each entry, the bindings it reaches, each with
  *  the values a draw or a dispatch may pass for it (change 0030). A buffer takes its host value,
@@ -2324,6 +2366,9 @@ function programType(pack: Pack): string {
       if (kind !== 'uniform-buffer' && kind !== 'storage-buffer')
         return [`readonly ${name}: object`];
       if (b.layout === undefined) return [`readonly ${name}: ${GPU_BUFFER}`];
+      // An array with no size is `array<T>`, which holds its `Resident` (change 0116).
+      if (b.layout.kind === 'array' && b.layout.length === null)
+        return [`readonly ${name}: ${packUnsizedType(b.layout)} | ${GPU_BUFFER}`];
       const t = packHostType(b.layout);
       return [`readonly ${name}: ${t} | Resident<${t}> | ${GPU_BUFFER}`];
     });
@@ -2357,30 +2402,8 @@ function viewText(
   const named = new Map<string, string>();
   for (const e of exports)
     if (e.kind === 'struct' || (e.kind === 'class' && !e.abstract)) named.set(e.type.s, e.name);
-  const out: string[] = [header(stem)];
-  // A kernel function takes a `Resident` wherever it takes an array, and an entry wherever it
-  // takes a storage array with no size (Rule 11.8); a `@compute` entry takes one for its
-  // workgroup count too (change 0075).
-  if (
-    exports.some(
-      (e) =>
-        e.kind === 'kernel' ||
-        e.kind === 'compute' ||
-        (e.kind === 'fragment' && e.bindingsType.includes('Resident<')),
-    ) ||
-    program.includes('Resident<')
-  )
-    out.push(`import type { Resident } from ${JSON.stringify(runtime)};`);
-  out.push(`import type { Pack } from ${JSON.stringify(runtime)};`);
-  // A texture binding also takes a program runtime's Texture, bound as it is (change 0025).
-  if (
-    exports.some(
-      (e) =>
-        ((e.kind === 'compute' || e.kind === 'fragment') && e.bindingsType.includes('| Texture')) ||
-        (e.kind === 'kernel' && e.face.params.some((p) => p.k === 'texture')),
-    )
-  )
-    out.push(`import type { Texture } from ${JSON.stringify(runtime)};`);
+  // The declarations first: the imports are the names they write (`viewImports`).
+  const out: string[] = [];
   for (const e of exports) {
     // The comment above an export: the author's JSDoc, and the view's own sentence, if it writes
     // one, at the end of the last block (change 0108).
@@ -2456,10 +2479,14 @@ function viewText(
               // ECMAScript's own Map and Set, by reference (change 0080).
               if (p.k === 'collection')
                 return p.value === undefined
-                  ? `${p.name}: Set<${p.keys === undefined ? 'number' : keyTypeText(p.keys)}>`
-                  : `${p.name}: Map<${p.keys === undefined ? 'number' : keyTypeText(p.keys)}, ${argType(p.value)}>`;
-              const t = bindingTsType(p.layout, p.writes);
-              const array = queued && p.writes ? `Resident<${t}>` : `${t} | Resident<${t}>`;
+                  ? `${p.name}: Set<${p.keys === undefined ? p.key : keyTypeText(p.keys)}>`
+                  : `${p.name}: Map<${p.keys === undefined ? p.key : keyTypeText(p.keys)}, ${argType(p.value)}>`;
+              // `array<T>` holds its `Resident` (change 0116, decision D3); a written array of
+              // the call that only queues is a `Resident` alone.
+              const array =
+                queued && p.writes
+                  ? residentOf(p.layout, p.writes)
+                  : unsizedType(p.layout, p.writes);
               // An array a loop pushes onto may come with its length, which a Resident holds
               // (change 0094, decision D5: on such an array only).
               return p.pushed === true
@@ -2517,7 +2544,43 @@ function viewText(
     `declare const program: Pack<${program}>;`,
     'export default program;',
   );
-  return `${out.join('\n')}\n`;
+  return `${[header(stem), ...viewImports(out.join('\n'), runtime), ...out].join('\n')}\n`;
+}
+
+/** The names of the host type family (change 0116) in the order a view imports them: each
+ *  authorable value type the compiler maps by its name, and `array`. `host-types.test.ts` holds
+ *  `src/runtime/host-types.ts` to the same names, through the ambient library. */
+const FAMILY_NAMES: readonly string[] = [
+  ...SUPPORTED_TYPE_NAMES.filter((n) => !HANDLE_TYPE_NAMES.has(n)),
+  'array',
+];
+
+/** The import lines of a view whose declarations are `body`: each name of the host type family
+ *  the declarations write as a type (change 0116), `Resident` and `Texture` where they write
+ *  them, and `Pack`, which the default export always writes. A name is imported only where a
+ *  declaration writes it, so a host project that refuses an unused import (`noUnusedLocals`)
+ *  takes the view; the names are read off the declarations as TypeScript parses them, so a
+ *  comment, a string and a name of a field or a parameter are no use of a type. */
+function viewImports(body: string, runtime: string): string[] {
+  const sf = ts.createSourceFile('view.ts', body, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+  const used = new Set<string>();
+  const visit = (n: ts.Node): void => {
+    if (ts.isTypeReferenceNode(n) && ts.isIdentifier(n.typeName)) used.add(n.typeName.text);
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  const from = JSON.stringify(runtime);
+  const family = FAMILY_NAMES.filter((n) => used.has(n));
+  return [
+    ...(family.length > 0 ? [`import type { ${family.join(', ')} } from ${from};`] : []),
+    // A kernel function's array and an entry's storage array with no size are `array<T>`, which
+    // holds its `Resident`; the call that only queues, a held length and a `@compute` entry's
+    // workgroup count write `Resident` itself (Rule 11.8, change 0075).
+    ...(used.has('Resident') ? [`import type { Resident } from ${from};`] : []),
+    `import type { Pack } from ${from};`,
+    // A texture binding also takes a program runtime's Texture, bound as it is (change 0025).
+    ...(used.has('Texture') ? [`import type { Texture } from ${from};`] : []),
+  ];
 }
 
 /** The class an exported class extends in the view and in the module: the nearest class above

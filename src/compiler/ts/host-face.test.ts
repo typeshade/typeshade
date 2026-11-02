@@ -21,6 +21,8 @@ import { compile } from './compile.js';
 import { compileModule } from '../../core/oracle.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
+/** The host type family (change 0116), which a view imports from its runtime. */
+const FAMILY = resolve(__dirname, '../../runtime/host-types.ts');
 const dirs: string[] = [];
 afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true });
@@ -150,7 +152,7 @@ export function ix(i: I): f32 { return i.x; }
       ix: 'function',
     });
     expect(f.view).toContain('export declare class P {');
-    expect(f.view).toContain('export interface I { x: number }');
+    expect(f.view).toContain('export interface I { x: f32 }');
     expect(f.code).toContain('__ts_x');
     expect(f.code).toMatch(/__ts_x\d+ as P\b/);
     expect(f.code).not.toMatch(/__ts_x\d+ as I\b/);
@@ -185,12 +187,10 @@ export function scale(x: f32): f32 {
     });
     expect(f.diagnostics).toEqual([]);
     expect(kinds(f.exports ?? [])).toEqual({ scale: 'function', mk: 'function' });
-    expect(f.view).toContain('export declare function scale(x: number): number;');
+    expect(f.view).toContain('export declare function scale(x: f32): f32;');
     // `P` is not an export of this module, so the view spells its layout where the signature
     // names it.
-    expect(f.view).toContain(
-      'export declare function mk(a: number): { x: number; v: [number, number] };',
-    );
+    expect(f.view).toContain('export declare function mk(a: f32): { x: f32; v: vec2 };');
     // The files the face was read from, which the plugin watches.
     expect(f.files).toEqual(['/app/m.shade.ts', '/app/lib.shade.ts']);
     const dir = mkdtempSync(join(tmpdir(), 'typeshade-host-'));
@@ -235,10 +235,13 @@ export function fs(v: VsOut): vec4 { return textureSample(albedo, samp, v.uv); }
 `);
     const gpu = '{ readonly mapAsync: unknown; readonly getMappedRange: unknown }';
     const numbers = 'Float32Array | Int32Array | Uint32Array | Float64Array';
-    const viewT = `{ readonly viewProj: readonly number[] | ${numbers}; readonly time: number }`;
+    // Each binding spelled with the host type family (change 0116): a runtime-sized storage
+    // array is `array<T>`, which holds its `Resident`, and a uniform struct is its fields.
+    const viewT = `{ readonly viewProj: mat4x4 | ${numbers}; readonly time: f32 }`;
     expect(f.view).toContain(
-      `declare const program: Pack<{ readonly vs: { readonly view: ${viewT} | Resident<${viewT}> | ${gpu}; readonly cells: Float32Array | Resident<Float32Array> | ${gpu} }; readonly fs: { readonly albedo: object; readonly samp: object } }>;`,
+      `declare const program: Pack<{ readonly vs: { readonly view: ${viewT} | Resident<${viewT}> | ${gpu}; readonly cells: array<vec2> | ${gpu} }; readonly fs: { readonly albedo: object; readonly samp: object } }>;`,
     );
+    expect(f.view).toContain('import type { f32, vec2, mat4x4, array } from');
     expect(f.view).toContain('import type { Resident }');
   });
 
@@ -254,25 +257,29 @@ export function list(xs: array<f32, 3>): array<vec2, 2> { return array(vec2(xs[0
 export function record(s: S): S { return s; }
 export function nothing(x: f32) { let y = x; }
 `);
+    // Each row in the host type family's names (change 0116), an argument and a result alike
+    // (decision D1); a struct keeps its fields as an argument and its name as a result.
     expect(f.view).toContain(
-      'export declare function scalars(a: number, b: number, c: number, d: boolean): number;',
+      'export declare function scalars(a: f32, b: i32, c: u32, d: bool): f32;',
     );
     expect(f.view).toContain(
-      'export declare function vectors(a: readonly [number, number, number], b: readonly [number, number], c: readonly [number, number, number, number], d: readonly [boolean, boolean]): [boolean, boolean];',
+      'export declare function vectors(a: vec3, b: vec2i, c: vec4u, d: vec2b): vec2b;',
     );
-    expect(f.view).toContain('export declare function matrix(m: readonly number[]): number[];');
-    expect(f.view).toContain(
-      'export declare function list(xs: readonly number[]): [number, number][];',
-    );
+    expect(f.view).toContain('export declare function matrix(m: mat2x3): mat2x3;');
+    expect(f.view).toContain('export declare function list(xs: array<f32, 3>): array<vec2, 2>;');
     // A class is a value and an interface a type (change 0109): the row of a struct splits.
     expect(f.view).toContain(
-      'export declare class S {\n  constructor();\n  a: number;\n  v: [number, number];\n}',
+      'export declare class S {\n  constructor();\n  a: f32;\n  v: vec2;\n}',
     );
-    expect(f.view).toContain('export interface J { a: number; v: [number, number] }');
+    expect(f.view).toContain('export interface J { a: f32; v: vec2 }');
     expect(f.view).toContain(
-      'export declare function record(s: { readonly a: number; readonly v: readonly [number, number] }): S;',
+      'export declare function record(s: { readonly a: f32; readonly v: vec2 }): S;',
     );
-    expect(f.view).toContain('export declare function nothing(x: number): void;');
+    expect(f.view).toContain('export declare function nothing(x: f32): void;');
+    // The view imports the names it writes, in the family's order, and no other.
+    expect(f.view).toContain(
+      'import type { f32, i32, u32, bool, vec2, vec3, vec4u, vec2i, vec2b, mat2x3, array } from',
+    );
   });
 
   it('declares an export with no host face never, with the reason', () => {
@@ -292,6 +299,18 @@ export function fs(@location(0) uv: vec2): vec4 { return vec4(uv, 0., 1.); }
         `import { height } from './terrain.shade.ts';\nconst h: number = height([0.5, 0.5], [1, 0.5, 2, 0.25]);\nexport { h };\n`,
       ),
     ).toEqual([]);
+  });
+
+  it('type-checks a host program that writes the names of the host type family (change 0116)', async () => {
+    // A host file imports the names from `typeshade/runtime` (here its source), and they meet the
+    // view's: a plain literal is a value of each, and a name is not another name.
+    const runtime = JSON.stringify(resolve(__dirname, '../../runtime.ts'));
+    const host = (line: string): string =>
+      `import type { f32, u32, vec2, vec4 } from ${runtime};\nimport { height } from './terrain.shade.ts';\nconst p: vec2 = [0.5, 0.5];\nconst k: vec4 = [1, 0.5, 2, 0.25];\n${line}\n`;
+    expect(await hostErrors(TERRAIN, host('export const h: f32 = height(p, k);'))).toEqual([]);
+    expect(await hostErrors(TERRAIN, host('export const n: u32 = height(p, k);'))).toEqual([
+      'app.ts TS2322',
+    ]);
   });
 
   it('catches a wrong host call at the host line', async () => {
@@ -357,7 +376,10 @@ function hover(
 ): { documentation: string; errors: string[] } {
   const files = new Map([
     ['/app/m.shade.typeshade.ts', view],
-    ['/app/runtime.ts', 'export type Resident<T> = T;\nexport type Pack<T> = T;\n'],
+    [
+      '/app/runtime.ts',
+      `export type Resident<T> = T;\nexport type Pack<T> = T;\nexport type * from ${JSON.stringify(FAMILY)};\n`,
+    ],
     ['/app/app.ts', host],
   ]);
   const options: ts.CompilerOptions = {
@@ -451,7 +473,7 @@ export function height(p: vec2, k: vec4): f32 {
 export const EPS: f32 = 0.001;
 `);
     expect(f.view).toContain(
-      '/** The step of the finite difference. */\nexport declare const EPS: number;\n',
+      '/** The step of the finite difference. */\nexport declare const EPS: f32;\n',
     );
   });
 
@@ -525,10 +547,10 @@ export declare class Particle {
   /**
    * Where it is, in world units.
    */
-  pos: [number, number];
+  pos: vec2;
   /** How fast it moves. */
-  vel: [number, number];
-  mass: number;
+  vel: vec2;
+  mass: f32;
 }
 `);
     // An interface and a type alias stay `export interface`, where the module uses them as structs.
@@ -538,14 +560,14 @@ export interface Probe {
   /**
    * The reading, indented four spaces in the source.
    */
-  value: number;
-  id: number;
+  value: f32;
+  id: u32;
 }
 `);
     expect(f.view).toContain(`export interface Pair {
   /** The left one. */
-  left: number;
-  right: number;
+  left: f32;
+  right: f32;
 }
 `);
   });
@@ -617,38 +639,38 @@ export class Base {
 export declare class Shape {
   constructor();
   /** The x position. */
-  x: number;
-  y: number;
+  x: f32;
+  y: f32;
 }
 /** A circle. */
 export declare class Circle extends Shape {
   constructor();
   /** The radius. */
-  r: number;
+  r: f32;
 }
 `);
     // A base the module does not export is not extended: the class holds its fields, and their comments.
     expect(view).toContain(`export declare class Shown {
   constructor();
   /** The hidden field. */
-  h: number;
-  s: number;
+  h: f32;
+  s: f32;
 }
 `);
     expect(view).toContain(`export interface Tagged {
   /** The id. */
-  id: number;
+  id: u32;
   /** The tag. */
-  tag: number;
+  tag: u32;
 }
 `);
     // A base another file declares is found in the linked source and read in its own file.
     expect(view).toContain(`export declare class Derived {
   constructor();
   /** The base's own field, from the library. */
-  id: number;
+  id: f32;
   /** Its own. */
-  n: number;
+  n: f32;
 }
 `);
   });
@@ -687,11 +709,11 @@ export class OnePole {
     expect(lines.slice(at - 1, at + 6)).toEqual([
       '/** A one-pole lowpass with its state. */',
       'export declare class OnePole {',
-      '  constructor(k: number);',
+      '  constructor(k: f32);',
       '  /** The state of the filter. */',
-      '  z: number;',
-      '  k: number;',
-      '  tick(x: number): number;',
+      '  z: f32;',
+      '  k: f32;',
+      '  tick(x: f32): f32;',
     ]);
     expect(lines[at + 6]).toMatch(
       /^ {2}\/\*\* Not callable from host code \(Rule 8\.20\): it reaches/,
@@ -716,7 +738,7 @@ export class Holder {
     expect(above[3]).toBe(' */');
     expect(f.view).toContain(`export interface Holder {
   /** The count. */
-  n: number;
+  n: u32;
   v: never;
 }
 `);
@@ -736,12 +758,10 @@ export function read(p: Probe): f32 { return p.value; }
     expect(f.view).toContain(
       '/** The shading. */\nexport declare const Shading: { readonly Flat: 0; readonly Smooth: 1; readonly [value: number]: string };\n',
     );
-    expect(f.view).toContain(
-      '/** A probe. */\nexport interface Probe { value: number; id: number }\n',
-    );
+    expect(f.view).toContain('/** A probe. */\nexport interface Probe { value: f32; id: u32 }\n');
     // A class is written as change 0109 declares it, with the comment of the class above it.
     expect(f.view).toContain(
-      '/** A particle. */\nexport declare class Particle {\n  constructor();\n  pos: [number, number];\n  mass: number;\n}\n',
+      '/** A particle. */\nexport declare class Particle {\n  constructor();\n  pos: vec2;\n  mass: f32;\n}\n',
     );
   });
 
@@ -891,7 +911,7 @@ export const LIMIT: f32 = 4.;
 export declare class Particle {
   constructor();
   /** Position, in the library's units. */
-  pos: [number, number];
+  pos: vec2;
 }
 `);
     expect(view).toContain(`/** A shading of the library. */
@@ -902,9 +922,7 @@ export declare const Shading: {
   readonly [value: number]: string;
 };
 `);
-    expect(view).toContain(
-      '/** The limit of the library. */\nexport declare const LIMIT: number;\n',
-    );
+    expect(view).toContain('/** The limit of the library. */\nexport declare const LIMIT: f32;\n');
     // The module's own export and its renamed one keep the comment of their declarations.
     expect(view).toContain('/** Makes a wave. */\nexport declare function mk(');
     expect(view).toContain(
@@ -969,7 +987,7 @@ export function old(x: f32): f32 {
 export const A: f32 = 1., B: f32 = 2.;
 `);
     expect(f.view).toContain(
-      '/** The pair. */\nexport declare const A: number;\nexport declare const B: number;\n',
+      '/** The pair. */\nexport declare const A: f32;\nexport declare const B: f32;\n',
     );
   });
 
@@ -1047,7 +1065,7 @@ export function ident<T>(x: T): T {
     // No comment but the compiler's own, each on one line, as before.
     expect(lines.filter((l) => l.startsWith('/**')).every((l) => l.endsWith(' */'))).toBe(true);
     expect(lines.some((l) => l.startsWith(' *'))).toBe(false);
-    expect(lines).toContain('export declare const EPS: number;');
+    expect(lines).toContain('export declare const EPS: f32;');
     expect(lines).toContain(
       'export declare const Mode: { readonly A: 0; readonly B: 4; readonly [value: number]: string };',
     );
@@ -1055,16 +1073,16 @@ export function ident<T>(x: T): T {
     expect(lines.slice(at, at + 5)).toEqual([
       'export declare class Particle {',
       '  constructor();',
-      '  pos: [number, number];',
-      '  mass: number;',
+      '  pos: vec2;',
+      '  mass: f32;',
       '}',
     ]);
     // A class with a field that has no host value is a type, with the reason on its line (change 0109).
-    expect(lines).toContain('export interface Holder { n: number; v: never }');
+    expect(lines).toContain('export interface Holder { n: u32; v: never }');
     expect(commentAbove(f.view, 'export interface Holder')).toEqual([
       expect.stringMatching(/^\/\*\* A type with no host value \(Rule 8\.21\): .* \*\/$/),
     ]);
-    expect(lines).toContain('export declare function twice(x: number): number;');
+    expect(lines).toContain('export declare function twice(x: f32): f32;');
     // The sentences of a kernel function and of a @compute entry, each ending with the queue sentence.
     const one = (declaration: string): string[] => commentAbove(f.view, declaration);
     expect(one('export declare function scale(')).toEqual([`/** ${KERNEL} ${queued('arrays')} */`]);
