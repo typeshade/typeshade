@@ -342,6 +342,112 @@ export function count(a: array<u32>) {
 }`,
     'This loop runs on the CPU because line 12 calls "apply", which writes "calls". Return the value from "apply" and combine it in the loop instead.',
   ],
+  // #987: a local function is a function of the module named after the body that declares it
+  // (`count_bump`), and the copy of one that takes a function is named after the functions handed
+  // to it (`count_apply_inc`). The author wrote neither: the sentence names the function as it is
+  // declared, `bump` and `apply`, as it names the copy of a function of the top level (#972).
+  [
+    'R5, a local function that writes a module variable',
+    `let calls: u32 = 0;
+export function count(a: array<u32>) {
+  function bump(x: u32): u32 {
+    calls += 1;
+    return x + 1;
+  }
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = bump(a[i]);
+  }
+}`,
+    'This loop runs on the CPU because line 9 calls "bump", which writes "calls". Return the value from "bump" and combine it in the loop instead.',
+  ],
+  [
+    'R5, a local arrow function that writes a module variable',
+    `let calls: u32 = 0;
+export function count(a: array<u32>) {
+  const bump = (x: u32): u32 => {
+    calls += 1;
+    return x + 1;
+  };
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = bump(a[i]);
+  }
+}`,
+    'This loop runs on the CPU because line 9 calls "bump", which writes "calls". Return the value from "bump" and combine it in the loop instead.',
+  ],
+  [
+    'R5, a local function whose own local function writes a module variable',
+    `let calls: u32 = 0;
+export function count(a: array<u32>) {
+  function outer(x: u32): u32 {
+    function inner(y: u32): u32 {
+      calls += 1;
+      return y + 1;
+    }
+    return inner(x);
+  }
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = outer(a[i]);
+  }
+}`,
+    'This loop runs on the CPU because line 12 calls "outer", which writes "calls". Return the value from "outer" and combine it in the loop instead.',
+  ],
+  [
+    'R5, a copy of a local function that takes a function and writes a module variable',
+    `let calls: u32 = 0;
+function inc(x: u32): u32 {
+  return x + 1;
+}
+export function count(a: array<u32>) {
+  function apply(f: (x: u32) => u32, x: u32): u32 {
+    calls += 1;
+    return f(x);
+  }
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = apply(inc, a[i]);
+  }
+}`,
+    'This loop runs on the CPU because line 12 calls "apply", which writes "calls". Return the value from "apply" and combine it in the loop instead.',
+  ],
+  // #987: a read carries no span of its own, so the sentence prints it from the IR with the
+  // names the table holds: a namespace's constant (`Ns.K`, emitted `Ns_K`), an enum's member
+  // (`Mode.B`, emitted `Mode_B`) and a call of a local function (`behind`, emitted `f_behind`).
+  [
+    'R4, a read at a namespace constant',
+    `namespace Ns {
+  export const K: u32 = 1;
+}
+export function f(a: array<f32>) {
+  for (let i: u32 = 1; i < a.length; i++) {
+    a[i] = a[i] + a[i - Ns.K];
+  }
+}`,
+    'This loop runs on the CPU because line 7 reads "a[i - Ns.K]", which another iteration writes. Read from an array the loop does not write.',
+  ],
+  [
+    'R4, a read at an enum member',
+    `enum Mode {
+  A,
+  B,
+}
+export function f(a: array<f32>) {
+  for (let i: u32 = 1; i < a.length; i++) {
+    a[i] = a[i] + a[u32(i32(i) - Mode.B)];
+  }
+}`,
+    'This loop runs on the CPU because line 8 reads "a[u32(i32(i) - Mode.B)]", which another iteration writes. Read from an array the loop does not write.',
+  ],
+  [
+    'R4, a read at a call of a local function',
+    `export function f(a: array<f32>) {
+  function behind(i: u32): u32 {
+    return i - 1;
+  }
+  for (let i: u32 = 1; i < a.length; i++) {
+    a[i] = a[i] + a[behind(i)];
+  }
+}`,
+    'This loop runs on the CPU because line 7 reads "a[behind(i)]", which another iteration writes. Read from an array the loop does not write.',
+  ],
   // #988: a parameter keeps the name its signature gives it and may share it with a value of the
   // module (Rule 3.2), and a local may share its name with a function the module emits under it.
   // The sentence names the parameter or the local as the author wrote it, not the static field or
@@ -1141,6 +1247,74 @@ describe("the first access that is not at the loop counter, in the author's word
         't',
       )?.text,
     ).toBe('t[i + Voice_OFFSET]');
+  });
+
+  it('prints a local function in the index as the author declared it, and its copy by the same name (#987)', () => {
+    // The module emits a local function as `f_bump`, after the function that declares it, and the
+    // copy of one that takes a function as `f_apply_inc`, after the functions handed to it. The
+    // report says `bump` and `apply`. The copy takes the arguments its own parameters name, so the
+    // function handed to it is not one of them.
+    const local = `export function f(out: array<f32>, t: array<f32>) {
+  function bump(i: u32): u32 {
+    return i ^ 1;
+  }
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = t[bump(i)];
+  }
+}`;
+    expect(compiled(local)).toEqual([]);
+    expect(edited(local)).toEqual([]);
+    expect(worded(local, 'f', 't')?.text).toBe('t[bump(i)]');
+    const copy = `function inc(x: u32): u32 {
+  return x + 1;
+}
+export function f(out: array<f32>, t: array<f32>) {
+  function apply(g: (x: u32) => u32, x: u32): u32 {
+    return g(x) ^ 1;
+  }
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = t[apply(inc, i)];
+  }
+}`;
+    expect(compiled(copy)).toEqual([]);
+    expect(edited(copy)).toEqual([]);
+    expect(worded(copy, 'f', 't')?.text).toMatch(/^t\[apply\(/);
+  });
+
+  it('prints a namespace constant and an enum member in the index as the author wrote them (#987)', () => {
+    // The module emits a namespace's constant as `Ns_K` and an enum's member as `Mode_B`, the same
+    // joining a class's static field takes (`Voice_OFFSET`); the report says `Ns.K` and `Mode.B`.
+    const reading = (declaration: string, index: string): string =>
+      `${declaration}\nexport function f(out: array<f32>, t: array<f32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = t[${index}];\n  }\n}`;
+    const cases: [string, string, string][] = [
+      ['namespace Ns {\n  export const K: u32 = 1;\n}', 'i + Ns.K', 't[i + Ns.K]'],
+      ['enum Mode {\n  A,\n  B,\n}', 'u32(i32(i) + Mode.B)', 't[u32(i32(i) + Mode.B)]'],
+      // A constant of the top level, and a constant of a namespace the function does not read,
+      // keep their names.
+      ['const K: u32 = 1;', 'i + K', 't[i + K]'],
+      [
+        'namespace Ns {\n  export const K: u32 = 1;\n}\nconst Ns_L: u32 = 1;',
+        'i + Ns_L',
+        't[i + Ns_L]',
+      ],
+    ];
+    for (const [declaration, index, text] of cases) {
+      const body = reading(declaration, index);
+      expect(compiled(body), body).toEqual([]);
+      expect(edited(body), body).toEqual([]);
+      expect(worded(body, 'f', 't')?.text, body).toBe(text);
+    }
+    // A parameter named like the name the module emits for them is the parameter (#988).
+    const parameters: [string, string][] = [
+      ['namespace Ns {\n  export const K: u32 = 1;\n}', 'Ns_K'],
+      ['enum Mode {\n  A,\n  B,\n}', 'Mode_B'],
+    ];
+    for (const [declaration, name] of parameters) {
+      const body = `${declaration}\nexport function f(out: array<f32>, t: array<f32>, ${name}: u32) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = t[i + ${name}];\n  }\n}`;
+      expect(compiled(body), body).toEqual([]);
+      expect(edited(body), body).toEqual([]);
+      expect(worded(body, 'f', 't')?.text, body).toBe(`t[i + ${name}]`);
+    }
   });
 
   it('prints a parameter or a local as the author wrote it when the module emits a static field or a function under its name (#988)', () => {

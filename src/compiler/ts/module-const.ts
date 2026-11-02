@@ -52,6 +52,35 @@ import {
  *  one owner's members share one prefix in the emitted text. */
 export const staticConstName = (owner: string, member: string): string => `${owner}_${member}`;
 
+/** What the source calls each module constant the module emits under another name, by the name it
+ *  emits: `Ns.K` for the `Ns_K` of a namespace's constant, `A.B.K` for `A_B_K`, and `Mode.B` for the
+ *  `Mode_B` of an enum's member. A constant of the top level is emitted as written and has no row,
+ *  and a class's static field is class-names.ts's. A namespace's `const f = (…) => …` is a function
+ *  of the module, so it has none. */
+export function writtenConstNames(sourceFile: ts.SourceFile): [string, string][] {
+  const out: [string, string][] = [];
+  eachNamespaceStatement(sourceFile.statements, sourceFile, [], (stmt, prefix) => {
+    if (ts.isEnumDeclaration(stmt)) {
+      for (const member of stmt.members) {
+        if (!ts.isIdentifier(member.name)) continue;
+        const owner = stmt.name.text;
+        out.push([staticConstName(owner, member.name.text), `${owner}.${member.name.text}`]);
+      }
+      return;
+    }
+    if (prefix === '' || !isTopLevelConst(stmt)) return;
+    for (const decl of stmt.declarationList.declarations) {
+      if (!ts.isIdentifier(decl.name) || localFunctionOf(decl) !== undefined) continue;
+      const written = [decl.name.text];
+      for (let at: ts.Node | undefined = stmt.parent; at !== undefined; at = at.parent) {
+        if (ts.isModuleDeclaration(at) && ts.isIdentifier(at.name)) written.unshift(at.name.text);
+      }
+      out.push([namespaceMemberName(prefix, decl.name.text), written.join('.')]);
+    }
+  });
+  return out;
+}
+
 /** The first call or `new` in a module-scope initializer that reaches a function or a class the
  *  file declares: `g()`, `N.g()`, `C.f()`, `new P(2.)`. A module-scope value is folded before
  *  any function of the module exists, and WGSL refuses the call there too ("user-declared

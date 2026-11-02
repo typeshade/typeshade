@@ -1590,6 +1590,15 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   declares the members again, with its own name in the sentence. A member that a class below runs is
   unchanged: it keeps the types of the functions lowered for that class.
 
+- **A local function and its copy, a namespace constant and an enum member are worded as the author
+  wrote them (#987).** After #979 a `TS8070` sentence still named a local function, and the copy of a
+  local function that takes a function, as the module emits them (`count_bump`, `count_apply_inc`),
+  and the reason of a fusion report printed a namespace constant, an enum member and a call of a
+  local function the same way (`Ns_K`, `Mode_B`, `count_bump(i)`). They are now `bump`, `apply`,
+  `Ns.K`, `Mode.B` and `bump(i)`. A local function is called by the name it is declared with, and
+  TypeScript has no spelling like `count.bump`, so the sentence names it so; a copy is named as the
+  local function it is made from, as the copy of a function of the top level is (#972).
+
 - **A parameter named like the name the module emits a static field or a function under is worded as
   the parameter (#988).** The name table of a kernel function was one map keyed by IR name. A
   parameter keeps the name its signature gives it and may share it with a value of the module (Rule

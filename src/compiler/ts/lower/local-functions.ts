@@ -32,6 +32,7 @@ import {
   type FileFunctions,
   type LoweringScope,
 } from '../context.js';
+import { recordLocalFunction } from '../namespaces.js';
 import { parseParams, parseReturnType } from './function.js';
 import type { Receiver } from './class-methods.js';
 import { closureUse, declarationOf, functionAround, type ClosureUse } from './closures.js';
@@ -87,6 +88,17 @@ export interface LocalFunction {
  *  where it is a module function already. */
 export const localFnName = (owner: string, local: string): string =>
   owner === '' ? local : `${owner}_${local}`;
+
+/** Whether `decl` is declared in the body of a function, a method or an arrow function, as
+ *  opposed to the top level of the file or of a namespace, where a `const f = ...` is a function
+ *  of the module already and keeps the name the namespace gives it (T4, #92). */
+export function declaredInFunction(decl: ts.Node): boolean {
+  for (let at: ts.Node | undefined = decl.parent; at !== undefined; at = at.parent) {
+    if (ts.isModuleDeclaration(at) || ts.isSourceFile(at)) return false;
+    if (ts.isFunctionLike(at)) return true;
+  }
+  return false;
+}
 
 /** The function a `const f = ...` declares, or a `function f() {}` is, or undefined when the
  *  declaration holds no function. */
@@ -185,6 +197,8 @@ export function collectLocalFunctions(
     const stub: FuncDecl = { name, params, ret, body: [] };
     (stub as { span?: unknown }).span = spanOf(sourceFile, node);
     (stub as { nameSpan?: unknown }).nameSpan = spanOf(sourceFile, decl.name);
+    // The module emits it as `fs_f`; a message names it as it is declared (#987).
+    if (declaredInFunction(decl)) recordLocalFunction(stub, local);
     // An optional parameter takes the absent value where a call omits it (change 0093).
     if (fnAt.size === 0) recordParamDefaults(stub, node.parameters, 0, true);
     out.push({
