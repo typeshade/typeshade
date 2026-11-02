@@ -1637,12 +1637,14 @@ async function webgl2Arm(page: Page): Promise<number> {
     failures += 1;
   }
   // One seed at a time, so no one call to the page carries the whole corpus. The claim: every
-  // drawn module's report lists nothing.
+  // drawn module's report lists nothing but a contract seed's `contract` row, whose functions are
+  // held to the same comparison, which decision 3 of change 0107 settles.
   const listed = new Map<string, string>();
   for (const c of corpus) {
     const mine = drawCasesOf(c);
     for (const k of mine)
-      for (const r of determinismReport(k.d.module)) listed.set(`${r.op} (${r.kind})`, k.key);
+      for (const r of determinismReport(k.d.module))
+        if (r.kind !== 'contract') listed.set(`${r.op} (${r.kind})`, k.key);
     const { results, contextLost } = await page.evaluate(drawInPage, {
       jobs: mine.filter((k) => k.refused === undefined).map((k) => k.job),
     });
