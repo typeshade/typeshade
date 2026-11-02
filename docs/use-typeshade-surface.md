@@ -50,6 +50,7 @@ interface Camera {
 declare const camera: uniform<Camera>;
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
+// `storage<f32[]>` and `storage<readonly f32[]>` spell the arrays with no size as TypeScript does (§20).
 
 export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   dst[gid.x] = src[gid.x] * camera.fov;
@@ -1091,6 +1092,10 @@ compile(source, { deprecations: true });
 
 ## 14. TypeScript shapes the parser already had
 
+A kernel function's parameter with no size is written `array<T>` or as TypeScript writes an array,
+`T[]`, `Array<T>`, `readonly T[]` or `ReadonlyArray<T>` (§20, change 0114). `readonly` is the
+promise that the function does not write it.
+
 Parameters and written or inferred results may include null (§76, change 0098). A `?`
 parameter adds undefined to its type; a null default is accepted when the type admits null.
 
@@ -2025,6 +2030,10 @@ until `forRange` takes a step operation.
 
 ## 18. A list as an array's initializer
 
+A list initializes an `array<T, N>`. `T[]` is the array with no size (§20), which lives in storage
+and in a kernel function's parameter only, so `const a: f32[] = [1., 2.]` is refused as
+`const a: array<f32> = [1., 2.]` is (change 0114).
+
 An `array<T, N>` takes a list where its type is written, in a function body and at module
 scope:
 
@@ -2175,6 +2184,35 @@ if ((gid.x >= arrayLength(&src))) {
   return;
 }
 ```
+
+**TypeScript's spelling (change 0114, S1).** An array with no size is also written as TypeScript
+writes an array: `T[]`, `Array<T>`, `readonly T[]` and `ReadonlyArray<T>` each mean `array<T>`
+wherever `array<T>` with no size is accepted: a storage binding's value type
+(`storage<f32[]>`), the trailing array field of a storage struct and a kernel function's
+parameter (§65). Emit, reflection and the CPU oracle are those of `array<T>`, and `xs.length` is a
+`u32` in both halves. `array<T>` stays accepted in this stage.
+
+`readonly` on a parameter, or on a storage binding's value type, is the author's promise that
+nothing writes through the name. A write, `xs[i] = v`, `xs[i] += v`, `xs[i]++`, and a call of
+`push` or `fill`, is refused with `TS8005`: `Cannot write through "xs" — it is declared readonly,
+so nothing writes through it. Remove "readonly" from its type to write through it.` The
+language service shows this sentence once, in place of TypeScript's TS2542 (`xs[i] = v`) and
+TS2339 (`xs.push(v)`). `readonly array<f32>` is not valid TypeScript (TS1354); the compiler
+refuses it with `TS8002`, naming `readonly f32[]`, and the editor shows that sentence alone.
+Where `array<T>` with no size is refused (a local, a result, a list of lists in a binding),
+`T[]` is refused the same way, and where it is accepted (a list of lists as a kernel function's
+parameter) it is accepted the same way.
+
+An array with no size cannot be copied or passed on, so a `readonly` name never reaches a place
+that writes except through a refusal that already stands (`TS8099` on `g(xs)` or `const a: f32[]
+= xs`, `TS8020` on a local function's parameter): the language service shows that sentence alone,
+in place of TypeScript's TS2345, TS4104 and TS2542 about the same flow.
+
+Until a storage binding's access follows from the program (change 0114, S3), `readonly` and
+`"read_write"` are refused together, once, in both halves: `storage<readonly f32[], "read_write">`
+is `TS8002`, `"readonly f32[]" promises that nothing writes the binding, and "read_write" asks for
+a binding that is written. Write the value type without "readonly" to keep "read_write", or drop
+"read_write".` `storage<readonly f32[]>` (read) is accepted.
 
 **What the operand may be** is what WGSL's `arrayLength` accepts: a pointer to a runtime-sized
 array in the storage space, which is the binding itself or a trailing array field of a storage
@@ -4009,6 +4047,7 @@ way. `tsc` is what enforces the distinction, which is where it belongs.
 | `f32 \| undefined` as an enum member or a `Map` or `Record` value, or in a struct or an array that reaches a binding, a module variable, a module constant, an override, an entry point's parameter or result, or a kernel function's parameter or result | an optional value is a local, a parameter, a function's result, and in function scope a struct field or an array element (§76, change 0093), and this position cannot carry its flag: WGSL forbids a `bool` in host-shareable memory, a field or an element in a binding would change a layout `reflect()` reports, and an entry's IO has no `bool` form. The sentence names the field or the element that holds it (`"U" holds "w: f32 \| undefined", …; a binding may not.`). Carry a u32 flag beside the value. |
 | `[f32, vec3]` | a list of several types is a struct. Declare one with a field per element. |
 | `[f32, ...f32[]]` | every array outside storage has a length known at compile time. |
+| `Array<f32, 4>` | `Array<T>` takes one type argument and means the array with no size (§20, change 0114). A list with a size is `array<T, N>`. |
 | `symbol` | a symbol is a JS runtime value. Only a brand key is erased. |
 | `f32 & vec3` | two carriers have different layouts, so no one value is both. |
 | `d instanceof B` | a struct is its fields and nothing else, and dispatch is static, so there is no type tag to read. Give the struct a field saying which kind it holds. |
@@ -10264,7 +10303,7 @@ vector, a matrix, an array with a size or a struct.`
 | the result of such a function, written or inferred (§14, Rule 8.19) | allowed |
 | the parameters and the result of a function-typed parameter (§14, Rule 8.18) | allowed |
 | a field of a class, an interface or a type literal, a parameter property included, `f: T \| undefined` or `f?: T`, the struct in function scope | allowed (change 0093) |
-| an array element, `array<f32 \| undefined, 4>`, the array in function scope | allowed (change 0093); `(f32 \| undefined)[]` is a JS array type, refused as every `T[]` is (§28) |
+| an array element, `array<f32 \| undefined, 4>`, the array in function scope | allowed (change 0093); `(f32 \| undefined)[]` is refused for its element type (`TS8002`, `Unsupported type syntax "(f32 | undefined)"`), since `T[]` is the array with no size (§20, change 0114) |
 | an optional parameter `x?: T` on a helper, a method, a static function, a constructor, a local function, a function-typed parameter's type and an arrow function written as an argument | allowed (change 0093): `x` is `T \| undefined`, and a call may omit it |
 | `x?: T` on an entry point or on a kernel function, `x?: T = d`, a required parameter after an optional one | refused (`TS8020`) |
 | a struct with an optional field, or an array of optionals, as a uniform or storage binding, a workgroup or private module variable, a module constant or an override | refused (`TS8002`) at the declaration, naming the field (change 0093) |

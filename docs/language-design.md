@@ -432,6 +432,7 @@ A _module constant_ is a value fixed at compile time; an _override_ is one fixed
 
 **Rule 6.1.** A resource must be written `declare const x: uniform<T>`, `declare const x: storage<T>`, `declare const x: storage<T, "read_write">`, or `declare const x: <texture or sampler type>`.
 It must have no initializer, and its binding slot is the source order of `declare` in the file.
+An array with no size in `T` may be written `array<T>` or as TypeScript writes it: `storage<f32[]>`, `storage<Array<f32>>`, `storage<readonly f32[]>` (change 0114, S1; surface §20).
 A resource is never declared with `let`: `declare let x: storage<T>` and `declare let x: uniform<T>` are both refused, and each refusal names the `declare const` form of the line it is on.
 
 - Rationale: `declare` is TypeScript's own word for a value that exists elsewhere, which is what a host-owned resource is, and `const` is the only keyword that says anything true about one, since nothing rebinds the name.
