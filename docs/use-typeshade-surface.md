@@ -2590,6 +2590,26 @@ same on both. A struct with a matrix field falls back to the bare `var self_: M;
 matrix is not spelled yet), which is WGSL's zero and GLSL's undefined value, as any local
 declared without an initializer is today.
 
+**A class means one thing wherever it stands** (Rule 8.29, change 0110). A class is its struct
+and its functions. What holds for a struct holds for the class's fields, and what holds for a
+function holds for its constructor, its methods, its accessors and its static functions. That is
+true in every place a struct or a function can be: a binding, a local, a workgroup variable, a
+kernel function's array, a `Resident`, the host face, the CPU tier, the oracle, the host view,
+reflection and a package. `new Ray(a, b)` is a call of `Ray_new` wherever you write it. A method
+that changes its object writes the object you call it on, as an `@inout` argument writes its
+place (§70), so `voices[v].tick()` in a kernel function's loop writes `voices` at `v` (§65).
+Where a host may call a function (§64), the same conditions decide for a method, and a method
+that fails one has the reason a function would have. The rule claims no more than that: a method
+that reaches a binding, a workgroup variable or a builtin only a GPU computes has no host call, a
+host call of a method runs on the CPU tier and never dispatches, and a read of a `Resident` is
+asynchronous. The class arm of `bun run gate:differential` holds the rule. For each exported class
+of the examples and of `journeys/class-twins/` it writes a twin module that builds the class with
+`new` and calls each member a host could call, in an entry and in a kernel function's loop, and it
+calls the member on the host class too (§64). Every result and every field after the call must be
+the oracle's bits on WebGPU, on WebGL2, on the CPU tier and on the host, or within the room a row
+of the determinism report leaves (§38). A member the host may not call must be refused by the host
+class with the same reason.
+
 **A method that reads its object reads it in place** (Rule 8.28, change 0103). When the object
 is a place (a `let` local, on WGSL any struct or array local (change 0105), a module variable, a uniform, a storage element, or a field or an
 element of one of those), the call does not copy it. WGSL takes it as a pointer into the
@@ -7764,6 +7784,10 @@ is selected. A smaller upload is a memory result; complete-call speed requires m
 - R5: a function it calls writes no module variable and no binding;
 - R6: it has no barrier, no workgroup memory and no `console` call.
 
+A method that changes its object, called on an element of an array parameter, is a write to that
+element at that index, as an `@inout` argument is (Rule 8.29), so `voices[v].tick()` is a write
+at `v`, which R3 admits.
+
 **A loop the proof refuses runs on the CPU**, with a warning, TS8070, on the loop. The program is
 correct either way. The first sentence names the line and your names, and the second the remedy:
 
@@ -9602,6 +9626,8 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 - F5: the group binds each distinct array of its calls once, and one more for each variable that a reduction at its end folds. A device allows `maxStorageBuffersPerShaderStage` of them to a dispatch: the value in the device's report from `callDevice()` (§65), and 8 where the report has none. The refusal names that value. A scratch array that the entry holds as a local counts for none, and counts for one until the last call that names it has joined.
 - F6: a loop that reduces (§65) can be the last call of a group, and the calls before it run as a prologue of each of its iterations. Nothing joins a group after it. A reduction alone is not fused.
 - F7: the calls of a group run at one workgroup size. A call with `@workgroup_size` (§65) sets it, and every call of a group that sets one sets the same size. A call with none takes the size of its group, which is 64 when no call sets one. A reduction runs at 256, so a call that sets a size joins it only at 256.
+
+The facts read a method call's accesses through the object it is called on (Rule 8.29), so a chain of methods fuses as the same chain written inline: `voices[i].level()` reads `voices` at `i`, and a call that reads `voices[i + 1].level()` stands apart with `` b reads `voices[i + 1]` ``.
 
 **What stays apart, and how the report says it.** A call that does not join the group before it starts a group of its own, and the `why` of that group says in your names which fact failed. Its words are `a and b run as two dispatches because` and a reason, where `a` is the call that the fact fails against and `b` the call that stands apart. An access is given as the compiler words it for `TS8070` (§65): the access as you wrote it, and the one-based line of its statement. These are all the reasons:
 
