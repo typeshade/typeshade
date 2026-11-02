@@ -35,8 +35,8 @@ export interface ExportDocs {
   /** The blocks attached to the declaration, in source order. */
   readonly blocks: readonly DocBlock[];
   /** The blocks attached to each member of an `enum`, each field of a struct and each member of a
-   *  class, by `memberKey`: a field or a method by its name, the other members of a class as that
-   *  function says. */
+   *  class. A member goes by `memberKey`, which is its name for an enum member, a field and an
+   *  instance method, and the constructor of a class by `CONSTRUCTOR`. */
   readonly members: ReadonlyMap<string, readonly DocBlock[]>;
 }
 
@@ -125,7 +125,8 @@ function carriesComment(member: ts.Node): boolean {
   );
 }
 
-/** The members of an `enum` or a struct declaration that the view writes with a comment. */
+/** The members of an `enum`, a struct or a class declaration that the view may write with a
+ *  comment. */
 function membersOf(decl: ts.Node): readonly ts.Node[] {
   if (ts.isEnumDeclaration(decl) || ts.isClassDeclaration(decl) || ts.isInterfaceDeclaration(decl))
     return decl.members.filter(carriesComment);

@@ -1656,6 +1656,50 @@ export class Base {
 `);
   });
 
+  it('writes the members of a class a module re-exports with the comments of the file that declares it (Rule 3.9)', () => {
+    const files: Readonly<Record<string, string>> = {
+      '/app/m.shade.ts': `"use typeshade";
+export { Wave } from "./lib.shade.ts";
+`,
+      '/app/lib.shade.ts': `"use typeshade";
+
+/** A wave. */
+export class Wave {
+  a: f32 = 1.;
+  /** Builds a wave. */
+  constructor(a: f32) {
+    this.a = a;
+  }
+  /** The height at \`x\`. */
+  at(x: f32): f32 {
+    return this.a * sin(x);
+  }
+  /** The period of every wave. */
+  static get period(): f32 {
+    return 6.28318;
+  }
+}
+`,
+    };
+    const f = hostFace(files['/app/m.shade.ts']!, {
+      fileName: '/app/m.shade.ts',
+      runtime: RUNTIME,
+      readDocument: (name) => files[name],
+    });
+    expect(f.diagnostics).toEqual([]);
+    expect(f.view).toContain(`/** A wave. */
+export declare class Wave {
+  /** Builds a wave. */
+  constructor(a: number);
+  a: number;
+  /** The height at \`x\`. */
+  at(x: number): number;
+  /** The period of every wave. */
+  static get period(): number;
+}
+`);
+  });
+
   it('does not carry the comment of an overload signature: the face reads the implementation', () => {
     const f = face(`"use typeshade";
 
