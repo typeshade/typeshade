@@ -7,7 +7,7 @@ links:
 - RULE-0404: ONWpyTwbxPxCzEsp04Mf1KkF4QxeOEgzUeq3nP1SP4o=
 - RULE-0607: FKCVppSPJ-V9Hnx-zkI4rEbYbGwaXYHOQPIfvfF-wwY=
 - RULE-1120: xToEY27JoFqnUJixM5F0Crd92ru3ELEhuwsS0iYlwMw=
-- RULE-1122: TrosA4qMGwBRsmIv_ptKQxYc9NNf8ls1RvYBjEDiFcI=
+- RULE-1122: hMdSjlEto3ACAQDZA-GnebnpinNaAbOEESXKSdNNX8Y=
 - RULE-1207: Mvr2vY3Krl66Bglu9ejs51aqLb_3vraF1hO4FLdrK48=
 normative: true
 ref: ''
