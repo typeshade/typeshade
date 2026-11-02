@@ -12,7 +12,9 @@
 //
 //   tier  A call joins a group only when it runs on WebGPU, as does every call in the group.
 //         WebGL2 runs the calls apart (decision 5 of the change is deferred); the CPU tier never
-//         fuses, so it runs them one after another and says nothing.
+//         fuses, so it runs them one after another and says nothing. A group that runs on a later
+//         tier than the best tier of its plan, and that the facts give no reason, says what each
+//         tier before its own had against its call (`onLaterTier`, change 0118).
 //   F1    The function lowers, was built with `typeshade({ fuse: true })`, has one loop, and the
 //         loop neither scatters nor continues of its own accord, and runs an iteration, and the
 //         function stores nothing into an array after its loops, the call passes no held
@@ -107,6 +109,23 @@ export interface Group {
 /** The words a refusal on WebGL2 gives; the report of a scope on that tier says it of each group
  *  but the first. */
 export const WEBGL2_APART = 'WebGL2 runs the calls apart';
+
+/** How a sentence of the report names a tier. */
+const TIER_WORDS: Readonly<Record<Tier, string>> = {
+  webgpu: 'WebGPU',
+  webgl2: 'WebGL2',
+  cpu: 'the CPU',
+};
+
+/**
+ * The reason of a group that runs on a later tier than the best tier of its plan, when the facts
+ * give the group no reason (change 0118): `b runs on the CPU, ` or `b runs on WebGL2, `, then the
+ * reason of each tier of the owner's policy before the group's own, in the policy's order, joined
+ * by `; `. Each reason is the call layer's (`tierFit`, `entryTierFit`), the one the `Error` of a
+ * call that no tier can run gives that tier, without its `webgpu: `, `webgl2: ` or `cpu: `.
+ */
+export const onLaterTier = (name: string, tier: Tier, why: readonly string[]): string =>
+  `${name} runs on ${TIER_WORDS[tier]}, ${why.join('; ')}`;
 
 /** The default of `maxStorageBuffersPerShaderStage`, for a device that reports none. */
 export const DEFAULT_STORAGE_BUFFERS = 8;

@@ -12,6 +12,8 @@ interface Result {
   readonly tier: string;
   readonly dispatches: number;
   readonly fused: boolean;
+  /** The tier each group of the report ran on (change 0118). */
+  readonly groupTiers: readonly string[];
 }
 interface Observation {
   readonly gpu?: Result;
@@ -139,7 +141,9 @@ export async function automaticFusion(
                 JSON.stringify(value.values) === '[9,-9,21]' &&
                 value.tier === (gpu ? 'webgpu' : 'cpu') &&
                 value.dispatches === (gpu ? 1 : 0) &&
-                value.fused === gpu,
+                value.fused === gpu &&
+                value.groupTiers.length > 0 &&
+                value.groupTiers.every((t) => t === (gpu ? 'webgpu' : 'cpu')),
               `automatic fuse ${mode} in a fresh ${realm} records once, nests and reserves its queue before loading (${observed.error ?? observed.worker?.error ?? JSON.stringify(value)})`,
             ]);
           if (mode === 'offline')

@@ -32,6 +32,8 @@ export async function run(tier: 'webgpu' | 'cpu' = 'webgpu') {
       tier: report.tier,
       dispatches: report.dispatches,
       fused: report.groups[0]?.fused === true,
+      // The tier each group ran on (change 0118).
+      groupTiers: report.groups.map((g) => g.tier),
     };
   } finally {
     await owner.dispose();

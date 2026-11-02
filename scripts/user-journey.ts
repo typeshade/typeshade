@@ -641,7 +641,8 @@ const foldLevels = (n: number, count = Math.ceil(n / KERNEL_TREE)): number =>
 /** The WebGPU reports of `loop-fuse` (change 0058): the chain `add → mul → relu` is one fused
  *  group and one dispatch; with `pairsum` between, two groups, the second saying why in the
  *  author's words, with the line; and `add → mul → total` is one fused group whose loop is one
- *  dispatch, followed by a dispatch for each level of partials, all in one submission. */
+ *  dispatch, followed by a dispatch for each level of partials, all in one submission. Each group
+ *  of each report names WebGPU as the tier it ran on (change 0118). */
 function checkFuseReports(
   reports: Record<string, unknown> | undefined,
   check: (ok: boolean, what: string) => void,
@@ -653,15 +654,19 @@ function checkFuseReports(
     groups: {
       calls: string[];
       fused: boolean;
+      tier: string;
       why?: string;
       workgroupShapes?: number[][];
     }[];
   };
+  /** Whether every group of `r` ran on WebGPU (change 0118). */
+  const onWebgpu = (r: Report): boolean => r.groups.every((g) => g.tier === 'webgpu');
   const entry = reports?.['entry-overrides'] as Report | undefined;
   check(
     entry?.tier === 'webgpu' &&
       entry.dispatches === 1 &&
       entry.submissions === 1 &&
+      onWebgpu(entry) &&
       JSON.stringify(entry.groups.map((g) => [g.calls, g.workgroupShapes])) ===
         JSON.stringify([[['scale'], [[32, 1, 1]]]]),
     `host example host-compute: selected entry shape, one dispatch and one submission (${JSON.stringify(entry)})`,
@@ -673,6 +678,7 @@ function checkFuseReports(
   check(
     chain?.tier === 'webgpu' &&
       chain.dispatches === 1 &&
+      onWebgpu(chain) &&
       calls(chain) === JSON.stringify([['add', 'mul', 'relu']]) &&
       chain.groups[0]?.fused === true,
     `host example loop-fuse: add → mul → relu is one fused dispatch on WebGPU (${JSON.stringify(chain)})`,
@@ -681,6 +687,7 @@ function checkFuseReports(
   check(
     split?.tier === 'webgpu' &&
       split.dispatches === 2 &&
+      onWebgpu(split) &&
       calls(split) ===
         JSON.stringify([
           ['add', 'mul'],
@@ -696,6 +703,7 @@ function checkFuseReports(
     reduce?.tier === 'webgpu' &&
       reduce.dispatches === 1 + folds &&
       reduce.submissions === 1 &&
+      onWebgpu(reduce) &&
       calls(reduce) === JSON.stringify([['add', 'mul', 'total']]) &&
       reduce.groups[0]?.fused === true,
     `host example loop-fuse: add → mul → total is one fused group, the loop's dispatch and ${folds} fold(s) in one submission, on WebGPU (${JSON.stringify(reduce)})`,

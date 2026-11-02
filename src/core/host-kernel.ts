@@ -825,6 +825,103 @@ async function syncAll(
     if ((await s?.sync()) === true && run !== undefined) run.counts.submissions++;
 }
 
+/** What one tier of the call layer makes of a checked call (Rule 11.8): the reason it cannot run
+ *  the call, or what it runs the call with. */
+export type TierFit =
+  | { readonly why: string }
+  | { readonly why?: undefined; readonly tier: 'webgpu'; readonly d: GpuDevice }
+  | { readonly why?: undefined; readonly tier: 'webgl2'; readonly gl: WebGL2RenderingContext }
+  | { readonly why?: undefined; readonly tier: 'cpu' };
+
+/**
+ * Whether `tier` can run the checked call `c` of `k` for `owner` (Rule 11.8). It gives the WebGPU
+ * device, the WebGL2 context with every program of the call compiled, or the CPU tier. Otherwise
+ * it gives the reason in the words that the `Error` of a call no tier can run gives the tier,
+ * after `webgpu: `, `webgl2: ` or `cpu: `.
+ *
+ * This is the one place that words the reason of each tier. `runChecked` runs a call on the first
+ * tier that can run it. The planner of a `fuse` scope settles the same tier before anything runs,
+ * and a group that runs on a later tier than its plan's says the reasons of the tiers before its
+ * own (Rule 11.13, change 0118).
+ */
+export async function tierFit(
+  k: KernelFace,
+  c: CheckedCall,
+  owner: CallOwner,
+  tier: Tier,
+): Promise<TierFit> {
+  const { hosts, ranges, held } = c;
+  if (tier === 'webgpu') {
+    if (k.gpu === undefined || ranges === undefined)
+      return { why: `it runs on the CPU, ${k.noGpu ?? 'unknown'}` };
+    // A texture of the CPU tier's memory binds on no GPU tier (change 0077).
+    const cpuOnly = k.params.find((p, i) => p.k === 'texture' && isCpuTexture(hosts[i]));
+    if (cpuOnly !== undefined)
+      return { why: `parameter "${cpuOnly.name}" is a texture of the CPU tier's memory` };
+    // The array a held length is passed for that the WGSL a call runs gives no length word: the
+    // pushes would start at 0 there, so such a call runs on the CPU tier (change 0094).
+    const unheld = held.findIndex(
+      (h, i) =>
+        h !== undefined && !variantOf(k, true).words.some((w) => w.param === k.params[i]!.name),
+    );
+    if (unheld >= 0)
+      return {
+        why: `its pushes onto "${k.params[unheld]!.name}" start after a held length only on the CPU tier`,
+      };
+    const d = await owner.device();
+    if (d === null) return { why: 'there is no WebGPU device' };
+    // The entry that stores after the loops binds every array, the partials of each loop that
+    // reduces and the length words (change 0094): on a device that allows fewer storage buffers
+    // to a stage, the call runs on the next tier.
+    const most = d.limits?.maxStorageBuffersPerShaderStage ?? STORAGE_BUFFERS;
+    const stores =
+      k.gpu.finish === undefined
+        ? 0
+        : finishOf(
+            k,
+            owner.fp64Flavor(d),
+            held.some((h) => h !== undefined),
+          ).bindings.filter((b) => b.space === 'storage').length;
+    if (stores > most)
+      return {
+        why: `its stores after the loops bind ${String(stores)} storage buffers, and the device allows ${String(most)}`,
+      };
+    // The range entry and the entry of a loop whose range the device holds bind the trip buffer
+    // and the length words besides the arrays (change 0094).
+    const ranged = deviceBindings(
+      k,
+      owner.fp64Flavor(d),
+      held.some((h) => h !== undefined),
+    );
+    if (ranged !== undefined && ranged.count > most)
+      return {
+        why: `loop ${String(ranged.loop + 1)} reads its trip count from an array, and its entries bind ${String(ranged.count)} storage buffers, which the device allows ${String(most)}`,
+      };
+    return { tier, d };
+  }
+  if (tier === 'webgl2') {
+    if (k.gl === undefined || k.gpu === undefined || ranges === undefined)
+      return { why: `it runs on the CPU, ${k.noWebgl2 ?? k.noGpu ?? 'unknown'}` };
+    const gl = glContext();
+    if (gl === null) return { why: 'there is no WebGL2 context' };
+    // Every program first, so that one WebGL2 refuses leaves no array half written. A program is
+    // compiled once for each loop, so a plan that settled the tier compiles nothing again.
+    try {
+      for (const loop of k.gl.loops) compileGl(gl, loop);
+    } catch (e) {
+      return { why: e instanceof Error ? e.message : String(e) };
+    }
+    return { tier, gl };
+  }
+  // The CPU tier reads a texture of its own memory, and an ImageData, which it copies (change 0077).
+  const unread = k.params.find((p, i) => p.k === 'texture' && !cpuReads(hosts[i]));
+  if (unread !== undefined)
+    return {
+      why: `parameter "${unread.name}" is a texture the CPU tier cannot read; it reads an ImageData and a texture a device on the CPU tier made`,
+    };
+  return { tier: 'cpu' };
+}
+
 /**
  * Run a checked call on the first tier it may use, and resolve to its result.
  *
@@ -872,68 +969,14 @@ export async function runChecked(
   );
   // A held length's word, which the CPU tier reads and writes on the host (change 0094).
   const words = held.map((h) => h?.state);
-  // The array a held length is passed for that the WGSL a call runs gives no length word: the
-  // pushes would start at 0 there, so such a call runs on the CPU tier (change 0094).
-  const unheld = held.findIndex(
-    (h, i) =>
-      h !== undefined &&
-      k.gpu !== undefined &&
-      !variantOf(k, true).words.some((w) => w.param === k.params[i]!.name),
-  );
-  // A texture of the CPU tier's memory binds on no GPU tier (change 0077).
-  const cpuOnly = k.params.find((p, i) => p.k === 'texture' && isCpuTexture(hosts[i]));
   for (const tier of owner.tiers()) {
-    if (tier === 'webgpu') {
-      if (k.gpu === undefined || ranges === undefined) {
-        why.push(`webgpu: it runs on the CPU, ${k.noGpu ?? 'unknown'}`);
-        continue;
-      }
-      if (cpuOnly !== undefined) {
-        why.push(`webgpu: parameter "${cpuOnly.name}" is a texture of the CPU tier's memory`);
-        continue;
-      }
-      if (unheld >= 0) {
-        why.push(
-          `webgpu: its pushes onto "${k.params[unheld]!.name}" start after a held length only on the CPU tier`,
-        );
-        continue;
-      }
-      const d = await owner.device();
-      if (d === null) {
-        why.push('webgpu: there is no WebGPU device');
-        continue;
-      }
-      // The entry that stores after the loops binds every array, the partials of each loop that
-      // reduces and the length words (change 0094): on a device that allows fewer storage buffers
-      // to a stage, the call runs on the next tier.
-      const most = d.limits?.maxStorageBuffersPerShaderStage ?? STORAGE_BUFFERS;
-      const stores =
-        k.gpu.finish === undefined
-          ? 0
-          : finishOf(
-              k,
-              owner.fp64Flavor(d),
-              held.some((h) => h !== undefined),
-            ).bindings.filter((b) => b.space === 'storage').length;
-      if (stores > most) {
-        why.push(
-          `webgpu: its stores after the loops bind ${String(stores)} storage buffers, and the device allows ${String(most)}`,
-        );
-        continue;
-      }
-      // The range entry and the entry of a loop whose range the device holds bind the trip buffer
-      // and the length words besides the arrays (change 0094).
-      const ranged = deviceBindings(
-        k,
-        owner.fp64Flavor(d),
-        held.some((h) => h !== undefined),
-      );
-      if (ranged !== undefined && ranged.count > most) {
-        why.push(
-          `webgpu: loop ${String(ranged.loop + 1)} reads its trip count from an array, and its entries bind ${String(ranged.count)} storage buffers, which the device allows ${String(most)}`,
-        );
-        continue;
-      }
+    const fit = await tierFit(k, c, owner, tier);
+    if (fit.why !== undefined) {
+      why.push(`${tier}: ${fit.why}`);
+      continue;
+    }
+    if (fit.tier === 'webgpu') {
+      const { d } = fit;
       run?.tiers.add(tier);
       const physical =
         run === undefined && states.every((s) => s === undefined) ? projectedInputs(k, hosts) : k;
@@ -942,7 +985,7 @@ export async function runChecked(
         physical,
         hosts,
         states,
-        ranges,
+        ranges!,
         run,
         owner.fp64Flavor(d),
         values,
@@ -950,23 +993,8 @@ export async function runChecked(
       );
       return result(async () => tailResult(cpu, k, values, await folded()));
     }
-    if (tier === 'webgl2') {
-      if (k.gl === undefined || k.gpu === undefined || ranges === undefined) {
-        why.push(`webgl2: it runs on the CPU, ${k.noWebgl2 ?? k.noGpu ?? 'unknown'}`);
-        continue;
-      }
-      const gl = glContext();
-      if (gl === null) {
-        why.push('webgl2: there is no WebGL2 context');
-        continue;
-      }
-      // Every program first, so that one WebGL2 refuses leaves no array half written.
-      try {
-        for (const loop of k.gl.loops) compileGl(gl, loop);
-      } catch (e) {
-        why.push(`webgl2: ${e instanceof Error ? e.message : String(e)}`);
-        continue;
-      }
+    if (fit.tier === 'webgl2') {
+      const { gl } = fit;
       await run?.flush();
       await syncAll(states, run);
       run?.tiers.add(tier);
@@ -980,33 +1008,25 @@ export async function runChecked(
       // A range the device holds is computed here, on the CPU tier over the host copies, once the
       // draws before it have written them (change 0094, Rule 11.8).
       let drawn = 0;
-      k.gl.loops.forEach((loop, j) => {
+      k.gl!.loops.forEach((loop, j) => {
         const face = k.gpu!.loops[j]!;
-        const r = ranges[j]!.device === true ? glRange(cpu, k, j, live, values) : ranges[j]!;
+        const r = ranges![j]!.device === true ? glRange(cpu, k, j, live, values) : ranges![j]!;
         if (r.n > 0) drawn++;
         onWebgl2(gl, loop, arrays, uniforms, r.start, face.step, r.n);
       });
       // The stores after the loops run on the CPU tier over the host copies the draws wrote
       // (change 0094, Rule 11.8).
-      if (k.gpu.finish !== undefined) finishOnHost(cpu, k, live, values);
+      if (k.gpu!.finish !== undefined) finishOnHost(cpu, k, live, values);
       if (run !== undefined) run.counts.dispatches += drawn;
       const out = tailResult(cpu, k, values, []);
       return result(async () => out);
     }
     // Each texture as the CPU tier's memory: its own, or an ImageData's copy (change 0077).
+    // `tierFit` has checked that the CPU tier reads each one.
     const memory = new Map<string, CpuTexture>();
-    const unread = k.params.find((p, i) => {
-      if (p.k !== 'texture') return false;
-      const t = cpuTextureOf(hosts[i]);
-      if (t !== undefined) memory.set(p.name, t);
-      return t === undefined;
+    k.params.forEach((p, i) => {
+      if (p.k === 'texture') memory.set(p.name, cpuTextureOf(hosts[i])!);
     });
-    if (unread !== undefined) {
-      why.push(
-        `cpu: parameter "${unread.name}" is a texture the CPU tier cannot read; it reads an ImageData and a texture a device on the CPU tier made`,
-      );
-      continue;
-    }
     await run?.flush();
     // The words of the held lengths too: the CPU tier reads the length and writes the new one.
     await syncAll([...states, ...words], run);
@@ -1084,10 +1104,15 @@ function checkTexture(k: KernelFace, p: KernelParam & { k: 'texture' }, v: unkno
  *  undefined for one the CPU tier cannot read (a WebGPU texture, a canvas, a bitmap). */
 function cpuTextureOf(v: unknown): CpuTexture | undefined {
   if (isCpuTexture(v)) return v;
+  return cpuReads(v) ? CpuTexture.fromImageData(v as ImageData) : undefined;
+}
+
+/** Whether the CPU tier reads a texture argument: a `CpuTexture`, or an `ImageData`, which
+ *  `cpuTextureOf` copies. Nothing is copied here. */
+function cpuReads(v: unknown): boolean {
+  if (isCpuTexture(v)) return true;
   const g = globalThis as { ImageData?: abstract new (...a: never[]) => unknown };
-  if (g.ImageData !== undefined && v instanceof g.ImageData)
-    return CpuTexture.fromImageData(v as unknown as ImageData);
-  return undefined;
+  return g.ImageData !== undefined && v instanceof g.ImageData;
 }
 
 /** Whether `k` is a key of the type `key`: an integer in its range, or a number an f32 holds

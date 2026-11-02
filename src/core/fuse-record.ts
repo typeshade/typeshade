@@ -19,7 +19,13 @@ import {
   type GpuDevice,
   type Layout,
 } from './host-entry.js';
-import type { checkEntryCall, indirectOf, residentsOf, runEntry } from './host-compute.js';
+import type {
+  checkEntryCall,
+  entryTierFit,
+  indirectOf,
+  residentsOf,
+  runEntry,
+} from './host-compute.js';
 import { arityError, heldArgument } from './host-arity.js';
 import type { KernelFace } from './host-kernel.js';
 import { defaultOwner, foreignOwner, type CallOwner } from './owner.js';
@@ -96,6 +102,7 @@ interface EntryHost {
   readonly residentsOf: typeof residentsOf;
   readonly indirectOf: typeof indirectOf;
   readonly checkEntryCall: typeof checkEntryCall;
+  readonly entryTierFit: typeof entryTierFit;
   readonly runEntry: typeof runEntry;
 }
 
