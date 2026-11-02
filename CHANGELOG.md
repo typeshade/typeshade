@@ -1570,6 +1570,16 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **An `f64` local kept across a barrier runs on WebGL2 (#970).** The pass program of change 0054
+  keeps each local of a split entry in its record between passes, in 32-bit words, and refused
+  every scalar but `u32`, `i32`, `f32` and `bool`:
+  `fftSmallDouble(): no tier it may use can run it (webgl2: a f64 cannot be kept in state)`. An
+  emulated double is now kept as the two `f32` words the GPU holds it as, `hi` and `lo`, and a
+  `vecN<f64>` as a pair for each lane; the next pass reads back their sum, which is the same pair.
+  A matrix of doubles is still refused, now with its own reason
+  (`a mat2x2<f64> cannot be kept in state`), since the emulation reads no column of one. Such an
+  entry also needs its `_fp64` guard bound on WebGL2 (#966).
+
 - **A local function and its copy, a namespace constant and an enum member are worded as the author
   wrote them (#987).** After #979 a `TS8070` sentence still named a local function, and the copy of a
   local function that takes a function, as the module emits them (`count_bump`, `count_apply_inc`),

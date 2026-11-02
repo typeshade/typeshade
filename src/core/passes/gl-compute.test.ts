@@ -11,8 +11,12 @@ import { compileTsSource } from '../../compiler/ts/source-file.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { emittedStructDecls } from '../../compiler/ts/structs.js';
 import { emittedName, spellingsOf } from '../spelling-plan.js';
-import type { ModuleDecl } from '../ir/index.js';
-import { buildGlCompute } from './gl-compute.js';
+import type { Expr, FuncDecl, ModuleDecl, ShaderType } from '../ir/index.js';
+import { f64T, vec3f64T } from '../ir/types.js';
+import { buildGlCompute, Lanes } from './gl-compute.js';
+import { fp64Lower } from './fp64-lower.js';
+import { compileModule } from '../oracle.js';
+import { splitF64 } from '../fp64/df64-lib.js';
 import { PROGRAMS } from '../testing/compute-programs.js';
 import { stageOf } from '../ir/index.js';
 import { dispatchCompute } from '../debug/dispatch.js';
@@ -423,5 +427,102 @@ export const main = compute([4], function main(i: builtin<"local_invocation_inde
     expect(model).toEqual(oracle);
     // fract(x) = x - floor(x) + 0.5, then clamp(x, 1, 2) = x + 3, read across the barrier.
     expect(oracle.out).toEqual([3.5, 4.25, 4, 3.75]);
+  });
+});
+
+describe('an emulated double kept in state across a barrier (#970)', () => {
+  /** An FFT entry that keeps its twiddle, an emulated double, in a local across a barrier, as
+   *  typeshade/typeaudio#9 wrote it; `local` is the double's declaration. */
+  const entry = (local: string, use: string) =>
+    compile(`"use typeshade";
+declare const data: storage<array<f32>, "read_write">;
+let tile: workgroup<array<f32, 64>>;
+export const fftSmallDouble = compute([64, 1, 1], function fftSmallDouble(li: builtin<"local_invocation_index", u32>): void {
+  ${local}
+  tile[li] = data[li];
+  workgroupBarrier();
+  data[li] = tile[(li + 1) % 64] * ${use};
+});
+`);
+
+  it('keeps an f64 as its two words, hi and lo, and a vec3f64 as three pairs', () => {
+    const scalar = entry(
+      'const angle: f64 = f64(-6.283185307179586) * f64(f32(li)) / f64(64.);',
+      'f32(cos(angle)) + f32(sin(angle))',
+    );
+    expect(scalar.diagnostics).toEqual([]);
+    const p = buildGlCompute(scalar.module, 'fftSmallDouble');
+    // The state of `angle` is two words, zeros before the first pass.
+    expect(p.init.filter(([, words]) => words.length === 2)).toEqual([
+      [expect.any(Number), [0, 0]],
+    ]);
+    // A pass saves the nearest f32 and what is left of the double, and the next reads their sum.
+    expect(p.vertex).toMatch(/= floatBitsToUint\(df64_narrow\(_phv0_angle\)\);/);
+    expect(p.vertex).toMatch(/= floatBitsToUint\(df64_narrow\(df64_sub\(/);
+    expect(p.vertex).toMatch(
+      /_phv0_angle = df64_add\(vec2\(uintBitsToFloat\(_phx_rt\d+\.[xyzw]\), 0\.0\), vec2\(uintBitsToFloat\(_phx_rt\d+\.[xyzw]\), 0\.0\)/,
+    );
+    const vector = entry(
+      'const p: vec3f64 = vec3f64(f64(f32(li)), f64(0.1), f64(-2.5));',
+      'f32(p.x) + f32(p.y + p.z)',
+    );
+    expect(vector.diagnostics).toEqual([]);
+    const q = buildGlCompute(vector.module, 'fftSmallDouble');
+    expect(q.init.filter(([, words]) => words.length === 6)).toEqual([
+      [expect.any(Number), [0, 0, 0, 0, 0, 0]],
+    ]);
+  });
+
+  it('reads back the pair the emulation holds, on a machine that rounds each f32 as the GPU does', () => {
+    const lanes = new Lanes(new Map());
+    const trip = (name: string, t: ShaderType): FuncDecl => {
+      const v: Expr = { op: 'param', type: t, name: 'v' };
+      return {
+        name,
+        params: [{ name: 'v', type: t }],
+        ret: t,
+        body: [{ s: 'return', expr: lanes.value(t, lanes.words(t, v)) }],
+      };
+    };
+    const m: ModuleDecl = {
+      consts: [],
+      structs: [],
+      bindings: [],
+      funcs: [trip('scalar', f64T), trip('vector', vec3f64T)],
+    };
+    // `fp64Lower`'s output on a correctly rounding f32 machine, which is what the GPU is.
+    const cpu = compileModule(fp64Lower(m), { precision: 'f32' });
+    let seed = 970;
+    const next = (): number => {
+      seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+      return seed / 4294967296;
+    };
+    const doubles = [0, 1, -1, Math.PI, -Math.E, 1 / 3, 2 ** 100 / 3, 3e-30 / 7];
+    for (let k = 0; k < 500; k++) doubles.push((next() * 2 - 1) * 10 ** (next() * 40 - 20));
+    for (const x of doubles) {
+      const pair = splitF64(x);
+      expect(cpu.fns['scalar']!(pair), String(x)).toEqual(pair);
+    }
+    // A vector of doubles is a pair for each lane: the emulation's hi and lo planes.
+    const [a, b, c] = [splitF64(Math.PI), splitF64(-1 / 3), splitF64(2 ** 60 / 7)];
+    const planes = { hi: [a[0], b[0], c[0]], lo: [a[1], b[1], c[1]] };
+    expect(cpu.fns['vector']!(planes)).toEqual(planes);
+  });
+
+  it('refuses a matrix of doubles, which no pass can read a column of', () => {
+    const r = compile(`"use typeshade";
+declare const mu: uniform<mat2<f64>>;
+declare const data: storage<array<f32>, "read_write">;
+let tile: workgroup<array<f32, 64>>;
+export const mm = compute([64, 1, 1], function mm(li: builtin<"local_invocation_index", u32>): void {
+  const m = transpose(mu);
+  tile[li] = data[li];
+  workgroupBarrier();
+  const v = m * vec2<f64>(f64(f32(li)), f64(1.));
+  data[li] = tile[li] + f32(v.x);
+});
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(() => buildGlCompute(r.module, 'mm')).toThrow('a mat2x2<f64> cannot be kept in state');
   });
 });
