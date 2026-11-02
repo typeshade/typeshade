@@ -1581,6 +1581,28 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   is the one diagnostic, in `compile()` and in the editor (Rule 12.4). A variable declared below
   the call still draws `TS8022`, since it is not declared yet where the function runs.
 
+- **An entry that emulates `f64` runs on WebGL2, and a draw WebGL2 refuses rejects the call
+  (#966).** The pass program of such an entry declares the `_fp64` guard,
+  `uniform highp sampler2D _fp64;`, and the executor of change 0054 bound nothing to it. Its
+  sampler read unit 0, where a memory root's `usampler2DArray` is, so WebGL2 refused every draw
+  with `GL_INVALID_OPERATION` ("Two textures of different types use the same sampler location").
+  A refused draw writes no record, so the pass loop ran the same pass again for ever, and the
+  call's promise never settled. The executor now binds a 1 × 1 texture of 1.0 to the guard, on a
+  unit of its own, as a full-screen draw on WebGL2 binds it. After each group of draws it reads
+  the context's error, and a draw that WebGL2 refused rejects the call with an `Error` that names
+  the entry, the program and the error:
+
+  ```text
+  typeshade/webgl2: twiddle's pass program did not draw: WebGL2 reported INVALID_OPERATION (0x502)
+  ```
+
+  The program runtime's WebGL2 tier refused the same entry when its dispatch was recorded
+  (`binding "_fp64" (texture_2d<f32>) is not given.`): the manifest lists the guard among the
+  entry's bindings, and the host never passes it. That tier now leaves the guard to the executor,
+  as its WebGPU tier binds a guard of its own. The compile gate's compute cases gain `twiddle` and
+  `butterfly`, which compute a twiddle in the emulated double, the second across a barrier: both
+  WebGL2 tiers must run them and match WebGPU, and the CPU tier runs `twiddle` as well.
+
 - **A read of a static field in a function that has a parameter or a local named like the field's
   emitted name draws no `TS8022` (#999).** The module emits `Voice.OFFSET` as the constant
   `Voice_OFFSET`, and a parameter may have that name (Rule 3.2, change 0039). The read
