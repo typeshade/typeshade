@@ -1423,7 +1423,9 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   difference four times, once per lane of `length`. When the operand holds such a repeat, the
   short circuit now becomes `var _sc: bool = a; if (_sc) { _sc = b; }` (`_sc == false` for
   `||`), and the repeat is bound once inside the `if`. The operand still runs only when the
-  authored code runs it. No golden changes.
+  authored code runs it. No golden changes. The pass adds 326 gzip bytes to the runtime, 292 to
+  emit and 290 to fuse (aggregates +306, +292 and +308), measured with Bun 1.4.4 against
+  `c9efde0`, whose caps #870 set from the same local measurement; CI confirms them.
 
 - **O2 unrolls a loop bounded by an integer module constant, and a one-iteration loop (#869).**
   The unroll proof read only a literal start or bound, so `for (let i = 0; i < AA; i++)` with
