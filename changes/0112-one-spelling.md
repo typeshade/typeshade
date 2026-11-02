@@ -1,7 +1,7 @@
 ---
 id: '0112'
 title: A meaning that an ECMAScript form carries in every case has that one spelling, and `Math` takes scalars as ECMAScript's does
-status: draft
+status: accepted
 rules:
   - '9.4'
   - '9.6'
@@ -35,7 +35,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0112, `status: draft`. The front matter is the identity and lifecycle authority. No approval exists.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Identity and status           | Proposal 0112, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02; see Approval and plan record. No implementation exists.                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Date and attribution          | Authored 2026-11-02, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean. The owner asked why `arrayLength` exists when `.length` is more TypeScript-like, and said there are many such names ("이런게 좀 많다고 느껴져요"). The agent surveyed the ambient library and proposed a test by Rule 1.4 of proposal 0100. The owner also asked whether every author should have to write `Math.` for math; the agent recommended that `Math` keep ECMAScript's scalar meaning and that vector math stay on the WGSL names. The owner answered "승인" to drafting this proposal. No GitHub issue is recorded. |
 | Applicability / effectivity   | `docs/language-design.md` (Rules 9.4 and 9.6, the §9.3 table, a new Rule 9.9, Appendix B), `reqs/`, `docs/use-typeshade-surface.md` (the sections in the front matter), `src/language-service/ambient.ts`, `src/compiler/ts/math-alias.ts` and the fold lowering, `src/core/spec-conformance/surface-names.test.ts`, the tests and four examples that call a removed name. No export, diagnostic code or example id changes. No release version is assigned.                                                                                                                                           |
@@ -196,8 +196,8 @@ section.
 - This proposal cites Rule 1.4 as proposal 0100 words it. If 0100's rule text lands in
   `docs/language-design.md` first, Rule 9.9 cites the rule; if not, it cites the proposal.
 - D1, `pow`: decided on 2026-11-02. `pow` is removed (section 3).
-- D2, open. The refusal of the `any`/`all` fold overloads: `TS8019` (arity) or `TS8004` with a
-  hint. Recommended: `TS8019`, with the fix in the sentence. Reason: `any` and `all` stay
+- D2, decided on 2026-11-02 as recommended. The refusal of the `any`/`all` fold overloads is
+  `TS8019` (arity), with the fix in the sentence. Reason: `any` and `all` stay
   declared, so a two-argument call is a wrong arity, and `TS8004` would call a known name
   unknown.
 
@@ -236,8 +236,9 @@ section.
 
 - 2026-11-02, the owner (Seungup), in a Claude Code session, in Korean ("승인"): D1 decided as
   recommended. `pow` is removed.
-- D2 is open. Acceptance requires the owner's decision on D2 and the merge of this file with
-  `status: accepted`.
+- 2026-11-02, the owner, in the same session ("머지 승인"): the proposal is accepted, with D2
+  decided as recommended (`TS8019`). The merge of this file with `status: accepted` records the
+  decision.
 
 ### Configuration and validation record
 
