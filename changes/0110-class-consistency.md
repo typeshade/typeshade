@@ -343,7 +343,9 @@ Deviations:
   (`"Voice_tally"`, `"Voice_count"`), where Rule 8.22 asks for the author's names: `Wording.name`
   in `src/compiler/ts/kernel-loops.ts` maps only the names of the kernel function's own scope. The
   member form and the inline form agree, so D4's clause does not cover it, and a namespace's
-  functions share it. Filed as issue #908; its fix is in progress. Open until that fix merges.
+  functions share it. Filed as issue #908 and fixed by pull request #953 (squash commit
+  `a659ae36`, 2026-11-02): the sentence names the author's names for a static function, a
+  static field, a method, a constructor and a namespace's functions. Closed.
 
 Pending: none in this repository.
 
