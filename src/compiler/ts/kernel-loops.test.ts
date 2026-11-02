@@ -523,7 +523,7 @@ export const cs = compute([1], function cs() {
   it('is called through the import, asynchronously (the call: host-kernel.test.ts)', () => {
     const f = hostFace(module(RENDER), { fileName: 'm.shade.ts' });
     expect(f.view).toContain(
-      'export declare function render(k: readonly [number, number, number, number], size: number, out: Float32Array | Resident<Float32Array>): Promise<void>;',
+      'export declare function render(k: vec4, size: u32, out: array<f32>): Promise<void>;',
     );
     expect(f.view).toContain('export declare function height(');
   });

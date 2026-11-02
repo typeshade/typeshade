@@ -161,24 +161,31 @@ describe('the class in the view (Rule 8.20)', () => {
     expect(v).toContain(
       [
         'export declare class OnePole {',
-        '  constructor(k: number);',
-        '  z: number;',
-        '  k: number;',
-        '  tick(x: number): number;',
-        '  peek(x: number): number;',
-        '  setK(k: number): OnePole;',
-        '  get gain(): number;',
-        '  set gain(g: number);',
+        '  constructor(k: f32);',
+        '  z: f32;',
+        '  k: f32;',
+        '  tick(x: f32): f32;',
+        '  peek(x: f32): f32;',
+        '  setK(k: f32): OnePole;',
+        '  get gain(): f32;',
+        '  set gain(g: f32);',
         '  static unit(): OnePole;',
-        '  onHit(d: number): number;',
+        '  onHit(d: f32): f32;',
         '}',
       ].join('\n'),
     );
-    // A struct-typed result goes by the class's name, and a parameter takes its fields.
-    expect(v).toContain('export declare function pair(k: number): OnePole[];');
+    // A struct goes by the class's name as a result and as a parameter (change 0116, decision D7),
+    // each in the host type family's names; the call still takes a plain object of the fields
+    // (Rule 8.21), which the host program below type-checks as a refusal.
+    expect(v).toContain('export declare function pair(k: f32): array<OnePole, 2>;');
+    expect(v).toContain('export declare function level(p: OnePole): f32;');
     expect(v).toContain(
-      'export declare function level(p: { readonly z: number; readonly k: number }): number;',
+      'export declare function run(out: array<f32>, xs: array<f32>, filters: array<OnePole>, block: u32): Promise<void>;',
     );
+    expect(v).toContain(
+      'export declare function run(out: Resident<Float32Array>, xs: array<f32>, filters: Resident<OnePole[]>, block: u32): void;',
+    );
+    expect(v).toContain('import type { f32, u32, array } from');
     // `exports` reports the class as the struct it is: `hostFace` keeps the shape of its result.
     expect(kindOf(face(FILTERS).exports, 'OnePole')).toBe('struct');
   });
@@ -367,8 +374,8 @@ describe('a member a host cannot call (Rule 8.20, D3)', () => {
       [
         'export declare class Probe {',
         '  constructor();',
-        '  k: number;',
-        '  scaled(x: number): number;',
+        '  k: f32;',
+        '  scaled(x: f32): f32;',
         `  /** Not callable from host code (Rule 8.20): ${binding}. */`,
         '  lit: never;',
         '  /** Not callable from host code (Rule 8.20): it takes a function, and such a function exists only as the copies the module uses; no proposal adds it yet. */',
@@ -384,7 +391,7 @@ describe('a member a host cannot call (Rule 8.20, D3)', () => {
         'export declare class Lit {',
         `  /** Not callable from host code (Rule 8.20): ${binding}. */`,
         '  protected constructor();',
-        '  k: number;',
+        '  k: f32;',
         '}',
       ].join('\n'),
     );
@@ -442,7 +449,7 @@ export function first(x: f32): f32 { const r = new Reading(); r.w = x; return r.
       typeOnly: true,
     });
     expect(g.view).toContain(
-      `/** A type with no host value (Rule 8.21): ${why}. */\nexport interface Reading { a: number; w: never }`,
+      `/** A type with no host value (Rule 8.21): ${why}. */\nexport interface Reading { a: f32; w: never }`,
     );
     // A type and no value: the module binds nothing under its name.
     expect(g.code).not.toMatch(/ as Reading\b/);
@@ -631,16 +638,16 @@ describe('extends and instanceof (D2)', () => {
   it('declares extends and abstract, and a class below declares what it adds or changes', () => {
     const v = face(SHAPES).view;
     expect(v).toContain(
-      'export declare class Circle extends Base {\n  constructor();\n  r: number;\n}',
+      'export declare class Circle extends Base {\n  constructor();\n  r: f32;\n}',
     );
     expect(v).toContain(
-      'export declare abstract class Shape {\n  w: number;\n  abstract sdf(p: number): number;\n  scaled(p: number): number;\n}',
+      'export declare abstract class Shape {\n  w: f32;\n  abstract sdf(p: f32): f32;\n  scaled(p: f32): f32;\n}',
     );
     expect(v).toContain(
-      'export declare class Ball extends Shape {\n  constructor();\n  sdf(p: number): number;\n}',
+      'export declare class Ball extends Shape {\n  constructor();\n  sdf(p: f32): f32;\n}',
     );
     // An abstract class has no instance: its struct in a result is an object of its fields.
-    expect(v).toContain('export declare function asShape(w: number): { w: number };');
+    expect(v).toContain('export declare function asShape(w: f32): { w: f32 };');
   });
 
   it('holds instanceof along the chain, and a call dispatches as in TypeScript', async () => {
@@ -690,8 +697,13 @@ describe('a host program type-checked against the view (Rule 8.20)', () => {
       'const u: OnePole = OnePole.unit();',
       'const bank: OnePole[] = Array.from({ length: 4 }, () => new OnePole(0.1));',
       'await run(out, xs, bank, 2);',
+      'await run(out, xs, [new OnePole(0.1)], 2);',
+      'const z: number = pair(1)[0]!.tick(1) + level(p) + level(new OnePole(1));',
+      // A plain object of the fields where the class goes is refused at the host line (change
+      // 0116, decisions D7 and D10); the call takes one at run time (Rule 8.21), as the cases of
+      // the kernel function and the helper above check.
+      'level({ z: 0, k: 1 });',
       'await run(out, xs, [{ z: 0, k: 0.1 }], 2);',
-      'const z: number = pair(1)[0]!.tick(1) + level(p) + level({ z: 0, k: 1 });',
       'const b: Base = new Circle();',
       'const s: Shape = new Ball();',
       'const t: number = s.scaled(1) + b.perim() + new Probe().scaled(1);',
@@ -714,8 +726,10 @@ describe('a host program type-checked against the view (Rule 8.20)', () => {
       'const u: OnePole = OnePole.unit();: ',
       'const bank: OnePole[] = Array.from({ length: 4 }, () => new OnePole(0.1));: ',
       'await run(out, xs, bank, 2);: ',
-      'await run(out, xs, [{ z: 0, k: 0.1 }], 2);: ',
-      'const z: number = pair(1)[0]!.tick(1) + level(p) + level({ z: 0, k: 1 });: ',
+      'await run(out, xs, [new OnePole(0.1)], 2);: ',
+      'const z: number = pair(1)[0]!.tick(1) + level(p) + level(new OnePole(1));: ',
+      'level({ z: 0, k: 1 });: TS2345',
+      'await run(out, xs, [{ z: 0, k: 0.1 }], 2);: TS2769',
       'const b: Base = new Circle();: ',
       'const s: Shape = new Ball();: ',
       'const t: number = s.scaled(1) + b.perim() + new Probe().scaled(1);: ',
