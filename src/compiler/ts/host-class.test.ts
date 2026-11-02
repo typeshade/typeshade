@@ -164,6 +164,8 @@ describe('the class in the view (Rule 8.20)', () => {
         '  constructor(k: number);',
         '  z: number;',
         '  k: number;',
+        // The comment of a method stands on its line (change 0108, item 4).
+        '  /** One sample through the filter. */',
         '  tick(x: number): number;',
         '  peek(x: number): number;',
         '  setK(k: number): OnePole;',

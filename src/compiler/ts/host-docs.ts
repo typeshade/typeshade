@@ -5,9 +5,12 @@
 // documentation and writes it back:
 //
 //   - `exportDocs` reads the JSDoc blocks (`/** … */`) attached to an exported declaration, and
-//     to each member of an `enum` and each field of a struct. A block is text: it is copied as the
-//     author wrote it, with its tags (decisions D1 and D2), in source order. A `//` comment and a
-//     `/* */` comment are not JSDoc, and a comment inside a body is not attached to anything.
+//     to each member of an `enum`, each field of a struct and each member of a class: its
+//     constructor, a method, each half of an accessor and a static member (item 4 of the change).
+//     A block is text: it is copied as the author wrote it, with its tags (decisions D1 and D2), in
+//     source order. A `//` comment and a `/* */` comment are not JSDoc, and a comment inside a
+//     body is not attached to anything. A method or a constructor with no body is an overload
+//     signature and is not read: the face reads the implementation.
 //   - `commentLines` writes the comment above an export: the author's blocks, and where the view
 //     has a sentence of its own, that sentence at the end of the last block after one empty
 //     comment line. The editor's hover shows the last block, so it reads the author's words first
@@ -19,6 +22,7 @@
 // `LinkedProgram.map` finds from a position of the linked source.
 
 import ts from 'typescript';
+import { isStaticMember } from './class-names.js';
 import type { LinkedProgram } from './link.js';
 
 /** One JSDoc block as lines. The first line begins with a slash and two stars, and the last ends
@@ -30,8 +34,23 @@ export type DocBlock = readonly string[];
 export interface ExportDocs {
   /** The blocks attached to the declaration, in source order. */
   readonly blocks: readonly DocBlock[];
-  /** The blocks attached to each member of an `enum` and each field of a struct, by name. */
+  /** The blocks attached to each member of an `enum`, each field of a struct and each member of a
+   *  class, by `memberKey`: a field or a method by its name, the other members of a class as that
+   *  function says. */
   readonly members: ReadonlyMap<string, readonly DocBlock[]>;
+}
+
+/** The key of a class's constructor in `ExportDocs.members`. A class has no field of that name. */
+export const CONSTRUCTOR = 'constructor';
+
+/** The key under which `ExportDocs.members` keeps the blocks of a member: its name; for a static
+ *  member `static ` before it; and for one half of an accessor `get ` or `set ` before the name,
+ *  so the two halves keep a comment of their own. */
+export function memberKey(
+  name: string,
+  { isStatic = false, half }: { readonly isStatic?: boolean; readonly half?: 'get' | 'set' } = {},
+): string {
+  return `${isStatic ? 'static ' : ''}${half === undefined ? '' : `${half} `}${name}`;
 }
 
 const STAR = 0x2a;
@@ -85,13 +104,25 @@ function variableBlocks(d: ts.VariableDeclaration, sf: ts.SourceFile): DocBlock[
   return [...above, ...blocksAbove(d, sf)];
 }
 
-/** Whether `member` is one the view writes with the author's comment: a member of an `enum` or a
- *  field of a struct. A method, a constructor, an accessor and a static member are not, since
- *  change 0108 names the members of an `enum` and the fields of a struct. */
+/** Whether `member` is one the view may write with the author's comment: a member of an `enum`, a
+ *  field of a struct, and of a class its constructor, a method, each half of an accessor and a
+ *  field, a static one among them (item 4 of the change). A constructor or a method with no body
+ *  is an overload signature, which the face does not read; an abstract method has no body and is
+ *  the member. Which of these the view declares is the printer's: a static field is no member of
+ *  an exported class there (surface §26). */
 function carriesComment(member: ts.Node): boolean {
-  if (ts.isEnumMember(member) || ts.isPropertySignature(member)) return true;
-  if (!ts.isPropertyDeclaration(member)) return false;
-  return !(ts.getModifiers(member) ?? []).some((m) => m.kind === ts.SyntaxKind.StaticKeyword);
+  if (ts.isConstructorDeclaration(member) || ts.isMethodDeclaration(member))
+    return (
+      member.body !== undefined ||
+      (ts.getModifiers(member) ?? []).some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)
+    );
+  return (
+    ts.isEnumMember(member) ||
+    ts.isPropertySignature(member) ||
+    ts.isPropertyDeclaration(member) ||
+    ts.isGetAccessorDeclaration(member) ||
+    ts.isSetAccessorDeclaration(member)
+  );
 }
 
 /** The members of an `enum` or a struct declaration that the view writes with a comment. */
@@ -122,6 +153,24 @@ function memberName(member: ts.Node): string | undefined {
     : undefined;
 }
 
+/** The key `member` is kept under in `ExportDocs.members`, or `undefined` when it has no plain
+ *  name. A member of an `enum`, a field of a struct and an instance field or method of a class go
+ *  by their names, as before. */
+function keyOf(member: ts.Node): string | undefined {
+  if (ts.isConstructorDeclaration(member)) return CONSTRUCTOR;
+  const name = memberName(member);
+  if (name === undefined) return undefined;
+  const half = ts.isGetAccessorDeclaration(member)
+    ? 'get'
+    : ts.isSetAccessorDeclaration(member)
+      ? 'set'
+      : undefined;
+  return memberKey(name, {
+    isStatic: isStaticMember(member),
+    ...(half !== undefined ? { half } : {}),
+  });
+}
+
 /** The declaration that the author wrote for `decl`, a declaration of the face source, with the
  *  file that holds it. For a linked module, that is the declaration in the file it came from. */
 function writtenDeclaration(
@@ -144,8 +193,11 @@ function writtenDeclaration(
 }
 
 /** The blocks above each member of `decl`, a declaration of `face`. A struct holds the fields of
- *  the base it extends, so a field with no block of its own takes the blocks of the field of that
- *  name in a base, as TypeScript's hover does. `declared` finds a base by its name in `face`. */
+ *  the base it extends, and a class the members of the classes above it, so a member with no block
+ *  of its own takes the blocks of the member of that name in a base, as TypeScript's hover does.
+ *  The constructor is the exception: a class that has a constructor of its own takes no comment
+ *  from the constructor of a base, which another set of parameters documents. `declared` finds a
+ *  base by its name in `face`. */
 function memberDocs(
   decl: ts.Node,
   face: ts.SourceFile,
@@ -157,17 +209,19 @@ function memberDocs(
   const written = seen.has(decl) ? undefined : writtenDeclaration(decl, face, linked);
   if (written === undefined) return members;
   seen.add(decl);
-  for (const member of membersOf(written.node)) {
-    const name = memberName(member);
-    if (name === undefined) continue;
+  const own = membersOf(written.node);
+  const ownConstructor = own.some(ts.isConstructorDeclaration);
+  for (const member of own) {
+    const key = keyOf(member);
+    if (key === undefined) continue;
     const above = blocksAbove(member, written.sf);
-    if (above.length > 0) members.set(name, above);
+    if (above.length > 0) members.set(key, above);
   }
   for (const base of basesOf(decl)) {
     const baseDecl = declared.get(base);
     if (baseDecl === undefined) continue;
-    for (const [name, above] of memberDocs(baseDecl, face, declared, linked, seen))
-      if (!members.has(name)) members.set(name, above);
+    for (const [key, above] of memberDocs(baseDecl, face, declared, linked, seen))
+      if (!members.has(key) && !(key === CONSTRUCTOR && ownConstructor)) members.set(key, above);
   }
   return members;
 }
