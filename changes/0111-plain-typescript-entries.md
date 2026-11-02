@@ -182,6 +182,32 @@ downstream:
 | Review baseline               | `main` at `c9efde0f79df0e6b10883b87c8af21d0c72dfbc9` (the merge of pull request #870), read on 2026-11-02.                                                                                                                                                                                                                                                                                                                       |
 | Review and revision authority | Pull request [#875](https://github.com/typeshade/typeshade/pull/875) (branch `claude/proposal-0111-plain-typescript-entries`). Git records the revisions of this file. The review and merge of its pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                    |
 
+## Amendment 2 (2026-11-02)
+
+This revision amends the accepted plan in one point, found while implementing milestone 1. The
+merge of its pull request is its acceptance. Git holds the earlier text.
+
+**The warning on the old form moves after the migration.** Milestone 1 named the `TS8028`
+warning on a decorator. At the baseline, the 94 examples and most compiler tests are written in
+the decorated form, and many tests require no diagnostic at all. A warning in milestone 1 would
+turn those red before the codemod exists to rewrite them. The milestones are now:
+
+1. The new forms compile beside the old ones, with the ambient declarations, and the language
+   service reads them (hover, navigation, symbols). Delivered: stage calls in #886 and
+   attribute types in #893; the editor features follow.
+2. The `typeshade migrate` codemod and its dry run over `examples/`.
+3. The examples, the tests, the surface document and the rules in the new form, and a CI step
+   that runs a plain `tsc --strict` over every example.
+4. The `TS8028` warning on the old form, and the editor's TS1206 filter and
+   `strictPropertyInitialization` override removed for a file in the new form. This is the
+   migration release of D5.
+5. In the release after the migration release, the old form is refused.
+
+D5 stands: one release warns before the old form is refused. Only the step that turns the
+warning on moves.
+
+The owner approved this order on 2026-11-02 in the Claude Code session ("네").
+
 ## Amendment 1 (2026-11-02)
 
 This revision amends the accepted text in one point, found while implementing milestone 1. The
@@ -420,12 +446,12 @@ the acceptance of the proposal:
   from `grep` at the baseline (D6). The codemod's dry run is owed at implementation.
 - **Responsibilities.** Implementation is not yet assigned. Each implementing pull request
   carries `Change: 0111`.
-- **Milestones.** (1) The new forms compile beside the old ones, with the `TS8028` warning, the
-  ambient types and the language service (no TS1206 filter for a file in the new form).
-  (2) The `typeshade migrate` codemod and its dry run over `examples/`. (3) The examples, the
-  surface document and the rules in the new form, and a CI step that runs a plain
-  `tsc --strict` over every example. (4) In the release after the migration release, the old
-  form is refused. Duration and cost are not estimated.
+- **Milestones.** As Amendment 2 orders them: (1) the new forms beside the old ones, with the
+  ambient declarations and the language service; (2) the `typeshade migrate` codemod and its dry
+  run; (3) the examples, the tests, the surface document and the rules in the new form, and a
+  plain `tsc --strict` CI step; (4) the `TS8028` warning on the old form and the editor filters
+  removed for the new form, the migration release; (5) in the release after it, the old form is
+  refused. Duration and cost are not estimated.
 
 ### Configuration and validation record
 
