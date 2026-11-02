@@ -1,7 +1,7 @@
 ---
 id: '0107'
 title: An author can opt a function or module into named floating-point rewrites that the default O2 refuses, each with a stated domain and a measured error bound
-status: accepted
+status: implemented
 rules:
   - '6.7'
   - '9.6'
@@ -31,7 +31,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0107, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved it on 2026-11-02 (see Approval and plan record).                                                                                                                                                                                                                                                         |
+| Identity and status           | Proposal 0107, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved it on 2026-11-02 (see Approval and plan record); #936 and #941 delivered it (see Configuration and validation record).                                                                                                                                                                                |
 | Date and attribution          | Drafted 2026-11-01, Asia/Seoul, by an AI agent at the maintainer's request. The date is the drafting date. It is not an approval date. The maintainer owns every decision this proposal leaves open. Git authorship of the containing commit is not an approval signature.                                                                                                                                               |
 | Request source                | Issue [#852](https://github.com/typeshade/typeshade/issues/852), split out of [#841](https://github.com/typeshade/typeshade/issues/841) (body section 3). The comments on [#850](https://github.com/typeshade/typeshade/issues/850) (N5, N8) and issue [#851](https://github.com/typeshade/typeshade/issues/851) (N9, N10) name this contract as their prerequisite.                                                     |
 | Applicability / effectivity   | Expected: `src/core/passes/opt/algebraic.ts`, `src/core/passes/opt/optimize.ts` (`OptLevel`, `LEVEL_PASSES`), the `"use typeshade"` front end if an annotation is chosen, `src/core/passes/determinism.ts`, `docs/language-design.md` §11, `docs/use-typeshade-surface.md` §38 and §69, and the emit goldens. The default `'O2'` output does not change. The CPU oracle does not change. No release version is assigned. |
@@ -298,9 +298,79 @@ Nothing else changes.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the accepted revision, the implementation
-commits and pull requests, the delivered configuration, and the observed results of the
-validation evidence listed above.
+**Accepted revision.** The merge of #861 (`7d6b00f3`) on 2026-11-02, amended before
+implementation by Amendment 1 (#926, `1cb928fd`), Amendment 2 (#927, `4a154871`) and Amendment 3
+(#935, `14566606`).
+
+**Implementation.**
+
+- Stage 1: pull request #936, branch `feat/0107-numerics`, commits `89f004d4`, `49dae27c` and
+  `47d51f59` (each `Change: 0107`), merged as `da6ed4b6` on 2026-11-02.
+- Stage 2: pull request #941, branch `feat/0107-contract-rows`, commit `fbf6ec33`
+  (`Change: 0107`), merged as `33ea3e02` on 2026-11-02.
+
+Delivered configuration: `main` at `33ea3e02`.
+
+**What was delivered.**
+
+- Front end: `src/compiler/ts/numerics.ts` reads `numerics([...], f)` and a stage call's
+  `numerics` option once per file and refuses a wrong one with `TS8078` (item 4, Amendment 2);
+  `lower/function.ts` sets `FuncDecl.numerics`; the body lowering says nothing more about a
+  refused call. The ambient library declares the call and the option. `NumericsClass` is exported.
+- `src/core/passes/finite-math.ts`: the `finite-math` class, `x * 0`, `0 * x`, `x - x`,
+  `mix(a, b, 0)` and `mix(a, b, 1)` on `f32`, each with its domain and bound in the header (items
+  3, 5 and 7), run by `lowerForBackend` at `-O2` after `specializeCalls` and before `fp64Lower`. An
+  operand with an effect is kept. `reassociate` holds no rewrite.
+- `src/core/passes/contract-boundary.ts`: `outsideContracts` holds every opted-in function out of
+  `restructureCalls`, `inlineLinearAll`, `forceInline`, `autoInline` and `inlineFn` (item 6).
+- `src/core/passes/determinism.ts`: one `contract` row per class, after every other row
+  (`DeterminismKind` gains `'contract'`; item 8, Amendment 1).
+- Rules 6.7, 9.6 (the §9.3 "contracts" row) and 11.22; surface §3, §38 and §78; `CHANGELOG.md`;
+  `reqs/`; `src/AGENTS.md`; `src/__api__/surface.md`; `scripts/bundle-budget.json` (+595, +551 and
+  +613 gzipped bytes on `typeshade/runtime`, `typeshade/emit` and `typeshade/fuse`).
+
+**Functional validation.** The evidence items of "What it touches":
+
+- `src/compiler/ts/numerics.test.ts` (6 tests, both halves): each accepted form, each `TS8078`
+  form, the `TS8028` of a `@numerics` decorator and the two stage-call options.
+- `src/core/passes/finite-math.test.ts` (13 tests): each rewrite in the opted-in function and not
+  in an exact one; the oracle on NaN, an infinity and a signed zero; an operand with an effect; an
+  `f64` operand left to df64; the identity on a module with no contract; each of the five inlining
+  passes in both directions.
+- `src/core/passes/determinism.test.ts`: the `contract` rows, and none without a contract.
+- `src/common-modules.test.ts`: no common module writes `numerics` (decision 6).
+- Local, 2026-11-02, Bun 1.4.4, Node 22.23.4: on `1cf91e89` (stage 1 before rebase) `npx vitest
+run` 12,001 passed and 13 failed. Nine fail on `main` in the same container
+  (`src/affected-tests.test.ts`, `src/doc-test-selection.test.ts`). One was this change's and was
+  fixed in `49dae27c` (`measure-profile.test.ts`). One read a stale local `dist/`. Two ran while the
+  branch changed under the suite and pass alone. `bun run bake:goldens` on `49dae27c`: 354 passed,
+  no golden changed (the unchanged default). The compile gate did not run locally.
+- CI run 41448255531 on `47d51f59` and CI run 41451945971 on `fbf6ec33`: all 26 checks green on
+  each, among them the compile gate (Tint and WebGL2) with `gate:differential`, the render gate,
+  the user journeys and the unit shards on the pinned TypeScript and on TypeScript 5 and 6.
+
+**Document validation** (2026-11-02): `bun run docs:impact` (0 must fix; the review items in each
+commit's `Docs-Impact:` trailer), `bun run docs:refs` (0 dead references), `bun run reqs:sync`,
+`python scripts/doorstop-check.py -C` (pass after `doorstop review` of RULE-0607, RULE-1122,
+SURF-038 and SURF-078, and `doorstop clear` of SURF-053 and SURF-078, each read against the
+changed text), `bun run bake:api-surface` (only `FuncDecl`, `NumericsClass` and `DeterminismKind`
+changed).
+
+**Deviations.**
+
+1. Amendment 1 says the `finite-math` rewrites match `f32` and `f16`. The IR has no `f16` scalar,
+   so they match `f32` only, and no `f16` operand exists for them to miss. Disposition: closed by
+   this record; the rule and §78 say `f32`.
+2. The validation evidence asks for `bun run gate:differential` with the agreed comparison for a
+   relaxed function (decision 3). No example and no common module opts in, so the gate has no
+   relaxed function to compare, and its exact comparison covers every function it runs. Disposition:
+   open; the comparison is owed when the first example opts in.
+3. Item 8 asks for "each operation a contract rewrote". Amendment 1 narrows it to a row that names
+   a function under a contract and the class, and that is what was delivered: one row per class,
+   since a rewrite that specialization exposes is not visible in the authored module the report
+   reads. Disposition: closed by Amendment 1.
+
+Open: deviation 2, and the downstream work below.
 
 ## What it owes downstream
 
