@@ -271,6 +271,10 @@ type ClassMember =
       readonly reason?: string;
     };
 
+/** Whether the view declares the member `never`, with the reason a host call throws (D3). */
+const isRefused = (m: ClassMember): boolean =>
+  m.kind === 'method' ? 'reason' in m.call : m.reason !== undefined;
+
 /** A field of an exported class as the view declares it. */
 interface ClassField {
   readonly name: string;
@@ -351,6 +355,13 @@ const REASON = {
   notStruct: 'it is not a struct, and a host view names a struct only',
   abstract:
     'it is abstract, so there is no instance of it to build; construct a class that extends it',
+  /** An instance member of an abstract class that no class a host can build extends. A member is
+   *  lowered for the classes below its class (Rule 8.9) and there is none, so no function of the
+   *  module is its own. The words are those of `abstract` above and of a static builder
+   *  (`abstractBuilderText`); `shown` is the name a host imports. */
+  abstractMember: (shown: string, member: string) =>
+    `"${shown}" is abstract, so there is no instance of it on which "${member}" could run. ` +
+    'No exported class that a host can build extends it. Add an exported class that extends it',
   unknown: 'the host view does not describe this kind of export',
 } as const;
 
@@ -2322,7 +2333,8 @@ function classMembers(
       // An abstract member is a body a class below supplies; only an abstract class declares it.
       if (abstract && struct.abstract !== true) continue;
       // A static is lowered for each class that has it (Rule 8.13); an instance member of an
-      // abstract class only for the classes below it.
+      // abstract class only for the classes below it. With none, `owner` is undefined, and the
+      // member is declared `never` with the reason of an abstract class (`REASON.abstractMember`).
       const owner = isStatic ? own : below;
       const isAbstract = abstract && struct.abstract === true;
       if (accessor) {
@@ -2338,7 +2350,7 @@ function classMembers(
           const half = ts.isGetAccessorDeclaration(h) ? 'get' : 'set';
           const call =
             owner === undefined
-              ? { reason: REASON.notLowered }
+              ? { reason: REASON.abstractMember(name, written) }
               : memberCall(accessorFnName(owner, half, written), h, !isStatic, false, c);
           if ('reason' in call) reason ??= call.reason;
           else parts[half] = call;
@@ -2362,7 +2374,7 @@ function classMembers(
       const call = builder
         ? { reason: abstractBuilderText(name, written, exportedBelow(own, c)) }
         : owner === undefined
-          ? { reason: REASON.notLowered }
+          ? { reason: REASON.abstractMember(name, written) }
           : memberCall(
               methodFnName(owner, emittedMemberName(written)),
               fn as ts.SignatureDeclaration,
@@ -3199,8 +3211,9 @@ function classModule(
             : `${run(spec([`n: ${q(`new ${e.name}`)}`, `fn: ${q(ctor.fn)}`, `p: ${JSON.stringify(ctor.params.map((p) => [p.name, p.type]))}`, `o: ${object}`, 'c: 1']), 'this', 'arguments')};`;
     body.push(`constructor() { ${[...head, built].join(' ')} }`);
     for (const m of e.members) {
-      // An abstract class's instance members run in the classes below it.
-      if (e.abstract && !m.static) continue;
+      // An abstract class's instance members run in the classes below it. One the view declares
+      // `never` throws its reason on the abstract class as well (D3).
+      if (e.abstract && !m.static && !isRefused(m)) continue;
       const lead = m.static ? 'static ' : '';
       const self = m.static ? 'undefined' : 'this';
       const shown = `${e.name}.${m.name}`;
