@@ -1356,6 +1356,52 @@ export function gather(out: array<f32>, t: array<f32>) {
     ]);
   });
 
+  it('words a read of a static field in the names of the source (#972)', async () => {
+    // The module emits a static field that nothing writes as the constant `Voice_OFFSET`. The
+    // reason is written at build time from the loop's IR, and says `Voice.OFFSET`, as the source does.
+    const OFFSET = `"use typeshade";
+class Voice {
+  static OFFSET: u32 = 1;
+}
+export function add(out: array<f32>, a: array<f32>, b: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i] + b[i];
+  }
+}
+export function gather(out: array<f32>, t: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = t[i + Voice.OFFSET];
+  }
+}
+`;
+    const built = hostFace(OFFSET, {
+      fileName: '/app/offset.shade.ts',
+      runtime: RUNTIME,
+      fuse: true,
+    });
+    expect(built.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const gpu = fakeGpu();
+    const m = (await loadCode(built.code!, 'offset')) as unknown as Record<'add' | 'gather', Call>;
+    const [t, out] = [zeros(4), zeros(4)];
+    const [a, b] = [live(1, 2, 3, 4), live(1, 1, 1, 1)];
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.gather(out, t);
+    });
+    const line = OFFSET.split('\n').findIndex((l) => l.includes('t[i + Voice.OFFSET]')) + 1;
+    // The read keeps the two calls apart, and the reason names the field as it is written.
+    expect(gpu.flow).toEqual([dispatch, dispatch, 'submit']);
+    expect(report.groups).toEqual([
+      { calls: ['add'], fused: false, workgroupShapes: [[64, 1, 1]] },
+      {
+        calls: ['gather'],
+        fused: false,
+        workgroupShapes: [[64, 1, 1]],
+        why: `add and gather run as two dispatches because gather reads \`t[i + Voice.OFFSET]\` (line ${line})`,
+      },
+    ]);
+  });
+
   it('fuses the calls on either side of a refusal into groups of their own', async () => {
     const gpu = fakeGpu();
     const m = await loadFused();
