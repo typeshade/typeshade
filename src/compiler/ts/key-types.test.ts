@@ -185,8 +185,8 @@ describe('a key type on the host (change 0081, Rule 8.21)', () => {
 
   it('types the parameter and the result as the members', () => {
     const view = face().view;
-    expect(view).toContain('pick(c: "b" | "g" | "r", x: number)');
-    expect(view).toContain('brightest(r: number, g: number, b: number): "b" | "g" | "r";');
+    expect(view).toContain('pick(c: "b" | "g" | "r", x: f32)');
+    expect(view).toContain('brightest(r: f32, g: f32, b: f32): "b" | "g" | "r";');
   });
 
   it('takes and gives the strings, and refuses one outside the union', async () => {
@@ -281,10 +281,10 @@ ${body}`),
     const f = hostFace(BOOST, { fileName: '/app/m.shade.ts', runtime: RUNTIME });
     expect(f.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(f.view).toContain(
-      'boost(c: "b" | "g" | "r", x: number, by: { readonly "b": number; readonly "g": number; ' +
-        'readonly "r": number }): number',
+      'boost(c: "b" | "g" | "r", x: f32, by: { readonly "b": f32; readonly "g": f32; ' +
+        'readonly "r": f32 }): f32',
     );
-    expect(f.view).toContain('): { "b": number; "g": number; "r": number };');
+    expect(f.view).toContain('): { "b": f32; "g": f32; "r": f32 };');
     const dir = mkdtempSync(join(tmpdir(), 'typeshade-record-'));
     dirs.push(dir);
     const file = join(dir, 'm.shade.mjs');
@@ -384,7 +384,7 @@ export function f(${declaration}t: Record<0 | 1, f32>): f32 { return t[${index}]
   it('converts numeric object properties in both directions on the host', async () => {
     const face = hostFace(NUMERIC_RECORD, { fileName: '/app/m.shade.ts', runtime: RUNTIME });
     expect(face.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(face.view).toContain('readonly "0": number; readonly "1": number');
+    expect(face.view).toContain('readonly "0": f32; readonly "1": f32');
     const dir = mkdtempSync(join(tmpdir(), 'typeshade-numeric-record-'));
     dirs.push(dir);
     const file = join(dir, 'm.mjs');
@@ -434,7 +434,7 @@ describe('key-type Map and Set (change 0081, section 4)', () => {
     ).toContain('Set<"b" | "g" | "r">');
     const face = hostFace(KEY_COLLECTIONS, { fileName: '/app/m.shade.ts', runtime: RUNTIME });
     expect(face.view).toContain('seen: Set<"b" | "g" | "r">');
-    expect(face.view).toContain('last: Map<"b" | "g" | "r", number>');
+    expect(face.view).toContain('last: Map<"b" | "g" | "r", f32>');
     const kernel = face.exports!.find((e) => e.kind === 'kernel');
     expect(kernel?.kind === 'kernel' ? kernel.face.gpu : undefined).toBeDefined();
   });

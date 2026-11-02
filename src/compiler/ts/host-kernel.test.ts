@@ -89,26 +89,26 @@ describe('the host view of a kernel function (Rule 8.21)', () => {
   const f = face(TERRAIN);
 
   it('is asynchronous, and types each array as the typed array or objects it takes', () => {
+    // Each array is `array<T>`, which holds the typed array or the objects with their `Resident`
+    // (change 0116, decision D3).
     expect(f.view).toContain(
-      'export declare function render(k: readonly [number, number, number, number], size: number, out: Float32Array | Resident<Float32Array>): Promise<void>;',
+      'export declare function render(k: vec4, size: u32, out: array<f32>): Promise<void>;',
     );
+    expect(f.view).toContain('export declare function total(xs: array<f32>): Promise<f32>;');
     expect(f.view).toContain(
-      'export declare function total(xs: Float32Array | Resident<Float32Array>): Promise<number>;',
-    );
-    expect(f.view).toContain(
-      'export declare function drift(ps: { pos: [number, number, number, number]; vel: [number, number, number, number] }[] | Resident<{ pos: [number, number, number, number]; vel: [number, number, number, number] }[]>, dt: number): Promise<void>;',
+      'export declare function drift(ps: array<{ pos: vec4; vel: vec4 }>, dt: f32): Promise<void>;',
     );
   });
 
   it('gives a call whose written arrays are all resident, and that returns nothing, a void signature', () => {
     expect(f.view).toContain(`import type { Resident } from ${JSON.stringify(RUNTIME)};`);
     expect(f.view).toContain(
-      'export declare function render(k: readonly [number, number, number, number], size: number, out: Resident<Float32Array>): void;',
+      'export declare function render(k: vec4, size: u32, out: Resident<Float32Array>): void;',
     );
     // A function with a result always waits.
     expect(f.view).not.toMatch(/function total\([^)]*\): void/);
     // A helper stays synchronous (0009).
-    expect(f.view).toContain('export declare function height(p: readonly [number, number]');
+    expect(f.view).toContain('export declare function height(p: vec2, k: vec4): f32;');
   });
 
   it('says where it runs', () => {
@@ -289,7 +289,7 @@ export function scale(xs: array<f64>, k: f64) {
   it('takes a Float64Array and a number, and computes each as a double on the CPU tier', async () => {
     const f = face(SCALE64);
     expect(f.view).toContain(
-      'export declare function scale(xs: Float64Array | Resident<Float64Array>, k: number): Promise<void>;',
+      'export declare function scale(xs: array<f64>, k: f64): Promise<void>;',
     );
     const m = await load(SCALE64);
     const xs = Float64Array.of(1 + 1e-12, 2, 3);

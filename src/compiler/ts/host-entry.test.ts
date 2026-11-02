@@ -171,7 +171,7 @@ describe('the host view of an entry', () => {
   it('types the bindings object exactly, read-only where the entry only reads', () => {
     const f = face(SCALE);
     expect(f.view).toContain(
-      'export declare function scale(bindings: { readonly k: number; readonly xs: Float32Array | Resident<Float32Array>; readonly ys: Float32Array | Resident<Float32Array>; readonly pts: Float32Array | Resident<Float32Array> }, workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): Promise<void>;',
+      'export declare function scale(bindings: { readonly k: f32; readonly xs: array<f32>; readonly ys: array<f32>; readonly pts: array<vec2> }, workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): Promise<void>;',
     );
     expect(f.view).toContain('`@workgroup_size(8, 1, 1)`');
   });
@@ -180,7 +180,7 @@ describe('the host view of an entry', () => {
     const f = face(SCALE);
     expect(f.view).toContain(`import type { Resident } from ${JSON.stringify(RUNTIME)};`);
     expect(f.view).toContain(
-      'export declare function scale(bindings: { readonly k: number; readonly xs: Float32Array | Resident<Float32Array>; readonly ys: Resident<Float32Array>; readonly pts: Resident<Float32Array> }, workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): void;',
+      'export declare function scale(bindings: { readonly k: f32; readonly xs: array<f32>; readonly ys: Resident<Float32Array>; readonly pts: Resident<Float32Array> }, workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): void;',
     );
     // A written binding a Resident cannot stand for (a struct, a boxed scalar) always waits.
     expect(entryOf(face(HISTOGRAM).exports, 'histogram').queuedType).toBeUndefined();
@@ -194,7 +194,7 @@ describe('the host view of an entry', () => {
     const f = face(HISTOGRAM);
     const e = entryOf(f.exports, 'histogram');
     expect(e.bindingsType).toBe(
-      '{ readonly src: Float32Array | Resident<Float32Array>; readonly bins: Uint32Array | Resident<Uint32Array>; readonly summary: { count: number; maxBin: number }; readonly firstValue: Uint32Array }',
+      '{ readonly src: array<f32>; readonly bins: array<u32>; readonly summary: { count: u32; maxBin: i32 }; readonly firstValue: Uint32Array }',
     );
   });
 
@@ -489,7 +489,7 @@ export function twice(@builtin("global_invocation_id") gid: vec3u) {
     expect(face(DOUBLES).view).not.toContain('wgslInteger');
     // The host passes doubles, never the guard.
     expect(e.bindingsType).toBe(
-      '{ readonly affine: { readonly k: number; readonly shift: number }; readonly xs: Float64Array | Resident<Float64Array>; readonly ys: Float64Array | Resident<Float64Array>; readonly ps: Float64Array | Resident<Float64Array> }',
+      '{ readonly affine: { readonly k: f64; readonly shift: f64 }; readonly xs: array<f64>; readonly ys: array<f64>; readonly ps: array<vec3f64> }',
     );
   });
 
