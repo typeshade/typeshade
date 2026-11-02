@@ -1,3 +1,5 @@
+// Implements: Rule 6.7, Rule 8.1, Rule 8.22 (docs/language-design.md; traced in reqs/).
+//
 // The stage call of change 0111 (decision D1): an entry point written as a call that wraps its
 // function, in place of a decorator on a function declaration.
 //

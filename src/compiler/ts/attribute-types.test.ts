@@ -4,6 +4,8 @@
 // the emit of each pair is the decorated form's byte for byte, and the program the proposal
 // promises, with no decorator at all, type-checks under a plain `tsc --strict` against the
 // published ambient library.
+//
+// Verifies: Rule 6.6, Rule 6.7, Rule 7.2, Rule 7.6, Rule 8.2, Rule 8.25 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
@@ -66,8 +68,9 @@ export function fs(v: VsOut): vec4 {
 }
 `;
 
-const TYPED = (struct: 'class' | 'interface'): string => `"use typeshade";
-${struct} VsOut {
+type Struct = 'class' | 'interface' | 'type';
+const TYPED = (struct: Struct): string => `"use typeshade";
+${struct === 'type' ? 'type VsOut = {' : `${struct} VsOut {`}
   pos: builtin<"position", vec4, { invariant: true }>;
   uv: location<0, vec2>;
   id: location<1, u32, { interpolate: "flat" }>;
@@ -89,7 +92,7 @@ export const fs = fragment(function fs(v: VsOut): vec4 {
 `;
 
 describe('an attribute type compiles as the decorator it stands for (change 0111, D2, D4)', () => {
-  for (const struct of ['class', 'interface'] as const) {
+  for (const struct of ['class', 'interface', 'type'] as const) {
     it(`entry IO declared as a ${struct}: the same WGSL and GLSL ES 3.00, and no diagnostic`, () => {
       const a = compiled(DECORATED);
       const b = compiled(TYPED(struct));
