@@ -1,7 +1,7 @@
 ---
 id: '0106'
 title: Assign to a multi-component swizzle (`d.xy = r`, `d.xy *= r`), with each operand evaluated once and the old components read before any write
-status: draft
+status: accepted
 rules:
   - '7.1'
   - '7.2'
@@ -25,12 +25,12 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                          |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0106, `status: draft`. The front matter is the identity and lifecycle authority. No approval exists yet.                                                                                                                                                                                                                                                               |
+| Identity and status           | Proposal 0106, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved it on 2026-11-02 (see Approval and plan record).                                                                                                                                                                                                                |
 | Date and attribution          | Drafted 2026-11-01, Asia/Seoul, by an AI agent at the maintainer's request. The date is the drafting date, not an approval date. The maintainer (Seungup) owns the decision. Git authorship of the containing commit is not an approval signature.                                                                                                                              |
 | Request source                | GitHub issue [#846](https://github.com/typeshade/typeshade/issues/846), split out of [#841](https://github.com/typeshade/typeshade/issues/841) (its requirement 3). #841 keeps the full analysis and the reproduction artifacts.                                                                                                                                                |
 | Applicability / effectivity   | `docs/language-design.md` (Rules 7.1 and 7.2), `reqs/` (their items), `docs/use-typeshade-surface.md` §7 and §9, `src/compiler/ts/lower/statement.ts`, the language service diagnostics (`src/language-service/`), the WGSL and GLSL ES 3.00 writers, the CPU oracle, `src/core/coverage/wgsl.ts` and the tests that pin `TS8018` on a swizzle. No release version is assigned. |
 | Review baseline               | `main` at commit `981b7c15` (merge of #859), 2026-11-01. Re-read on `main` at `9dbc2985` (merge of #890), 2026-11-02: every location this proposal names still says what it quotes, and the branch merges onto it without conflict.                                                                                                                                             |
-| Review and revision authority | No pull request is assigned yet. Branch `docs/proposal-0106-swizzle-assign` carries the draft. Git records the revisions of this file. The merge of the proposal pull request with `status: accepted` will record the decision.                                                                                                                                                 |
+| Review and revision authority | Pull request #860 (branch `docs/proposal-0106-swizzle-assign`). Git records the revisions of this file. Its merge with `status: accepted` records the decision.                                                                                                                                                                                                                 |
 
 ## What changes
 
@@ -195,12 +195,23 @@ Decisions to resolve before acceptance:
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require:
+The owner (Seungup) approved the proposal in the Claude Code session on 2026-11-02 (UTC), in
+Korean ("수락"), after the review amendments of commit `d4b994cc` were reported to them. The
+approved revision is the one this record is part of. The merge of #860 with `status: accepted`
+records the decision.
 
-- the maintainer's actual decision on the proposal pull request, and its merge with
-  `status: accepted`;
-- the decisions on D1, D2 and D3;
-- the approved revision and scope, the assigned implementer and any agreed milestone.
+Decisions, each as recommended:
+
+- **D1.** WGSL: the front end lowers the assignment to a snapshot `let` and component writes
+  (or one whole-vector write). The `swizzle_assignment` extension is not required.
+- **D2.** GLSL ES 3.00 takes the same lowering, since the writers read the same IR.
+- **D3.** A swizzle target of an emulated-double vector stays `TS8018` in this change.
+
+Scope: items 1 to 7 of "What changes", the lowering place of "Where the lowering happens", and
+evidence items 1 to 12 of "What it touches". Responsibilities: an agent of this repository
+implements it for issue #846 in a pull request whose commits say `Change: 0106`. The site and the
+editor do their work when their pins move. No milestone date is assigned. No duration or cost
+estimate is established.
 
 ### Configuration and validation record
 
