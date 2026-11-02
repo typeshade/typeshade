@@ -9,6 +9,7 @@ import { f32T, boolT, i32T, u32T, isF64, isVec64 } from '../../../core/ir/types.
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, dropsRecoveredUse, irNameOf, type LoweringScope } from '../context.js';
 import { LANG_CONST, resolveLangConst } from '../math-alias.js';
+import { removedConstantSentence } from '../removed-names.js';
 import { refusedBySemantics } from '../semantic.js';
 import {
   constF32OutOfRange,
@@ -472,6 +473,13 @@ function lowerIdentifier(
     // A §9.3 constant is the ambient library's, and a name the file declares shadows it, as
     // TypeScript resolves it: `enum E`, `namespace PI`, `class TAU` and `function PI` read as
     // the file's, never as e, π or τ (Rule 2.1).
+    // A removed one (`PI`, `E`, `LN2`, `LN10`, `LOG2E`, `LOG10E`) is refused with the `Math`
+    // member that replaces it, unless the file declares the name itself (change 0112).
+    const removedConst = removedConstantSentence(node.text);
+    if (removedConst !== undefined && !declaresValue(declarationOf(node))) {
+      pushDiag(diagnostics, sourceFile, node, removedConst, TS_CODES.UNKNOWN_NAME);
+      return undefined;
+    }
     const c = resolveLangConst(node.text);
     const declared = c === undefined ? undefined : declarationOf(node);
     if (c !== undefined && !declaresValue(declared)) return { op: 'lit', type: f32T, value: c };

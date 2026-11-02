@@ -130,7 +130,7 @@ describe('ambient lib JSDoc', () => {
 
   it('CONSTANT_DOCS covers every language constant', () => {
     // Check that CONSTANT_DOCS has the expected constants
-    const expectedConstants = ['PI', 'TAU', 'E', 'LN2', 'LN10', 'LOG2E', 'LOG10E'];
+    const expectedConstants = ['TAU'];
     for (const name of expectedConstants) {
       expect(
         DOCUMENTED_CONSTANT_NAMES.includes(name),

@@ -242,7 +242,16 @@ const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Backticked mentions of an identifier: `name`, `name(…)`, `name<…>`, `.name`, `Owner.name`. */
 export function nameMentions(name: string, files = proseFiles()): Mention[] {
-  const inTicks = new RegExp(`\`[^\`\\n]*?(?<![\\w$])${escape(name)}(?![\\w$])[^\`\\n]*?\``);
+  // A short lowercase name is an English word as well (`none`, `sum`). The loose test below finds
+  // it in every sentence that has two code spans, between the closing tick of one and the opening
+  // tick of the next, in `Change: none`, and in a value such as `else none`. For such a name a
+  // mention is a call or a type-argument form, or a member form, which no sentence uses as a word:
+  // `none(…)`, `none<…>`, `.none`, `Owner.none`.
+  const inTicks = /^[a-z]{2,5}$/.test(name)
+    ? new RegExp(
+        `\`[^\`\\n]*?(?:(?<![\\w$])${escape(name)}[(<]|(?<=[\\w$)\\]]\\.|(?<![\\w$])\\.)${escape(name)}(?![\\w$]))[^\`\\n]*?\``,
+      )
+    : new RegExp(`\`[^\`\\n]*?(?<![\\w$])${escape(name)}(?![\\w$])[^\`\\n]*?\``);
   const out: Mention[] = [];
   for (const file of files) {
     linesOf(file).forEach((text, i) => {

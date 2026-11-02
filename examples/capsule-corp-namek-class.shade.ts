@@ -4223,14 +4223,12 @@ class NamekScene {
     col *=
       0.55 +
       0.45 *
-      pow(
-        16.0 *
+      (16.0 *
         q.x *
         q.y *
         (1.0 - q.x) *
-        (1.0 - q.y),
-        0.12
-      );
+        (1.0 - q.y)) **
+        0.12;
 
     return vec4(
       clamp(

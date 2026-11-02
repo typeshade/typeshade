@@ -102,7 +102,7 @@ export function fs(vo: VsOut): vec4 {
   const sea = mix(vec3(0.05, 0.18, 0.28), vec3(0.55, 0.5, 0.45), exp(-(dpt * 7.))) +
     vec3(0.3, 0.38, 0.36) * wave;
   // sun-glitter path: bright crests, inside a column under the sun, fading out
-  const glint = pow(max(wave - 0.32, 0.) * 2.6, 3.) *
+  const glint = (max(wave - 0.32, 0.) * 2.6) ** 3. *
     exp(-(abs(x - sunX) * 2.2)) *
     exp(-(dpt * 2.5));
   const seaCol = sea + vec3(1.0, 0.85, 0.6) * clamp(glint, 0., 1.2);

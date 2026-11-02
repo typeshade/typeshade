@@ -10,12 +10,12 @@ export function copy(
   @builtin("global_invocation_id") gid: vec3u,
   @builtin("local_invocation_id") lid: vec3u,
 ): void {
-  if (gid.x < arrayLength(src)) {
+  if (gid.x < src.length) {
     tile[lid.x][0] = src[gid.x];
     tile[lid.x][1] = src[gid.x] * f64(2);
     tile[lid.x][2] = -src[gid.x];
   }
   workgroupBarrier();
-  if (gid.x < arrayLength(src))
+  if (gid.x < src.length)
     dst[gid.x] = tile[lid.x][0] + tile[lid.x][1] + tile[lid.x][2];
 }

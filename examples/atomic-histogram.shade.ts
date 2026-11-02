@@ -35,7 +35,7 @@ const BINS: f32 = 8.;
 
 @compute([64, 1, 1])
 export function histogram(@builtin("global_invocation_id") gid: vec3u): void {
-  if (gid.x >= arrayLength(src)) {
+  if (gid.x >= src.length) {
     return;
   }
   // A value in [0, 1) lands in one of eight bins; anything else is clamped to the edges.

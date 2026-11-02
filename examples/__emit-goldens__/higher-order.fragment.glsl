@@ -68,8 +68,21 @@ void Ring_each_fs_dot(inout float dots, vec2 p, Ring self_) {
   }
 }
 
-bool fs_any(vec2 p, float b) {
+bool fs_p(vec2 p, float b) {
   return (abs((length(p) - b)) < 0.012);
+}
+
+bool array_some_fs_p(vec2 p, float[3] bands) {
+  if (fs_p(p, bands[0])) {
+    return true;
+  }
+  if (fs_p(p, bands[1])) {
+    return true;
+  }
+  if (fs_p(p, bands[2])) {
+    return true;
+  }
+  return false;
 }
 in vec2 uv;
 layout(location = 0) out vec4 color;
@@ -87,7 +100,7 @@ void main() {
   Ring_each_fs_dot(dots, p, ring);
   col = mix(col, vec3(0.9, 0.3, 0.5), dots);
   float[3] bands = float[3](0.8, 0.88, 0.96);
-  if (((fs_any(p, bands[0]) || fs_any(p, bands[1])) || fs_any(p, bands[2]))) {
+  if (array_some_fs_p(p, bands)) {
     col = vec3(1.0);
   }
   color = vec4(col, 1.0);

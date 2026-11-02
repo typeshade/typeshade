@@ -22,7 +22,7 @@ export function empty(): Empty { return new Empty(); }
 
 @compute([64])
 export function main(@builtin("global_invocation_id") gid: vec3u): void {
-  if (gid.x >= arrayLength(xs)) { return; }
+  if (gid.x >= xs.length) { return; }
   const scene = new Scene();
   out[gid.x] = scene.sample(xs[gid.x]) + samples.before + samples.after;
 }

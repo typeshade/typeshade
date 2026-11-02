@@ -72,10 +72,7 @@ class Material {
 
     const halfDirection = normalize(lightDirection + viewDirection);
     const shininess = mix(16., 128., 1. - this.roughness);
-    const specular = pow(
-      max(dot(normal, halfDirection), 0.),
-      shininess,
-    );
+    const specular = max(dot(normal, halfDirection), 0.) ** shininess;
 
     const baseReflectance = mix(
       vec3(0.04),
@@ -84,7 +81,7 @@ class Material {
     );
     const fresnel = baseReflectance
       + (vec3(1.) - baseReflectance)
-      * pow(1. - max(dot(normal, viewDirection), 0.), 5.);
+      * (1. - max(dot(normal, viewDirection), 0.)) ** 5.;
 
     return diffuse + fresnel * specular;
   }
@@ -602,7 +599,7 @@ function renderSample(
 
 function toneMap(color: vec3): vec3 {
   const mapped = color / (color + vec3(1.));
-  return pow(mapped, vec3(1. / 2.2));
+  return mapped ** vec3(1. / 2.2);
 }
 
 @vertex

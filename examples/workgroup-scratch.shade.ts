@@ -39,7 +39,7 @@ export function scratch(
   @builtin("global_invocation_id") gid: vec3u,
   @builtin("local_invocation_id") lid: vec3u,
 ): void {
-  if (gid.x >= arrayLength(src)) {
+  if (gid.x >= src.length) {
     return;
   }
   tile[lid.x] = src[gid.x] * src[gid.x];

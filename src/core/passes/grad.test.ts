@@ -270,14 +270,14 @@ describe('grad: each builtin rule agrees with a finite difference', () => {
     ],
     ['smoothstep(k, 2., x)', [[1, 0.5]]],
     [
-      'pow(k, x)',
+      'k ** x',
       [
         [2.5, 1.3],
         [0.5, 0.4],
       ],
     ],
     [
-      'pow(x, k)',
+      'x ** k',
       [
         [2.5, 1.3],
         [0.5, 0.4],

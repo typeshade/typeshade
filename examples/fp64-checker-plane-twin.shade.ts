@@ -45,7 +45,7 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
 
 @fragment
 export function fs_checker(vo: VsOut): vec4 {
-  const span = pow(10.0, -u.zoom_exp);
+  const span = 10.0 ** -u.zoom_exp;
   const half = vo.uv.x * 2.0;
   const sx = half - (vo.uv.x < 0.5 ? 0.0 : 1.0);
   const dx = (sx - 0.5) * span;

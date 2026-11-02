@@ -430,7 +430,8 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | builtin parameter on an incompatible stage | stage mismatch |
 | `@compute` method on a class | entries are top-level functions |
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
-| `.length` or `arrayLength(x)` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
+| `.length` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
+| a call of a name that change 0112 removed: `arrayLength`, `log10`, `log1p`, `expm1`, `cbrt`, `hypot`, `sum`, `none`, `pow`; a read of `PI`, `E`, `LN2`, `LN10`, `LOG2E` or `LOG10E`; `any(xs, p)` or `all(xs, p)` | `TS8004` for a call, `TS8022` for a read, `TS8019` for the two folds, each in one sentence that names the spelling to write: `arrayLength was removed: write xs.length.`, `PI was removed: write Math.PI.`, `any expects 1 argument, got 2; the array fold was removed: write xs.some(p).` (§10) |
 | A module variable declared or used where its address space forbids | `TS8033`. A `let` with neither type nor initializer, a resource type without `declare` (`"dst" is a storage binding the host provides, and needs declare: write "declare const dst: storage<array<f32>, "read_write">".` — the mode is the one the `let` asked for, and a resource with no type argument names the shape `storage<...>`), a `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
 | A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, or used as a value (§25). One under a branch the invocations may not share is `TS8052` (§54) |
 | A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A static field that holds a function, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a member a class that extends declares as another kind than its base, `super.f` on a field that holds a function, a method that changes its object called on a `const` whose value something else may hold, a parameter or a dropped value, one that returns nothing used as a value, a `private`, `protected` or `#x` member named where TypeScript does not allow it, or a changing call on the copy a `return this` method hands back inside an expression (§26) |
@@ -564,7 +565,7 @@ carries. Beyond the set that was already there (`sin` … `clamp`, `mix`, `smoot
 | `fma(a, b, c)` | `a·b + c`; GLSL ES 3.00 has no `fma`, so it is inlined there |
 | `atan(y, x)` | the two-argument arctangent (`atan2` in WGSL); `atan(x)` is still one argument |
 | `select(f, t, c)` | `c ? t : f`. **WGSL's order: the condition is last.** The same IR the ternary builds; a vector-of-bools `c` picks per component (§27) |
-| `a ** b` | `pow(a, b)`. Both operands must have one type; splat a scalar exponent |
+| `a ** b` | WGSL's `pow(a, b)`, the one spelling of it (change 0112). Both operands must have one type; splat a scalar exponent |
 | `reflect(i, n)`, `refract(i, n, eta)`, `faceForward(n, i, nref)` | the geometry three; `faceforward` in GLSL. `eta` is a scalar |
 | `transpose(m)`, `determinant(m)` | on a `mat4`; `determinant` is an `f32` |
 | `ldexp(x, e)` | `x · 2ᵉ`; `e` is an `i32`, or an integer vector of `x`'s shape. A bare literal `e` is an `i32`. GLSL ES 3.00 has no `ldexp`, so it is `x * intBitsToFloat(((e >> 1) + 127) << 23) * intBitsToFloat(((e - (e >> 1)) + 127) << 23)` there, the scale built in two halves so that every legal exponent, -149 to 128, agrees with WGSL (§38) |
@@ -597,11 +598,11 @@ through the compile gate. A module that calls none of the eight carries none of 
 lowered by arity alone: `dot(a, b)` with a `vec3` and a `vec2`, or `clamp(v, 0., 1.)` with a
 vector `v`, drew no diagnostic and emitted a call Tint refuses with "no matching call". The
 rules are WGSL's, one per signature shape. The componentwise builtins (`min`, `max`, `clamp`,
-`pow`, `step`, `smoothstep`, `atan(y, x)`, `fma`, `distance`, `dot`, `reflect`, `faceForward`
+`step`, `smoothstep`, `atan(y, x)`, `fma`, `distance`, `dot`, `reflect`, `faceForward`
 and the rest) take arguments of one type. `min` and `max` also accept a scalar beside a vector
 and lower it to a vector splat (`vec3(x)`); the other builtins refuse that shape with the same
 fix. Two kinds of one shape still need the cast: `f32(x)` or `i32(x)` for a builtin that takes
-both, and the float cast alone for one with no integer form, so `pow(x, n)` with an `i32` `n`
+both, and the float cast alone for one with no integer form, so `x ** n` with an `i32` `n`
 names `f32(n)` (#616). Two vector sizes are refused as such. `mix(a, b, t)` alone takes `t` as the vectors' type or a scalar of their element kind,
 and `mod(x, y)` a scalar `y` against a vector `x`. `refract` takes a scalar eta, `ldexp` an `i32`
 exponent (a `vec3i` for a `vec3` `x`), `extractBits` and `insertBits` a `u32` offset and count,
@@ -615,7 +616,7 @@ integer, and a written number in the first position takes an integer peer's kind
 
 A function the file declares or imports (§68) wins over every builtin function of its name: a name
 in the table above, a WGSL built-in function, the free spelling of a `Math` member, and a
-TypeShade extension that is a function (`random`, `sum`, `fill` …). A call of the name reaches the
+TypeShade extension that is a function (`random`, `zip`, `fill` …). A call of the name reaches the
 declaration in the constant folder, on the CPU, on WebGPU and on WebGL2, as TypeScript's lookup
 finds the file's own name before a global and as WGSL's own scoping has it, where a module-scope
 declaration hides a predeclared function. `fract(x)` and `fract(1.25)` beside a declared
@@ -659,11 +660,29 @@ vertex entry calls is rejected too, naming the helper and the entry. The three s
 derivatives (`fwidth`, `dpdx`, `dpdy`) are fragment-only by the same rule. `discard()` is refused
 with the remedy: `discard` is a statement, written without the parentheses.
 
-`**` is float-only, as `pow` is on both targets: `i32 ** i32` is rejected rather than emitted
+`**` is float-only, as WGSL's `pow` is on both targets: `i32 ** i32` is rejected rather than emitted
 as `pow(i32, i32)`, which neither compiler accepts.
 
 `transpose` applies to every matrix shape and `determinant` to the square ones; §40 has the
 table.
+
+**Spellings that were removed** (change 0112). An ECMAScript spelling carries every case of each of
+these names, so each has one spelling. A call or a read of the removed name is refused in one
+sentence that names the one to write (§7):
+
+| Removed | Write |
+|---------|-------|
+| `arrayLength(xs)` | `xs.length` (§20) |
+| `pow(a, b)` | `a ** b` |
+| `PI`, `E`, `LN2`, `LN10`, `LOG2E`, `LOG10E` | `Math.PI`, `Math.E`, `Math.LN2`, `Math.LN10`, `Math.LOG2E`, `Math.LOG10E` |
+| `log10(x)`, `log1p(x)`, `expm1(x)`, `cbrt(x)`, `hypot(a, b)` | `Math.log10(x)`, `Math.log1p(x)`, `Math.expm1(x)`, `Math.cbrt(x)`, `Math.hypot(a, b)` |
+| `sum(xs)` | `xs.reduce((a, b) => a + b)` (§63) |
+| `any(xs, p)`, `all(xs, p)` | `xs.some(p)`, `xs.every(p)` (§63); `any(v)` and `all(v)` on a bool or a bool vector stay (§27) |
+| `none(xs, p)` | `!xs.some(p)` (§63) |
+
+`TAU` stays, since neither ECMAScript nor WGSL has it. A function or a constant the file declares
+under one of these names is the file's own (Rule 9.5), so `const PI = Math.PI;` is ordinary
+TypeScript for an author who wants the short name.
 
 **A declaration named like a builtin is emitted under another name**, on both targets. WGSL
 predeclares its built-in functions, its types and aliases, and the names its own text spells
@@ -1307,7 +1326,7 @@ export function fs(): vec4 {
 A variable is read when the call runs, not when the function is declared, so a write between
 the two is seen. A write through a capture follows the variable's own declaration: a `let` may be
 written, a `const` only through the object it built (Rule 6.10), and a whole-rebound value
-parameter through its shared mutable local copy (Rule 8.8). A function named as a fold's callback (`any(xs, near)`, `zip(xs, ys, f)`)
+parameter through its shared mutable local copy (Rule 8.8). A function named as a fold's callback (`xs.some(near)`, `zip(xs, ys, f)`)
 passes what it captures to every call the fold makes. A local function inside a generic function
 is made once per instance, `pick_f32_swap`.
 
@@ -1353,7 +1372,7 @@ export function shade(k: f32): f32 {
     total += f32(i) * k;                    // times_shade_body(&total, k);
   });
   const xs = array<f32, 3>(1., 2., 3.);
-  const big = any(xs, (x) => x > k);        // shade_any(k, xs[0]) || …
+  const big = xs.some((x) => x > k);        // a counted loop over xs (§63)
   return fold3(mul, 2., 3., 4.) +           // fold3_mul(2.0, 3.0, 4.0)
     fold3((a, b) => a + b * k, 1., 2., 3.) + // fold3_shade_op(k, 1.0, 2.0, 3.0)
     total + (big ? 1. : 0.);
@@ -1376,10 +1395,10 @@ TypeScript allows; and when the type returns `void`, an expression body runs as 
 called, or handed on to another such parameter (`twice(f)` calling `apply(f, x)` makes
 `apply_…` for whatever `f` was).
 
-The folds take the same arguments: `any(xs, pred)`, `all`, `none` and `zip(xs, ys, f)` accept an
-arrow function, typed by the arrays, and one `zip` is handed returns what its body does. So do an
-array's own methods, `xs.map(f)`, `xs.forEach(f)`, `xs.some(p)`, `xs.every(p)` and
-`xs.reduce(f, init)`, each a counted loop the call runs (§63).
+`zip(xs, ys, f)` takes the same arguments: an arrow function, typed by the arrays, and what its
+body returns is what one `zip` is handed returns. So do an array's own methods, `xs.map(f)`,
+`xs.forEach(f)`, `xs.some(p)`, `xs.every(p)` and `xs.reduce(f, init)`, each a counted loop the call
+runs (§63).
 
 A local function takes a function the same way, and so do a method, a static method, a
 constructor and a field that holds a function (§26): `const twice = (f: (x: f32) => f32, x: f32)
@@ -1725,7 +1744,7 @@ the author never wrote.
 
 The start may be a runtime value too, which is how a kernel strides over data:
 `for (let i: u32 = lid; i < params.count; i += 64)`. Both targets accept the loop as written;
-#203 measured `for (…; i < arrayLength(&data); …)` and a uniform-bounded `for` and `while` on
+#203 measured `for (…; i < data.length; …)` (the emitted `arrayLength(&data)`) and a uniform-bounded `for` and `while` on
 Tint and on ANGLE.
 
 The step is still a constant, so the compiler still knows which way the counter moves, and
@@ -1837,7 +1856,7 @@ export function lit(p: vec3): f32 {
 ```
 
 It lowers to `for (var _i: u32 = 0u; _i < 4u; _i = _i + 1u) { let l = scene.lights[_i]; … }`,
-with `arrayLength(&xs)` as the bound of a runtime-sized array. The element is read at the top
+with `arrayLength(&xs)`, which `xs.length` lowers to, as the bound of a runtime-sized array. The element is read at the top
 of each trip, as TypeScript's array iterator reads it, and `for (let x of xs)` gives a copy the
 body may change without writing the array. `break` and `continue` do what they do in any loop.
 The counter `_i`, like the `_w` a `while` counts with, is a name of the compiler's own, and the
@@ -2048,8 +2067,9 @@ in the entry, and a store hidden in a callee is not one the fragment-GPGPU lower
 ## 20. The length of a runtime-sized storage array
 
 A `storage<array<T>>` has no size in its type; its length is the length of the buffer the
-host binds. `xs.length` on such an array reads it at run time, and `arrayLength(xs)` spells
-the same read explicitly. Both are a `u32`, as the WGSL builtin is.
+host binds. `xs.length` on such an array reads it at run time, as a `u32`, as WGSL's
+`arrayLength` is. `.length` is the one spelling: `arrayLength(xs)` was removed (change 0112), and a
+call of it is refused with `arrayLength was removed: write xs.length.` (§7, `TS8004`).
 
 ```ts
 "use typeshade";
@@ -2073,17 +2093,17 @@ if ((gid.x >= arrayLength(&src))) {
 
 **What the operand may be** is what WGSL's `arrayLength` accepts: a pointer to a runtime-sized
 array in the storage space, which is the binding itself or a trailing array field of a storage
-struct (`arrayLength(b.xs)` for `declare const b: storage<Buf>`). Measured on Tint,
-`arrayLength(&src[0])` is refused and `arrayLength(&b.xs)` accepted, and the front end draws
-the same line: an element, a sized array or a value that is not an array is refused (TS8003)
-with what it is. A `const` that names the binding (`const a = src`) is the binding, as it is in
+struct (`b.xs.length` for `declare const b: storage<Buf>`). Measured on Tint,
+`arrayLength(&src[0])` is refused and `arrayLength(&b.xs)` accepted, and `.length` lowers to the
+second form. An element has no runtime length, and a sized array's `.length` is its size. A
+`const` that names the binding (`const a = src`) is the binding, as it is in
 TypeScript: nothing is copied, and `a[i]` and `a.length` read `src`.
 
 **An unsized array lives in a storage binding alone** (Tint: "runtime-sized arrays can only be
 used in the <storage> address space"). A parameter or a result that holds one, directly or as a
 struct's last field, is refused (TS8020), and so is a local that would hold a copy, a `let`
 (TS8099): read the binding by its name instead. A `uniform<array<f32>>` is refused (TS8051), and
-`.length` or `arrayLength` on it (TS8032) with the one fix that works: give the type a size,
+`.length` on it (TS8032) with the one fix that works: give the type a size,
 `array<f32, 3>`. A sized array's `.length` stays the compile-time `i32` it always was.
 
 **The editor gives it the same type.** The ambient `array<T, N>` declares `length` as its size
@@ -2102,8 +2122,8 @@ runtime bound, and the length reaches the header as `arrayLength(&src)`. When th
 written §17 wanted a constant bound, and the remedy was to guard the invocation with `if` and
 index by `gid.x`, as the example still does.
 
-A function you declare with the name `arrayLength` keeps winning the call, the way the names
-§10 added do, so no program that compiled before this section compiles differently.
+A function you declare with the name `arrayLength` is the file's own, as it is for
+every name §10 removed.
 
 ---
 
@@ -2238,7 +2258,7 @@ declare const summary: storage<Summary, "read_write">;
 
 @compute([64, 1, 1])
 export function histogram(@builtin("global_invocation_id") gid: vec3u): void {
-  if (gid.x >= arrayLength(src)) {
+  if (gid.x >= src.length) {
     return;
   }
   const bin = u32(clamp(src[gid.x], 0., 0.999) * 8.);
@@ -3699,10 +3719,12 @@ _ret = vec4(c, float(any(equal(m, bvec3(false, false, false)))));
   round to f32 first on the CPU, as the scalar form does (X-GIS #13). An ordering (`<`, `<=`,
   `>`, `>=`) on two bool vectors is TS8003 with the fix: `===`/`!==`, or `any`/`all`.
 - **`any(m)` and `all(m)`** reduce a vector of bools to one bool, the same builtins on both
-  targets. Over an array they stay the folds, `any(xs, pred)` with `pred` a function the file
-  declares, a local one included, which hands each call what it captures (Rule 8.17), or an arrow
-  function written in the call (Rule 8.18, §14); a scalar or a numeric vector is TS8003 naming
-  both shapes.
+  targets. A scalar bool passes through. The array folds `any(xs, pred)` and `all(xs, pred)` were
+  removed (change 0112): a second argument is `TS8019` with the fix, `any expects 1 argument, got 2;
+  the array fold was removed: write xs.some(p).`, and `xs.every(p)` for `all` (§63). A numeric
+  vector is TS8003, and an array is TS8003 with the same fix. The callback of `xs.some(p)` is a
+  function the file declares, a local one included, which hands each call what it captures
+  (Rule 8.17), or an arrow function written in the call (Rule 8.18, §14).
 - **`select(f, t, m)`** with a vector-of-bools condition picks per component, and the arms are
   vectors of the mask's size (TS8003 otherwise). WGSL's `select` takes the mask as is; GLSL ES
   3.00 spells `mix(f, t, m)` for float vectors and a componentwise ternary through the vector's
@@ -5916,7 +5938,7 @@ expression has. The front end gives every expression it lowers a type, and the e
 gives the same expression a type of its own from the ambient library. Because the scalar brands
 are optional, a declaration that says `number` where the compiler means `u32` draws no error in
 either layer. It shows only in what an author reads: a hover, a completion list, signature help.
-`src.length` on a runtime-sized storage array was one: the compiler reads it as `arrayLength(&src)`,
+`src.length` on a runtime-sized storage array was one: the compiler reads it as the builtin `arrayLength(&src)`,
 a `u32` (§20), and the editor said `number` until #271.
 
 The front end records the type of every expression it lowers
@@ -5931,14 +5953,15 @@ A builtin's declarations are generated from Tint's own overload table, `core.def
 per row (proposal 0017, `src/language-service/builtin-signatures.ts`), for every family that
 table's claims mark SUPPORTED: the math builtins, the derivatives, and the bit and packing
 builtins, all but `bitcast`, whose result is chosen by a type argument; and the atomics, the
-barriers and `arrayLength`, whose rows take a location WGSL passes by pointer and an author
-writes bare (`atomicAdd(bins[i], 1)`, `arrayLength(xs)`). `dot(a, b)` on two
+barriers, whose rows take a location WGSL passes by pointer and an author
+writes bare (`atomicAdd(bins[i], 1)`); the `arrayLength` row stays in the table for `xs.length`
+to read, and no declaration is generated for it (change 0112). `dot(a, b)` on two
 `vec3u` is a `u32` in the editor as it is in the compiler, and `max(n, u32(3))` a `u32`, where
 both said `number`. A row over a scalar gives each argument its own type parameter and returns
 `ScalarOf<P0, …>`, which the ambient library declares once (proposal 0063, §9.3 of the language
 design rules): the scalar of the first argument that carries a brand, `bool` for a boolean, and
-`number` when none does. `pow(a, b)` on two `f32` values hovers as `pow<f32, f32>(a0: f32, a1:
-f32): f32`, and the declaration reads `pow<P0 extends number, P1 extends number>(a0: P0, a1: P1):
+`number` when none does. `atan2(a, b)` on two `f32` values hovers as `atan2<f32, f32>(a0: f32, a1:
+f32): f32`, and the declaration reads `atan2<P0 extends number, P1 extends number>(a0: P0, a1: P1):
 ScalarOf<P0, P1>`. The compiler reads the same rows for the call's result and its argument
 check; `ATOMIC_INTRINSICS` and `BARRIER_INTRINSICS`, which the CPU runtime carries, are held to
 them by the same suite. `src/core/spec-conformance/coredef-overloads.test.ts` holds each supported row to both
@@ -6571,7 +6594,7 @@ broken-shader instrument check passing on both compilers first:
 | the same right of `opaque() > 0.5 &&` or `\|\|`, or in an arm of `opaque() > 0.5 ? … : …`, where `opaque` returns a uniform | accepted |
 | `workgroupUniformLoad` in an arm of a `?:` on `id.x` that picks an array, a struct, a matrix or a `vec3f64`, which WGSL writes as an `if`, or a `textureSample` in one on `uv.x` that picks a struct | `'workgroupUniformLoad'` (or `'textureSample'`) `must only be called from uniform control flow` |
 | the same on a uniform, or in a `?:` that picks a scalar or a vector, which is WGSL's `select` | accepted |
-| a barrier under `if (arrayLength(&rw) > 4u)` on a `read_write` storage array, or in a loop it bounds | accepted |
+| a barrier under `if (rw.length > 4u)` on a `read_write` storage array, or in a loop it bounds | accepted |
 
 Every one of those is reported by `createShaderModule`, not only by `createRenderPipeline` — so
 the compile gate already runs Tint's own uniformity check on every example, and the acceptance
@@ -6757,7 +6780,7 @@ ADDRESS SPACE, and Tint does not look at the write side at all — it refuses a 
 | a read-only storage binding (`declare const`) | uniform |
 | a module `const`, an `override` | uniform |
 | `workgroupUniformLoad(x)` | uniform, by construction |
-| `.length` of a runtime-sized storage array, `read_write` included (`arrayLength`) | uniform: the size the host bound, not an element |
+| `.length` of a runtime-sized storage array, `read_write` included (WGSL's `arrayLength`) | uniform: the size the host bound, not an element |
 
 `workgroupUniformLoad` is the carve-out and it is load-bearing: with a workgroup read
 non-uniform on sight, it is the only spelling left that can carry a barrier — which is exactly
@@ -7142,8 +7165,9 @@ here is, where TypeScript builds a new array object.
   generic function by its name, and a choice at run time; and a `map` whose function returns
   nothing, and a `forEach` whose value is used.
 
-The folds of §27 (`sum`, `any`, `all`, `none`, `zip`) stay as they are: unrolled, and shorter
-to write where they fit.
+`sum(xs)`, `any(xs, p)`, `all(xs, p)` and `none(xs, p)`, the folds §27 once named, were removed
+(change 0112): write `xs.reduce((a, b) => a + b)`, `xs.some(p)`, `xs.every(p)` and `!xs.some(p)`.
+`zip` stays, unrolled, since no ECMAScript form builds an array from two.
 
 **The editor types all of it.** `interface Array<T>` in the ambient library declares the five,
 as `lib.es5.d.ts` spells them with a `this` of `array<T, N>` and `index: i32`, and
@@ -7167,7 +7191,7 @@ declare const out: storage<array<f32>, "read_write">;
 
 @compute([64])
 export function scale(@builtin("global_invocation_id") gid: vec3u): void {
-  if (gid.x >= arrayLength(xs)) {
+  if (gid.x >= xs.length) {
     return;
   }
   const y = xs[gid.x] * 2.;

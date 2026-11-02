@@ -32,14 +32,17 @@ import {
   LANG_CONST,
 } from '../compiler/ts/math-alias.js';
 import { EXPAND_ARITY } from '../compiler/ts/math-expand.js';
+import { isRemovedCall } from '../compiler/ts/removed-names.js';
 import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js';
 import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js';
 import { STORAGE_BUFFER_ACCESS as COMPILER_STORAGE_BUFFER_ACCESS } from '../compiler/ts/bindings.js';
 import { FUNCTION_DOCS, CONSTANT_DOCS, ATTRIBUTE_DOCS, MATH_MEMBER_DOCS } from './docs.js';
 import { generatedOverloads, scalarOfDeclaration } from './builtin-signatures.js';
 
-/** The overloads the builtin table generates, by name (0017). */
-const GENERATED = generatedOverloads();
+/** The overloads the builtin table generates, by name (0017), less the names change 0112 removed:
+ *  `arrayLength` and `pow` are rows of the table, and no author-facing declaration (`xs.length`
+ *  and `**` carry them). */
+const GENERATED = new Map([...generatedOverloads()].filter(([name]) => !isRemovedCall(name)));
 
 // Renders a documentation string as a JSDoc block. Single line (single-line JSDoc) when
 // it fits in 100 columns, otherwise a multi-line block with ` * ` prefixes. Throws if the
@@ -289,7 +292,9 @@ function vecTypeName(elem: VecElem, n: 2 | 3 | 4): string {
  * scalar cast id; the callable name `f32` is the cast declared separately below, and the
  * compiler's own call lowering checks `SCALAR_CAST` before it ever reaches the canonical-math
  * path, so a second `f32` overload here would be dead vocabulary, never a real ambiguity). */
-const FREE_MATH_NAMES = Object.keys(MATH_FN_ARITY).filter((name) => name !== 'f32');
+const FREE_MATH_NAMES = Object.keys(MATH_FN_ARITY).filter(
+  (name) => name !== 'f32' && !isRemovedCall(name),
+);
 
 /** The vector arities every native GPU vector type comes in, in order. */
 const VEC_ARITIES: readonly (2 | 3 | 4)[] = [2, 3, 4];
@@ -522,7 +527,6 @@ function freeMathSignature(name: string): string {
   return `${scalar}declare function ${name}<T extends ${constraint}>(${params}): T`;
 }
 
-const EXPAND_NAMES = Object.keys(MATH_EXPAND_ALIAS);
 const LANG_CONST_NAMES = Object.keys(LANG_CONST);
 const SCALAR_CAST_NAMES = Object.keys(SCALAR_CAST);
 
@@ -598,13 +602,6 @@ const freeMath = FREE_MATH_NAMES.map((name) => {
       return `${renderJSDoc(doc)}\n${line}`;
     })
     .join('\n');
-}).join('\n');
-
-const expandFns = EXPAND_NAMES.map((name) => {
-  const line = `declare function ${name}<T extends Numeric>(...args: T[]): T`;
-  const doc = FUNCTION_DOCS[name];
-  if (!doc) return line;
-  return `${renderJSDoc(doc)}\n${line}`;
 }).join('\n');
 
 // Add the random function declaration with JSDoc
@@ -889,7 +886,7 @@ declare const arrayTag: unique symbol
 // stays \`N\`, which is what still separates the sizes — a three-element list is not an
 // \`array<f32, 2>\` in the editor either. A runtime-sized array leaves \`N\` at \`number\` and has
 // no size to give, so its \`length\` is the \`u32\` the compiler reads from the buffer
-// (\`arrayLength\`, surface §20), and the editor shows the type \`n * 0.5\` is refused for.
+// (WGSL's \`arrayLength\`, surface §20), and the editor shows the type \`n * 0.5\` is refused for.
 //
 // WHERE AN ARRAY MEMBER GOES. \`Pick<Array<T>, ArrayOps>\` is how this type takes its members
 // from the \`interface Array<T>\` at the bottom of this file, the way dom.d.ts picks from the
@@ -916,8 +913,8 @@ type ArrayOps = 'map' | 'forEach' | 'some' | 'every' | 'reduce' | 'push' | 'fill
 // \`length\` is the size \`N\` when the array has one, and a \`u32\` when it has none. \`N\` is
 // two things here, the size the tag compares and the type \`length\` reads, and a runtime-sized
 // array fills it with its default \`number\`: \`src.length\` hovered as \`number\` while the
-// compiler reads it as \`arrayLength(&src)\`, a \`u32\` (#46), the type \`arrayLength\` below
-// already declares. \`number extends N\` is true only for that default, never for a literal size.
+// compiler reads it as \`arrayLength(&src)\`, a \`u32\` (#46), the type WGSL's \`arrayLength\`
+// returns. \`number extends N\` is true only for that default, never for a literal size.
 type array<T, N extends number = number> = Pick<Array<T>, ArrayOps> & { readonly [arrayTag]?: readonly [T, N]; readonly length: number extends N ? u32 : N } & {
   [index: number]: T
   [Symbol.iterator](): { next(): { done: false; value: T } | { done: true; value: undefined } }
@@ -1594,8 +1591,6 @@ ${scalarCasts}
 
 ${freeMath}
 
-${expandFns}
-
 ${randomDeclaration}
 
 ${langConsts}
@@ -1614,16 +1609,8 @@ declare function select<T extends Numeric | bool | BoolVec | Vec64Any | f64>(
 ): T
 ${renderJSDoc(FUNCTION_DOCS.any)}
 declare function any(v: bool | BoolVec): bool
-${renderJSDoc(FUNCTION_DOCS.any)}
-declare function any<T>(xs: array<T>, pred: (x: T) => bool): bool
 ${renderJSDoc(FUNCTION_DOCS.all)}
 declare function all(v: bool | BoolVec): bool
-${renderJSDoc(FUNCTION_DOCS.all)}
-declare function all<T>(xs: array<T>, pred: (x: T) => bool): bool
-${renderJSDoc(FUNCTION_DOCS.none)}
-declare function none<T>(xs: array<T>, pred: (x: T) => bool): bool
-${renderJSDoc(FUNCTION_DOCS.sum)}
-declare function sum<T extends Numeric>(xs: array<T>): T
 ${renderJSDoc(FUNCTION_DOCS.zip)}
 declare function zip<A, B, R, N extends number>(
   xs: array<A, N>,

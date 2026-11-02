@@ -21,11 +21,11 @@ export function copy(
   @builtin("global_invocation_id") gid: vec3u,
   @builtin("local_invocation_id") lid: vec3u,
 ): void {
-  if (gid.x < arrayLength(src)) {
+  if (gid.x < src.length) {
     tile[lid.x] = src[gid.x];
   }
   workgroupBarrier();
-  if (gid.x < arrayLength(src)) {
+  if (gid.x < src.length) {
     dst[gid.x] = tile[lid.x];
   }
 }

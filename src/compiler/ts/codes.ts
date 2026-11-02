@@ -79,7 +79,7 @@ export const TS_CODES = {
    *  (`cyclic dependency found: 'a' -> 'b' -> 'a'`); before this the front end accepted it
    *  and emitted it with zero diagnostics. */
   RECURSION: 'TS8031',
-  /** `.length`, or `arrayLength(x)`, on an `array<T>` with no `N` that is not in storage: a
+  /** `.length` on an `array<T>` with no `N` that is not in storage: a
    *  `uniform<array<T>>`, a local, or a parameter. `.length` once folded to the literal `0`,
    *  which made `gid.x >= xs.length` true for every invocation and the kernel a silent no-op
    *  in valid WGSL. A runtime-sized storage array now reads its length from the buffer as

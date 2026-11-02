@@ -179,19 +179,19 @@ describe('bool vectors: what is refused, and what the fix is', () => {
     );
   });
 
-  it('any and all take a vector of bools, a plain bool, or an array with a predicate', () => {
+  it('any and all take a vector of bools or a plain bool, and name xs.some(p) for an array', () => {
     // A scalar `bool` is an overload of both in WGSL (wgsl.txt:21294-21314), and both "Return
     // e" — so it is no longer refused (#150). It lowers to the ARGUMENT, not to a call: a
     // one-component reduction is the value itself, and GLSL ES 3.00 has no `all(bool)` form to
     // emit. What stays refused is a vector that is not a vector of BOOLS.
     expect(errorsOf(FS('  return vec4(f32(any(uv.x < 0.5)), 0., 0., 1.)'))).toEqual([]);
     expect(only(FS('  return vec4(f32(all(a)), 0., 0., 1.)'))).toBe(
-      `${TS_CODES.TYPE_MISMATCH} all(v) takes a vector of bools, which a comparison of two vectors gives (§27), or an array with a predicate, all(xs, (x) => ...); got vec3.`,
+      `${TS_CODES.TYPE_MISMATCH} all(v) takes a bool or a vector of bools, which a comparison of two vectors gives (§27); got vec3.`,
     );
-    // The fold keeps its own message.
+    // The array fold was removed (change 0112): the sentence names the method that replaces it.
     expect(
       only(FS('  const xs: array<f32, 2> = [1., 2.]\n  return vec4(f32(any(xs)), 0., 0., 1.)')),
-    ).toContain('needs an array and a predicate function');
+    ).toContain('For an array, any(xs, p) was removed: write xs.some(p).');
   });
 
   it('&& and || stay scalar', () => {

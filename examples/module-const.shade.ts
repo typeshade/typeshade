@@ -46,7 +46,7 @@ export function fs(vo: VsOut): vec4 {
   const cx = u32(vo.uv.x * f32(TILES));
   const cy = u32(vo.uv.y * f32(TILES));
   const parity = (cx + cy + u32(PHASE + 8)) & 1;
-  const ramp = pow(vo.uv.y, GAMMA);
+  const ramp = vo.uv.y ** GAMMA;
   const dark = ramp * 0.25;
   const v = parity === 0 ? (INVERT ? dark : ramp) : (INVERT ? ramp : dark);
   return vec4(v, v, v, 1.);
