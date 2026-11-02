@@ -1485,6 +1485,14 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A length read inside a storage index is declared in the WebGL2 pass program (#900).** An
+  entry that read an array's length only inside an index, `out[g] = xs[(g + 3) % xs.length]`, ran
+  on WebGPU and on the CPU tier, and its pass program did not compile on WebGL2: the program named
+  `_phx_len_xs` and never declared it. `Words.place` lowered each index without the set that
+  records the lengths a statement reads. It now takes the set, so the length is declared as it is
+  for a length read anywhere else. The fix adds 17 gzip bytes to `typeshade/emit` (115,406 to
+  115,423), measured with Bun 1.4.4 against `14566606`; the other bundles do not change.
+
 - **A kernel call is refused when an array a loop only reads is too short (#655).** The call
   checked the arrays a loop writes against their lengths, not the arrays it reads, so
   `copy4(out, a)` with `a` shorter than `out` threw an internal `TypeError` on the CPU tier. A
