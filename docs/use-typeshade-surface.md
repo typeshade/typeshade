@@ -467,6 +467,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
 | `.length` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 | a call of a name that change 0112 removed: `arrayLength`, `log10`, `log1p`, `expm1`, `cbrt`, `hypot`, `sum`, `none`, `pow`; a read of `PI`, `E`, `LN2`, `LN10`, `LOG2E` or `LOG10E`; `any(xs, p)` or `all(xs, p)` | `TS8004` for a call, `TS8022` for a read, `TS8019` for the two folds, each in one sentence that names the spelling to write: `arrayLength was removed: write xs.length.`, `PI was removed: write Math.PI.`, `any expects 1 argument, got 2; the array fold was removed: write xs.some(p).` (§10) |
+| a vector or matrix argument to a `Math` member: `Math.sqrt(v)`, `Math.max(v, 0.)`, `Math.pow(v, w)` | `TS8003`, in one sentence that names the WGSL name or operator that takes the vector: `Math.sqrt takes a number; for a vec3 write sqrt(v).`, `Math.pow takes a number; for a vec3 write v ** w.` The editor reports the same sentence (§10) |
 | A module variable declared or used where its address space forbids | `TS8033`. A `let` with neither type nor initializer, a resource type without `declare` (`"dst" is a storage binding the host provides, and needs declare: write "declare const dst: storage<array<f32>, "read_write">".` — the mode is the one the `let` asked for, and a resource with no type argument names the shape `storage<...>`), a `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
 | A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, or used as a value (§25). One under a branch the invocations may not share is `TS8052` (§54) |
 | A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A static field that holds a function, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a member a class that extends declares as another kind than its base, `super.f` on a field that holds a function, a method that changes its object called on a `const` whose value something else may hold, a parameter or a dropped value, one that returns nothing used as a value, a `private`, `protected` or `#x` member named where TypeScript does not allow it, or a changing call on the copy a `return this` method hands back inside an expression (§26) |
@@ -666,6 +667,13 @@ declaration hides a predeclared function. `fract(x)` and `fract(1.25)` beside a 
 `fract` both call it, and the editor's hover shows it. A call of a builtin the file never wrote
 keeps meaning the builtin: the `fract` that `random(p)` expands to, and a `Math.pow(a, b)` beside
 a declared `pow`.
+
+A `Math` member takes and returns scalars, as ECMAScript's does (Rule 9.4, change 0112): the
+ambient `MathObject` declares no vector overload, and `Math.sqrt(v)` or `Math.max(v, 0.)` on a
+`vec3` is refused in the compiler and in the editor with the same `TS8003` sentence, which names
+the builtin that takes the vector (`sqrt(v)`, `max(v, 0.)`; `v ** w` for `pow`). The vector math
+stays on the free WGSL names above. A name bound to a member (§12) takes the member's scalar
+signature the same way, `min` and `max` included.
 
 A value constructor is the one thing that does not give way. A declaration named like a scalar
 cast, a vector, a matrix or `array` (`f32`, `vec3`, `mat2x2f` …) does not take a call of that

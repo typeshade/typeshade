@@ -75,7 +75,11 @@ describe('math arguments: two shapes that had to agree', () => {
   });
 
   it('names the call as written: Math.min, and atan for the two-argument arctangent', () => {
-    expect(errorsOf(fn('v: vec3', 'vec3', 'Math.min(v, 0.5)'))).toEqual([]);
+    expect(errorsOf(fn('s: f32', 'f32', 'Math.min(s, 0.5)'))).toEqual([]);
+    expect(errorsOf(fn('v: vec3', 'vec3', 'Math.min(v, 0.5)'))).toEqual([
+      'TS8003 Math.min takes a number; for a vec3 write min(v, 0.5).',
+    ]);
+    expect(errorsOf(fn('v: vec3', 'vec3', 'min(v, 0.5)'))).toEqual([]);
     expect(errorsOf(fn('v: vec2, s: f32', 'vec2', 'atan(v, s)'))).toEqual([
       `${M} atan takes arguments of one type; the first is vec2, this one f32. Splat the scalar to the vector's size: vec2(x).`,
     ]);
@@ -245,8 +249,8 @@ export function probe(${params.join(', ')}): f32 {
 `;
 
   const ids = Object.keys(MATH_ARG_SPECS).sort();
-  /** How a call of `id` is spelled: `pow` has no free name since change 0112, so it is `Math.pow`,
-   *  which reaches the same argument rule under its own name. */
+  /** How a call of `id` is spelled with no argument: `pow` has no free name since change 0112, so
+   *  it is `Math.pow`, which reaches the same count rule. */
   const spelled = (id: string): string => (id === 'pow' ? 'Math.pow' : id);
 
   it('covers every rule the compiler consults, and no id that has none', () => {
@@ -324,6 +328,9 @@ export function probe(${params.join(', ')}): f32 {
       const spec = MATH_ARG_SPECS[id]!;
       const arity = MATH_FN_ARITY[id]!;
       if (arity < 2) continue;
+      // `Math.pow` takes scalars only (change 0112), and `**`, the only spelling of `pow` on a
+      // vector, refuses a wrong shape in its own sentence.
+      if (id === 'pow') continue;
       if ((spec.roles?.[1] ?? 'same') !== 'same') {
         ownRole.push(id);
         continue;

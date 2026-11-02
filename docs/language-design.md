@@ -1123,12 +1123,12 @@ A name of the f64 family, which has no WGSL signature, must take the signatures 
 - Derives from: `docs/roadmap.md`, "make what does not compile, compile"; #152 for the builtins still to place.
 - Enforced by: `src/core/passes/required-caps.ts` and `capability-reachability.test.ts`.
 
-**Rule 9.4.** A `Math` member must lower to the WGSL builtin of the same meaning, and so must its free-function spelling where WGSL has a builtin of that name (`sqrt`, `max`; Rule 9.9 removed `pow`); a `Math` member with no WGSL builtin must be expanded into WGSL arithmetic, stays an ECMAScript name and has no free spelling; `Math.fround(x)` is `f32(x)`.
+**Rule 9.4.** A `Math` member must lower to the WGSL builtin of the same meaning, and so must its free-function spelling where WGSL has a builtin of that name (`sqrt`, `max`; Rule 9.9 removed `pow`); a `Math` member with no WGSL builtin must be expanded into WGSL arithmetic, stays an ECMAScript name and has no free spelling; `Math.fround(x)` is `f32(x)`. A `Math` member takes the scalar arguments ECMAScript gives it; the vector form of the same operation is the WGSL name.
 A name a `const` binds to a `Math` member, by an object pattern over `Math` or by the member itself, must mean that member: a call of it is the member's call, and a constant member is its inlined literal; it takes the member's signatures, and no function value exists for it.
 
 - Rationale: see Rule 2.4.
 - Derives from: `MATH_FN_ALIAS` and `MATH_EXPAND_ALIAS` in `src/compiler/ts/math-alias.ts`.
-- Enforced by: `surface-names.test.ts` and `src/compiler/ts/math-expand.test.ts`; the bound name by `src/compiler/ts/math-binding.ts` and `math-binding.test.ts` (change 0113).
+- Enforced by: `surface-names.test.ts` and `src/compiler/ts/math-expand.test.ts`; the scalar arguments by `src/compiler/ts/math-scalar.test.ts` (change 0112); the bound name by `src/compiler/ts/math-binding.ts` and `math-binding.test.ts` (change 0113).
 
 **Rule 9.5.** A function the file declares or imports (Rule 3.9) must win over every builtin function of its name, whether a WGSL built-in function, the free spelling of a `Math` member (Rule 9.4) or a TypeShade extension that is a function (§9.3), as a module-scope declaration hides a predeclared function in WGSL and as TypeScript's lookup finds the file's own name before a global: a call of the name reaches the declaration in the constant folder, on the CPU, on WebGPU and on WebGL2, and a function handed by its name to a fold, to an array method or to a function that takes one follows the call.
 A value constructor (a scalar cast, a vector, a matrix or `array`) must keep its precedence over a declaration of its name, as a type name does over an alias (Rule 4.2); `bool` and `f64` are the exception and stay the declaration's, and a declaration of a constructor's name is refused where it is handed by that name, since no callback is a constructor.

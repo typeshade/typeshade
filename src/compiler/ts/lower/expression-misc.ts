@@ -99,6 +99,8 @@ export function lowerExpandCall(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  /** Says whether the arguments are refused, and has pushed the diagnostic if so (Rule 9.4). */
+  refuse: (args: readonly Expr[]) => boolean = () => false,
 ): Expr | undefined {
   const id = resolveMathExpand(name);
   if (!id) return undefined;
@@ -108,6 +110,7 @@ export function lowerExpandCall(
     if (!lowered) return undefined;
     args.push(lowered);
   }
+  if (refuse(args)) return undefined;
   // `cbrt` reads its argument twice (math-expand.ts). An argument that may have an effect (a
   // call of a function of the file, or of an atomic) is evaluated once, by passing it to a
   // function the front end builds with the expansion as its body (#614).
