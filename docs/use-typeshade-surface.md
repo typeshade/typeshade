@@ -418,7 +418,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | an access word outside `"read"` and `"read_write"` | `TS8002`. `storage<T, Access> Access is "read" or "read_write"; got "write". A storage BUFFER has no write-only mode; that is a storage texture's, texture_storage_2d<Format, "write">.` Collected as `read_write` (§1); TS2344 in the editor |
 | a second type argument on a `uniform<T>` | `TS8002`. `uniform<T> takes one type argument. A uniform buffer is read-only, so it has no access mode to write.` TS2314 in the editor |
 | the retired `{ access }` option on the call form | `TS8099`, naming the type-argument spelling to write (§1). Reported and ignored: the mode comes from the type argument |
-| assign to a read resource: a `uniform<T>`, or a `storage<T>` with no `"read_write"` | `TS8005`, whose sentence names the `storage<T, "read_write">` line to write when the target is a storage binding, the compiler READ its declared type (a recovered type names no line: the line would drop what it could not read) and the target is a place on some mode (`md[0]` on an `f64` matrix, `src.length`, an emulated-double lane `dv[0].x` and a multi-component swizzle `v.xy` are each the same refusal on either mode, and name no line). TS2542 on an index and TS2540 on a field in the editor, before `compile()` is called (§1) |
+| assign to a read resource: a `uniform<T>`, or a `storage<T>` with no `"read_write"` | `TS8005`, whose sentence names the `storage<T, "read_write">` line to write when the target is a storage binding, the compiler READ its declared type (a recovered type names no line: the line would drop what it could not read) and the target is a place on some mode (`md[0]` on an `f64` matrix, `src.length`, an emulated-double lane `dv[0].x` and a swizzle that repeats a component `v.xx` are each the same refusal on either mode, and name no line). TS2542 on an index and TS2540 on a field in the editor, before `compile()` is called (§1) |
 | two resources share `@binding` | name both |
 | a decorator on a declaration: a binding, an override, a `const` or `let` at any depth, an enum, an interface, a type alias, a namespace, a function declared in another function's body, or a `static` field | `TS8028`, one per decorator, saying what it is: `@group` and `@binding` are WGSL's and not applied, since `reflect()` reports the group and slot each binding gets (§1); `@id` is not applied, since the host sets an override by its name; `@size` and `@align` are named as a struct field's (§51); an attribute the compiler reads elsewhere by what it marks (`"@fragment" does not apply to a local function: it marks an entry function. Remove it.`); a name WGSL does not have either is `Unknown attribute`. The editor shows this sentence alone, without TypeScript's TS1206, or its TS2304 on a name the ambient library does not declare |
 | `@size` on a function, a parameter or a class, `@align` on a function or a parameter | `TS8028`, `"@align" is WGSL's attribute for a struct field, not a function. Remove it.` On a field, and `@align` on a class, they keep their own sentences (§51) |
@@ -516,9 +516,18 @@ emitted as `p = 1.0;`, which Tint refuses; it is `TS8018` now, naming the local 
 through: it names the caller's place, so `p = 1.` and `p.x = 1.` write the variable the caller
 passed (§70).
 
-A swizzle target names exactly **one** component. `v.xy = …` and `c.rg = …` are rejected
-(`TS8018`), which is what WGSL does: assign each component, or build the whole vector and
-assign that. `v.r` `v.g` `v.b` `v.a` are components like `v.x` … `v.w` and are writable.
+A swizzle target of `=` and of every compound `op=` may name **two to four distinct**
+components (change 0106): `v.xy = r`, `p.zx += r`, `c.rgb *= s`. The right-hand side has the
+swizzle's type, or is a scalar where the operator has a vector-scalar overload. Every old
+component the operation reads is read before any is written, so `d.xy *= d.yx` with
+`d = vec2(2., 3.)` gives `vec2(6., 6.)`, and `e.yx *= vec2(0.5, 2.)` with `e = vec2(2., 3.)`
+gives `vec2(4., 1.5)`. A non-constant index of the target (`ps[next()].xy += r`) is read once,
+before the right-hand side. The emitted code is a `let` of the result and one write per
+component, on WGSL and on GLSL ES 3.00 alike, so no `swizzle_assignment` extension is needed.
+A swizzle that names a component twice (`v.xx = …`) is rejected with `TS8018`, which names the
+repeated component. A swizzle as an `@inout` or `@out` argument, `++` and `--` still take one
+component, and a lane of an emulated-double vector is no place (§39). `v.r` `v.g` `v.b` `v.a`
+are components like `v.x` … `v.w`.
 
 `++` and `--` step a **numeric scalar**: `f32`, `i32`, `u32` and `f64`. On a member or element
 target they lower to the compound form (`ps[i].a += 1.`), so the target is written once instead
