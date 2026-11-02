@@ -36,6 +36,23 @@ function diagnose(source: string): string {
   return r.diagnostics[0]!.message;
 }
 
+/** The message of the first diagnostic with `wanted` as its code, in the compiler's list (in
+ *  document order). The editor's `typeshade` rows must be the same list in the same order, so a
+ *  sentence pinned here is the one both halves say (Rule 12.7). */
+function diagnoseCode(source: string, wanted: string): string {
+  const compiler = analyze(source).diagnostics.map((d) => `${d.code} ${d.message}`);
+  const service = createTypeshadeLanguageService();
+  service.openDocument('p.ts', `"use typeshade";\n${source}`);
+  const editor = service
+    .getDiagnostics('p.ts')
+    .filter((d) => d.source === 'typeshade')
+    .map((d) => `${d.code} ${d.message}`);
+  expect(editor).toEqual(compiler);
+  const found = compiler.find((m) => m.startsWith(`${wanted} `));
+  expect(found, compiler.join('\n')).toBeDefined();
+  return found!.slice(wanted.length + 1);
+}
+
 function code(source: string): string | undefined {
   const r = analyze(source);
   expect(r.diagnostics.length).toBeGreaterThan(0);
@@ -231,7 +248,7 @@ describe('entry I/O still needs a decorator, which only a class can carry', () =
   `;
 
   it('tells a type-alias author to declare it as a class', () => {
-    expect(diagnose(VS(`type VsOut = {${FIELDS}}`))).toBe(
+    expect(diagnoseCode(VS(`type VsOut = {${FIELDS}}`), 'TS8029')).toBe(
       'Struct "VsOut" field "pos" is used as a vertex output but has neither @builtin(...) nor ' +
         '@location(...): WGSL requires every entry output struct member to declare one, and a ' +
         'type alias member cannot carry a decorator — declare "VsOut" as a class.',
@@ -239,13 +256,13 @@ describe('entry I/O still needs a decorator, which only a class can carry', () =
   });
 
   it('tells an interface author the same, with the right article', () => {
-    expect(diagnose(VS(`interface VsOut {${FIELDS}}`))).toContain(
+    expect(diagnoseCode(VS(`interface VsOut {${FIELDS}}`), 'TS8029')).toContain(
       'an interface member cannot carry a decorator — declare "VsOut" as a class.',
     );
   });
 
   it('asks a class author only for the decorator itself', () => {
-    const message = diagnose(VS(`class VsOut {${FIELDS}}`));
+    const message = diagnoseCode(VS(`class VsOut {${FIELDS}}`), 'TS8029');
     expect(message).toContain('WGSL requires every entry output struct member to declare one.');
     expect(message).not.toContain('declare "VsOut" as a class');
   });

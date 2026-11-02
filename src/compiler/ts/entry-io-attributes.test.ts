@@ -24,6 +24,7 @@ import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 function compiled(source: string) {
   const c = compile(`"use typeshade"\n${source}`);
@@ -124,12 +125,27 @@ describe('a varying spelled as a bare entry parameter, not a struct field', () =
   });
 
   it('refuses two parameters at one @location, and @interpolate on a @builtin parameter', () => {
-    expect(
-      diagnose(`@vertex export function vs(): vec4 { return vec4(0., 0., 0., 1.) }
+    // The vertex stage here writes no @location(0), so the compiler and the editor list the
+    // missing-output rows first, in document order (Rule 12.7). The rule under test is the
+    // clash row, which both halves must say.
+    const clash = `"use typeshade";
+@vertex export function vs(): vec4 { return vec4(0., 0., 0., 1.); }
 @fragment export function fs(@location(0) a: f32, @location(0) b: f32): vec4 {
-  return vec4(a, b, 0., 1.)
-}`).message,
-    ).toContain('"fs" puts "a" and "b" both at @location(0)');
+  return vec4(a, b, 0., 1.);
+}`;
+    const said = 'TS8010 "fs" puts "a" and "b" both at @location(0); each slot carries one value.';
+    const rows = compileTsSource(clash)
+      .diagnostics.filter((d) => d.category === 'error')
+      .map((d) => `${d.code} ${d.message}`);
+    expect(rows).toContain(said);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('c.ts', clash);
+    expect(
+      service
+        .getDiagnostics('c.ts')
+        .filter((d) => d.source === 'typeshade')
+        .map((d) => `${d.code} ${d.message}`),
+    ).toEqual(rows);
     expect(
       diagnose(`@vertex export function vs(@builtin("vertex_index") @interpolate("flat") vi: u32): vec4 {
   return vec4(f32(vi), 0., 0., 1.)

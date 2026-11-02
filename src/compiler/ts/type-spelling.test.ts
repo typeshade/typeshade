@@ -720,28 +720,35 @@ describe('a class named while the structs are collected, and a sentence about a 
   it('a write to a binding whose type was refused says nothing more', () => {
     // The placeholder `mat2x3` printed as the f32 matrix it is not: "cannot assign to mat2x3
     // mat2x3 and mat2x3". The refusal at the declaration is the one mistake (Rule 12.4).
-    expect(
-      said(
-        [
-          'declare const mnd: storage<mat2x3<f64>, "read_write">;',
-          'declare const vh: storage<array<vec2h>, "read_write">;',
-          'declare const o: storage<array<f32>, "read_write">;',
-          '@compute([1, 1, 1]) export function cs(): void {',
-          '  mnd = mat2x3();',
-          '  mnd *= 2.;',
-          '  vh++;',
-          '  let m = mnd;',
-          '  o[0] = f32(m[0].x);',
-          '}',
-        ].join('\n'),
-      ),
-    ).toEqual([
-      // A type name nothing declares is said before the lowering (semantic.ts), the matrix the
-      // fp64 pass has no form for while the bindings are lowered.
-      'TS8002 Unknown type "vec2h". Did you mean "vec2"?',
+    const source = [
+      'declare const mnd: storage<mat2x3<f64>, "read_write">;',
+      'declare const vh: storage<array<vec2h>, "read_write">;',
+      'declare const o: storage<array<f32>, "read_write">;',
+      '@compute([1, 1, 1]) export function cs(): void {',
+      '  mnd = mat2x3();',
+      '  mnd *= 2.;',
+      '  vh++;',
+      '  let m = mnd;',
+      '  o[0] = f32(m[0].x);',
+      '}',
+    ].join('\n');
+    const expected = [
+      // Document order, the editor's (Rule 12.7): `mnd` is declared above `vh`.
       'TS8027 mat2x3<f64> has no emulated-double form: the fp64 pass carries a square matrix of ' +
         'doubles only (mat2, mat3, mat4). Declare it mat2x3 and narrow, or use a square shape.',
-    ]);
+      'TS8002 Unknown type "vec2h". Did you mean "vec2"?',
+    ];
+    expect(said(source)).toEqual(expected);
+    // The editor half: the same two rows in the same order. TypeScript's own TS2315 on
+    // `mat2x3<f64>` and TS2588 on the writes are not this file's to judge.
+    const service = createTypeshadeLanguageService();
+    service.openDocument('t.ts', `${classes}${source}\n`);
+    expect(
+      service
+        .getDiagnostics('t.ts')
+        .filter((d) => d.source === 'typeshade')
+        .map((d) => `${d.code} ${d.message}`),
+    ).toEqual(expected);
   });
 
   it('a function whose return reads such a binding does not return void to its caller', () => {
