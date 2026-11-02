@@ -160,17 +160,16 @@ const VERTEX_GAPS: Readonly<Record<string, string>> = {};
  *  measurement that emptied `VERTEX_GAPS` above, so they stay as the positive rule. */
 const atomicVertex = (call: string, yieldsValue: boolean): string => `"use typeshade"
 declare const hist: storage<array<atomic<u32>>, "read_write">
-class Clip {
-  @builtin("position") pos: vec4;
+interface Clip {
+  pos: builtin<"position", vec4>;
 }
-@vertex
-export function vs(@builtin("vertex_index") i: u32): Clip {
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
 ${
   yieldsValue
     ? `  const r = ${call}\n  return { pos: vec4(f32(r), 0., 0., 1.) }`
     : `  ${call}\n  return { pos: vec4(0., 0., 0., 1.) }`
 }
-}
+});
 `;
 
 const ATOMIC_VERTEX_WITNESS: Readonly<Record<string, string>> = {
@@ -294,31 +293,28 @@ describe('the compiler stage sets equal the sets core.def states (S4)', () => {
     };
     for (const id of ids) {
       const fragment = `"use typeshade"
-class V {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface V {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
-@fragment
-export function fs(v: V): vec4 {
+export const fs = fragment(function fs(v: V): vec4 {
   ${id}()
   return vec4(0., 0., 0., 1.)
-}
+});
 `;
       const vertex = `"use typeshade"
-class Clip {
-  @builtin("position") pos: vec4;
+interface Clip {
+  pos: builtin<"position", vec4>;
 }
-@vertex
-export function vs(@builtin("vertex_index") i: u32): Clip {
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
   ${id}()
   return { pos: vec4(0., 0., 0., 1.) }
-}
+});
 `;
       const compute = `"use typeshade"
-@compute([64, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   ${id}()
-}
+});
 `;
       const why = WHY[id];
       expect(why, `${id} is compute-only with no pinned reason clause`).toBeDefined();

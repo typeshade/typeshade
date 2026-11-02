@@ -630,7 +630,7 @@ export function f(out: array<P>, ps: array<P>) {
     ],
     [
       'a write through a reference a call takes, which reads the element first',
-      `function bump(@inout v: f32): void { v += 1.; }
+      `function bump(v: inout<f32>): void { v += 1.; }
 export function inc(out: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) { bump(out[i]); }
 }`,

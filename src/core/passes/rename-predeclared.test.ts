@@ -141,8 +141,7 @@ export function g(x: f32): f32 { return fract(x) + fract_(x) + min(x, x); }
       'min',
       moduleOf(`"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-@compute([1])
-export function main() { out[0] = 1.; }
+export const main = compute([1], function main() { out[0] = 1.; });
 `),
     );
     expect(renamePredeclaredFunctions(m, 'wgsl')).toBe(m);
@@ -255,14 +254,13 @@ describe('what a writer emits', () => {
     const m = moduleOf(`"use typeshade";
 function fract(x: f32): f32 { return x - floor(x) + 0.5; }
 export function g(x: f32): f32 { return fract(x) + random(x); }
-class Color {
-  @location(0) color: vec4;
+interface Color {
+  color: location<0, vec4>;
 }
-@fragment
-export function fs(@builtin("position") p: vec4): Color {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
   const v = g(p.x);
   return { color: vec4(v, v, v, 1.) };
-}
+});
 `);
     const wgsl = emitModule(m);
     const glsl = emitGlslModule(m, 'fragment');
@@ -363,13 +361,12 @@ describe('an entry point named like a builtin (Rule 3.2)', () => {
   const m = entryNamed(
     'fract',
     moduleOf(`"use typeshade";
-class Color {
-  @location(0) color: vec4;
+interface Color {
+  color: location<0, vec4>;
 }
-@fragment
-export function fs(@builtin("position") p: vec4): Color {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
   return { color: vec4(fract(p.x), random(p.y), 0., 1.) };
-}
+});
 `),
   );
 

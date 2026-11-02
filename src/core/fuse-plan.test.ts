@@ -19,8 +19,8 @@ import type { KernelFace } from './host-kernel.js';
 // ─── the two forms ───────────────────────────────────────────────────────────────────────────
 
 const CLASS = `class Voice {
-  phase: f32;
-  freq: f32;
+  phase!: f32;
+  freq!: f32;
   tick(dt: f32): f32 {
     this.phase = this.phase + this.freq * dt;
     return this.phase;
@@ -35,7 +35,7 @@ const CLASS = `class Voice {
     nudge(this.phase, d);
   }
 }
-function nudge(@inout x: f32, d: f32): void {
+function nudge(x: inout<f32>, d: f32): void {
   x = x + d;
 }`;
 

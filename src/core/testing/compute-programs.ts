@@ -20,10 +20,9 @@ export const PROGRAMS: Record<string, ComputeProgram> = {
     src: `"use typeshade";
 declare const xs: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
-@compute([8, 1, 1])
-export function main(@builtin("global_invocation_id") gid: vec3u): void {
+export const main = compute([8, 1, 1], function main(gid: builtin<"global_invocation_id", vec3u>): void {
   out[gid.x] = xs[gid.x] * 2. + 1.;
-}
+});
 `,
     entry: 'main',
     workgroups: 2,
@@ -35,10 +34,9 @@ export function main(@builtin("global_invocation_id") gid: vec3u): void {
   'a write at a computed index': {
     src: `"use typeshade";
 declare const out: storage<array<u32>, "read_write">;
-@compute([8, 1, 1])
-export function main(@builtin("global_invocation_id") gid: vec3u): void {
+export const main = compute([8, 1, 1], function main(gid: builtin<"global_invocation_id", vec3u>): void {
   out[(gid.x * 5 + 3) % 16] = gid.x;
-}
+});
 `,
     entry: 'main',
     workgroups: 2,
@@ -47,12 +45,11 @@ export function main(@builtin("global_invocation_id") gid: vec3u): void {
   'several writes in one invocation, past the log': {
     src: `"use typeshade";
 declare const out: storage<array<u32>, "read_write">;
-@compute([4, 1, 1])
-export function main(@builtin("global_invocation_id") gid: vec3u): void {
+export const main = compute([4, 1, 1], function main(gid: builtin<"global_invocation_id", vec3u>): void {
   for (let k: u32 = 0; k < 10; k++) {
     out[gid.x * 10 + k] = gid.x * 100 + k;
   }
-}
+});
 `,
     entry: 'main',
     workgroups: 1,
@@ -61,12 +58,11 @@ export function main(@builtin("global_invocation_id") gid: vec3u): void {
   'a read after its own write': {
     src: `"use typeshade";
 declare const out: storage<array<u32>, "read_write">;
-@compute([4, 1, 1])
-export function main(@builtin("global_invocation_id") gid: vec3u): void {
+export const main = compute([4, 1, 1], function main(gid: builtin<"global_invocation_id", vec3u>): void {
   out[gid.x] = gid.x + 1;
   out[gid.x + 4] = out[gid.x] * 3;
   out[gid.x] = out[gid.x + 4] + out[gid.x];
-}
+});
 `,
     entry: 'main',
     workgroups: 1,
@@ -77,15 +73,14 @@ export function main(@builtin("global_invocation_id") gid: vec3u): void {
 declare const xs: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
 let tile: workgroup<array<f32, 8>>;
-@compute([8, 1, 1])
-export function main(
-  @builtin("global_invocation_id") gid: vec3u,
-  @builtin("local_invocation_index") li: u32,
+export const main = compute([8, 1, 1], function main(
+  gid: builtin<"global_invocation_id", vec3u>,
+  li: builtin<"local_invocation_index", u32>,
 ): void {
   tile[li] = xs[gid.x];
   workgroupBarrier();
   out[gid.x] = tile[7 - li];
-}
+});
 `,
     entry: 'main',
     workgroups: 2,
@@ -99,11 +94,10 @@ export function main(
 declare const xs: storage<array<u32>>;
 declare const sums: storage<array<u32>, "read_write">;
 let part: workgroup<array<u32, 8>>;
-@compute([8, 1, 1])
-export function main(
-  @builtin("global_invocation_id") gid: vec3u,
-  @builtin("local_invocation_index") li: u32,
-  @builtin("workgroup_id") wid: vec3u,
+export const main = compute([8, 1, 1], function main(
+  gid: builtin<"global_invocation_id", vec3u>,
+  li: builtin<"local_invocation_index", u32>,
+  wid: builtin<"workgroup_id", vec3u>,
 ): void {
   part[li] = xs[gid.x];
   workgroupBarrier();
@@ -116,7 +110,7 @@ export function main(
   if (li === 0) {
     sums[wid.x] = part[0];
   }
-}
+});
 `,
     entry: 'main',
     workgroups: 3,
@@ -129,10 +123,9 @@ export function main(
     src: `"use typeshade";
 declare const xs: storage<array<f32>>;
 declare const bins: storage<array<atomic<u32>>, "read_write">;
-@compute([8, 1, 1])
-export function main(@builtin("global_invocation_id") gid: vec3u): void {
+export const main = compute([8, 1, 1], function main(gid: builtin<"global_invocation_id", vec3u>): void {
   atomicAdd(bins[u32(xs[gid.x] * 4.)], 1);
-}
+});
 `,
     entry: 'main',
     workgroups: 2,
@@ -145,13 +138,12 @@ export function main(@builtin("global_invocation_id") gid: vec3u): void {
     src: `"use typeshade";
 declare const count: storage<atomic<u32>, "read_write">;
 declare const slots: storage<array<u32>, "read_write">;
-@compute([4, 1, 1])
-export function append(@builtin("local_invocation_index") li: u32): void {
+export const append = compute([4, 1, 1], function append(li: builtin<"local_invocation_index", u32>): void {
   const first = atomicAdd(count, 1);
   slots[first] = li * 10;
   const second = atomicAdd(count, 1);
   slots[second] = li * 10 + 1;
-}
+});
 `,
     entry: 'append',
     workgroups: 1,
@@ -166,8 +158,7 @@ function publish(li: u32, v: u32): u32 {
   workgroupBarrier();
   return shared[3 - li];
 }
-@compute([4, 1, 1])
-export function main(@builtin("local_invocation_index") li: u32): void {
+export const main = compute([4, 1, 1], function main(li: builtin<"local_invocation_index", u32>): void {
   const got = publish(li, li * li + 1);
   switch (li) {
     case 0: {
@@ -185,7 +176,7 @@ export function main(@builtin("local_invocation_index") li: u32): void {
       out[li] = got * 2;
     }
   }
-}
+});
 `,
     entry: 'main',
     workgroups: 1,
@@ -198,8 +189,7 @@ declare const out: storage<array<u32>, "read_write">;
 function count(v: u32): void {
   atomicAdd(total, v);
 }
-@compute([4, 1, 1])
-export function main(@builtin("local_invocation_index") li: u32): void {
+export const main = compute([4, 1, 1], function main(li: builtin<"local_invocation_index", u32>): void {
   let acc: u32 = 0;
   for (let k: u32 = 0; k < 8; k++) {
     if (k === li) {
@@ -212,7 +202,7 @@ export function main(@builtin("local_invocation_index") li: u32): void {
     acc += k;
   }
   out[li] = acc;
-}
+});
 `,
     entry: 'main',
     workgroups: 2,
@@ -223,17 +213,16 @@ export function main(@builtin("local_invocation_index") li: u32): void {
       src: `"use typeshade";
 declare const total: storage<atomic<u32>, "read_write">;
 declare const out: storage<array<u32>, "read_write">;
-function bump(@inout x: u32, by: u32): void {
+function bump(x: inout<u32>, by: u32): void {
   x = x + atomicAdd(total, by) % 7 + by;
 }
-@compute([8, 1, 1])
-export function main(@builtin("global_invocation_id") gid: vec3u): void {
+export const main = compute([8, 1, 1], function main(gid: builtin<"global_invocation_id", vec3u>): void {
   let acc: u32 = gid.x;
   bump(acc, 1);
   bump(acc, 2);
   out[gid.x] = acc;
   bump(out[(gid.x * 3 + 1) % 8 + 8], gid.x);
-}
+});
 `,
       entry: 'main',
       workgroups: 1,
@@ -248,10 +237,9 @@ function settle(): u32 {
   workgroupBarrier();
   return 3;
 }
-@compute([4, 1, 1])
-export function main(
-  @builtin("local_invocation_index") li: u32,
-  @builtin("workgroup_id") wid: vec3u,
+export const main = compute([4, 1, 1], function main(
+  li: builtin<"local_invocation_index", u32>,
+  wid: builtin<"workgroup_id", vec3u>,
 ): void {
   const g = wid.x * 4 + li;
   const a = g % 2 === 0 ? atomicAdd(total, 1) : 100;
@@ -259,7 +247,7 @@ export function main(
   shared[li] = a;
   const c = wid.x > 0 ? settle() : 7;
   out[g] = a + select(u32(0), u32(1000), b) + c * 10000 + shared[(li + 1) % 4];
-}
+});
 `,
     entry: 'main',
     workgroups: 2,
@@ -269,13 +257,12 @@ export function main(
     src: `"use typeshade";
 declare const xs: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
-@compute([4, 1, 1])
-export function main(@builtin("global_invocation_id") gid: vec3u): void {
+export const main = compute([4, 1, 1], function main(gid: builtin<"global_invocation_id", vec3u>): void {
   const offsets = array<f32, 4>(1., 2., 3., 4.);
   // \`map\` lowers to a helper that fills a local array of its own named \`out\`.
   const samples = offsets.map((o) => xs[gid.x] * o);
   out[gid.x] = samples.reduce((a, s) => a + s, 0.);
-}
+});
 `,
     entry: 'main',
     workgroups: 2,
