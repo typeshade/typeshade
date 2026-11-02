@@ -348,7 +348,7 @@ export function main() {
     const built: string[] = [];
     for (const f of readdirSync(dir).filter((x) => x.endsWith('.shade.ts'))) {
       const src = readFileSync(join(dir, f), 'utf8');
-      if (!src.includes('@compute')) continue;
+      if (!src.includes('@compute') && !/\bcompute\(/.test(src)) continue;
       const r = compile(src);
       if (r.diagnostics.some((d) => d.category === 'error')) continue;
       for (const e of r.module.funcs.filter((x) => stageOf(x) === 'compute')) {
