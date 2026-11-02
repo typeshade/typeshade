@@ -714,10 +714,9 @@ const SOURCE_WITNESSES: Readonly<Partial<Record<Capability, string>>> = {
   subgroups: `"use typeshade";
 declare const src: storage<array<u32>>;
 declare const out: storage<array<u32>, "read_write">;
-@compute([64])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([64], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   out[gid.x] = subgroupAdd(src[gid.x]);
-}
+});
 `,
   // The three #146 added (§50) are each derived from a `@builtin(...)` id or an attribute an
   // author WRITES, so all three are reachable and belong here rather than on the list below.
