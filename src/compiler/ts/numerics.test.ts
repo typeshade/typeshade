@@ -43,8 +43,8 @@ const h = numerics(["finite-math", "reassociate"], (x: f32): f32 => x * 2.);
 function plain(x: f32): f32 {
   return x - 1.;
 }
-export const fs = fragment(function fs(): vec4f {
-  return vec4f(g(1.), h(2.), plain(3.), 1.);
+export const fs = fragment(function fs(p: builtin<"position", vec4f>): vec4f {
+  return vec4f(g(p.x), h(p.y), plain(p.z), 1.);
 }, { numerics: ["reassociate"] });`);
     expect(compiled).toEqual([]);
     expect(numericsOf(result, 'g')).toEqual(['finite-math']);

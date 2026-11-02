@@ -1,7 +1,7 @@
 ---
 id: '0108'
 title: A host file reads the author's JSDoc of each export of a shader module in the host view, before the sentence the compiler writes for a call
-status: accepted
+status: implemented
 rules: []
 surface:
   - 64
@@ -24,15 +24,15 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0108, `status: accepted`: items 1 to 3 are implemented by pull request [#887](https://github.com/typeshade/typeshade/pull/887) (see Configuration and validation record), and item 4 (Amendment 1) awaits its implementation. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC) and Amendment 1 later the same day; see Approval and plan record. |
-| Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                          |
-| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, while designing an audio library on the compiler. The owner asked whether a built module keeps the author's function comments ("빌드된 파일의 함수 주석이라던가 지원되는지"). The agent reported that the host view carries none. The owner approved the drafting of this proposal ("승인"). No GitHub issue is recorded.                      |
-| Applicability / effectivity   | The host view that `hostFace` writes (`src/compiler/ts/host-face.ts`, `viewText`), its description in `docs/use-typeshade-surface.md` §64, and `src/compiler/ts/host-face.test.ts`. The generated module, the CPU tier, the rules, the exports, the diagnostic codes and the examples do not change. No release version is assigned.                                                                                   |
-| Review baseline               | `main` at `c9efde0f79df0e6b10883b87c8af21d0c72dfbc9` (the merge of pull request #870), read on 2026-11-02.                                                                                                                                                                                                                                                                                                             |
-| Review and revision authority | Pull request [#871](https://github.com/typeshade/typeshade/pull/871) (branch `claude/proposal-0108-host-view-docs`). Git records the revisions of this file. The review and merge of that pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                   |
-| Amendment 1                   | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction, on the branch `claude/0108-amend-members`. It widens item 1 to the members of an exported class (item 4, decision D4), after change 0109 made an exported class a value of the host face. Items 1 to 3, their approval and their record do not change. The merge of its pull request with `status: accepted` records the decision.          |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0108, `status: implemented`: items 1 to 3 are implemented by pull request [#887](https://github.com/typeshade/typeshade/pull/887), and item 4 (Amendment 1) by pull request [#937](https://github.com/typeshade/typeshade/pull/937) (see Configuration and validation record). The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC) and Amendment 1 later the same day; see Approval and plan record. |
+| Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                           |
+| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, while designing an audio library on the compiler. The owner asked whether a built module keeps the author's function comments ("빌드된 파일의 함수 주석이라던가 지원되는지"). The agent reported that the host view carries none. The owner approved the drafting of this proposal ("승인"). No GitHub issue is recorded.                                                                       |
+| Applicability / effectivity   | The host view that `hostFace` writes (`src/compiler/ts/host-face.ts`, `viewText`), its description in `docs/use-typeshade-surface.md` §64, and `src/compiler/ts/host-face.test.ts`. The generated module, the CPU tier, the rules, the exports, the diagnostic codes and the examples do not change. No release version is assigned.                                                                                                                                    |
+| Review baseline               | `main` at `c9efde0f79df0e6b10883b87c8af21d0c72dfbc9` (the merge of pull request #870), read on 2026-11-02.                                                                                                                                                                                                                                                                                                                                                              |
+| Review and revision authority | Pull request [#871](https://github.com/typeshade/typeshade/pull/871) (branch `claude/proposal-0108-host-view-docs`). Git records the revisions of this file. The review and merge of that pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                                                                    |
+| Amendment 1                   | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction, on the branch `claude/0108-amend-members`. It widens item 1 to the members of an exported class (item 4, decision D4), after change 0109 made an exported class a value of the host face. Items 1 to 3, their approval and their record do not change. The merge of its pull request with `status: accepted` records the decision.                                                           |
 
 ## What changes
 
@@ -390,18 +390,217 @@ Observations, none of them a deviation:
 - A JSDoc above a body-less overload signature is not carried. The face reads the implementation.
   The approved text does not cover overloads. No next action is planned.
 
-Open item:
+Open item, closed by item 4:
 
-- The comment of a constructor, a method, an accessor and a static member of an exported class is
+- The comment of a constructor, a method, an accessor and a static member of an exported class was
   not carried. Change 0109 declares those members, and the listing in `changes/0109-host-classes.md`
   shows the comment of a method (`tick`) as one of "proposal 0108". The approved text of 0108 names
   the members of an `enum` and the fields of a struct, so this change does not widen it. A member
-  that is declared `never` keeps the sentence of change 0109. Amendment 1 widens the approved text
-  to those members (item 4, D4). Its implementation is pending and extends this record when it
-  lands.
+  that is declared `never` keeps the sentence of change 0109. Amendment 1 widened the approved text
+  to those members (item 4, D4). Commit `890b1315` delivers item 4 and closes this item. The
+  section "Item 4 (Amendment 1)" below extends this record.
 
-Pending: the implementation of item 4 (Amendment 1). The downstream work is as listed in "What it
-owes downstream".
+Pending: no work of this repository. The downstream work is as listed in "What it owes
+downstream". The open items of item 4 are listed in its section below.
+
+**Item 4 (Amendment 1).** Accepted revision: the file as merged in
+[#915](https://github.com/typeshade/typeshade/pull/915) (squash `bb82036b`), which holds
+Amendment 1. Implementation: pull request [#937](https://github.com/typeshade/typeshade/pull/937),
+branch `claude/0108-member-docs`, by a Claude Code agent. The work started from `main` at
+`7bff5e0a6ac20e13fdb28849ced37bb8e9b89458` (the merge of #928) on 2026-11-02 (UTC).
+
+Commits with `Change: 0108`:
+
+- `890b1315`: the reader, the printer, the tests and the `src/AGENTS.md` row. It delivers item 4.
+- `acf13710`: surface §64 and `CHANGELOG.md`.
+- `461d37a0`: the test of a class that a module re-exports, and two reworded comments.
+- `8992b873`: each case of item 4 holds its source to no diagnostic from `compile()` and from the
+  language service.
+- `d6796627`: the merge of change 0116 (see below).
+- The commit that rewrites this record.
+
+Commit `2b04b964` merges `origin/main` at `14566606` into the branch. It says `Change: none`,
+because the changes in it are those of `main`. It had no conflict. The policy check
+`bun run precommit --message-file` passed the staged merge, since #932 (on `main`) judges a merge
+by what it adds beyond its parents (issue #901). The hooks are not installed in this worktree, so
+no hook ran at commit time.
+
+Commit `d6796627` merges `origin/main` at `9822490f` into the branch. `main` holds change 0116
+([#918](https://github.com/typeshade/typeshade/pull/918): the view spells each type with the host
+type family of `src/runtime/host-types.ts`) and the pull requests #933, #936, #940, #941 and #942.
+The commit says `Change: 0108`, because it adapts the work of this change to the spelling of
+change 0116. The merge had five conflicts. Each is resolved so that both changes hold:
+
+- `src/compiler/ts/host-face.ts`, four blocks in `memberLines` and `classView`. `memberLines`
+  keeps the `MemberView` of item 4 and takes the `args` parameter of change 0116, so each argument
+  is spelled `argType(p.type, args)`. `classView` takes `args` too.
+- `src/compiler/ts/host-face.test.ts` and `src/compiler/ts/host-class.test.ts`, one block each. The
+  pinned lines of a class with comments take the family's names (`f32`) and the comment of `tick`.
+- `docs/use-typeshade-surface.md`, two blocks in §64. The listing of the view of `OnePole` has
+  `f32` and the comment of `tick`, and the sentence that said that the comment of a method is not
+  copied is gone.
+- `src/AGENTS.md`, one block. The row of `host-face.ts` is that of change 0116, and the row of
+  `host-docs.ts` is that of item 4.
+
+`CHANGELOG.md` merged without a conflict, and both entries stand. The twelve cases of item 4 then
+took the family's names in their pinned texts. `bun run precommit --message-file` passed the staged
+merge, so the commit needed no `--no-verify`.
+
+Delivered configuration:
+
+- `src/compiler/ts/host-docs.ts`. `carriesComment` admits a constructor, a method, each half of an
+  accessor and a field, a static one among them. A constructor or a method with no body is an
+  overload signature and is not read. An abstract method has no body and is read. `memberKey`
+  names where `ExportDocs.members` keeps the blocks of a member (`tick`, `static unit`,
+  `get gain`, `static set gain`), and `CONSTRUCTOR` names where it keeps the constructor's. A member
+  with no block of its own takes the blocks of the member of that name in a base, as a field does.
+  A class that has a constructor of its own takes none from the constructor of a base.
+- `src/compiler/ts/host-face.ts`. `memberLines` returns a `MemberView` for each member: its
+  declarations, the keys of the blocks above each one, and the reason of a member declared `never`.
+  `classView` writes the blocks of the constructor and of each member on its line. Both take the
+  `args` parameter of change 0116, so the types of the members are spelled with the host type
+  family. For a member declared `never` it writes the author's blocks first and the sentence of
+  change 0109 at the end of the last block. `notCallable` is that sentence, which the `never`
+  export uses too. A member of a class that is declared as the member of the class above it is not
+  written again, as before, so it stands in the base with its comment. A class declared without
+  `extends` writes each member it takes with the blocks of the base member.
+- Item 4 changes none of `HostExport`, `HostFace` and `src/__api__/surface.md`.
+- `src/compiler/ts/host-face.test.ts`: 56 tests, 12 more than `main` at `9822490f`. There is one
+  case for each of a constructor, a method, a getter and a setter, a static field, a static method,
+  a member declared `never` and a member a derived class takes from its base. One more case reads
+  the editor's hover on a method call in a host file, and on a constructor, an accessor, a static
+  method and a member declared `never`. Four more cases cover an abstract member, a flat
+  declaration whose base stands in another file, a class that a module re-exports, and an overload
+  signature. Every case holds its source to no diagnostic from `compile()` and from the language
+  service (Rule 12.7). The test that kept the other members of a class as change 0109 declares
+  them now holds item 4.
+- `src/compiler/ts/host-class.test.ts`: the expected view of `OnePole` has the comment of `tick`.
+  The pinned views of the 12 cases and of this one are spelled with the family's names (`f32`).
+- `docs/use-typeshade-surface.md` §64: the paragraphs "The author's comments" and the listing of
+  the view of `OnePole`, which shows the comment of `tick` on its line, spelled with `f32`.
+- `CHANGELOG.md`: the entry of 0108 under `[Unreleased]`, `Added`, says what a class carries.
+- `src/AGENTS.md`: the row of `host-docs.ts`.
+- `reqs/surface/SURF-064.md` does not change. Its text and its links are as before, so
+  `bun run reqs:sync` writes no change and Doorstop flags no item.
+- No rule, export, diagnostic code or example changes. Item 4 changes no baked view of
+  `typeshade/algorithms` and `typeshade/random` and no view of the examples, because no class of
+  them has a comment on a member.
+
+Functional validation, run by the agent on 2026-11-02 UTC (Linux, Bun 1.4.4, Node 22.23.4, TypeScript
+5.6.3 unless a line says another version), on `d6796627` unless a line says another commit:
+
+- `bun run build`, `bun run lint` and `bun run format:check` on `d6796627`: each exits 0. The
+  first run of `bun run build` on this commit ended on SIGTERM, with no TypeScript error; the
+  cause was not investigated, and the second run exits 0. The generated views of `examples/` were
+  removed before the build. They are git-ignored files that `tsc --build` also
+  reads: with them present it reports TS6133 in `examples/kernel-image-invert.shade.typeshade.ts`,
+  an unused `Resident` import that this change does not touch.
+- `bunx vitest run src/compiler/ts src/language-service` on `d6796627`: 212 test files and 5,652
+  tests; 5,651 passed and 1 is a todo. `host-face.test.ts` holds 56 of them and
+  `host-class.test.ts` 22.
+- `bun run test` on `d6796627`: 517 test files and 12,057 tests. 515 files and 12,043 tests passed,
+  4 tests were skipped, 1 is a todo, and 9 tests failed. The 9 are in `src/affected-tests.test.ts`
+  (5) and `src/doc-test-selection.test.ts` (4). They pass when `NODE_OPTIONS` is unset (next line).
+  The session that ordered this work named the container's `NODE_OPTIONS` as their cause; this work
+  did not investigate it.
+- `env -u NODE_OPTIONS bunx vitest run src/affected-tests.test.ts src/doc-test-selection.test.ts`
+  on `d6796627`: 2 test files and 88 tests; all pass.
+- `bunx vitest run` on `src/compiler/ts/host-face.test.ts`, `src/compiler/ts/host-class.test.ts`,
+  `src/common-modules.test.ts` and `src/language-service/host-face-export.test.ts`, on TypeScript
+  5.9.3 and on 6.0.3, in a copy of the tree with its own `node_modules` (`bun add --no-save`), at
+  `d6796627`: 96 tests passed on each.
+- `bun scripts/bake-common-modules.ts --check` and `bun run gate:boundary` on `d6796627`: each
+  exits 0.
+- `bun src/cli/bin.ts sync examples`, then `bun src/cli/bin.ts sync --check examples`, on
+  `d6796627`: 114 views, all up to date. `bunx tsc -p examples/hosts/tsconfig.json --noEmit` exits
+  0 with those views. No view of the examples has a comment on a class member.
+- `bun run gate:journeys` on `d6796627`, with `TYPESHADE_CHROMIUM` set to the headless shell of
+  Chromium revision 1243:
+  `/opt/pw-browsers/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell`.
+  The result is "34 journeys, 123 runs: every check passed", and the exit code is 0. The import
+  journey type-checks and bundles `journeys/_host-import/src/filters.shade.ts`. Its class `OnePole`
+  has a commented method, and the view `hostFace` writes for that file has the comment of `tick` on
+  its line. The run left a `vite` process behind (issue #923), which was stopped.
+- The same checks ran earlier on `2b04b964` and `8992b873`, before the merge of change 0116. Each
+  passed, and `bun run test` failed in the same 9 tests. The lines above replace them.
+- Not run: `bun run gate:compile`, `bun run gate:differential`, `bun run gate:render` and
+  `bun run gate:perf`. This change emits no WGSL or GLSL, and the generated module is as before.
+  CI runs these gates.
+
+Document validation:
+
+- `bun run docs:refs` on `d6796627`: 0 dead references in 1,435 files.
+- `bun scripts/doc-impact.ts --base origin/main --check` on `d6796627`: exits 0. It lists 2 review
+  subjects (`src/compiler/ts/host-docs.ts` and `src/compiler/ts/host-face.ts`) with 18 locations.
+  Each location was read. `src/AGENTS.md:65` is updated in this change. The others name
+  `host-face.ts` as an owner or as the test that pins a rule (`docs/language-design.md` lines 964,
+  986, 1021, 1034, 1056, 1380, 1405 and 1427, `docs/computing-platform-plan.md:80`,
+  `docs/debugging.md:491`, `docs/runtime-architecture.md:288`, `docs/use-typeshade-plan.md:294`,
+  `src/AGENTS.md:64` and `:257`, and the proposals 0048, 0082 and 0085). They say nothing of the
+  comments of class members and still hold. Lines 964 and 986 and the row at `src/AGENTS.md:64`
+  were read again after the merge of change 0116. No must-fix item is open.
+- `bun run reqs:sync` writes no change, and `python3 scripts/doorstop-check.py -C -e -F` exits 0, on
+  `d6796627`. `SURF-064` is not flagged, because its text and its links did not change in this
+  work, so no `doorstop review` or `doorstop clear` ran. §64 and the rules it links (3.8, 8.20,
+  8.21, 11.7 and 11.8) were read.
+- `bun scripts/changes.ts --base origin/main` on `d6796627`: "This change touches surface §64", with
+  no problem listed, and exits 0. `bun scripts/ifchange.ts --base origin/main`: exits 0.
+- The listing of the view of `OnePole` in §64, against the view that `hostFace` generates for the
+  listed source: the 8 lines of the class are the generated lines, in the generated order, and the
+  `run` line is the generated line. The listing of `terrain.shade.ts` and its view are those of
+  change 0116 and do not change here.
+
+Deviations from the approved text, each with its disposition:
+
+- A static field. Item 4 lists a static field among the members that carry a comment. The view
+  declares no static field: a static field is the module constant `Cls_Field` (surface §26), and
+  change 0109 declares the static functions of a class and no field. The comment of a static field
+  has no line to stand on. Item 4 says "each member it declares", and the delivered work follows
+  that rule: the comment of a static field is not carried, and that of a static method beside it
+  is. `carriesComment` admits a static property declaration, so the reader is ready if a later
+  change declares static fields. The case "leaves the comment of a static field out" of
+  `host-face.test.ts` pins this. Disposition: open. Next action: the owner chooses between an
+  amendment that removes "a static field" from item 4 and a change to Rules 8.20 and 8.21 that
+  makes the host class declare static fields.
+- The order of delivery. The Approval and plan record puts item 4 after the implementation of
+  change 0116, because both change `src/compiler/ts/host-face.ts`. This pull request was prepared
+  while pull request #918 (change 0116) was open. #918 merged into `main` as `9822490f` before this
+  pull request was finished, and commit `d6796627` takes it into the branch with `host-face.ts`
+  resolved so that both changes hold. Disposition: closed by `d6796627`.
+- Work the approved text does not list: four test cases beyond the eight it names (an abstract
+  member, a flat declaration with a base in another file, a class a module re-exports, an overload
+  signature), the rewrite of one test of the first implementation, the new expectation in
+  `host-class.test.ts` and the `notCallable` helper. None of them changes a rule, an export, a
+  diagnostic code or an example. Disposition: closed by this record.
+
+Observations, none of them a deviation:
+
+- A member of a class that has the same declaration as the member of the exported class above it
+  is not written again, whatever its comment. So an override with its own comment and the same
+  host declaration shows the comment of the base. The approved text says that a member the view
+  takes from an exported base class stands in the base with its comment. No next action is planned;
+  a later amendment may have the view write such an override again.
+- A getter and a setter that are declared `never` stand on one line. That line carries the blocks of
+  the getter, then those of the setter, then the sentence. The editor shows the last block of a
+  declaration, so a hover shows the block of the setter and the sentence.
+- The constructor line of a class carries the comment of the constructor the class runs: its own,
+  or the nearest above it. A derived class declared with `extends` repeats that line, with the same
+  comment, as it repeats the line before this change.
+- A field that a class writes with a private name (`#x`, Rule 8.12) is declared `private x` in the
+  view, and its comment is not carried, because `memberName` reads no private name. This predates
+  item 4: item 1 names the fields of a class. Next action: a bug fix against item 1, or an
+  amendment, at the owner's choice.
+- An overload signature with no body is now part of the approved text (item 4). The first record
+  above says that the approved text did not cover it.
+
+Open items:
+
+- The open deviation above: the static field.
+- The private-name field in the observations above.
+- Not run: `bun run gate:compile`, `bun run gate:differential`, `bun run gate:render` and
+  `bun run gate:perf`. This change emits no WGSL or GLSL, and the generated module is as before.
+  CI runs these gates.
+- The downstream work is as listed in "What it owes downstream".
 
 ## What it owes downstream
 

@@ -102,7 +102,7 @@ const relaxed = numerics(["finite-math"], function relaxed(x: f32): f32 {
   return bump() * 0. + x;
 });
 export const main = compute([1], function main(gid: builtin<"global_invocation_id", vec3u>) {
-  buf[gid.x] = relaxed(1.);
+  buf[gid.x] = relaxed(f32(gid.x));
 });`);
     // The front end reads the call in its own statement, so the fold drops the product and the
     // call stays.
