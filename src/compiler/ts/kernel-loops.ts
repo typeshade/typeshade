@@ -3,10 +3,11 @@
 //
 // The independence proof (`src/core/passes/parallel-loop.ts`) decides on the IR, where names
 // are the lowering's: a second `i` is `i_1`, a method's object `self_`, a `for…of`'s counter
-// `_i`. The refusal must name the author's line and the author's names (Rule 12.1), so it is
-// worded here, with the names each kernel function's scope recorded as it was lowered and the
-// source text its spans index. One warning per loop, for the first reason (Rule 12.4), or one on
-// the function when its body is not the kernel call's shape.
+// `_i`, a class's function `Voice_tally`, a namespace's `Ns_f`, a static field `Voice_count`. The
+// refusal must name the author's line and the author's names (Rule 12.1), so it is worded here,
+// with the names each kernel function's scope recorded as it was lowered and the source text its
+// spans index. One warning per loop, for the first reason (Rule 12.4), or one on the function when
+// its body is not the kernel call's shape.
 //
 // The same names word one more thing, for the report of a fusion that did not happen (change
 // 0058): the first access of an array that is not at the loop's counter, and the first place an
@@ -29,7 +30,10 @@ import { KERNEL_TREE } from '../../core/kernel-tree.js';
 import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
 import { diagnosticAtSpan } from './diagnostic.js';
 
-/** What each IR name of a kernel function was written as, recorded when its body is lowered. */
+/** What each IR name of a kernel function was written as, recorded when its body is lowered: its
+ *  locals and parameters, and the functions and static fields of the module that the module emits
+ *  under another name (`Voice_tally` is `Voice.tally`, `Ns_f` is `Ns.f`, `Voice_count` is
+ *  `Voice.count`). */
 export const kernelSourceNames = new WeakMap<FuncDecl, ReadonlyMap<string, string>>();
 
 /** The `TS8070` warnings for the kernel functions of `m`; `sourceFileOf` is the file each was
@@ -116,6 +120,8 @@ class Wording {
     return at === undefined ? 'a line' : `line ${at.line + 1}`;
   }
 
+  /** An IR name as the author wrote it: a local, a parameter, or a function or static field of the
+   *  module. */
   private name(ir: string): string {
     return this.names.get(ir) ?? ir;
   }
@@ -169,7 +175,7 @@ class Wording {
           return `${why} ${this.line(r.at)} reads "${this.expr(r.read)}", which another iteration writes. Read from an array the loop does not write.`;
         return `${why} ${this.line(r.at)} uses the value ${r.fn} returns, which depends on the order the iterations run in. Call it as a statement of its own, and read the array after the loop.`;
       case 'R5':
-        return `${why} ${this.line(r.at)} calls "${this.name(r.callee)}", which writes "${r.writes}". Return the value from "${this.name(r.callee)}" and combine it in the loop instead.`;
+        return `${why} ${this.line(r.at)} calls "${this.name(r.callee)}", which writes "${this.name(r.writes)}". Return the value from "${this.name(r.callee)}" and combine it in the loop instead.`;
       case 'R6':
         if (r.why === 'console')
           return `${why} ${this.line(r.at)} calls ${r.name}, whose lines would print in another order on the GPU. Log after the loop.`;
