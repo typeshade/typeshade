@@ -112,8 +112,8 @@ function memberName(member: ts.Node): string | undefined {
     : undefined;
 }
 
-/** The declaration the author wrote for `decl`, a declaration of the face source, and the file
- *  that holds it. For a linked module that is the file the declaration came from. */
+/** The declaration that the author wrote for `decl`, a declaration of the face source, with the
+ *  file that holds it. For a linked module, that is the declaration in the file it came from. */
 function writtenDeclaration(
   decl: ts.Node,
   face: ts.SourceFile,
