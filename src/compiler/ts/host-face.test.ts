@@ -2320,6 +2320,31 @@ export { Form as Shape };
       );
     });
 
+    it('holds when the only class below is generic and the module builds none of it', () => {
+      // A generic class exists as the instances the module uses, and there is none: the view
+      // declares the class `never` with its own reason, and no instance runs a member of the base.
+      const f = faceOf(`"use typeshade";
+
+export abstract class Shape {
+  w: f32 = 1.;
+  area(): f32 {
+    return this.w;
+  }
+}
+
+export class Box<T> extends Shape {}
+`);
+      expect(f.view).toContain(`export declare abstract class Shape {
+  w: f32;
+  /** ${refused(reason('Shape', 'area'))} */
+  area: never;
+}
+`);
+      expect(f.view).toContain(
+        'Not callable from host code (Rule 8.20): it is generic, and its struct exists only as the instances the module uses.',
+      );
+    });
+
     it('is not the reason of a member a class below the abstract one runs', async () => {
       const abstractClass = `export abstract class Shape {
   w: f32 = 1.;
