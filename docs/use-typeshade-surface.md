@@ -2009,7 +2009,7 @@ means:
 - It is **only** an initializer, where the declaration states an `array<T, N>`, or as the
   source of an array binding pattern (§14). That binding context can infer a homogeneous
   fixed-length array: `const [a, b] = [1., 2.]`.
-  `const xs = [1., 2.]` and `sum([1., 2.])` are refused, each naming the spelling that works.
+  `const xs = [1., 2.]` and `[1., 2.].reduce((a, b) => a + b)` are refused, each naming the spelling that works.
 - The size must be fixed and must match: `array<f32>` has nothing to fill, and
   `array<f32, 3> = [1., 2.]` is an arity error.
 - Every element must be the element type. There is no implicit conversion, so
@@ -4013,9 +4013,10 @@ once, on the name, as it is TypeScript's TS1215 in the editor; a class, an enum,
 a type of the name is the file's, as TypeScript takes it. The front end kept a list of 59
 such names and refused
 each by its spelling, at the declaration and at every use, as `TS8012`, which is retired; its <!-- doc-refs: skip — a retired code, named as retired -->
-number stays a gap. A declaration of the file also wins over a §9.3 constant of its name: an
-`enum E`, a `namespace PI`, a `class TAU` or a `function PI` read as a value is the file's, as
-the editor reads it, and never e, π or τ. None of the four is a value a shader holds, and the
+number stays a gap. A declaration of the file also wins over the §9.3 constant `TAU`, the one constant left
+(change 0112): an `enum TAU`, a `namespace TAU`, a `class TAU` or a `function TAU` read as a
+value is the file's, as the editor reads it, and never τ. The same four of any other name are
+the file's too. None of the four is a value a shader holds, and the
 sentence says what the name is and the value it offers, once, where TypeScript's TS2322 about
 `typeof E` stood beside it in the editor:
 `TS8022 "E" is an enum, whose values are its members: E.A.`,
