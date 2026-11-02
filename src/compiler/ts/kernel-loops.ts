@@ -3,11 +3,11 @@
 //
 // The independence proof (`src/core/passes/parallel-loop.ts`) decides on the IR, where names
 // are the lowering's: a second `i` is `i_1`, a method's object `self_`, a `for…of`'s counter
-// `_i`, a class's function `Voice_tally`, a namespace's `Ns_f`, a static field `Voice_count`. The
-// refusal must name the author's line and the author's names (Rule 12.1), so it is worded here,
-// with the names each kernel function's scope recorded as it was lowered and the source text its
-// spans index. One warning per loop, for the first reason (Rule 12.4), or one on the function when
-// its body is not the kernel call's shape.
+// `_i`, a class's function `Voice_tally`, a namespace's `Ns_f`, an instance of a generic function
+// `pick_u32`, a static field `Voice_count`. The refusal must name the author's line and the
+// author's names (Rule 12.1), so it is worded here, with the names each kernel function's scope
+// recorded as it was lowered and the source text its spans index. One warning per loop, for the
+// first reason (Rule 12.4), or one on the function when its body is not the kernel call's shape.
 //
 // The same names word one more thing, for the report of a fusion that did not happen (change
 // 0058): the first access of an array that is not at the loop's counter, and the first place an
@@ -32,8 +32,8 @@ import { diagnosticAtSpan } from './diagnostic.js';
 
 /** What each IR name of a kernel function was written as, recorded when its body is lowered: its
  *  locals and parameters, and the functions and static fields of the module that the module emits
- *  under another name (`Voice_tally` is `Voice.tally`, `Ns_f` is `Ns.f`, `Voice_count` is
- *  `Voice.count`). */
+ *  under another name (`Voice_tally` is `Voice.tally`, `Ns_f` is `Ns.f`, `pick_u32` is `pick`,
+ *  `Voice_count` and `Voice_OFFSET` are `Voice.count` and `Voice.OFFSET`). */
 export const kernelSourceNames = new WeakMap<FuncDecl, ReadonlyMap<string, string>>();
 
 /** The `TS8070` warnings for the kernel functions of `m`; `sourceFileOf` is the file each was
@@ -226,6 +226,9 @@ class Wording {
       case 'param':
         return this.name(e.name);
       case 'constref':
+        // A static field that nothing writes is a module constant, which the module emits as
+        // `Voice_OFFSET` where the author wrote `Voice.OFFSET`.
+        return this.name(e.name);
       case 'overrideref':
       case 'externref':
         return e.name;

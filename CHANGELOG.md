@@ -1534,6 +1534,16 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **An instance of a generic function of the top level, and a static field inside an index, are
+  worded as the author wrote them (#972).** After #955 the `TS8070` sentence names `Ns.pick` for an
+  instance of a generic function of a namespace, but an instance of one of the top level and the
+  copy of a top-level function that takes a function kept the name the module emits: `"pick_u32"`
+  and `"apply_inc"`. They now record the name of the function they are made from, `pick` and
+  `apply`, with no type arguments, as `Ns.pick` has none. The reason a fuse scope gives for two
+  dispatches printed a static field that nothing writes, a module constant, with the name the module
+  emits, ``gather reads `t[i + Voice_OFFSET]` ``, and now prints `t[i + Voice.OFFSET]`. A static
+  field a derived class inherits is named by the class that declares it.
+
 - **The host view carries the comment of a field with a private name (#951).** A field written
   `#n` with a JSDoc block above it was declared `private n: u32;` with no comment, where a public
   field, a `protected` one and one written `private` carry theirs (change 0108, item 4). The reader
