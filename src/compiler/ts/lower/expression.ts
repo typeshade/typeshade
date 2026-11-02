@@ -8,7 +8,8 @@ import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, boolT, i32T, u32T, isF64, isVec64 } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, dropsRecoveredUse, irNameOf, type LoweringScope } from '../context.js';
-import { LANG_CONST, resolveLangConst } from '../math-alias.js';
+import { LANG_CONST, resolveLangConst, resolveMathConst } from '../math-alias.js';
+import { mathBindingOf } from '../math-binding.js';
 import { refusedBySemantics } from '../semantic.js';
 import {
   constF32OutOfRange,
@@ -462,6 +463,22 @@ function lowerIdentifier(
   diagnostics: TsCompilerDiagnostic[],
   contextual?: ShaderType,
 ): Expr | undefined {
+  // A name a `const` binds to a `Math` member: the member's inlined literal, or a function alias
+  // that only a call may name (Rule 9.4, change 0113). The declaration TypeScript's lookup finds
+  // decides, so a parameter or a local of the same name is not read here.
+  const mathBound = mathBindingOf(node);
+  if (mathBound !== undefined) {
+    const value = resolveMathConst(mathBound.member);
+    if (value !== undefined) return { op: 'lit', type: f32T, value };
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"${node.text}" is Math.${mathBound.member}, a function alias. Call it.`,
+      TS_CODES.UNSUPPORTED,
+    );
+    return undefined;
+  }
   const binding = scope.resolve(node.text);
   if (!binding) {
     // `undefined` is the absent value of an optional type (Rule 7.10, change 0088), where one

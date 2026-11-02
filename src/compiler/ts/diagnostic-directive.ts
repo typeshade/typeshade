@@ -14,6 +14,7 @@
 // elsewhere. One spelling in, the one that means what the author meant out.
 
 import ts from 'typescript';
+import { stageCallOf } from './stage-call.js';
 import type { DiagnosticDirective } from '../../core/ir/nodes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
@@ -28,7 +29,8 @@ const SEVERITIES = ['off', 'info', 'warning', 'error'] as const;
 const RULES = ['derivative_uniformity'] as const;
 
 /** The `diagnostic(...)` directives the file asks for, deduplicated and in source order. Read
- *  off any top-level function's decorators, entry or helper — the directive is module-scope
+ *  off any top-level function's decorators, entry or helper, and off a stage call's options
+ *  (change 0111) — the directive is module-scope
  *  either way, so where it is written decides nothing but where an author looks for it. A wrong severity or an unknown rule is reported and contributes nothing, so a typo
  *  does not silently switch a rule off — or leave one on that the author meant to silence. */
 export function collectDiagnosticDirectives(
@@ -38,90 +40,152 @@ export function collectDiagnosticDirectives(
   const out: DiagnosticDirective[] = [];
   /** The first directive seen for a rule: its severity and the function carrying it, which the
    *  conflict message names so an author can find the other side. */
-  const firstOf = new Map<string, { severity: string; fn: string }>();
+  const firstOf = new Map<string, { severity: string; fn: string; form: 'decorator' | 'call' }>();
   /** Rules already reported as conflicting, so three directives on one rule are one
    *  diagnostic and not two. */
   const reported = new Set<string>();
+  for (const { fnName, d, args, form } of directiveSources(sourceFile, diagnostics)) {
+    const [severity, rule] = args;
+    if (args.length !== 2 || severity === undefined || rule === undefined) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          d,
+          form === 'call'
+            ? `diagnostic takes a severity and a rule, as strings: ` +
+                `{ diagnostic: ["off", "derivative_uniformity"] }.`
+            : `@diagnostic takes a severity and a rule, as strings: ` +
+                `@diagnostic("off", "derivative_uniformity").`,
+          TS_CODES.ATTRIBUTE_NAME,
+        ),
+      );
+      continue;
+    }
+    if (!(SEVERITIES as readonly string[]).includes(severity)) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          d,
+          `"${severity}" is not a diagnostic severity. WGSL has: ${SEVERITIES.join(', ')}.`,
+          TS_CODES.ATTRIBUTE_NAME,
+        ),
+      );
+      continue;
+    }
+    if (!(RULES as readonly string[]).includes(rule)) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          d,
+          `"${rule}" is not a rule this compiler analyses. It knows: ${RULES.join(', ')}.`,
+          TS_CODES.ATTRIBUTE_NAME,
+        ),
+      );
+      continue;
+    }
+    // Deduplicated on the RULE, not on the (severity, rule) pair. WGSL allows one severity
+    // per rule in a scope, so two directives setting the same rule differently are a
+    // `conflicting diagnostic directive` on Tint — and the pair test let both through, so
+    // the module carried both lines and no driver accepted it, silently. The same severity
+    // written twice is not a conflict: it says the same thing.
+    const prior = firstOf.get(rule);
+    if (prior !== undefined) {
+      if (prior.severity !== severity) {
+        // ONE conflict, ONE diagnostic — on the SECOND directive, which is the one that
+        // introduced the disagreement, and naming the function each side sits on so an
+        // author can find the other without searching. Reporting it at both decorators with
+        // byte-identical text made a reader check whether two conflicts had been found.
+        if (!reported.has(rule)) {
+          reported.add(rule);
+          diagnostics.push(
+            makeDiagnostic(
+              sourceFile,
+              d,
+              `"${rule}" is set to "${prior.severity}" by the ` +
+                `${prior.form === 'call' ? 'diagnostic option of' : '@diagnostic on'} ` +
+                `"${prior.fn}" and to "${severity}" by the one ` +
+                `${form === 'call' ? 'of' : 'on'} "${fnName}". WGSL takes ` +
+                `one severity per rule per scope, and both would be emitted: "conflicting ` +
+                `diagnostic directive" on Tint. Keep one of the two.`,
+              TS_CODES.ATTRIBUTE_NAME,
+            ),
+          );
+        }
+      }
+      continue;
+    }
+    firstOf.set(rule, { severity, fn: fnName, form });
+    out.push({ severity: severity as DiagnosticDirective['severity'], rule });
+  }
+  return out;
+}
+
+/** One place a directive is written: an `@diagnostic(…)` decorator on a top-level function, or
+ *  the `diagnostic` option of a stage call (change 0111, decision D7),
+ *  `fragment(f, { diagnostic: ["off", "derivative_uniformity"] })`. An option other than
+ *  `diagnostic` is refused here, since nothing reads it. */
+function directiveSources(
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): { fnName: string; d: ts.Node; args: (string | undefined)[]; form: 'decorator' | 'call' }[] {
+  const text = (a: ts.Expression): string | undefined =>
+    ts.isStringLiteral(a) || ts.isNoSubstitutionTemplateLiteral(a) ? a.text : undefined;
+  const out: ReturnType<typeof directiveSources> = [];
   for (const stmt of sourceFile.statements) {
+    const sc = stageCallOf(stmt);
+    if (sc !== undefined) {
+      if (sc.options === undefined) continue;
+      const fnName = sc.declaration.name.text;
+      if (!ts.isObjectLiteralExpression(sc.options)) {
+        diagnostics.push(
+          makeDiagnostic(
+            sourceFile,
+            sc.options,
+            `A stage call's options are an object literal, ` +
+              `{ diagnostic: ["off", "derivative_uniformity"] }.`,
+            TS_CODES.ATTRIBUTE_NAME,
+          ),
+        );
+        continue;
+      }
+      for (const prop of sc.options.properties) {
+        const key =
+          ts.isPropertyAssignment(prop) &&
+          (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))
+            ? prop.name.text
+            : undefined;
+        if (key !== 'diagnostic' || !ts.isPropertyAssignment(prop)) {
+          diagnostics.push(
+            makeDiagnostic(
+              sourceFile,
+              prop,
+              `A stage call takes one option, "diagnostic"; ` +
+                `"${prop.getText(sourceFile)}" is not one.`,
+              TS_CODES.ATTRIBUTE_NAME,
+            ),
+          );
+          continue;
+        }
+        const value = prop.initializer;
+        out.push({
+          fnName,
+          d: prop,
+          args: ts.isArrayLiteralExpression(value) ? value.elements.map(text) : [],
+          form: 'call',
+        });
+      }
+      continue;
+    }
     if (!ts.isFunctionDeclaration(stmt)) continue;
     const fnName = stmt.name?.text ?? '(anonymous)';
     // A decorator on a top-level `function` parses as a MODIFIER, not through
     // `getDecorators`, which is why `function.ts` has `decoratorsOf`; the same shape here.
     const mods: readonly ts.ModifierLike[] = stmt.modifiers ?? [];
-    const decorators = mods.filter(ts.isDecorator);
-    for (const d of decorators) {
+    for (const d of mods.filter(ts.isDecorator)) {
       if (!ts.isCallExpression(d.expression)) continue;
       if (!ts.isIdentifier(d.expression.expression)) continue;
       if (d.expression.expression.text !== 'diagnostic') continue;
-      const args = d.expression.arguments.map((a) =>
-        ts.isStringLiteral(a) || ts.isNoSubstitutionTemplateLiteral(a) ? a.text : undefined,
-      );
-      const [severity, rule] = args;
-      if (args.length !== 2 || severity === undefined || rule === undefined) {
-        diagnostics.push(
-          makeDiagnostic(
-            sourceFile,
-            d,
-            `@diagnostic takes a severity and a rule, as strings: ` +
-              `@diagnostic("off", "derivative_uniformity").`,
-            TS_CODES.ATTRIBUTE_NAME,
-          ),
-        );
-        continue;
-      }
-      if (!(SEVERITIES as readonly string[]).includes(severity)) {
-        diagnostics.push(
-          makeDiagnostic(
-            sourceFile,
-            d,
-            `"${severity}" is not a diagnostic severity. WGSL has: ${SEVERITIES.join(', ')}.`,
-            TS_CODES.ATTRIBUTE_NAME,
-          ),
-        );
-        continue;
-      }
-      if (!(RULES as readonly string[]).includes(rule)) {
-        diagnostics.push(
-          makeDiagnostic(
-            sourceFile,
-            d,
-            `"${rule}" is not a rule this compiler analyses. It knows: ${RULES.join(', ')}.`,
-            TS_CODES.ATTRIBUTE_NAME,
-          ),
-        );
-        continue;
-      }
-      // Deduplicated on the RULE, not on the (severity, rule) pair. WGSL allows one severity
-      // per rule in a scope, so two directives setting the same rule differently are a
-      // `conflicting diagnostic directive` on Tint — and the pair test let both through, so
-      // the module carried both lines and no driver accepted it, silently. The same severity
-      // written twice is not a conflict: it says the same thing.
-      const prior = firstOf.get(rule);
-      if (prior !== undefined) {
-        if (prior.severity !== severity) {
-          // ONE conflict, ONE diagnostic — on the SECOND directive, which is the one that
-          // introduced the disagreement, and naming the function each side sits on so an
-          // author can find the other without searching. Reporting it at both decorators with
-          // byte-identical text made a reader check whether two conflicts had been found.
-          if (!reported.has(rule)) {
-            reported.add(rule);
-            diagnostics.push(
-              makeDiagnostic(
-                sourceFile,
-                d,
-                `"${rule}" is set to "${prior.severity}" by the @diagnostic on ` +
-                  `"${prior.fn}" and to "${severity}" by the one on "${fnName}". WGSL takes ` +
-                  `one severity per rule per scope, and both would be emitted: "conflicting ` +
-                  `diagnostic directive" on Tint. Keep one of the two.`,
-                TS_CODES.ATTRIBUTE_NAME,
-              ),
-            );
-          }
-        }
-        continue;
-      }
-      firstOf.set(rule, { severity, fn: fnName });
-      out.push({ severity: severity as DiagnosticDirective['severity'], rule });
+      out.push({ fnName, d, args: d.expression.arguments.map(text), form: 'decorator' });
     }
   }
   return out;

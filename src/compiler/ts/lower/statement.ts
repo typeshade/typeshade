@@ -6,7 +6,10 @@ import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { isF64, isVec, isVec64, u32T } from '../../../core/ir/types.js';
+import { f32T, isF64, isVec, isVec64, u32T } from '../../../core/ir/types.js';
+import { refusedDeclarationsOf } from '../context.js';
+import { resolveMathConst } from '../math-alias.js';
+import { mathDeclarationOf, type MathDeclaration } from '../math-binding.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import {
   LoweringScope,
@@ -521,6 +524,12 @@ function lowerDeclarationKind(
   diagnostics: TsCompilerDiagnostic[],
   spanNode: ts.Node,
 ): Stmt | Stmt[] | undefined {
+  // `const { sqrt } = Math` and `const s = Math.sqrt` bind aliases and lower to nothing; the rest of
+  // the shapes over `Math` are refused here, with the sentence for each (change 0113).
+  const overMath = mathDeclarationOf(decl, sourceFile);
+  if (overMath !== undefined) {
+    return lowerMathDeclaration(overMath, decl, sourceFile, scope, diagnostics, spanNode);
+  }
   if (ts.isObjectBindingPattern(decl.name) || ts.isArrayBindingPattern(decl.name)) {
     return lowerBindingPattern(decl.name, decl, isConst, sourceFile, scope, diagnostics, spanNode);
   }
@@ -908,6 +917,56 @@ function lowerSuperCall(
   // Then this class's parameter properties and field initializers, which TypeScript runs when
   // `super(...)` returns (Rule 8.14).
   out.push(...scope.takeAfterSuper());
+  return out;
+}
+
+/** A declaration over `Math` (change 0113): a `const` binds each name as an alias of the member,
+ *  which needs no statement; a `let` of a constant member copies the number, as `let p = Math.PI`
+ *  does; every other shape is refused where it is written, and its names with it. */
+function lowerMathDeclaration(
+  made: MathDeclaration,
+  decl: ts.VariableDeclaration,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+  spanNode: ts.Node,
+): Stmt[] | undefined {
+  if (made.refusals.length > 0) {
+    diagnostics.push(...made.refusals);
+    for (const name of made.names) refusedDeclarationsOf(scope.calleeTable()).add(name);
+    return undefined;
+  }
+  if (made.isConst) return [];
+  const out: Stmt[] = [];
+  for (const { name, member } of made.bound) {
+    const value = resolveMathConst(member);
+    if (value === undefined) continue;
+    const bound = defineLocal(
+      name.text,
+      f32T,
+      true,
+      undefined,
+      decl,
+      sourceFile,
+      scope,
+      diagnostics,
+      undefined,
+      name,
+    );
+    if (!bound) return undefined;
+    out.push(
+      withSpan(
+        {
+          s: 'var',
+          name: irNameOf(bound),
+          type: f32T,
+          init: { op: 'lit', type: f32T, value },
+        } as Stmt,
+        sourceFile,
+        spanNode,
+      ),
+    );
+  }
   return out;
 }
 

@@ -39,6 +39,7 @@ import {
   backendDiagnostic,
   diagnosticAtSpan,
   dropRepeatedDiagnostics,
+  sortDiagnosticsByPosition,
   makeDiagnostic,
   syntaxDiagnostics,
 } from './diagnostic.js';
@@ -451,6 +452,7 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   // A name nothing declares in a body no call lowered, which the lowering never read (Rule 2.1).
   reportUndeclaredValues(sourceFile, diagnostics);
   dropRepeatedDiagnostics(diagnostics);
+  sortDiagnosticsByPosition(diagnostics);
   let wgsl: string | undefined;
   const shouldEmit = options.emit ?? true;
   if (shouldEmit && funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {

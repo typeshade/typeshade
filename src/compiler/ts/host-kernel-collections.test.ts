@@ -389,6 +389,45 @@ export function f(xs: array<u32>) { }`,
       expect(compiler(p)).toEqual([message]);
       expect(editor(p)).toContain(message);
     });
+
+  // A local or a module constant that holds a new Map or Set gets two refusals: the annotation
+  // (TS8002, Rule 8.22, which names the remedy) and the value `Map` read as a value (TS8035).
+  // The two halves gave them in two orders, so the first one differed. Both give document order
+  // (Rules 12.5, 12.7). The tests above read one refusal each, and so missed the order.
+  const MAP_AT = `TS8002 A Map<K, V> is a kernel function's parameter only: an exported function that takes an array with no size (Rule 8.22). Take it as a parameter of that function.`;
+  const SET_AT = `TS8002 A Set<K> is a kernel function's parameter only: an exported function that takes an array with no size (Rule 8.22). Take it as a parameter of that function.`;
+  const asValue = (n: string) =>
+    `TS8035 "${n}" is a type, not a value: the library declares it for TypeScript's own use.`;
+  const placed: readonly (readonly [string, string, readonly string[]])[] = [
+    [
+      'a local Map with a new Map',
+      `export function f(): f32 { const m: Map<u32, f32> = new Map(); return 0.; }`,
+      [MAP_AT, asValue('Map')],
+    ],
+    [
+      'a local Set with a new Set',
+      `export function f(): f32 { const s: Set<u32> = new Set(); return 0.; }`,
+      [SET_AT, asValue('Set')],
+    ],
+    [
+      'a module constant Map with a new Map',
+      `const m: Map<u32, f32> = new Map();
+export function f(): f32 { return 0.; }`,
+      [MAP_AT, asValue('Map')],
+    ],
+    [
+      'a module constant that is a new Map with type arguments',
+      `const m = new Map<u32, f32>();
+export function f(): f32 { return 0.; }`,
+      [asValue('Map')],
+    ],
+  ];
+  for (const [name, body, messages] of placed)
+    it(`lists ${name} in one order, in the compiler and in the editor`, () => {
+      const p = program(body);
+      expect(compiler(p)).toEqual(messages);
+      expect(editor(p)).toEqual(messages);
+    });
 });
 
 describe('the example kernel-set-unique (change 0080)', () => {

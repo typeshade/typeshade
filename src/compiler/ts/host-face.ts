@@ -17,6 +17,7 @@
 // lowering's symbol table, and the IR is consulted for what each callable function reaches.
 
 import ts from 'typescript';
+import { stageCallOf } from './stage-call.js';
 import type {
   BindingDecl,
   ConstDecl,
@@ -1785,14 +1786,20 @@ function faceOf(ref: ExportRef, c: FaceCtx): HostExport {
   const { name, decl } = ref;
   if (decl === undefined) return never(name, ref.missing ?? REASON.unknown);
 
-  // A function: a declaration, or a `const` that holds an arrow function or a function expression.
+  // A function: a declaration, a `const` that holds an arrow function or a function expression,
+  // or a `const` that a stage call initializes, `vertex(function vs(…) { … })` (change 0111).
+  const init = ts.isVariableDeclaration(decl) ? decl.initializer : undefined;
+  const staged =
+    init !== undefined && ts.isVariableStatement(decl.parent.parent)
+      ? stageCallOf(decl.parent.parent)
+      : undefined;
   const fnNode = ts.isFunctionDeclaration(decl)
     ? decl
-    : ts.isVariableDeclaration(decl) &&
-        decl.initializer !== undefined &&
-        (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))
-      ? decl.initializer
-      : undefined;
+    : staged !== undefined
+      ? staged.fn
+      : init !== undefined && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
+        ? init
+        : undefined;
   if (fnNode !== undefined) {
     const nameNode = ts.isFunctionDeclaration(decl)
       ? decl.name!
