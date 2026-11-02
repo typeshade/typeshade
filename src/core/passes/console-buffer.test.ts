@@ -32,7 +32,7 @@ function scaleOf(v: f32): f32 {
 }
 @compute([8])
 export function scale(@builtin("global_invocation_id") gid: vec3u): void {
-  if (gid.x >= arrayLength(xs)) {
+  if (gid.x >= xs.length) {
     return;
   }
   const p: P = { a: xs[gid.x], b: vec3(1., 2., 3.) };

@@ -14,7 +14,7 @@ declare const output: storage<array<f32>, "read_write">;
 
 @compute([64])
 export function blur(@builtin("global_invocation_id") gid: vec3u) {
-  const n = i32(arrayLength(input));
+  const n = i32(input.length);
   const i = i32(gid.x);
   if (i >= n) {
     return;

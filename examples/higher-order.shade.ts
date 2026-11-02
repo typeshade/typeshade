@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Functions that take a function",
-  "blurb": "`cover` and `around4` take a distance field as a function, `f: Field`, and are compiled once for each function a call hands them, as a generic function is once per set of type arguments (Rule 8.18): `cover_circle`, `around4_fs_petal`. A call hands one over by its name, a local function included, or as an arrow function written there, which reads and writes the variables of the body it is written in (Rule 8.17): `petal` reads `r`, and the arrow `times3` is handed adds to `glow` through a pointer. A method takes a function the same way, and its copy takes the object it is called on: `ring.each` becomes `Ring_each_fs_dot`. `any(bands, (b) => …)` hands a fold its test the same way. Renders a disc, four petals, a glow, six dots and three rings.",
+  "blurb": "`cover` and `around4` take a distance field as a function, `f: Field`, and are compiled once for each function a call hands them, as a generic function is once per set of type arguments (Rule 8.18): `cover_circle`, `around4_fs_petal`. A call hands one over by its name, a local function included, or as an arrow function written there, which reads and writes the variables of the body it is written in (Rule 8.17): `petal` reads `r`, and the arrow `times3` is handed adds to `glow` through a pointer. A method takes a function the same way, and its copy takes the object it is called on: `ring.each` becomes `Ring_each_fs_dot`. `bands.some((b) => …)` hands an array method its test the same way. Renders a disc, four petals, a glow, six dots and three rings.",
   "renderable": true
 }
 */
@@ -108,7 +108,7 @@ export function fs(v: VsOut): FsOut {
   col = mix(col, vec3(0.9, 0.3, 0.5), dots);
   // A fold's test, written as an arrow that reads `p`.
   const bands = array<f32, 3>(0.8, 0.88, 0.96);
-  if (any(bands, (b) => abs(length(p) - b) < 0.012)) {
+  if (bands.some((b) => abs(length(p) - b) < 0.012)) {
     col = vec3(1.);
   }
   return { color: vec4(col, 1.) };

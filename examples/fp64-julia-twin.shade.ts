@@ -61,7 +61,7 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
 
 @fragment
 export function fs_julia(vo: VsOut): vec4 {
-  const span = pow(10.0, -u.zoom_exp);
+  const span = 10.0 ** -u.zoom_exp;
   // Each half maps its own 0..1 sub-range onto the SAME complex window
   // (pan lives on the HOST in full double precision, see fp64-mandelbrot.ts).
   const half = vo.uv.x * 2.0;

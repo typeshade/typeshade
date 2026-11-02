@@ -104,7 +104,7 @@ export function value(x: f32): f32 {
 
 @compute([64])
 export function main(@builtin("global_invocation_id") gid: vec3u): void {
-  if (gid.x >= arrayLength(xs)) {
+  if (gid.x >= xs.length) {
     return;
   }
   out[gid.x] = value(xs[gid.x]);

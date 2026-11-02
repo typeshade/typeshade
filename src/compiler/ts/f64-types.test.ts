@@ -201,14 +201,16 @@ describe('every builtin it has no twin for', () => {
     const arity = name === 'pow' || name === 'step' ? 2 : 1;
     const params = ['a: f64', 'b: f64'].slice(0, arity).join(', ');
     const args = ['a', 'b'].slice(0, arity).join(', ');
+    // `pow` has no free name since change 0112, so the call is the member, which lowers to the same builtin.
+    const spelled = name === 'pow' ? 'Math.pow' : name;
     const errors = errorsOf(
-      `"use typeshade"\nexport function k(${params}): f64 { return ${name}(${args}) }\n`,
+      `"use typeshade"\nexport function k(${params}): f64 { return ${spelled}(${args}) }\n`,
     );
     expect(errors).toHaveLength(1);
     expect(errors[0]).toBe(
-      `${name} has no emulated-double form; got f64. On an f64 the pass lowers ` +
+      `${spelled} has no emulated-double form; got f64. On an f64 the pass lowers ` +
         `abs, cos, floor, fract, max, min, mix, round, sin and sqrt — narrow first, ` +
-        `e.g. ${name}(f32(x)).`,
+        `e.g. ${spelled}(f32(x)).`,
     );
   });
 

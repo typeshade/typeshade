@@ -83,7 +83,7 @@ export function fs_cancel(vo: VsOut): vec4 {
   const pv = isF32 ? p32 : p64;
 
   // Plot in units of the true amplitude w^7, so the picture is w-invariant.
-  const yscale = pow(w, 7.) * 1.3;
+  const yscale = w ** 7. * 1.3;
   const v = pv / yscale; // computed curve, +/-0.77 at the edges
   const d2 = d * d;
   const truth = d2 * d2 * d2 * d / yscale; // factored (x-1)^7, no cancellation

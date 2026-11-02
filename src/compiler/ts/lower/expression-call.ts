@@ -22,7 +22,6 @@ import {
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, type LoweringScope } from '../context.js';
 import {
-  MATH_EXPAND_ALIAS,
   MATH_FN_ALIAS,
   MATH_FN_ARITY,
   MATH_MEMBER_NAMES,
@@ -34,6 +33,7 @@ import {
 } from '../math-alias.js';
 import { mathBindingOf } from '../math-binding.js';
 import { SCALAR_CAST, literalPeerType } from '../numeric.js';
+import { REMOVED_FOLDS, removedCallSentence, removedFoldSentence } from '../removed-names.js';
 import {
   foldNumericLit,
   isIntegerLiteralTree,
@@ -45,7 +45,7 @@ import {
 import { spanOf } from '../span.js';
 import { lowerExpression } from './expression.js';
 import { refuseOptionalCall, refuseOptionalUse } from './optional-values.js';
-import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js';
+import { JS_ARRAY_METHODS } from './expression-prop.js';
 import { lowerAtomicCall } from './atomics.js';
 import { lowerCollectionCall } from './collections.js';
 import { lowerWorkgroupUniformLoad } from './barriers.js';
@@ -493,27 +493,39 @@ export function lowerCall(
         return lowerGenericCall(node, name, name, sourceFile, scope, diagnostics);
       }
     }
-    if (name === 'fill') return lowerFill(node, sourceFile, scope, diagnostics);
-    if (
-      name === 'sum' ||
-      name === 'min' ||
-      name === 'max' ||
-      name === 'any' ||
-      name === 'all' ||
-      name === 'none' ||
-      name === 'zip'
-    ) {
-      // `any(m)` / `all(m)` over a vector of bools is the builtin (§27); over an array with a
-      // predicate it is the fold below.
-      if ((name === 'any' || name === 'all') && node.arguments.length === 1) {
-        const reduced = lowerBoolReduce(name, node, sourceFile, scope, diagnostics);
-        if (reduced !== 'not-a-bool-vector') return reduced;
+    // A name change 0112 removed is refused with the spelling that replaces it, after every
+    // declaration of the file has had its turn above (Rule 9.5).
+    const removed = removedCallSentence(name);
+    if (removed !== undefined) {
+      pushDiag(diagnostics, sourceFile, callee, removed, TS_CODES.UNKNOWN_FN);
+      // The arguments are still lowered, for their own mistakes, as an unknown function's are.
+      for (const arg of node.arguments) {
+        if (isFunctionArgument(arg, scope) || ts.isStringLiteralLike(arg)) continue;
+        lowerExpression(arg, sourceFile, scope, diagnostics);
       }
+      return undefined;
+    }
+    if (name === 'fill') return lowerFill(node, sourceFile, scope, diagnostics);
+    // `any(m)` and `all(m)` take a bool or a vector of bools (§27), WGSL's own forms. A second
+    // argument is the array fold that change 0112 removed: `xs.some(p)` and `xs.every(p)` say it.
+    if (name === 'any' || name === 'all') {
+      if (node.arguments.length !== 1) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          removedFoldSentence(name, node.arguments.length),
+          TS_CODES.ARITY_MISMATCH,
+        );
+        return undefined;
+      }
+      return lowerBoolReduce(name, node, sourceFile, scope, diagnostics);
+    }
+    if (name === 'min' || name === 'max' || name === 'zip') {
       const folded = lowerArrayFold(name, node, sourceFile, scope, diagnostics);
       if (folded !== 'fallback') return folded;
     }
     if (name === 'select') return lowerSelectCall(node, sourceFile, scope, diagnostics);
-    if (name === 'arrayLength') return lowerArrayLengthCall(node, sourceFile, scope, diagnostics);
     if (isAtomicIntrinsic(name)) return lowerAtomicCall(name, node, sourceFile, scope, diagnostics);
     // In expression position only: a barrier standing alone is lowered by the statement path.
     if (isBarrierIntrinsic(name)) {
@@ -549,8 +561,6 @@ export function lowerCall(
     ctorName = name;
     if (!ctor) {
       if (name === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics);
-      if (resolveMathExpand(name))
-        return lowerExpandCall(name, node, sourceFile, scope, diagnostics);
       // A texture read is a canonical intrinsic name too, but its arity and result type both
       // depend on the texture argument, so it is routed to lowerTextureCall below rather than
       // through MATH_FN_ARITY, which records neither (#8 A7).
@@ -1102,30 +1112,6 @@ function lowerMatrixCtor(
   return undefined;
 }
 
-/** `arrayLength(src)`: the explicit spelling of what `src.length` reads on a runtime-sized
- *  storage array (#46). One argument, and `arrayLengthOf` decides whether it is what the
- *  builtin takes, so the call and the property agree. */
-function lowerArrayLengthCall(
-  node: ts.CallExpression,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-): Expr | undefined {
-  if (node.arguments.length !== 1) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `arrayLength expects 1 argument, got ${node.arguments.length}.`,
-      TS_CODES.ARITY_MISMATCH,
-    );
-    return undefined;
-  }
-  const arg = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
-  if (!arg) return undefined;
-  return arrayLengthOf(arg, node, sourceFile, scope, diagnostics, 'arrayLength');
-}
-
 function ctorElemType(elem: VecCtorElem): ShaderType | undefined {
   if (elem === 'f32') return f32T;
   if (elem === 'i32') return i32T;
@@ -1329,18 +1315,18 @@ function lowerSelectCall(
   return { op: 'select', type: ifTrue.type, cond, ifTrue, ifFalse };
 }
 
-/** `any(m)` / `all(m)` over a vector of bools (§27): the builtin of both targets, reducing the
- *  components. Returns the marker when the one argument is not such a vector, so the array
- *  fold of the same name (`any(xs, pred)`) keeps its turn and its diagnostics. */
+/** `any(m)` / `all(m)` over a bool or a vector of bools (§27): the builtin of both targets,
+ *  reducing the components. The array fold of the same name was removed (change 0112). */
 function lowerBoolReduce(
   name: 'any' | 'all',
   node: ts.CallExpression,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
-): Expr | undefined | 'not-a-bool-vector' {
+): Expr | undefined {
   const peek = lowerExpression(node.arguments[0]!, sourceFile, scope, []);
-  if (!peek) return 'not-a-bool-vector';
+  // The argument's own mistakes are said where it is lowered, once.
+  if (!peek) return lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
   // `all(e: bool) -> bool` and `any(e: bool) -> bool` are overloads of both builtins, and both
   // "Return e" (wgsl.txt:21294-21314). The ambient lib always admitted the scalar; the front
   // end refused it, so the editor and the compiler disagreed about a program WGSL defines.
@@ -1350,14 +1336,16 @@ function lowerBoolReduce(
     return lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
   }
   if (peek.type.kind !== 'vec' || peek.type.elem !== 'bool') {
-    // An array takes the fold's turn and its own message; anything else is neither shape.
-    if (peek.type.kind === 'array') return 'not-a-bool-vector';
+    // An array is the fold change 0112 removed, and its sentence names the method that replaces it.
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `${name}(v) takes a vector of bools, which a comparison of two vectors gives (§27), or ` +
-        `an array with a predicate, ${name}(xs, (x) => ...); got ${authorTypeText(peek.type)}.`,
+      `${name}(v) takes a bool or a vector of bools, which a comparison of two vectors gives ` +
+        `(§27); got ${authorTypeText(peek.type)}.` +
+        (peek.type.kind === 'array'
+          ? ` For an array, ${name}(xs, p) was removed: write ${REMOVED_FOLDS[name]}.`
+          : ''),
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -2781,15 +2769,12 @@ function vectorComponentCount(args: readonly Expr[]): number {
 const NAMED_FORMS: readonly string[] = [
   'array',
   'fill',
-  'sum',
   'min',
   'max',
   'any',
   'all',
-  'none',
   'zip',
   'select',
-  'arrayLength',
   'workgroupUniformLoad',
   'random',
   'mod',
@@ -2811,10 +2796,11 @@ export function builtinCalleeNames(): readonly string[] {
       ...Object.keys(SCALAR_CAST),
       ...Object.keys(MAT_CTOR),
       ...Object.keys(VEC_CTOR),
-      ...Object.keys(MATH_EXPAND_ALIAS),
       ...TEXTURE_CALLS,
       ...BIT_CALLS,
-      ...[...Object.keys(MATH_FN_ARITY), ...Object.values(MATH_FN_ALIAS)].filter(isCanonicalMathFn),
+      ...[...Object.keys(MATH_FN_ARITY), ...Object.values(MATH_FN_ALIAS)].filter(
+        (name) => isCanonicalMathFn(name) && removedCallSentence(name) === undefined,
+      ),
     ]),
   ];
   return builtinCallees;

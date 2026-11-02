@@ -362,7 +362,7 @@ function apply(u32: (a: f32) => f32, x: f32): f32 { return u32(x); }
 export function g(x: f32): f32 {
   const vec3 = (a: f32): f32 => a * 2.;
   const xs = array<f32, 2>(x, 1.);
-  return sum(xs.map(vec3)) + apply(vec3, 5.) + apply((a: f32) => a + 1., 1.);
+  return xs.map(vec3).reduce((p, q) => p + q) + apply(vec3, 5.) + apply((a: f32) => a + 1., 1.);
 }
 `;
     expect(errorsOf(compile(source))).toEqual([]);
@@ -430,7 +430,7 @@ function max(a: f32, b: f32): f32 { return a * 10. + b; }
 export function f(x: f32): f32 {
   const xs = array<f32, 2>(x, 2.);
   const ys = array<f32, 2>(1., 2.);
-  return sum(zip(xs, ys, max));
+  return zip(xs, ys, max).reduce((p, q) => p + q);
 }
 `,
       [3],
@@ -440,7 +440,7 @@ export function f(x: f32): f32 {
       'a function `map` is handed by its name',
       `"use typeshade";
 function abs(a: f32): f32 { return a * 2.; }
-export function f(x: f32): f32 { const xs = array<f32, 2>(x, 2.); return sum(xs.map(abs)); }
+export function f(x: f32): f32 { const xs = array<f32, 2>(x, 2.); return xs.map(abs).reduce((p, q) => p + q); }
 `,
       [3],
       6 + 4,
@@ -504,8 +504,23 @@ describe('every builtin function a file can call', () => {
 
   it('reads a scan that has something to scan', () => {
     expect(NAMES.length).toBeGreaterThan(100);
-    for (const name of ['fract', 'pow', 'min', 'select', 'random', 'sum', 'fill', 'exp2', 'dpdx']) {
+    for (const name of [
+      'fract',
+      'atan2',
+      'min',
+      'select',
+      'random',
+      'zip',
+      'fill',
+      'exp2',
+      'dpdx',
+    ]) {
       expect(NAMES, name).toContain(name);
+    }
+    // The names change 0112 removed are no builtin: a file's declaration of one is its own, which
+    // `removed-names.test.ts` reads on both halves.
+    for (const name of ['pow', 'sum', 'none', 'arrayLength', 'log10', 'cbrt', 'hypot']) {
+      expect(NAMES, name).not.toContain(name);
     }
     expect(NAMES).not.toContain('f32');
     expect(NAMES).not.toContain('vec3');

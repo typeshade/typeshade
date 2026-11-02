@@ -76,7 +76,7 @@ describe('every place a name is written names the one it is spelled like (Rule 1
       'albdo',
     ],
     'a module const': [
-      'const GAMMA = 2.2;\nexport function f(a: f32): f32 {\n  return pow(a, GAMA);\n}',
+      'const GAMMA = 2.2;\nexport function f(a: f32): f32 {\n  return a ** GAMA;\n}',
       `${TS_CODES.UNKNOWN_NAME} Unknown identifier "GAMA". Did you mean "GAMMA"?`,
       'GAMA',
     ],

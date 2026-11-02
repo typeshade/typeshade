@@ -226,10 +226,10 @@ describe('what a list is refused for', () => {
   });
 
   it('names the two spellings that do work when a list is written where no type is declared', () => {
-    // `sum` is the array fold, whose argument declares no type of its own, so the list has
+    // `min` of one array is the array fold, whose argument declares no type of its own, so the list has
     // nothing to take one from. A position that DOES declare one takes the list now
     // (roadmap 0.3 item T10, #92); this is the case that is left.
-    expect(diagnose(src('  return sum([1., 2.]);'))).toBe(
+    expect(diagnose(src('  return min([1., 2.]);'))).toBe(
       'A list takes its type from the position it is written in: declare one, as "const xs: array<T, 2> = [...]" or a return type, or call array<T, 2>(...) here.',
     );
   });

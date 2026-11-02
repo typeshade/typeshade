@@ -262,7 +262,7 @@ declare const out: storage<array<f32>, "read_write">;
 @compute([64])
 export function main(@builtin("global_invocation_id") gid: vec3u) {
   const i = gid.x;
-  if (i >= arrayLength(xs)) { return; }
+  if (i >= xs.length) { return; }
   out[i] = xs[i] * params.scale;
   console.log("i", i);
 }
@@ -342,7 +342,7 @@ class Color { @location(0) c: vec4; }
 @compute([64])
 export function main(@builtin("global_invocation_id") gid: vec3u) {
   const i = gid.x;
-  if (i >= arrayLength(xs)) { return; }
+  if (i >= xs.length) { return; }
   out[i] = xs[i] * gain;
 }
 @vertex

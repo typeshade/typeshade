@@ -465,8 +465,8 @@ for them and the language session should weigh them accordingly.
   unsigned invocation, so the kernel returned at once and wrote nothing. Wrong output, no
   diagnostic, valid WGSL, accepted by Tint. (Issue #8 S5, filed as
   [#46](https://github.com/typeshade/typeshade/issues/46).) **It works now**: #46's second
-  half reads the buffer, so `src.length` emits `arrayLength(&src)`, and `arrayLength(src)` is
-  the same read. An array with no size and no buffer behind it (in a uniform, a local or a
+  half reads the buffer, so `src.length` emits `arrayLength(&src)`; `arrayLength(src)` itself was
+  removed (change 0112) and is refused with `write xs.length`. An array with no size and no buffer behind it (in a uniform, a local or a
   parameter) is still `TS8032`, which asks for a size.
 - **Assignment to a parameter was accepted.** `function fs(x: f32) { x = x + 1. }` compiled.
   WGSL parameters are immutable. (Issue #8 "later", M13·S32.) **It is a diagnostic now**
@@ -582,7 +582,7 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `type Camera = { view: mat4; pos: vec3 }`, `interface Camera { … }`                                             | ✓ since #8 A4                                                                                         |
 | `class Camera { @align(16) view: mat4 }`                                                                        | ✗ `TS8010 @align on a field is not applied`                                                           |
 | ~~`m: mat3`~~                                                                                                   | ✓ since §40 — every `matCxR` is a type                                                                |
-| `arrayLength(src)`                                                                                              | ✓ — the read `src.length` emits too: `arrayLength(&src)`                                              |
+| `arrayLength(src)`                                                                                              | ✗ removed (change 0112): write `src.length`, which emits `arrayLength(&src)`                          |
 | `let x: f32;` then `x = 1.`                                                                                     | ✓ since #8 A10; the annotation carries the type, so it is required                                    |
 | `v.x = 1.` / `o.pos = …` / `ps[i].a = 1.` / `v.x += 1.`                                                         | ✓ since #8 A2 (`v.xy = …` is still rejected, as WGSL rejects it)                                      |
 | `dst[gid.x] = 1.` / `dst[gid.x] += 2.`                                                                          | ✓                                                                                                     |

@@ -76,8 +76,21 @@ fn Ring_each_fs_dot(dots: ptr<function, f32>, p: vec2<f32>, self_: ptr<function,
   }
 }
 
-fn fs_any(p: vec2<f32>, b: f32) -> bool {
+fn fs_p(p: vec2<f32>, b: f32) -> bool {
   return (abs((length(p) - b)) < 0.012);
+}
+
+fn array_some_fs_p(p: vec2<f32>, bands: ptr<function, array<f32, 3>>) -> bool {
+  if (fs_p(p, (*bands)[0])) {
+    return true;
+  }
+  if (fs_p(p, (*bands)[1])) {
+    return true;
+  }
+  if (fs_p(p, (*bands)[2])) {
+    return true;
+  }
+  return false;
 }
 
 @fragment
@@ -95,7 +108,7 @@ fn fs(v: VsOut) -> FsOut {
   Ring_each_fs_dot(&dots, p, &ring);
   col = mix(col, vec3<f32>(0.9, 0.3, 0.5), dots);
   var bands: array<f32, 3> = array<f32, 3>(0.8, 0.88, 0.96);
-  if (((fs_any(p, bands[0]) || fs_any(p, bands[1])) || fs_any(p, bands[2]))) {
+  if (array_some_fs_p(p, &bands)) {
     col = vec3<f32>(1.0);
   }
   return FsOut(vec4<f32>(col, 1.0));

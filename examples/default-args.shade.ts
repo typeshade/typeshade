@@ -25,7 +25,7 @@ class VsOut {
 const WARM: vec3 = vec3(1., 0.72, 0.42);
 
 function grade(c: vec3, gamma: f32 = 2.2): vec3 {
-  return pow(max(c, vec3(0.)), vec3(1. / gamma));
+  return max(c, vec3(0.)) ** vec3(1. / gamma);
 }
 
 function vignette(uv: vec2, strength: f32 = 0.8, softness: f32 = 1.35): f32 {

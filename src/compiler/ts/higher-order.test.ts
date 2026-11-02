@@ -415,14 +415,14 @@ export function run(k: f32): f32 {
   });
 });
 
-describe('a fold takes an arrow function written in the call (Rule 8.18)', () => {
-  it('any, all and none, typed by the array', () => {
+describe('an array method takes an arrow function written in the call (Rule 8.18)', () => {
+  it('some, every and !some, typed by the array', () => {
     const XS = 'const xs = array<f32, 3>(1., 3., 5.);';
     expect(
       run(
         RUN(`export function run(k: f32): f32 {
   ${XS}
-  return any(xs, (x) => x > k * 2.) ? 1. : 0.;
+  return xs.some((x) => x > k * 2.) ? 1. : 0.;
 }`),
       ),
     ).toBe(1);
@@ -430,7 +430,7 @@ describe('a fold takes an arrow function written in the call (Rule 8.18)', () =>
       run(
         RUN(`export function run(k: f32): f32 {
   ${XS}
-  return all(xs, (x: f32): bool => x > k) ? 1. : 0.;
+  return xs.every((x: f32): bool => x > k) ? 1. : 0.;
 }`),
       ),
     ).toBe(0);
@@ -438,17 +438,17 @@ describe('a fold takes an arrow function written in the call (Rule 8.18)', () =>
       run(
         RUN(`export function run(k: f32): f32 {
   ${XS}
-  return none(xs, (x) => x > 10. * k) ? 1. : 0.;
+  return !xs.some((x) => x > 10. * k) ? 1. : 0.;
 }`),
       ),
     ).toBe(1);
-    // `any` stops at the first match: two calls write `n`, not three.
+    // `some` stops at the first match: two calls write `n`, not three.
     expect(
       run(
         RUN(`export function run(k: f32): f32 {
   let n = 0.;
   ${XS}
-  const hit = any(xs, (x) => {
+  const hit = xs.some((x) => {
     n += 1.;
     return x > k;
   });
@@ -897,8 +897,8 @@ export function run(k: f32): f32 {
   });
   const xs = array<f32, 3>(1., 2., 3.);
   const z = zip(xs, xs, (a, b) => a * b);
-  const hit = any(xs, (x) => x > k) || none(xs, (x) => x < 0.);
-  return fold3((a, b) => a * b, k, 3., 4.) + s + sum(z) + min(xs) + max(xs) + (hit ? 1. : 0.);
+  const hit = xs.some((x) => x > k) || !xs.some((x) => x < 0.);
+  return fold3((a, b) => a * b, k, 3., 4.) + s + z.reduce((a, b) => a + b) + min(xs) + max(xs) + (hit ? 1. : 0.);
 }
 @fragment
 export function fs(): vec4 {

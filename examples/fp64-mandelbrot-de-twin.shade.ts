@@ -47,7 +47,7 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
 // The centre and the zoom arrive through the uniform, so the twin spells neither.
 @fragment
 export function fs_de(vo: VsOut): vec4 {
-  const span = pow(10.0, -u.zoom_exp);
+  const span = 10.0 ** -u.zoom_exp;
   // Split screen: each half is a full view, so the right half's uv is folded back by one.
   const half = vo.uv.x * 2.0;
   const sx = half - (vo.uv.x < 0.5 ? 0.0 : 1.0);

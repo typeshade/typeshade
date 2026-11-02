@@ -223,7 +223,7 @@ class P {
 }
 @compute([4, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  if (gid.x >= u32(arrayLength(ps))) {
+  if (gid.x >= u32(ps.length)) {
     return;
   }
   ps[gid.x].bump(0.5);
