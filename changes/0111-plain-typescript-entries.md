@@ -1,7 +1,7 @@
 ---
 id: '0111'
 title: An entry point and its inputs and outputs are written in TypeScript that a plain `tsc --strict` accepts, with no decorator on a function or a parameter and no field left uninitialized
-status: draft
+status: accepted
 rules:
   - '6.6'
   - '6.7'
@@ -175,12 +175,12 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0111, `status: draft`. The front matter is the identity and lifecycle authority. No approval is recorded.                                                                                                                                                                                                                                                                                                               |
+| Identity and status           | Proposal 0111, `status: accepted`. The front matter is the identity and lifecycle authority. The approval is recorded in Approval and plan record.                                                                                                                                                                                                                                                                               |
 | Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                    |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, asked whether `examples/hello-vsout.shade.ts` is code that ordinary TypeScript accepts, and directed that a form that is not ordinary TypeScript be changed. The agent measured the file with `tsc` (Evidence) and proposed this draft. The owner approved the drafting ("승인"). No GitHub issue is recorded.                                           |
 | Applicability / effectivity   | `docs/language-design.md` Rules 6.6, 6.7, 8.1, 8.2, 8.22 and 8.25, `reqs/`, `docs/use-typeshade-surface.md` §3, §53, §67 and §70 and every section that shows an entry, the front end (`src/compiler/ts/`), the ambient library and the diagnostic filter (`src/language-service/`), the host face, every `examples/**/*.shade.ts` that declares an entry, and the five downstream repositories. No release version is assigned. |
 | Review baseline               | `main` at `c9efde0f79df0e6b10883b87c8af21d0c72dfbc9` (the merge of pull request #870), read on 2026-11-02.                                                                                                                                                                                                                                                                                                                       |
-| Review and revision authority | No pull request is assigned when this file is written. Git records the revisions of this file. The review and merge of its pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                                                                                            |
+| Review and revision authority | Pull request [#875](https://github.com/typeshade/typeshade/pull/875) (branch `claude/proposal-0111-plain-typescript-entries`). Git records the revisions of this file. The review and merge of its pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                    |
 
 ## What changes
 
@@ -343,7 +343,7 @@ Decisions to resolve before acceptance:
 
 Decided by the owner on 2026-11-02, in the Claude Code session ("승인" to the recommended
 choices, confirmed in a follow-up question; D4 and D5 by a second "승인", and D6 and D7 by a third,
-each to the recommendations that preceded it). This is a decision on the draft's direction, not
+each to the recommendations that preceded it, and D8 by the go-ahead to merge, "머지승인"). This is a decision on the draft's direction, not
 the acceptance of the proposal:
 
 - **D1, decided.** The stage form is `export const vs = vertex(function vs(…) { … })`, with
@@ -368,11 +368,9 @@ the acceptance of the proposal:
   `@diagnostic` moves to an options argument of the stage call:
   `fragment(f, { diagnostic: ['off', 'derivative_uniformity'] })`.
 
-Open, with the agent's recommendation:
-
-- **D8.** A local that an `Out<T>` argument fills first. Rule 7.6 lets it be declared with no
+- **D8, decided.** A local that an `Out<T>` argument fills first. Rule 7.6 lets it be declared with no
   value, `let q: vec2; project(p, q);`, and a plain `tsc --strict` reports `TS2454` at the call
-  (Evidence). Recommended: the local is written with TypeScript's definite assignment,
+  (Evidence). The local is written with TypeScript's definite assignment,
   `let q!: vec2;`, which `tsc --strict` accepts and which states the same fact, that a call fills
   it. With D8 so decided, the compiler will accept `!` on a local and refuse a read of such a
   local that no assignment or `Out<T>` argument fills first (`TS8075`), as Rule 7.6 does today. The alternative is to require an initializer, which
@@ -380,10 +378,24 @@ Open, with the agent's recommendation:
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require: the owner's decision on D8;
-`tsc --strict` output on the rewritten `hello-vsout`, a compute example and an `@inout` example
-in the selected forms; and the front matter's examples, codes and surface lists completed from
-the codemod's dry run.
+- **Decision.** Accepted by the owner (Seungup) on 2026-11-02, in the Claude Code session, by
+  the go-ahead to merge pull request #875 ("머지승인"). The owner cannot approve their own pull
+  request on GitHub, so this go-ahead is the review (`CLAUDE.md`, Merging). The merge of #875
+  with `status: accepted` records the decision.
+- **Approved revision and scope.** This file as merged by #875: decisions D1 to D8 as recorded
+  in Draft impact estimate, and the rules, surface sections, code and examples in the front
+  matter.
+- **Evidence read at acceptance.** The `tsc --strict` measurements in Evidence, on the decided
+  forms of `hello-vsout`, `array-length` and part of `reference-parameters`; the example list
+  from `grep` at the baseline (D6). The codemod's dry run is owed at implementation.
+- **Responsibilities.** Implementation is not yet assigned. Each implementing pull request
+  carries `Change: 0111`.
+- **Milestones.** (1) The new forms compile beside the old ones, with the `TS8028` warning, the
+  ambient types and the language service (no TS1206 filter for a file in the new form).
+  (2) The `typeshade migrate` codemod and its dry run over `examples/`. (3) The examples, the
+  surface document and the rules in the new form, and a CI step that runs a plain
+  `tsc --strict` over every example. (4) In the release after the migration release, the old
+  form is refused. Duration and cost are not estimated.
 
 ### Configuration and validation record
 
