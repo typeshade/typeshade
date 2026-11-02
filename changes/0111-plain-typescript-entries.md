@@ -6,19 +6,156 @@ rules:
   - '6.6'
   - '6.7'
   - '7.2'
+  - '7.6'
   - '8.1'
   - '8.2'
   - '8.22'
   - '8.25'
 surface:
+  - 1
+  - 2
   - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 14
+  - 15
+  - 16
+  - 17
+  - 19
+  - 20
+  - 21
+  - 22
+  - 23
+  - 24
+  - 25
+  - 26
+  - 27
+  - 29
+  - 33
+  - 38
+  - 39
+  - 42
+  - 43
+  - 49
+  - 50
+  - 52
   - 53
+  - 54
+  - 62
+  - 63
+  - 64
+  - 65
+  - 66
   - 67
+  - 68
+  - 69
   - 70
+  - 71
+  - 76
 exports: []
 exports-removed: []
-codes: []
-examples: []
+codes:
+  - TS8028
+examples:
+  - array-length
+  - array-literal-ramp
+  - array-methods
+  - atomic-histogram
+  - bare-position
+  - bit-bump
+  - bitfield-bands
+  - block-scope
+  - bool-select
+  - capsule-corp-namek-class
+  - class-builder
+  - class-parts
+  - class-syntax
+  - clip-planes
+  - closures
+  - compute-reduction-twin
+  - compute-sync
+  - convert-grid
+  - cube-array-gather
+  - cube-env
+  - cutout
+  - default-args
+  - domain-warp-twin
+  - feedback-trail
+  - fp64-burning-ship-twin
+  - fp64-cancellation-twin
+  - fp64-checker-plane-twin
+  - fp64-clock-twin
+  - fp64-deep-zoom-twin
+  - fp64-julia-twin
+  - fp64-lane-stripes
+  - fp64-loran-twin
+  - fp64-mandelbrot-de-twin
+  - fp64-newton-twin
+  - fp64-rtc-twin
+  - fp64-sine-sweep-twin
+  - generic-class
+  - generic-helpers
+  - gpu-console
+  - gradient-twin
+  - hello-camera
+  - hello-uniform-struct
+  - hello-uniform
+  - hello-vsin
+  - hello-vsout
+  - hello
+  - higher-order
+  - hillshade-twin
+  - id-pick
+  - imported-noise
+  - inferred-returns
+  - integer-math
+  - julia-twin
+  - kaleidoscope-twin
+  - loop-kernel
+  - loops-over-data
+  - mandelbrot-twin
+  - mixin-surface
+  - module-const
+  - msaa-resolve
+  - normal-matrix
+  - null-values
+  - ocean-twin
+  - optional-fields
+  - optional-values
+  - orbit-inout
+  - packed-bytes
+  - packing-bitcast
+  - palette-const
+  - particle-step
+  - path-tracer
+  - pick-composite
+  - plasma-twin
+  - private-state
+  - ray-class
+  - reference-parameters
+  - rng-method
+  - rt-renderer-class
+  - sample-branch
+  - separable-blur
+  - shadow-compare
+  - shape-inheritance
+  - starfield-twin
+  - storage-texture
+  - textured-quad
+  - tunnel-twin
+  - tuple-and-brand
+  - twin-structs
+  - uniform-array
+  - voronoi-twin
+  - workgroup-override
+  - workgroup-reduce
+  - workgroup-scratch
+  - workgroup-tile-2d
 downstream:
   - repo: typeshade.github.io
     what: Every page, example card, Playground starter and generated host text that shows an entry point, an entry I/O struct, `@inout`, `@out` or `@workgroup_size` is written again in the new form, in English and in Korean; `compiler-changes.md` records 0111 when the pin moves. The full list is established at acceptance (D6).
@@ -175,16 +312,17 @@ stage from the call in place of the decorator and gives the host the same signat
   on a function or a parameter is refused with the new form in the message.
 - **Rule 7.2**: its table of divergences records that an assignment to an `InOut<T>` or
   `Out<T>` parameter reaches the caller, which TypeScript's reading of the type does not show (D4).
+- **Rule 7.6**: a local that an `Out<T>` argument fills first is declared with `!` (D8).
 - **Rule 8.1**: an entry point is a top-level `const` initialized by a stage call (D1).
 - **Rule 8.2**: the position output is `Builtin<"position", vec4>` (D2).
 - **Rule 8.22**: `@workgroup_size([…])` on a kernel function becomes `workgroupSize([…], f)`.
 - **Rule 8.25**: `@inout` and `@out` become `InOut<T>` and `Out<T>` (D4).
 - **Surface §3, §53, §67, §70**: the sections that define these forms. Every other section
   that shows an entry is rewritten by the migration tool (D5).
-- **codes**: none is added or removed in the draft. A refusal of the old form may reuse
-  `TS8028 ATTRIBUTE_NAME`; acceptance fixes this.
-- **examples**: every example that declares an entry is rewritten. At the baseline, 99 files
-  under `examples/` carry a stage decorator. Acceptance lists them (D6).
+- **codes**: `TS8028 ATTRIBUTE_NAME` gains the warning of the migration release and, after it,
+  the refusal of a decorator on a function, a parameter or an entry I/O field, each naming the
+  new form (D5). No code is added or removed.
+- **examples**: the 94 files in the front matter are rewritten (D6).
 
 ### Draft impact estimate
 
@@ -204,8 +342,8 @@ unknown.
 Decisions to resolve before acceptance:
 
 Decided by the owner on 2026-11-02, in the Claude Code session ("승인" to the recommended
-choices, confirmed in a follow-up question; D4 and D5 by a second "승인" to the recommendations
-that followed). This is a decision on the draft's direction, not
+choices, confirmed in a follow-up question; D4 and D5 by a second "승인", and D6 and D7 by a third,
+each to the recommendations that preceded it). This is a decision on the draft's direction, not
 the acceptance of the proposal:
 
 - **D1, decided.** The stage form is `export const vs = vertex(function vs(…) { … })`, with
@@ -220,20 +358,29 @@ the acceptance of the proposal:
   a warning that names the new form, with a `typeshade migrate` codemod that rewrites a file;
   the old form is refused in the release after it.
 
+- **D6, decided.** The front matter lists the 94 examples under `examples/` whose file carries a
+  stage decorator, a parameter decorator, an entry I/O field decorator, `@workgroup_size` or
+  `@diagnostic` at the baseline, and the 45 surface sections whose text shows one. Seven more
+  files in subdirectories of `examples/` (`hosts/` and others) carry one too; `scripts/changes.ts`
+  does not track them, and the codemod rewrites them. The codemod's dry run confirms the list at
+  implementation.
+- **D7, decided.** The option names are WGSL's, `interpolate`, `invariant` and `blend_src`.
+  `@diagnostic` moves to an options argument of the stage call:
+  `fragment(f, { diagnostic: ['off', 'derivative_uniformity'] })`.
+
 Open, with the agent's recommendation:
 
-- **D6.** The list of examples and downstream files. Recommended: list at acceptance every
-  `examples/**/*.shade.ts` that carries a stage decorator, a parameter decorator or an entry I/O
-  field decorator, and confirm the list with the codemod's dry run at implementation.
-- **D7.** The option names in the third type argument. Recommended: WGSL's attribute names
-  as written, `interpolate`, `invariant` and `blend_src`, since a name an author writes comes
-  from WGSL, from ECMAScript, or from the extension table of `docs/language-design.md` §9; a
-  camel-case `blendSrc` would need a new row there. `@diagnostic` moves to an options argument
-  of the stage call: `fragment(f, { diagnostic: ['off', 'derivative_uniformity'] })`.
+- **D8.** A local that an `Out<T>` argument fills first. Rule 7.6 lets it be declared with no
+  value, `let q: vec2; project(p, q);`, and a plain `tsc --strict` reports `TS2454` at the call
+  (Evidence). Recommended: the local is written with TypeScript's definite assignment,
+  `let q!: vec2;`, which `tsc --strict` accepts and which states the same fact, that a call fills
+  it. With D8 so decided, the compiler will accept `!` on a local and refuse a read of such a
+  local that no assignment or `Out<T>` argument fills first (`TS8075`), as Rule 7.6 does today. The alternative is to require an initializer, which
+  removes the reason `Out<T>` exists.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require: the owner's decisions on D6 and D7;
+This record does not yet apply. Acceptance will require: the owner's decision on D8;
 `tsc --strict` output on the rewritten `hello-vsout`, a compute example and an `@inout` example
 in the selected forms; and the front matter's examples, codes and surface lists completed from
 the codemod's dry run.
@@ -254,12 +401,14 @@ Measured on 2026-11-02 with `typescript@5.6.3` (the version in `package.json`),
 decorators, `vertex` and `fragment` as functions that return their argument, and
 `Builtin<N, T> = T`, `Location<I, T> = T` (with an optional third parameter for the last row), and `InOut<T> = T`:
 
-| Source                                                                                                  | Result                 |
-| ------------------------------------------------------------------------------------------------------- | ---------------------- |
-| Today's form (`@vertex` function, parameter decorator, uninitialized field)                             | TS1206 (2), TS2564 (1) |
-| D1 with D2-a (`vertex(function …)`, field decorators with `!`)                                          | no diagnostic          |
-| D1 with D2-b (`vertex(function …)`, `Builtin<…>` and `Location<…>` types)                               | no diagnostic          |
-| D2-b with an options argument (`{ invariant: true }`, `{ interpolate: 'flat' }`) and D4 as `InOut<f32>` | no diagnostic          |
+| Source                                                                                                                                                                                           | Result                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- |
+| Today's form (`@vertex` function, parameter decorator, uninitialized field)                                                                                                                      | TS1206 (2), TS2564 (1) |
+| D1 with D2-a (`vertex(function …)`, field decorators with `!`)                                                                                                                                   | no diagnostic          |
+| D1 with D2-b (`vertex(function …)`, `Builtin<…>` and `Location<…>` types)                                                                                                                        | no diagnostic          |
+| D2-b with an options argument (`{ invariant: true }`, `{ interpolate: 'flat' }`) and D4 as `InOut<f32>`                                                                                          | no diagnostic          |
+| `hello-vsout`, `array-length` (a `compute([64, 1, 1], …)` entry) and a part of `reference-parameters` (`InOut<f32>`, `Out<vec2>`, a `diagnostic` option), rewritten by hand in the decided forms | no diagnostic          |
+| the same `reference-parameters` part with `let q: vec2;` filled by `Out<vec2>`                                                                                                                   | TS2454 (2) (D8)        |
 
 `examples/hello-vsout.shade.ts` at the baseline, with the same options and with
 `--experimentalDecorators`, gives TS1206 at lines 20, 21 and 39 and TS2564 on each of its three
