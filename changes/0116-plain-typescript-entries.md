@@ -1,5 +1,5 @@
 ---
-id: '0111'
+id: '0116'
 title: An entry point and its inputs and outputs are written in TypeScript that a plain `tsc --strict` accepts, with no decorator on a function or a parameter and no field left uninitialized
 status: accepted
 rules:
@@ -158,15 +158,15 @@ examples:
   - workgroup-tile-2d
 downstream:
   - repo: typeshade.github.io
-    what: Every page, example card, Playground starter and generated host text that shows an entry point, an entry I/O struct, `@inout`, `@out` or `@workgroup_size` is written again in the new form, in English and in Korean; `compiler-changes.md` records 0111 when the pin moves. The full list is established at acceptance (D6).
+    what: Every page, example card, Playground starter and generated host text that shows an entry point, an entry I/O struct, `@inout`, `@out` or `@workgroup_size` is written again in the new form, in English and in Korean; `compiler-changes.md` records 0116 when the pin moves. The full list is established at acceptance (D6).
   - repo: vscode-typeshade
-    what: The diagnostic filter for TS1206 and the `strictPropertyInitialization` override are removed or narrowed; snippets, the skill's references and the grammar's decorator highlighting follow the new form; `compiler-changes.md` records 0111 when the pin moves.
+    what: The diagnostic filter for TS1206 and the `strictPropertyInitialization` override are removed or narrowed; snippets, the skill's references and the grammar's decorator highlighting follow the new form; `compiler-changes.md` records 0116 when the pin moves.
   - repo: radiance
-    what: Every shader file is migrated to the new form, by the migration tool of D5; `compiler-changes.md` records 0111 when the pin moves.
+    what: Every shader file is migrated to the new form, by the migration tool of D5; `compiler-changes.md` records 0116 when the pin moves.
   - repo: typenn
-    what: Every shader file is migrated to the new form, by the migration tool of D5; `compiler-changes.md` records 0111 when the pin moves.
+    what: Every shader file is migrated to the new form, by the migration tool of D5; `compiler-changes.md` records 0116 when the pin moves.
   - repo: typecv
-    what: Every shader file is migrated to the new form, by the migration tool of D5; `compiler-changes.md` records 0111 when the pin moves.
+    what: Every shader file is migrated to the new form, by the migration tool of D5; `compiler-changes.md` records 0116 when the pin moves.
 ---
 
 <!-- doc-refs: skip-file — a draft proposal names forms, rules and tools that its implementation adds -->
@@ -175,12 +175,13 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0111, `status: accepted`. The front matter is the identity and lifecycle authority. The approval is recorded in Approval and plan record.                                                                                                                                                                                                                                                                               |
+| Identity and status           | Proposal 0116, `status: accepted`. The front matter is the identity and lifecycle authority. The approval is recorded in Approval and plan record.                                                                                                                                                                                                                                                                               |
 | Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                    |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, asked whether `examples/hello-vsout.shade.ts` is code that ordinary TypeScript accepts, and directed that a form that is not ordinary TypeScript be changed. The agent measured the file with `tsc` (Evidence) and proposed this draft. The owner approved the drafting ("승인"). No GitHub issue is recorded.                                           |
 | Applicability / effectivity   | `docs/language-design.md` Rules 6.6, 6.7, 8.1, 8.2, 8.22 and 8.25, `reqs/`, `docs/use-typeshade-surface.md` §3, §53, §67 and §70 and every section that shows an entry, the front end (`src/compiler/ts/`), the ambient library and the diagnostic filter (`src/language-service/`), the host face, every `examples/**/*.shade.ts` that declares an entry, and the five downstream repositories. No release version is assigned. |
 | Review baseline               | `main` at `c9efde0f79df0e6b10883b87c8af21d0c72dfbc9` (the merge of pull request #870), read on 2026-11-02.                                                                                                                                                                                                                                                                                                                       |
 | Review and revision authority | Pull request [#875](https://github.com/typeshade/typeshade/pull/875) (branch `claude/proposal-0111-plain-typescript-entries`). Git records the revisions of this file. The review and merge of its pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                    |
+| Renumbering                   | Renumbered from 0111 to 0116 on 2026-11-02, because 0111 was already taken by `changes/0111-host-type-family.md` (pull request [#876](https://github.com/typeshade/typeshade/pull/876)). The acceptance recorded in pull request #875 is unchanged.                                                                                                                                                                              |
 
 ## What changes
 
@@ -389,7 +390,7 @@ the acceptance of the proposal:
   forms of `hello-vsout`, `array-length` and part of `reference-parameters`; the example list
   from `grep` at the baseline (D6). The codemod's dry run is owed at implementation.
 - **Responsibilities.** Implementation is not yet assigned. Each implementing pull request
-  carries `Change: 0111`.
+  carries `Change: 0116`.
 - **Milestones.** (1) The new forms compile beside the old ones, with the `TS8028` warning, the
   ambient types and the language service (no TS1206 filter for a file in the new form).
   (2) The `typeshade migrate` codemod and its dry run over `examples/`. (3) The examples, the
@@ -433,4 +434,4 @@ fields. The return of an object literal for `VsOut` at line 37 gives no diagnost
 - **vscode-typeshade**: the diagnostic filter, snippets, grammar and skill follow the new form.
 - **radiance, typenn, typecv**: their shader files are migrated with the codemod.
 
-Each repository records 0111 in `compiler-changes.md` when its pin moves.
+Each repository records 0116 in `compiler-changes.md` when its pin moves.
