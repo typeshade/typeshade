@@ -462,10 +462,11 @@ A write to a read-only resource must be refused, by the compiler and by the edit
     and a mutating method on a class-typed read binding are refused by the compiler alone.
 
 **Rule 6.3.** A top-level `const` is a module constant: a scalar must fold to one value carried at double precision for the oracle and at the target's precision for emit, and a vector, array, or struct must carry a constant-foldable expression every backend evaluates.
+A top-level `const` whose initializer is `Math` with an object pattern, or a `Math` member, binds each name to that member (Rule 9.4) and declares no module constant of its own.
 
 - Rationale: a module constant must be one value on every backend, and the dual-precision scalar is how the oracle stays exact where the target rounds.
 - Derives from: [Value Declarations](https://gpuweb.github.io/gpuweb/wgsl/#value-decls) (`const`); `AGENTS.md` ("module constants are scalar dual-precision by default"); surface §12.
-- Enforced by: `src/compiler/ts/module-const.ts` and `module-const.test.ts`; a `bool` constant is `true`, `false`, `1`, or `0` (`TS8003`, `Module const "K" is bool, but 2 is neither true nor false. Write true, false, 1 or 0.`, pinned by `rejects a bool module const that is neither true nor false`).
+- Enforced by: `src/compiler/ts/module-const.ts` and `module-const.test.ts`; `src/compiler/ts/math-binding.ts` and `math-binding.test.ts` for the `Math` binding (change 0113); a `bool` constant is `true`, `false`, `1`, or `0` (`TS8003`, `Module const "K" is bool, but 2 is neither true nor false. Write true, false, 1 or 0.`, pinned by `rejects a bool module const that is neither true nor false`).
 
 **Rule 6.4.** A pipeline-overridable constant must be written `const x: override<T> = default` or `declare const x: override<T>`.
 
@@ -1101,15 +1102,17 @@ A name of the f64 family, which has no WGSL signature, must take the signatures 
 - Enforced by: `src/core/passes/required-caps.ts` and `capability-reachability.test.ts`.
 
 **Rule 9.4.** A `Math` member and its free-function spelling must lower to the WGSL builtin of the same meaning; a `Math` member with no WGSL builtin must be expanded into WGSL arithmetic and stays an ECMAScript name; `Math.fround(x)` is `f32(x)`.
+A name a `const` binds to a `Math` member, by an object pattern over `Math` or by the member itself, must mean that member: a call of it is the member's call, and a constant member is its inlined literal; it takes the member's signatures, and no function value exists for it.
 
 - Rationale: see Rule 2.4.
 - Derives from: `MATH_FN_ALIAS` and `MATH_EXPAND_ALIAS` in `src/compiler/ts/math-alias.ts`.
-- Enforced by: `surface-names.test.ts` and `src/compiler/ts/math-expand.test.ts`.
+- Enforced by: `surface-names.test.ts` and `src/compiler/ts/math-expand.test.ts`; the bound name by `src/compiler/ts/math-binding.ts` and `math-binding.test.ts` (change 0113).
 
 **Rule 9.5.** A function the file declares or imports (Rule 3.9) must win over every builtin function of its name, whether a WGSL built-in function, the free spelling of a `Math` member (Rule 9.4) or a TypeShade extension that is a function (§9.3), as a module-scope declaration hides a predeclared function in WGSL and as TypeScript's lookup finds the file's own name before a global: a call of the name reaches the declaration in the constant folder, on the CPU, on WebGPU and on WebGL2, and a function handed by its name to a fold, to an array method or to a function that takes one follows the call.
 A value constructor (a scalar cast, a vector, a matrix or `array`) must keep its precedence over a declaration of its name, as a type name does over an alias (Rule 4.2); `bool` and `f64` are the exception and stay the declaration's, and a declaration of a constructor's name is refused where it is handed by that name, since no callback is a constructor.
 Each writer must emit a declared function whose name its target predeclares under a name the target does not have, and every call through the declaration with it, so that a builtin call, the author's and the compiler's own alike, keeps the builtin: `fract_`, then `fract_1` where that is taken, on both targets. An entry point whose name its target predeclares receives a fresh emitted name, recorded beside the authored name (Rule 3.2); the host calls it by the name written (D7).
 A name a function's body declares, a local function (Rule 8.17) or a parameter that takes a function (Rule 8.18), must win over every builtin, as TypeScript's lookup finds it before any global.
+A name a `const` binds to a `Math` member is a declaration of the file and wins over a builtin of its name in its scope, as TypeScript's lookup finds it; a call the member's signature refuses is refused in that scope, with a sentence that names the builtin and how to reach it.
 
 - Rationale: the rule once kept the builtins that predate it in front of a function of the module, so that a program that meant the builtin kept meaning it, and that held in the constant folder and on the CPU only.
   No program declaring such a name ever meant the builtin on WebGPU, where WGSL calls the declaration, and GLSL ES 3.00 does not let a program redeclare one of its built-in functions at all, so #403's `fract` had three answers: the declaration on WebGPU, the builtin on the CPU and none on WebGL2, where ANGLE refuses the module.
