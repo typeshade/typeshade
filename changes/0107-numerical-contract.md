@@ -7,7 +7,11 @@ rules:
   - '11.21'
 surface:
   - 38
-exports: []
+  - 78
+exports:
+  - FuncDecl
+  - NumericsClass
+  - DeterminismKind
 exports-removed: []
 codes:
   - TS8078
@@ -166,10 +170,14 @@ source what the oracle no longer matches bit for bit.
   the compiler reads. Rule 1.3 and Rule 4.4 constrain it and do not change. Rule 2.1 holds: the
   name is an extension the compiler reads, listed with the others of Rule 6.7 and in §9's
   extension table of `docs/language-design.md`.
-- `surface` 38: the determinism report shows which operations a contract rewrote. The annotation
-  itself is documented in a new surface section that the implementation numbers and adds to this
-  list when it lands.
-- `exports`: none. The annotation is source-level; the ambient library declares it for the editor.
+- `surface` 38: the determinism report shows which operations a contract rewrote. Surface §78 (new)
+  documents the annotation, its classes, the rewrites of each, the inlining boundary and `TS8078`.
+- `exports` (Amendment 1): `FuncDecl` gains `numerics?: readonly NumericsClass[]`, the classes a
+  function opted into, which every pass that copies a function carries; `NumericsClass` is new,
+  `'finite-math' | 'reassociate'`; `DeterminismKind` gains `'contract'`, the kind of a report row
+  that names a function under a contract and the class. All three are listed in
+  `src/__api__/surface.md`. The annotation itself is source-level; the ambient library declares it
+  for the editor.
 - `codes`: `TS8078`, a refused `@numerics` (an unknown or repeated class, no argument, or a place
   other than a function). `TS8076` is reserved by draft 0052, so the next free number is taken.
 - `examples`: none.
@@ -211,6 +219,34 @@ in a pull request whose commits say `Change: 0107`, starting with the `finite-ma
 #850 N5 needs. Each `reassociate` rewrite enters with its measured bound, one at a time. The site
 and the editor do their work when their pins move. No milestone date is assigned. No duration or
 cost estimate is established.
+
+### Amendment 1 (2026-11-02)
+
+Before implementation, a reading of `main` at `334b9fc4` found that the accepted text could not be
+delivered with `exports: []`:
+
+- A per-function contract must be carried on the function through every pass that copies it
+  (specialization, the restructuring of calls). The IR's place for that is a field of `FuncDecl`,
+  and `FuncDecl` is listed member by member in `src/__api__/surface.md`. A new optional field
+  reshapes that export.
+- `FuncDecl.opaque` cannot stand in for it: `specializeCalls` and `restructureCalls` skip an opaque
+  function, which would block the constant-argument specialization #850 N5 needs.
+- Proposed item 8 needs a row of the determinism report that no existing `DeterminismKind` names,
+  and `DeterminismKind` is exported.
+
+This amendment declares the three exports and surface §78, and splits the delivery in two stages:
+
+1. `@numerics` and `TS8078`, `FuncDecl.numerics`, the inlining boundary, the `finite-math` class,
+   Rules 6.7 and 11.21, surface §78, and the tests. The class's rewrites run on an opted-in
+   function after `specializeCalls` and before `fp64Lower`, where an `f64` operand still has its
+   type, so restricting them to `f32` and `f16` excludes every df64 expression (item 5). An
+   opted-in function is never inlined into another function and receives no other function's
+   body, so a rewrite never leaves the function it was written in (item 6).
+2. The `'contract'` rows of the determinism report (item 8, surface §38).
+
+`reassociate` is accepted as a class name from stage 1 and holds no rewrite until each one enters
+with its measured bound (item 7). The owner approved this amendment in the Claude Code session on
+2026-11-02 ("네 승인합니다"), before its pull request was opened.
 
 ### Configuration and validation record
 
