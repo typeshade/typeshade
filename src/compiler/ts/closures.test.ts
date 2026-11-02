@@ -471,18 +471,18 @@ export function run(k: f32): f32 {
     ).toBe(6);
   });
 
-  it('as the callback of a fold, which passes what it captures to every call', () => {
+  it('as the callback of an array method, which passes what it captures to every call', () => {
     expect(
       run(
         RUN(`export function run(k: f32): f32 {
   const xs = array<f32, 3>(1., 3., 5.);
   const big = (x: f32): bool => x > k * 2.;
   const small = (x: f32): bool => x < k;
-  return (any(xs, big) ? 1. : 0.) + (all(xs, small) ? 10. : 0.);
+  return (xs.some(big) ? 1. : 0.) + (xs.every(small) ? 10. : 0.);
 }`),
       ),
     ).toBe(1);
-    // `any` stops at the first match, as `Array.prototype.some` does: two calls, not three.
+    // `some` stops at the first match, as `Array.prototype.some` does: two calls, not three.
     expect(
       run(
         RUN(`export function run(k: f32): f32 {
@@ -492,7 +492,7 @@ export function run(k: f32): f32 {
     n += 1.;
     return x > k;
   };
-  const hit = any(xs, seen);
+  const hit = xs.some(seen);
   return hit ? n : -n;
 }`),
       ),
@@ -677,13 +677,13 @@ describe('a local function named after a builtin is the one its name means (Rule
     expect(r.glsl!.fragment).toContain('float run_log(float x) {');
   });
 
-  it('a fold is handed it by its name', () => {
+  it('an array method is handed it by its name', () => {
     expect(
       run(
         RUN(`export function run(k: f32): f32 {
   const step = (x: f32): bool => x > k;
   const xs = array<f32, 3>(1., 3., 5.);
-  return any(xs, step) ? 1. : 0.;
+  return xs.some(step) ? 1. : 0.;
 }`),
       ),
     ).toBe(1);

@@ -314,10 +314,8 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   dpdx: 'Returns the partial derivative of `x` with respect to the window x coordinate, componentwise over vectors. Fragment stage only (`dFdx` on GLSL); the CPU oracle returns zero.',
   dpdy: 'Returns the partial derivative of `x` with respect to the window y coordinate, componentwise over vectors. Fragment stage only (`dFdy` on GLSL); the CPU oracle returns zero.',
   fma: 'Returns `a * b + c`, componentwise over vectors. GLSL ES 3.00 has no `fma`, so the product and sum are inlined there.',
-  any: 'Whether any component of a vector of bools is true: `any(a < b)`. A scalar bool passes through. Over an array, `any(xs, (x) => ...)` is the fold.',
-  all: 'Whether every component of a vector of bools is true: `all(a === b)`. A scalar bool passes through. Over an array, `all(xs, (x) => ...)` is the fold.',
-  none: 'Whether no element of a fixed-size array passes the test: `none(xs, (x) => x < 0.)`, the negation of `any(xs, pred)`. Unrolled into one call per element, stopping at the first that passes.',
-  sum: 'The sum of the elements of a fixed-size array of numbers or vectors, `sum(xs)`, unrolled into one addition per element.',
+  any: 'Whether any component of a vector of bools is true: `any(a < b)`. A scalar bool passes through. Over an array, write `xs.some((x) => ...)`.',
+  all: 'Whether every component of a vector of bools is true: `all(a === b)`. A scalar bool passes through. Over an array, write `xs.every((x) => ...)`.',
   zip: 'A fixed-size array built from two of one length, element by element: `zip(xs, ys, (a, b) => a * b)`. Unrolled into one call per element; the function may read the variables around it.',
   select:
     "Returns `trueValue` where `cond` is true and `falseValue` where it is false, in WGSL's argument order: the condition comes last. Compiles to the same code as a ternary over `cond`.",
@@ -349,8 +347,6 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
     "Returns the size of the texture's base mip level: width and height as a `vec2u`, width, height and depth as a `vec3u` on a `texture_3d`, or the width alone as a `u32` on a `texture_1d`. On a cube texture it is the size of one face.",
   textureNumLayers:
     'Returns the number of layers of a `texture_2d_array` or a `texture_cube_array` as a `u32`. A texture with no layers is refused.',
-  arrayLength:
-    'Returns the number of elements of a runtime-sized storage array as a `u32`, read from the buffer the host bound; `xs.length` on such an array reads the same thing. The argument must be the storage binding itself or a trailing array field of one. Compiles to `arrayLength(&xs)` on WGSL; GLSL ES 3.00 has no storage buffers, so a module using it emits WGSL alone.',
   atomicLoad:
     'Reads the value of an `atomic<u32>` or `atomic<i32>` location in a read-write storage binding (`atomicLoad(bins[i])`). Compiles to `atomicLoad(&bins[i])` on WGSL; GLSL ES 3.00 has no atomics, so a module using it emits WGSL alone. The CPU oracle runs invocations in order and reads the location.',
   atomicStore:
@@ -394,18 +390,9 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   exp: 'Returns the exponential function (e raised to the power of `x`), componentwise over vectors.',
   log: 'Returns the natural logarithm of `x`, componentwise over vectors.',
   log2: 'Returns the base-2 logarithm of `x`, componentwise over vectors.',
-  pow: "Returns `x` raised to the power of `y`, componentwise over vectors. The GPU result is undefined when `x` is negative, and on GLSL ES 3.00 also when `x` is 0 and `y` is 0 or less. The CPU oracle follows JavaScript's `Math.pow`: `pow(-2., 3.)` is -8 and `pow(-2., 0.5)` is NaN.",
   sqrt: 'Returns the square root of `x`, componentwise over vectors. Also accepts `f64` operands.',
   inverseSqrt:
     'Returns the reciprocal of the square root of `x` (1/sqrt(x)), componentwise over vectors. WGSL spells this `inverseSqrt`, GLSL spells it `inversesqrt`.',
-  log10: 'Returns the base-10 logarithm of `x` (log(x) times `LOG10E`), for `f32` scalars only.',
-  log1p:
-    'Returns the natural logarithm of (1 plus `x`), computed as `log(x + 1)`, for `f32` scalars only.',
-  expm1:
-    'Returns e raised to the power of `x` minus 1, computed as `exp(x) - 1`, for `f32` scalars only.',
-  cbrt: 'Returns the cube root of `x`, computed as `sign(x) * pow(abs(x), 1/3)`, for `f32` scalars only. As for ECMAScript `Math.cbrt`, a negative `x` gives a negative root: `cbrt(-8.)` is -2.',
-  hypot:
-    'Returns the Euclidean length of the vector formed from 2 or 3 `f32` scalar arguments, computed via `length`, for `f32` scalars only.',
   abs: 'Returns the absolute value of `x`, componentwise over vectors. Also accepts `f64` operands.',
   sign: 'Returns -1 if `x` is negative, 1 if positive, and 0 if zero, componentwise over vectors.',
   floor:
@@ -518,20 +505,12 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
     'Returns an `f32` in the range [0, 1) hashed from an `f32`, `vec2` or `vec3` seed, emitted as `fract(sin(dot(seed, k)) * 43758.5453123)`. One seed is one value in the IR and NOT on a GPU: WGSL bounds `sin` to 2^-11 absolute error on [-PI, PI] and not at all outside it, which is where this hash lives, so the driver decides the answer (surface section 55 has the measurements; #181 replaces the hash with an exact integer one). There is no unseeded form: `Math.random()` without a seed does not compile.',
 };
 
-/** One Markdown sentence per language constant: the mathematical constants PI, TAU, E, LN2, LN10,
- * LOG2E, and LOG10E. Shared by `hover.ts` and `completions.ts`. */
+/** One Markdown sentence per language constant: `TAU`, the one mathematical constant that neither
+ * ECMAScript nor WGSL has (change 0112), and `discard`. Shared by `hover.ts` and `completions.ts`. */
 export const CONSTANT_DOCS: Readonly<Record<string, string>> = {
   discard:
     'Discards the current fragment, so nothing is written for it. Allowed in a fragment entry and in a helper that only fragment entries reach; compiles to `discard;` on both targets.',
-  PI: "The mathematical constant π, inlined as a compile-time `f32` literal (approximately 3.14159). The value matches JavaScript's `Math.PI`.",
-  TAU: 'The mathematical constant 2π (tau), inlined as a compile-time `f32` literal (approximately 6.28318). Defined as 2 times `PI`.',
-  E: "The mathematical constant e, inlined as a compile-time `f32` literal (approximately 2.71828). The value matches JavaScript's `Math.E`.",
-  LN2: "The natural logarithm of 2, inlined as a compile-time `f32` literal (approximately 0.69315). The value matches JavaScript's `Math.LN2`.",
-  LN10: "The natural logarithm of 10, inlined as a compile-time `f32` literal (approximately 2.30259). The value matches JavaScript's `Math.LN10`.",
-  LOG2E:
-    "The base-2 logarithm of e, inlined as a compile-time `f32` literal (approximately 1.44270). The value matches JavaScript's `Math.LOG2E`.",
-  LOG10E:
-    "The base-10 logarithm of e, inlined as a compile-time `f32` literal (approximately 0.43429). The value matches JavaScript's `Math.LOG10E`.",
+  TAU: 'The mathematical constant 2π (tau), inlined as a compile-time `f32` literal (approximately 6.28318). Defined as 2 times `Math.PI`.',
 };
 
 /** Documentation for `Math` object members: functions aliasing free functions (fround, random),
@@ -550,21 +529,25 @@ export const MATH_MEMBER_DOCS: Readonly<Record<string, string>> = {
   atan: FUNCTION_DOCS.atan,
   atanh: FUNCTION_DOCS.atanh,
   atan2: FUNCTION_DOCS.atan2,
-  cbrt: FUNCTION_DOCS.cbrt,
+  cbrt: 'Returns the cube root of `x`, computed as `sign(x) * pow(abs(x), 1/3)`, for `f32` scalars only. As for ECMAScript `Math.cbrt`, a negative `x` gives a negative root: `Math.cbrt(-8.)` is -2.',
   ceil: FUNCTION_DOCS.ceil,
   cos: FUNCTION_DOCS.cos,
   cosh: FUNCTION_DOCS.cosh,
   exp: FUNCTION_DOCS.exp,
-  expm1: FUNCTION_DOCS.expm1,
+  expm1:
+    'Returns e raised to the power of `x` minus 1, computed as `exp(x) - 1`, for `f32` scalars only.',
   floor: FUNCTION_DOCS.floor,
-  hypot: FUNCTION_DOCS.hypot,
+  hypot:
+    'Returns the Euclidean length of the vector formed from 2 or 3 `f32` scalar arguments, computed via `length`, for `f32` scalars only.',
   log: FUNCTION_DOCS.log,
-  log10: FUNCTION_DOCS.log10,
-  log1p: FUNCTION_DOCS.log1p,
+  log10:
+    'Returns the base-10 logarithm of `x` (log(x) times `Math.LOG10E`), for `f32` scalars only.',
+  log1p:
+    'Returns the natural logarithm of (1 plus `x`), computed as `log(x + 1)`, for `f32` scalars only.',
   log2: FUNCTION_DOCS.log2,
   max: FUNCTION_DOCS.max,
   min: FUNCTION_DOCS.min,
-  pow: FUNCTION_DOCS.pow,
+  pow: "Returns `x` raised to the power of `y`; `x ** y` is the same operation. The GPU result is undefined when `x` is negative, and on GLSL ES 3.00 also when `x` is 0 and `y` is 0 or less. The CPU oracle follows JavaScript's `Math.pow`: `Math.pow(-2., 3.)` is -8 and `Math.pow(-2., 0.5)` is NaN.",
   round: FUNCTION_DOCS.round,
   sign: FUNCTION_DOCS.sign,
   sin: FUNCTION_DOCS.sin,
@@ -573,12 +556,14 @@ export const MATH_MEMBER_DOCS: Readonly<Record<string, string>> = {
   tan: FUNCTION_DOCS.tan,
   tanh: FUNCTION_DOCS.tanh,
   trunc: FUNCTION_DOCS.trunc,
-  E: CONSTANT_DOCS.E,
-  LN10: CONSTANT_DOCS.LN10,
-  LN2: CONSTANT_DOCS.LN2,
-  LOG10E: CONSTANT_DOCS.LOG10E,
-  LOG2E: CONSTANT_DOCS.LOG2E,
-  PI: CONSTANT_DOCS.PI,
+  E: "The mathematical constant e, inlined as a compile-time `f32` literal (approximately 2.71828). The value matches JavaScript's `Math.E`.",
+  LN10: "The natural logarithm of 10, inlined as a compile-time `f32` literal (approximately 2.30259). The value matches JavaScript's `Math.LN10`.",
+  LN2: "The natural logarithm of 2, inlined as a compile-time `f32` literal (approximately 0.69315). The value matches JavaScript's `Math.LN2`.",
+  LOG10E:
+    "The base-10 logarithm of e, inlined as a compile-time `f32` literal (approximately 0.43429). The value matches JavaScript's `Math.LOG10E`.",
+  LOG2E:
+    "The base-2 logarithm of e, inlined as a compile-time `f32` literal (approximately 1.44270). The value matches JavaScript's `Math.LOG2E`.",
+  PI: "The mathematical constant π, inlined as a compile-time `f32` literal (approximately 3.14159). The value matches JavaScript's `Math.PI`.",
   SQRT1_2:
     "The square root of 1/2, inlined as a compile-time `f32` literal (approximately 0.70711). The value matches JavaScript's `Math.SQRT1_2`.",
   SQRT2:

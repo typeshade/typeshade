@@ -632,7 +632,7 @@ export function lowerForOf(
   const length =
     array.type.size !== undefined
       ? ({ op: 'lit', type: u32T, value: array.type.size } as const)
-      : arrayLengthOf(array, node.expression, sourceFile, scope, diagnostics, '.length');
+      : arrayLengthOf(array, node.expression, sourceFile, scope, diagnostics);
   if (!length) return undefined;
   const elemType = array.type.elem;
   const mutable = (list.flags & ts.NodeFlags.Let) !== 0;

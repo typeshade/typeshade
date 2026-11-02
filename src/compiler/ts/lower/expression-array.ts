@@ -5,7 +5,7 @@ import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, f32T, i32T, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, type LoweringScope } from '../context.js';
-import { fillArray, noneOf, unrollMinMax, unrollPred, unrollSum, unrollZip } from '../array-ops.js';
+import { fillArray, unrollMinMax, unrollZip } from '../array-ops.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { foldNumericLit, isIntScalar, retargetDeclaredIntLit } from '../lit-coerce.js';
 import { constructorCallbackMessage, isValueConstructor } from './constructors.js';
@@ -512,18 +512,6 @@ export function lowerArrayFold(
   }
   const first = args[0];
   const asArray = first && first.type.kind === 'array';
-  if (name === 'sum') {
-    if (!first) {
-      pushDiag(diagnostics, sourceFile, node, 'sum(xs) needs an array.', TS_CODES.ARITY_MISMATCH);
-      return undefined;
-    }
-    const out = unrollSum(first);
-    if (typeof out === 'string') {
-      pushDiag(diagnostics, sourceFile, node, out, TS_CODES.TYPE_MISMATCH);
-      return undefined;
-    }
-    return out;
-  }
   if ((name === 'min' || name === 'max') && asArray && args.length === 1) {
     const out = unrollMinMax(name, first!);
     if (typeof out === 'string') {
@@ -531,24 +519,6 @@ export function lowerArrayFold(
       return undefined;
     }
     return out;
-  }
-  if (name === 'any' || name === 'all' || name === 'none') {
-    if (!first || predDecls.length !== 1) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `${name}(xs, pred) needs an array and a predicate function.`,
-        TS_CODES.ARITY_MISMATCH,
-      );
-      return undefined;
-    }
-    const out = unrollPred(first, predDecls[0]!, name === 'all' ? '&&' : '||', leading);
-    if (typeof out === 'string') {
-      pushDiag(diagnostics, sourceFile, node, out, TS_CODES.TYPE_MISMATCH);
-      return undefined;
-    }
-    return name === 'none' ? noneOf(out) : out;
   }
   if (name === 'zip') {
     if (args.length !== 2 || predDecls.length !== 1) {
@@ -578,12 +548,6 @@ export function lowerArrayFold(
 function foldCallbackShape(name: string, arrays: readonly Expr[]): FunctionShape | undefined {
   const elem = (e: Expr | undefined): ShaderType | undefined =>
     e !== undefined && e.type.kind === 'array' ? e.type.elem : undefined;
-  if (name === 'any' || name === 'all' || name === 'none') {
-    const x = elem(arrays[0]);
-    return x === undefined
-      ? undefined
-      : { params: [x], ret: boolT, text: `(x: ${authorTypeText(x)}) => bool` };
-  }
   if (name === 'zip') {
     const a = elem(arrays[0]);
     const b = elem(arrays[1]);

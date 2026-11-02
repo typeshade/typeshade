@@ -74,8 +74,8 @@ const JS_ARRAY_METHODS = new Set([
 export { JS_ARRAY_METHODS };
 
 /** Whether `e` bottoms out in a STORAGE resource binding — the binding itself, a field of one,
- *  or an element of one. Only that shape gets the `arrayLength` sentence, because only that
- *  shape is what `arrayLength` accepts (`ptr<storage, array<E>, AM>`); a `uniform<array<T>>`,
+ *  or an element of one. Only that shape has a runtime `.length`, because only that shape is what
+ *  WGSL's `arrayLength` accepts (`ptr<storage, array<E>, AM>`); a `uniform<array<T>>`,
  *  a local or a parameter needs an explicit `N` instead. */
 export function storageRooted(e: Expr, scope: LoweringScope): boolean {
   return rootedIn(e, scope, ['storage']);
@@ -109,41 +109,24 @@ export function rootedIn(e: Expr, scope: LoweringScope, spaces: readonly string[
   }
 }
 
-/** The `arrayLength(&x)` call for `base`, or a diagnostic and `undefined` when `base` is not
- *  what the builtin takes. WGSL's `arrayLength` accepts exactly a pointer to a runtime-sized
- *  array in the storage space, which is the binding itself or a trailing struct member;
- *  measured on Tint, `arrayLength(&src[0])` is refused and `arrayLength(&b.xs)` accepted. Shared
- *  by `.length` on such an array and by the explicit `arrayLength(x)` call, so the two forms
- *  agree about what they accept and what they say (#46). The result is `u32`, as it is in WGSL.
- *  The CPU oracle reads the bound buffer's length. GLSL ES 3.00 has no form: a module with a
- *  runtime-sized storage array emits WGSL alone, as it did before this. */
+/** The `arrayLength(&x)` call that `base.length` lowers to, or a diagnostic and `undefined` when
+ *  `base` has no runtime length. WGSL's `arrayLength` accepts exactly a pointer to a runtime-sized
+ *  array in the storage space, which is the binding itself or a trailing struct member; measured on
+ *  Tint, `arrayLength(&src[0])` is refused and `arrayLength(&b.xs)` accepted. The caller has
+ *  already taken the sized array, whose `.length` is a compile-time constant. The result is `u32`,
+ *  as it is in WGSL. The CPU oracle reads the bound buffer's length. GLSL ES 3.00 has no form: a
+ *  module with a runtime-sized storage array emits WGSL alone, as it did before this. The free
+ *  call `arrayLength(x)` is not authorable (change 0112); `.length` is the one spelling. */
 export function arrayLengthOf(
   base: Expr,
   node: ts.Node,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
-  spelled: '.length' | 'arrayLength',
 ): Expr | undefined {
-  if (base.type.kind !== 'array') {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `arrayLength takes a runtime-sized storage array, not a ${authorTypeText(base.type)}.`,
-      TS_CODES.TYPE_MISMATCH,
-    );
-    return undefined;
-  }
-  if (base.type.size !== undefined) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `arrayLength takes a runtime-sized array; this one has a fixed size of ${base.type.size}. Write ${base.type.size}, or read ".length".`,
-      TS_CODES.TYPE_MISMATCH,
-    );
-    return undefined;
+  if (base.type.kind !== 'array' || base.type.size !== undefined) {
+    // Both callers pass a runtime-sized array, so this is a compiler fault, not an author's.
+    throw new Error('arrayLengthOf takes an array with no size');
   }
   if (!storageRooted(base, scope)) {
     // The guard fires on FOUR shapes, and only the storage one has a runtime length. `arrayLength`
@@ -157,9 +140,7 @@ export function arrayLengthOf(
       diagnostics,
       sourceFile,
       node,
-      spelled === '.length'
-        ? `".length" on an array with no size is not known at compile time. Give the type a size: array<f32, 3> rather than array<f32>.`
-        : `arrayLength takes a runtime-sized array in storage; this one is not in storage, so it has no runtime length. Give the type a size: array<f32, 3> rather than array<f32>.`,
+      `".length" on an array with no size is not known at compile time. Give the type a size: array<f32, 3> rather than array<f32>.`,
       TS_CODES.UNSIZED_ARRAY_LENGTH,
     );
     return undefined;
@@ -332,7 +313,7 @@ function lowerPropertyAccessOf(
     // `arrayLength(&x)`, a `u32`; every other unsized shape is refused with the one fix that
     // works for it, and the sized array stays the compile-time `i32` it always was.
     if (base.type.size === undefined) {
-      return arrayLengthOf(base, node, sourceFile, scope, diagnostics, '.length');
+      return arrayLengthOf(base, node, sourceFile, scope, diagnostics);
     }
     return { op: 'lit', type: i32T, value: base.type.size };
   }

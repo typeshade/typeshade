@@ -262,26 +262,12 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   { name: 'fill', reason: 'builds an `array<T, N>` from one value; WGSL takes N arguments' },
   { name: 'discard', reason: 'WGSL `discard` is a statement, and TypeScript has none to borrow' },
 
-  // The free spelling of a `Math` member WGSL has no builtin for (Rule 9.4). The MEMBER is an
-  // ECMAScript name and needs no row; the free name beside it is TypeShade's own (Rule 2.1(b)),
-  // and each is expanded into WGSL arithmetic at the call.
-  { name: 'log10', reason: 'the base-10 logarithm, `log(x) * LOG10E`; WGSL has `log` and `log2`' },
-  { name: 'log1p', reason: 'the natural logarithm of 1 plus x, `log(x + 1)`' },
-  { name: 'expm1', reason: 'e to the x, less one, `exp(x) - 1`' },
-  {
-    name: 'cbrt',
-    reason: 'the cube root, `sign(x) * pow(abs(x), 1 / 3)`, negative for a negative x',
-  },
-  { name: 'hypot', reason: 'the length of the vector its 2 or 3 arguments make, `length(v)`' },
+  // The free spellings of a `Math` member WGSL has no builtin for (`log10`, `log1p`, `expm1`,
+  // `cbrt`, `hypot`) were rows here until Rule 9.9 removed them: the MEMBER is an ECMAScript name
+  // and the one spelling (Rule 9.4). The array folds `sum` and `none` left with them.
   {
     name: 'random',
     reason: 'a hash of its seed, an `f32` in [0, 1); ECMAScript spells a draw `Math.random()`',
-  },
-  // The array folds WGSL has no builtin for, unrolled at the call (Rule 8.18).
-  { name: 'sum', reason: "the sum of an array's elements, unrolled; WGSL has no fold" },
-  {
-    name: 'none',
-    reason: 'whether no element passes a test, unrolled; the negation of the `any` fold',
   },
   {
     name: 'zip',
@@ -356,16 +342,10 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   { name: 'samplerTag', reason: 'the brand symbol of `sampler`' },
   { name: 'samplerComparisonTag', reason: 'the brand symbol of `sampler_comparison`' },
 
-  // Constants, in the order `LANG_CONST` declares them. Six are the free spelling of a `Math`
-  // constant, which is a member and not a free name (Rule 2.1(b)); WGSL predeclares no constant
-  // at all, and each of these reaches the text as an inlined `f32` literal.
-  { name: 'PI', reason: 'π as a free name; ECMAScript spells it `Math.PI`' },
+  // Constants, in the order `LANG_CONST` declares them. WGSL predeclares no constant at all, and
+  // `TAU` reaches the text as an inlined `f32` literal. The six free spellings of a `Math`
+  // constant were removed (change 0112): a member carries each of them.
   { name: 'TAU', reason: '2π, which neither WGSL nor ECMAScript `Math` predeclares' },
-  { name: 'E', reason: 'e as a free name; ECMAScript spells it `Math.E`' },
-  { name: 'LN2', reason: 'the natural logarithm of 2; ECMAScript spells it `Math.LN2`' },
-  { name: 'LN10', reason: 'the natural logarithm of 10; ECMAScript spells it `Math.LN10`' },
-  { name: 'LOG2E', reason: 'the base-2 logarithm of e; ECMAScript spells it `Math.LOG2E`' },
-  { name: 'LOG10E', reason: 'the base-10 logarithm of e; ECMAScript spells it `Math.LOG10E`' },
 
   // A reference parameter (Rule 8.25, proposal 0040). WGSL spells it as a pointer and GLSL with a
   // qualifier; the surface writes GLSL's qualifier as a parameter decorator.

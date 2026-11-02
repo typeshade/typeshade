@@ -56,7 +56,7 @@
 // compiler's own, still reaches the builtin. Whether Tint and ANGLE accept that is theirs to say,
 // so the gate asks them three ways:
 //
-//   1. `declared-names`, a module that declares and calls `fract`, `pow`, `exp2` and `f32`, is an
+//   1. `declared-names`, a module that declares and calls `fract`, `sqrt`, `exp2` and `f32`, is an
 //      example like the others: WGSL on Tint, both GLSL stages on ANGLE, the render pipeline.
 //   2. A sweep over every name a writer renames (`predeclaredFunctionNames`). Two subject modules,
 //      a compute one written on what WGSL predeclares (its types, its storage and texture forms, its
@@ -66,8 +66,8 @@
 //      every GLSL text. The IR is renamed, and no source rewritten, because a source that declared
 //      `private` or `mod` is one TypeScript or Rule 3.3 refuses, and a writer has to be right for
 //      an IR whoever built it.
-//   3. The values. #403's program, and one that declares `fract`, `pow`, `exp2` and `f32` beside
-//      `random()` and `Math.pow`, run on WebGPU, and each answer is the declaration's, as the CPU
+//   3. The values. #403's program, and one that declares `fract`, `sqrt`, `exp2` and `f32` beside
+//      `random()` and `Math.sqrt`, run on WebGPU, and each answer is the declaration's, as the CPU
 //      oracle gives it. The same declaration drawn by a fragment entry over one pixel of a WebGL2
 //      canvas, where the answer used to be none, is the oracle's pixel.
 //
@@ -568,12 +568,12 @@ const PASS_EXAMPLES = ALL_EXAMPLES.flatMap((ex) =>
 
 // ── The declared-names leg (change 0029, Rule 9.5) ──
 
-/** A module that declares and calls `fract`, `pow`, `exp2` and `f32`, beside the builtins of the
- *  same names: `random()` expands to a call of the builtin `fract`, `Math.pow` is the builtin `pow`,
+/** A module that declares and calls `fract`, `sqrt`, `exp2` and `f32`, beside the builtins of the
+ *  same names: `random()` expands to a call of the builtin `fract`, `Math.sqrt` is the builtin `sqrt`,
  *  and a call of `f32` is the cast, which no declaration of the name takes (Rule 9.5). */
 const DECLARED_NAMES_SOURCE = `"use typeshade";
 function fract(x: f32): f32 { return x - floor(x) + 0.5; }
-function pow(x: f32): f32 { return x * x; }
+function sqrt(x: f32): f32 { return x * x; }
 function exp2(x: f32): f32 { return x * 3.; }
 function f32(x: f32): f32 { return x; }
 class VsOut {
@@ -586,12 +586,12 @@ class Color {
 @vertex
 export function vs(@builtin("vertex_index") i: u32): VsOut {
   const x = f32(i) * 0.25;
-  return { pos: vec4(fract(x), pow(x), 0., 1.), uv: vec2(exp2(x), x) };
+  return { pos: vec4(fract(x), sqrt(x), 0., 1.), uv: vec2(exp2(x), x) };
 }
 @fragment
 export function fs(v: VsOut): Color {
-  const a = fract(v.uv.x) + pow(v.uv.y) + exp2(v.uv.x);
-  const h = random(v.uv.x) + Math.pow(v.uv.y, 2.);
+  const a = fract(v.uv.x) + sqrt(v.uv.y) + exp2(v.uv.x);
+  const h = random(v.uv.x) + Math.sqrt(v.uv.y);
   return { color: vec4(a, h, f32(3), 1.) };
 }
 `;
@@ -639,7 +639,8 @@ const FLOAT_CALLS: readonly string[] = [
     'tanh',
     'trunc',
   ].map((n) => `${n}(x)`),
-  ...['atan2', 'max', 'min', 'pow', 'step'].map((n) => `${n}(x, y)`),
+  ...['atan2', 'max', 'min', 'step'].map((n) => `${n}(x, y)`),
+  'x ** y',
   ...['clamp', 'fma', 'mix', 'smoothstep'].map((n) => `${n}(x, y, 0.5)`),
   'length(vec2(x, y))',
   'normalize(vec2(x, y)).x',
@@ -1002,16 +1003,16 @@ export function vs(@builtin("vertex_index") i: u32): VsOut {
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
   let y: f32 = uv.x;
-  y = y + pow(2., 0.5) + pow(10., 2.) + pow(y, 2.) + 10. ** 2.;
-  y = y + pow(-0., 2.) + pow(0., 2.) + sqrt(-0.) + sqrt(0.);
-  y = y + pow(-2., y) + pow(y, -1.) + sqrt(-1. * y);
+  y = y + 2. ** 0.5 + 10. ** 2. + y ** 2. + 10. ** 2.;
+  y = y + (-0.) ** 2. + 0. ** 2. + sqrt(-0.) + sqrt(0.);
+  y = y + (-2.) ** y + y ** -1. + sqrt(-1. * y);
   let k = -2.;
-  y = y + pow(k, 0.5);
+  y = y + k ** 0.5;
   y = y + log(1.) + log2(8.) + acos(-1.) + asin(1.) + acosh(1.) + atanh(0.5) + inverseSqrt(4.);
   y = y + smoothstep(2., 1., y) + smoothstep(0., 1., y);
   y = y + exp(88.);
   y = y + exp2(127.);
-  y = y + pow(2., 127.);
+  y = y + 2. ** 127.;
   y = y / sqrt(0.);
   return vec4(y, 0., 0., 1.);
 }
@@ -2556,7 +2557,7 @@ interface ValueCase {
   readonly means: readonly Means[];
 }
 
-/** #403's program (`out[1]` holds 1.25), then one that declares `fract`, `pow`, `exp2` and `f32`
+/** #403's program (`out[1]` holds 1.25), then one that declares `fract`, `sqrt`, `exp2` and `f32`
  *  and calls each beside the builtins of those names, then #578's: the divisors and shift amounts
  *  that are a float constant converted to an integer, with the neighbours Tint accepts, then
  *  #614's cube roots of negative and positive run-time values. */
@@ -2578,23 +2579,23 @@ export function main() { out[0] = fract(out[1]); out[2] = fract(1.25); }
     source: `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
 function fract(x: f32): f32 { return 99.; }
-function pow(x: f32): f32 { return x + 100.; }
+function sqrt(x: f32): f32 { return x + 100.; }
 function exp2(x: f32): f32 { return x * 3.; }
 function f32(x: f32): f32 { return 7.; }
 @compute([1])
 export function main() {
   const x = out[1];
   out[0] = fract(x);
-  out[2] = pow(x) + Math.pow(x, 2.);
+  out[2] = sqrt(x) + Math.sqrt(x);
   out[3] = exp2(x);
   out[4] = random(x);
   out[5] = f32(3);
 }
 `,
     initial: [0, 1.25, 0, 0, 0, 0],
-    // The declarations, the builtin `pow` a `Math.pow` is (1.25 squared), `random()` reaching the
+    // The declarations, the builtin `sqrt` a `Math.sqrt` is (the root of 1.25), `random()` reaching the
     // builtin `fract` (a declaration of it would make it 99), and the cast `f32` is.
-    means: [99, 1.25, 102.8125, 3.75, [0, 1], 3],
+    means: [99, 1.25, 101.25 + Math.sqrt(1.25), 3.75, [0, 1], 3],
   },
   {
     id: 'const-exprs',
@@ -2633,7 +2634,7 @@ export function main() {
     means: [7, 7, 0, 7, 7, 9, 2, 0, 7, 7, 0, 7, -7],
   },
   {
-    // #614: `Math.cbrt` and `cbrt` of a run-time `x`, negatives among them. The expansion was
+    // #614: `Math.cbrt` of a run-time `x`, negatives among them. The expansion was
     // `pow(x, 1/3)`, outside the domain of `pow` for `x < 0`: NaN on the oracle, and 2 for -8 on
     // WebGPU over SwiftShader. It is `sign(x) * pow(abs(x), 1/3)`, ECMAScript's cube root.
     id: 'cbrt',
@@ -2643,8 +2644,8 @@ declare const out: storage<array<f32>, "read_write">;
 export function main() {
   out[5] = Math.cbrt(out[0]);
   out[6] = Math.cbrt(out[1]);
-  out[7] = cbrt(out[2]);
-  out[8] = cbrt(out[3]);
+  out[7] = Math.cbrt(out[2]);
+  out[8] = Math.cbrt(out[3]);
   out[9] = Math.cbrt(out[4]);
 }
 `,

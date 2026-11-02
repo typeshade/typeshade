@@ -101,7 +101,7 @@ function shade(albedo: vec3, light: f32): vec3 {
 @fragment
 export function fs(@location(0) normal: vec3): vec4 {
   const brightness = clamp(frame.time * frame.scale, 0., 1.);
-  const tone = pow(shade(normalize(normal), brightness), vec3(1. / GAMMA));
+  const tone = shade(normalize(normal), brightness) ** vec3(1. / GAMMA);
   return vec4(tone, 1.);
 }
 `;

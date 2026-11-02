@@ -3,6 +3,7 @@
 import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
+import { isRemovedCall } from '../compiler/ts/removed-names.js';
 import {
   foreignNameReport,
   refusedVars,
@@ -1012,6 +1013,33 @@ function isGpuArithmeticOverloadCall(
  * right-hand side that is not a call keeps the compiler's own sentence, and a `_` anywhere else
  * (`const y = _`, `_ += 1.`, `(_ = f(x));`) keeps this code.
  */
+/**
+ * The untyped parameter of a callback handed to a call of a removed name: `none(xs, (x) => ...)`,
+ * or the array fold `any(xs, (x) => ...)` and `all(xs, (x) => ...)` (change 0112). The ambient
+ * library declares no function of that shape, so TypeScript has no contextual type for `x` and
+ * says "implicitly has an 'any' type", which is a second report of the one mistake the compiler
+ * has already said, with the spelling that replaces it (Rule 12.4).
+ */
+function isRemovedCallCallbackParameter(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): boolean {
+  const name = nodeAtPosition(context.sourceFile, diagnostic.start ?? 0);
+  const parameter = name.parent;
+  if (parameter === undefined || !ts.isParameter(parameter) || parameter.name !== name)
+    return false;
+  const callback = parameter.parent;
+  const call = callback.parent;
+  if (!ts.isArrowFunction(callback) && !ts.isFunctionExpression(callback)) return false;
+  if (!ts.isCallExpression(call) || !call.arguments.includes(callback)) return false;
+  return (
+    ts.isIdentifier(call.expression) &&
+    (isRemovedCall(call.expression.text) ||
+      ((call.expression.text === 'any' || call.expression.text === 'all') &&
+        call.arguments.length > 1))
+  );
+}
+
 function isPhonyAssignmentTarget(
   context: DiagnosticFilterContext,
   diagnostic: ts.Diagnostic,
@@ -1231,6 +1259,16 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
       "the compiler reads as phony, so `_ = a + 1.` keeps the compiler's one refusal and a `_` " +
       'read as a value keeps this code.',
     when: isPhonyAssignmentTarget,
+  },
+  {
+    code: 7006,
+    reason:
+      'A callback handed to a removed name (`none(xs, p)`, `sum`) or to the array fold of `any` ' +
+      'or `all` (change 0112) has no contextual type, because the ambient library no longer ' +
+      "declares those shapes. The compiler's refusal names the spelling that replaces the call " +
+      "(`xs.some(p)`), so TypeScript's \"implicitly has an 'any' type\" on the callback is a " +
+      'second report of the same mistake and is dropped.',
+    when: isRemovedCallCallbackParameter,
   },
   {
     code: 2339,

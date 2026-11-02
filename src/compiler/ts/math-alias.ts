@@ -213,7 +213,7 @@ export const TEXTURE_BUILTIN_NAMES: readonly string[] = [
 ];
 
 /** The builtin functions a call can name that no table above lists: roadmap 0.2 item 8's breadth
- *  and bit builtins, the texture reads, the atomics and barriers, `arrayLength`,
+ *  and bit builtins, the texture reads, the atomics and barriers,
  *  `workgroupUniformLoad`, `exp2`, `saturate`, `fma`, the derivatives and `select`.
  *
  *  A function the file declares wins over every one of them, as it does over each name the tables
@@ -224,7 +224,6 @@ export const EXTRA_BUILTIN_FUNCTIONS: ReadonlySet<string> = new Set([
   ...BREADTH_BUILTINS,
   ...BIT_BUILTIN_NAMES,
   ...TEXTURE_BUILTIN_NAMES,
-  'arrayLength',
   'atomicLoad',
   'atomicStore',
   'atomicAdd',
@@ -291,14 +290,11 @@ export function expectedArity(intrinsicId: string): number | undefined {
   return MATH_FN_ARITY[intrinsicId];
 }
 
+/** The free constants an author may still write: `TAU` alone, which neither ECMAScript nor WGSL
+ *  has. `PI`, `E`, `LN2`, `LN10`, `LOG2E` and `LOG10E` were removed for `Math.*` (change 0112;
+ *  `removed-names.ts`). */
 export const LANG_CONST: Readonly<Record<string, number>> = {
-  PI: Math.PI,
   TAU: Math.PI * 2,
-  E: Math.E,
-  LN2: Math.LN2,
-  LN10: Math.LN10,
-  LOG2E: Math.LOG2E,
-  LOG10E: Math.LOG10E,
 };
 
 export function resolveLangConst(name: string): number | undefined {

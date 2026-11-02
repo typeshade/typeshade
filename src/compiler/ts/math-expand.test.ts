@@ -18,10 +18,10 @@ describe('missing Math + shader free math', () => {
     expect(isCanonicalMathFn('inverseSqrt')).toBe(true);
   });
 
-  it('log10(x) expands to log(x) * LOG10E', () => {
+  it('Math.log10(x) expands to log(x) * LOG10E', () => {
     const r = compileTsSource(`
       "use typeshade";
-      export function f(x: f32): f32 { return log10(x); }
+      export function f(x: f32): f32 { return Math.log10(x); }
     `);
     expect(r.diagnostics).toEqual([]);
     const ret = r.funcs[0]!.body[0];
@@ -32,9 +32,11 @@ describe('missing Math + shader free math', () => {
     }
   });
 
-  it('Math.log10 === log10', () => {
+  // The free `log10(x)` was removed (change 0112); the member is the one spelling, and it is the
+  // expansion written out.
+  it('Math.log10(x) is log(x) * Math.LOG10E', () => {
     const a = compileTsSource(
-      `"use typeshade"; export function f(x: f32): f32 { return log10(x); }`,
+      `"use typeshade"; export function f(x: f32): f32 { return log(x) * Math.LOG10E; }`,
     );
     const b = compileTsSource(
       `"use typeshade"; export function f(x: f32): f32 { return Math.log10(x); }`,
@@ -61,10 +63,10 @@ describe('missing Math + shader free math', () => {
     if (e.b.op === 'call') expect(e.b.args[0]!.op === 'call' && e.b.args[0]!.fn).toBe('abs');
   });
 
-  it('hypot(a,b) expands to length(vec2)', () => {
+  it('Math.hypot(a,b) expands to length(vec2)', () => {
     const r = compileTsSource(`
       "use typeshade";
-      export function f(a: f32, b: f32): f32 { return hypot(a, b); }
+      export function f(a: f32, b: f32): f32 { return Math.hypot(a, b); }
     `);
     expect(r.diagnostics).toEqual([]);
     const ret = r.funcs[0]!.body[0];
@@ -84,10 +86,10 @@ describe('missing Math + shader free math', () => {
     expect(r.diagnostics).toEqual([]);
   });
 
-  it('log1p / expm1 expand', () => {
+  it('Math.log1p / Math.expm1 expand', () => {
     const r = compileTsSource(`
       "use typeshade";
-      export function f(x: f32): f32 { return log1p(x) + expm1(x); }
+      export function f(x: f32): f32 { return Math.log1p(x) + Math.expm1(x); }
     `);
     expect(r.diagnostics).toEqual([]);
   });
@@ -98,7 +100,7 @@ describe('missing Math + shader free math', () => {
 // of each program below, and holds the declaration to the count of arguments `EXPAND_ARITY`
 // gives. The values are pinned as they are so that a change to one is an edit of this file: how
 // closely each answers like ECMAScript's is a separate question (#186), and none of it moves here.
-describe('the Math members WGSL has no builtin for: the member is its free spelling (Rule 9.4)', () => {
+describe('the Math members WGSL has no builtin for are ECMAScript names with no free spelling (Rule 9.4)', () => {
   const programOf = (expression: string): string =>
     `"use typeshade"\nexport function f(x: f32, y: f32, z: f32): f32 {\n  return ${expression}\n}\n`;
 
@@ -113,30 +115,28 @@ describe('the Math members WGSL has no builtin for: the member is its free spell
   ];
 
   for (const [name, args, wgslReturn] of ROWS) {
-    it(`Math.${name}(${args}) and ${name}(${args}) are one call, ${wgslReturn}`, () => {
+    it(`Math.${name}(${args}) is ${wgslReturn}, and ${name}(${args}) is refused`, () => {
       const member = programOf(`Math.${name}(${args})`);
       const free = programOf(`${name}(${args})`);
-      const a = compileTsSource(member);
-      const b = compileTsSource(free);
-      expect(a.diagnostics).toEqual([]);
-      expect(b.diagnostics).toEqual([]);
-      expect(stripSpans(a.funcs[0]!.body)).toEqual(stripSpans(b.funcs[0]!.body));
+      expect(compileTsSource(member).diagnostics).toEqual([]);
       const compiled = compile(member);
       expect(compiled.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
       expect(compiled.wgsl).toContain(wgslReturn);
-      expect(compiled.wgsl).toBe(compile(free).wgsl);
+      // The free name was removed (change 0112): one sentence, which names the member.
+      expect(
+        compileTsSource(free).diagnostics.map((d) => `${String(d.code)} ${d.message}`),
+      ).toEqual([`TS8004 ${name} was removed: write Math.${name}.`]);
     });
   }
 
-  it('an expansion is refused, member or free, when an argument is not an f32', () => {
+  it('an expansion is refused when an argument is not an f32', () => {
     const refused = (expression: string): string[] =>
       compileTsSource(
         `"use typeshade"\nexport function f(i: i32, x: f32): f32 {\n  return ${expression}\n}\n`,
       ).diagnostics.map((d) => `${d.code} ${d.message}`);
     expect(refused('Math.cbrt(i)')).toEqual(['TS8003 cbrt expects f32, got i32.']);
-    expect(refused('cbrt(i)')).toEqual(['TS8003 cbrt expects f32, got i32.']);
     expect(refused('Math.hypot(x, i)')).toEqual(['TS8003 hypot arguments must be f32, got i32.']);
-    expect(refused('hypot(i, x)')).toEqual(['TS8003 hypot arguments must be f32, got i32.']);
+    expect(refused('Math.hypot(i, x)')).toEqual(['TS8003 hypot arguments must be f32, got i32.']);
   });
 });
 

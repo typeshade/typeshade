@@ -476,7 +476,9 @@ describe('each thing a new is refused on is named for what it is (Rule 8.13, Rul
   });
 
   it('a name the ambient library gives is what it is: a constant, a function, a member', () => {
-    one('', 'new PI()', '"PI" is a value, not a class.');
+    one('', 'new TAU()', '"TAU" is a value, not a class.');
+    // A name change 0112 removed says what replaces it, as a call or a read of it does.
+    one('', 'new PI()', 'PI was removed: write Math.PI.', TS_CODES.UNKNOWN_NAME);
     one('', 'new Math.PI()', '"Math.PI" is a value, not a class.');
     one(
       '',

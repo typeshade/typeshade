@@ -182,7 +182,7 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
     'accept',
   ],
   [
-    'arrayLength of a fixed array',
+    'the removed arrayLength call, on a fixed array',
     FS(
       '',
       '  const a = array(1., 2., 3.)\n  const n = arrayLength(a)\n  return vec4(f32(n) * 0., 0., 0., 1.)',
@@ -924,9 +924,9 @@ describe("a builtin's scalar overload returns ScalarOf, and the type it gives is
 
   /** `[the call, the result the compiler gives, the result the editor hovers, a type it is not]` */
   const CALLS: readonly (readonly [string, string, string, string])[] = [
-    ['pow(a, b)', 'f32', 'f32', 'u32'],
-    ['pow(2., 3.)', 'f32', 'number', ''],
-    ['pow(2., a)', 'f32', 'f32', 'i32'],
+    ['atan2(a, b)', 'f32', 'f32', 'u32'],
+    ['atan2(2., 3.)', 'f32', 'number', ''],
+    ['atan2(2., a)', 'f32', 'f32', 'i32'],
     ['clamp(i, 0, 10)', 'i32', 'i32', 'f32'],
     ['clamp(0.5, 0., a)', 'f32', 'f32', 'u32'],
     ['min(u, u)', 'u32', 'u32', 'i32'],

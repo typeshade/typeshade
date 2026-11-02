@@ -391,7 +391,7 @@ describe('grad reverse: each builtin rule agrees with a finite difference and wi
       ],
     ],
     [
-      'pow(k, x)',
+      'k ** x',
       [
         [0.5, 0.3],
         [2, 1.5],
@@ -474,7 +474,7 @@ describe('grad reverse: vectors and matrices', () => {
   it('vector parameters, scalar broadcasts and a vector built from parts', () => {
     const m = moduleOf(`export function f(p: vec2, q: vec3, s: f32): vec4 {
   const u = vec4(p * s, q.z, s) + vec4(q, 1.) * p.y;
-  return clamp(u, vec4(-1.), vec4(2.)) * mix(q.x, s, 0.25) + vec4(pow(abs(q), vec3(s)), 1.);
+  return clamp(u, vec4(-1.), vec4(2.)) * mix(q.x, s, 0.25) + vec4(abs(q) ** vec3(s), 1.);
 }`);
     const pts: Value[][] = [
       [[0.3, 1.1], [0.4, -0.5, 0.7], 1.3],

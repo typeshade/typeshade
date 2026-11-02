@@ -661,7 +661,6 @@ describe('vector-with-scalar math shapes: exactly the ones both backends accept'
     const rejectedByTint: Readonly<Record<string, string>> = {
       'clamp(vec3, f32, f32)':
         'export function f(a: vec3, lo: f32, hi: f32): vec3 {\n  return clamp(a, lo, hi)\n}',
-      'pow(vec3, f32)': 'export function f(a: vec3, s: f32): vec3 {\n  return pow(a, s)\n}',
       'step(vec3, f32)': 'export function f(a: vec3, s: f32): vec3 {\n  return step(a, s)\n}',
       'mix(vec3i, vec3i, i32)':
         'export function f(a: vec3i, b: vec3i, t: i32): vec3i {\n  return mix(a, b, t)\n}',
@@ -1011,13 +1010,13 @@ describe('vector arithmetic in a later argument stays clean (the callee-span TS2
 
   // The vocabulary swept rather than sampled: every free math name whose parameters are all one
   // shape, at every arity it has, with the arithmetic moved through each argument position in
-  // turn. 92 calls. All 92 are clean on main; 30 of them reported on this branch before the
+  // turn. 86 calls. All 86 are clean on main; 30 of them reported on this branch before the
   // callee-span path, every one a min/max/pow/step/mod/atan2/clamp/smoothstep with its
-  // arithmetic anywhere but the first argument.
+  // arithmetic anywhere but the first argument. `pow` left the sweep with its free name (Rule
+  // 9.9), which took six of the 92 calls.
   const SAME_SHAPE_ARITY: Readonly<Record<string, number>> = {
     min: 2,
     max: 2,
-    pow: 2,
     step: 2,
     mod: 2,
     atan2: 2,
@@ -1055,7 +1054,7 @@ describe('vector arithmetic in a later argument stays clean (the callee-span TS2
         }
       }
     }
-    expect(calls).toBe(92);
+    expect(calls).toBe(86);
     expect(reported).toEqual([]);
   });
 });
