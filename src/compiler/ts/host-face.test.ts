@@ -889,6 +889,7 @@ export function scale(a: array<f32>, s: f32): void {
   for (let i = 0; i < a.length; i++) a[i] = a[i] * s;
 }
 
+/** The first block, which the editor does not show. */
 /** Returns what it is given. */
 export function ident<T>(x: T): T {
   return x;
@@ -919,9 +920,11 @@ export { h, s, p };
     expect(scaled.startsWith('Scales `a` in place.')).toBe(true);
     expect(scaled).toContain(KERNEL);
     expect(scaled).toContain(queued('arrays'));
+    // The editor shows the last block of a declaration, which is where the sentence stands.
     const never = read('ident;').documentation;
     expect(never.startsWith('Returns what it is given.')).toBe(true);
     expect(never).toContain(GENERIC);
+    expect(never).not.toContain('The first block');
   });
 });
 
