@@ -1,9 +1,10 @@
-// Two `pow` refusals said something false (#616).
+// Two `pow` refusals said something false (#616). The free name `pow` was removed (change 0112),
+// and `Math.pow` and `**` reach the same builtin, so the rows read through them.
 //
-//   1. `pow(x, n)` with an `f32` `x` and an `i32` `n` offered "Cast one side: f32(x) or i32(x)".
-//      `pow` has no integer form in WGSL or GLSL ES 3.00, so the author who took the second
-//      cast wrote `pow(i32(x), n)` and got the next TS8036. A builtin with no integer form now
-//      offers the one cast that fixes the call, on the argument as written: `f32(n)`.
+//   1. `Math.pow(x, n)` with an `f32` `x` and an `i32` `n` offered "Cast one side: f32(x) or
+//      i32(x)". `pow` has no integer form in WGSL or GLSL ES 3.00, so the author who took the
+//      second cast wrote `Math.pow(i32(x), n)` and got the next TS8036. A builtin with no integer
+//      form now offers the one cast that fixes the call, on the argument as written: `f32(n)`.
 //   2. `x ** 2` on an `i32` said that WGSL defines `pow` "for f32 only". WGSL defines it for
 //      AbstractFloat, f32 and f16 (§17.5.46). The sentence now says what TypeShade takes.
 //
@@ -42,28 +43,28 @@ const M = TS_CODES.MATH_ARGUMENT;
 const T = TS_CODES.TYPE_MISMATCH;
 
 describe('the remedy of a builtin with no integer form names the float cast (#616)', () => {
-  it('pow(f32, i32) names f32(n), and that remedy compiles', () => {
-    both(fn('x: f32, n: i32', 'f32', 'pow(x, n)'), [
-      `${M} pow takes arguments of one type; the first is f32, this one i32. Cast this one: f32(n).`,
+  it('Math.pow(f32, i32) names f32(n), and that remedy compiles', () => {
+    both(fn('x: f32, n: i32', 'f32', 'Math.pow(x, n)'), [
+      `${M} Math.pow takes arguments of one type; the first is f32, this one i32. Cast this one: f32(n).`,
     ]);
-    both(fn('x: f32, n: i32', 'f32', 'pow(x, f32(n))'), []);
+    both(fn('x: f32, n: i32', 'f32', 'Math.pow(x, f32(n))'), []);
   });
 
-  it('the old second remedy, pow(i32(x), n), is still refused, and no sentence names it now', () => {
-    both(fn('x: f32, n: i32', 'f32', 'pow(i32(x), n)'), [
-      `${M} pow takes an f32, or a vector of them; got i32.`,
+  it('the old second remedy, Math.pow(i32(x), n), is still refused, and no sentence names it now', () => {
+    both(fn('x: f32, n: i32', 'f32', 'Math.pow(i32(x), n)'), [
+      `${M} Math.pow takes an f32, or a vector of them; got i32.`,
     ]);
   });
 
-  it('Math.pow, a vector, and an expression argument take the same remedy', () => {
+  it('an expression argument takes the same remedy, and so does a vector on **', () => {
     both(fn('x: f32, n: u32', 'f32', 'Math.pow(x, n + 1)'), [
       `${M} Math.pow takes arguments of one type; the first is f32, this one u32. Cast this one: f32(n + 1).`,
     ]);
     both(fn('x: f32, n: u32', 'f32', 'Math.pow(x, f32(n + 1))'), []);
-    both(fn('v: vec2, k: vec2i', 'vec2', 'pow(v, k)'), [
-      `${M} pow takes arguments of one type; the first is vec2, this one vec2i. Cast this one: vec2(k).`,
+    both(fn('v: vec2, k: vec2i', 'vec2', 'v ** k'), [
+      `${T} Type mismatch: cannot ** vec2 and vec2i. ** is pow(a, b), which takes two values of one type; splat the exponent, e.g. v ** vec3(2.).`,
     ]);
-    both(fn('v: vec2, k: vec2i', 'vec2', 'pow(v, vec2(k))'), []);
+    both(fn('v: vec2, k: vec2i', 'vec2', 'v ** vec2(k)'), []);
   });
 
   it('a builtin with an integer form keeps both casts, and each compiles', () => {

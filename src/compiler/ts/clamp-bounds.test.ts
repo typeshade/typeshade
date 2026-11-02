@@ -40,15 +40,14 @@ const editorOf = (src: string): string[] => {
 
 const fs = (body: string, consts = ''): string => `"use typeshade"
 ${consts}
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let y: f32 = uv.x
   let x: u32 = u32(uv.y * 8.)
   let s: i32 = i32(uv.y * 8.) - 4
   let v: vec2 = uv
   ${body}
   return vec4(y, f32(x), f32(s), v.x)
-}
+});
 `;
 
 const TAIL = (e: string, low: string, high: string): string =>

@@ -38,10 +38,9 @@ declare const shadowSmp: sampler_comparison`;
 
 const fragment = (body: string, decls = DECLS): string => `"use typeshade"
 ${decls}
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
 ${body}
-}
+});
 `;
 
 describe('the two bindings, on both targets', () => {
@@ -186,10 +185,9 @@ describe('what is fragment-only, and what is not', () => {
   const compute = (call: string): string => `"use typeshade"
 ${DECLS}
 declare const out: storage<array<f32>, "read_write">
-@compute([64, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   out[gid.x] = ${call}
-}
+});
 `;
   it('refuses textureSampleCompare in a compute entry, as Tint does', () => {
     // Tint: "built-in cannot be used by compute pipeline stage" — the implicit level of detail
@@ -219,10 +217,9 @@ describe('a plain read of a depth texture is refused for now, with the reason', 
     const errors = errorsOf(`"use typeshade";
 let shadowMap: texture_depth_2d;
 declare const shadowSmp: sampler_comparison;
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   return vec4(textureSampleCompare(shadowMap, shadowSmp, p.xy, 0.5));
-}
+});
 `);
     expect(errors[0]).toContain(
       'a depth texture is a resource, declared bare with "declare const"',

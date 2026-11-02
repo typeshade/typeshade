@@ -132,9 +132,8 @@ const EXPRESSION_FORMS: Readonly<Record<string, string>> = {
   array: 'array<f32, 2>(0., 1.)',
   fill: 'fill<f32, 2>(0.)',
   random: 'random(0.5)',
-  // The array folds (surface §27), whose function may be written in the call (Rule 8.18).
-  sum: 'sum(array<f32, 2>(0., 1.))',
-  none: 'none(array<f32, 2>(0., 1.), (x) => x > 2.)',
+  // The array fold that stays (surface §27), whose function may be written in the call (Rule 8.18).
+  // `sum`, `any(xs, p)`, `all(xs, p)` and `none` were removed (change 0112).
   zip: 'zip(array<f32, 2>(0., 1.), array<f32, 2>(2., 3.), (a, b) => a * b)',
 };
 
@@ -170,36 +169,32 @@ interface U {
 }
 declare const un: uniform<U>;
 declare const out: storage<array<f32>, "read_write">;
-class V {
-  @builtin("position") @invariant pos: vec4;
-  @location(0) uv: vec2;
-  @location(1) @interpolate("flat") id: u32;
+interface V {
+  pos: builtin<"position", vec4, { invariant: true }>;
+  uv: location<0, vec2>;
+  id: location<1, u32, { interpolate: "flat" }>;
 }
-class Dual {
-  @location(0) @blend_src(0) a: vec4;
-  @location(0) @blend_src(1) b: vec4;
+interface Dual {
+  a: location<0, vec4, { blend_src: 0 }>;
+  b: location<0, vec4, { blend_src: 1 }>;
 }
-@vertex
-export function vs(@builtin("vertex_index") i: u32): V {
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): V {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.), id: i };
-}
-@fragment
-@diagnostic("off", "derivative_uniformity")
-export function fs(v: V): Dual {
+});
+export const fs = fragment(function fs(v: V): Dual {
   const c = vec4(un.k, 0., 0., 1.);
   return { a: c, b: c };
-}
-function bump(@inout v: f32): void {
+}, { diagnostic: ["off", "derivative_uniformity"] });
+function bump(v: inout<f32>): void {
   v += un.k;
 }
-function put(@out v: f32): void {
+function put(v: out<f32>): void {
   v = un.k;
 }
-@compute([64, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   put(out[gid.x]);
   bump(out[gid.x]);
-}
+});
 export const scale = workgroup_size([128], function scale(xs: array<f32>): void {
   for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * un.k; }
 });
@@ -255,6 +250,9 @@ const AUTHORABLE_NOT_DECLARED: Readonly<Record<string, string>> = {
   // never appear here. Not a deferral and not an omission: the row is authorable today, and
   // `examples/__emit-goldens__/bit-bump.wgsl` carries the `~rolled` it emits.
   '~': 'an operator is spelled by syntax, not by a name, so the ambient library has nothing to declare for it (#160 added it, §52)',
+  arrayLength: INTERNAL(
+    'the builtin `xs.length` lowers to on a runtime-sized storage array; its free spelling was removed (change 0112)',
+  ),
   storageFetchF32: INTERNAL('the GLSL storage-emulation fetch helper'),
   storageFetchI32: INTERNAL('the GLSL storage-emulation fetch helper'),
   storageFetchU32: INTERNAL('the GLSL storage-emulation fetch helper'),

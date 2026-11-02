@@ -34,7 +34,7 @@ declare const firstValue: storage<atomic<u32>, "read_write">;
 const BINS: f32 = 8.;
 
 export const histogram = compute([64, 1, 1], function histogram(gid: builtin<"global_invocation_id", vec3u>): void {
-  if (gid.x >= arrayLength(src)) {
+  if (gid.x >= src.length) {
     return;
   }
   // A value in [0, 1) lands in one of eight bins; anything else is clamped to the edges.

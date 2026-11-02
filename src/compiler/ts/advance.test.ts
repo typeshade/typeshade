@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
 import { typeKey } from '../../core/ir/types.js';
 
-describe('advance: construct, member, same-file call, PI', () => {
-  it('lowers PI as f32 lit', () => {
+describe('advance: construct, member, same-file call, TAU', () => {
+  it('lowers TAU as f32 lit', () => {
     const r = compileTsSource(`
       "use typeshade";
-      export function f(): f32 { return PI; }
+      export function f(): f32 { return TAU; }
     `);
     expect(r.diagnostics).toEqual([]);
     const ret = r.funcs[0]!.body[0];

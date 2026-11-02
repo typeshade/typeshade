@@ -104,8 +104,7 @@ export function run(f: f32): f32 {
   t.celsius++;
   return t.celsius;
 }
-@fragment
-export function fs(): vec4 { return vec4(run(212.), 0., 0., 1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(run(212.), 0., 0., 1.); });
 `;
 
   it('each half is a function: the getter reads its object, the setter writes through it', () => {
@@ -1816,7 +1815,7 @@ export function f(a: A): f32 { return a.x }`,
     'a class that leaves an abstract member unimplemented': `abstract class B { x: f32; abstract m(): f32 }
 class A extends B { y: f32 }
 export function f(a: A): f32 { return a.x }`,
-    'a decorator on a method': `class A { x: f32; @vertex m(): f32 { return this.x } }
+    'a decorator on a method': `class A { x!: f32; @vertex m(): f32 { return this.x } }
 export function f(a: A): f32 { return a.x }`,
     'an async method': `class A { x: f32; async m(): f32 { return 1. } }
 export function f(a: A): f32 { return a.x }`,

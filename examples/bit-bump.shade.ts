@@ -45,7 +45,7 @@ export const fs = fragment(function fs(v: VsOut): vec4 {
   // faceForward turns the normal toward the eye; reflect gives the highlight; refract is the
   // direction the view leaves through the surface, which tints the picture.
   const nf: vec3 = faceForward(n, fromEye, n);
-  const highlight: f32 = pow(max(dot(reflect(fromLight, nf), toEye), 0.), 16.);
+  const highlight: f32 = max(dot(reflect(fromLight, nf), toEye), 0.) ** 16.;
   const bent: vec3 = refract(fromEye, nf, 0.75);
   const half: i32 = -1;
   const diffuse: f32 = ldexp(max(dot(nf, toLight), 0.), half);

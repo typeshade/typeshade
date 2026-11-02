@@ -30,7 +30,7 @@ function next(): f32 { count += 1.; return count; }
 
 @compute([64])
 export function main(@builtin("global_invocation_id") gid: vec3u): void {
-  if (gid.x >= arrayLength(xs)) { return; }
+  if (gid.x >= xs.length) { return; }
   const concrete = new LeafMaterial(xs[gid.x], 10.);
   const leaf = new Leaf(concrete);
   out[gid.x] = leaf.material.response() + result(next(), factory(xs[gid.x]), next());

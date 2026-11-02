@@ -20,8 +20,8 @@ const KERNEL = `"use typeshade";
 declare const xs: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
 class P {
-  a: f32;
-  b: vec3;
+  a!: f32;
+  b!: vec3;
 }
 function scaleOf(v: f32): f32 {
   const s = v * 2.;
@@ -30,16 +30,15 @@ function scaleOf(v: f32): f32 {
   }
   return s;
 }
-@compute([8])
-export function scale(@builtin("global_invocation_id") gid: vec3u): void {
-  if (gid.x >= arrayLength(xs)) {
+export const scale = compute([8], function scale(gid: builtin<"global_invocation_id", vec3u>): void {
+  if (gid.x >= xs.length) {
     return;
   }
   const p: P = { a: xs[gid.x], b: vec3(1., 2., 3.) };
   const a: array<i32, 2> = [i32(gid.x), -1];
   console.log("i =", gid.x, p, gid.x > 3, a, mat2x2(1., 2., 3., f32(gid.x)));
   out[gid.x] = scaleOf(xs[gid.x]);
-}`;
+});`;
 
 const N = 12;
 const XS = Array.from({ length: N }, (_, i) => Math.fround(i * 1.7));
@@ -101,11 +100,10 @@ describe('the console buffer (surface §66)', () => {
 declare const xs: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
 class P {
-  pos: vec2;
-  speed: f32;
+  pos!: vec2;
+  speed!: f32;
 }
-@compute([8])
-export function scale(@builtin("global_invocation_id") gid: vec3u): void {
+export const scale = compute([8], function scale(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= 2) {
     return;
   }
@@ -114,7 +112,7 @@ export function scale(@builtin("global_invocation_id") gid: vec3u): void {
   console.table(ps);
   console.table(mat2x3(1., 2., 3., 4., 5., x));
   out[gid.x] = x;
-}`;
+});`;
     const want = sinkEvents(src);
     expect(want.map((e) => e.method)).toEqual(['table', 'table', 'table', 'table']);
     expect(want[1]!.args).toEqual([
@@ -162,11 +160,10 @@ function bump(): u32 {
   n = n + 1;
   return n;
 }
-@compute([1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   console.log(bump());
   out[gid.x] = n;
-}`;
+});`;
     for (const opt of ['cpu', 'gpu'] as const) {
       const wgsl = compile(src, { console: opt }).wgsl!;
       expect(wgsl, opt).toMatch(/bump\(\)/);
@@ -189,14 +186,12 @@ function lift(x: f32): f32 {
   console.log(x);
   return x;
 }
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): vec4 {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
   return vec4(lift(f32(vi)), 0., 0., 1.);
-}
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+});
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   return vec4(lift(p.x));
-}`;
+});`;
     expect(warn(src)).toEqual([
       'warning TS8071 This console.log() is not recorded on the GPU, because the vertex entry ' +
         '"vs" reaches it, and a vertex stage cannot write a storage buffer. It still reaches ' +
@@ -211,10 +206,9 @@ export function fs(@builtin("position") p: vec4): vec4 {
   it('with an argument that has no fixed size', () => {
     const src = `"use typeshade";
 declare const xs: storage<array<f32>>;
-@compute([1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   console.log(xs);
-}`;
+});`;
     expect(warn(src)).toEqual([
       'warning TS8071 This console.log() is not recorded on the GPU, because a runtime-sized ' +
         'array has no fixed size to write. It still reaches the sink when the function runs on ' +
@@ -231,11 +225,10 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
     const reads = Array.from({ length: 8 }, (_, i) => `b${i}[0] = 1.;`).join('\n  ');
     const src = `"use typeshade";
 ${decls}
-@compute([1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   ${reads}
   console.log(gid.x);
-}`;
+});`;
     expect(warn(src)).toEqual([
       'warning TS8071 This console.log() is not recorded on the GPU, because "k" already binds ' +
         "8 storage buffers, WebGPU's default limit for a stage. It still reaches the sink when " +
@@ -246,11 +239,10 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
   it('adds the invocation builtin to an entry that does not take it', () => {
     const src = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-@compute([1])
-export function k(): void {
+export const k = compute([1], function k(): void {
   console.log(1.5);
   out[0] = 1.;
-}`;
+});`;
     const r = compile(src, { console: 'gpu' });
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('@builtin(global_invocation_id) _console_id: vec3<u32>');

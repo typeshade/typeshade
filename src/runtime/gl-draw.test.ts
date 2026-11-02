@@ -213,26 +213,22 @@ const refusalOfAsync = async (run: () => Promise<unknown>): Promise<string> => {
 
 // A uniform block, which WebGL2 takes as a std140 struct (the GLSL writer refuses a bare vec4).
 const DRAW = `"use typeshade";
-class VsIn { @location(0) pos: vec2; }
-class VsOut { @builtin("position") p: vec4; }
-class Color { @location(0) c: vec4; }
-class Tint { c: vec4; }
+interface VsIn { pos: location<0, vec2>; }
+interface VsOut { p: builtin<"position", vec4>; }
+interface Color { c: location<0, vec4>; }
+class Tint { c!: vec4; }
 declare const tint: uniform<Tint>;
-@vertex
-export function vs(v: VsIn): VsOut { return { p: vec4(v.pos, 0., 1.) }; }
-@fragment
-export function fs(v: VsOut): Color { return { c: tint.c }; }
+export const vs = vertex(function vs(v: VsIn): VsOut { return { p: vec4(v.pos, 0., 1.) }; });
+export const fs = fragment(function fs(v: VsOut): Color { return { c: tint.c }; });
 `;
 
 const FRAG_DEPTH = `"use typeshade";
-class VsOut { @builtin("position") p: vec4; }
-class Depth { @builtin("frag_depth") depth: f32; }
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+interface VsOut { p: builtin<"position", vec4>; }
+interface Depth { depth: builtin<"frag_depth", f32>; }
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   return { p: vec4(f32(vi), 0., 0., 1.) };
-}
-@fragment
-export function fs(v: VsOut): Depth { return { depth: 0.5 }; }
+});
+export const fs = fragment(function fs(v: VsOut): Depth { return { depth: 0.5 }; });
 `;
 
 const manifest = (src: string) => {
@@ -539,7 +535,7 @@ describe('render pipelines and blend constants on WebGL2 (proposal 0064, PR-1)',
     });
     await f.submit();
     expect(refused).toEqual([
-      '"fs" (typeshade-input.ts:9) reaches no binding "bogus"; it binds "tint".',
+      '"fs" (typeshade-input.ts:8) reaches no binding "bogus"; it binds "tint".',
     ]);
     expect(calls.filter((c) => /^(blendColor|drawArraysInstanced)\(/.test(c))).toEqual([
       'blendColor(0,0,0,0)',
@@ -599,7 +595,7 @@ describe('render pipelines and blend constants on WebGL2 (proposal 0064, PR-1)',
     const { gl } = fakeGl(4);
     const rt = await createRuntime({ device: gl });
     const program = rt.load(manifest(DRAW));
-    const sets = 'The render pipeline of "fs" (typeshade-input.ts:9) sets';
+    const sets = 'The render pipeline of "fs" (typeshade-input.ts:8) sets';
     expect(await refusalOfAsync(() => program.render({ label: 'x' } as never))).toBe(
       `${sets} label, which RenderState does not take.`,
     );
@@ -617,7 +613,7 @@ describe('render pipelines and blend constants on WebGL2 (proposal 0064, PR-1)',
 });
 
 describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2)', () => {
-  const sets = 'The render pipeline of "fs" (typeshade-input.ts:9) sets';
+  const sets = 'The render pipeline of "fs" (typeshade-input.ts:8) sets';
   const geometry = { vertices: new Float32Array(6), count: 3 };
   const tint = { tint: { c: [1, 0, 0, 1] } };
   const STENCIL = { format: 'depth24plus-stencil8', stencil: {} } as const;
@@ -1288,13 +1284,11 @@ describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2
 // Verifies: Rule 11.11.
 describe('attachments and the read-only checks on WebGL2 (proposal 0064, PR-3)', () => {
   const SAMPLED = `"use typeshade";
-class VsOut { @builtin("position") p: vec4; }
-class Color { @location(0) c: vec4; }
+interface VsOut { p: builtin<"position", vec4>; }
+interface Color { c: location<0, vec4>; }
 declare const photo: texture_2d<f32>;
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut { return { p: vec4(f32(vi), 0., 0., 1.) }; }
-@fragment
-export function fs(v: VsOut): Color { return { c: textureLoad(photo, vec2i(0), 0) }; }
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut { return { p: vec4(f32(vi), 0., 0., 1.) }; });
+export const fs = fragment(function fs(v: VsOut): Color { return { c: textureLoad(photo, vec2i(0), 0) }; });
 `;
   const geometry = { vertices: new Float32Array(6), count: 3 };
   const tint = { tint: { c: [1, 0, 0, 1] } };

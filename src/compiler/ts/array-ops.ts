@@ -1,27 +1,9 @@
 import type { Expr, FuncDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
-import { boolT, i32T } from '../../core/ir/types.js';
+import { i32T } from '../../core/ir/types.js';
 
 export function arraySize(t: ShaderType): number | undefined {
   return t.kind === 'array' ? t.size : undefined;
-}
-
-export function unrollSum(xs: Expr): Expr | string {
-  const n = arraySize(xs.type);
-  if (n === undefined) return 'sum(xs) needs a fixed-size array.';
-  const elem = xs.type.kind === 'array' ? xs.type.elem : undefined;
-  if (!elem) return 'sum(xs) needs an array.';
-  let acc: Expr = { op: 'index', type: elem, base: xs, idx: { op: 'lit', type: i32T, value: 0 } };
-  for (let i = 1; i < n; i++) {
-    acc = {
-      op: 'binop',
-      type: elem,
-      bop: '+',
-      a: acc,
-      b: { op: 'index', type: elem, base: xs, idx: { op: 'lit', type: i32T, value: i } },
-    };
-  }
-  return acc;
 }
 
 export function unrollMinMax(fn: 'min' | 'max', xs: Expr): Expr | string {
@@ -41,39 +23,8 @@ export function unrollMinMax(fn: 'min' | 'max', xs: Expr): Expr | string {
   return acc;
 }
 
-/** `leading` are the arguments every call of `pred` passes ahead of the element: what it
+/** `leading` are the arguments every call of `fn` passes ahead of the elements: what it
  *  captures, when it is a local function that reads the body around it (Rule 8.17). */
-export function unrollPred(
-  xs: Expr,
-  pred: FuncDecl,
-  join: '&&' | '||',
-  leading: readonly Expr[] = [],
-): Expr | string {
-  const n = arraySize(xs.type);
-  if (n === undefined) return 'predicate fold needs a fixed-size array.';
-  const elem = xs.type.kind === 'array' ? xs.type.elem : undefined;
-  if (!elem) return 'predicate fold needs an array.';
-  const calls: Expr[] = [];
-  for (let i = 0; i < n; i++) {
-    calls.push({
-      op: 'call',
-      type: pred.ret,
-      fn: pred.name,
-      args: [
-        ...leading,
-        { op: 'index', type: elem, base: xs, idx: { op: 'lit', type: i32T, value: i } },
-      ],
-      declRef: pred,
-    });
-  }
-  let acc = calls[0]!;
-  for (let i = 1; i < calls.length; i++) {
-    acc = { op: 'logical', type: boolT, lop: join, a: acc, b: calls[i]! };
-  }
-  return acc;
-}
-
-/** `leading` as for {@link unrollPred}. */
 export function unrollZip(
   xs: Expr,
   ys: Expr,
@@ -109,15 +60,5 @@ export function fillArray(elem: ShaderType, n: number, v: Expr): Expr {
     op: 'construct',
     type: { kind: 'array', elem, size: n },
     args: Array.from({ length: n }, () => v),
-  };
-}
-
-export function noneOf(anyExpr: Expr): Expr {
-  return {
-    op: 'compare',
-    type: boolT,
-    cop: '==',
-    a: anyExpr,
-    b: { op: 'lit', type: boolT, value: false },
   };
 }

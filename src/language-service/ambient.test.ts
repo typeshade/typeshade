@@ -120,10 +120,9 @@ describe('a storage array is writable in the editor, as it is in the compiler', 
   const kernel = (body: string): string =>
     '"use typeshade"\n' +
     'declare const out: storage<array<f32>, "read_write">\n' +
-    '@compute([64, 1, 1])\n' +
-    'export function k(@builtin("global_invocation_id") gid: vec3u): void {\n' +
+    'export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {\n' +
     `  ${body}\n` +
-    '}\n';
+    '});\n';
 
   it('out[gid.x] = value reports no TS2542, and nothing else either', () => {
     const service = ambientService();
@@ -155,10 +154,9 @@ describe("a storage binding's access mode reaches the editor", () => {
 interface Item { p: vec2; q: f32 }
 interface Bundle { w: array<f32, 4>; n: f32 }
 ${head}
-@compute([64, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   ${body}
-}
+});
 `;
 
   const typescriptDiagnostics = (head: string, body: string): string[] => {
@@ -352,10 +350,9 @@ describe('the two access words are one list', () => {
   const binding = (access: string): string =>
     `"use typeshade"
 declare const dst: storage<array<f32>, ${access}>
-@compute([64, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   dst[gid.x] = 1.
-}
+});
 `;
 
   const diagnosticsOf = (source: string): string[] => {
@@ -434,18 +431,17 @@ describe('a vector product used as a vector is clean in the editor (issue #43)',
   const uniformStructFragment =
     '"use typeshade"\n' +
     'class Uniforms {\n' +
-    '  tint: vec4\n' +
-    '  gain: f32\n' +
+    '  tint!: vec4\n' +
+    '  gain!: f32\n' +
     '}\n' +
     'declare const u: uniform<Uniforms>\n' +
-    'class VsOut {\n' +
-    '  @builtin("position") pos: vec4\n' +
-    '  @location(0) uv: vec2\n' +
+    'interface VsOut {\n' +
+    '  pos: builtin<"position", vec4>\n' +
+    '  uv: location<0, vec2>\n' +
     '}\n' +
-    '@fragment\n' +
-    'export function fs(vo: VsOut): vec4 {\n' +
+    'export const fs = fragment(function fs(vo: VsOut): vec4 {\n' +
     '  return vec4(u.tint.rgb * (vo.uv.y * u.gain), u.tint.a)\n' +
-    '}\n';
+    '});\n';
 
   it('hello-uniform-struct.shade.ts (#18) without its annotated local has zero diagnostics', () => {
     const service = ambientService();
@@ -661,7 +657,6 @@ describe('vector-with-scalar math shapes: exactly the ones both backends accept'
     const rejectedByTint: Readonly<Record<string, string>> = {
       'clamp(vec3, f32, f32)':
         'export function f(a: vec3, lo: f32, hi: f32): vec3 {\n  return clamp(a, lo, hi)\n}',
-      'pow(vec3, f32)': 'export function f(a: vec3, s: f32): vec3 {\n  return pow(a, s)\n}',
       'step(vec3, f32)': 'export function f(a: vec3, s: f32): vec3 {\n  return step(a, s)\n}',
       'mix(vec3i, vec3i, i32)':
         'export function f(a: vec3i, b: vec3i, t: i32): vec3i {\n  return mix(a, b, t)\n}',
@@ -866,7 +861,7 @@ describe('every texture shape a GPU compiler rejects is reported in the editor',
     service.openDocument('a.ts', `"use typeshade"\n${body}\n`);
     return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`);
   };
-  const VS_HEAD = 'class Clip { @builtin("position") pos: vec4 }\n@vertex\n';
+  const VS_HEAD = 'interface Clip { pos: builtin<"position", vec4> }\n@vertex\n';
 
   /** program → the diagnostic sources that must answer it, by `source code` prefix. */
   const rejectedByTint: Readonly<
@@ -878,7 +873,7 @@ describe('every texture shape a GPU compiler rejects is reported in the editor',
       from: ['typeshade TS8099'],
       src: `declare const envs: texture_cube_array<f32>
 declare const smp: sampler
-${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
+${VS_HEAD}export function vs(i: builtin<"vertex_index", u32>): Clip {
   return { pos: textureSample(envs, smp, vec3(0., 0., 1.), 0) }
 }`,
     },
@@ -887,7 +882,7 @@ ${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
     'textureStore in a vertex entry': {
       from: ['typeshade TS8099'],
       src: `declare const dst: texture_storage_2d<"rgba8unorm", "write">
-${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
+${VS_HEAD}export function vs(i: builtin<"vertex_index", u32>): Clip {
   textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))
   return { pos: vec4(0., 0., 0., 1.) }
 }`,
@@ -898,11 +893,10 @@ ${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
       from: ['typeshade TS8041'],
       src: `declare const t: texture_2d<f32>
 declare const s: sampler
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   const l: i32 = 2
   return textureSampleLevel(t, s, p.xy, l)
-}`,
+});`,
     },
     // T6: a vec3 coordinate on a 2d storage texture (core.def:1573-1592, `C` is a vec2).
     // BOTH layers: the ambient parameter is a `vec2i`, and the compiler checks the width.
@@ -910,10 +904,9 @@ export function fs(@builtin("position") p: vec4): vec4 {
       from: ['typescript 2345', 'typeshade TS8041'],
       src: `declare const src: texture_storage_2d<"r32float", "read">
 declare const out: storage<array<vec4>, "read_write">
-@compute([64, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   out[gid.x] = textureLoad(src, vec3i(0, 0, 0))
-}`,
+});`,
     },
     // T10: an i32 where WGSL types the reference depth f32 (wgsl.txt:24734). Same ambient gap
     // as T4.
@@ -921,17 +914,16 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
       from: ['typeshade TS8041'],
       src: `declare const sh: texture_depth_2d
 declare const cs2: sampler_comparison
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   const r: i32 = 1
   return vec4(textureSampleCompare(sh, cs2, p.xy, r))
-}`,
+});`,
     },
     // G34: an atomic in a vertex entry (wgsl.txt:25422). A stage rule: compiler only.
     'atomicAdd in a vertex entry': {
       from: ['typeshade TS8099'],
       src: `declare const total: storage<atomic<u32>, "read_write">
-${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
+${VS_HEAD}export function vs(i: builtin<"vertex_index", u32>): Clip {
   const n = atomicAdd(total, 1)
   return { pos: vec4(f32(n), 0., 0., 1.) }
 }`,
@@ -956,10 +948,9 @@ ${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
   it('a literal layer on a storage array texture stays clean, in both layers', () => {
     expect(
       diagnosticsOf(`declare const dstArr: texture_storage_2d_array<"rgba8unorm", "write">
-@compute([64, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   textureStore(dstArr, vec2i(0, 0), 0, vec4(1., 0., 0., 1.))
-}`),
+});`),
     ).toEqual([]);
   });
 });
@@ -1011,13 +1002,13 @@ describe('vector arithmetic in a later argument stays clean (the callee-span TS2
 
   // The vocabulary swept rather than sampled: every free math name whose parameters are all one
   // shape, at every arity it has, with the arithmetic moved through each argument position in
-  // turn. 92 calls. All 92 are clean on main; 30 of them reported on this branch before the
+  // turn. 86 calls. All 86 are clean on main; 30 of them reported on this branch before the
   // callee-span path, every one a min/max/pow/step/mod/atan2/clamp/smoothstep with its
-  // arithmetic anywhere but the first argument.
+  // arithmetic anywhere but the first argument. `pow` left the sweep with its free name (Rule
+  // 9.9), which took six of the 92 calls.
   const SAME_SHAPE_ARITY: Readonly<Record<string, number>> = {
     min: 2,
     max: 2,
-    pow: 2,
     step: 2,
     mod: 2,
     atan2: 2,
@@ -1055,7 +1046,7 @@ describe('vector arithmetic in a later argument stays clean (the callee-span TS2
         }
       }
     }
-    expect(calls).toBe(92);
+    expect(calls).toBe(86);
     expect(reported).toEqual([]);
   });
 });
@@ -1216,9 +1207,9 @@ describe('every texture program a GPU compiler rejects reaches the editor', () =
     return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`);
   };
 
-  const FRAGMENT_TAIL = `class V {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+  const FRAGMENT_TAIL = `interface V {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }`;
 
   const reported: Readonly<Record<string, string>> = {
@@ -1227,33 +1218,29 @@ describe('every texture program a GPU compiler rejects reaches the editor', () =
     'textureSample on a cube array in a vertex entry': `declare const envs: texture_cube_array<f32>
 declare const smp: sampler
 ${FRAGMENT_TAIL}
-@vertex
-export function vs(@builtin("vertex_index") i: u32): V {
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): V {
   const c = textureSample(envs, smp, vec3(0., 0., 1.), 0)
   return { pos: c, uv: vec2(0., 0.) }
-}`,
+});`,
     // T2 — a texture write in a vertex entry (core.def:1484-1522). Reported since #143.
     'textureStore in a vertex entry': `declare const dst: texture_storage_2d<"rgba8unorm", "write">
 ${FRAGMENT_TAIL}
-@vertex
-export function vs(@builtin("vertex_index") i: u32): V {
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): V {
   textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) }
-}`,
+});`,
     // T3 — a fractional layer on a storage array (wgsl.txt:25352 "A is i32, or u32").
     'a fractional layer on a storage array': `declare const dst: texture_storage_2d_array<"rgba8unorm", "write">
-@compute([64, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   textureStore(dst, vec2i(0, 0), 1.5, vec4(1., 0., 0., 1.))
-}`,
+});`,
     // T6 — a three-wide coordinate on a 2d storage texture. Reported by TypeScript, which
     // types the coordinate `vec2i`; the front end's storage path does not check the width.
     'a three-wide coordinate on a 2d storage texture': `declare const acc: texture_storage_2d<"r32float", "read_write">
-@compute([64, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   const v = textureLoad(acc, vec3i(0, 0, 0))
   textureStore(acc, vec2i(0, 0), v)
-}`,
+});`,
   };
 
   for (const [name, body] of Object.entries(reported)) {
@@ -1283,17 +1270,15 @@ ${FRAGMENT_TAIL}`;
     // T4 — Tint: "no matching call to 'textureSampleLevel(texture_2d<f32>, sampler,
     // vec2<f32>, i32)'" (wgsl.txt:25081 types `level` f32).
     'an integer variable as a level': `${SCALAR_HEAD}
-@fragment
-export function fs(v: V): vec4 {
+export const fs = fragment(function fs(v: V): vec4 {
   return textureSampleLevel(atlas, smp, v.uv, u.lvl)
-}`,
+});`,
     // T10 — Tint: "no matching call to 'textureSampleCompare(texture_depth_2d,
     // sampler_comparison, vec2<f32>, i32)'" (wgsl.txt:24734 types `depth_ref` f32).
     'an integer variable as a reference depth': `${SCALAR_HEAD}
-@fragment
-export function fs(v: V): vec4 {
+export const fs = fragment(function fs(v: V): vec4 {
   return vec4(textureSampleCompare(shadowMap, cmp, v.uv, u.dref), 0., 0., 1.)
-}`,
+});`,
   };
 
   for (const [name, body] of Object.entries(nowReported)) {
@@ -1321,20 +1306,18 @@ describe('the editor accepts an unsigned texture coordinate, as the compiler and
   };
 
   const LOAD = `declare const t: texture_2d<f32>
-class V {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface V {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
-@fragment
-export function fs(v: V): vec4 {
+export const fs = fragment(function fs(v: V): vec4 {
   return textureLoad(t, vec2u(0, 0), 0)
-}`;
+});`;
 
   const STORE = `declare const dst: texture_storage_2d<"rgba8unorm", "write">
-@compute([64, 1, 1])
-export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   textureStore(dst, vec2u(0, 0), vec4(1., 0., 0., 1.))
-}`;
+});`;
 
   it('the COMPILER takes both, which is what makes the editor the odd one out', () => {
     const load = compile(`"use typeshade"\n${LOAD}\n`);
@@ -1618,7 +1601,7 @@ describe('vector arithmetic in a texture read stays clean, whichever argument is
   const program = (body: string): string =>
     `"use typeshade";\ndeclare const hdr: texture_2d<f32>;\ndeclare const smp: sampler;\n` +
     `declare const cmp: sampler_comparison;\n@fragment\n` +
-    `export function fs(@builtin("position") p: vec4): vec4 { ${body} return c; }\n`;
+    `export function fs(p: builtin<"position", vec4>): vec4 { ${body} return c; }\n`;
   const halves = (body: string): { compiler: string[]; editor: string[] } => {
     const src = program(body);
     const service = ambientService();

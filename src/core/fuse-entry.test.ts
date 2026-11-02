@@ -301,18 +301,16 @@ export function bias(out: array<f32>, x: array<f32>): void {
   }
 }
 // Kernel functions that declare their workgroup size (proposal 0067, F7).
-@workgroup_size([128])
-export function triple(out: array<f32>, x: array<f32>): void {
+export const triple = workgroup_size([128], function triple(out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * 3.;
   }
-}
-@workgroup_size([64])
-export function quad(out: array<f32>, x: array<f32>): void {
+});
+export const quad = workgroup_size([64], function quad(out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * 4.;
   }
-}
+});
 `;
 
 interface Loaded {
@@ -342,12 +340,12 @@ function load(source: string, fileName: string): Loaded {
 // spellings, so each binding is emitted under a fresh name, and the fused entry must not name them.
 const RESERVED = `"use typeshade";
 export function reservedScale(out: array<f32>, filter: array<f32>) {
-  for (let i: u32 = 0; i < arrayLength(out); i++) {
+  for (let i: u32 = 0; i < out.length; i++) {
     out[i] = filter[i] * 2.0;
   }
 }
 export function reservedShift(out: array<f32>, std: array<f32>) {
-  for (let i: u32 = 0; i < arrayLength(out); i++) {
+  for (let i: u32 = 0; i < out.length; i++) {
     out[i] = std[i] + 1.0;
   }
 }
@@ -358,12 +356,12 @@ export function reservedShift(out: array<f32>, std: array<f32>) {
 const COLLIDE = `"use typeshade";
 const filter_: f32 = 3.0;
 export function collideScale(out: array<f32>, filter: array<f32>) {
-  for (let i: u32 = 0; i < arrayLength(out); i++) {
+  for (let i: u32 = 0; i < out.length; i++) {
     out[i] = filter[i] * filter_;
   }
 }
 export function collideShift(out: array<f32>, filter_: array<f32>, mean: array<f32>) {
-  for (let i: u32 = 0; i < arrayLength(out); i++) {
+  for (let i: u32 = 0; i < out.length; i++) {
     out[i] = filter_[i] + mean[i];
   }
 }

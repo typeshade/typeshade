@@ -128,7 +128,7 @@ export class Wavetable {
   /** The next sample of the table; the position stays inside the table. */
   next(): f32 {
     const v = table[this.at];
-    this.at = (this.at + 1) % arrayLength(table);
+    this.at = (this.at + 1) % table.length;
     return v;
   }
 }
@@ -143,7 +143,7 @@ declare const output: storage<array<f32>, "read_write">;
 /** Steps one filter of the bank through its block, one invocation per filter. */
 @compute([64])
 export function bank(@builtin("global_invocation_id") gid: vec3u): void {
-  if (gid.x >= arrayLength(poles)) {
+  if (gid.x >= poles.length) {
     return;
   }
   for (let n: u32 = 0; n < BLOCK; n++) {
@@ -158,7 +158,7 @@ declare const played: storage<array<f32>, "read_write">;
 /** Plays one wavetable voice for a block, one invocation per voice. */
 @compute([64])
 export function play(@builtin("global_invocation_id") gid: vec3u): void {
-  if (gid.x >= arrayLength(voices)) {
+  if (gid.x >= voices.length) {
     return;
   }
   for (let n: u32 = 0; n < BLOCK; n++) {

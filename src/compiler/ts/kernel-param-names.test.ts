@@ -26,7 +26,7 @@ afterAll(() => {
 /** A kernel whose array parameter `p` is read and whose array `out` is written at `i`. */
 const kernel = (p: string): string => `"use typeshade";
 export function k(out: array<f32>, ${p}: array<f32>) {
-  for (let i: u32 = 0; i < arrayLength(out); i++) {
+  for (let i: u32 = 0; i < out.length; i++) {
     out[i] = ${p}[i] * 2.0;
   }
 }`;

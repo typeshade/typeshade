@@ -36,11 +36,10 @@ function viaStore(i: u32): f32 {
   store(i);
   return 3.;
 }
-@compute([64, 1, 1])
-export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
+export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   viaStore(gid.x);
   pure(1.);
-}
+});
 `;
 
 const bodyOf = (m: ModuleDecl, name: string) => m.funcs.find((f) => f.name === name)!.body;
@@ -128,10 +127,9 @@ function pure(q: f32): f32 {
 }
 `;
 const FS = `
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(f(3.), 0., 0., 1.)
-}
+});
 `;
 
 describe('the read table', () => {
@@ -260,7 +258,7 @@ const loopBody = (w: string, fn: string): string => {
 describe('synchronisation is an effect', () => {
   it('workgroupUniformLoad is effectful, and so is a helper that calls one or a barrier', () => {
     const m = compile(
-      WG + '@compute([4, 1, 1])\nexport function k(): void {\n  sync()\n}\n',
+      WG + 'export const k = compute([4, 1, 1], function k(): void {\n' + '  sync()\n' + '});\n',
     ).module;
     const w = fnWrites(m);
     expect([...w.get('ld')!]).toEqual([SYNC_WRITE]);
@@ -271,8 +269,7 @@ describe('synchronisation is an effect', () => {
   it('a workgroupUniformLoad in a loop body is not replaced by the one before the loop', () => {
     for (const read of ['workgroupUniformLoad(flag)', 'ld()']) {
       const r = compile(`${WG}
-@compute([4, 1, 1])
-export function k(@builtin("local_invocation_id") lid: vec3u): void {
+export const k = compute([4, 1, 1], function k(lid: builtin<"local_invocation_id", vec3u>): void {
   let y: f32 = 0.
   y = y + 1.
   if (lid.x === u32(0)) {
@@ -284,7 +281,7 @@ export function k(@builtin("local_invocation_id") lid: vec3u): void {
     let b = ${read} + y
     out[lid.x * u32(2) + u32(i)] = tile[u32(i) * u32(4) + (lid.x + u32(1)) % u32(4)] + b + a
   }
-}
+});
 `);
       expect(r.diagnostics, read).toEqual([]);
       const call = read === 'ld()' ? 'ld()' : 'workgroupUniformLoad(&flag)';
@@ -297,12 +294,11 @@ export function k(@builtin("local_invocation_id") lid: vec3u): void {
 
   it('O2 keeps a helper that holds the barrier, and dispatch still sees the neighbour', () => {
     const src = `${WG}
-@compute([4, 1, 1])
-export function k(@builtin("local_invocation_id") lid: vec3u): void {
+export const k = compute([4, 1, 1], function k(lid: builtin<"local_invocation_id", vec3u>): void {
   tile[lid.x] = f32(lid.x) + 1.
   sync()
   out[lid.x] = tile[(lid.x + u32(1)) % u32(4)]
-}
+});
 `;
     const m = compile(src).module;
     const o2 = optimizeAt(m, 'O2');
@@ -323,13 +319,12 @@ export function k(@builtin("local_invocation_id") lid: vec3u): void {
 declare const cnt: storage<atomic<u32>, "read_write">;
 declare const out: storage<array<u32>, "read_write">;
 let flag: workgroup<f32>;
-@compute([4, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([4, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   let old = atomicAdd(cnt, u32(1));
   let w = workgroupUniformLoad(flag);
   let unused = gid.x * u32(3);
   out[gid.x] = gid.x;
-}
+});
 `).module;
     const w = emitModule(dce(m));
     expect(w).toContain('atomicAdd(&cnt, 1u)');

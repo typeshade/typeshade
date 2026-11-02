@@ -23,11 +23,10 @@ import { compile } from './compile.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const program = (body: string): string => `"use typeshade";
-class L { a: vec4; b: vec4; s: f32; }
+class L { a!: vec4; b!: vec4; s!: f32; }
 declare const ls: storage<array<L>>;
 declare const vs: storage<array<vec4>>;
-@fragment
-export function fs(): vec4 { ${body} }
+export const fs = fragment(function fs(): vec4 { ${body} });
 `;
 
 /** The fragment GLSL of `body`, with the diagnostics of both halves. */

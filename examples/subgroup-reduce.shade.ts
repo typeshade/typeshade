@@ -37,7 +37,7 @@ export const histogram = compute([64, 1, 1], function histogram(
   // A lane past the end contributes 0, so the subgroup fold stays in uniform control flow:
   // an early `return` here would be a lane the fold cannot wait for (§54).
   let x: u32 = 0;
-  if (gid.x < arrayLength(src)) {
+  if (gid.x < src.length) {
     x = src[gid.x];
   }
   const total = subgroupAdd(x);

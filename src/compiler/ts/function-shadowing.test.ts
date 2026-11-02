@@ -9,8 +9,7 @@ describe('function lexical shadowing (#429)', () => {
 interface Frame { resolution: vec2; }
 declare const u: uniform<Frame>;
 function noise(p: vec2): f32 { const u: vec2 = p; return u.x; }
-@fragment
-export function fs(): vec4 { return vec4(noise(vec2(3., 4.)), 0., 0., 1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(noise(vec2(3., 4.)), 0., 0., 1.); });
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.module.funcs.find((fn) => fn.name === 'noise')!.body[0]).toMatchObject({
@@ -30,8 +29,7 @@ export function fs(): vec4 { return vec4(noise(vec2(3., 4.)), 0., 0., 1.); }
 ${moduleValue}
 function param(x: f32): f32 { return x + 1.; }
 function local(): f32 { const x = 3.; return x; }
-@fragment
-export function fs(): vec4 { return vec4(param(2.) + local(), 0., 0., 1.); }
+export const fs = fragment(function fs(): vec4 { return vec4(param(2.) + local(), 0., 0., 1.); });
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.module.funcs.find((fn) => fn.name === 'param')!.params[0]!.name).toBe('x');

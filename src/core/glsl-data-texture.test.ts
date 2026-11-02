@@ -9,24 +9,22 @@ import { reflect } from './reflect.js';
 
 /** A fragment entry that reads one field (or element) of `words`, so the read survives DCE. */
 const program = (decl: string, read: string): string => `'use typeshade';
-class Ints { a: u32; b: f32; c: i32; d: vec2; }
-class Floats { a: f32; b: f32; d: vec2; }
+class Ints { a!: u32; b!: f32; c!: i32; d!: vec2; }
+class Floats { a!: f32; b!: f32; d!: vec2; }
 ${decl}
-class VsOut { @builtin("position") pos: vec4; }
-class Color { @location(0) color: vec4; }
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+class VsOut { pos!: builtin<"position", vec4>; }
+class Color { color!: location<0, vec4>; }
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const o = new VsOut();
   o.pos = vec4(0., 0., 0., 1.);
   return o;
-}
-@fragment
-export function fs(v: VsOut): Color {
+});
+export const fs = fragment(function fs(v: VsOut): Color {
   const i = u32(v.pos.x);
   const c = new Color();
   c.color = vec4(${read}, 0., 0., 1.);
   return c;
-}
+});
 `;
 
 const glslAndFormat = (decl: string, read: string): { fs: string; format: unknown } => {

@@ -50,7 +50,7 @@ describe('math arguments: two shapes that had to agree', () => {
       `${M} clamp takes arguments of one type; the first is vec3, this one f32. Splat the scalar to the vector's size: vec3(x).`,
     ]);
     expect(errorsOf(fn('v: vec3', 'vec3', 'min(v, 0.5)'))).toEqual([]);
-    expect(errorsOf(fn('v: vec3', 'vec3', 'pow(v, 2.)'))).toHaveLength(1);
+    expect(errorsOf(fn('v: vec3', 'vec3', 'v ** 2.'))).toHaveLength(1);
     expect(errorsOf(fn('v: vec3', 'vec3', 'step(v, 0.5)'))).toHaveLength(1);
     // The reverse shapes were refused before, as a return-type mismatch; now the argument.
     expect(errorsOf(fn('v: vec3, s: f32', 'vec3', 'max(s, v)'))).toEqual([
@@ -90,7 +90,7 @@ describe('math arguments: the element kinds each builtin has a form for', () => 
     expect(errorsOf(fn('a: vec3i, b: vec3i', 'vec3i', 'mix(a, b, 1)'))).toEqual([
       `${M} mix takes an f32, or a vector of them; got vec3i.`,
     ]);
-    expect(errorsOf(fn('a: vec3i, b: vec3i', 'vec3i', 'pow(a, b)'))).toHaveLength(1);
+    expect(errorsOf(fn('a: vec3i, b: vec3i', 'vec3i', 'a ** b'))).toHaveLength(1);
     expect(errorsOf(fn('x: u32', 'u32', 'fract(x)'))).toEqual([
       `${M} fract takes an f32, or a vector of them; got u32.`,
     ]);
@@ -184,8 +184,8 @@ describe('math arguments: the result follows the operand deciding the shape', ()
     // A float peer changes nothing, and a builtin with no integer form keeps its f32 first
     // argument so the odd one out is the integer.
     expect(compile(fn('x: f32', 'f32', 'max(1, x)')).wgsl).toContain('return max(1.0, x);');
-    expect(errorsOf(fn('i: i32', 'f32', 'pow(2, i)'))).toEqual([
-      `${M} pow takes arguments of one type; the first is f32, this one i32. Cast this one: f32(i).`,
+    expect(errorsOf(fn('i: i32', 'f32', 'Math.pow(2, i)'))).toEqual([
+      `${M} Math.pow takes arguments of one type; the first is f32, this one i32. Cast this one: f32(i).`,
     ]);
   });
 
@@ -245,6 +245,9 @@ export function probe(${params.join(', ')}): f32 {
 `;
 
   const ids = Object.keys(MATH_ARG_SPECS).sort();
+  /** How a call of `id` is spelled: `pow` has no free name since change 0112, so it is `Math.pow`,
+   *  which reaches the same argument rule under its own name. */
+  const spelled = (id: string): string => (id === 'pow' ? 'Math.pow' : id);
 
   it('covers every rule the compiler consults, and no id that has none', () => {
     // Non-vacuity for the three arms below: if the table came back empty they would pass.
@@ -264,7 +267,7 @@ export function probe(${params.join(', ')}): f32 {
     const spec = MATH_ARG_SPECS[id]!;
     const arity = MATH_FN_ARITY[id]!;
     const width = spec.vector === true || spec.vec3 === true ? 'vec3' : 'scalar';
-    const call = `${id}(${NAMES.slice(0, arity).join(', ')})`;
+    const call = `${spelled(id)}(${NAMES.slice(0, arity).join(', ')})`;
 
     // THE POSITIVE CONTROL FIRST. Without it the arm says nothing: a rule that refused EVERY
     // call of its shape — because a later argument has its own role, or because the check
@@ -296,7 +299,7 @@ export function probe(${params.join(', ')}): f32 {
       const arity = MATH_FN_ARITY[id]!;
       const width = spec.vector === true || spec.vec3 === true ? 'vec3' : 'scalar';
       const admitted = spell(width, admittedElem(spec.elems));
-      const call = `${id}(${NAMES.slice(0, arity).join(', ')})`;
+      const call = `${spelled(id)}(${NAMES.slice(0, arity).join(', ')})`;
       const params = NAMES.slice(0, arity).map((n) => `${n}: ${admitted}`);
       if (errorsOf(probe(params, call)).length === 0) clean.push(id);
     }
@@ -304,7 +307,7 @@ export function probe(${params.join(', ')}): f32 {
   });
 
   it.each(ids)('counts the arguments of `%s`, with TS8019', (id) => {
-    const errors = errorsOf(probe([], `${id}()`));
+    const errors = errorsOf(probe([], `${spelled(id)}()`));
     expect(
       errors.some((e) => e.startsWith(TS_CODES.ARITY_MISMATCH)),
       errors.join(' | '),
@@ -329,7 +332,7 @@ export function probe(${params.join(', ')}): f32 {
       const params = NAMES.slice(0, arity).map(
         (n, i) => `${n}: ${spell(i === 1 ? 'vec2' : 'vec3', elem)}`,
       );
-      const errors = errorsOf(probe(params, `${id}(${NAMES.slice(0, arity).join(', ')})`));
+      const errors = errorsOf(probe(params, `${spelled(id)}(${NAMES.slice(0, arity).join(', ')})`));
       if (!errors.some((e) => e.startsWith(M))) missed.push(`${id}: ${errors.join(' | ')}`);
     }
     expect(missed).toEqual([]);

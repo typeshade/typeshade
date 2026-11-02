@@ -31,6 +31,7 @@ import {
   resolveMathExpand,
   resolveMathFn,
 } from '../math-alias.js';
+import { removedCallSentence, removedConstantSentence } from '../removed-names.js';
 import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../../core/intrinsics.js';
 import { isConsoleMethod } from '../../../core/console.js';
 import { isMixinApplication } from '../mixins.js';
@@ -448,6 +449,9 @@ function undeclared(
   }
   const library = libraryNameSentence(name, 'class');
   if (library !== undefined) return refused(library);
+  // A name change 0112 removed says what replaces it, as a call of it does.
+  const removed = removedCallSentence(name) ?? removedConstantSentence(name);
+  if (removed !== undefined) return refused(removed, TS_CODES.UNKNOWN_NAME);
   if (
     isCanonicalMathFn(name) ||
     EXTRA_BUILTIN_FUNCTIONS.has(name) ||

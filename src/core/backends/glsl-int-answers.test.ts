@@ -20,19 +20,18 @@ import { glslIntBinop, intHelperDefs } from './glsl-int.js';
 
 const FS = (body: string): string => `"use typeshade"
 class U {
-  a: i32
-  b: i32
-  c: u32
-  d: u32
-  x: f32
-  v: vec3
-  w: vec3i
+  a!: i32
+  b!: i32
+  c!: u32
+  d!: u32
+  x!: f32
+  v!: vec3
+  w!: vec3i
 }
 declare const u: uniform<U>
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
 ${body}
-}
+});
 `;
 
 /** The GLSL and WGSL `compile()` writes for `body`, after both halves accept it. */

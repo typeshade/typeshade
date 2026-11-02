@@ -1,31 +1,40 @@
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
+import { compile } from './compile.js';
+import { compileModule } from '../../core/oracle.js';
+import { compileModuleJs } from '../../core/cpu-codegen.js';
 
-describe('any / all / zip', () => {
-  it('unrolls any(xs, pred) to || of calls', () => {
-    const r = compileTsSource(`
+// `any(xs, pred)` and `all(xs, pred)` were removed (change 0112); `xs.some(pred)` and `xs.every(pred)`
+// answer the same. `zip` stays.
+describe('some / every / zip', () => {
+  it('xs.some(pred) is true when one element passes', () => {
+    const r = compile(`
       "use typeshade";
       function pos(x: f32): bool { return x > 0.; }
       export function f(xs: array<f32, 3>): bool {
-        return any(xs, pos);
+        return xs.some(pos);
       }
     `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    const ret = r.funcs.find((fn) => fn.name === 'f')!.body[0];
-    if (ret!.s === 'return') expect(ret.expr?.op).toBe('logical');
+    for (const make of [compileModule, compileModuleJs]) {
+      const f = make(r.module).fns['f']!;
+      expect([f([-1, -2, 3]), f([-1, -2, -3])], make.name).toEqual([true, false]);
+    }
   });
 
-  it('unrolls all(xs, pred) to && of calls', () => {
-    const r = compileTsSource(`
+  it('xs.every(pred) is true when every element passes', () => {
+    const r = compile(`
       "use typeshade";
       function pos(x: f32): bool { return x > 0.; }
       export function f(xs: array<f32, 2>): bool {
-        return all(xs, pos);
+        return xs.every(pos);
       }
     `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    const ret = r.funcs.find((fn) => fn.name === 'f')!.body[0];
-    if (ret!.s === 'return') expect(ret.expr?.op).toBe('logical');
+    for (const make of [compileModule, compileModuleJs]) {
+      const f = make(r.module).fns['f']!;
+      expect([f([1, 2]), f([1, -2])], make.name).toEqual([true, false]);
+    }
   });
 
   it('unrolls zip(xs, ys, add)', () => {

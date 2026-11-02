@@ -191,7 +191,7 @@ describe('a message names a vector, a matrix and an array as the author writes t
       said(
         [
           'declare const tex: texture_storage_2d<"rgba8unorm", "write">;',
-          '@compute([1, 1, 1]) export function main() { textureStore(tex, vec3i(0, 0, 0), vec4(1.)); }',
+          'export const main = compute([1, 1, 1], function main() { textureStore(tex, vec3i(0, 0, 0), vec4(1.)); });',
         ].join('\n'),
       ),
     ).toEqual([
@@ -353,7 +353,7 @@ describe('the messages round one left on the key', () => {
         [
           'declare const dt: texture_depth_2d;',
           'declare const smp: sampler;',
-          `@fragment export function fs(@builtin("position") p: vec4): vec4 { return ${call}; }`,
+          `export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 { return ${call}; });`,
         ].join('\n'),
       );
     expect(fragment('vec4(textureSampleCompare(dt, p.xy, p.xy, 0.5))')).toEqual([
@@ -372,9 +372,9 @@ describe('the messages round one left on the key', () => {
       said(
         [
           out,
-          'class FIn { @location(0) uv: vec2 = vec2(0.); }',
-          `@vertex export function vs(): ${vs} { return new ${vs}(); }`,
-          '@fragment export function fs(i: FIn): vec4 { return vec4(i.uv, 0., 1.); }',
+          'class FIn { uv: location<0, vec2> = vec2(0.); }',
+          `export const vs = vertex(function vs(): ${vs} { return new ${vs}(); });`,
+          'export const fs = fragment(function fs(i: FIn): vec4 { return vec4(i.uv, 0., 1.); });',
         ].join('\n'),
       );
     const vout = '{ @builtin("position") pos: vec4 = vec4(0.); @location(0) uv: vec3 = vec3(0.); }';
@@ -404,10 +404,10 @@ describe('the messages round one left on the key', () => {
       said(
         [
           'declare const at: storage<array<atomic<u32>>, "read_write">;',
-          '@compute([1, 1, 1]) export function cs(): void {',
+          'export const cs = compute([1, 1, 1], function cs(): void {',
           '  const r = atomicCompareExchangeWeak(at[0], u32(0), u32(1));',
           '  if (r) { return; }',
-          '}',
+          '});',
         ].join('\n'),
       ),
     ).toEqual(['TS8003 if condition must be bool, got { old_value: u32; exchanged: bool }.']);
@@ -420,7 +420,7 @@ describe('the messages round one left on the key', () => {
       const messages = said(
         [
           'declare const vh: storage<array<vec2h>, "read_write">;',
-          `@compute([1, 1, 1]) export function cs(): void { const y = ${read}; }`,
+          `export const cs = compute([1, 1, 1], function cs(): void { const y = ${read}; });`,
         ].join('\n'),
       );
       expect(messages).toEqual(['TS8002 Unknown type "vec2h". Did you mean "vec2"?']);
@@ -724,13 +724,13 @@ describe('a class named while the structs are collected, and a sentence about a 
       'declare const mnd: storage<mat2x3<f64>, "read_write">;',
       'declare const vh: storage<array<vec2h>, "read_write">;',
       'declare const o: storage<array<f32>, "read_write">;',
-      '@compute([1, 1, 1]) export function cs(): void {',
+      'export const cs = compute([1, 1, 1], function cs(): void {',
       '  mnd = mat2x3();',
       '  mnd *= 2.;',
       '  vh++;',
       '  let m = mnd;',
       '  o[0] = f32(m[0].x);',
-      '}',
+      '});',
     ].join('\n');
     const expected = [
       // Document order, the editor's (Rule 12.7): `mnd` is declared above `vh`.
@@ -769,7 +769,11 @@ describe('a class named while the structs are collected, and a sentence about a 
       ['const g = () => vh[0].x;', 'o[0] = g();'],
       ['class K { w: f32 = 0.; get() { return vh[0].x; } }', 'o[0] = new K().get() + 1.;'],
     ] as const) {
-      const lines = [bindings, body, `@compute([1, 1, 1]) export function cs(): void { ${call} }`];
+      const lines = [
+        bindings,
+        body,
+        `export const cs = compute([1, 1, 1], function cs(): void { ${call} });`,
+      ];
       expect(said(lines.join('\n'))).toEqual([vec2h, mat2x3]);
       // The editor's list is the compiler's (Rule 12.7). TypeScript's own TS2315 on
       // `mat2x3<f64>` is not this file's to judge.

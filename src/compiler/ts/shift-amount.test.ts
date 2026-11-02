@@ -18,12 +18,11 @@ const errorsOf = (src: string) =>
     .map((d) => `${d.code} ${d.message}`);
 
 const fs = (body: string, type: 'u32' | 'i32' = 'u32') => `"use typeshade"
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let x: ${type} = ${type}(uv.x)
   ${body}
   return vec4(f32(x), 0., 0., 1.)
-}
+});
 `;
 
 const RANGE = 'a 32-bit integer has no bit to shift into.';
@@ -60,11 +59,10 @@ describe('a shift amount of 32 or more (#71)', () => {
     // first diagnostic is the one that says why.
     const errors = errorsOf(`"use typeshade";
 const BITS: u32 = 32;
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   const x: u32 = u32(uv.x) << BITS;
   return vec4(f32(x), 0., 0., 1.);
-}
+});
 `);
     expect(errors[0]).toBe(
       `${TS_CODES.TYPE_MISMATCH} A shift amount must be between 0 and 31, got 32: ${RANGE}`,
@@ -92,12 +90,11 @@ export function fs(@location(0) uv: vec2): vec4 {
 // and `x << vec2<u32>(u32(uv.y), 40u)`, which is not a const-expression, are accepted.
 describe('a constant vector shift amount with a component of 32 or more (#241)', () => {
   const vec = (body: string, type: 'vec2u' | 'vec2i' = 'vec2u') => `"use typeshade";
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let x: ${type} = ${type}(${type === 'vec2u' ? 'u32' : 'i32'}(uv.x), 1);
   ${body};
   return vec4(f32(x.x), 0., 0., 1.);
-}
+});
 `;
   const editorOf = (src: string): string[] => {
     const service = createTypeshadeLanguageService();

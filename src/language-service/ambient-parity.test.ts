@@ -46,10 +46,9 @@ const compilerRefusal = (source: string): string | null => {
 
 const FS = (decl: string, body: string): string => `"use typeshade"
 ${decl}
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
 ${body}
-}
+});
 `;
 
 /** A helper with one optional parameter `v`, called from the fragment entry (change 0088). */
@@ -182,7 +181,7 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
     'accept',
   ],
   [
-    'arrayLength of a fixed array',
+    'the removed arrayLength call, on a fixed array',
     FS(
       '',
       '  const a = array(1., 2., 3.)\n  const n = arrayLength(a)\n  return vec4(f32(n) * 0., 0., 0., 1.)',
@@ -495,7 +494,7 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
   ],
   [
     "optional: an entry point's parameter",
-    `"use typeshade"\n@fragment\nexport function fs(@location(0) uv: vec2, @location(1) w: f32 | undefined): vec4 {\n  return vec4(uv, 0., 1.)\n}\n`,
+    `"use typeshade"\n@fragment\nexport function fs(uv: location<0, vec2>, w: location<1, f32 | undefined>): vec4 {\n  return vec4(uv, 0., 1.)\n}\n`,
     'refuse',
   ],
   [
@@ -924,9 +923,9 @@ describe("a builtin's scalar overload returns ScalarOf, and the type it gives is
 
   /** `[the call, the result the compiler gives, the result the editor hovers, a type it is not]` */
   const CALLS: readonly (readonly [string, string, string, string])[] = [
-    ['pow(a, b)', 'f32', 'f32', 'u32'],
-    ['pow(2., 3.)', 'f32', 'number', ''],
-    ['pow(2., a)', 'f32', 'f32', 'i32'],
+    ['atan2(a, b)', 'f32', 'f32', 'u32'],
+    ['atan2(2., 3.)', 'f32', 'number', ''],
+    ['atan2(2., a)', 'f32', 'f32', 'i32'],
     ['clamp(i, 0, 10)', 'i32', 'i32', 'f32'],
     ['clamp(0.5, 0., a)', 'f32', 'f32', 'u32'],
     ['min(u, u)', 'u32', 'u32', 'i32'],

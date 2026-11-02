@@ -237,10 +237,9 @@ describe('the three spellings agree', () => {
 describe('entry I/O still needs a decorator, which only a class can carry', () => {
   const VS = (decl: string) => `
     ${decl}
-    @vertex
-    export function vs(@location(0) p: vec2): VsOut {
+    export const vs = vertex(function vs(p: location<0, vec2>): VsOut {
       return { pos: vec4(p, 0., 1.), uv: p };
-    }
+    });
   `;
   const FIELDS = `
     pos: vec4

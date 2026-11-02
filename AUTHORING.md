@@ -453,7 +453,7 @@ TypeScript's operators, and they mean what WGSL means by them:
 | components | `.x .y .z .w` · `.r .g .b .a` · `.xy .rgb .zxy …` |
 | index      | `xs[i]`                                           |
 | ternary    | `c ? a : b`                                       |
-| power      | `a ** b`, which is `pow(a, b)`                    |
+| power      | `a ** b`, which lowers to WGSL's `pow(a, b)`      |
 
 A few operations are builtin functions. `select(f, t, c)` is WGSL's own, so mind the
 argument order: the condition is last, and `select(f, t, c)` is `c ? t : f`. `mod(x, y)` is
@@ -2506,7 +2506,7 @@ declare const outColor: storage<array<u32>, "read_write">;
 
 export const evalField = compute([64], function evalField(gid: builtin<"global_invocation_id", vec3u>): void {
   const i = gid.x;
-  if (i >= arrayLength(field)) {
+  if (i >= field.length) {
     return;
   }
   outColor[i] = pack4x8unorm(vec4(field[i], 0., 0., 1.));

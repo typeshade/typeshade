@@ -175,10 +175,9 @@ describe('DeclaredSymbol table: a binding, and what mutable means for one', () =
     '"use typeshade";',
     'declare const ro: storage<array<f32>>',
     'declare const rw: storage<array<f32>, "read_write">',
-    '@compute([64, 1, 1])',
-    'export function cs(@builtin("global_invocation_id") gid: vec3u): void {',
+    'export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {',
     '  rw[gid.x] = ro[gid.x];',
-    '}',
+    '});',
   ].join('\n');
 
   it('records the access mode of each binding, and the keyword of neither', () => {
@@ -306,11 +305,10 @@ describe('LoweredExpression table (0015)', () => {
   it('records nothing for an expression the front end refused, and keeps what it lowered inside it', () => {
     const source = [
       '"use typeshade";',
-      '@fragment',
-      'export function fs(): vec4 {',
+      'export const fs = fragment(function fs(): vec4 {',
       '  const x = f32(vec3(1.));',
       '  return vec4(x, 0., 0., 1.);',
-      '}',
+      '});',
     ].join('\n');
     expect(errorsOf(compileTsSource(source).diagnostics)).not.toEqual([]);
     expect(at(source, 'f32(vec3(1.))')).toEqual([]);
@@ -324,12 +322,11 @@ describe('LoweredExpression table (0015)', () => {
       'function pick<T>(c: bool, a: T, b: T): T {',
       '  return c ? a : b;',
       '}',
-      '@fragment',
-      'export function fs(@location(0) uv: vec2): vec4 {',
+      'export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {',
       '  const s = pick(uv.x > 0.5, 1., 0.);',
       '  const v = pick(uv.y > 0.5, vec3(1.), vec3(0.));',
       '  return vec4(v * s, 1.);',
-      '}',
+      '});',
     ].join('\n');
     expect(errorsOf(compileTsSource(source).diagnostics)).toEqual([]);
     expect(at(source, 'c ? a : b')).toEqual([]);

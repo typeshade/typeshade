@@ -187,10 +187,9 @@ describe('field assignment', () => {
     const body = lowerBody(`
       ${STRUCTS}
       declare const ps: storage<array<P>, "read_write">
-      @compute([64, 1, 1])
-      export function k(@builtin("global_invocation_id") gid: vec3u) {
+      export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>) {
         ps[gid.x].a = 1.;
-      }
+      });
     `);
     const s = body[0]!;
     if (s.s !== 'assign') throw new Error(`expected an assign, got ${s.s}`);
@@ -202,16 +201,15 @@ describe('field assignment', () => {
 
   it('lowers a component of a field: o.pos.x = 2.', () => {
     const body = lowerBody(`
-      class VsOut {
-        @builtin("position") pos: vec4
-        @location(0) uv: vec2
+      interface VsOut {
+        pos: builtin<"position", vec4>
+        uv: location<0, vec2>
       }
-      @vertex
-      export function vs(@location(0) p: vec2): VsOut {
+      export const vs = vertex(function vs(p: location<0, vec2>): VsOut {
         let o: VsOut = { pos: vec4(p, 0., 1.), uv: p };
         o.pos.x = 2.;
         return o;
-      }
+      });
     `);
     const s = body[1]!;
     if (s.s !== 'assign') throw new Error(`expected an assign, got ${s.s}`);
@@ -227,26 +225,24 @@ describe('field assignment', () => {
 describe('emitted text', () => {
   const RENDER = `
     "use typeshade";
-    class VsOut {
-      @builtin("position") pos: vec4;
-      @location(0) uv: vec2;
+    interface VsOut {
+      pos: builtin<"position", vec4>;
+      uv: location<0, vec2>;
     }
-    class Color {
-      @location(0) color: vec4;
+    interface Color {
+      color: location<0, vec4>;
     }
-    @vertex
-    export function vs(@location(0) p: vec2): VsOut {
+    export const vs = vertex(function vs(p: location<0, vec2>): VsOut {
       let o: VsOut = { pos: vec4(p, 0., 1.), uv: p };
       o.pos.x = o.pos.x * 2.;
       return o;
-    }
-    @fragment
-    export function fs(v: VsOut): Color {
+    });
+    export const fs = fragment(function fs(v: VsOut): Color {
       let c = vec4(0.);
       c.r = v.uv.x;
       c.a = 1.;
       return { color: c };
-    }
+    });
   `;
 
   it('emits the member assignment verbatim in WGSL', () => {
@@ -282,11 +278,10 @@ describe('emitted text', () => {
       "use typeshade";
       ${STRUCTS}
       declare const ps: storage<array<P>, "read_write">
-      @compute([64, 1, 1])
-      export function k(@builtin("global_invocation_id") gid: vec3u) {
+      export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>) {
         ps[gid.x].a = 1.;
         ps[gid.x].b += 2.;
-      }
+      });
     `);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(c.wgsl).toContain('ps[gid.x].a = 1.0;');
@@ -490,10 +485,9 @@ describe('a write through a storage binding survives the optimizer', () => {
     "use typeshade";
     ${STRUCTS}
     declare const ps: storage<array<P>, "read_write">
-    @compute([64, 1, 1])
-    export function k(@builtin("global_invocation_id") gid: vec3u) {
+    export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>) {
       ps[gid.x + u32(1)].b = ps[gid.x + u32(1)].a * ps[gid.x + u32(1)].a;
-    }
+    });
   `;
 
   it('stores into the buffer, not into a hoisted temp', () => {
@@ -509,10 +503,9 @@ describe('a write through a storage binding survives the optimizer', () => {
       "use typeshade";
       ${STRUCTS}
       declare const ps: storage<array<P>, "read_write">
-      @compute([64, 1, 1])
-      export function k(@builtin("global_invocation_id") gid: vec3u) {
+      export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>) {
         ps[gid.x * u32(2) + u32(1)].a++;
-      }
+      });
     `);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(c.wgsl).toMatch(/ps\[[^\]]*\]\.a \+= 1\.0;/);
@@ -572,10 +565,9 @@ describe('what ++ and -- step', () => {
     expect(
       diagnose(`
         declare const vs: storage<array<vec3f64>, "read_write">
-        @compute([64, 1, 1])
-        export function k(@builtin("global_invocation_id") gid: vec3u) {
+        export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>) {
           vs[gid.x]++;
-        }
+        });
       `),
     ).toBe(
       'Cannot apply ++ to vec3f64: a vector has no literal to step by. Write the addition out.',
@@ -626,31 +618,28 @@ describe('what ++ and -- step', () => {
       [
         `"use typeshade";
         declare const xs: storage<array<f64>, "read_write">;
-        @compute([64, 1, 1])
-        export function k(@builtin("global_invocation_id") gid: vec3u) {
+        export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>) {
           xs[gid.x]++;
-        }`,
+        });`,
         'fn df64_add(',
       ],
       [
         `"use typeshade";
         declare const xs: storage<array<f64>, "read_write">;
-        @compute([64, 1, 1])
-        export function k(@builtin("global_invocation_id") gid: vec3u) {
+        export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>) {
           xs[gid.x]--;
-        }`,
+        });`,
         'fn df64_sub(',
       ],
       [
         `"use typeshade";
         class P {
-          a: f64;
+          a!: f64;
         }
         declare const ds: storage<array<P>, "read_write">;
-        @compute([64, 1, 1])
-        export function k(@builtin("global_invocation_id") gid: vec3u) {
+        export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>) {
           ds[gid.x].a++;
-        }`,
+        });`,
         'fn df64_add(',
       ],
     ] as const) {
@@ -775,10 +764,9 @@ describe('the root rule reaches an element target too', () => {
     const c = compile(`
       "use typeshade";
       declare const xs: storage<array<f32>, "read_write">;
-      @compute([64, 1, 1])
-      export function k(@builtin("global_invocation_id") gid: vec3u) {
+      export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>) {
         xs[gid.x] = 1.;
-      }
+      });
     `);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(c.wgsl).toContain('xs[gid.x] = 1.0;');

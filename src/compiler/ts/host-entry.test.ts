@@ -58,22 +58,21 @@ const entryOf = (exports: readonly HostExport[], name: string) => {
 const PARTICLES = `"use typeshade";
 
 class Particle {
-  pos: vec4;
-  vel: vec4;
+  pos!: vec4;
+  vel!: vec4;
 }
 
 class Sim {
-  dt: f32;
-  gravity: f32;
-  floor: f32;
-  bounce: f32;
+  dt!: f32;
+  gravity!: f32;
+  floor!: f32;
+  bounce!: f32;
 }
 
 declare const sim: uniform<Sim>;
 declare const particles: storage<array<Particle>, "read_write">;
 
-@compute([64])
-export function step(@builtin("global_invocation_id") gid: vec3u) {
+export const step = compute([64], function step(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x >= particles.length) {
     return;
   }
@@ -87,7 +86,7 @@ export function step(@builtin("global_invocation_id") gid: vec3u) {
     vel.y = -vel.y * sim.bounce;
   }
   particles[gid.x] = { pos: vec4(pos, 1), vel: vec4(vel, 0) };
-}
+});
 `;
 const HISTOGRAM = readFileSync(join(ROOT, 'examples/atomic-histogram.shade.ts'), 'utf8');
 const SYNC = readFileSync(join(ROOT, 'examples/compute-sync.shade.ts'), 'utf8');
@@ -98,27 +97,23 @@ declare const xs: storage<array<f32>>;
 declare const ys: storage<array<f32>, "read_write">;
 declare const pts: storage<array<vec2>, "read_write">;
 
-@compute([8])
-export function scale(@builtin("global_invocation_id") gid: vec3u) {
+export const scale = compute([8], function scale(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x >= xs.length) {
     return;
   }
   ys[gid.x] = xs[gid.x] * k;
   pts[gid.x] = vec2(f32(gid.x), xs[gid.x]);
-}
+});
 `;
 
 describe('which entries a host can call (Rule 8.24)', () => {
   it('calls a @compute entry, draws a fragment entry, and says why a vertex entry is neither', () => {
     const f = face(`"use typeshade";
-class VsOut { @builtin("position") pos: vec4; }
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut { return { pos: vec4(f32(vi), 0., 0., 1.) }; }
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 { return p; }
+interface VsOut { pos: builtin<"position", vec4>; }
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut { return { pos: vec4(f32(vi), 0., 0., 1.) }; });
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 { return p; });
 declare const out: storage<array<u32>, "read_write">;
-@compute([64])
-export function fill(@builtin("global_invocation_id") gid: vec3u) { out[gid.x] = gid.x; }
+export const fill = compute([64], function fill(gid: builtin<"global_invocation_id", vec3u>) { out[gid.x] = gid.x; });
 `);
     const kinds = Object.fromEntries(
       f.exports.map((e) => [e.name, e.kind === 'never' ? e.reason : e.kind]),
@@ -133,14 +128,12 @@ export function fill(@builtin("global_invocation_id") gid: vec3u) { out[gid.x] =
 declare const tex: texture_2d<f32>;
 declare const vol: texture_3d<f32>;
 declare const out: storage<array<vec4>, "read_write">;
-@compute([8])
-export function copy(@builtin("global_invocation_id") gid: vec3u) {
+export const copy = compute([8], function copy(gid: builtin<"global_invocation_id", vec3u>) {
   out[gid.x] = textureLoad(tex, vec2i(i32(gid.x), 0), 0);
-}
-@compute([8])
-export function deep(@builtin("global_invocation_id") gid: vec3u) {
+});
+export const deep = compute([8], function deep(gid: builtin<"global_invocation_id", vec3u>) {
   out[gid.x] = textureLoad(vol, vec3i(i32(gid.x), 0, 0), 0);
-}
+});
 `);
     const copy = entryOf(f.exports, 'copy');
     expect(copy.entry.noCpu).toBe(
@@ -157,10 +150,9 @@ export function deep(@builtin("global_invocation_id") gid: vec3u) {
     // It printed the IR's key, a spelling the editor refuses (proposal 0008 §5).
     const f = face(`"use typeshade";
 declare const u: storage<array<mat3x3<f64>>, "read_write">;
-@compute([1])
-export function k() {
+export const k = compute([1], function k() {
   u[0] = u[0];
-}
+});
 `);
     const k = f.exports.find((x) => x.name === 'k')!;
     expect(k.kind === 'never' && k.reason).toBe(`binding "u": a mat3x3<f64> has no host value yet`);
@@ -257,12 +249,11 @@ describe('the host view of an entry', () => {
 describe('the byte layout the call packs by', () => {
   it("agrees with reflect()'s struct layouts, uniform and storage", () => {
     const src = `"use typeshade";
-class U { a: vec3; b: f32; c: array<f32, 3>; m: mat3x3; }
-class S { a: vec3; b: f32; c: array<f32, 3>; d: vec2; }
+class U { a!: vec3; b!: f32; c!: array<f32, 3>; m!: mat3x3; }
+class S { a!: vec3; b!: f32; c!: array<f32, 3>; d!: vec2; }
 declare const u: uniform<U>;
 declare const s: storage<S, "read_write">;
-@compute([1])
-export function touch(@builtin("global_invocation_id") gid: vec3u) { s.b = u.b + u.c[1] + u.m[0].x; }
+export const touch = compute([1], function touch(gid: builtin<"global_invocation_id", vec3u>) { s.b = u.b + u.c[1] + u.m[0].x; });
 `;
     const e = entryOf(face(src).exports, 'touch');
     const structs = new Map(compile(src).module.structs.map((d) => [d.name, d]));
@@ -356,10 +347,9 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
     const SRC = `"use typeshade";
 declare const pos: storage<array<vec3>>;
 declare const out: storage<array<vec3>, "read_write">;
-@compute([8])
-export function scale(@builtin("global_invocation_id") gid: vec3u) {
+export const scale = compute([8], function scale(gid: builtin<"global_invocation_id", vec3u>) {
   out[gid.x] = pos[gid.x] * 2.;
-}
+});
 `;
     const scale = (await load(SRC)).scale as (b: unknown, w: unknown) => Promise<void>;
     const pos = Float32Array.from([1, 2, 3, 4, 5, 6, 7, 8, 9]);
@@ -426,21 +416,20 @@ export function scale(@builtin("global_invocation_id") gid: vec3u) {
 describe('an emulated f64 (change 0013, the f64 split)', () => {
   const DOUBLES = `"use typeshade";
 class Affine {
-  k: f64;
-  shift: f64;
+  k!: f64;
+  shift!: f64;
 }
 declare const affine: uniform<Affine>;
 declare const xs: storage<array<f64>>;
 declare const ys: storage<array<f64>, "read_write">;
 declare const ps: storage<array<vec3f64>, "read_write">;
-@compute([64])
-export function axpy(@builtin("global_invocation_id") gid: vec3u) {
+export const axpy = compute([64], function axpy(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x >= xs.length) {
     return;
   }
   ys[gid.x] = xs[gid.x] * affine.k + affine.shift;
   ps[gid.x] = vec3f64(xs[gid.x], affine.k, ys[gid.x]);
-}
+});
 `;
 
   it('lays each double out as the WGSL holds it, and binds the guard the runtime supplies', () => {
@@ -471,13 +460,12 @@ export function axpy(@builtin("global_invocation_id") gid: vec3u) {
     // A module that emulates no f64 carries one text, as before.
     const plain = face(`"use typeshade";
 declare const xs: storage<array<f32>, "read_write">;
-@compute([64])
-export function twice(@builtin("global_invocation_id") gid: vec3u) {
+export const twice = compute([64], function twice(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x >= xs.length) {
     return;
   }
   xs[gid.x] = xs[gid.x] * 2;
-}
+});
 `).code;
     expect(plain).not.toContain('__ts_wgsl_integer');
     expect(plain).toContain(', wgsl: __ts_wgsl };');
@@ -634,18 +622,16 @@ describe('a workgroup count a Resident holds (change 0075)', () => {
   const INDIRECT = `"use typeshade";
 declare const counts: storage<array<u32>, "read_write">;
 declare const n: uniform<u32>;
-@compute([1])
-export function plan() {
+export const plan = compute([1], function plan() {
   counts[0] = n;
   counts[1] = 1;
   counts[2] = 1;
-}
+});
 declare const seen: storage<array<u32>, "read_write">;
 declare const shape: storage<array<u32>, "read_write">;
-@compute([2])
-export function mark(
-  @builtin("global_invocation_id") gid: vec3u,
-  @builtin("num_workgroups") nw: vec3u,
+export const mark = compute([2], function mark(
+  gid: builtin<"global_invocation_id", vec3u>,
+  nw: builtin<"num_workgroups", vec3u>,
 ) {
   if (gid.x < seen.length) {
     seen[gid.x] = gid.x + 1;
@@ -655,7 +641,7 @@ export function mark(
     shape[1] = nw.y;
     shape[2] = nw.z;
   }
-}
+});
 `;
   type Entry = (b: unknown, w: unknown) => Promise<void>;
 
@@ -792,7 +778,7 @@ export function mark(
     service.openDocument('/app/m.shade.ts', INDIRECT);
     expect(service.getDiagnostics('/app/m.shade.ts')).toEqual([]);
     expect(compile(INDIRECT).diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    const at = service.positionAt('/app/m.shade.ts', INDIRECT.indexOf('nw: vec3u'));
+    const at = service.positionAt('/app/m.shade.ts', INDIRECT.indexOf('nw: builtin'));
     expect(service.getHover('/app/m.shade.ts', at)?.contents).toContain(
       '(parameter) nw: vec3<u32>',
     );
@@ -803,13 +789,11 @@ describe('console.* from an entry, in vite dev (change 0014)', () => {
   const LOGS = `"use typeshade";
 declare const xs: storage<array<f32>>;
 declare const ys: storage<array<f32>, "read_write">;
-@compute([4])
-export function report(@builtin("global_invocation_id") gid: vec3u) {
+export const report = compute([4], function report(gid: builtin<"global_invocation_id", vec3u>) {
   console.log("x", gid.x, xs[gid.x]);
   ys[gid.x] = xs[gid.x];
-}
-@compute([4])
-export function quiet(@builtin("global_invocation_id") gid: vec3u) { ys[gid.x] = 0.; }
+});
+export const quiet = compute([4], function quiet(gid: builtin<"global_invocation_id", vec3u>) { ys[gid.x] = 0.; });
 `;
 
   it('records the calls in the WGSL, with the log, only when the build asks for it', () => {
@@ -842,7 +826,7 @@ export function quiet(@builtin("global_invocation_id") gid: vec3u) { ys[gid.x] =
     const cpu = 'background:#0f766e;color:#fff;border-radius:3px;padding:0 4px';
     expect(lines).toEqual(
       [1.5, 2.5, 3.5, 4.5].map((x, i) => [
-        `%c CPU %c m.shade.ts:6  [${i}, 0, 0] `,
+        `%c CPU %c m.shade.ts:5  [${i}, 0, 0] `,
         cpu,
         'color:#888',
         'x',
@@ -860,8 +844,7 @@ describe("a function the module declares under a builtin's name, called from hos
   const SRC = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
 function fract(x: f32): f32 { return x - floor(x) + 0.5; }
-@compute([1])
-export function main() { out[0] = fract(out[1]); out[2] = fract(1.25); }
+export const main = compute([1], function main() { out[0] = fract(out[1]); out[2] = fract(1.25); });
 `;
 
   it('runs the declaration on the CPU tier, and carries it renamed in the WGSL', async () => {

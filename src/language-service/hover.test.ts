@@ -4,7 +4,7 @@ import { TS_CODES } from '../compiler/ts/codes.js';
 import { compileTsSource } from '../compiler/ts/index.js';
 import { compile } from '../compiler/ts/compile.js';
 import { spellShaderType } from './hover.js';
-import { FUNCTION_DOCS } from './docs.js';
+import { FUNCTION_DOCS, MATH_MEMBER_DOCS } from './docs.js';
 import { compileModuleJs } from '../core/cpu-codegen.js';
 import {
   arrayT,
@@ -92,14 +92,13 @@ describe('getHover: resource bindings (from the cached front-end analysis, §8)'
   const source =
     '"use typeshade";\n' +
     'class Camera {\n' +
-    '  position: vec4\n' +
+    '  position!: vec4\n' +
     '}\n' +
     'declare const camera: uniform<Camera>\n' +
-    '@fragment\n' +
-    'export function fs(): vec4 {\n' +
+    'export const fs = fragment(function fs(): vec4 {\n' +
     '  const local = camera\n' +
     '  return camera.position\n' +
-    '}\n';
+    '});\n';
 
   it('adds the address space and @group/@binding slot under the quick info of a binding', () => {
     const service = createTypeshadeLanguageService();
@@ -317,10 +316,9 @@ describe('getHover: a resource binding, and where its access mode shows', () => 
     '"use typeshade";',
     'declare const ro: storage<array<f32>>',
     'declare const rw: storage<array<f32>, "read_write">',
-    '@compute([64, 1, 1])',
-    'export function cs(@builtin("global_invocation_id") gid: vec3u): void {',
+    'export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {',
     '  rw[gid.x] = ro[gid.x];',
-    '}',
+    '});',
   ].join('\n');
 
   function hoverAt(offset: number): string | undefined {
@@ -362,16 +360,15 @@ describe("getHover: a runtime-sized array's length is the compiler's u32", () =>
     [
       '"use typeshade";',
       'class Buf {',
-      '  scale: f32;',
-      '  xs: array<f32>;',
+      '  scale!: f32;',
+      '  xs!: array<f32>;',
       '}',
       'declare const ro: storage<array<f32>>',
       'declare const rw: storage<array<u32>, "read_write">',
       'declare const b: storage<Buf>',
-      '@compute([64, 1, 1])',
-      'export function cs(@builtin("global_invocation_id") gid: vec3u): void {',
+      'export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {',
       body,
-      '}',
+      '});',
     ].join('\n');
   const source = program(
     [
@@ -426,12 +423,11 @@ describe('getHover: a module variable says let, the keyword it is declared with'
     'declare const out: storage<array<u32>, "read_write">;',
     'let hits: u32;',
     'let tile: workgroup<array<u32, 64>>;',
-    '@compute([64, 1, 1])',
-    'export function cs(@builtin("local_invocation_id") lid: vec3u): void {',
+    'export const cs = compute([64, 1, 1], function cs(lid: builtin<"local_invocation_id", vec3u>): void {',
     '  hits += 1;',
     '  tile[lid.x] = hits;',
     '  out[lid.x] = tile[lid.x];',
-    '}',
+    '});',
   ].join('\n');
 
   function hoverAt(offset: number): string | undefined {
@@ -467,11 +463,10 @@ describe("getHover: an array's length is the type the compiler reads", () => {
     'declare const src: storage<array<f32>>;',
     'declare const dst: storage<array<f32>, "read_write">;',
     'declare const four: storage<array<f32, 4>>;',
-    '@compute([64, 1, 1])',
-    'export function cs(@builtin("global_invocation_id") gid: vec3u): void {',
+    'export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {',
     '  const xs: array<f32, 3> = [1., 2., 3.];',
     '  dst[gid.x] = f32(src.length) + f32(dst.length) + f32(four.length) + f32(xs.length);',
-    '}',
+    '});',
   ].join('\n');
 
   function lengthHoverAfter(receiver: string): string | undefined {
@@ -497,10 +492,9 @@ describe("getHover: an array's length is the type the compiler reads", () => {
       '"use typeshade";',
       'declare const src: storage<array<f32>>;',
       'declare const dst: storage<array<f32>, "read_write">;',
-      '@compute([64, 1, 1])',
-      'export function cs(): void {',
+      'export const cs = compute([64, 1, 1], function cs(): void {',
       '  dst[0] = src.length * 0.5;',
-      '}',
+      '});',
     ].join('\n');
     service.openDocument('m.ts', program);
     const at = program.indexOf('src.length') + 5;
@@ -593,14 +587,14 @@ describe('builtin JSDoc in hover', () => {
     expect(hover?.contents).toContain('radians');
   });
 
-  it('PI constant hover shows its documentation', () => {
-    const source = '"use typeshade"\nexport const p = PI\n';
+  it('TAU constant hover shows its documentation', () => {
+    const source = '"use typeshade"\nexport const p = TAU\n';
     service.openDocument('/test.ts', source);
     const hover = service.getHover(
       '/test.ts',
-      service.positionAt('/test.ts', source.indexOf('PI')),
+      service.positionAt('/test.ts', source.indexOf('TAU')),
     );
-    expect(hover?.contents).toContain('mathematical constant π');
+    expect(hover?.contents).toContain('mathematical constant 2π');
   });
 
   it('vec3 constructor hover shows its documentation', () => {
@@ -637,7 +631,7 @@ describe('pow: what the hover says of a negative x holds in both halves', () => 
   // one source.
   const source = `"use typeshade";
 export function p(x: f32, y: f32): f32 {
-  return pow(x, y);
+  return x ** y;
 }
 export function mp(x: f32, y: f32): f32 {
   return Math.pow(x, y);
@@ -649,7 +643,9 @@ export function mp(x: f32, y: f32): f32 {
     expect(compiled.diagnostics).toEqual([]);
     // The hover names these two results, so the oracle is held to them. `eval` is the oracle
     // `compile()` hands a user; `compileModuleJs` is the generated-JavaScript one.
-    expect(FUNCTION_DOCS.pow).toContain('`pow(-2., 3.)` is -8 and `pow(-2., 0.5)` is NaN.');
+    expect(MATH_MEMBER_DOCS.pow).toContain(
+      '`Math.pow(-2., 3.)` is -8 and `Math.pow(-2., 0.5)` is NaN.',
+    );
     const js = compileModuleJs(compiled.module).fns;
     for (const name of ['p', 'mp']) {
       expect(compiled.eval(name, [-2, 3]), name).toBe(-8);
@@ -659,19 +655,18 @@ export function mp(x: f32, y: f32): f32 {
     }
   });
 
-  it('the editor half: each spelling hovers with the sentence, and none promises a GPU NaN', () => {
+  it('the editor half: the member hovers with the sentence, and none promises a GPU NaN', () => {
     const service = createTypeshadeLanguageService();
     service.openDocument('/pow.ts', source);
     expect(service.getDiagnostics('/pow.ts')).toEqual([]);
     const hoverAt = (needle: string, plus = 0) =>
       service.getHover('/pow.ts', service.positionAt('/pow.ts', source.indexOf(needle) + plus))
         ?.contents;
-    for (const [needle, plus] of [
-      ['pow(x, y)', 0],
-      ['Math.pow', 5],
-    ] as const) {
+    // The free `pow(x, y)` was removed (change 0112): `x ** y` has no hover of its own, and the
+    // member `Math.pow` carries the sentence.
+    for (const [needle, plus] of [['Math.pow', 5]] as const) {
       const contents = hoverAt(needle, plus);
-      expect(contents, needle).toContain(FUNCTION_DOCS.pow);
+      expect(contents, needle).toContain(MATH_MEMBER_DOCS.pow);
       expect(contents, needle).toContain('GPU result is undefined');
       expect(contents, needle).not.toContain('produces NaN');
     }
@@ -685,9 +680,6 @@ describe('cbrt: a negative x has a negative root, in both halves (#614)', () => 
   // sentence that said a negative `x` was undefined. src/compiler/ts/cbrt.test.ts holds the
   // expansion's values and its emit.
   const source = `"use typeshade";
-export function c(x: f32): f32 {
-  return cbrt(x);
-}
 export function mc(x: f32): f32 {
   return Math.cbrt(x);
 }
@@ -696,27 +688,24 @@ export function mc(x: f32): f32 {
 
   it('the compiler half: the oracle gives the value the hover names', () => {
     expect(compiled.diagnostics).toEqual([]);
-    expect(FUNCTION_DOCS.cbrt).toContain('`cbrt(-8.)` is -2.');
+    expect(MATH_MEMBER_DOCS.cbrt).toContain('`Math.cbrt(-8.)` is -2.');
     const js = compileModuleJs(compiled.module).fns;
-    for (const name of ['c', 'mc']) {
+    for (const name of ['mc']) {
       expect(compiled.eval(name, [-8]), name).toBe(-2);
       expect(js[name]!(-8), name).toBe(-2);
     }
   });
 
-  it('the editor half: each spelling hovers with the sentence, which names no undefined value', () => {
+  it('the editor half: the member hovers with the sentence, which names no undefined value', () => {
     const service = createTypeshadeLanguageService();
     service.openDocument('/cbrt.ts', source);
     expect(service.getDiagnostics('/cbrt.ts')).toEqual([]);
     const hoverAt = (needle: string, plus = 0) =>
       service.getHover('/cbrt.ts', service.positionAt('/cbrt.ts', source.indexOf(needle) + plus))
         ?.contents;
-    for (const [needle, plus] of [
-      ['cbrt(x)', 0],
-      ['Math.cbrt', 5],
-    ] as const) {
+    for (const [needle, plus] of [['Math.cbrt', 5]] as const) {
       const contents = hoverAt(needle, plus);
-      expect(contents, needle).toContain(FUNCTION_DOCS.cbrt);
+      expect(contents, needle).toContain(MATH_MEMBER_DOCS.cbrt);
       expect(contents, needle).toContain('sign(x) * pow(abs(x), 1/3)');
       expect(contents, needle).not.toContain('For a negative `x`');
       expect(contents, needle).not.toContain('NaN');
@@ -810,8 +799,8 @@ describe('getHover: class members (#86 step 3)', () => {
   // would say so here rather than in a screenshot.
   const source = `"use typeshade";
 class Ray {
-  origin: vec3;
-  dir: vec3;
+  origin!: vec3;
+  dir!: vec3;
   constructor(origin: vec3, dir: vec3) {
     this.origin = origin;
     this.dir = dir;
@@ -826,12 +815,11 @@ class Ray {
     return vec3(0., 1., 0.);
   }
 }
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let r = new Ray(vec3(uv, 0.), vec3(0., 0., 1.));
   r.advance(1.);
   return vec4(r.at(2.) + Ray.up(), 1.);
-}
+});
 `;
   const service = createTypeshadeLanguageService();
   service.openDocument('m.ts', source);

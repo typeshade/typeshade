@@ -41,10 +41,9 @@ export function height(p: vec2, k: vec4): f32 {
   return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
 }
 
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(height(vec2(0.5, 0.5), vec4(1., K, 2., 0.25)));
-}
+});
 `;
 
 describe('a host file imports a .shade.ts through the plugin', () => {
@@ -211,8 +210,7 @@ describe('the plugin hook', () => {
   it('records console calls in vite dev, and none in a build', async () => {
     const src = `"use typeshade";
 declare const ys: storage<array<f32>, "read_write">;
-@compute([1])
-export function note(@builtin("global_invocation_id") gid: vec3u) { console.log("n", gid.x); ys[0] = 1.; }
+export const note = compute([1], function note(gid: builtin<"global_invocation_id", vec3u>) { console.log("n", gid.x); ys[0] = 1.; });
 `;
     const dir = tempDir();
     const file = join(dir, 'note.shade.ts');
@@ -227,8 +225,7 @@ export function note(@builtin("global_invocation_id") gid: vec3u) { console.log(
   it("records in a build with console: 'always', never with 'never', and says so once at the build's start", async () => {
     const src = `"use typeshade";
 declare const ys: storage<array<f32>, "read_write">;
-@compute([1])
-export function note(@builtin("global_invocation_id") gid: vec3u) { console.log("n", gid.x); ys[0] = 1.; }
+export const note = compute([1], function note(gid: builtin<"global_invocation_id", vec3u>) { console.log("n", gid.x); ys[0] = 1.; });
 `;
     const file = join(tempDir(), 'note.shade.ts');
     const plugin = (console: 'dev' | 'always' | 'never', command: string) => {
@@ -266,8 +263,7 @@ export function note(@builtin("global_invocation_id") gid: vec3u) { console.log(
   it("puts the program's portable IR in the manifest with ir: true, and only then (change 0025)", async () => {
     const src = `"use typeshade";
 declare const ys: storage<array<f32>, "read_write">;
-@compute([1])
-export function note(@builtin("global_invocation_id") gid: vec3u) { ys[gid.x] = 1.; }
+export const note = compute([1], function note(gid: builtin<"global_invocation_id", vec3u>) { ys[gid.x] = 1.; });
 `;
     const file = join(tempDir(), 'note.shade.ts');
     const code = async (options: Parameters<typeof typeshade>[0]): Promise<string> => {
@@ -332,16 +328,14 @@ export function prefix(out: array<f32>) {
     const src = `"use typeshade";
 declare const albedo: texture_2d<f32>;
 declare const smp: sampler;
-@diagnostic("off", "derivative_uniformity")
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   let c: vec4 = vec4(0., 0., 0., 1.);
   if (p.x > 8.) {
     c = textureSample(albedo, smp, p.xy / 16.);
   }
   console.log("x", p.x);
   return c;
-}
+}, { diagnostic: ["off", "derivative_uniformity"] });
 `;
     const directive = 'diagnostic(off, derivative_uniformity);';
     expect(compile(src, { fileName: 'branch.shade.ts' }).wgsl).toContain(directive);

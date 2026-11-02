@@ -17,7 +17,7 @@ function remap(filter: f32): f32 {
 
 @compute([64])
 export function main(@builtin("global_invocation_id") gid: vec3u): void {
-  if (gid.x >= arrayLength(xs)) { return; }
+  if (gid.x >= xs.length) { return; }
   const as = xs[gid.x];
   out[gid.x] = remap(as) + as;
 }

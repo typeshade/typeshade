@@ -34,7 +34,7 @@ import type { CpuValue } from '../../core/cpu-runtime.js';
 
 const LOCAL = `"use typeshade";
 class P {
-  v: f32;
+  v!: f32;
   bump(d: f32): void {
     this.v = this.v + d;
   }
@@ -42,13 +42,12 @@ class P {
     return this.v * 2.;
   }
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   let p = new P();
   p.bump(0.25);
   p.bump(0.5);
   return vec4(p.doubled(), 0., 0., 1.);
-}
+});
 `;
 
 describe('WGSL spells it as a pointer, and reads through it', () => {
@@ -66,7 +65,7 @@ describe('WGSL spells it as a pointer, and reads through it', () => {
   it('a pointer the function already holds is passed on, not addressed again', () => {
     const r = compile(`"use typeshade";
 class P {
-  v: f32;
+  v!: f32;
   bump(d: f32): void {
     this.v = this.v + d;
   }
@@ -75,12 +74,11 @@ class P {
     this.bump(d);
   }
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   let p = new P();
   p.twice(0.25);
   return vec4(p.v, 0., 0., 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('  P_bump(self_, d);\n  P_bump(self_, d);');
@@ -107,19 +105,18 @@ describe('one WGSL function per address space its calls use', () => {
 declare const ps: storage<array<P>, "read_write">;
 let held: P = { v: 0. };
 class P {
-  v: f32;
+  v!: f32;
   bump(d: f32): void {
     this.v = this.v + d;
   }
 }
-@compute([1, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([1, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   ps[gid.x].bump(0.25);
   held.bump(0.5);
   let local = new P();
   local.bump(1.);
   ps[gid.x].v = ps[gid.x].v + local.v + held.v;
-}
+});
 `;
 
   it('three spaces, three copies, each with its own pointer type', () => {
@@ -165,15 +162,14 @@ describe('a write through a reference is an effect', () => {
     const r = compile(`"use typeshade";
 declare const ps: storage<array<P>, "read_write">;
 class P {
-  v: f32;
+  v!: f32;
   bump(d: f32): void {
     this.v = this.v + d;
   }
 }
-@compute([1, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([1, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   ps[gid.x].bump(0.25);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect([...fnWrites(r.module).get('k')!]).toEqual(['ps']);
@@ -190,7 +186,7 @@ describe('both CPU backends see the write, as the GPU does', () => {
   it('the oracle and the codegen agree on a local receiver', () => {
     const r = compile(`"use typeshade";
 class P {
-  v: f32;
+  v!: f32;
   bump(d: f32): void {
     this.v = this.v + d;
   }
@@ -201,10 +197,9 @@ export function probe(): f32 {
   p.bump(0.5);
   return p.v;
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(probe(), 0., 0., 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     for (const make of [compileModule, compileModuleJs]) {
@@ -216,18 +211,17 @@ export function fs(): vec4 {
     const r = compile(`"use typeshade";
 declare const ps: storage<array<P>, "read_write">;
 class P {
-  v: f32;
+  v!: f32;
   bump(d: f32): void {
     this.v = this.v + d;
   }
 }
-@compute([4, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  if (gid.x >= u32(arrayLength(ps))) {
+export const k = compute([4, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
+  if (gid.x >= u32(ps.length)) {
     return;
   }
   ps[gid.x].bump(0.5);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     const bindings = { ps: [{ v: 1 }, { v: 2 }, { v: 3 }, { v: 4 }] as unknown as CpuValue };
