@@ -448,6 +448,96 @@ export function f(a: array<f32>) {
 }`,
     'This loop runs on the CPU because line 7 reads "a[behind(i)]", which another iteration writes. Read from an array the loop does not write.',
   ],
+  // #988: a parameter keeps the name its signature gives it and may share it with a value of the
+  // module (Rule 3.2), and a local may share its name with a function the module emits under it.
+  // The sentence names the parameter or the local as the author wrote it, not the static field or
+  // the function the module emits under the same name (`Voice_OFFSET`, `Voice_shift`).
+  [
+    'R4, an array parameter named like the emitted name of a static field',
+    `class Voice {
+  static OFFSET: u32 = 1;
+}
+export function f(xs: array<f32>, Voice_OFFSET: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    Voice_OFFSET.push(i);
+    xs[i] = f32(Voice_OFFSET.length);
+  }
+}`,
+    'This loop runs on the CPU because line 8 reads "Voice_OFFSET.length", and "Voice_OFFSET" is an array the loop pushes onto, whose length and elements depend on the iterations before. Read it after the loop.',
+  ],
+  [
+    'R3, an array parameter named like the emitted name of a class function',
+    `class Voice {
+  static shift(i: u32): u32 {
+    return i ^ 1;
+  }
+}
+export function f(xs: array<f32>, Voice_shift: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    Voice_shift.push(i);
+    Voice_shift[i] = 0;
+  }
+}`,
+    'This loop runs on the CPU because line 10 writes "Voice_shift" in place, and the loop also pushes onto it. Push every element, or write every element in place.',
+  ],
+  [
+    'R3, a local named like the emitted name of a class function',
+    `class Voice {
+  static shift(i: u32): u32 {
+    return i ^ 1;
+  }
+}
+export function f(a: array<f32>) {
+  let Voice_shift = 0.;
+  for (let i: u32 = 0; i < a.length; i++) {
+    Voice_shift = Voice_shift + a[i];
+    a[i] = Voice_shift;
+  }
+}`,
+    'This loop runs on the CPU because line 10 writes "Voice_shift", which the next iteration reads. Declare it inside the loop, or combine it with one of += *= min max & | ^.',
+  ],
+  // A read carries no span of its own, so the sentence prints it from the IR with the names of the
+  // table: a parameter or a local in the index is worded as written too.
+  [
+    'R4, a read at a parameter named like the emitted name of a static field',
+    `class Voice {
+  static OFFSET: u32 = 1;
+}
+export function f(a: array<f32>, Voice_OFFSET: u32) {
+  for (let i: u32 = 1; i < a.length; i++) {
+    a[i] = a[i] + a[i - Voice_OFFSET];
+  }
+}`,
+    'This loop runs on the CPU because line 7 reads "a[i - Voice_OFFSET]", which another iteration writes. Read from an array the loop does not write.',
+  ],
+  [
+    'R4, a read at a local named like the emitted name of a class function',
+    `class Voice {
+  static shift(i: u32): u32 {
+    return i ^ 1;
+  }
+}
+export function f(a: array<f32>) {
+  const Voice_shift: u32 = 1;
+  for (let i: u32 = 1; i < a.length; i++) {
+    a[i] = a[i] + a[i - Voice_shift];
+  }
+}`,
+    'This loop runs on the CPU because line 10 reads "a[i - Voice_shift]", which another iteration writes. Read from an array the loop does not write.',
+  ],
+  [
+    'R3, a static field the loop writes keeps the name the author gave it',
+    `class Voice {
+  static count: f32 = 0.;
+}
+export function f(a: array<f32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    Voice.count = Voice.count + a[i];
+    a[i] = Voice.count;
+  }
+}`,
+    'This loop runs on the CPU because line 7 writes "Voice.count", which the next iteration reads. Declare it inside the loop, or combine it with one of += *= min max & | ^.',
+  ],
   [
     'R6, a console call',
     `export function noisy(a: array<f32>) {
@@ -1214,6 +1304,49 @@ export function f(out: array<f32>, t: array<f32>) {
       expect(edited(body), body).toEqual([]);
       expect(worded(body, 'f', 't')?.text, body).toBe(text);
     }
+  });
+
+  it('prints a parameter or a local as the author wrote it when the module emits a static field or a function under its name (#988)', () => {
+    // The module emits a static field that nothing writes as `Voice_OFFSET`, one the file writes as
+    // `Voice_count` and a class's function as `Voice_shift`. A parameter keeps the name its
+    // signature gives it and may share it with them (Rule 3.2), so the report names the parameter.
+    // A local that shares the name of a function is the same: the function is read by a call.
+    const VOICE = `class Voice {
+  static OFFSET: u32 = 1;
+  static count: u32 = 1;
+  static bump(): void {
+    Voice.count += 1;
+  }
+  static shift(i: u32): u32 {
+    return i ^ 1;
+  }
+}`;
+    const reading = (params: string, before: string, index: string): string =>
+      `${VOICE}\nexport function f(out: array<f32>, t: array<f32>${params}) {\n  for (let i: u32 = 0; i < out.length; i++) {${before}\n    out[i] = t[${index}];\n  }\n}`;
+    for (const name of ['Voice_OFFSET', 'Voice_count', 'Voice_shift']) {
+      const sources = [
+        reading(`, ${name}: u32`, '', `i + ${name}`),
+        reading('', `\n    const ${name}: u32 = 2;`, `i + ${name}`),
+      ];
+      for (const body of sources) {
+        // The program is legal in both halves, and the report words the read as written.
+        expect(compiled(body), body).toEqual([]);
+        expect(edited(body), body).toEqual([]);
+        expect(worded(body, 'f', 't')?.text, body).toBe(`t[i + ${name}]`);
+      }
+    }
+    // The static field and the function themselves keep the names the author gave them.
+    const own = `${VOICE}
+export function g(out: array<f32>, t: array<f32>, u: array<f32>, v: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = t[i + Voice.OFFSET] + u[i + Voice.count] + v[Voice.shift(i)];
+  }
+}`;
+    expect(compiled(own)).toEqual([]);
+    expect(edited(own)).toEqual([]);
+    expect(worded(own, 'g', 't')?.text).toBe('t[i + Voice.OFFSET]');
+    expect(worded(own, 'g', 'u')?.text).toBe('u[i + Voice.count]');
+    expect(worded(own, 'g', 'v')?.text).toBe('v[Voice.shift(i)]');
   });
 
   it('prints a length as the author wrote it, `xs.length`, and not as the IR spells it', () => {

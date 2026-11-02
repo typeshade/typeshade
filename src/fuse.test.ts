@@ -1414,6 +1414,54 @@ export function gather(out: array<f32>, t: array<f32>) {
     ]);
   });
 
+  it('words a read at a parameter named like the emitted name of a static field as the parameter (#988)', async () => {
+    // The module emits a static field that nothing writes as the constant `Voice_OFFSET`, and a
+    // parameter of that name is the parameter (Rule 3.2). The reason is written at build time from
+    // the loop's IR, and says `Voice_OFFSET`, not `Voice.OFFSET`.
+    const NAMED = `"use typeshade";
+class Voice {
+  static OFFSET: u32 = 1;
+}
+export function add(out: array<f32>, a: array<f32>, b: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i] + b[i];
+  }
+}
+export function gather(out: array<f32>, t: array<f32>, Voice_OFFSET: u32) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = t[i + Voice_OFFSET];
+  }
+}
+`;
+    const built = hostFace(NAMED, {
+      fileName: '/app/named.shade.ts',
+      runtime: RUNTIME,
+      fuse: true,
+    });
+    expect(built.diagnostics).toEqual([]);
+    const gpu = fakeGpu();
+    const m = (await loadCode(built.code!, 'named')) as unknown as Record<'add' | 'gather', Call>;
+    const [t, out] = [zeros(4), zeros(4)];
+    const [a, b] = [live(1, 2, 3, 4), live(1, 1, 1, 1)];
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.gather(out, t, 1);
+    });
+    const line = NAMED.split('\n').findIndex((l) => l.includes('t[i + Voice_OFFSET]')) + 1;
+    // The read keeps the two calls apart, and the reason names the parameter as it is written.
+    expect(gpu.flow).toEqual([dispatch, dispatch, 'submit']);
+    expect(report.groups).toEqual([
+      { calls: ['add'], fused: false, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
+      {
+        calls: ['gather'],
+        fused: false,
+        tier: 'webgpu',
+        workgroupShapes: [[64, 1, 1]],
+        why: `add and gather run as two dispatches because gather reads \`t[i + Voice_OFFSET]\` (line ${line})`,
+      },
+    ]);
+  });
+
   it.each([
     ['a namespace constant', 'namespace Ns {\n  export const K: u32 = 1;\n}\n', '', 't[i + Ns.K]'],
     ['an enum member', 'enum Mode {\n  A,\n  B,\n}\n', '', 't[u32(i32(i) + Mode.B)]'],

@@ -1563,6 +1563,18 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   TypeScript has no spelling like `count.bump`, so the sentence names it so; a copy is named as the
   local function it is made from, as the copy of a function of the top level is (#972).
 
+- **A parameter named like the name the module emits a static field or a function under is worded as
+  the parameter (#988).** The name table of a kernel function was one map keyed by IR name. A
+  parameter keeps the name its signature gives it and may share it with a value of the module (Rule
+  3.2), so the parameter `Voice_OFFSET` beside `class Voice { static OFFSET: u32 = 1; }` was worded
+  as the field: the fusion report said that `gather` reads `t[i + Voice.OFFSET]`, and a `TS8070`
+  sentence named an array parameter `Voice_OFFSET` as `Voice.OFFSET`. The same held for a parameter
+  named like a static field the file writes (`Voice_count`) or like a class's function
+  (`Voice_shift`), and for a local named like a function. The table is now three: the locals and
+  the parameters, the static fields, and the functions. A parameter reads the first, a variable or
+  a constant the first two, and a call the third, so each name is the one the author wrote. The
+  static field and the function themselves keep their names (`Voice.OFFSET`, `Voice.shift`).
+
 - **A kernel function's loop that writes at the counter added to a value the loop does not change
   runs on the GPU (#983).** `for (let n: u32 = 0; n < block.length; n++) tape[at + n] = block[n];`
   was refused with `TS8070`: the loop "writes `tape[at + n]`, an element two iterations can share",
