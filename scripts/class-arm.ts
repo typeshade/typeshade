@@ -623,8 +623,8 @@ function twinSource(
   for (const t of members) {
     const tag = t.m.tag;
     const fields = [
-      ...ctor.map((ty, j) => `  c${String(j)}: ${authorTypeText(ty)};`),
-      ...t.params.map((ty, j) => `  a${String(j)}: ${authorTypeText(ty)};`),
+      ...ctor.map((ty, j) => `  c${String(j)}!: ${authorTypeText(ty)};`),
+      ...t.params.map((ty, j) => `  a${String(j)}!: ${authorTypeText(ty)};`),
     ];
     const hasArgs = fields.length > 0;
     if (hasArgs) lines.push(`class Args_${tag} {`, ...fields, '}');
