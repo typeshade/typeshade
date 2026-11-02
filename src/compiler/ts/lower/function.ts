@@ -253,8 +253,12 @@ export function lowerSourceFunctions(
       stmt.name !== undefined
     ) {
       const base = irName ?? stmt.name.text;
-      if (fnAt.size > 0 && decoratorsOf(stmt).length > 0) {
-        // An entry's parameters come from the pipeline, and no call hands it anything.
+      if (
+        fnAt.size > 0 &&
+        (decoratorsOf(stmt).length > 0 || stageCallOfDeclaration(stmt) !== undefined)
+      ) {
+        // An entry's parameters come from the pipeline, and no call hands it anything. A stage
+        // call's function is an entry as a decorated one is (change 0111).
         pushDiag(
           diagnostics,
           sourceFile,
