@@ -243,6 +243,23 @@ const refusedMember = (name: string, member: string, scope: LoweringScope): bool
   );
 
 /**
+ * What is said of a static that builds its value with `new this()` under the `this` parameter of
+ * 0020 when it is called through an `abstract` class, up to its last full stop: the abstract class
+ * has no instance to build, and a class that extends it has. `through` is that class, when there
+ * is one to name. The compiler says it at the call (`abstractBuilderSentence`, TS8035), and the host
+ * view as the reason of the static it declares `never` (`classMembers` in `host-face.ts`), so the
+ * compiler and the editor's hover over the member read the same words (Rule 12.7).
+ */
+export const abstractBuilderText = (
+  shown: string,
+  member: string,
+  through: string | undefined,
+): string =>
+  `"${shown}.${member}()" builds its value with "new this()", and "${shown}" is abstract, so ` +
+  `there is no instance of it to build. Call it through a class that extends it` +
+  (through === undefined ? '' : `, "${through}.${member}()"`);
+
+/**
  * The refusal of a call of a static through an `abstract` class when the static builds its value
  * with `new this()` under the `this` parameter of 0020: `this` is the class the call names, and an
  * abstract class has no instance to build, as TypeScript says of the call (TS2684). The static is
@@ -271,15 +288,14 @@ function abstractBuilderSentence(
           );
     if (written === undefined) continue;
     if (!buildsCallerClass(written)) return undefined;
-    const shown = classOfStruct(owner).written;
     const through = classes.find(
       (s) => !s.abstract && s.binding === undefined && scope.extendsStruct(s.decl.name, owner),
     );
-    return (
-      `"${shown}.${member}()" builds its value with "new this()", and "${shown}" is abstract, so ` +
-      `there is no instance of it to build. Call it through a class that extends it` +
-      (through === undefined ? '.' : `, "${classOfStruct(through.decl.name).written}.${member}()".`)
-    );
+    return `${abstractBuilderText(
+      classOfStruct(owner).written,
+      member,
+      through === undefined ? undefined : classOfStruct(through.decl.name).written,
+    )}.`;
   }
   return undefined;
 }

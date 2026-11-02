@@ -2046,6 +2046,128 @@ export { t, g, u };
     expect(never.startsWith('Scales by the uniform.')).toBe(true);
     expect(never).toContain(refused(BINDING));
   });
+
+  describe('the static builder of an abstract class (#974)', () => {
+    // `new this()` under the `this` parameter of change 0020 builds the class a call names, so the
+    // module has no function of that static for the abstract class: it is lowered for `Saw` and for
+    // `Square`. The view declares it `never` on the abstract class, and the reason is the sentence
+    // the compiler gives a call through that class (TS8035), not the one every member that was not
+    // lowered gets.
+    const source = `"use typeshade";
+
+/** A source of samples. */
+export abstract class Oscillator {
+  protected inc: f32 = 0.;
+  protected abstract wave(p: f32): f32;
+  /** Builds the oscillator the call names. */
+  static at<C extends Oscillator>(this: { new (): C }, f: f32, sr: f32): C {
+    const o = new this();
+    o.inc = f / sr;
+    return o;
+  }
+  tick(): f32 {
+    return this.wave(this.inc);
+  }
+}
+
+export class Saw extends Oscillator {
+  protected wave(p: f32): f32 {
+    return 2. * p - 1.;
+  }
+}
+
+export abstract class Mid extends Oscillator {}
+
+export class Square extends Mid {
+  protected wave(p: f32): f32 {
+    return p < 0.5 ? 1. : -1.;
+  }
+}
+`;
+    const reason =
+      '"Oscillator.at()" builds its value with "new this()", and "Oscillator" is abstract, so there is no instance of it to build. Call it through a class that extends it, "Saw.at()"';
+
+    it('is declared never with that sentence as its reason, on its line of the view and in a host’s hover', () => {
+      // Both halves of the shader take the program (Rule 12.7); the view is the compiler's.
+      const f = faceOf(source);
+      expect(f.view).toContain(`export declare abstract class Oscillator {
+  protected inc: f32;
+  /** Builds the oscillator the call names.
+   *
+   * ${refused(reason)}
+   */
+  static at: never;
+  tick(): f32;
+}
+`);
+      expect(f.view).not.toContain('was not lowered');
+      // An abstract class below it names itself, and the class that extends that one.
+      expect(f.view).toContain(`export declare abstract class Mid extends Oscillator {
+  /** Builds the oscillator the call names.
+   *
+   * ${refused(
+     '"Mid.at()" builds its value with "new this()", and "Mid" is abstract, so there is no instance of it to build. Call it through a class that extends it, "Square.at()"',
+   )}
+   */
+  static at: never;
+}
+`);
+      // The classes that extend it declare the static, and a host calls it through them.
+      expect(f.view).toContain('  static at(f: f32, sr: f32): Saw;');
+      expect(f.view).toContain('  static at(f: f32, sr: f32): Square;');
+      // The editor's hover over the member in a host program shows the author's words and then the
+      // reason, and the call is a type error at the host's line; the call through `Saw` is not.
+      const host = `import { Oscillator, Saw } from './m.shade.ts';
+const a = Oscillator.at(0.25, 1);
+const b = Saw.at(0.5, 1);
+export { a, b };
+`;
+      const read = hover(f.view!, host, 'at(0.25');
+      expect(read.documentation).toBe(
+        `Builds the oscillator the call names.\n\n${refused(reason)}`,
+      );
+      expect(read.errors).toHaveLength(1);
+      expect(read.errors[0]).toMatch(
+        /^This expression is not callable\.\s+Type 'never' has no call signatures\.$/,
+      );
+      expect(hover(f.view!, host, 'at(0.5').documentation).toBe(
+        'Builds the oscillator the call names.',
+      );
+    });
+
+    it('is the sentence the compiler gives a call through the abstract class, in both halves', () => {
+      const called = `${source}
+export function make(): f32 {
+  let o = Oscillator.at(0.25, 1.);
+  return o.tick();
+}
+`;
+      const said = `${reason}.`;
+      expect(
+        compile(called, { fileName: 'm.shade.ts' }).diagnostics.map((d) => [d.code, d.message]),
+      ).toEqual([['TS8035', said]]);
+      const service = createTypeshadeLanguageService();
+      service.openDocument('m.shade.ts', called);
+      expect(
+        service
+          .getDiagnostics('m.shade.ts')
+          .filter((d) => d.severity === 'error')
+          .map((d) => [d.code, d.message]),
+      ).toEqual([['TS8035', said]]);
+      // The view of the program that has no such call says it word for word.
+      expect(faceOf(source).view).toContain(said);
+    });
+
+    it('is thrown by the generated module, whose classes below the abstract one build', async () => {
+      const m = await load(source);
+      const Oscillator = m.Oscillator as { at(f: number, sr: number): unknown };
+      expect(() => Oscillator.at(0.25, 1)).toThrow(
+        new TypeError(`Oscillator.at cannot be called from host code: ${reason}`),
+      );
+      const Saw = m.Saw as { at(f: number, sr: number): { tick(): number } };
+      expect(Saw.at(0.25, 1).tick()).toBe(-0.5);
+    });
+  });
 });
 
 describe('a host call (Rule 8.21)', () => {
