@@ -6,6 +6,7 @@ rules:
   - '8.21'
 surface:
   - 64
+  - 74
 exports:
   - f32
   - f64
@@ -55,6 +56,26 @@ exports:
   - mat4x3f
   - mat4x4f
   - array
+  - argMaxAxis
+  - argMinAxis
+  - clip
+  - fill
+  - histogram
+  - max
+  - maxAxis
+  - meanAxis
+  - min
+  - minAxis
+  - prodAxis
+  - scale
+  - sequence
+  - sum
+  - sumAxis
+  - fillUniform
+  - fillWords
+  - hash32
+  - uniform
+  - xorshift32
 exports-removed: []
 codes: []
 examples: []
@@ -64,9 +85,9 @@ downstream:
   - repo: vscode-typeshade
     what: The skill's host reference (`references/host.md`) where it quotes a host view, and any fixture that pins a view's text, change to the family's spelling; `compiler-changes.md` records 0116 when the pin moves.
   - repo: typenn
-    what: Nothing must change in its source. Its generated views change spelling on the next pin, and its host code keeps type-checking, since each family type is assignable from and to the spelling it replaces (D1 is the one stated exception); `compiler-changes.md` records 0116 when the pin moves.
+    what: Its generated views change spelling on the next pin. Its host code keeps type-checking except where item 4 names an exception (a result held in a mutable type, a value of one name where another goes, a matrix held as an array of unknown length, a plain object where an exported class's instance goes), each fixed by an annotation at the line `tsc` names; `compiler-changes.md` records 0116 when the pin moves.
   - repo: typecv
-    what: Nothing must change in its source, as for typenn; `compiler-changes.md` records 0116 when the pin moves.
+    what: As for typenn; `compiler-changes.md` records 0116 when the pin moves.
 ---
 
 <!-- doc-refs: skip-file — a draft proposal names a file, tests and text its implementation adds -->
@@ -82,6 +103,7 @@ downstream:
 | Review baseline               | `main` at `800969063df86573107fc795e619cf3540853595` (the squash merge of pull request #872, proposal 0109), read on 2026-11-02.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Renumbering                   | Drafted, accepted and merged as proposal 0111 in pull request #876 (squash commit `8b1a8fe`). Pull request #875 then merged another proposal with the id 0111 (`changes/0111-plain-typescript-entries.md`, merge commit `8ac4796`), so `src/changes.test.ts` failed on `main`. This proposal takes the next free number, 0116, on 2026-11-02; the earlier number stays in the records of #876 and its commits. The content does not change.                                                                                                                                                                                                                                                                                         |
 | Review and revision authority | Pull request [#876](https://github.com/typeshade/typeshade/pull/876) (branch `claude/proposal-0111-host-type-family`). Git records the revisions of this file. The review and merge of that pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Amendment 1                   | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction, on the branch `claude/0116-amend-scope`, after the implementation in pull request [#918](https://github.com/typeshade/typeshade/pull/918) measured what item 3 reaches. It declares the twenty exports of `typeshade/algorithms` and `typeshade/random` and surface §74 that item 3 reshapes, and resolves decisions D7 to D10 found in the implementation. Items 1, 2 and 5 and decisions D1 to D6 do not change. The merge of its pull request with `status: accepted` records the decision.                                                                                                                                                           |
 
 ## What changes
 
@@ -148,10 +170,32 @@ export declare function run(out: Float32Array | Resident<Float32Array>, xs: Floa
    `@compute` entry in the manifest's `Pack<…>` type is spelled the same way, `array<f32>` for a
    runtime-sized storage array and `Camera` for a `uniform<Camera>`.
 
+   The spelling reaches two places the first revision did not name (Amendment 1). The host faces
+   of the common modules, `typeshade/algorithms` and `typeshade/random`, are baked views (Rule
+   11.20), so their exports in `src/__api__/surface.md` take the family's names where a scalar
+   was `number`: `axis: u32`, `lo: f32`, `Promise<f32>` for a reduction, `seed: u32`, and
+   `(x: u32) => u32` for `hash32`. The twenty exports are listed in the front matter, and their
+   values do not change. A kernel function's `Set<K>` or `Map<K, V>` (§74) is spelled with the
+   key's name, `Set<u32>` and `Map<u32, V>`.
+
+   A struct is spelled with its name as an argument and as a result (D7). For a struct declared
+   as an `interface` or a `type`, the name is the object of its fields. For an exported class,
+   the name is the class, so a host program passes an instance it built with `new`, as
+   `array<OnePole>` in the listing above; the call keeps taking a plain object of the fields
+   (Rule 8.21, the values do not change). A binding of a struct type in the manifest's `Pack<…>`
+   type is spelled with the struct's name beside the packed forms the manifest lists today (D8).
+   A matrix carries its name as a scalar does (D9), so that `array<mat2x2>` resolves to an array
+   of matrices and not to the typed array that `array<vec4>` resolves to.
+
 4. **Compatibility.** A host program that type-checked against the old spelling type-checks
-   against the new one: each family type is assignable from the value the old spelling named,
-   and to it. D1 is the one stated exception: a result is `readonly`, so a program that wrote
-   into a result tuple in place must copy it first.
+   against the new one where it holds each value in the shape the old spelling gave it, since
+   each family type is assignable from that value. The exceptions, each a type error at the
+   host's own line that one annotation fixes (D10, Amendment 1): a result is `readonly` (D1), so
+   a program that wrote into a result tuple in place copies it first; a value of one name where
+   another goes, an `f32` result held as a `u32`, is refused, which is the point of the names; a
+   matrix held in a type of unknown length (`number[]`) takes the family's name; a result held
+   in a mutable tuple type takes the family's name; and a plain object where an exported class's
+   instance goes (D7) is built with `new`.
 5. **The family is held to the ambient library.** A test fails when the ambient library
    (`src/language-service/ambient.ts`) declares an authorable value type the family lacks, or
    the family a name the library does not declare, in the shape of Rule 9.6's shrink-only test.
@@ -233,6 +277,26 @@ bundle.
   `Uint32Array`.
 - **D6.** `bool` is flavored as the scalars are (the draft), `boolean & { readonly [tag]?: 'bool' }`,
   for one shape across the family.
+- **D7 (Amendment 1).** A struct argument: spelled with its name (the amendment), or with its
+  fields, as the view spelled it before. The name is the point of the proposal. For an exported
+  class the name is the class, and an instance built with `new` has run its constructor, which
+  a plain object has not.
+- **D8 (Amendment 1).** A struct binding in the manifest: spelled with its name beside the
+  packed forms the manifest lists today (the amendment), or with its fields. The packed forms
+  stay, because the runtime takes them.
+- **D9 (Amendment 1).** A matrix carries its name as a phantom property (the amendment), or is
+  a bare tuple. Bare, `mat2x2` and `vec4` are one shape, and `array<mat2x2>` resolves to the
+  wrong host value.
+- **D10 (Amendment 1).** Item 4 names its exceptions (the amendment), or claims full
+  compatibility. The implementation found three cases the first revision did not name.
+
+**Amendment 1 (2026-11-02).** The implementation (pull request #918) measured item 3 with
+`bun scripts/changes.ts --base origin/main`: the spelling reshapes twenty exports of the common
+modules, whose host faces are baked views, and the sentence of §74 that names the key type of a
+`Set` or a `Map`. The first revision declared neither, so the work stopped there (`CLAUDE.md`: a
+change does only what its record declares). The implementation also found four points the first
+revision left open: a struct argument of an exported class, a struct binding, a matrix's name and
+item 4's claim. The amendment declares the two places and resolves the four points (D7 to D10).
 
 ## What it touches
 
@@ -240,8 +304,12 @@ bundle.
   vector's result is a `readonly` tuple (D1). The values the rule defines do not change.
 - **surface 64.** The host values table gains the column "spelled in the view as", and the
   listings of the section are written in the family's names.
+- **surface 74.** The sentence on how the view types the parameter: `Set<u32>` and
+  `Map<u32, V>`, with the key's name (Amendment 1).
 - **exports.** The names of the front matter, type-only, from `typeshade/runtime`, listed in
-  `src/__api__/surface.md`.
+  `src/__api__/surface.md`; and the twenty exports of `typeshade/algorithms` and
+  `typeshade/random` whose signatures the baked views spell with the family (Amendment 1):
+  reshaped, not added, and their values do not change.
 - **codes, examples: none.** No diagnostic is added, and the examples do not change; their
   generated views do, on the next `tshc sync`.
 
@@ -265,7 +333,9 @@ texts, which change wholesale; the rule and the section. Compatibility: item 4, 
 stated exception. Bundle: none, the family is types only. Dependencies: none; proposal 0109's
 view printer for a class is written once, after this proposal, so that it spells with the
 family from the start. Downstream: documentation copies and regenerated views; no source change
-in typenn or typecv. Duration and cost: unknown, no basis for an estimate.
+in typenn or typecv. Duration and cost: unknown, no basis for an estimate. Amendment 1: the
+twenty exports' lines in the surface bake, §74's sentence, the struct and binding spelling and
+the matrix name; the downstream host code may need the annotations item 4 names.
 
 ### Approval and plan record
 
@@ -284,9 +354,24 @@ view printer of proposal 0109 is finished, or by changing that printer's spellin
 pull request where 0109 lands first. No milestone date is assigned. No duration or cost estimate
 is established.
 
+**Amendment 1.** The owner approved the amendment in the Claude Code session on 2026-11-02 (UTC),
+in Korean ("승인", approve), in answer to the agent's report of the measurement, the four open
+points and the recommendation for D7 to D10. D7 to D10 are accepted as drafted. The merge of the
+pull request of the branch `claude/0116-amend-scope` with `status: accepted` records the
+decision. The agent of pull request #918 lands item 3 on that branch, with the twenty exports,
+§74 and D7 to D10, in commits that say `Change: 0116`.
+
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the accepted revision, the implementing
+Partial delivery, 2026-11-02: pull request [#918](https://github.com/typeshade/typeshade/pull/918)
+(draft, branch `claude/0116-host-type-family`), commit `6350b629`, delivers items 1, 2 and 5 and
+decisions D2 to D6 (`src/runtime/host-types.ts`, its parity test `src/runtime/host-types.test.ts`,
+the 48 names in `src/__api__/surface.md`, one gzip byte in `scripts/bundle-budget.json`), and
+commit `e276b254` the `CHANGELOG.md` entry. The branch `claude/0116-item3-wip` (`0bad98ca`) holds
+item 3 as implemented before Amendment 1, not for merge. The record below is written when item 3
+lands.
+
+This record does not yet apply in full. Delivery will require the accepted revision, the implementing
 pull requests with `Change: 0116` in their commits, the delivered configuration, the observed
 results of the functional validation (the tests, the parity test per TypeScript version, the
 journeys gate and the build) and the document validation (`bun run docs:refs`,
