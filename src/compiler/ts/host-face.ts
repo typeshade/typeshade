@@ -95,6 +95,7 @@ import {
 } from '../../core/manifest.js';
 import type { PackLayout } from '../../core/manifest-types.js';
 import { collectionKeyOf, keyTypeText, keysOf, recordKeyText, recordOf } from './key-types.js';
+import { commentLines, exportDocs, type DocBlock, type ExportDocs } from './host-docs.js';
 
 /** How {@link hostFace} is called. */
 export interface HostFaceOptions {
@@ -350,8 +351,35 @@ function resultType(t: HostType, named: ReadonlyMap<string, string>): string {
   }
 }
 
-function structBody(t: HostType & { k: 'struct' }, named: ReadonlyMap<string, string>): string {
-  return `{ ${t.f.map(([n, ft]) => `${n}: ${resultType(ft, named)}`).join('; ')} }`;
+/** The body of a struct's type: one line, or, when the author commented a field (change 0108), each
+ *  field on its own line below its comment. */
+function structBody(
+  t: HostType & { k: 'struct' },
+  named: ReadonlyMap<string, string>,
+  fieldDocs?: ReadonlyMap<string, readonly DocBlock[]>,
+): string {
+  if (fieldDocs === undefined || !t.f.some(([n]) => fieldDocs.has(n)))
+    return `{ ${t.f.map(([n, ft]) => `${n}: ${resultType(ft, named)}`).join('; ')} }`;
+  const fields = t.f.flatMap(([n, ft]) => [
+    ...commentLines(fieldDocs.get(n) ?? [], undefined, '  '),
+    `  ${n}: ${resultType(ft, named)};`,
+  ]);
+  return `{\n${fields.join('\n')}\n}`;
+}
+
+/** The type of an `enum`'s value: one line, or, when the author commented a member (change 0108),
+ *  each member on its own line below its comment. */
+function enumBody(
+  members: readonly (readonly [string, number])[],
+  memberDocs?: ReadonlyMap<string, readonly DocBlock[]>,
+): string {
+  if (memberDocs === undefined || !members.some(([n]) => memberDocs.has(n)))
+    return `{ ${members.map(([n, v]) => `readonly ${n}: ${v}`).join('; ')}; readonly [value: number]: string }`;
+  const lines = members.flatMap(([n, v]) => [
+    ...commentLines(memberDocs.get(n) ?? [], undefined, '  '),
+    `  readonly ${n}: ${v};`,
+  ]);
+  return `{\n${lines.join('\n')}\n  readonly [value: number]: string;\n}`;
 }
 
 /** `T` as the element of `T[]`, parenthesized when it would bind wrong. */
@@ -615,7 +643,12 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
   };
 
   const exports: HostExport[] = [];
+  // The author's JSDoc of each export, which the view carries (change 0108).
+  const docs = new Map<string, ExportDocs>();
   for (const ref of exportsOf(faceSource)) {
+    const written =
+      ref.decl === undefined ? undefined : exportDocs(ref.decl, faceSource, linked?.linked);
+    if (written !== undefined) docs.set(ref.name, written);
     exports.push(
       faceOf(ref, {
         sf: faceSource,
@@ -737,7 +770,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
   return {
     diagnostics: r.diagnostics,
     exports: logged,
-    view: viewText(stem, logged, options.runtime ?? 'typeshade/runtime/internal', pack),
+    view: viewText(stem, logged, options.runtime ?? 'typeshade/runtime/internal', pack, docs),
     code: moduleText(
       stem,
       logged,
@@ -1900,11 +1933,18 @@ function programType(pack: Pack): string {
 const WORKGROUPS =
   'number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }';
 
+/** What a call made without `await` is, which the sentence of a kernel function and of a `@compute`
+ *  entry say where the developer reads (change 0108; Rule 11.8). `written` names what the call
+ *  writes. */
+const queuedCall = (written: 'arrays' | 'bindings'): string =>
+  `A call whose written ${written} are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.`;
+
 function viewText(
   stem: string,
   exports: readonly HostExport[],
   runtime: string,
   pack: Pack,
+  docs: ReadonlyMap<string, ExportDocs>,
 ): string {
   const program = programType(pack);
   // An exported struct goes by its exported name wherever it stands in a result.
@@ -1935,31 +1975,43 @@ function viewText(
   )
     out.push(`import type { Texture } from ${JSON.stringify(runtime)};`);
   for (const e of exports) {
+    // The comment above an export: the author's JSDoc, and the view's own sentence, if it writes
+    // one, at the end of the last block (change 0108).
+    const doc = docs.get(e.name);
+    const above = (sentence?: string): string[] => commentLines(doc?.blocks ?? [], sentence);
     switch (e.kind) {
       case 'function': {
         const params = e.params.map((p) => `${p.name}: ${argType(p.type)}`).join(', ');
-        out.push(`export declare function ${e.name}(${params}): ${resultType(e.result, named)};`);
+        out.push(
+          ...above(),
+          `export declare function ${e.name}(${params}): ${resultType(e.result, named)};`,
+        );
         break;
       }
       case 'const':
-        out.push(`export declare const ${e.name}: ${constType(e.type)};`);
+        out.push(...above(), `export declare const ${e.name}: ${constType(e.type)};`);
         break;
       case 'enum': {
-        const members = e.members.map(([n, v]) => `readonly ${n}: ${v}`).join('; ');
         const values = [...new Set(e.members.map(([, v]) => v))].join(' | ') || 'never';
         out.push(
-          `export declare const ${e.name}: { ${members}; readonly [value: number]: string };`,
+          ...above(),
+          `export declare const ${e.name}: ${enumBody(e.members, doc?.members)};`,
           `export type ${e.name} = ${values};`,
         );
         break;
       }
       case 'struct':
-        out.push(`export interface ${e.name} ${structBody(e.type, named)}`);
+        out.push(
+          ...above(),
+          `export interface ${e.name} ${structBody(e.type, named, doc?.members)}`,
+        );
         break;
       case 'compute': {
         const [x, y, z] = e.entry.wg;
         out.push(
-          `/** A \`@compute\` entry, \`@workgroup_size(${x}, ${y}, ${z})\`: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Resident a call wrote (change 0075); each binding the entry writes is read back into your value in place, or stays on the device in a Resident. The shape shown is its default; options.constants selects declared overrides without changing workgroups (Rules 8.24 and 11.8). */`,
+          ...above(
+            `A \`@compute\` entry, \`@workgroup_size(${x}, ${y}, ${z})\`: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Resident a call wrote (change 0075); each binding the entry writes is read back into your value in place, or stays on the device in a Resident. The shape shown is its default; options.constants selects declared overrides without changing workgroups (Rules 8.24 and 11.8). ${queuedCall('bindings')}`,
+          ),
           ...(e.queuedType !== undefined
             ? [
                 `export declare function ${e.name}(bindings: ${e.queuedType}, workgroups: ${WORKGROUPS}, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): void;`,
@@ -2011,7 +2063,9 @@ function viewText(
             ? " A loop whose trip count it reads from an array runs from a count the GPU computes, with nothing read back, and its writes past an array's end are dropped (Rule 8.21)."
             : '';
         out.push(
-          `/** A kernel function (Rule 8.22). ${where}. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8).${counted}${pushes} */`,
+          ...above(
+            `A kernel function (Rule 8.22). ${where}. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8).${counted}${pushes} ${queuedCall('arrays')}`,
+          ),
         );
         // With every written array a `Resident` and no result, nothing waits: the call queues.
         if (f.result.k === 'void' && f.params.some((p) => p.k === 'array' && p.writes))
@@ -2023,12 +2077,14 @@ function viewText(
       }
       case 'fragment':
         out.push(
-          `/** A full-screen \`@fragment\` entry: draws one frame into \`target\`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24). */`,
+          ...above(
+            `A full-screen \`@fragment\` entry: draws one frame into \`target\`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24).`,
+          ),
           `export declare function ${e.name}(target: HTMLCanvasElement | OffscreenCanvas, bindings: ${e.bindingsType}): Promise<void>;`,
         );
         break;
       case 'never': {
-        out.push(`/** Not callable from host code (Rule 8.20): ${e.reason}. */`);
+        out.push(...above(`Not callable from host code (Rule 8.20): ${e.reason}.`));
         if (e.typeOnly) out.push(`export type ${e.name} = never;`);
         else out.push(`export declare const ${e.name}: never;`);
         break;

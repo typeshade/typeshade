@@ -3,124 +3,262 @@
 
 import type { Resident } from "typeshade/runtime/internal";
 import type { Pack } from "typeshade/runtime/internal";
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = x[i]`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function copy(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function copy(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = value`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function fill(out: Resident<Float32Array>, value: number): void;
 export declare function fill(out: Float32Array | Resident<Float32Array>, value: number): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = start + i * step`, with `i` converted to `f32` first.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function sequence(out: Resident<Float32Array>, start: number, step: number): void;
 export declare function sequence(out: Float32Array | Resident<Float32Array>, start: number, step: number): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = a[i] + b[i]`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function add(out: Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): void;
 export declare function add(out: Float32Array | Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = a[i] - b[i]`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function sub(out: Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): void;
 export declare function sub(out: Float32Array | Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = a[i] * b[i]`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function mul(out: Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): void;
 export declare function mul(out: Float32Array | Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = a[i] / b[i]`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function div(out: Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): void;
 export declare function div(out: Float32Array | Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = x[i] * k`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function scale(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, k: number): void;
 export declare function scale(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, k: number): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = abs(x[i])`. The host face exports it as `abs`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function absMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function absMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = -x[i]`. The host face exports it as `neg`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function negMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function negMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = sqrt(x[i])`. The host face exports it as `sqrt`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function sqrtMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function sqrtMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = 1 / sqrt(x[i])`, the builtin `inverseSqrt`. The host face exports it as `rsqrt`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function rsqrtMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function rsqrtMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = exp(x[i])`. The host face exports it as `exp`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function expMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function expMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = log(x[i])`. The host face exports it as `log`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function logMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function logMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = exp(x[i]) - 1`, with a series where `|x| < 0.01`, where the subtraction would lose
+ *  digits (TypeNN's formula). The host face exports it as `expm1`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function expm1Map(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function expm1Map(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = log(1 + x[i])`, with a series where `|x| < 0.01`, where the addition would lose
+ *  digits (TypeNN's formula). The host face exports it as `log1p`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function log1pMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function log1pMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = floor(x[i])`. The host face exports it as `floor`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function floorMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function floorMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = ceil(x[i])`. The host face exports it as `ceil`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function ceilMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function ceilMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = round(x[i])`, to the nearest even at a half on every tier. The host face exports it
+ *  as `round`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function roundMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function roundMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = sign(x[i])`: -1, 0 or 1. The host face exports it as `sign`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function signMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function signMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = sin(x[i])`. The host face exports it as `sin`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function sinMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function sinMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = cos(x[i])`. The host face exports it as `cos`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function cosMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function cosMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = tan(x[i])`. The host face exports it as `tan`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function tanMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function tanMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = tanh(x[i])`. The host face exports it as `tanh`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function tanhMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function tanhMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = 1 / (1 + exp(-x[i]))`, computed through `exp` of the non-positive side so that `exp`
+ *  never overflows (TypeNN's formula). The host face exports it as `sigmoid`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function sigmoidMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function sigmoidMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = max(x[i], 0)`. The host face exports it as `relu`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function reluMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void;
 export declare function reluMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = clamp(x[i], lo, hi)`. The host face exports it as `clip`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function clipMap(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, lo: number, hi: number): void;
 export declare function clipMap(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, lo: number, hi: number): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** The sum of `x`, folded in the tree order (Rule 7.2).
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function sum(x: Float32Array | Resident<Float32Array>): Promise<number>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** The largest element of `x`, folded in the tree order; `-Infinity` for an empty array is not a
+ *  value the tiers share, so the fold starts at the lowest finite `f32`. The host face exports it
+ *  as `max`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function maxAll(x: Float32Array | Resident<Float32Array>): Promise<number>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** The smallest element of `x`, folded in the tree order from the highest finite `f32`. The host
+ *  face exports it as `min`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function minAll(x: Float32Array | Resident<Float32Array>): Promise<number>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[o * inner + n] = Σ_k x[(o * axis + k) * inner + n]`, in ascending `k`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function sumAxis(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void;
 export declare function sumAxis(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** The sum along the axis divided by `axis`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function meanAxis(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void;
 export declare function meanAxis(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** The product along the axis, in ascending `k`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function prodAxis(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void;
 export declare function prodAxis(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** The largest element along the axis.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function maxAxis(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void;
 export declare function maxAxis(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** The smallest element along the axis.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function minAxis(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void;
 export declare function minAxis(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** The index along the axis of the largest element, as an `f32`; the first largest wins a tie.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function argMaxAxis(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void;
 export declare function argMaxAxis(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** The index along the axis of the smallest element, as an `f32`; the first smallest wins a
+ *  tie.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function argMinAxis(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void;
 export declare function argMinAxis(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = Σ_{t < i} x[t]`, the exclusive prefix sum. `sums` is the caller's scratch of at least
+ *  one element, one block sum each; the block is `ceil(x.length / sums.length)`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function exclusiveScan(out: Resident<Uint32Array>, x: Uint32Array | Resident<Uint32Array>, sums: Resident<Uint32Array>): void;
 export declare function exclusiveScan(out: Uint32Array | Resident<Uint32Array>, x: Uint32Array | Resident<Uint32Array>, sums: Uint32Array | Resident<Uint32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** `out[i] = Σ_{t <= i} x[t]`, the inclusive prefix sum, with `sums` as `exclusiveScan` takes
+ *  it.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function inclusiveScan(out: Resident<Uint32Array>, x: Uint32Array | Resident<Uint32Array>, sums: Resident<Uint32Array>): void;
 export declare function inclusiveScan(out: Uint32Array | Resident<Uint32Array>, x: Uint32Array | Resident<Uint32Array>, sums: Uint32Array | Resident<Uint32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** The elements of `x` whose flag is 1, in their order, where `offsets` is the exclusive scan of
+ *  `flags`: `out[offsets[k]] = x[k]` for each flagged `k`, and 0 past the count of kept elements.
+ *  Written as a gather at `i`: the source of `out[i]` is the first `k` whose inclusive count
+ *  `offsets[k] + flags[k]` exceeds `i`, found by a binary search.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function compact(out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, flags: Uint32Array | Resident<Uint32Array>, offsets: Uint32Array | Resident<Uint32Array>): void;
 export declare function compact(out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, flags: Uint32Array | Resident<Uint32Array>, offsets: Uint32Array | Resident<Uint32Array>): Promise<void>;
-/** A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */
+/** Adds the count of `x` in each of `bins.length` equal bins over `[lo, hi)` into `bins`; a value
+ *  below `lo` counts in the first bin and one at or above `hi` in the last. Each add is an atomic
+ *  on a GPU and a plain add on the CPU tier, in iteration order. The caller zeroes `bins`.
+ *
+ * A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). A call whose written arrays are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.
+ */
 export declare function histogram(bins: Resident<Uint32Array>, x: Float32Array | Resident<Float32Array>, lo: number, hi: number): void;
 export declare function histogram(bins: Uint32Array | Resident<Uint32Array>, x: Float32Array | Resident<Float32Array>, lo: number, hi: number): Promise<void>;
 /** The compiled program, its manifest: the shader text, each binding with its byte layout and each entry with the bindings it reaches, which the program runtime loads (Rule 11.10). */
