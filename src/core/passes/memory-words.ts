@@ -135,7 +135,7 @@ export function lowerMemoryWords(plan: PhasePlan): WordPlan {
   for (const [pc, cut] of plan.cuts) {
     cuts.set(pc, cut);
     if (cut.kind !== 'atomic') continue;
-    const place = words.place(cut.request.args[0]!);
+    const place = words.place(cut.request.args[0]!, lengths);
     if (place === undefined)
       throw new MemoryWordsError(`${cut.request.fn}'s location is not memory`);
     const t = cut.request.args[0]!.type;
@@ -206,14 +206,16 @@ class Words {
     return f.offset / 4;
   }
 
-  /** The root and word of a memory place, or undefined when `e` is not one. */
-  place(e: Expr): { root: number; word: Expr } | undefined {
+  /** The root and word of a memory place, or undefined when `e` is not one. The word holds the
+   *  place's indices, lowered by `lowerExpr`, so `lengths` takes the root of each length they
+   *  read. */
+  place(e: Expr, lengths: Set<string>): { root: number; word: Expr } | undefined {
     if (e.op === 'varref' || e.op === 'param') {
       const root = this.shadowed.has(e.name) ? undefined : this.roots.get(e.name);
       return root === undefined ? undefined : { root, word: lit(0) };
     }
     if (e.op === 'member') {
-      const base = this.place(e.base);
+      const base = this.place(e.base, lengths);
       if (base === undefined || (e.field.length !== 1 && e.base.type.kind !== 'struct'))
         return undefined;
       const t = e.base.type;
@@ -222,7 +224,7 @@ class Words {
       return { root: base.root, word: add(base.word, lit(FIELD.indexOf(e.field))) };
     }
     if (e.op === 'index') {
-      const base = this.place(e.base);
+      const base = this.place(e.base, lengths);
       if (base === undefined) return undefined;
       const t = e.base.type;
       const step =
@@ -231,7 +233,8 @@ class Words {
           : t.kind === 'mat'
             ? this.stride({ kind: 'vec', n: t.rows, elem: 'f32' })
             : 1;
-      return { root: base.root, word: add(base.word, mul(asU32(this.lowerExpr(e.idx)), step)) };
+      const idx = asU32(this.lowerExpr(e.idx, lengths));
+      return { root: base.root, word: add(base.word, mul(idx, step)) };
     }
     return undefined;
   }
@@ -300,19 +303,20 @@ class Words {
     }
   }
 
-  /** `e` with every read of memory as words, and `arrayLength` of a root as its length. */
-  lowerExpr(e: Expr, lengths?: Set<string>): Expr {
+  /** `e` with every read of memory as words, and `arrayLength` of a root as its length, which
+   *  it adds to `lengths`. */
+  lowerExpr(e: Expr, lengths: Set<string>): Expr {
     if (e.op === 'call' && e.declRef === undefined && e.fn === 'arrayLength') {
       const a = e.args[0]!;
       const r = a.op === 'varref' || a.op === 'param' ? a.name : undefined;
       if (r !== undefined && !this.shadowed.has(r) && this.roots.has(r)) {
-        lengths?.add(r);
+        lengths.add(r);
         return { op: 'varref', type: u32T, name: `_phx_len_${r}` };
       }
     }
     // A swizzle of a memory vector reads each lane it names.
     if (e.op === 'member' && e.field.length > 1 && e.base.type.kind === 'vec') {
-      const base = this.place(e.base);
+      const base = this.place(e.base, lengths);
       if (base !== undefined) {
         const s: ShaderType = { kind: 'scalar', scalar: e.base.type.elem };
         return {
@@ -324,14 +328,14 @@ class Words {
         };
       }
     }
-    const p = this.place(e);
+    const p = this.place(e, lengths);
     if (p !== undefined) return this.load(e.type, p.root, p.word);
     return mapChildren(e, (c) => this.lowerExpr(c, lengths));
   }
 
   /** The statements that write `value` (a lane-sized value) to the memory place `target`. */
-  private stores(target: Expr, value: Expr): Stmt[] {
-    const p = this.place(target);
+  private stores(target: Expr, value: Expr, lengths: Set<string>): Stmt[] {
+    const p = this.place(target, lengths);
     if (p === undefined)
       throw new MemoryWordsError('a write to memory through a place with no word');
     const t = target.type;
@@ -424,12 +428,12 @@ class Words {
       if (callee === undefined) return inner;
       let changed = false;
       const args = inner.args.map((a, i) => {
-        if (callee.params[i]?.mode !== 'inout' || this.place(a) === undefined) return a;
+        if (callee.params[i]?.mode !== 'inout' || this.place(a, lengths) === undefined) return a;
         const name = `_phx_io${this.temps++}`;
         const place = this.lowerPlace(a, lengths);
         pre.push({ s: 'var', name, type: a.type, init: this.lowerExpr(a, lengths) });
         const copy: Expr = { op: 'varref', type: a.type, name };
-        post.push(...this.stores(place, copy));
+        post.push(...this.stores(place, copy, lengths));
         changed = true;
         return copy;
       });
@@ -458,7 +462,7 @@ class Words {
     switch (s.s) {
       case 'assign':
       case 'assignOp': {
-        if (this.place(s.target) === undefined)
+        if (this.place(s.target, lengths) === undefined)
           return [{ ...s, target: this.lowerTarget(s.target, lengths), expr: E(s.expr) }];
         if (!writes) throw new MemoryWordsError('a function other than the entry writes memory');
         const value: Expr =
@@ -466,7 +470,7 @@ class Words {
             ? E(s.expr)
             : { op: 'binop', type: s.target.type, bop: s.bop, a: E(s.target), b: E(s.expr) };
         // The place's indices are read once, before the stores, as the backends evaluate them.
-        return this.stores(this.lowerPlace(s.target, lengths), value);
+        return this.stores(this.lowerPlace(s.target, lengths), value, lengths);
       }
       case 'let':
         return [{ ...s, expr: E(s.expr) }];
