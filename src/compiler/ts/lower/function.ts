@@ -2,6 +2,7 @@
 //
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
+import { stageCallOf, stageCallOfDeclaration, stageDeclarationOf } from '../stage-call.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import { countPushedLengths, pushedParams } from './kernel-push.js';
 import { guardKernelBody } from '../../../core/passes/kernel-stores.js';
@@ -143,6 +144,33 @@ export function lowerSourceFunctions(
   // inside `namespace Palette` is `Palette_warm`.
   const decls: { node: ts.FunctionDeclaration; irName: string | undefined; prefix: string }[] = [];
   eachNamespaceStatement(sourceFile.statements, sourceFile, diagnostics, (stmt, prefix) => {
+    // A stage call, `const vs = vertex(function vs(…) { … })`, declares the function it wraps
+    // (change 0111, decision D1).
+    const sc = stageCallOf(stmt);
+    if (sc !== undefined) {
+      // The entry takes the constant's name, which a host imports and the emit keeps; a
+      // function expression named otherwise would name it twice (change 0111).
+      const own = ts.isFunctionExpression(sc.fn) ? sc.fn.name : undefined;
+      if (own !== undefined && own.text !== sc.declaration.name.text) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          own,
+          `The function "${own.text}" is the entry "${sc.declaration.name.text}": name it as ` +
+            `the constant, "${sc.callee}(function ${sc.declaration.name.text}(…) { … })", ` +
+            `or leave it unnamed.`,
+          TS_CODES.FUNCTION_SHAPE,
+        );
+        return;
+      }
+      const node = stageDeclarationOf(sc);
+      decls.push({
+        node,
+        irName: prefix === '' ? undefined : namespaceMemberName(prefix, sc.declaration.name.text),
+        prefix,
+      });
+      return;
+    }
     if (!ts.isFunctionDeclaration(stmt)) {
       // A namespace holds functions, constants, classes and namespaces. The consts are
       // module-const.ts's and the classes are structs.ts's, under the same flattened name
@@ -3540,7 +3568,8 @@ export function fillFunctionBody(
  *  extent its argument names, when the argument is one positive whole number. Whether the
  *  function is a kernel function, which takes it, is known once its parameters are read. */
 export interface KernelWorkgroupAttr {
-  readonly decorator: ts.Decorator;
+  /** The `@workgroup_size` decorator, or the `workgroupSize([…], f)` call (change 0111). */
+  readonly anchor: ts.Decorator | ts.CallExpression;
   /** The extent, or undefined when the argument is not one positive whole number. */
   readonly size?: number;
 }
@@ -3548,7 +3577,10 @@ export interface KernelWorkgroupAttr {
 /** Reads the argument of a kernel function's `@workgroup_size` (Rule 8.7's grammar, one extent):
  *  an array literal of one positive integer literal or one `i32` or `u32` module constant. An
  *  override is not one (decision D2). */
-function kernelWorkgroupOf(d: ts.Decorator, consts: readonly ScopedConst[]): KernelWorkgroupAttr {
+function kernelWorkgroupOf(
+  d: ts.Decorator | ts.CallExpression,
+  consts: readonly ScopedConst[],
+): KernelWorkgroupAttr {
   const unwrap = (e: ts.Expression): ts.Expression => {
     let out = e;
     while (
@@ -3559,14 +3591,19 @@ function kernelWorkgroupOf(d: ts.Decorator, consts: readonly ScopedConst[]): Ker
       out = out.expression;
     return out;
   };
-  const call = ts.isCallExpression(d.expression) ? d.expression : undefined;
-  if (call === undefined || call.arguments.length !== 1) return { decorator: d };
-  const arg = unwrap(call.arguments[0]!);
-  if (!ts.isArrayLiteralExpression(arg) || arg.elements.length !== 1) return { decorator: d };
+  // The decorator's one argument, or the stage call's first.
+  const args = ts.isDecorator(d)
+    ? ts.isCallExpression(d.expression)
+      ? d.expression.arguments
+      : undefined
+    : d.arguments.slice(0, 1);
+  if (args === undefined || args.length !== 1) return { anchor: d };
+  const arg = unwrap(args[0]!);
+  if (!ts.isArrayLiteralExpression(arg) || arg.elements.length !== 1) return { anchor: d };
   const element = unwrap(arg.elements[0]!);
   if (ts.isNumericLiteral(element)) {
     const n = Number(element.text);
-    return Number.isInteger(n) && n > 0 ? { decorator: d, size: n } : { decorator: d };
+    return Number.isInteger(n) && n > 0 ? { anchor: d, size: n } : { anchor: d };
   }
   if (ts.isIdentifier(element)) {
     const constant = consts.find((c) => c.name === element.text);
@@ -3578,9 +3615,9 @@ function kernelWorkgroupOf(d: ts.Decorator, consts: readonly ScopedConst[]): Ker
       Number.isInteger(value) &&
       value > 0
     )
-      return { decorator: d, size: value };
+      return { anchor: d, size: value };
   }
-  return { decorator: d };
+  return { anchor: d };
 }
 
 /**
@@ -3596,7 +3633,8 @@ function settleKernelWorkgroup(
   diagnostics: TsCompilerDiagnostic[],
   kernel: boolean,
 ): number | undefined {
-  const d = attr.decorator;
+  const d = attr.anchor;
+  const call = ts.isCallExpression(d);
   // A generic function is lowered once per instance, and each pass reads its decorators again: one
   // decorator is one refusal (Rule 12.4).
   const once = (
@@ -3610,14 +3648,18 @@ function settleKernelWorkgroup(
   };
   if (!kernel || !isExported(node)) {
     once(
-      `"@workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Remove it from "${node.name?.text ?? 'this function'}".`,
+      call
+        ? `"workgroupSize" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Declare "${node.name?.text ?? 'this function'}" without it.`
+        : `"@workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Remove it from "${node.name?.text ?? 'this function'}".`,
       TS_CODES.ATTRIBUTE_NAME,
     );
     return undefined;
   }
   if (attr.size === undefined) {
     once(
-      `@workgroup_size takes an array of one whole number on a kernel function, as "@workgroup_size([64])", or a module constant in it, as "@workgroup_size([TILE])"; "${d.getText(sourceFile)}" is not one.`,
+      call
+        ? `workgroupSize takes an array of one whole number before its function, as "workgroupSize([64], f)", or a module constant in it, as "workgroupSize([TILE], f)"; "${d.arguments[0]?.getText(sourceFile) ?? ''}" is not one.`
+        : `@workgroup_size takes an array of one whole number on a kernel function, as "@workgroup_size([64])", or a module constant in it, as "@workgroup_size([TILE])"; "${d.getText(sourceFile)}" is not one.`,
       TS_CODES.WORKGROUP_ARG,
     );
     return undefined;
@@ -3626,7 +3668,7 @@ function settleKernelWorkgroup(
   const over = overDefaultWorkgroupLimit(shape);
   if (over !== undefined)
     once(
-      `@workgroup_size shape [${attr.size}, 1, 1] ${over}. WebGPU guarantees no more, so a device requested without raising that limit refuses the pipeline.`,
+      `${call ? 'workgroupSize' : '@workgroup_size'} shape [${attr.size}, 1, 1] ${over}. WebGPU guarantees no more, so a device requested without raising that limit refuses the pipeline.`,
       TS_CODES.WORKGROUP_SHAPE,
       'warning',
     );
@@ -3656,6 +3698,116 @@ function parseStage(
     [string | undefined, string | undefined, string | undefined] | undefined;
   let workgroupSizeExpressions:
     [string | undefined, string | undefined, string | undefined] | undefined;
+  // Read the workgroup argument's AST, not its text (#118). No argument takes the default;
+  // dimensions may be positive integer literals, module constants or overrides. Anything else
+  // used to fall through to 64 with no diagnostic — `@compute({ workgroup: [8, 8, 1] })`,
+  // `@compute(128)`, `@compute(SIZE)` — so the author asked for one size and dispatched against
+  // another. It is reported now, at the argument.
+  const readCompute = (
+    args: readonly ts.Expression[],
+    anchor: ts.Node,
+    form: 'decorator' | 'call',
+  ): void => {
+    stage = 'compute';
+    workgroupShape = [64, 1, 1];
+    if (args.length > 0) {
+      const written = args.map((a) => a.getText(sourceFile)).join(', ');
+      let arg: ts.Expression = args[0]!;
+      while (
+        ts.isParenthesizedExpression(arg) ||
+        ts.isAsExpression(arg) ||
+        ts.isSatisfiesExpression(arg)
+      )
+        arg = arg.expression;
+      const shape = args.length === 1 && ts.isArrayLiteralExpression(arg) ? arg : undefined;
+      const values: number[] = [];
+      const overrideNames: (string | undefined)[] = [];
+      const expressions: (string | undefined)[] = [];
+      for (const element of shape?.elements ?? []) {
+        let valueExpr = element;
+        while (
+          ts.isParenthesizedExpression(valueExpr) ||
+          ts.isAsExpression(valueExpr) ||
+          ts.isSatisfiesExpression(valueExpr)
+        )
+          valueExpr = valueExpr.expression;
+        if (ts.isNumericLiteral(valueExpr)) {
+          values.push(Number(valueExpr.text));
+          overrideNames.push(undefined);
+          expressions.push(undefined);
+          continue;
+        }
+        if (ts.isIdentifier(valueExpr)) {
+          const name = valueExpr.text;
+          const override = overrides.find((candidate) => candidate.name === name);
+          const constant = consts.find((candidate) => candidate.name === name);
+          const type = override?.type ?? constant?.type;
+          const value = override?.default ?? constant?.cpuValue;
+          if (
+            type?.kind === 'scalar' &&
+            (type.scalar === 'u32' || type.scalar === 'i32') &&
+            typeof value === 'number' &&
+            Number.isInteger(value) &&
+            value > 0
+          ) {
+            values.push(value);
+            overrideNames.push(override === undefined ? undefined : name);
+            expressions.push(name);
+            continue;
+          }
+        }
+        values.push(NaN);
+        overrideNames.push(undefined);
+        expressions.push(undefined);
+      }
+      const sizes = shape === undefined ? undefined : values;
+      if (
+        sizes === undefined ||
+        sizes.length === 0 ||
+        sizes.length > 3 ||
+        sizes.some((n) => !Number.isInteger(n) || n < 1)
+      ) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          args[0]!,
+          form === 'call'
+            ? `compute takes an array of one to three whole numbers before its function, ` +
+                `"compute([64, 1, 1], f)"; "${written}" is not a workgroup shape.`
+            : `@compute takes an array of one to three whole numbers, "@compute([64, 1, 1])", or ` +
+                `no argument for the default of 64; "${written}" is not a workgroup shape.`,
+          TS_CODES.WORKGROUP_ARG,
+        );
+      } else {
+        workgroupShape = toWorkgroupShape(sizes as [number, number?, number?]);
+        if (overrideNames.some((name) => name !== undefined))
+          workgroupSizeOverrides = [overrideNames[0], overrideNames[1], overrideNames[2]];
+        workgroupSizeExpressions = [expressions[0], expressions[1], expressions[2]];
+        const over = overDefaultWorkgroupLimit(workgroupShape);
+        if (over !== undefined) {
+          diagnostics.push(
+            makeDiagnostic(
+              sourceFile,
+              anchor,
+              `${form === 'call' ? 'compute' : '@compute'} workgroup shape [${sizes.join(', ')}] ${over}. WebGPU guarantees no ` +
+                `more, so a device requested without raising that limit refuses the pipeline.`,
+              TS_CODES.WORKGROUP_SHAPE,
+              'warning',
+            ),
+          );
+        }
+      }
+    }
+  };
+  // A stage call (change 0111, decision D1) says the stage, or a kernel function's workgroup,
+  // with no decorator.
+  const sc = stageCallOfDeclaration(node);
+  if (sc !== undefined) {
+    if (sc.callee === 'workgroupSize') kernelWorkgroup = kernelWorkgroupOf(sc.call, consts);
+    else if (sc.callee === 'compute')
+      readCompute(sc.size === undefined ? [] : [sc.size], sc.call, 'call');
+    else stage = sc.callee;
+  }
   for (const d of decos) {
     // A function that is not an entry may be a kernel function, which takes one extent of
     // `@workgroup_size` (Rule 8.22). Whether it is one is known once its parameters are read.
@@ -3673,100 +3825,7 @@ function parseStage(
     if (/^@vertex\b/.test(text)) stage = 'vertex';
     else if (/^@fragment\b/.test(text)) stage = 'fragment';
     else if (/^@compute\b/.test(text)) {
-      stage = 'compute';
-      workgroupShape = [64, 1, 1];
-      // Read the decorator's AST, not its text (#118). `@compute` and `@compute()` take the
-      // default; dimensions may be positive integer literals, module constants or overrides.
-      // Anything else used to fall through to 64 with no diagnostic — `@compute({ workgroup:
-      // [8, 8, 1] })`, `@compute(128)`, `@compute(SIZE)` — so the author asked for one size and
-      // dispatched against another. It is reported now, at the argument.
-      const call = ts.isCallExpression(d.expression) ? d.expression : undefined;
-      if (call !== undefined && call.arguments.length > 0) {
-        const written = call.arguments.map((a) => a.getText(sourceFile)).join(', ');
-        let arg: ts.Expression = call.arguments[0]!;
-        while (
-          ts.isParenthesizedExpression(arg) ||
-          ts.isAsExpression(arg) ||
-          ts.isSatisfiesExpression(arg)
-        )
-          arg = arg.expression;
-        const shape =
-          call.arguments.length === 1 && ts.isArrayLiteralExpression(arg) ? arg : undefined;
-        const values: number[] = [];
-        const overrideNames: (string | undefined)[] = [];
-        const expressions: (string | undefined)[] = [];
-        for (const element of shape?.elements ?? []) {
-          let valueExpr = element;
-          while (
-            ts.isParenthesizedExpression(valueExpr) ||
-            ts.isAsExpression(valueExpr) ||
-            ts.isSatisfiesExpression(valueExpr)
-          )
-            valueExpr = valueExpr.expression;
-          if (ts.isNumericLiteral(valueExpr)) {
-            values.push(Number(valueExpr.text));
-            overrideNames.push(undefined);
-            expressions.push(undefined);
-            continue;
-          }
-          if (ts.isIdentifier(valueExpr)) {
-            const name = valueExpr.text;
-            const override = overrides.find((candidate) => candidate.name === name);
-            const constant = consts.find((candidate) => candidate.name === name);
-            const type = override?.type ?? constant?.type;
-            const value = override?.default ?? constant?.cpuValue;
-            if (
-              type?.kind === 'scalar' &&
-              (type.scalar === 'u32' || type.scalar === 'i32') &&
-              typeof value === 'number' &&
-              Number.isInteger(value) &&
-              value > 0
-            ) {
-              values.push(value);
-              overrideNames.push(override === undefined ? undefined : name);
-              expressions.push(name);
-              continue;
-            }
-          }
-          values.push(NaN);
-          overrideNames.push(undefined);
-          expressions.push(undefined);
-        }
-        const sizes = shape === undefined ? undefined : values;
-        if (
-          sizes === undefined ||
-          sizes.length === 0 ||
-          sizes.length > 3 ||
-          sizes.some((n) => !Number.isInteger(n) || n < 1)
-        ) {
-          pushDiag(
-            diagnostics,
-            sourceFile,
-            call.arguments[0]!,
-            `@compute takes an array of one to three whole numbers, "@compute([64, 1, 1])", or ` +
-              `no argument for the default of 64; "${written}" is not a workgroup shape.`,
-            TS_CODES.WORKGROUP_ARG,
-          );
-        } else {
-          workgroupShape = toWorkgroupShape(sizes as [number, number?, number?]);
-          if (overrideNames.some((name) => name !== undefined))
-            workgroupSizeOverrides = [overrideNames[0], overrideNames[1], overrideNames[2]];
-          workgroupSizeExpressions = [expressions[0], expressions[1], expressions[2]];
-          const over = overDefaultWorkgroupLimit(workgroupShape);
-          if (over !== undefined) {
-            diagnostics.push(
-              makeDiagnostic(
-                sourceFile,
-                d,
-                `@compute workgroup shape [${sizes.join(', ')}] ${over}. WebGPU guarantees no ` +
-                  `more, so a device requested without raising that limit refuses the pipeline.`,
-                TS_CODES.WORKGROUP_SHAPE,
-                'warning',
-              ),
-            );
-          }
-        }
-      }
+      readCompute(ts.isCallExpression(d.expression) ? d.expression.arguments : [], d, 'decorator');
     }
   }
   return {

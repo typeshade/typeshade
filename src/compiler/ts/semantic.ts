@@ -8,6 +8,7 @@
 // value or a callee nothing declares, after it ({@link reportUndeclaredValues}).
 
 import ts from 'typescript';
+import { STAGE_CALLEES } from './stage-call.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { ATTRIBUTE_NAMES, checkDeclarationDecorators } from './builtin-check.js';
 import { isResourceCall } from './bindings.js';
@@ -703,6 +704,8 @@ export function analyzeSemantics(
  *  nothing declares; `ambient-parity.test.ts` holds the whole set to the library. */
 export const LIBRARY_VALUES: ReadonlySet<string> = new Set([
   ...ATTRIBUTE_NAMES,
+  // The stage calls of change 0111; `vertex`, `fragment` and `compute` are attribute names too.
+  ...STAGE_CALLEES,
   'discard',
   'Symbol',
   'uniform',
