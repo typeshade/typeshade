@@ -1557,6 +1557,19 @@ export class LoweringScope {
     return undefined;
   }
 
+  /** {@link resolve} over the module's values alone: the consts, bindings, overrides and variables
+   *  that `functionScope` defines before the frame of the parameters and the locals. */
+  resolveModuleValue(name: string): Binding | undefined {
+    const module = this.frames[0]!;
+    const direct = module.get(name);
+    if (direct) return direct;
+    for (const qualified of this.qualifiedNames(name)) {
+      const hit = module.get(qualified);
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+
   /** The binding an already-lowered IR node names. {@link resolve} answers for a SOURCE name
    *  at the point of lowering; a reader holding a `varref` has the IR name, which after a
    *  rename is no source name at all, or the source name of a different local. The map is

@@ -1,6 +1,6 @@
 // Backend identifier spelling only: the authored IR, reflection and CPU names stay intact.
 // Implements: Rule 3.2, Rule 3.3, Rule 3.4 (docs/language-design.md; traced in reqs/).
-import type { Expr, ModuleDecl, Stmt } from '../ir/nodes.js';
+import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
 import { mapChildren, mapStmtExpr } from '../ir/visit.js';
 import { stageOf } from '../ir/index.js';
 
@@ -37,7 +37,14 @@ export function freshSpelling(
  *  `predeclared` (WGSL, Proposal 0070 D-C10-1): a local or helper parameter named like one of
  *  these is renamed too, but only in a function that calls a builtin of that name, since the
  *  local then hides the builtin (Tint refuses `fn f(max: f32) -> f32 { return max(1.0, 3.0); }`).
- *  A function that does not call it keeps the authored name. */
+ *  A function that does not call it keeps the authored name.
+ *
+ *  A local or helper parameter named like a module constant its function reads is renamed too,
+ *  since it hides the constant there (Rule 3.2). The source never spells that read with the
+ *  constant's own name, which the parameter hides in TypeScript as well; it spells it `Voice.OFFSET`
+ *  and the module emits the constant as `Voice_OFFSET`, as it does an enum member (`E_A`) and a
+ *  namespace constant (`Ns_K`). Neither a parameter of an entry, which is the plan's, nor a module
+ *  variable, whose `varref` the late rename cannot tell from a parameter's own, is looked at here. */
 export function sanitizeVariableNames(
   module: ModuleDecl,
   reserved: (name: string) => boolean,
@@ -99,10 +106,37 @@ export function sanitizeVariableNames(
   );
   const hides = (name: string, calls: ReadonlySet<string>): boolean =>
     reserved(name) || (predeclared?.has(name) === true && calls.has(name));
+  // The names one function declares that this pass may rename: its locals, and its parameters when
+  // it is a helper.
+  const namesOf = (func: FuncDecl): Set<string> => {
+    const names = new Set(stageOf(func) === undefined ? func.params.map((p) => p.name) : []);
+    collect(func.body, names);
+    return names;
+  };
+  // Whether `name`, declared in `func`, hides a module constant that `func` reads. The body is
+  // walked for the constants it reads only when `name` is the name of one.
+  const constantNames = new Set(module.consts.map((c) => c.name));
+  const constantsRead = new Map<FuncDecl, ReadonlySet<string>>();
+  const hidesConstant = (func: FuncDecl, name: string): boolean => {
+    if (!constantNames.has(name)) return false;
+    let read = constantsRead.get(func);
+    if (read === undefined) {
+      const found = new Set<string>();
+      const visit = (e: Expr): Expr => {
+        if (e.op === 'constref') found.add(e.name);
+        return mapChildren(e, visit);
+      };
+      const walk = (stmt: Stmt): Stmt => mapStmtExpr(stmt, visit, walk);
+      func.body.forEach(walk);
+      constantsRead.set(func, (read = found));
+    }
+    return read.has(name);
+  };
   if (
     ![...variableNames].some(
       (name) => reserved(name) || [...called.values()].some((c) => hides(name, c)),
-    )
+    ) &&
+    !module.funcs.some((func) => [...namesOf(func)].some((name) => hidesConstant(func, name)))
   )
     return module;
   const fresh = (name: string, used = taken): string => {
@@ -119,12 +153,12 @@ export function sanitizeVariableNames(
     );
   };
   const funcs = module.funcs.map((func) => {
-    const names = new Set(stageOf(func) === undefined ? func.params.map((p) => p.name) : []);
-    collect(func.body, names);
+    const names = namesOf(func);
     const locals = new Map<string, string>();
     const used = new Set(taken);
     const calls = called.get(func)!;
-    for (const name of names) if (hides(name, calls)) locals.set(name, fresh(name, used));
+    for (const name of names)
+      if (hides(name, calls) || hidesConstant(func, name)) locals.set(name, fresh(name, used));
     const rewrite = (stmt: Stmt): Stmt => {
       const renamed =
         (stmt.s === 'let' || stmt.s === 'var') && locals.has(stmt.name)
