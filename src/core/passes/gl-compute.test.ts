@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
 import { compileTsSource } from '../../compiler/ts/source-file.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { emittedStructDecls } from '../../compiler/ts/structs.js';
 import { emittedName, spellingsOf } from '../spelling-plan.js';
 import type { ModuleDecl } from '../ir/index.js';
@@ -44,6 +45,28 @@ export const second = compute([64], function second(i: builtin<"local_invocation
       ['scratch', 'workgroup'],
     ]);
     expect(second.uniforms.map((u) => u.name)).toEqual(['kb']);
+  });
+
+  it('declares the length that a storage index reads, as it does one read outside an index (#900)', () => {
+    // `Words.place` lowered an index without the set that records the lengths a statement reads.
+    // So `xs.length` inside `xs[...]` became `_phx_len_xs`, and nothing declared it: WebGL2
+    // refused the pass program. The CPU model of the executor sets every length by name and never
+    // saw the missing declaration; the GPU differential's compute arm runs this program.
+    const p = PROGRAMS["a storage index that reads the array's length"]!;
+    // Both halves accept the source, so the defect is in the pass program alone.
+    const r = compile(p.src);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', p.src);
+    expect(service.getDiagnostics('a.ts')).toEqual([]);
+
+    const g = buildGlCompute(r.module, p.entry);
+    expect(g.roots.map((x) => [x.name, x.length])).toEqual([
+      ['xs', '_phx_len_xs'],
+      ['out', undefined],
+    ]);
+    expect(Object.keys(g.lengthWords)).toEqual(['xs']);
+    expect(g.vertex).toContain('uint _phx_len_xs = 0u;');
   });
 
   it('lays a record out with what the host reads first, and captures it in one draw', () => {

@@ -138,9 +138,12 @@ describe('the face of a kernel function that takes a Map or a Set (change 0080)'
       writes: false,
       s: 'Map<u32, f32>',
     });
-    // The host view types each as JavaScript's own.
-    expect(f.view).toContain('seen: Set<number>');
-    expect(f.view).toContain('last: Map<number, number>');
+    // The host view types each as JavaScript's own, its key and its value spelled with the host
+    // type family (change 0116).
+    expect(f.view).toContain('seen: Set<u32>');
+    expect(f.view).toContain('last: Map<u32, f32>');
+    expect(f.view).toContain('seen: Set<f32>');
+    expect(f.view).toContain('last: Map<i32, vec2>');
   });
 });
 

@@ -15,6 +15,7 @@ surface:
   - 20
   - 28
   - 63
+  - 76
 exports: []
 exports-removed: []
 codes: []
@@ -230,6 +231,7 @@ Decided by the owner on 2026-11-02, as recommended in each item.
 - **Surface §7:** the new refusal sentences of S3 and S4.
 - **Surface §14, §18 and §28:** the parameter and local spellings, the untyped literal, tuples.
 - **Surface §63:** `new Array(N).fill(v)` and `Array.from`.
+- **Surface §76:** the optional-element row no longer says every `T[]` is refused; `(f32 | undefined)[]` is refused for its element type (S1).
 - **Codes:** none added. S3 and S4 refuse under existing codes (TS8002 for a type, TS8004 or
   TS8019 for a removed callee, TS8005 for a write) with new sentences.
 - **Examples:** none added or removed. S4 edits the examples that call `array<T, N>(...)` or
@@ -256,6 +258,7 @@ vocabulary and module isolation.
 
 - **2026-11-02.** The owner approved proposal 0114 in a Claude Code session, in Korean: "0114 추천대로 승인"
   ("approve 0114 as recommended"). The owner decided D1 to D4 as recommended.
+- **2026-11-02.** The owner approved widening this proposal's declared scope to surface §76, in a Claude Code session, in Korean: "승인" (approved). S1 makes `T[]` accepted, so the optional-element row of §76 is no longer true as written; this widening lets S1 (pull request #934) correct it.
 - The approved revision is this file at the commit on pull request #880 that sets
   `status: accepted`. The approval is the owner's go-ahead in the conversation, recorded here.
 - The proposal is accepted on `main` when pull request #880 merges. Until then, no implementation

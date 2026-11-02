@@ -201,10 +201,10 @@ export function f(v: vec3): vec3 { return sqrt(v); }
     );
   });
 
-  it('keeps the builtin where the name is not bound, and a vector min and max where it is', () => {
+  it('keeps the builtin where the name is not bound', () => {
     const r = bothTake(`"use typeshade";
 const { abs, min } = Math;
-export function f(v: vec3): vec3 { return sqrt(v) + min(v, 1.) + vec3(abs(v.x)); }
+export function f(v: vec3): vec3 { return sqrt(v) + max(v, 1.) + vec3(abs(v.x) + min(v.y, 1.)); }
 `);
     expect(r.wgsl).toContain('sqrt(');
   });

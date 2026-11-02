@@ -337,12 +337,13 @@ Deviations:
   program of change 0054 spells an `arrayLength` inside a storage index `_phx_len_table` and never
   declares it, since `Words.place` in `src/core/passes/memory-words.ts` lowers the index with
   `lowerExpr(e.idx)` and drops the set of lengths. An entry with no class fails the same way
-  (`out[g] = xs[(g + 3) % arrayLength(xs)]`). Open: a defect outside this proposal, for an issue.
+  (`out[g] = xs[(g + 3) % arrayLength(xs)]`). Filed as issue #900 and fixed by pull request #939
+  (squash commit `b3bf0af8`, 2026-11-02). The journey keeps its form. Closed.
 - `TS8070` names a class's static function and static field by their emitted names
   (`"Voice_tally"`, `"Voice_count"`), where Rule 8.22 asks for the author's names: `Wording.name`
   in `src/compiler/ts/kernel-loops.ts` maps only the names of the kernel function's own scope. The
   member form and the inline form agree, so D4's clause does not cover it, and a namespace's
-  functions share it. Open: for an issue.
+  functions share it. Filed as issue #908; its fix is in progress. Open until that fix merges.
 
 Pending: none in this repository.
 

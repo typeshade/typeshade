@@ -148,7 +148,7 @@ export const fs = fragment(
     expect(off.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(off.wgsl).toContain('diagnostic(off, derivative_uniformity);');
     expect(errors(SAMPLE.replace('OPTIONS', '{ blend: "add" }'))).toContainEqual(
-      expect.stringContaining('TS8028 A stage call takes one option, "diagnostic"'),
+      expect.stringContaining('TS8028 A stage call takes two options, "diagnostic" and "numerics"'),
     );
   });
 });

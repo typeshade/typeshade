@@ -105,7 +105,7 @@ describe('the face of a kernel function that takes a texture (change 0077)', () 
     const view = face(INVERT).view;
     expect(view).toContain('import type { Texture }');
     expect(view).toContain(
-      'export declare function invert(src: ImageBitmap | ImageData | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | OffscreenCanvas | Texture, dst: Texture, w: number, h: number): Promise<void>;',
+      'export declare function invert(src: ImageBitmap | ImageData | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | OffscreenCanvas | Texture, dst: Texture, w: u32, h: u32): Promise<void>;',
     );
   });
 

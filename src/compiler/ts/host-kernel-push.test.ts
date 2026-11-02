@@ -353,17 +353,17 @@ describe('a push after a held length, read by both halves (change 0094)', () => 
   it('types a pushed array with its held length, and no other array, under tsc and in the editor (decision D5)', async () => {
     const f = face(HELD);
     const held =
-      '{ readonly array: Uint32Array | Resident<Uint32Array>; readonly length: Resident<Uint32Array>; readonly offset?: number }';
+      '{ readonly array: array<u32>; readonly length: Resident<Uint32Array>; readonly offset?: number }';
     expect(f.view).toContain(
-      `export declare function keepAbove(xs: Float32Array | Resident<Float32Array>, t: number, list: Uint32Array | Resident<Uint32Array> | ${held}): Promise<void>;`,
+      `export declare function keepAbove(xs: array<f32>, t: f32, list: array<u32> | ${held}): Promise<void>;`,
     );
     // A call whose written arrays are all resident, and that returns nothing, only queues.
     expect(f.view).toContain(
-      'export declare function keepAbove(xs: Float32Array | Resident<Float32Array>, t: number, list: Resident<Uint32Array> | { readonly array: Resident<Uint32Array>; readonly length: Resident<Uint32Array>; readonly offset?: number }): void;',
+      'export declare function keepAbove(xs: array<f32>, t: f32, list: Resident<Uint32Array> | { readonly array: Resident<Uint32Array>; readonly length: Resident<Uint32Array>; readonly offset?: number }): void;',
     );
     // An array no loop pushes onto takes no held length.
     expect(f.view).toContain(
-      `export declare function keepStore(xs: Float32Array | Resident<Float32Array>, list: Uint32Array | Resident<Uint32Array> | ${held}, count: Uint32Array | Resident<Uint32Array>): Promise<void>;`,
+      `export declare function keepStore(xs: array<f32>, list: array<u32> | ${held}, count: array<u32>): Promise<void>;`,
     );
     expect(f.view).toContain(
       'An array it pushes onto may come as { array, length, offset? }: its pushes start at the length the Resident length holds at offset, and the call leaves the new length there (Rule 8.23).',
