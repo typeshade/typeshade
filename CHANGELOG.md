@@ -1534,6 +1534,15 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **An instance of a namespace function, and a call inside an index, are worded as the author wrote
+  them (#955).** After #953 the `TS8070` sentence names `Ns.f` for a function of a namespace, but an
+  instance of a generic one and the copy of one that takes a function, which a call makes where it
+  is lowered, kept the name the module emits: `"Ns_pick_u32"` and `"Ns_apply_inc"`. They record the
+  name they are written under where they are made, `Ns.pick` and `Ns.apply`. The reason a fuse scope
+  gives for two dispatches printed a call inside the index of a read with the name the module
+  emits, ``gather reads `t[Voice_shift(i)]` ``, and now prints `t[Voice.shift(i)]`. An instance of a
+  generic function of the top level (`pick_u32`) is not changed.
+
 - **A length read inside a storage index is declared in the WebGL2 pass program (#900).** An
   entry that read an array's length only inside an index, `out[g] = xs[(g + 3) % xs.length]`, ran
   on WebGPU and on the CPU tier, and its pass program did not compile on WebGL2: the program named

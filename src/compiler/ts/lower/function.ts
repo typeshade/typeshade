@@ -988,6 +988,11 @@ export function lowerSourceFunctions(
         refused.add(name);
         return undefined;
       }
+      // A function of a namespace is named as the author wrote it where a message says which
+      // function it is: `Ns.pick` for the instance `Ns_pick_u32`, and `Ns.apply` for the copy
+      // `Ns_apply_count_f`. Its stub is made here, not where the template is declared, so this
+      // is where the name is recorded (Rule 8.22).
+      recordNamespaceFunction(stub, generic.node);
       // What the functions handed over capture (Rule 8.17), which this instance takes ahead of
       // its own parameters and hands on to them: typed as the calling body holds each.
       const keys: CaptureKey[] = [];

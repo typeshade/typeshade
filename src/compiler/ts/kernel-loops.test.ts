@@ -214,6 +214,62 @@ export function count(a: array<u32>) {
 }`,
     'This loop runs on the CPU because line 14 calls "Ns_f", which writes "calls". Return the value from "Ns_f" and combine it in the loop instead.',
   ],
+  // #955: an instance of a generic function of a namespace and the copy of one that takes a
+  // function are made where a call asks for them (`Ns_pick_u32`, `Ns_apply_inc`), and the sentence
+  // names them as the author wrote them (`Ns.pick`, `Ns.apply`), as it names the namespace's others.
+  [
+    'R5, an instance of a generic namespace function that writes a module variable',
+    `let calls: u32 = 0;
+namespace Ns {
+  export function pick<T>(x: T): T {
+    calls += 1;
+    return x;
+  }
+}
+export function count(a: array<u32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = Ns.pick(a[i]);
+  }
+}`,
+    'This loop runs on the CPU because line 11 calls "Ns.pick", which writes "calls". Return the value from "Ns.pick" and combine it in the loop instead.',
+  ],
+  [
+    'R5, a copy of a namespace function that takes a function and writes a module variable',
+    `let calls: u32 = 0;
+function inc(x: u32): u32 {
+  return x + 1;
+}
+namespace Ns {
+  export function apply(f: (x: u32) => u32, x: u32): u32 {
+    calls += 1;
+    return f(x);
+  }
+}
+export function count(a: array<u32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = Ns.apply(inc, a[i]);
+  }
+}`,
+    'This loop runs on the CPU because line 14 calls "Ns.apply", which writes "calls". Return the value from "Ns.apply" and combine it in the loop instead.',
+  ],
+  [
+    'R5, an instance of a generic function of a nested namespace that writes a module variable',
+    `let calls: u32 = 0;
+namespace A {
+  export namespace B {
+    export function pick<T>(x: T): T {
+      calls += 1;
+      return x;
+    }
+  }
+}
+export function count(a: array<u32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = A.B.pick(a[i]);
+  }
+}`,
+    'This loop runs on the CPU because line 13 calls "A.B.pick", which writes "calls". Return the value from "A.B.pick" and combine it in the loop instead.',
+  ],
   [
     'R6, a console call',
     `export function noisy(a: array<f32>) {
@@ -762,6 +818,40 @@ describe("the first access that is not at the loop counter, in the author's word
     ],
   ])('prints %s', (_name, body, fn, array, text) => {
     expect(worded(body, fn, array)?.text).toBe(text);
+  });
+
+  it("prints a call in the index with the author's name for the function, and a builtin with its own (#955)", () => {
+    // The module emits a class's function as `Voice_shift` and a namespace's as `Ns_shift`; the
+    // report says `Voice.shift`, as the sentence of TS8070 does.
+    const reading = (declaration: string, call: string): string =>
+      `${declaration}\nexport function f(out: array<f32>, t: array<f32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = t[${call}];\n  }\n}`;
+    const shift = (name: string): string => `  ${name}(i: u32): u32 {\n    return i ^ 1;\n  }\n`;
+    expect(
+      worded(reading(`class Voice {\n  static${shift('shift')}}`, 'Voice.shift(i)'), 'f', 't')
+        ?.text,
+    ).toBe('t[Voice.shift(i)]');
+    expect(
+      worded(
+        reading(`namespace Ns {\n  export function${shift('shift')}}`, 'Ns.shift(i)'),
+        'f',
+        't',
+      )?.text,
+    ).toBe('t[Ns.shift(i)]');
+    expect(
+      worded(
+        reading(
+          `namespace A {\n  export namespace B {\n    export function pick<T>(x: T): T {\n      return x;\n    }\n  }\n}`,
+          'A.B.pick(i ^ 1)',
+        ),
+        'f',
+        't',
+      )?.text,
+    ).toBe('t[A.B.pick(i ^ 1)]');
+    // A function of the top level and a builtin keep their own names.
+    expect(worded(reading(`function${shift('shift')}`, 'shift(i)'), 'f', 't')?.text).toBe(
+      't[shift(i)]',
+    );
+    expect(worded(reading('', 'min(i + 1, 3)'), 'f', 't')?.text).toBe('t[min(i + 1, 3)]');
   });
 
   it('prints a length as the author wrote it, `xs.length`, and not as the IR spells it', () => {
