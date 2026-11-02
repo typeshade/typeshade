@@ -2,6 +2,7 @@
 //
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
+import { attributeDecoratorsOf } from '../attribute-types.js';
 import { stageCallOf, stageCallOfDeclaration, stageDeclarationOf } from '../stage-call.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import { countPushedLengths, pushedParams } from './kernel-push.js';
@@ -3863,10 +3864,9 @@ function overDefaultWorkgroupLimit(shape: WorkgroupShape): string | undefined {
   return undefined;
 }
 
+/** The decorators `node` carries, with those its attribute type stands for (change 0111). */
 function decoratorsOf(node: ts.Node): readonly ts.Decorator[] {
-  if (ts.canHaveDecorators(node)) return ts.getDecorators(node) ?? [];
-  const mods = (node as { modifiers?: readonly ts.ModifierLike[] }).modifiers ?? [];
-  return mods.filter(ts.isDecorator);
+  return attributeDecoratorsOf(node);
 }
 
 /** Validates every field of the struct named `structName` (a parameter's or a return type's

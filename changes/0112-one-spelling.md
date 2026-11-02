@@ -11,9 +11,11 @@ surface:
   - 10
   - 14
   - 17
+  - 18
   - 20
   - 23
   - 27
+  - 28
   - 49
   - 54
   - 63
@@ -215,6 +217,8 @@ section.
 - Surface §20: `.length` is the spelling; the `arrayLength` paragraphs go.
 - Surface §17, §23, §49, §54, §63, §66: each names `arrayLength` once or more in text or a
   snippet, which changes to `.length`.
+- Surface §18: the `sum([1., 2.])` example becomes `xs.reduce((a, b) => a + b)`.
+- Surface §28: the `PI` example uses `TAU` or `Math.PI`, as fits the example.
 - Exports: none. Codes: none (section 5). Example ids: none added or removed.
 - Examples edited: `atomic-histogram`, `gpu-console`, `workgroup-override`, `workgroup-scratch`
   (`arrayLength`), `higher-order` (`any(bands, …)`); goldens re-baked and reviewed.
@@ -239,6 +243,9 @@ section.
 - 2026-11-02, the owner, in the same session ("머지 승인"): the proposal is accepted, with D2
   decided as recommended (`TS8019`). The merge of this file with `status: accepted` records the
   decision.
+- 2026-11-02, the owner, in the Claude Code session ("추천대로 승인"): the scope is widened to
+  declare surface §18 and §28, as recommended. Both sections name removed spellings and were not
+  declared in the front matter, so `scripts/changes.ts` refused their edits.
 
 ### Configuration and validation record
 
