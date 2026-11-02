@@ -1,5 +1,5 @@
 ---
-id: '0111'
+id: '0116'
 title: The host view spells each type with the shader's own name, from a family of host types that `typeshade/runtime` exports one for one with the ambient library's value types, whose values stay the host values of Rule 8.21
 status: accepted
 rules:
@@ -60,13 +60,13 @@ codes: []
 examples: []
 downstream:
   - repo: typeshade.github.io
-    what: The page that copies surface §64 (en and ko) shows the host values table with the view's spelling and the listings in the family's names; the API reference generated from the JSDoc of `typeshade/runtime` gains the family; `compiler-changes.md` records 0111 when the pin moves.
+    what: The page that copies surface §64 (en and ko) shows the host values table with the view's spelling and the listings in the family's names; the API reference generated from the JSDoc of `typeshade/runtime` gains the family; `compiler-changes.md` records 0116 when the pin moves.
   - repo: vscode-typeshade
-    what: The skill's host reference (`references/host.md`) where it quotes a host view, and any fixture that pins a view's text, change to the family's spelling; `compiler-changes.md` records 0111 when the pin moves.
+    what: The skill's host reference (`references/host.md`) where it quotes a host view, and any fixture that pins a view's text, change to the family's spelling; `compiler-changes.md` records 0116 when the pin moves.
   - repo: typenn
-    what: Nothing must change in its source. Its generated views change spelling on the next pin, and its host code keeps type-checking, since each family type is assignable from and to the spelling it replaces (D1 is the one stated exception); `compiler-changes.md` records 0111 when the pin moves.
+    what: Nothing must change in its source. Its generated views change spelling on the next pin, and its host code keeps type-checking, since each family type is assignable from and to the spelling it replaces (D1 is the one stated exception); `compiler-changes.md` records 0116 when the pin moves.
   - repo: typecv
-    what: Nothing must change in its source, as for typenn; `compiler-changes.md` records 0111 when the pin moves.
+    what: Nothing must change in its source, as for typenn; `compiler-changes.md` records 0116 when the pin moves.
 ---
 
 <!-- doc-refs: skip-file — a draft proposal names a file, tests and text its implementation adds -->
@@ -75,11 +75,12 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0111, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Identity and status           | Proposal 0116, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, reading the listing of proposal 0109: the host view should have types that match one for one what the `.shade.ts` file writes, `array<T>` among them, provided by TypeShade itself, because the spelled-out form is spread out and unpleasant to read, and `vecN` and `matCxR` should be provided as types too ("1:1로 매칭되는거요. TypeShade 자체에서 제공해야할 것 같은데요 너무 펼쳐져있어서 보기 거슬리네요. vecN, matCxR 도 타입으로 제공되어야하지 않을까 싶어요"). The agent reported a design with a prototype that type-checks, and the owner approved the drafting ("승인"). No GitHub issue is recorded.                                        |
 | Applicability / effectivity   | Rule 8.21 of `docs/language-design.md` and its item in `reqs/`; `docs/use-typeshade-surface.md` §64; a new `src/runtime/host-types.ts` exported from `typeshade/runtime` and listed in `src/__api__/surface.md`; `src/compiler/ts/host-face.ts` (`argType`, `resultType`, `constType`, `structBody`, `programType` and the view's import line); `src/compiler/ts/host-face.test.ts` and every test that pins a view's text; a parity test against the ambient library (`src/language-service/ambient.ts`); the examples' generated views. The host values, their checks and `TypeError` texts (`src/core/host-values.ts`), the generated module's code, the GPU tiers and the oracle do not change. No release version is assigned. |
 | Review baseline               | `main` at `800969063df86573107fc795e619cf3540853595` (the squash merge of pull request #872, proposal 0109), read on 2026-11-02.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Renumbering                   | Drafted, accepted and merged as proposal 0111 in pull request #876 (squash commit `8b1a8fe`). Pull request #875 then merged another proposal with the id 0111 (`changes/0111-plain-typescript-entries.md`, merge commit `8ac4796`), so `src/changes.test.ts` failed on `main`. This proposal takes the next free number, 0116, on 2026-11-02; the earlier number stays in the records of #876 and its commits. The content does not change.                                                                                                                                                                                                                                                                                         |
 | Review and revision authority | Pull request [#876](https://github.com/typeshade/typeshade/pull/876) (branch `claude/proposal-0111-host-type-family`). Git records the revisions of this file. The review and merge of that pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 ## What changes
@@ -278,7 +279,7 @@ The merge of [#876](https://github.com/typeshade/typeshade/pull/876) with `statu
 records the decision.
 
 Responsibilities: an agent of this repository implements the family, the view's spelling, the
-parity test, Rule 8.21 and §64 in pull requests whose commits say `Change: 0111`, before the
+parity test, Rule 8.21 and §64 in pull requests whose commits say `Change: 0116`, before the
 view printer of proposal 0109 is finished, or by changing that printer's spelling in the same
 pull request where 0109 lands first. No milestone date is assigned. No duration or cost estimate
 is established.
@@ -286,7 +287,7 @@ is established.
 ### Configuration and validation record
 
 This record does not yet apply. Delivery will require the accepted revision, the implementing
-pull requests with `Change: 0111` in their commits, the delivered configuration, the observed
+pull requests with `Change: 0116` in their commits, the delivered configuration, the observed
 results of the functional validation (the tests, the parity test per TypeScript version, the
 journeys gate and the build) and the document validation (`bun run docs:refs`,
 `bun run docs:impact`, `bun run reqs:sync`, `python scripts/doorstop-check.py -C`). Required
@@ -297,10 +298,10 @@ future evidence is not a completed result.
 - **typeshade.github.io.** The page that copies §64, in English and in Korean: the host values
   table with the view's spelling and the listings in the family's names; the API reference
   generated from the JSDoc of `typeshade/runtime` gains the family; `compiler-changes.md`
-  records 0111 when the pin moves.
+  records 0116 when the pin moves.
 - **vscode-typeshade.** The skill's host reference (`references/host.md`) where it quotes a host
   view, and any fixture that pins a view's text, change to the family's spelling;
-  `compiler-changes.md` records 0111 when the pin moves.
+  `compiler-changes.md` records 0116 when the pin moves.
 - **typenn, typecv.** Nothing must change in their source. Their generated views change spelling
   on the next pin, and their host code keeps type-checking (item 4, D1 excepted);
-  `compiler-changes.md` records 0111 in each when its pin moves.
+  `compiler-changes.md` records 0116 in each when its pin moves.
