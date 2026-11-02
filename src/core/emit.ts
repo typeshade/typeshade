@@ -23,6 +23,7 @@ import { fp64Lower, hoistGuardFetch, type Fp64Flavor } from './passes/fp64-lower
 import { autoVars, optimizeAt, type OptLevel } from './passes/opt/index.js';
 import { specializeCalls } from './passes/specialize-calls.js';
 import { restructureCalls } from './passes/restructure-calls.js';
+import { finiteMath } from './passes/finite-math.js';
 import { storageLoadReuse } from './passes/storage-load-reuse.js';
 import { mapExpr, mapStmt } from './passes/opt/ir-transform.js';
 import { renameFunctions, renameTargetOf } from './passes/rename-predeclared.js';
@@ -461,7 +462,9 @@ function lowerFrom(
         selectComposite(
           fp64Lower(
             level === undefined || level === 'O2'
-              ? storageLoadReuse(restructureCalls(specializeCalls(lowerModule(autoVars(m)))))
+              ? storageLoadReuse(
+                  restructureCalls(finiteMath(specializeCalls(lowerModule(autoVars(m))))),
+                )
               : lowerModule(autoVars(m)),
             fp64Flavor ? { flavor: fp64Flavor } : undefined,
           ),
@@ -523,8 +526,13 @@ function lowerTimed(
   const specialized = step('specializeCalls', () =>
     level === undefined || level === 'O2' ? specializeCalls(lm) : lm,
   );
+  // The numerical contracts' rewrites (change 0107), before any pass can inline across a
+  // function and while an `f64` still has its own type.
+  const contracted = step('finiteMath', () =>
+    level === undefined || level === 'O2' ? finiteMath(specialized) : specialized,
+  );
   const restructured = step('restructureCalls', () =>
-    level === undefined || level === 'O2' ? restructureCalls(specialized) : specialized,
+    level === undefined || level === 'O2' ? restructureCalls(contracted) : contracted,
   );
   const cached = step('storageLoadReuse', () =>
     level === undefined || level === 'O2' ? storageLoadReuse(restructured) : restructured,

@@ -17,6 +17,8 @@
 //
 // NOT applied on floats, matching gcc without -ffast-math: `x*0 -> 0` and `x-x -> 0` (both
 // NaN/Inf-unsound), and any reassociation or distribution.
+// A function whose author opted into the `finite-math` numerical contract gets the first two in
+// `../finite-math.ts`, and in no other function (Rule 11.22, change 0107).
 //
 // THE ONE PLACE THIS IS MORE AGGRESSIVE THAN gcc: `x + 0 -> x`. Measured, gcc -O2 KEEPS
 // that add and only folds it under -ffast-math, because `(-0.0) + 0.0` is `+0.0` — the

@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 281 exports
+## `.` — 282 exports
 
 ```
 accuracyOf
@@ -185,6 +185,7 @@ ModuleParts
 ModuleVarDecl
 NodeLike
 NonComposite
+NumericsClass
 OptLevel
 ORACLE_BUILTIN_NAMES
 ORACLE_GPU_STUB_NAMES
@@ -521,7 +522,7 @@ vec4i
 vec4u
 ```
 
-## `./core/ir` — 291 exports
+## `./core/ir` — 292 exports
 
 ```
 abs
@@ -672,6 +673,7 @@ NODE_BRAND
 NodeLike
 NonComposite
 normalize
+NumericsClass
 optBarrier
 outsideRange
 overrideConst
@@ -926,7 +928,7 @@ uniform
 xorshift32
 ```
 
-## Shapes — 742 definitions
+## Shapes — 743 definitions
 
 ```
 src/algorithms/index.ts#abs  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
@@ -1305,10 +1307,11 @@ src/core/ir/nodes.ts#DiagnosticDirective  interface  { rule: string; severity: "
 src/core/ir/nodes.ts#EntryParam  interface  { builtin?: string; location?: number; name: string; type: ShaderType }
 src/core/ir/nodes.ts#Expr  type  { readonly op: "lit"; readonly type: ShaderType; readonly value: number | boolean; } | { readonly op: "constref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "overrideref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "externref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "param"; readonly type: ShaderType; readonly name: string; readonly span?: SourceSpan; } | { readonly op: "varref"; readonly type: ShaderType; readonly name: string; readonly span?: SourceSpan; } | { readonly op: "binop"; readonly type: ShaderType; readonly bop: BinOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "unop"; readonly type: ShaderType; readonly a: Expr; } | { readonly op: "compare"; readonly type: ShaderType; readonly cop: CmpOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "logical"; readonly type: ShaderType; readonly lop: LogOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "call"; readonly type: ShaderType; readonly fn: string; readonly args: readonly Expr[]; readonly declRef?: FuncDecl; readonly span?: SourceSpan; readonly labels?: readonly (string | number)[]; } | { readonly op: "member"; readonly type: ShaderType; readonly base: Expr; readonly field: string; } | { readonly op: "construct"; readonly type: ShaderType; readonly args: readonly Expr[]; } | { readonly op: "select"; readonly type: ShaderType; readonly cond: Expr; readonly ifTrue: Expr; readonly ifFalse: Expr; } | { readonly op: "index"; readonly type: ShaderType; readonly base: Expr; readonly idx: Expr; readonly span?: SourceSpan; } | { readonly op: "matchExpr"; readonly type: ShaderType; readonly scrutinee: Expr; readonly cases: readonly (readonly [number, Expr])[]; readonly default: Expr; }
 src/core/ir/nodes.ts#ExternVarDecl  interface  { name: string; spelling?: { readonly wgsl?: string; readonly glsl?: string; }; stage?: "compute" | "fragment" | "vertex"; type: ShaderType }
-src/core/ir/nodes.ts#FuncDecl  interface  { [ASSEMBLED_AS]?: string; allowEarlyReturn?: boolean; attrs?: readonly string[]; body: readonly Stmt[]; kernel?: boolean; lintDisable?: readonly string[]; name: string; nameSpan?: SourceSpan; opaque?: boolean; params: readonly { name: string; type: ShaderType; builtin?: string; location?: number; interpolate?: string; attr?: string; mode?: "inout"; }[]; portable?: boolean; ret: ShaderType; retAttr?: string; retBuiltin?: string; span?: SourceSpan; stage?: "compute" | "fragment" | "vertex"; workgroupShape?: WorkgroupShape; workgroupSize?: number; workgroupSizeOverrides?: readonly [string, string, string] }
+src/core/ir/nodes.ts#FuncDecl  interface  { [ASSEMBLED_AS]?: string; allowEarlyReturn?: boolean; attrs?: readonly string[]; body: readonly Stmt[]; kernel?: boolean; lintDisable?: readonly string[]; name: string; nameSpan?: SourceSpan; numerics?: readonly NumericsClass[]; opaque?: boolean; params: readonly { name: string; type: ShaderType; builtin?: string; location?: number; interpolate?: string; attr?: string; mode?: "inout"; }[]; portable?: boolean; ret: ShaderType; retAttr?: string; retBuiltin?: string; span?: SourceSpan; stage?: "compute" | "fragment" | "vertex"; workgroupShape?: WorkgroupShape; workgroupSize?: number; workgroupSizeOverrides?: readonly [string, string, string] }
 src/core/ir/nodes.ts#LogOp  type  "&&" | "||"
 src/core/ir/nodes.ts#ModuleDecl  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics?: readonly DiagnosticDirective[]; enables?: readonly DeclarableCapability[]; externs?: readonly ExternVarDecl[]; funcs: readonly FuncDecl[]; overrides?: readonly OverrideDecl[]; structs: readonly StructDecl[]; vars?: readonly ModuleVarDecl[] }
 src/core/ir/nodes.ts#ModuleVarDecl  interface  { init?: Expr; name: string; space: "private" | "workgroup"; type: ShaderType }
+src/core/ir/nodes.ts#NumericsClass  type  "finite-math" | "reassociate"
 src/core/ir/nodes.ts#OverrideDecl  interface  { default: boolean | number; name: string; type: ShaderType }
 src/core/ir/nodes.ts#RawPayload  type  { readonly wgsl: string; readonly glsl?: string; } | { readonly wgsl?: string; readonly glsl: string; }
 src/core/ir/nodes.ts#RawStmt  type  { readonly s: "raw"; readonly wgsl: string; readonly glsl?: string; readonly span?: SourceSpan; } | { readonly s: "raw"; readonly wgsl?: string; readonly glsl: string; readonly span?: SourceSpan; }
