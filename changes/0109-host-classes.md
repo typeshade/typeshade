@@ -32,7 +32,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0109, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record. Pull request #890 implements items 1 to 5; see Configuration and validation record. The owner approved Amendment 1 (item 6, decision D5) on 2026-11-02 (UTC); see its row and the two records. Its implementation is not started. Downstream adoption is tracked apart.                                                                                                                                                                                                                                                         |
+| Identity and status           | Proposal 0109, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record. Pull request #890 implements items 1 to 5; see Configuration and validation record. The owner approved Amendment 1 (item 6, decision D5) on 2026-11-02 (UTC); see its row and the two records. Pull request #993 implements Amendment 1; see Configuration and validation record. Downstream adoption is tracked apart.                                                                                                                                                                                                         |
 | Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, while designing an audio library on the compiler whose units are classes in `.shade.ts` files. The owner asked whether a class defined in a `"use typeshade"` file can be imported on the CPU side, built with `new` and used as an ordinary class, with the GPU running the same code ("cpu side에서 import해서 가져온 다음에 new 해서 사용하면 gpu side에서 실행되는거라던가"), and said that if not, the host face should be advanced now ("지금 고도화 해야할 것 같은데"). The agent reported that a class crosses to the host as a type only. The owner approved the drafting of this proposal ("승인"). No GitHub issue is recorded. |
 | Applicability / effectivity   | Rules 8.20 and 8.21 of `docs/language-design.md` and their items in `reqs/`; `docs/use-typeshade-surface.md` §64; `src/compiler/ts/host-face.ts` (the export collection, `viewText` and the generated module); `src/core/host-values.ts`; `src/compiler/ts/host-face.test.ts`; `journeys/_host-import`. The compiler's lowering, the GPU tiers, the oracle, the exports of the package, the diagnostic codes and the examples do not change. No release version is assigned.                                                                                                                                                                                                                                       |
@@ -474,11 +474,123 @@ it, and `new` of it throws the reason its view gives.
 §64 (English and Korean), the editor's host reference and its fixture, and each repository's
 `compiler-changes.md` when its pin moves. Deviations 2 and 3 stay open as recorded.
 
-**Amendment 1.** Not implemented. This record does not yet apply: delivery will require the
-accepted revision of the amendment, the implementing pull request and its commits, the delivered
-`copyOf`, the test runs with their dates and results (functional validation) apart from the
-document checks for Rule 11.8 and §65 (document validation), each deviation with its disposition,
-and the pending work. A planned result is not a completed one.
+**Amendment 1.** The record of item 6 and decision D5 follows, in the order of the record above.
+
+**Accepted revision.** The text merged by pull request
+[#960](https://github.com/typeshade/typeshade/pull/960) as `376f8927` on `main`, with D5 accepted
+as drafted (Approval and plan record, Amendment 1).
+
+**Implementation.** Pull request [#993](https://github.com/typeshade/typeshade/pull/993), branch
+`claude/0109-resident-instances`, from `main` at `bf4a0d19`, by a Claude Code agent at the owner's
+direction. Its commits say `Change: 0109`:
+
+- `86401940`: the copy, Rule 11.8, §65, `reqs/`, the tests, the bundle budgets and the changelog
+  entry.
+- `1c3c4220`: the merge of `main` at `480b6a64` (change 0118, #990). The bundle budgets were
+  measured again, and the stamps of `SURF-071` were resolved.
+- `757a18e5`: this record.
+- `524d8517`: the merge of `main` at `3b7019da` (#994), with no conflict. The bundles did not
+  change.
+- The commit that adds `524d8517` and its checks to this record.
+
+**Delivered configuration.**
+
+- `src/core/resident.ts`: `copyOf` slices a typed array, copies an array, a `Map` and a `Set`
+  entry by entry, and makes any other object with `Object.create` of its prototype and its own
+  enumerable properties copied, one level after another. It calls no `structuredClone`, which the
+  amendment allows. `resident(value)` (`hostState`), `write()` and `read()` (`snapshot`) copy
+  with it, and `device.array(value)` copies through `resident()`. The comments of `resident`,
+  `Resident.read` and `Resident.write` say that the copy keeps the classes. The device read-back
+  (`readInto` in `src/core/host-entry.ts`) and the CPU tier (`fromCpu` in `onCpu`,
+  `src/core/host-kernel.ts`) write the host copy's objects in place, and do not change.
+- `docs/language-design.md` Rule 11.8: the sentences on the copy that `resident(value)` and
+  `r.write(value)` make and that `await r.read()` returns, and its "Derives from" and "Enforced
+  by". `reqs/rules/RULE-1108.md` reviewed. `reqs/surface/SURF-064.md`, `SURF-065.md`,
+  `SURF-067.md`, `SURF-069.md`, `SURF-071.md` and `SURF-072.md` cleared after reading each section
+  against the new Rule 11.8: only §65 changes, and the others say nothing of what the copy holds.
+- `docs/use-typeshade-surface.md` §65: the sentences on `read()` and `write()`, and the sentence
+  that names §64 and `instanceof`.
+- `src/compiler/ts/host-class.test.ts`: five cases, the `VOICES` source in the file's loop over
+  both halves, and the tag `Verifies: Rule 11.8`. `src/fuse.test.ts`: two cases on the recording
+  device. `src/runtime/runtime.test.ts`: one case, each host value copied with no
+  `structuredClone`.
+- `scripts/bundle-budget.json` and `CHANGELOG.md`.
+
+**Functional validation**, on 2026-11-02 (UTC), Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3, Vitest
+5.0.5:
+
+- The eight new tests, run against the `copyOf` of `bf4a0d19` (that file restored in the
+  worktree, with the new tests in place) and against the change. Before, each failed: an element
+  read back was no instance of `Voice` or `Cell`, `tick()` was not a function, or
+  `structuredClone` was not defined. After, each passed. `src/compiler/ts/host-class.test.ts` as
+  a whole: 5 failed and 22 passed before, 27 passed after.
+- The targeted set, `bunx vitest run` over `src/core`, `src/fuse.test.ts`,
+  `src/compiler/ts/host-class.test.ts`, `src/compiler/ts/host-kernel.test.ts` and
+  `src/compiler/ts/host-face.test.ts`: 231 files passed at each commit, with 4,135 tests passed at
+  `86401940`, 4,145 at `1c3c4220` and 4,158 at `524d8517`, and 3 skipped each time.
+- `env -u NODE_OPTIONS bun run test`: at `86401940`, 520 files and 12,116 tests passed, 4 skipped
+  and 1 todo; at `1c3c4220`, 520 files and 12,126 tests passed, 4 skipped and 1 todo. At
+  `524d8517`, 518 files passed and 2 failed, with 12,154 tests passed and 2 failed. Each failure
+  was the known 90-second timeout, under a load average of 13 to 15 beside the suites of other
+  sessions: "type-checks a draw with plain tsc" in `src/compiler/ts/host-draw.test.ts` and "tshc
+  sync writes the views" in `examples/host-examples.test.ts`. At `524d8517`, a run of the two
+  files then passed `examples/host-examples.test.ts` (16 tests), and the test of
+  `src/compiler/ts/host-draw.test.ts` timed out once more; that file then passed alone (19
+  tests). Without `NODE_OPTIONS`, the nine tests of `src/affected-tests.test.ts` and
+  `src/doc-test-selection.test.ts` that this container's `NODE_OPTIONS` fails pass too.
+- `bun run gate:boundary`: exit 0 at `86401940`, `1c3c4220` and `524d8517`. Against `480b6a64`
+  the copy adds 33 gzip bytes to `typeshade/runtime` (150,167; split initial 36,508, +39;
+  aggregate 152,077, +40) and 47 to `typeshade/fuse` (111,508; split initial 13,825, +57;
+  aggregate 111,959, +57). `typeshade/emit`, `typeshade/algorithms` and `typeshade/random` do not
+  change. Against `bf4a0d19` it had added 49 and 53. CI's boundary on `86401940` measured the
+  same bytes as this container, and `3b7019da` moved no bundle.
+- `bun run gate:journeys` with `TYPESHADE_CHROMIUM` set to the headless Chromium 1243
+  (SwiftShader), after `bun run build`, at `1c3c4220` and again at `524d8517`: exit 0, "34
+  journeys, 123 runs: every check passed", and 256 checks passed with none failed. The import
+  journey's resident arrays on WebGPU are among them: `resident(input.particles)`, the device
+  array of `layoutRows`, `filterBankGpu`, `filterStatesGpu` and `filterKeptGpu`, each with a worst
+  difference of 0.
+- `bun run build`, `bun run lint` and `bun run format:check`: exit 0 at `86401940`, `1c3c4220`
+  and `524d8517`.
+- The time of the copy alone, the amendment's impact estimate, by a script outside the tree in a
+  shared container: 100,000 objects `{ phase, step }` took 87 ms with `structuredClone` and 34 ms
+  with the new copy on Node 22.23.4, and 28 and 11 ms on Bun 1.4.4; 100,000 instances, 79 and
+  28 ms (Node) and 24 and 9 ms (Bun); 100,000 structs with a vec4 field, 142 and 80 ms (Node) and
+  101 and 30 ms (Bun). A typed array is sliced, as before.
+- CI: every required check green on `86401940`, `1c3c4220`, `757a18e5` and `524d8517`
+  (`typecheck + unit`, `traceability (Doorstop)`, `compile gate (Tint + WebGL2)` and
+  `user journeys (packed tarball, WebGPU)`), with the TypeScript 5.9.3 and 6.0.3 legs.
+- Not run in this container: `bun run gate:compile`, `bun run gate:differential`,
+  `bun run gate:render` and `bun run gate:perf` (the change emits no shader text and changes no
+  lowering; CI ran the compile, render and perf gates), and the TypeScript 5.9 and 6.0 legs, which
+  CI ran.
+
+**Document validation**, on 2026-11-02 (UTC): `bun run docs:impact` against `origin/main`, at each
+commit, three review items (the text of Rule 11.8, `scripts/bundle-budget.json` and
+`src/core/resident.ts`) and no must-fix item, each mention read and each commit's `Docs-Impact:`
+trailer saying what was read; `bun run docs:refs`, 0 dead references; `bun run reqs:sync` with
+nothing left to write; `python3 scripts/doorstop-check.py -C`, Doorstop 3.2, with no item flagged
+once `RULE-1108` was reviewed and the six surface items were cleared, and again after each merge;
+`bun scripts/changes.ts --base origin/main`, exit 0 ("This change touches Rule 11.8; surface
+§65"); `bun scripts/ifchange.ts --base origin/main`, exit 0; `bun run precommit --message-file`
+on each commit's message, exit 0.
+
+**Deviations**, each with its disposition: none from the amendment's text. Recorded for the
+reader: `structuredClone` kept the references a value shared, so a value whose objects shared one
+array was held with that sharing, and a call that wrote the array of one place in place wrote the
+other's too. A scratch test (not committed) ran `drift()` over two particles that shared one `pos`
+array on the CPU tier: the old copy read back the second particle's position for both, and the new
+copy reads back each one's own. The copy now makes each place a value of its own, one level after
+another, as the Implementation paragraph says, and `src/runtime/runtime.test.ts` holds it. Closed.
+
+**Pending work.** The downstream work that Amendment 1 adds to What it owes downstream is not
+started: typeaudio's `src/bank.ts` retires `Bank.read()` typed as `State<T>[]`, its
+`test/render.test.ts` holds a bank read back after a render to `instanceof`, its
+`docs/compiler-asks.md` marks ask N done, and its `compiler-changes.md` records 0109 when the pin
+moves past this implementation; the site's page that copies §65, in English and in Korean, gains
+the sentence on a `Resident` of instances; the editor's host reference says that a `Resident` of
+instances reads back as instances. This implementation also meets item 2 of typeaudio's ask F (no
+`structuredClone` in `resident()` and `dev.array()`), which typeaudio records when its pin moves.
 
 ## What it owes downstream
 

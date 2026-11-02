@@ -67,14 +67,14 @@ import { refuseAtomicDeclaration } from './atomics.js';
 import { refuseRuntimeArraySignature } from './runtime-array.js';
 import { checkReferenceAliases, markOutParam, qualifiersOf } from './references.js';
 import { checkDefiniteAssignment } from '../definite.js';
-import { kernelSourceNames } from '../kernel-loops.js';
+import { kernelSourceNames, type KernelNames } from '../kernel-loops.js';
 import {
   buildsCallerClass,
   emittedMemberName,
   holdsFunction,
   staticFieldDeclarations,
 } from '../class-names.js';
-import { staticConstName } from '../module-const.js';
+import { staticConstName, writtenConstNames } from '../module-const.js';
 import {
   captureArguments,
   captureBindings,
@@ -120,6 +120,7 @@ import {
 import {
   eachNamespaceStatement,
   namespaceMemberName,
+  recordLocalFunction,
   recordNamespaceFunction,
   recordTemplateInstance,
   refuseNamespaceStatement,
@@ -147,27 +148,36 @@ import {
   type BuiltinStage,
 } from '../builtin-check.js';
 
-/** What the source calls each function and each static field of the module that the module emits
- *  under another name: `Voice.tally` for a class's `Voice_tally`, `Ns.f` for a namespace's `Ns_f`,
- *  `pick` for the instance `pick_u32` of a generic function, `Voice.count` for the module variable
- *  `Voice_count` of a static field the file writes and `Voice.OFFSET` for the module constant
- *  `Voice_OFFSET` of one it does not. A name declared at the top level is emitted as written and has
- *  no row. The functions are read from the callee table, which holds every function of the file
- *  before any body is lowered, and the instances made by the calls lowered so far. */
-function writtenModuleNames(scope: LoweringScope, sourceFile: ts.SourceFile): [string, string][] {
-  const out: [string, string][] = [];
+/** What the source calls each function, each static field and each constant of a namespace or an
+ *  enum of the module that the module emits under another name: `Voice.tally` for a class's
+ *  `Voice_tally`, `Ns.f` for a namespace's `Ns_f`, `pick` for the instance `pick_u32` of a generic
+ *  function, `bump` for the local function `count_bump`, `Voice.count` for the module variable
+ *  `Voice_count` of a static field the file writes, `Voice.OFFSET` for the module constant
+ *  `Voice_OFFSET` of one it does not, `Ns.K` for the `Ns_K` of a namespace's constant and `Mode.B`
+ *  for the `Mode_B` of an enum's member. A name declared at the top level is emitted as written and
+ *  has no row. The functions are read from the callee table, which holds every function of the file
+ *  before any body is lowered, and the instances and the copies made by the calls lowered so far.
+ *  The rows are in two tables, since a call reads a function and a `varref` or a `constref` a value,
+ *  and neither reads a parameter's name (`KernelNames`, #988). */
+function writtenModuleNames(
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+): Pick<KernelNames, 'values' | 'functions'> {
+  const functions = new Map<string, string>();
+  const values = new Map<string, string>();
   for (const [emitted, decl] of scope.calleeTable()) {
     const written = classFunctionOf(decl)?.shown ?? writtenFunctionOf(decl);
-    if (written !== undefined && written !== emitted) out.push([emitted, written]);
+    if (written !== undefined && written !== emitted) functions.set(emitted, written);
   }
   for (const [field, decl] of staticFieldDeclarations(sourceFile)) {
     // A static field that holds a function is a function of the module, named above.
     if (holdsFunction(decl)) continue;
     const dot = field.indexOf('.');
     const member = emittedMemberName(field.slice(dot + 1));
-    out.push([staticConstName(field.slice(0, dot), member), field]);
+    values.set(staticConstName(field.slice(0, dot), member), field);
   }
-  return out;
+  for (const [emitted, written] of writtenConstNames(sourceFile)) values.set(emitted, written);
+  return { values, functions };
 }
 
 export function lowerSourceFunctions(
@@ -1257,6 +1267,9 @@ export function lowerSourceFunctions(
     localCopies.set(key, stub);
     callees.set(emitted, stub);
     writtenAs.set(emitted, fn.localName);
+    // To the author a copy is the one local function it is made from (#987).
+    const declared = writtenFunctionOf(fn.stub);
+    if (declared !== undefined) recordLocalFunction(stub, declared);
     making.push(name);
     try {
       // In the body, a parameter of function type names the function handed over.
@@ -3535,17 +3548,14 @@ export function fillFunctionBody(
   (stub as { body: readonly Stmt[] }).body = body;
   // A kernel function's loops are proved on its IR, and a refusal names the author's names
   // (Rule 8.22): keep what each IR name was written as, the functions it calls and the static
-  // fields it reaches among them. The scope names a module-level name as itself, so the written
-  // names come after the scope's.
+  // fields it reaches among them. The scope names a module-level name as itself, which is why a
+  // value of the module has a table of its own: a parameter that shares its IR name is a `param`,
+  // and reads the scope's table (#988).
   if (stub.kernel === true)
-    kernelSourceNames.set(
-      stub,
-      new Map([
-        ...scope.sourceNames(),
-        ...writtenModuleNames(scope, sourceFile),
-        ...kernelMethodNames,
-      ]),
-    );
+    kernelSourceNames.set(stub, {
+      locals: new Map([...scope.sourceNames(), ...kernelMethodNames]),
+      ...writtenModuleNames(scope, sourceFile),
+    });
   // The type a function that writes none returns, which the language service writes into the
   // text TypeScript reads when its return does vector arithmetic (#162, `projection.ts`).
   if (node.type === undefined && stub.stage === undefined) {

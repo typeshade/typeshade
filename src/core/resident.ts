@@ -67,15 +67,18 @@ type ResidentValue = unknown;
 export interface Resident<T = ResidentValue> {
   /**
    * Wait for every kernel call made before this one, and return a new array holding what the
-   * handle holds.
+   * handle holds. Each object in it is an instance of the class the handle's object was an
+   * instance of, built without its constructor, and a plain object is a plain object (change
+   * 0109, Amendment 1).
    *
    * @throws the error of a queued call that wrote this handle and failed; `TypeError` inside the
    *   body of `fuse()`, which records kernel calls only (change 0058).
    */
   read(): Promise<T>;
   /**
-   * Replace what the handle holds with `value`, after every call made before this one; with
-   * none waiting, at once. The next use uploads it.
+   * Replace what the handle holds with a copy of `value`, after every call made before this one;
+   * with none waiting, at once. The copy keeps the class of each object in `value`. The next use
+   * uploads it.
    *
    * @throws `TypeError` inside the body of `fuse()`, as `read()` does.
    */
@@ -351,11 +354,24 @@ export function adopt(handle: object, state: ResidentArrayState): void {
   states.set(handle, state);
 }
 
-/** A copy of `a`, so that the handle and the caller never share an array. */
-function copyOf<T>(a: T): T {
-  return ArrayBuffer.isView(a)
-    ? ((a as unknown as Float32Array).slice() as unknown as T)
-    : structuredClone(a);
+/**
+ * A copy of `v`, so that the handle and the caller never share an array or an object (Rule
+ * 11.8). A typed array is sliced. An array, a `Map` and a `Set` are copied entry by entry. Any
+ * other object is made from its own prototype, with its own enumerable properties copied, so an
+ * instance of a class stays an instance of that class and its constructor does not run (change
+ * 0109, Amendment 1, decision D5). Each level is a new value. The copy calls no
+ * `structuredClone`, which an `AudioWorkletGlobalScope` does not have.
+ */
+function copyOf<T>(v: T): T {
+  if (typeof v !== 'object' || v === null) return v;
+  if (ArrayBuffer.isView(v)) return (v as unknown as Float32Array).slice() as T;
+  if (Array.isArray(v)) return Array.from(v, copyOf) as T;
+  // An entry of a `Map` is a new array of its key and its value, which the copy copies in turn.
+  if (v instanceof Map) return new Map(Array.from(v, copyOf)) as T;
+  if (v instanceof Set) return new Set(Array.from(v, copyOf)) as T;
+  const out = Object.create(Object.getPrototypeOf(v) as object | null) as Record<string, unknown>;
+  for (const k of Object.keys(v)) out[k] = copyOf((v as Record<string, unknown>)[k]);
+  return out as T;
 }
 
 /** Why `v` is not a host value a Resident can hold, or undefined when it is. */
@@ -384,7 +400,8 @@ export type ZeroedArray<E extends ZeroedElement> = E extends 'f32'
  * Wrap a host value once so that it stays on the device across calls (Rule 11.8, surface §65):
  * `const dev = resident(new Float32Array(512 * 512)); render(k, 512, dev); const img = await
  * dev.read();`. A kernel or entry call takes the handle where it takes the value, and a program
- * of `typeshade/runtime` takes it as a binding. The handle holds its own copy of `value`.
+ * of `typeshade/runtime` takes it as a binding. The handle holds its own copy of `value`, and
+ * the copy keeps the class of each object in `value` (change 0109, Amendment 1).
  *
  * With a length and an element, `resident(length, element)` makes a zeroed handle that holds no
  * host copy and writes no byte until a call writes it or the host reads it (surface §65). The

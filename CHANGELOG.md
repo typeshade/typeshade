@@ -463,6 +463,22 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   the budgets moved by 5 (runtime, split aggregate), 1 (fuse) and 6 (random) gzip bytes,
   measured with Bun 1.4.4 against `78a9060`.
 
+- **A `Resident` of instances reads back as instances** (change 0109, Amendment 1; Rule 11.8,
+  surface §65). `resident(value)`, `device.array(value)` and `r.write(value)` copy the value with
+  the class of each object kept: an element of an array of structs, and a struct that a field
+  holds. `await r.read()` returns a new copy with the same classes, each instance made from its
+  class's prototype with the fields its own properties and its constructor not run, as a struct
+  that a result holds is made; a plain object stays a plain object. A call that writes the
+  `Resident` changes the fields on every tier, so `instanceof Voice` holds on what `read()`
+  returns and `tick()` runs on it, as `Resident<Voice[]>` said (issue #945). The bytes that a GPU
+  tier binds do not change. The copy no longer calls `structuredClone`, which an
+  `AudioWorkletGlobalScope` does not have: a typed array is sliced, an array, a `Map` and a `Set`
+  are copied entry by entry, and any other object level by level, so each place of the copy is a
+  value of its own, also where the value given shares one array between two places. The runtime
+  bundle grew by 33 gzip bytes (split initial +39, aggregate +40) and `typeshade/fuse` by 47
+  (split initial +57, aggregate +57), measured with Bun 1.4.4 against `480b6a64`; the budgets
+  moved by those bytes.
+
 - **A kernel function's loop runs over a trip count the device holds** (proposal 0094, stage 3;
   Rules 8.21, 8.22, 11.8 and 11.13, surface §65 and §71). The statements before a loop, its start
   and its bound may read the elements of the function's arrays and what an earlier loop of the same
@@ -1575,6 +1591,27 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   as its WebGPU tier binds a guard of its own. The compile gate's compute cases gain `twiddle` and
   `butterfly`, which compute a twiddle in the emulated double, the second across a barrier: both
   WebGL2 tiers must run them and match WebGPU, and the CPU tier runs `twiddle` as well.
+
+- **A local function and its copy, a namespace constant and an enum member are worded as the author
+  wrote them (#987).** After #979 a `TS8070` sentence still named a local function, and the copy of a
+  local function that takes a function, as the module emits them (`count_bump`, `count_apply_inc`),
+  and the reason of a fusion report printed a namespace constant, an enum member and a call of a
+  local function the same way (`Ns_K`, `Mode_B`, `count_bump(i)`). They are now `bump`, `apply`,
+  `Ns.K`, `Mode.B` and `bump(i)`. A local function is called by the name it is declared with, and
+  TypeScript has no spelling like `count.bump`, so the sentence names it so; a copy is named as the
+  local function it is made from, as the copy of a function of the top level is (#972).
+
+- **A parameter named like the name the module emits a static field or a function under is worded as
+  the parameter (#988).** The name table of a kernel function was one map keyed by IR name. A
+  parameter keeps the name its signature gives it and may share it with a value of the module (Rule
+  3.2), so the parameter `Voice_OFFSET` beside `class Voice { static OFFSET: u32 = 1; }` was worded
+  as the field: the fusion report said that `gather` reads `t[i + Voice.OFFSET]`, and a `TS8070`
+  sentence named an array parameter `Voice_OFFSET` as `Voice.OFFSET`. The same held for a parameter
+  named like a static field the file writes (`Voice_count`) or like a class's function
+  (`Voice_shift`), and for a local named like a function. The table is now three: the locals and
+  the parameters, the static fields, and the functions. A parameter reads the first, a variable or
+  a constant the first two, and a call the third, so each name is the one the author wrote. The
+  static field and the function themselves keep their names (`Voice.OFFSET`, `Voice.shift`).
 
 - **A kernel function's loop that writes at the counter added to a value the loop does not change
   runs on the GPU (#983).** `for (let n: u32 = 0; n < block.length; n++) tape[at + n] = block[n];`
