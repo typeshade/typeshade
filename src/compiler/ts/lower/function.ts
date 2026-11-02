@@ -3568,7 +3568,7 @@ export function fillFunctionBody(
  *  extent its argument names, when the argument is one positive whole number. Whether the
  *  function is a kernel function, which takes it, is known once its parameters are read. */
 export interface KernelWorkgroupAttr {
-  /** The `@workgroup_size` decorator, or the `workgroupSize([…], f)` call (change 0111). */
+  /** The `@workgroup_size` decorator, or the `workgroup_size([…], f)` call (change 0111). */
   readonly anchor: ts.Decorator | ts.CallExpression;
   /** The extent, or undefined when the argument is not one positive whole number. */
   readonly size?: number;
@@ -3649,7 +3649,7 @@ function settleKernelWorkgroup(
   if (!kernel || !isExported(node)) {
     once(
       call
-        ? `"workgroupSize" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Declare "${node.name?.text ?? 'this function'}" without it.`
+        ? `"workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Declare "${node.name?.text ?? 'this function'}" without it.`
         : `"@workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Remove it from "${node.name?.text ?? 'this function'}".`,
       TS_CODES.ATTRIBUTE_NAME,
     );
@@ -3658,7 +3658,7 @@ function settleKernelWorkgroup(
   if (attr.size === undefined) {
     once(
       call
-        ? `workgroupSize takes an array of one whole number before its function, as "workgroupSize([64], f)", or a module constant in it, as "workgroupSize([TILE], f)"; "${d.arguments[0]?.getText(sourceFile) ?? ''}" is not one.`
+        ? `workgroup_size takes an array of one whole number before its function, as "workgroup_size([64], f)", or a module constant in it, as "workgroup_size([TILE], f)"; "${d.arguments[0]?.getText(sourceFile) ?? ''}" is not one.`
         : `@workgroup_size takes an array of one whole number on a kernel function, as "@workgroup_size([64])", or a module constant in it, as "@workgroup_size([TILE])"; "${d.getText(sourceFile)}" is not one.`,
       TS_CODES.WORKGROUP_ARG,
     );
@@ -3668,7 +3668,7 @@ function settleKernelWorkgroup(
   const over = overDefaultWorkgroupLimit(shape);
   if (over !== undefined)
     once(
-      `${call ? 'workgroupSize' : '@workgroup_size'} shape [${attr.size}, 1, 1] ${over}. WebGPU guarantees no more, so a device requested without raising that limit refuses the pipeline.`,
+      `${call ? 'workgroup_size' : '@workgroup_size'} shape [${attr.size}, 1, 1] ${over}. WebGPU guarantees no more, so a device requested without raising that limit refuses the pipeline.`,
       TS_CODES.WORKGROUP_SHAPE,
       'warning',
     );
@@ -3803,7 +3803,7 @@ function parseStage(
   // with no decorator.
   const sc = stageCallOfDeclaration(node);
   if (sc !== undefined) {
-    if (sc.callee === 'workgroupSize') kernelWorkgroup = kernelWorkgroupOf(sc.call, consts);
+    if (sc.callee === 'workgroup_size') kernelWorkgroup = kernelWorkgroupOf(sc.call, consts);
     else if (sc.callee === 'compute')
       readCompute(sc.size === undefined ? [] : [sc.size], sc.call, 'call');
     else stage = sc.callee;

@@ -4,7 +4,7 @@
 //   export const vs = vertex(function vs(i: u32): vec4 { … });
 //   export const fs = fragment((v: VsOut): vec4 => …);
 //   export const main = compute([64], function main(…) { … });
-//   export const scale = workgroupSize([128], function scale(xs: array<f32>) { … });
+//   export const scale = workgroup_size([128], function scale(xs: array<f32>) { … });
 //
 // A plain `tsc --strict` accepts this form; it refuses a decorator on a function declaration
 // (TS1206). The front end reads the call here and hands the rest of the compiler a function
@@ -14,7 +14,7 @@
 import ts from 'typescript';
 
 /** The functions a stage call is spelled with, and what each makes of its function. */
-export const STAGE_CALLEES = ['vertex', 'fragment', 'compute', 'workgroupSize'] as const;
+export const STAGE_CALLEES = ['vertex', 'fragment', 'compute', 'workgroup_size'] as const;
 export type StageCallee = (typeof STAGE_CALLEES)[number];
 
 /** One `const x = stage(…)` the file declares. */
@@ -25,7 +25,7 @@ export interface StageCall {
   readonly declaration: ts.VariableDeclaration & { readonly name: ts.Identifier };
   /** The function the call wraps. */
   readonly fn: ts.FunctionExpression | ts.ArrowFunction;
-  /** The workgroup argument of `compute([…], f)` and `workgroupSize([…], f)`. */
+  /** The workgroup argument of `compute([…], f)` and `workgroup_size([…], f)`. */
   readonly size?: ts.Expression;
   /** The options argument after the function, `{ diagnostic: [...] }`. */
   readonly options?: ts.Expression;
@@ -49,7 +49,7 @@ function partsOf(expr: ts.Expression):
   if (!ts.isCallExpression(expr) || !ts.isIdentifier(expr.expression)) return undefined;
   const callee = expr.expression.text;
   if (!isCallee(callee)) return undefined;
-  const sized = callee === 'compute' || callee === 'workgroupSize';
+  const sized = callee === 'compute' || callee === 'workgroup_size';
   const at = sized ? 1 : 0;
   const fn = expr.arguments[at];
   if (fn === undefined || !(ts.isFunctionExpression(fn) || ts.isArrowFunction(fn)))

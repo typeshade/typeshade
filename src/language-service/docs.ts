@@ -133,8 +133,8 @@ export const STAGE_CALL_DOCS: Readonly<Record<string, string>> = {
     "Declares the pipeline's fragment-stage entry point: `export const fs = fragment(function fs(…) { … })`. The entry takes the constant's name. Options: `{ diagnostic: [severity, rule] }`.",
   compute:
     'Declares a compute-stage entry point with its workgroup size, one to three extents: `export const main = compute([64], function main(…) { … })`. Options: `{ diagnostic: [severity, rule] }`.',
-  workgroupSize:
-    'Sets the workgroup size of a kernel function, an exported function that takes an array with no size or a 2D storage texture, as one extent: `export const scale = workgroupSize([128], function scale(xs: array<f32>) { … })`. A loop that reduces runs at 256 whatever is written.',
+  workgroup_size:
+    'Sets the workgroup size of a kernel function, an exported function that takes an array with no size or a 2D storage texture, as one extent: `export const scale = workgroup_size([128], function scale(xs: array<f32>) { … })`. A loop that reduces runs at 256 whatever is written.',
 };
 
 /** One Markdown sentence per `@builtin(...)` id in `WGSL_BUILTIN_NAMES`. */

@@ -1675,8 +1675,8 @@ ${renderJSDoc(STAGE_CALL_DOCS.fragment!)}
 declare function fragment<F extends (...args: never[]) => unknown>(entry: F, options?: { readonly diagnostic?: readonly [severity: string, rule: string] }): F
 ${renderJSDoc(STAGE_CALL_DOCS.compute!)}
 declare function compute<F extends (...args: never[]) => unknown>(workgroupSize: readonly [x: number, y?: number, z?: number], entry: F, options?: { readonly diagnostic?: readonly [severity: string, rule: string] }): F
-${renderJSDoc(STAGE_CALL_DOCS.workgroupSize!)}
-declare function workgroupSize<F extends (...args: never[]) => unknown>(size: readonly [x: number], kernel: F): F
+${renderJSDoc(STAGE_CALL_DOCS.workgroup_size!)}
+declare function workgroup_size<F extends (...args: never[]) => unknown>(size: readonly [x: number], kernel: F): F
 ${renderJSDoc(ATTRIBUTE_DOCS.vertex)}
 declare function vertex(target: Function, context?: unknown): void
 ${renderJSDoc(ATTRIBUTE_DOCS.fragment)}

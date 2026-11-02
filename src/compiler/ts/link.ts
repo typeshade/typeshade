@@ -279,9 +279,9 @@ function fixedNameOf(stmt: ts.Statement): Unit['fixedName'] {
   }
   if (!ts.isVariableStatement(stmt)) return undefined;
   // `const vs = vertex(function vs(…) { … })`, the stage call of change 0111, is an entry; a
-  // `workgroupSize([…], f)` is a kernel function, which a host calls by its name too.
+  // `workgroup_size([…], f)` is a kernel function, which a host calls by its name too.
   const stage = stageCallOf(stmt);
-  if (stage !== undefined) return stage.callee === 'workgroupSize' ? undefined : 'entry point';
+  if (stage !== undefined) return stage.callee === 'workgroup_size' ? undefined : 'entry point';
   const declared = hasModifier(stmt, ts.SyntaxKind.DeclareKeyword);
   for (const d of stmt.declarationList.declarations) {
     const t = d.type;
