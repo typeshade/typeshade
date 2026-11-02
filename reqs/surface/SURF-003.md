@@ -15,6 +15,6 @@ reviewed: xOe0YglAQ7b4-ZszMKtoJrv25jgE8gtXI5jovIzRpJc=
 source: docs/use-typeshade-surface.md §3
 ---
 
-# Entries — function decorators and explicit builtins
+# Entries — stage calls and explicit builtins
 
-docs/use-typeshade-surface.md §3, "Entries — function decorators and explicit builtins": the surface section that explains Rule 6.6, Rule 8.1, Rule 8.2, Rule 8.7, Rule 8.22, Rule 12.6.
+docs/use-typeshade-surface.md §3, "Entries — stage calls and explicit builtins": the surface section that explains Rule 6.6, Rule 8.1, Rule 8.2, Rule 8.7, Rule 8.22, Rule 12.6.

@@ -7,21 +7,21 @@ Does not replace `docs/use-typeshade-plan.md` (IR phases 0–22). This document 
 North star: TypeScript syntax only where the TS parser already accepts it. No preprocessor. No second IR.
 
 ```
-type Camera = { … }                             value struct (or class + field attrs)
-class VsIn { @location(0) … }                   value struct + per-field metadata
+type Camera = { … }                             value struct (or interface, or class)
+interface VsIn { uv: location<0, vec2> }        entry I/O struct, the attribute in the type
 declare const camera: uniform<T>                resource slot (host fills)
 declare const pixels: storage<T, "read_write">  resource slot, writable
-@compute([64]) export function                  entry
-@vertex / @fragment export function             entry
+export const k = compute([64], function k…)     entry
+export const vs = vertex(function vs…)          entry (and fragment(…))
 ```
 
 GPU has three things. The grammar has three places.
 
-| GPU              | TypeShade                                      | `@` allowed?                          |
-|------------------|------------------------------------------------|---------------------------------------|
-| Buffer / UBO     | `declare const` + `uniform<T>` / `storage<T, A>` | No (const cannot take decorators)     |
-| Value layout     | `class` fields or `type` alias                 | Yes, on **class fields only**         |
-| Shader stage     | top-level `export function`                    | `@compute` `@vertex` `@fragment`      |
+| GPU              | TypeShade                                      | Where the attribute is written                          |
+|------------------|------------------------------------------------|---------------------------------------------------------|
+| Buffer / UBO     | `declare const` + `uniform<T>` / `storage<T, A>` | In the type; a decorator is refused                     |
+| Value layout     | `class`, `interface` or `type` alias           | In the field's type, `location<0, vec2>`; `@align` on a class field |
+| Shader stage     | top-level `export const` and a stage call      | The call, `vertex(f)`, `fragment(f)`, `compute([64], f)` |
 
 Do not put an entry method on a class. Do not use a class as a bind group.
 
@@ -51,10 +51,9 @@ declare const camera: uniform<Camera>;
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
 
-@compute([64, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   dst[gid.x] = src[gid.x] * camera.fov;
-}
+});
 ```
 
 **What it emits.** The three declarations are the three WGSL `var`s, in source order:
@@ -201,24 +200,36 @@ optional member is the one where the three spellings used to disagree: an interf
 and a class emitted it as required. They refuse it alike now. An `extends` clause is inheritance (roadmap 0.3 item T5, §26): the base's fields come
 first and the derived ones after, so nothing is dropped.
 
-Field metadata (`@location`, `@builtin`, `@interpolate`, `@invariant`, `@blend_src`, `@align`, `@size`, `@offset`, `@ignore`) requires a **class field**. Interfaces and type-literal members cannot carry TS decorators, so a struct used as entry I/O — where WGSL requires `@builtin` or `@location` on every member — has to be a class.
+An entry I/O field carries its attribute in its type (change 0111): `location<n, T>` or
+`builtin<"...", T>`, and the options `interpolate`, `invariant` and `blend_src` as a third type
+argument (§53). Each type means `T`. A type carries in all three spellings, so a struct used as
+entry I/O — where WGSL requires a built-in or a location on every member — may be a `class`, an
+`interface` or a `type`. A `class` field with no initializer takes `!` (`view!: mat4`), which a
+plain `tsc --strict` requires.
+
+The decorated field (`@location(0) uv: vec2`, with `@interpolate`, `@invariant` or `@blend_src`
+beside it) needs a **class field**, since interfaces and type-literal members cannot carry
+TypeScript decorators. It stays accepted until the release after the migration release (change
+0111, D5); `tshc migrate` rewrites it to the type form. The other field decorators (`@align`,
+`@size`, `@offset`, `@ignore`) are written on a class field and are refused, as below.
 
 ```ts
 class Camera {
   @align(16)
-  view: mat4;
-  pos: vec3;
+  view!: mat4;
+  pos!: vec3;
 }
 
-class VsIn {
-  @location(0) position: vec3;
-  @location(1) @interpolate("linear") uv: vec2; // WGSL only — GLSL ES 3.00 has no `linear`
+interface VsIn {
+  position: location<0, vec3>;
+  uv: location<1, vec2, { interpolate: "linear" }>; // WGSL only — GLSL ES 3.00 has no `linear`
 }
 ```
 
-Of that list the compiler applies `@location`, `@builtin`, `@interpolate`, `@invariant` and
-`@blend_src` today (§53). `@location`, `@builtin` and `@interpolate` also apply to a bare entry
-PARAMETER, which is how a fragment entry that takes one varying writes it. The rest are refused
+Of the attributes, the compiler applies `location`, `builtin`, `interpolate`, `invariant` and
+`blend_src` today (§53). `location<n, T>` and `builtin<"...", T>`, with an `interpolate` option,
+also apply to a bare entry PARAMETER, which is how a fragment entry that takes one varying
+writes it. The field decorators are refused
 rather than silently dropped, under two codes: `@align` on a field is `TS8010` ("@align on a
 field is not applied"), so the `@align(16)` above is *(target)*; `@size` is `TS8028`, named as
 WGSL's attribute and not applied, since a field takes the size WGSL's layout gives its type
@@ -231,7 +242,7 @@ back its code.
 Forbidden on these classes:
 
 - `new Camera()` as a resource (a `new` on a class with a constructor builds a value, §26)
-- `@compute` / `@vertex` / `@fragment` methods (an entry is a top-level function)
+- `@compute` / `@vertex` / `@fragment` methods (an entry is a top-level `const`, §3)
 - no fields at all on an interface or object type alias; a fieldless class remains a value (§26)
 - a field name that is not a plain identifier (`"my-field": f32`, `[key]: f32`)
 
@@ -258,44 +269,48 @@ the error sits on the second declaration and not on a use written later.
 
 ---
 
-## 3. Entries — function decorators and explicit builtins
+## 3. Entries — stage calls and explicit builtins
+
+An entry is a `const` at the top of the file or of a namespace, initialized by a **stage call**
+that wraps the entry's function: `vertex(f)`, `fragment(f)` or `compute([x, y?, z?], f)` (Rule
+8.1, change 0111). The function is a function expression, named as the constant is, or an arrow
+function. A plain `tsc --strict` accepts the form.
 
 Shader-stage inputs are **explicit function parameters**. TypeShade does not inject `gid`, `vid`, or `pid` as implicit globals.
 
 ```ts
-@compute([64, 1, 1])
-export function paint(
-  @builtin("global_invocation_id") gid: vec3u
+export const paint = compute([64, 1, 1], function paint(
+  gid: builtin<"global_invocation_id", vec3u>
 ) {
   pixels[gid.x] += camera.pos.x;
-}
+});
 
-@vertex
-export function vs(
-  @builtin("vertex_index") vid: u32,
+export const vs = vertex(function vs(
+  vid: builtin<"vertex_index", u32>,
   vin: VsIn
 ): vec4 {
   return camera.view * vec4(vin.position, 1);
-}
+});
 
-@fragment
-export function fs(
-  @builtin("position") pid: vec4
+export const fs = fragment(function fs(
+  pid: builtin<"position", vec4>
 ): vec4 {
   return vec4(pid.x, 0, 0, 1);
-}
+});
 ```
 
-- No stage decorator → helper, not an entry.
-- Builtins are ordinary entry parameters with `@builtin(...)` metadata.
+- No stage call → helper, not an entry.
+- A function expression named otherwise than its constant is refused; the entry takes the
+  constant's name.
+- Builtins are ordinary entry parameters typed `builtin<"...", T>` (Rule 6.6). The type means
+  `T`, so `gid.x` is a `u32` to the compiler and to TypeScript.
 - A builtin is not a hidden global; its dependency is visible in the function signature.
 - The builtin name must match the target backend's supported builtin set.
-- Workgroup size is the only payload on `@compute`, an array of one to three whole-number literals,
-  integer module constants or `u32` override names; a bare `@compute` takes the default of 64,
-  emitted as `@workgroup_size(64)`.
-- `y` and `z` default to 1, and WGSL spells only the extents it needs: `@compute([8, 8])` emits
-  `@workgroup_size(8, 8)`, `@compute([4, 1, 2])` emits `@workgroup_size(4, 1, 2)`, and
-  `@compute([64, 1, 1])` emits `@workgroup_size(64)` as it always did. `reflect()` reports the
+- Workgroup size is the first argument of `compute`, an array of one to three whole-number
+  literals, integer module constants or `u32` override names, before the function.
+- `y` and `z` default to 1, and WGSL spells only the extents it needs: `compute([8, 8], f)` emits
+  `@workgroup_size(8, 8)`, `compute([4, 1, 2], f)` emits `@workgroup_size(4, 1, 2)`, and
+  `compute([64, 1, 1], f)` emits `@workgroup_size(64)` as it always did. `reflect()` reports the
   three default extents as `workgroupShape`, `[8, 8, 1]`, beside `workgroupSize`, which stays the `x`
   extent; it also reports override names by axis when present. A host sizes a dispatch as
   `ceil(n / extent)` workgroups per axis, using the selected pipeline's resolved `workgroupShape`.
@@ -310,46 +325,62 @@ export function fs(
   `@compute workgroup shape [16, 16, 2] has 512 invocations, over maxComputeInvocationsPerWorkgroup (256). WebGPU guarantees no more, so a device requested without raising that limit refuses the pipeline.`
 - A `portable` kernel's workgroup stays one-dimensional (`SD0111`): the WebGL2 lowering draws one
   texel per invocation and has no workgroup to give `y` and `z` to.
-- `@compute({ workgroup: [64, 1, 1] })` is refused (`TS8037`):
-  `@compute takes an array of one to three whole numbers, "@compute([64, 1, 1])", or no argument for the default of 64; "{ workgroup: [64, 1, 1] }" is not a workgroup shape.`
-- A kernel function (§65) takes one extent in the same spelling as an entry: `@workgroup_size([128])` before `export function`. Its loops that do not reduce run at that size on WebGPU, and at 64 without the attribute. `@workgroup_size([8, 8])` on a kernel function is refused (`TS8037`), since a loop of a kernel function runs on the x index alone. On an entry, `@workgroup_size` is refused as before. On a function that is neither a kernel function nor an entry it is refused (`TS8028`): `"@workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Remove it from "plain".`
+- `compute({ workgroup: [64, 1, 1] }, f)` is refused (`TS8037`):
+  `compute takes an array of one to three whole numbers before its function, "compute([64, 1, 1], f)"; "{ workgroup: [64, 1, 1] }" is not a workgroup shape.`
+- A stage call takes one option after the function, `diagnostic` (§54):
+  `fragment(f, { diagnostic: ["off", "derivative_uniformity"] })`. Another option is refused
+  (`TS8028`).
+- A kernel function (§65) takes one extent in the same spelling as an entry:
+  `export const scale = workgroup_size([128], function scale(xs: array<f32>) { … })`. Its loops
+  that do not reduce run at that size on WebGPU, and at 64 without it. `workgroup_size([8, 8], f)`
+  is refused (`TS8037`), since a loop of a kernel function runs on the x index alone. On a
+  function that is neither a kernel function nor an entry it is refused (`TS8028`):
+  `"workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Declare "f" without it.`
+
+**The decorated form.** Until the release after the migration release (change 0111, Amendment
+2, D5), the compiler also accepts the decorated form, and reads it as the stage call:
+`@vertex export function vs(@builtin("vertex_index") i: u32)`, `@fragment`, `@compute([64])`,
+and `@workgroup_size([128])` on a kernel function. A bare `@compute` takes the default of 64.
+`@compute({ workgroup: [64, 1, 1] })` is `TS8037`, and `@workgroup_size` on an entry or on a
+function that is neither is refused as above. A plain `tsc --strict` refuses a decorator on a
+function declaration and on its parameter (TS1206), so `tshc migrate` rewrites a file to the
+stage call and the attribute types.
 
 ### What an entry may return
 
 The shapes are the target's, not this compiler's, and there is one constraint per stage.
 
-**A vertex entry returns the position.** A return typed `vec4` carries `@builtin("position")` on
+**A vertex entry returns the position.** A return typed `vec4` carries the position built-in on
 its own, so the smallest vertex shader needs no struct and no parameters:
 
 ```ts
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): vec4 {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
   return vec4(xs[i32(vi)], ys[i32(vi)], 0., 1.);
-}
+});
 ```
 
 That reaches both targets: `-> @builtin(position) vec4<f32>` on WGSL, and `gl_Position` on GLSL
 ES 3.00, where it is not a varying and links nothing. A struct return carries the position in a
-field and adds as many `@location` varyings as the program wants, which is the shape to reach
+field, `pos: builtin<"position", vec4>`, and adds as many `location<n, T>` varyings as the
+program wants, which is the shape to reach
 for the moment anything travels to the fragment stage.
 
 The one constraint: a vertex entry has to produce a position, and nothing can invent one. A
-struct return with no `@builtin("position")` field, a `void` return, and a bare type that is not
+struct return with no `builtin<"position", vec4>` field, a `void` return, and a bare type that is not
 a `vec4` are each refused, naming the field or the type to write. WGSL says the same thing ("a
 vertex shader must include the 'position' builtin in its return type"); saying it here means an
 author reads it against the line they wrote instead of against generated text.
 
 **A fragment entry returns one value, or a struct of render targets.** A bare return takes
-`@location(0)` at any width, so `f32`, `vec2`, `vec3` and `vec4` are all draw-buffer formats:
+location 0 at any width, so `f32`, `vec2`, `vec3` and `vec4` are all draw-buffer formats:
 
 ```ts
-@fragment
-export function fs(): f32 {
+export const fs = fragment(function fs(): f32 {
   return 0.5;
-}
+});
 ```
 
-A struct return is the multiple-render-target form, one `@location(n)` per target. A fragment
+A struct return is the multiple-render-target form, one `location<n, T>` field per target. A fragment
 entry may also return nothing, which is what a program that only writes to storage does.
 
 ---
@@ -359,7 +390,7 @@ entry may also return nothing, which is what a program that only writes to stora
 | Idea | Why not |
 |------|--------|
 | `@uniform const scale` | A resource is spelled by its type, `declare const scale: uniform<f32>` (§1). TypeScript parses a decorator on a `const` and refuses it itself (TS1206); the compiler refuses every decorator on a declaration as `TS8028` (§7) |
-| `class Scene { @compute paint() {} }` | `this` is not a GPU instance |
+| `class Scene { @compute paint() {} }` | `this` is not a GPU instance; an entry is a top-level `const` (§3) |
 | Static class as bind group | Extra ban list; emit `.d.ts` instead |
 | Per-decl binding numbers as the happy path | Host mismatch is silent on GPU |
 | JS `Array` / `filter` length change | IR + WGSL constraints |
@@ -384,10 +415,10 @@ camera / pixels in a function
 class Camera { view, pos }
         → StructDecl + field attrs
 
-@builtin("global_invocation_id") gid: vec3u
+gid: builtin<"global_invocation_id", vec3u>
         → entry parameter + builtin metadata
 
-@compute([64]) export function paint
+export const paint = compute([64], function paint…)
         → FuncDecl + workgroup metadata
 ```
 
@@ -403,6 +434,10 @@ Same Expr / Stmt / FuncDecl / BindingDecl / StructDecl as the EDSL.
 4. **Field decorators** `@align` `@location` `@size` `@offset` `@ignore`.
 5. **`@vertex` / `@fragment`** + explicit builtin and `VsIn` locations.
 6. Reflect JSON + optional `.d.ts` for `declare` names.
+7. **Stage calls and attribute types** (change 0111): `vertex(f)`, `fragment(f)`,
+   `compute([…], f)`, `workgroup_size([…], f)`, `builtin<N, T>`, `location<I, T>`, `inout<T>` and
+   `out<T>`, the form a plain `tsc --strict` accepts. The decorators of steps 2, 4 and 5 stay
+   accepted until the release after the migration release.
 
 Do not start Execution Graph or class methods before 2–4 are green. (Class methods landed as §26.)
 
@@ -438,8 +473,8 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | A name the file does not declare: a value, a callee, a type, a field, a member, an assignment target, an attribute, a `@builtin` id, an `enable` extension, an import | `TS8022`, `TS8004`, `TS8002` and the rest, on the name, with the remedy in one order (Rule 12.1): TypeShade's spelling of a GLSL or HLSL name (`lerp` is `mix`), else the name of the same kind it is spelled like (`Did you mean "clamp"?`), else the declaration it needs. `window`, `Date` and `fetch` are such names, once, where they are used, in a body a call lowers or not; a type nothing declares is `TS8002` wherever it is written, a claim, a type argument (`B<vec3<Foo>>` included), an alias, an `implements` clause and the base a class or an interface extends included. A type the library declares for TypeScript's own use (`Number`, `Object`) read or called is said to be one, and `Math`, `console` and `Symbol` to be what they are. A name the file declares is the file's, whatever it spells, `class Mat` and `interface Pick` included (§28), except `eval` and `arguments`, which strict mode lets no variable, parameter or function bind (`TS8068`) |
 | A math builtin called with arguments its signature does not take | `TS8036`. Two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind the builtin has no form for (`sin` on an integer vector), a scalar where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix; the fix is named (§10) |
 | `new` on anything but a class the file declares | `TS8035`, once for the file, naming what the target is and what to write: a WGSL constructor or a function is called without `new`, a WGSL type with no constructor (`sampler`, a texture) and a type the library declares for TypeScript (`Array`) are types, `Symbol` is the library's own, an enum's values are its members, a mixin applied to a class is built through a class that extends it, and an interface, a type alias, a namespace, a type parameter, a value and an `abstract` class are no class to build. A target nothing declares, and a member the object before it does not have, is `TS8022` (§26) |
-| A local read before it is assigned on every path, an `@out` parameter read before the function writes it, or a path that returns without writing one | `TS8075`, by TypeScript's TS2454 rule, which the editor shows in TypeScript's place: `"s" is read here before it is assigned on every path. Assign it before this read, or declare it with a value (Rule 7.6).` An argument an `@out` parameter takes assigns the variable (§70) |
-| A value nothing holds, or a place no function may write, handed to an `@inout` or `@out` parameter; a qualifier where a function takes its parameters by value | `TS8073`, naming the edit (§70) |
+| A local read before it is assigned on every path, an `out<T>` parameter read before the function writes it, or a path that returns without writing one | `TS8075`, by TypeScript's TS2454 rule, which the editor shows in TypeScript's place: `"s" is read here before it is assigned on every path. Assign it before this read, or declare it with a value (Rule 7.6).` An argument an `out<T>` parameter takes assigns the variable (§70) |
+| A value nothing holds, or a place no function may write, handed to an `inout<T>` or `out<T>` parameter; a qualifier where a function takes its parameters by value | `TS8073`, naming the edit (§70) |
 | A module const, a module `let`, a static field or an enum member whose initializer calls a function or builds a class of the module | The declaration's own sentence, once, naming it as written (`S.K`): `TS8003` for a constant, which is folded before any function exists, so the value is built inside the function that reads it; `TS8033` for a module variable. A read or a write of it, and a module `let` built from it, add nothing (§12, §24, §26) |
 | An optional value (`T \| undefined`, §76) read where a `T` is needed and nothing narrowed it: an operand, an argument, a `return` of a non-optional function, an index, a member read | `TS8003`, in TypeScript's TS18048, TS2532 and TS2538 place, which the editor shows alone: `"v" is "f32 \| undefined" here, and "*" takes an f32. Test it first, "if (v !== undefined)", or give the absent case a value, "v ?? 0.".` An optional as a condition, `v!`, `undefined` where nothing expects an optional, and `x === undefined` on a value that is always there are `TS8003` too, each naming the edit; `o?.m()`, `typeof v` and a call read twice in a loop condition are `TS8099` (Rule 7.10) |
 | `T \| null`, `T \| undefined` or `T \| null \| undefined` where no optional may stand: an enum member, a `Map` or `Record` value, or a struct or an array that holds one in a binding, a module variable or constant, an override, an entry point's parameter or result, or a kernel function's parameter or result | `TS8002`. `"f32 \| undefined" holds a value and a flag saying whether it is there, which a local, a parameter, a function's result, a struct field or an array element may hold; a binding may not. Carry a u32 flag beside the value, "f32".`, and through a struct or an array `"U" holds "w: f32 \| undefined", a value and a flag saying whether it is there, which a local, a parameter, a function's result, a struct field or an array element may hold; a binding may not. Carry a u32 flag beside the value, "f32".` A kernel function's result names its own two forms: `…; a kernel function's result may not. Carry a u32 flag beside the value, "f32", in an array the function writes, or return a struct with a "found: u32" field beside it.` (#792) (change 0093; §28, §76) |
@@ -456,20 +491,19 @@ rejects it (`TS8010`, "`@align` on a field is not applied"), so it is left out h
 "use typeshade";
 
 class Camera {
-  view: mat4;
-  pos: vec3;
+  view!: mat4;
+  pos!: vec3;
 }
 
 declare const camera: uniform<Camera>;
 declare const pixels: storage<array<f32>, "read_write">;
 
-@compute([64, 1, 1])
-export function paint(
-  @builtin("global_invocation_id") gid: vec3u
+export const paint = compute([64, 1, 1], function paint(
+  gid: builtin<"global_invocation_id", vec3u>
 ) {
   const i = gid.x;
   pixels[i] = pixels[i] + camera.pos.x;
-}
+});
 ```
 
 **Rule:** a target example — grammar this document freezes but the compiler does not accept
@@ -506,13 +540,13 @@ pixels[i] = 1.;            // an element
 | `const` local | no: `TS8005` |
 | `declare const x: uniform<T>` / `storage<T>` | no: `TS8005` |
 | a function parameter | no: `TS8018` |
-| an `@inout` or `@out` parameter | yes: the caller's place (§70) |
+| an `inout<T>` or `out<T>` parameter | yes: the caller's place (§70) |
 | anything that is not a name (`vec3(0.).x`) | no: `TS8018` |
 
 The parameter row covers writing **through** a parameter (`p.x = 1.`, `p.xs[i] = 1.`) and
 writing it **whole** (`p = 1.`, `p += 1.`, `p++`) alike. The whole write used to be accepted and
 emitted as `p = 1.0;`, which Tint refuses; it is `TS8018` now, naming the local to copy it into
-(§52). A parameter declared `@inout` or `@out` is the one parameter a write lands on whole and
+(§52). A parameter declared `inout<T>` or `out<T>` is the one parameter a write lands on whole and
 through: it names the caller's place, so `p = 1.` and `p.x = 1.` write the variable the caller
 passed (§70).
 
@@ -640,20 +674,19 @@ calls, where both reached WGSL's builtin before.
 ```ts
 "use typeshade";
 
-class Color {
-  @location(0) color: vec4;
+interface Color {
+  color: location<0, vec4>;
 }
 
-@fragment
-export function fs(@builtin("position") p: vec4): Color {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
   if (p.x > 0.5) {
     discard;
   }
   return { color: vec4(1., 0., 0., 1.) };
-}
+});
 ```
 
-It is allowed in a fragment entry, and in a helper as long as no `@vertex` or `@compute`
+It is allowed in a fragment entry, and in a helper as long as no vertex or compute
 entry can reach it: the check closes over the call graph, so `discard` inside a helper a
 vertex entry calls is rejected too, naming the helper and the entry. The three screen-space
 derivatives (`fwidth`, `dpdx`, `dpdy`) are fragment-only by the same rule. `discard()` is refused
@@ -1034,12 +1067,11 @@ also permits writes to the local's components, fields or elements. A parameter w
 whole write keeps its existing read-only place restriction; resource handles and a kernel
 function's reference-backed arrays do not become local copies.
 
-A parameter declared `@inout` or `@out` takes no copy: it names the caller's place, and the
-call passes the variable itself (§70). The qualifier is a decorator on a parameter of a
+A parameter declared `inout<T>` or `out<T>` takes no copy: it names the caller's place, and the
+call passes the variable itself (§70). The qualifier is the type of a parameter of a
 function declared at the top of the file or of a namespace; a method, a constructor, an
 accessor, an entry, a local function and a generic function take values, and each refuses a
-qualifier with `TS8073` (TypeScript itself does not parse a decorator on an arrow function's
-parameter). A local function captures a qualified parameter as it captures any variable, and
+qualifier with `TS8073`. A local function captures a qualified parameter as it captures any variable, and
 writes the caller's place through it (§70).
 
 Four ordinary TypeScript shapes that the grammar admits and the language now lowers (one of
@@ -1088,7 +1120,7 @@ The annotation is what carries the type, so it is required; a `const` still need
 read before the local is assigned on every path is refused with `TS8075`, by TypeScript's rule
 for its TS2454, which the editor shows in TypeScript's place (Rule 7.6): `x += 1.`, `x.y = 1.`
 and `x[0] = 1.` read `x` and assign nothing, and an assignment inside a local function does not
-count outside it. An argument an `@out` parameter takes assigns the local, so `let s: f32;
+count outside it. An argument an `out<T>` parameter takes assigns the local, so `let s: f32;
 add(a, b, s); return s;` is accepted (§70). Every target starts the local at the zero of its
 type all the same: WGSL and both CPU backends always did (`0.`, `false` for a `bool`, an array of
 zeros, and a struct with every field zeroed, recursively), and GLSL ES 3.00 writes the zero as
@@ -1284,11 +1316,10 @@ Neither target has a function value, so a local function is a function of the mo
 after the body that declares it:
 
 ```ts
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const f = (x: f32): f32 => x * 2.;      // fn fs_f(x: f32) -> f32
   return vec4(f(3.), 0., 0., 1.);         // fs_f(3.0)
-}
+});
 ```
 
 The name is what lets two bodies each declare an `f`, and the body still writes `f(x)`. A local
@@ -1343,11 +1374,10 @@ export function hoisted(x: f32): f32 {
   }
 }
 
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   let m = new Meter();
   return vec4(accumulate(0.5), m.feed(array<f32, 3>(1., 2., 3.)), hoisted(2.), 1.);
-}
+});
 ```
 
 A variable is read when the call runs, not when the function is declared, so a write between
@@ -1405,10 +1435,9 @@ export function shade(k: f32): f32 {
     total + (big ? 1. : 0.);
 }
 
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(shade(0.5), 0., 0., 1.);
-}
+});
 ```
 
 A call hands a function over by its name, a local one included, or as an arrow function or a
@@ -1463,12 +1492,11 @@ class Rng {
   }
 }
 
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let rng = new Rng();
   const jitter = (k: f32) => (rng.next() - 0.5) * k;
   return vec4(glow(uv) + jitter(0.1), 0., 0., 1.);
-}
+});
 
 function glow(p: vec2) {
   return 0.1 / length(p);
@@ -1549,12 +1577,11 @@ declare const smp: sampler;
 const tint: override<f32> = 0.85;
 declare const bias: override<f32>;
 
-class Color {
-  @location(0) color: vec4;
+interface Color {
+  color: location<0, vec4>;
 }
 
-@fragment
-export function fs(@location(0) uv: vec2): Color {
+export const fs = fragment(function fs(uv: location<0, vec2>): Color {
   const a = textureSample(tex, smp, uv);
   const b = textureSample(atlas, smp, uv, 1);
   const c = textureSampleLevel(tex, smp, uv, 0.);
@@ -1563,7 +1590,7 @@ export function fs(@location(0) uv: vec2): Color {
   const layers = textureNumLayers(atlas);
   const k = tint + bias + f32(size.x) + f32(layers);
   return { color: (a + b + c + d) * k };
-}
+});
 ```
 
 **A texture and a sampler are written bare**, with no `uniform<>` or `storage<>` wrapper, because a
@@ -1598,10 +1625,9 @@ dimensions and the outer length of a workgroup array:
 const WG_SIZE: override<u32> = 64;
 let scratch: workgroup<array<f32, WG_SIZE>>;
 
-@compute([WG_SIZE, 1, 1])
-export function reduce(@builtin("local_invocation_id") lid: vec3u) {
+export const reduce = compute([WG_SIZE, 1, 1], function reduce(lid: builtin<"local_invocation_id", vec3u>) {
   scratch[lid.x] = 0.;
-}
+});
 ```
 
 The emitted WGSL keeps `WG_SIZE` in both declarations. The host chooses a specialization through
@@ -1639,25 +1665,24 @@ return type, a `let`/`const` annotation, or a parameter type.
 ```ts
 "use typeshade";
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-class FsIn {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface FsIn {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
 export function shade(o: FsIn): f32 {
   return o.uv.x;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") i: u32): VsOut {
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
   const p = vec2(0., 0.);
   return { pos: vec4(p, 0., 1.), uv: p }; // the return type says VsOut
-}
+});
 
 export function pick(): f32 {
   const a: FsIn = { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) }; // the annotation says FsIn
@@ -1751,8 +1776,7 @@ length, a parameter, an `override`: any integer expression the body does not wri
 declare const verts: storage<array<vec3f>>;
 declare const hits: storage<array<u32>, "read_write">;
 
-@compute([64])
-export function main(@builtin("global_invocation_id") gid: vec3u): void {
+export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>): void {
   let count: u32 = 0;
   for (let t = 0; t < verts.length / 3; t++) {
     if (verts[t * 3].y > f32(gid.x)) {
@@ -1760,7 +1784,7 @@ export function main(@builtin("global_invocation_id") gid: vec3u): void {
     }
   }
   hits[gid.x] = count;
-}
+});
 ```
 
 The counter needs no annotation. `verts.length` is a `u32`, and an unannotated counter whose
@@ -1865,11 +1889,11 @@ length, which the body cannot change, so there is nothing left to check.
 "use typeshade";
 
 class Light {
-  pos: vec3;
-  power: f32;
+  pos!: vec3;
+  power!: f32;
 }
 class Scene {
-  lights: array<Light, 4>;
+  lights!: array<Light, 4>;
 }
 declare const scene: uniform<Scene>;
 
@@ -2036,10 +2060,9 @@ function store(i: u32): void {
   dst[i] = 1.;
 }
 
-@compute([64, 1, 1])
-export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
+export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   store(gid.x);
-}
+});
 ```
 
 ```wgsl
@@ -2102,13 +2125,12 @@ the same read explicitly. Both are a `u32`, as the WGSL builtin is.
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
 
-@compute([64, 1, 1])
-export function scale_all(@builtin("global_invocation_id") gid: vec3u): void {
+export const scale_all = compute([64, 1, 1], function scale_all(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= src.length) {
     return;
   }
   dst[gid.x] = src[gid.x] * 2.;
-}
+});
 ```
 
 ```wgsl
@@ -2171,8 +2193,7 @@ inner block moves.
 ```ts
 "use typeshade";
 
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   let a = 0.;
   for (let i: u32 = 0; i < 4; i++) {
     a = a + f32(i);
@@ -2181,7 +2202,7 @@ export function fs(): vec4 {
     a = a + f32(i) * 2.;
   }
   return vec4(a, 0., 0., 1.);
-}
+});
 ```
 
 emits the first loop over `i` and the second over `i_1`. A local that shadows a resource
@@ -2250,14 +2271,13 @@ evidence on both targets.
 "use typeshade";
 const K: f32 = 4.;
 
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let bits: u32 = u32(uv.x * 255.) >> 4;
   bits <<= 2;
   let x: f32 = uv.y / K;
   x %= 0.5;
   return vec4(f32(bits) / 255., x, 0., 1.);
-}
+});
 ```
 
 ---
@@ -2275,15 +2295,14 @@ a field of a storage struct, or a bare binding.
 ```ts
 "use typeshade";
 class Summary {
-  count: atomic<u32>;
-  maxBin: atomic<i32>;
+  count!: atomic<u32>;
+  maxBin!: atomic<i32>;
 }
 declare const src: storage<array<f32>>;
 declare const bins: storage<array<atomic<u32>>, "read_write">;
 declare const summary: storage<Summary, "read_write">;
 
-@compute([64, 1, 1])
-export function histogram(@builtin("global_invocation_id") gid: vec3u): void {
+export const histogram = compute([64, 1, 1], function histogram(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= arrayLength(src)) {
     return;
   }
@@ -2291,7 +2310,7 @@ export function histogram(@builtin("global_invocation_id") gid: vec3u): void {
   atomicAdd(bins[bin], 1);
   const before = atomicAdd(summary.count, 1);
   atomicMax(summary.maxBin, i32(bin));
-}
+});
 ```
 
 **The builtins.** The location is written as the plain expression, and the WGSL writer spells
@@ -2359,14 +2378,13 @@ function next(): u32 {
   return seed;
 }
 
-@compute([64, 1, 1])
-export function k(
-  @builtin("global_invocation_id") gid: vec3u,
-  @builtin("local_invocation_id") lid: vec3u,
+export const k = compute([64, 1, 1], function k(
+  gid: builtin<"global_invocation_id", vec3u>,
+  lid: builtin<"local_invocation_id", vec3u>,
 ): void {
   tile[lid.x] = src[gid.x];
   dst[gid.x] = tile[lid.x] + f32(next() >> 24);
-}
+});
 ```
 
 - A plain `let seed: u32 = 7` emits `var<private> seed: u32 = 7u;`. The initializer is
@@ -2438,11 +2456,10 @@ declare const sums: storage<array<f32>, "read_write">;
 
 let tile: workgroup<array<f32, 64>>;
 
-@compute([64, 1, 1])
-export function reduce(
-  @builtin("global_invocation_id") gid: vec3u,
-  @builtin("local_invocation_id") lid: vec3u,
-  @builtin("workgroup_id") wid: vec3u,
+export const reduce = compute([64, 1, 1], function reduce(
+  gid: builtin<"global_invocation_id", vec3u>,
+  lid: builtin<"local_invocation_id", vec3u>,
+  wid: builtin<"workgroup_id", vec3u>,
 ): void {
   tile[lid.x] = src[gid.x];
   workgroupBarrier();
@@ -2455,7 +2472,7 @@ export function reduce(
   if (lid.x === 0) {
     sums[wid.x] = tile[0];
   }
-}
+});
 ```
 
 **A barrier is a statement.** It takes no argument and has no value: `const x = workgroupBarrier()`
@@ -2480,7 +2497,7 @@ workgroup memory crosses it.
 **Running it on the CPU.** The oracle runs one invocation per call, and a barrier has no one to
 wait for there: calling `fns.reduce(...)` on a kernel with a barrier throws and names
 `dispatch`. `compileModule(m).dispatch(entry, workgroups)` and `compileModuleJs(m).dispatch(...)`
-run a `@compute` entry over `workgroups` workgroups of its declared size (one number for a 1-D
+run a compute entry over `workgroups` workgroups of its declared size (one number for a 1-D
 grid, or the three counts), in the passes the WebGL2 tier runs (change 0054). A pass runs each
 live invocation of the dispatch until its next barrier, its next atomic operation, or a point
 where the write log of four entries could be full. It reads memory as the pass began plus its
@@ -2523,7 +2540,7 @@ Parameters of methods, constructors and accessors have the same value-local reas
 as plain functions (Rule 8.8). A constructor's parameter property receives its input before
 the body runs; rebinding that parameter in the body does not rebind that field.
 
-A class stays a struct (§2): its fields are the struct's fields, with their decorators and
+A class stays a struct (§2): its fields are the struct's fields, with their attributes and
 layout, and the object literal still builds one. What a class may now also declare are
 functions of the module: methods, a constructor and static functions. Design
 [#86](https://github.com/typeshade/typeshade/issues/86); this is its first step.
@@ -2531,8 +2548,8 @@ functions of the module: methods, a constructor and static functions. Design
 ```ts
 "use typeshade";
 class Ray {
-  origin: vec3;
-  dir: vec3;
+  origin!: vec3;
+  dir!: vec3;
   hits: u32 = 0;
   constructor(origin: vec3, dir: vec3) {
     this.origin = origin;
@@ -2546,11 +2563,10 @@ class Ray {
   }
 }
 
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   const r = new Ray(vec3(uv, 0.), vec3(0., 0., 2.));
   return vec4(r.at(1.) + Ray.up(), f32(r.hits));
-}
+});
 ```
 
 **What each one lowers to.** A method is a function whose first parameter is the struct, and
@@ -2650,28 +2666,27 @@ takes its object as a parameter the callee writes THROUGH, and the call is a pla
 GLSL ES 3.00 spells that with the qualifier it has, `inout Particle self_`; WGSL has no such
 qualifier and spells it as a pointer, `self_: ptr<function, Particle>`, read through as
 `(*self_)`. The IR says which parameters are written and nothing about how a target spells it.
-A function of the file takes a place the same way when its parameter is declared `@inout`
-(§70): `function step(@inout p: Particle, dt: f32)` called as `step(ps[gid.x], 0.5)` is the
+A function of the file takes a place the same way when its parameter is declared `inout<T>`
+(§70): `function step(p: inout<Particle>, dt: f32)` called as `step(ps[gid.x], 0.5)` is the
 method above with its object named. A method itself takes no qualified parameter in this
 version (`TS8073`), and a call counts its object as one of its references when it checks that
 no two name one variable (`TS8074`). A method that hands its object, or a field, a component or
-an element of it, to an `@inout` or `@out` parameter, `bump(this.n)`, writes its object as an
+an element of it, to an `inout<T>` or `out<T>` parameter, `bump(this.n)`, writes its object as an
 assignment to it does, and takes it by reference: `bump(&(*self_).n)` on WGSL. On GLSL ES 3.00
 a module variable handed to such a method is written by its name, through a copy of the
 function, `Particle_step_p(0.5)` for `p.step(0.5)`, and not copied in and out.
 
 ```ts
 class Particle {
-  pos: vec2;
-  vel: vec2;
+  pos!: vec2;
+  vel!: vec2;
   step(dt: f32): void {
     this.pos = this.pos + this.vel * dt;
   }
 }
-@compute([64, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   ps[gid.x].step(0.5);
-}
+});
 ```
 
 ```wgsl
@@ -2711,20 +2726,19 @@ one.
 ```ts
 "use typeshade";
 class Rng {
-  state: u32;
+  state!: u32;
   next(): f32 {
     this.state = this.state * 747796405 + 2891336453;
     return f32(this.state >> 8) / 16777216.;
   }
 }
 
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let rng: Rng = { state: u32(uv.x * 1000.) };
   const grain = vec2(rng.next(), rng.next());
   const spark = uv.y > 0.5 ? rng.next() : 0.;
   return vec4(grain, spark, 1.);
-}
+});
 ```
 
 ```wgsl
@@ -2913,13 +2927,12 @@ class Temperature {
   }
 }
 
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let t = new Temperature();
   t.fahrenheit = 212. * uv.x;
   t.celsius += 5.;
   return vec4(t.celsius / Temperature.boiling.celsius, t.fahrenheit / 212., 0., 1.);
-}
+});
 ```
 
 ```wgsl
@@ -2955,13 +2968,12 @@ class Gauge {
   }
 }
 
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let g = new Gauge();
   g.level = uv.x;
   g.level += 0.25;
   return vec4(g.level, 0., 0., 1.);
-}
+});
 ```
 
 A static accessor is a function with no receiver, read on the class, `Temperature.boiling`. The
@@ -2999,13 +3011,12 @@ class Counter {
   }
 }
 
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   let c = new Counter();
   c.increment();
   c.increment();
   return vec4(f32(c.count) / 2., 0., 0., 1.);
-}
+});
 ```
 
 A public name never reaches a private member, so `c.count` above is the getter and never the
@@ -3042,13 +3053,12 @@ class Particle {
   }
 }
 
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let p = new Particle(7, uv);
   p.vel = vec2(1., 0.);
   p.step(0.5);
   return vec4(p.pos, p.age, f32(p.id));
-}
+});
 ```
 
 A `readonly` field may be assigned in a constructor of the class that declares it and nowhere
@@ -3091,13 +3101,12 @@ class Brush {
   }
 }
 
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let b = new Brush();
   b.sized(uv.x).tinted(vec3(uv, 0.5));
   const c = new Brush().sized(2.).tinted(vec3(1., 0., 0.));
   return vec4(b.tint * b.size + c.tint, 1.);
-}
+});
 ```
 
 ```wgsl
@@ -3161,13 +3170,12 @@ class Clamped extends Counter {
   }
 }
 
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let c = new Clamped();
   c.value = 9.5 + uv.x;
   c.bump();
   return vec4(c.value / 10., 0., 0., 1.);
-}
+});
 ```
 
 ```wgsl
@@ -3215,13 +3223,12 @@ class Premium extends Account {
   }
 }
 
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let p = new Premium();
   p.raise();
   p.deposit(150. * uv.x);
   return vec4(p.total / 200., 0., 0., 1.);
-}
+});
 ```
 
 A name is checked against the declaration the class whose body holds it sees, as TypeScript
@@ -3280,12 +3287,11 @@ class Stats {
   }
 }
 
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   Stats.record(uv.x);
   Stats.record(uv.y);
   return vec4(Stats.hits, 0., 0., 1.);
-}
+});
 ```
 
 ### Statics through a class that extends, `new this()`, and `super` in a static member
@@ -3324,12 +3330,11 @@ class Big extends Shape {
   }
 }
 
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const a = Shape.unit();
   const b = Big.unit();
   return vec4(a.size, b.size, Big.describe(), 1.);
-}
+});
 ```
 
 ```wgsl
@@ -3409,12 +3414,11 @@ class Ship {
   }
 }
 
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const ship = new Ship();
   const at = ship.drift(0.5);
   return vec4(at, ship.hull.pos.x, 1.);
-}
+});
 ```
 
 ```wgsl
@@ -3473,11 +3477,10 @@ class Lens {
   };
 }
 
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   const lens = new Lens();
   return vec4(lens.focus(uv.x), lens.blur(uv.y), 0., 1.);
-}
+});
 ```
 
 ```wgsl
@@ -3534,8 +3537,7 @@ class Swarm {
   }
 }
 
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let s = new Swarm();
   s.sum(uv.x);
   let n = 0.;
@@ -3543,7 +3545,7 @@ export function fs(@location(0) uv: vec2): vec4 {
     n += f32(i);
   });
   return vec4(s.total, n, Swarm.twice((x) => x * 0.5, uv.y), 1.);
-}
+});
 ```
 
 ```wgsl
@@ -3599,10 +3601,9 @@ function total<T extends Shape>(a: T, b: T): f32 {
   return a.area() + b.area();
 }
 
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   return vec4(total(new Square(), new Square()), total(new Disc(), new Disc()), 0., 1.);
-}
+});
 ```
 
 ```wgsl
@@ -3657,8 +3658,8 @@ A namespace holds a class too, under the same flattening (#107):
 ```ts
 namespace Scene {
   export class Camera {
-    pos: vec3;
-    zoom: f32;
+    pos!: vec3;
+    zoom!: f32;
   }
 }
 declare const cam: uniform<Scene.Camera>;
@@ -3711,8 +3712,7 @@ what WGSL says it means on every target and on the CPU.
 
 ```ts
 "use typeshade";
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   const a = vec3(uv, 0.5);
   const b = vec3(0.5, 0.5, 0.5);
   const m = a < b;                       // vec3b
@@ -3721,7 +3721,7 @@ export function fs(@location(0) uv: vec2): vec4 {
     return vec4(1., 0., 0., 1.);
   }
   return vec4(c, f32(any(!m)));
-}
+});
 ```
 
 ```wgsl
@@ -3789,7 +3789,7 @@ dropped; write them out."
 
 ```ts
 abstract class Shape {
-  center: vec2;
+  center!: vec2;
   constructor(center: vec2) {
     this.center = center;
   }
@@ -3799,7 +3799,7 @@ abstract class Shape {
   }
 }
 class Circle extends Shape {
-  radius: f32;
+  radius!: f32;
   constructor(center: vec2, radius: f32) {
     super(center);
     this.radius = radius;
@@ -4065,13 +4065,13 @@ produces.
 
 ```ts
 class Disc {
-  center: vec2;
-  radius: f32;
+  center!: vec2;
+  radius!: f32;
 }
 
 function Tinted<TBase extends AnyClass>(Base: TBase) {
   return class extends Base {
-    tint: vec3;
+    tint!: vec3;
     lit(cover: f32): vec3 {
       return this.tint * smoothstep(0., 1., cover);
     }
@@ -4079,7 +4079,7 @@ function Tinted<TBase extends AnyClass>(Base: TBase) {
 }
 
 class TintedDisc extends Tinted(Disc) {
-  softness: f32;
+  softness!: f32;
 }
 ```
 
@@ -4111,8 +4111,9 @@ class's own. `const AgedParticle = Aged(Particle)` names an application, and a c
 that name; the const holds a class, so it is no module constant and folds to nothing.
 
 **A mixin may carry what a class carries.** A constructor, including one that calls `super(…)`
-over a base that has one; a static function, which becomes the applying class's; a field with a
-`@builtin` or `@location` decorator, which reaches entry I/O the way any field does; a method
+over a base that has one; a static function, which becomes the applying class's; a field typed
+`builtin<"...", T>` or `location<n, T>`, or with the decorated form of the migration release,
+which reaches entry I/O the way any field does; a method
 reading a field of the base it was mixed over.
 
 **A name declared twice in the chain is an override, and the declaration closest to the value
@@ -4351,14 +4352,13 @@ declare const dst: texture_storage_2d<"rgba8unorm", "write">
 declare const acc: texture_storage_2d<"r32float", "read_write">
 declare const ids: texture_storage_2d<"rgba8uint", "write">
 
-@compute([64, 1, 1])
-export function paint(@builtin("global_invocation_id") gid: vec3u): void {
+export const paint = compute([64, 1, 1], function paint(gid: builtin<"global_invocation_id", vec3u>): void {
   const at: vec2i = …
   const seen = textureLoad(acc, at)
   textureStore(acc, at, vec4(seen.x + 1., 0., 0., 0.))
   textureStore(dst, at, vec4(uv.x, uv.y, 0.5, 1.))
   textureStore(ids, at, vec4u(x, y, u32(1), u32(255)))
-}
+});
 ```
 
 ```wgsl
@@ -4767,15 +4767,14 @@ of first appearance:
 ```ts
 "use typeshade";
 
-class Color {
-  @location(0) color: vec4;
+interface Color {
+  color: location<0, vec4>;
 }
 
-@fragment
-export function fs(@location(0) uv: vec2): Color {
+export const fs = fragment(function fs(uv: location<0, vec2>): Color {
   const wave: f32 = sin(uv.x * 6.2831) * 0.5 + 0.5;
   return { color: vec4(wave, uv.y, 0.5, 1.) };
-}
+});
 ```
 
 ```ts
@@ -4890,8 +4889,8 @@ halves side by side.
 "use typeshade";
 
 class Uniforms {
-  origin: f64;   // one vec2<f32> slot; the host writes the two words
-  span: f32;
+  origin!: f64;   // one vec2<f32> slot; the host writes the two words
+  span!: f32;
 }
 declare const u: uniform<Uniforms>;
 
@@ -4967,10 +4966,10 @@ a plain `f32` — a mip level, a sampling bias, a comparison's reference depth:
 textureSampleLevel's level must be an f32; got f64. Write f32(x).
 ```
 
-**Across an entry boundary.** A double cannot be a varying. A `@location` field interpolates
+**Across an entry boundary.** A double cannot be a varying. A `location<n, T>` field interpolates
 each of its two `f32` words on its own, and the interpolation of the words is not the
 interpolation of the double they encode, so the compiler refuses an `f64` on an entry's
-`@location` parameter, on an IO struct field and on an entry's return:
+`location<n, T>` parameter, on an IO struct field and on an entry's return:
 
 ```
 Parameter "p" carries f64: an emulated double is a pair of f32 words, and a @location
@@ -4986,14 +4985,14 @@ detail. A double two stages need is read in each of them — a uniform or a stor
 carries an `f64` and every stage can see one — or narrowed to an `f32` at the boundary when
 `f32` is enough for what crosses it.
 
-The one `@location` an `f64` may sit on is a **vertex** input, which is a buffer read rather
+The one location an `f64` may sit on is a **vertex** input, which is a buffer read rather
 than a varying: the pair fits the single slot the attribute already is. A `vec3f64` attribute
 would need two slots and is refused.
 
 (Carrying the words as two `@interpolate(flat)` varyings and rebuilding them transparently
 would be exact, since flat interpolation does no blending. It is not done: a double silently
 made flat would change what the program draws with nothing in the source to point at.
-`@interpolate("flat")` is an author attribute now (§53), but an `f64` varying is refused with it
+`interpolate: "flat"` is an author option now (§53), but an `f64` varying is refused with it
 as without it; admitting the flat case is an open item.)
 
 **The guard.** A module that uses the emulation gets a `_fp64` binding injected at lowering: a
@@ -5161,11 +5160,10 @@ the wrong type went through untouched:
 declare const t: texture_2d<f32>;
 declare const s: sampler;
 
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   const l: i32 = 2;
   return textureSampleLevel(t, s, p.xy, l);
-}
+});
 ```
 
 That emitted `textureSampleLevel(t, s, p.xy, 2)` with zero diagnostics. It is now one sentence
@@ -5213,15 +5211,14 @@ so.)
 "use typeshade";
 declare const total: storage<atomic<u32>, "read_write">;
 
-class Clip {
-  @builtin("position") pos: vec4;
+interface Clip {
+  pos: builtin<"position", vec4>;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") i: u32): Clip {
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
   const n = atomicAdd(total, 1);
   return { pos: vec4(f32(n), 0., 0., 1.) };
-}
+});
 ```
 
 ```
@@ -6011,13 +6008,13 @@ spelling; the gate classifies such a call by the rule instead of listing it.
 
 ### A reference, to the editor
 
-The ambient library declares the decorators `inout` and `out`, so TypeScript's checker reads a
-qualified parameter as its plain type, which the body reads and writes, and a program the
+The ambient library declares the types `inout<T>` and `out<T>`, each of which means `T`, so
+TypeScript's checker reads a qualified parameter as its plain type, which the body reads and writes, and a program the
 compiler accepts is clean in the editor and under `tsc` (§70). What the checker cannot see (a
-value handed where a place is taken, two references to one variable in one call, an `@out`
+value handed where a place is taken, two references to one variable in one call, an `out<T>`
 parameter read before it is written) is the compiler's to say, `TS8073`, `TS8074` and `TS8075`,
 and the service shows its diagnostics with its own; TypeScript's TS2454 gives way to the
-compiler's `TS8075`, which knows that an `@out` argument assigns. A hover is the compiler's:
+compiler's `TS8075`, which knows that an `out<T>` argument assigns. A hover is the compiler's, and it still spells the qualifier as the decorated form does:
 `(parameter) @inout v: f32` on the parameter, then that it names the caller's place and how
 WGSL and GLSL ES 3.00 take it, and `function bump(@inout v: f32): void` on the function, where
 it is declared and where it is called. The call site carries no mark; an editor may show one as
@@ -6049,7 +6046,7 @@ function with `return undefined;` beside `return x * 0.5;` and no written result
 WGSL turns a language extension on with a module-scope `enable f16;` and names a *language*
 extension with `requires <feature>;` — two different axes, and neither had an author spelling.
 
-**Some built-in values derive their own `enable`.** `@builtin("clip_distances")` is a
+**Some built-in values derive their own `enable`.** `builtin<"clip_distances", T>` is a
 shader-creation error without `enable clip_distances;` — Tint says `use of
 '@builtin(clip_distances)' requires enabling extension 'clip_distances'` — so writing the id is
 the whole declaration. The compiler emits the directive, `reflect().requiredFeatures` grows the
@@ -6059,15 +6056,14 @@ at `requestDevice`.
 ```ts
 "use typeshade";
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @builtin("clip_distances") cd: array<f32, 4>; // vertex OUTPUT only, N from 1 to 8
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  cd: builtin<"clip_distances", array<f32, 4>>; // vertex OUTPUT only, N from 1 to 8
 }
 
-@fragment
-export function fs(@builtin("primitive_index") pi: u32): vec4 { // fragment INPUT only
+export const fs = fragment(function fs(pi: builtin<"primitive_index", u32>): vec4 { // fragment INPUT only
   return vec4(f32(pi), 0., 0., 1.);
-}
+});
 ```
 
 | id | stage and direction | type | capability · directive · host feature |
@@ -6077,7 +6073,7 @@ export function fs(@builtin("primitive_index") pi: u32): vec4 { // fragment INPU
 | `subgroup_invocation_id` | compute **or fragment** input | `u32` | `subgroups` · `enable subgroups;` · `subgroups` |
 | `subgroup_size` | compute **or fragment** input | `u32` | `subgroups` · `enable subgroups;` · `subgroups` |
 
-`@blend_src(0|1)` on a fragment output derives `dualSourceBlending` the same way (§53).
+`location<0, vec4, { blend_src: 0 | 1 }>` on a fragment output derives `dualSourceBlending` the same way (§53).
 
 `clip_distances` used to be admitted with no stage rule and no size rule at all: it sat on a
 fragment input and emitted WGSL Tint refused. Each row's stage, direction and type is now
@@ -6123,11 +6119,11 @@ requires readonly_and_readwrite_storage_textures;
 **What this deliberately does not reach.** Three rows were settled by measurement against the
 Tint of the Chromium the compile gate runs (2026-09-21):
 
-- `@builtin("global_invocation_index")` and `@builtin("workgroup_index")` are in the WGSL text
+- `builtin<"global_invocation_index", u32>` and `builtin<"workgroup_index", u32>` are in the WGSL text
   and in neither Tint's builtin vocabulary: the module dies with `expected builtin value name`,
   whose own "possible values" list omits both. Admitting them would move the failure further
   from the author, not closer.
-- `@builtin("frag_depth", "less")`, the conservative-depth mode, is refused at the comma:
+- WGSL's `@builtin(frag_depth, less)`, the conservative-depth mode, is refused at the comma:
   `expected ')' for builtin attribute`. There is nothing to lower it to.
 - `requires uniform_buffer_standard_layout;` is refused by Chromium 141
   (`chromium_headless_shell-1194`) with `feature 'uniform_buffer_standard_layout' is not
@@ -6141,7 +6137,7 @@ And four by design, with no measurement to take:
 - One more WGSL name still has no capability of its own: `atomic_vec2u_min_max` waits on
   `atomic<vec2<u32>>`, an After-1.0 row, an extension whose whole surface is a feature this
   compiler cannot spell yet, so a capability for it would gate nothing.
-  (`dual_source_blending` was another; §53 gives it one, derived from `@blend_src`. And
+  (`dual_source_blending` was another; §53 gives it one, derived from the `blend_src` option. And
   `packed_4x8_integer_dot_product` was listed here as a third until §47 measured it to be a
   language feature rather than an extension — Tint refuses `enable` on it — and gave its eight
   builtins the derived `packed4x8Dot` capability.)
@@ -6150,7 +6146,8 @@ And four by design, with no measurement to take:
   writer makes, not an author one.
 - The `diagnostic(...)` directive is not written by hand. It is emitted where a rule this
   compiler analyses asks for it, which is the uniformity item, not a free-form author control:
-  the author writes `@diagnostic("off", "derivative_uniformity")` on an entry (§54).
+  the author writes `{ diagnostic: ["off", "derivative_uniformity"] }` as the options of an
+  entry's stage call (§54).
 - Four declarable capabilities — `floatRenderTarget`, `float32Blend`, `float32Filterable` and
   `multiview` — are still unspellable from a `"use typeshade"` source. (`capabilityMatrix`
   reports nine of its eighteen rows `declarable`; the other five are the extensions above.) `"enable ..."` takes the
@@ -6451,7 +6448,7 @@ arrays are not copyable value parameters.
 A write through such a parameter (`r.origin = …` on `r: Ray`) is `TS8018`, and its message
 names a local copy to change; in a function that may take a reference, one declared at the top
 of the file or of a namespace, it names the second remedy too, `@inout r: Ray`, to change the
-caller's value (§70). A parameter declared `@inout` takes no copy: `p = v` writes the caller's
+caller's value (§70). A parameter declared `inout<T>` takes no copy: `p = v` writes the caller's
 place, which is the difference its qualifier makes, as GLSL's `inout` makes it from `in`.
 
 **Three more that now say what is wrong.**
@@ -6516,57 +6513,60 @@ instrument check passing on both compilers first:
 
 The attribute is derived from the TYPE now, for a scalar and a vector alike, on both writers,
 and for both spellings of a varying — a struct field and a bare entry parameter. The parameter
-form is its own row: a fragment entry that takes `@location(0) id: u32` and declares no struct
+form is its own row: a fragment entry that takes `id: location<0, u32>` and declares no struct
 reaches no struct, so rewriting the structs alone left it bare and Tint answered `integral
 user-defined fragment inputs must have a '@interpolate(flat)' attribute`. A VERTEX entry's
-`@location` parameters are vertex ATTRIBUTES, not varyings, and are left alone.
+`location<n, T>` parameters are vertex ATTRIBUTES, not varyings, and are left alone.
 
 ```ts
 "use typeshade";
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) id: u32;       // WGSL @interpolate(flat) · GLSL `flat out uint id;`
-  @location(1) uv: vec2;      // untouched: a float varying interpolates
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  id: location<0, u32>;       // WGSL @interpolate(flat) · GLSL `flat out uint id;`
+  uv: location<1, vec2>;      // untouched: a float varying interpolates
 }
 ```
 
 `examples/id-pick.shade.ts` is the gate's evidence, compiled on Tint and on ANGLE.
 
-**`@interpolate`, `@invariant` and `@blend_src` are attributes an author writes.** All three
-parse and reach the emitted struct; `@align`, `@size`, `@offset` and `@ignore` still do not
-(§2).
+**`interpolate`, `invariant` and `blend_src` are attributes an author writes.** Each is an
+option in the third type argument of `location<n, T, O>` or `builtin<"...", T, O>` (change
+0111, D7). All three parse and reach the emitted struct; `@align`, `@size`, `@offset` and
+`@ignore` still do not (§2). The decorated form, `@interpolate("flat")`, `@invariant` and
+`@blend_src(1)` on a class field or an entry parameter, stays accepted until the release after
+the migration release (change 0111, D5).
 
 | Written | WGSL | GLSL ES 3.00 |
 | --- | --- | --- |
-| `@interpolate("flat")` | `@interpolate(flat)` | `flat` |
-| `@interpolate("perspective", "centroid")` | `@interpolate(perspective, centroid)` | `smooth centroid` |
-| `@interpolate("linear")`, `@interpolate(…, "sample")` | as written | **no form** — the module has no GLSL half |
-| `@invariant` on `@builtin("position")` | `@invariant @builtin(position)` | `invariant gl_Position;` |
-| `@blend_src(0)` / `@blend_src(1)` at one `@location` | `enable dual_source_blending;` + the attributes | **no form** — GLSL ES 3.00 has no second source |
+| `location<1, u32, { interpolate: "flat" }>` | `@interpolate(flat)` | `flat` |
+| `{ interpolate: ["perspective", "centroid"] }` | `@interpolate(perspective, centroid)` | `smooth centroid` |
+| `{ interpolate: "linear" }`, `{ interpolate: [ …, "sample"] }` | as written | **no form** — the module has no GLSL half |
+| `builtin<"position", vec4, { invariant: true }>` | `@invariant @builtin(position)` | `invariant gl_Position;` |
+| `{ blend_src: 0 }` / `{ blend_src: 1 }` at one location | `enable dual_source_blending;` + the attributes | **no form** — GLSL ES 3.00 has no second source |
 
 The two "no form" rows fail the module CLOSED on GLSL rather than emitting something else:
 `emitGlslModule` throws and the module simply has no GLSL text, the way a storage texture
-already does. `@blend_src` derives the `dualSourceBlending` capability (§50) from the field
+already does. `blend_src` derives the `dualSourceBlending` capability (§50) from the field
 itself, so the directive is emitted for any module that declares one. No example carries it:
 `adapter.features.has('dual-source-blending')` is false on the gate's adapter, and Tint answers
 `extension 'dual_source_blending' is not allowed in the current environment` — so a gate example
 would test the adapter, not the emit.
 
-`@interpolate` belongs on a `@location` field. On a `@builtin` it is refused: a built-in value
+`interpolate` belongs on a `location<n, T>` field. On a `builtin<"...", T>` it is refused: a built-in value
 carries its own rule, and WGSL has no interpolation to give it.
 
 **What is refused, one sentence each.**
 
 | Written | Why |
 | --- | --- |
-| `@location(0) ok: bool` | a value passed between stages is a numeric scalar or a numeric vector; `bool` is not host-shareable. Send a `u32` and compare it. |
-| two members at one `@location` | each slot carries one value. The exception is a dual-source pair, where the slot is the location AND the blend source. Checked after `extends` splices a base's fields in, and across an entry's parameter list as well as a struct. |
-| `@location(0) x: f32` on a `@compute` entry | a compute shader has no user IO: it reads its work from resources and the `@builtin` invocation ids. Both spellings — a bare parameter and a struct member. |
-| `@builtin("vertex_index") i: f32` | each built-in value has one type, which `WGSL_BUILTIN_TYPES` holds; this one is `u32`. |
-| `@interpolate("perspective")` on a `u32` varying | an integer has one interpolation and it is `flat`. Tint: `interpolation type must be 'flat' for integral user-defined IO types`, while GLSL answers from the type and emits `flat` whatever the attribute says. |
-| `@blend_src(0)` with no `@blend_src(1)` | a dual-source blend mixes two colours, so both sit at the same `@location`. Stated from the spec: the gate's adapter has no `dual-source-blending` feature, so Tint refuses the directive before reaching the rule. |
-| a vertex output and a fragment input that disagree at one `@location` | an interstage slot is one type, interpolated one way, on both sides. Compared in WGSL's canonical form, so `@interpolate(flat)` and `@interpolate(flat, first)` are one answer, and so are `@interpolate(perspective, center)` and no attribute at all. |
+| `ok: location<0, bool>` | a value passed between stages is a numeric scalar or a numeric vector; `bool` is not host-shareable. Send a `u32` and compare it. |
+| two members at one location | each slot carries one value. The exception is a dual-source pair, where the slot is the location AND the blend source. Checked after `extends` splices a base's fields in, and across an entry's parameter list as well as a struct. |
+| `x: location<0, f32>` on a compute entry | a compute shader has no user IO: it reads its work from resources and the built-in invocation ids. Both spellings — a bare parameter and a struct member. |
+| `i: builtin<"vertex_index", f32>` | each built-in value has one type, which `WGSL_BUILTIN_TYPES` holds; this one is `u32`. |
+| `{ interpolate: "perspective" }` on a `u32` varying | an integer has one interpolation and it is `flat`. Tint: `interpolation type must be 'flat' for integral user-defined IO types`, while GLSL answers from the type and emits `flat` whatever the attribute says. |
+| `{ blend_src: 0 }` with no `{ blend_src: 1 }` | a dual-source blend mixes two colours, so both sit at the same location. Stated from the spec: the gate's adapter has no `dual-source-blending` feature, so Tint refuses the directive before reaching the rule. |
+| a vertex output and a fragment input that disagree at one location | an interstage slot is one type, interpolated one way, on both sides. Compared in WGSL's canonical form, so `@interpolate(flat)` and `@interpolate(flat, first)` are one answer, and so are `@interpolate(perspective, center)` and no attribute at all. |
 
 The interstage rule is the one that needed somewhere new to live. When both stages share a
 struct they agree by construction; two structs — which is what an author writes when the
@@ -6841,33 +6841,34 @@ uniform buffer value is accepted by Tint, and is accepted here, for both — whi
 kernel branching on a dispatch-wide flag needs. What is still refused is a branch on a value the
 invocations do not share, and a branch this compiler cannot read, which keeps the old answer.
 
-**Switching it off.** `@diagnostic("off", "derivative_uniformity")` on an entry silences the
-analysis and emits WGSL's module-scope directive:
+**Switching it off.** `{ diagnostic: ["off", "derivative_uniformity"] }`, the options argument
+of an entry's stage call (change 0111, D7), silences the analysis and emits WGSL's module-scope
+directive. The decorated form, `@diagnostic("off", "derivative_uniformity")` on an entry
+function, stays accepted until the release after the migration release (D5):
 
 ```ts
 "use typeshade";
 
 declare const t: texture_2d<f32>;
 declare const s: sampler;
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-@diagnostic("off", "derivative_uniformity")
-@fragment export function fs(v: VsOut): vec4 {
+export const fs = fragment(function fs(v: VsOut): vec4 {
   if (v.uv.x > 0.5) { return textureSample(t, s, v.uv); }   // taken as written
   return vec4(0., 0., 0., 1.);
-}
+}, { diagnostic: ["off", "derivative_uniformity"] });
 ```
 
 ```wgsl
 diagnostic(off, derivative_uniformity);
 ```
 
-`examples/sample-branch.shade.ts` is the gate's evidence for the whole path — the attribute in,
+`examples/sample-branch.shade.ts` is the gate's evidence for the whole path — the option in,
 the module-scope directive out, compiled on Tint and on ANGLE. Its non-uniform branch is in the
-ENTRY, on a `@location` input, so deleting the directive line turns the file into the refusal
+ENTRY, on a `location<0, vec2>` input, so deleting the directive line turns the file into the refusal
 above; a sample under a `uniform` condition sits beside it, needing no directive at all.
 
 The severity is HONOURED, not merely emitted: `off` silences the rule, `info` and `warning`
@@ -6878,7 +6879,7 @@ withheld whenever a diagnostic is an error.
 
 Written on the entry, emitted at module scope, and that is deliberate: WGSL's `@diagnostic` on
 a function covers that function's own body and not the functions it calls, and a sample is as
-often in a helper as in the entry — so the attribute form would switch off a rule the module
+often in a helper as in the entry — so the function-scope form would switch off a rule the module
 still breaks elsewhere. One spelling in, the one that means what the author meant out. The
 severity vocabulary is WGSL's (`off`, `info`, `warning`, `error`); the rule vocabulary is what
 this compiler analyses, which is one rule, because a directive with nothing behind it is a line
@@ -7005,9 +7006,9 @@ debugger keep the source name.
 ```ts
 "use typeshade";
 
-class Vertex {
-  @builtin("position") pos: vec4;
-  @location(0) half: vec2; // WGSL keeps `half`; the GLSL spells it `half_` in both stages
+interface Vertex {
+  pos: builtin<"position", vec4>;
+  half: location<0, vec2>; // WGSL keeps `half`; the GLSL spells it `half_` in both stages
 }
 ```
 
@@ -7093,9 +7094,9 @@ every method of an array was `TS8099 JS Array method ".map" is not a shader op`.
 "use typeshade";
 
 class Light {
-  pos: vec2;
-  radius: f32;
-  power: f32;
+  pos!: vec2;
+  radius!: f32;
+  power!: f32;
 }
 declare const lights: storage<array<Light>>;
 declare const out: storage<array<f32>, "read_write">;
@@ -7104,8 +7105,7 @@ function sq(x: f32): f32 {
   return x * x;
 }
 
-@compute([64])
-export function main(@builtin("global_invocation_id") gid: vec3u) {
+export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>) {
   const p = vec2(f32(gid.x) / 64., 0.5);
   const weights: array<f32, 4> = [0.1, 0.2, 0.3, 0.4];
   const scaled = weights.map((w, i) => w * f32(i + 1));
@@ -7116,7 +7116,7 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
     glow += l.power / (1. + distance(l.pos, p));
   });
   out[gid.x] = glow * total + (lit ? 1. : 0.);
-}
+});
 ```
 
 **The function.** A method takes its function the way a function that takes a function does
@@ -7213,8 +7213,7 @@ for a stepped run. The other methods of `console` are refused by name.
 declare const xs: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
 
-@compute([64])
-export function scale(@builtin("global_invocation_id") gid: vec3u): void {
+export const scale = compute([64], function scale(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= arrayLength(xs)) {
     return;
   }
@@ -7223,7 +7222,7 @@ export function scale(@builtin("global_invocation_id") gid: vec3u): void {
     console.warn("large value at", gid.x, y);
   }
   out[gid.x] = y;
-}
+});
 ```
 
 **An argument is a value, or a string literal, which is a label.** A value is anything with a
@@ -7336,8 +7335,8 @@ An ordinary TypeScript file imports a `.shade.ts` and calls the helper functions
 call runs the module's own code **on the CPU tier, not on the GPU**, at `f32` precision, the way
 the GPU would compute it (Rule 11.7). It is how host code shares a shader's math: a height query,
 a picking test, a unit test. No device, buffer or compile step appears in the host's code, and
-`typescript` is needed at build time only. A `@compute` entry runs on the GPU through the same
-import, and a full-screen `@fragment` entry draws into a canvas (§67). The device a `@compute`
+`typescript` is needed at build time only. A compute entry runs on the GPU through the same
+import, and a full-screen fragment entry draws into a canvas (§67). The device a compute
 entry runs on takes the limits and features that `configure({ limits, features })` names, and
 `callDevice()` reports it (§65, change 0051).
 
@@ -7356,10 +7355,9 @@ export function normal(p: vec2, k: vec4): vec3 {
   return normalize(vec3(-dx, 2. * EPS, -dy));
 }
 
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   return vec4(normal(p.xy * 0.01, vec4(1., 0.5, 2., 0.25)) * 0.5 + 0.5, 1.);
-}
+});
 ```
 
 That module is `terrain.shade.ts`. A host file calls it like any other module:
@@ -7388,7 +7386,7 @@ Install scripts synchronize host views. Typecheck and build scripts synchronize 
 Generated hooks use `--allow-empty`, so a project works before its first shader exists.
 Without that explicit flag, `tshc check` and `tshc sync` still refuse a tree with no shader file.
 The shader project supplies ambient types. Validation uses the compiler and language service through `tshc check`;
-it does not claim that ordinary `tsc` accepts shader decorators.
+it does not claim that ordinary `tsc` accepts a shader file whole: its entry forms are plain TypeScript (change 0111), but its vector arithmetic is an operator TypeScript does not overload.
 Importing the runtime or loading the Vite plugin does not initialize configuration files.
 
 The packed journey `journeys/_project-init/` initializes a clean project and verifies install, typecheck, build and a WebGPU call.
@@ -7441,7 +7439,8 @@ each flavor of the emulated double, and each kernel function that lowers (§65) 
 twice. The owner of a call picks the flavor at run time (§65). A module that emulates none
 carries one text, as before.
 
-**The host view.** A host program cannot type-check the shader source: its decorators are
+**The host view.** A host program cannot type-check the shader source: its vector arithmetic
+is an operator TypeScript does not overload, a decorated entry of the migration release is
 TS1206, its vocabulary meets the DOM's (`length`, `location`), and a host array is not a branded
 `vec2`. So the host reads a generated file instead. The plugin writes a _host view_ beside each
 module, `terrain.shade.typeshade.ts`, and `moduleSuffixes` makes `tsc`, the editor, typescript-eslint
@@ -7480,8 +7479,8 @@ generic, takes no function, has a host value for each parameter and for its resu
 no binding, no workgroup variable and no builtin only a GPU computes. An exported constant and an
 `enum` are values too, and an exported struct is a type, as is a struct another file declares
 where an export's signature names it; what the module re-exports from a shader file it imports
-(§68) is one of its exports. A `@compute` entry is called, and a
-full-screen `@fragment` entry drawn, as §67 says, and a kernel function called as §65 says. Every other export is in the view as `never`, with the reason in a comment, so calling one
+(§68) is one of its exports. A compute entry is called, and a
+full-screen fragment entry drawn, as §67 says, and a kernel function called as §65 says. Every other export is in the view as `never`, with the reason in a comment, so calling one
 is a type error at the host's own line.
 
 | Export                                       | In the host view                                             |
@@ -7490,8 +7489,8 @@ is a type error at the host's own line.
 | a constant                                   | `export declare const K: …`, a frozen copy                   |
 | an `enum`                                    | its members as values, and a type of their numbers           |
 | a struct (`class`, `interface`, `type`)      | `export interface S { … }`                                   |
-| a `@compute` entry                           | `export declare function e(bindings, workgroups): Promise<void>` (§67) |
-| a full-screen `@fragment` entry              | `export declare function e(target, bindings): Promise<void>` (§67) |
+| a compute entry                           | `export declare function e(bindings, workgroups): Promise<void>` (§67) |
+| a full-screen fragment entry              | `export declare function e(target, bindings): Promise<void>` (§67) |
 | a kernel function (§65)                      | `export declare function k(…): Promise<R>`                   |
 | a vertex entry, a generic function, a binding, anything else | `never`, with the reason and the work that adds it |
 
@@ -7557,7 +7556,7 @@ A function that takes an array with no size, `array<T>`, or a 2D storage texture
 A sampled texture alone makes none: an exported helper that reads one stays a helper an entry
 calls. Its array is the caller's storage, read and written in place, and each `for` at the
 top level of its body is a loop that can run on the GPU, one invocation per iteration, when the
-compiler proves that no iteration touches what another one does. No `@compute`, no binding and no
+compiler proves that no iteration touches what another one does. No `compute` call, no binding and no
 `global_invocation_id` is written:
 
 ```ts
@@ -7634,7 +7633,7 @@ The host cannot check such a loop's writes before it runs, since it does not kno
 a write past an array's end is dropped on every tier, so `out.length` after it is still the
 array's length, and the call throws no `TypeError` for it. A loop whose range reads only the
 arrays' `.length` and the scalars keeps the check below. In this version a loop over such a range
-that pushes or reduces, stores into a texture, writes an array through an `@inout` argument, or
+that pushes or reduces, stores into a texture, writes an array through an `inout<T>` argument, or
 writes an array the statements before it read, and such a range in a function that takes a `Map`
 or a `Set`, run the whole function on the CPU, and the view's comment says why:
 `It runs on the CPU: loop 1 reduces "s" over a trip count it reads from an array, and the call
@@ -7693,7 +7692,7 @@ correct either way. The first sentence names the line and your names, and the se
 The editor shows the same warning. Only a kernel function's loops are candidates: a loop in an
 entry, a helper or a fragment shader stays per-invocation code, as it always was.
 
-**The workgroup size.** A kernel function may set the workgroup of its loops with `@workgroup_size([128])`: one whole number in the array, or a `u32` or `i32` module constant, as `@compute` reads its extent (§3). Each loop that does not reduce runs at that size on WebGPU, and at 64 without the attribute. A loop that reduces runs in workgroups of 256 (Rule 7.2), so the attribute on a function with such a loop is refused:
+**The workgroup size.** A kernel function may set the workgroup of its loops with a stage call, `export const scale = workgroup_size([128], function scale(xs: array<f32>) { … })` (change 0111): one whole number in the array, or a `u32` or `i32` module constant, as `compute` reads its extent (§3). The decorated form, `@workgroup_size([128])` on a function declaration, stays accepted until the release after the migration release. Each loop that does not reduce runs at that size on WebGPU, and at 64 without a size. A loop that reduces runs in workgroups of 256 (Rule 7.2), so a size on a function with such a loop is refused:
 `"total" has a loop that reduces, which always runs in workgroups of 256. Remove @workgroup_size from "total", or put the reduction in a function of its own.` (`TS8077`). The size changes how long a loop takes. It does not change what the loop writes, since each element comes from its own index. WebGL2 and the CPU tier have no workgroup and ignore it.
 
 **The call.** A host file imports a kernel function like any export (§64) and awaits it:
@@ -7757,7 +7756,7 @@ masked, so every lane of the workgroup runs the same control flow: a workgroup w
 returned before heavy loops hung the D3D12 device of `docs/hardware-notes.md` A1, and this form
 completed there. Where the extra lane would read what another lane writes in the same dispatch (a
 loop that reads back what it writes, one that loads a texel it stores, one that writes through an
-`@inout` argument, a fused group with an edge), it skips the iteration under the same flag instead.
+`inout<T>` argument, a fused group with an edge), it skips the iteration under the same flag instead.
 The results do not change: the masked lane writes nothing, a reduction takes the identity from it,
 a push counts nothing for it, and the CPU tier runs the function as written.
 
@@ -8165,11 +8164,11 @@ call no other tier runs.
 
 ## 67. Calling an entry point from host code
 
-A host file calls a module's `@compute` entry through the same import (§64), and the entry runs
+A host file calls a module's compute entry through the same import (§64), and the entry runs
 on the GPU. `entry(bindings, workgroups)` dispatches it as written over `workgroups` workgroups
 on WebGPU, and reads every storage binding it writes back into the caller's value, or leaves it
 on the device in a `Resident` (Rules 8.24 and 11.8).
-A full-screen `@fragment` entry draws into a canvas the same way, as `entry(target, bindings)`
+A full-screen fragment entry draws into a canvas the same way, as `entry(target, bindings)`
 (below).
 
 Inside the body of a `fuse` scope (§71) an entry call is recorded and runs in the scope's plan. It
@@ -8188,13 +8187,12 @@ declare const k: uniform<f32>;
 declare const xs: storage<array<f32>>;
 declare const ys: storage<array<f32>, "read_write">;
 
-@compute([WIDTH])
-export function scale(@builtin("global_invocation_id") gid: vec3u) {
+export const scale = compute([WIDTH], function scale(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x >= xs.length) {
     return;
   }
   ys[gid.x] = xs[gid.x] * k * GAIN;
-}
+});
 ```
 
 ```ts
@@ -8234,7 +8232,7 @@ try {
 }
 ```
 
-The entry above declares `WIDTH: override<u32>` and uses it in `@compute([WIDTH])`.
+The entry above declares `WIDTH: override<u32>` and uses it in `compute([WIDTH], f)`.
 Omitted constants use their authored defaults. Names, types and ranges follow
 `program.compute(entry, { constants })` (§69): an unknown name, a value outside its type,
 a zero workgroup extent or a zero symbolic array length is refused. Options and constants are
@@ -8321,22 +8319,20 @@ declare const groups: uniform<u32>;
 declare const counts: storage<array<u32>, "read_write">;
 declare const marks: storage<array<u32>, "read_write">;
 
-@compute([1])
-export function planGroups() {
+export const planGroups = compute([1], function planGroups() {
   counts[3] = groups;
   counts[4] = 1;
   counts[5] = 1;
-}
+});
 
-@compute([8])
-export function markGroups(
-  @builtin("global_invocation_id") gid: vec3u,
-  @builtin("num_workgroups") nw: vec3u,
+export const markGroups = compute([8], function markGroups(
+  gid: builtin<"global_invocation_id", vec3u>,
+  nw: builtin<"num_workgroups", vec3u>,
 ) {
   if (gid.x < marks.length) {
     marks[gid.x] = nw.x * 1000 + gid.x;
   }
-}
+});
 ```
 
 ```ts
@@ -8395,8 +8391,8 @@ the entry throws, naming why.
 
 ### Drawing a fragment entry
 
-A `@fragment` entry that reads no builtin but `position` and `front_facing`, and writes one
-`@location(0)` `vec4` (as its result, or as a struct of that one field), draws one frame into a
+A fragment entry that reads no builtin but `position` and `front_facing`, and writes one
+`location<0, vec4>` (as its result, or as a struct of that one field), draws one frame into a
 canvas with a full-screen triangle the runtime supplies:
 
 ```ts
@@ -8507,22 +8503,20 @@ export function fbm(p: vec2): f32 {
 "use typeshade";
 import { fbm } from "./noise.shade.ts";
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-}
+});
 
-@fragment
-export function fs(vo: VsOut): vec4 {
+export const fs = fragment(function fs(vo: VsOut): vec4 {
   return vec4(vec3(fbm(vo.uv * 6.)), 1.);
-}
+});
 ```
 
 `clouds.shade.ts` emits `vs`, `fs` and the four functions of `noise.shade.ts` that `fs` reaches.
@@ -8677,7 +8671,7 @@ An `'integer'` manifest has no guard; fixed manifests keep the flavor they were 
 
 **An entry** carries its `stage`, its `workgroupSize`, its `inputs` and `outputs` with their
 locations, builtins and interpolation, the `bindings` it reaches through its calls with whether it
-writes each, a vertex entry's `vertex` buffer (its `@location` inputs, loose or fields of a struct
+writes each, a vertex entry's `vertex` buffer (its `location<n, T>` inputs, loose or fields of a struct
 parameter, tightly packed with their formats, the layout `reflect().vertex` reports too), and the
 `line` it is declared on.
 
@@ -8893,7 +8887,7 @@ await frame.submit(); // console lines print here
   const coarse = await program.render({ targets: ['bgra8unorm'], constants: { quality: 1 } });
   const step = await program.compute('step', { constants: { iterations: 64 } });
   ```
-- For a compute entry whose `@compute` dimensions use an override, `ComputePipeline.workgroupShape`
+- For a compute entry whose `compute([…], f)` dimensions use an override, `ComputePipeline.workgroupShape`
   is the resolved shape for that pipeline. Select the size in ordinary TypeScript from the input
   shape, then use it both as the override and to calculate dispatch workgroups:
 
@@ -9278,11 +9272,14 @@ const program = rt.load(brick, { console: true }); // recorded, though the build
 
 The runtime runs on WebGPU and on WebGL2 (change 0054); the CPU tier stays the call layer's (§67).
 
-## 70. Parameter qualifiers: `@inout` and `@out`
+## 70. Parameter qualifiers: `inout<T>` and `out<T>`
 
-A function changes its caller's variable when the parameter is declared `@inout` or `@out`,
-GLSL's qualifiers written as a decorator, and the call passes the variable itself (Rule 8.25,
-change 0040). Inside the function the parameter is the caller's variable: reading it reads that
+A function changes its caller's variable when the parameter is declared `inout<T>` or `out<T>`,
+GLSL's qualifiers written as the parameter's type, and the call passes the variable itself (Rule
+8.25, changes 0040 and 0111). Each type means `T` to TypeScript, which reads an assignment to
+the parameter as local; that the write reaches the caller is a divergence Rule 7.2 records. The
+decorated form, `@inout a: f32` and `@out c: f32`, stays accepted until the release after the
+migration release (change 0111, D5). Inside the function the parameter is the caller's variable: reading it reads that
 place, and assigning to it, or to a field, component or element of it, writes it. There is no
 `*` and no `&`, and a field is reached as `r.origin`, the way a method reaches `this.origin`
 (§26).
@@ -9291,38 +9288,37 @@ place, and assigning to it, or to a field, component or element of it, writes it
 "use typeshade";
 
 class Ray {
-  origin: vec3;
-  dir: vec3;
+  origin!: vec3;
+  dir!: vec3;
 }
 declare const rays: storage<array<Ray>, "read_write">;
 
-function swap(@inout a: f32, @inout b: f32): void {
+function swap(a: inout<f32>, b: inout<f32>): void {
   const t = a;
   a = b;
   b = t;
 }
 
-function add(a: f32, b: f32, @out c: f32): void {
+function add(a: f32, b: f32, c: out<f32>): void {
   c = a + b;
 }
 
-function advance(@inout r: Ray, t: f32): void {
+function advance(r: inout<Ray>, t: f32): void {
   r.origin = r.origin + r.dir * t;
 }
 
-@compute([64, 1, 1])
-export function main(@builtin("global_invocation_id") id: vec3u): void {
+export const main = compute([64, 1, 1], function main(id: builtin<"global_invocation_id", vec3u>): void {
   let x: f32 = 1.;
   let y: f32 = 2.;
   swap(x, y); // x is 2., y is 1.
-  let s: f32;
+  let s!: f32;
   add(x, y, s); // s is 3.
   advance(rays[id.x], 2.); // the storage element itself
-}
+});
 ```
 
-GLSL's third qualifier, `in`, is the value every parameter already is, and TypeScript does not
-parse it after `@`, since `in` is a reserved word: a parameter with no qualifier is GLSL's `in`.
+GLSL's third qualifier, `in`, is the value every parameter already is: a parameter with no
+qualifier is GLSL's `in`, and there is no `in<T>`.
 A struct or an array parameter with no qualifier is still read in place when its argument is a
 place, as a method reads its object (Rule 8.28, §26): `function area(r: Rect)` called as
 `area(box)` on a `let` local is `fn area(r: ptr<function, Rect>)` and `area(&box)` on WGSL, and
@@ -9331,18 +9327,22 @@ cannot write it, so the argument may be any value; a value that is no place is c
 A method that hands a place of its object to a qualified parameter, `bump(this.n)`, writes its
 object, and takes it by reference (§26).
 
-**`@out`.** An `@out` parameter starts with no value in the function, as GLSL's does: the body
+**`out<T>`.** An `out<T>` parameter starts with no value in the function, as GLSL's does: the body
 writes it, whole, before it reads it or a field, component or element of it, and writes it on
 every path before it returns. Each of those is `TS8075`:
 
 ```ts
-function f(@out c: f32): void { c = c + 1.; } // TS8075: read before f writes it
-function g(@out c: f32, k: bool): void { if (k) { c = 1.; } } // TS8075: returns without writing c
+function f(c: out<f32>): void { c = c + 1.; } // TS8075: read before f writes it
+function g(c: out<f32>, k: bool): void { if (k) { c = 1.; } } // TS8075: returns without writing c
 ```
 
-Under that rule `@out` and `@inout` give one result on every target, so the IR keeps one mode for
-both. The argument of an `@out` parameter assigns the caller's variable, so a local declared with
-no value may be handed to one and read after the call (Rule 7.6).
+Under that rule `out<T>` and `inout<T>` give one result on every target, so the IR keeps one mode
+for both. The argument of an `out<T>` parameter assigns the caller's variable, so a local declared
+with no value may be handed to one and read after the call (Rule 7.6). Declare that local with
+TypeScript's definite assignment, `let s!: f32;`, as the program above does: a plain
+`tsc --strict` accepts it, and without the `!` it reports TS2454 at the call (change 0111, D8).
+The compiler reads both spellings alike, and refuses a read of the local that no assignment and
+no `out<T>` argument comes before (`TS8075`).
 
 **What each target writes.** The IR marks the parameter as one the callee writes through,
 which is what a method that changes its object already is, and each target spells it its own
@@ -9404,7 +9404,7 @@ place by value while it only reads it, and by reference once it writes it. Insid
 parameter is the caller's place, handed on as itself.
 
 ```ts
-function scaleBoth(@inout a: f32, @inout b: f32, k: f32): void {
+function scaleBoth(a: inout<f32>, b: inout<f32>, k: f32): void {
   const scale = (): void => {
     a = a * k;
     b = b * k;
@@ -9421,7 +9421,7 @@ references in the check above, so `scaleBoth(x, x, 2.)` is `TS8074`.
 declared `never` in the host view, with the reason; a function of the module calls it.
 
 **Later, on the same model.** Change 0040 lists what may follow: a local reference, a read-only
-reference, a slice of an array, and `this` restated as an `@inout` parameter. None of a
+reference, a slice of an array, and `this` restated as an `inout<T>` parameter. None of a
 reference stored, returned, compared or offset follows, since no GPU target has it.
 
 ## 71. A chain of kernel calls in one dispatch: `fuse`
@@ -9513,7 +9513,7 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 - F4: the call writes no array that a call in the group reads or writes. Two calls may read one array. One array has one type in a group.
 - F5: the group binds each distinct array of its calls once, and one more for each variable that a reduction at its end folds. A device allows `maxStorageBuffersPerShaderStage` of them to a dispatch: the value in the device's report from `callDevice()` (§65), and 8 where the report has none. The refusal names that value. A scratch array that the entry holds as a local counts for none, and counts for one until the last call that names it has joined.
 - F6: a loop that reduces (§65) can be the last call of a group, and the calls before it run as a prologue of each of its iterations. Nothing joins a group after it. A reduction alone is not fused.
-- F7: the calls of a group run at one workgroup size. A call with `@workgroup_size` (§65) sets it, and every call of a group that sets one sets the same size. A call with none takes the size of its group, which is 64 when no call sets one. A reduction runs at 256, so a call that sets a size joins it only at 256.
+- F7: the calls of a group run at one workgroup size. A call with `workgroup_size([n], f)` (§65) sets it, and every call of a group that sets one sets the same size. A call with none takes the size of its group, which is 64 when no call sets one. A reduction runs at 256, so a call that sets a size joins it only at 256.
 
 **What stays apart, and how the report says it.** A call that does not join the group before it starts a group of its own, and the `why` of that group says in your names which fact failed. Its words are `a and b run as two dispatches because` and a reason, where `a` is the call that the fact fails against and `b` the call that stands apart. An access is given as the compiler words it for `TS8070` (§65): the access as you wrote it, and the one-based line of its statement. These are all the reasons:
 
@@ -10118,8 +10118,8 @@ the same type, and an object literal may omit it: the omitted field is absent.
 
 ```ts
 class Hit {
-  t: f32;
-  n: vec2 | undefined;
+  t!: f32;
+  n!: vec2 | undefined;
   r?: f32; // the same type as `r: f32 | undefined`
 }
 
@@ -10179,7 +10179,7 @@ decision D2; `src/compiler/ts/narrowing.ts`), so a program the editor accepts co
 - a member path is cleared by an assignment to a prefix of the path or to the root (`h = …`,
   `h.a = …`), by a compound assignment, `++` or `--` on the path, a prefix or the root, and by
   a call that takes the root by reference: `f(h)` where `f` is a function of the file whose
-  parameter at that index is `@inout` or `@out` (§70), and `h.m()` where `m` is a method of a
+  parameter at that index is `inout<T>` or `out<T>` (§70), and `h.m()` where `m` is a method of a
   class of the file that writes through `this` (§26) or a setter; after one the path reads
   un-narrowed.
 
