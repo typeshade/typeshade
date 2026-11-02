@@ -17,6 +17,18 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **An array with no size is written as TypeScript writes it (change 0114, stage S1; Rule 4.5,
+  surface §20).** `T[]`, `Array<T>`, `readonly T[]` and `ReadonlyArray<T>` are accepted wherever
+  `array<T>` with no size is: a storage binding's value type, a trailing storage-struct field and a
+  kernel function's parameter. They mean `array<T>`, and the emit, reflection and the CPU oracle do
+  not change. `readonly` on a parameter is a promise not to write: a write, `push` or `fill`
+  through it is refused with `TS8005` in both halves, and the editor shows that one sentence in
+  place of TypeScript's TS2542 and TS2339. `readonly array<f32>` is `TS8002` in both halves, where
+  the editor showed TS1354. `storage<readonly T[], "read_write">` is `TS8002` in both halves until
+  S3 decides a binding's access, and TypeScript's TS2345, TS4104 and TS2542 about a `readonly`
+  array that reaches a writable place give way to the compiler's refusal of the same flow.
+  `array<T>` stays accepted; S2 to S4 follow. No code or export is added.
+
 - **A numerical contract, opted into per function** (change 0107, stage 1; Rule 6.7, Rule 9.6,
   Rule 11.22, surface §3 and §78). `const f = numerics(["finite-math"], function f(…) { … })`, or
   a stage call's `{ numerics: [...] }` option, lets `-O2` fold `x * 0`, `x - x`, `mix(a, b, 0)`

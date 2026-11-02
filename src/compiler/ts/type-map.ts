@@ -337,6 +337,7 @@ export const LIBRARY_TYPE_NAMES: ReadonlySet<string> = new Set([
   'Object',
   'Pick',
   'ReadView',
+  'ReadonlyArray',
   // A table over a key type (change 0081): `mapRecord` takes it with its type arguments.
   'Record',
   'ReadWriteStorageFormat',
@@ -668,6 +669,58 @@ export function writesRefusedType(typeNode: ts.Node, sourceFile: ts.SourceFile):
   return walk(typeNode);
 }
 
+/** Whether `typeNode` is `readonly T[]`, or `ReadonlyArray<T>` when `typeNode` is a reference
+ *  and not the operator: the author's promise that nothing writes the array (change 0114, S1).
+ *  The operator form only; use {@link isReadonlyArrayNode} for both. */
+export function isReadonlyArrayType(
+  typeNode: ts.TypeNode,
+): typeNode is ts.TypeOperatorNode & { readonly type: ts.ArrayTypeNode } {
+  return (
+    ts.isTypeOperatorNode(typeNode) &&
+    typeNode.operator === ts.SyntaxKind.ReadonlyKeyword &&
+    ts.isArrayTypeNode(typeNode.type)
+  );
+}
+
+/** Whether `typeNode` spells a read-only array: `readonly T[]` or `ReadonlyArray<T>`, written
+ *  there or through the plain aliases it names (`type Xs = readonly f32[]`). */
+export function isReadonlyArrayNode(
+  typeNode: ts.TypeNode | undefined,
+  sourceFile: ts.SourceFile,
+  followed: ReadonlySet<string> = new Set(),
+): boolean {
+  if (typeNode === undefined) return false;
+  if (isReadonlyArrayType(typeNode)) return true;
+  if (ts.isParenthesizedTypeNode(typeNode)) {
+    return isReadonlyArrayNode(typeNode.type, sourceFile, followed);
+  }
+  if (!ts.isTypeReferenceNode(typeNode) || !ts.isIdentifier(typeNode.typeName)) return false;
+  const name = typeNode.typeName.text;
+  if (name === 'ReadonlyArray') return typeNode.typeArguments?.length === 1;
+  const target = aliasTargetsOf(sourceFile).get(name);
+  if (target === undefined || followed.has(name)) return false;
+  return isReadonlyArrayNode(target, sourceFile, new Set([...followed, name]));
+}
+
+/** The array with no size whose element `elemNode` writes: what `T[]`, `Array<T>`,
+ *  `readonly T[]` and `ReadonlyArray<T>` mean, as `array<T>` means it (change 0114, S1). */
+function unsizedArray(
+  elemNode: ts.TypeNode,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[] | undefined,
+  resolving: ReadonlySet<string> | undefined,
+  sizeOverrides?: ReadonlyMap<
+    string,
+    { readonly type: ShaderType; readonly default: number | boolean }
+  >,
+): ShaderType | undefined {
+  // An array holds no Map and no Set (change 0080), as `array<T>` holds none.
+  const elem = withoutCollections(() =>
+    mapType(elemNode, sourceFile, diagnostics, resolving, sizeOverrides),
+  );
+  return elem === undefined ? undefined : arrayT(elem, undefined);
+}
+
 export function mapTsTypeToShaderType(
   typeNode: ts.TypeNode | undefined,
   sourceFile: ts.SourceFile,
@@ -702,9 +755,48 @@ function mapType(
     return undefined;
   }
 
+  // `T[]` and `readonly T[]` are TypeScript's spelling of `array<T>` (change 0114, S1): an array
+  // with no size. `readonly` is the author's promise not to write, which the lowering of a
+  // parameter reads from the syntax ({@link isReadonlyArrayType}); the type is the same.
   if (ts.isArrayTypeNode(typeNode)) {
-    pushDiag(diagnostics, sourceFile, typeNode, `T[] is a JS array type. Use array<T, N>.`);
+    return unsizedArray(typeNode.elementType, sourceFile, diagnostics, resolving, sizeOverrides);
+  }
+  // `readonly` is TypeScript's on `T[]` alone (its TS1354 on anything else), so the sentence names
+  // the spelling that carries the promise.
+  if (
+    ts.isTypeOperatorNode(typeNode) &&
+    typeNode.operator === ts.SyntaxKind.ReadonlyKeyword &&
+    !ts.isArrayTypeNode(typeNode.type) &&
+    !ts.isTupleTypeNode(typeNode.type)
+  ) {
+    const inner = typeNode.type;
+    const elem =
+      ts.isTypeReferenceNode(inner) &&
+      ts.isIdentifier(inner.typeName) &&
+      inner.typeName.text === 'array' &&
+      inner.typeArguments?.length === 1
+        ? inner.typeArguments[0]!.getText(sourceFile)
+        : undefined;
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `"${typeNode.getText(sourceFile)}" is not valid TypeScript: "readonly" applies to an array ` +
+        `type T[] only.` +
+        (elem === undefined
+          ? ''
+          : ` An array with no size that nothing writes is "readonly ${elem}[]".`),
+    );
     return undefined;
+  }
+  if (isReadonlyArrayType(typeNode)) {
+    return unsizedArray(
+      typeNode.type.elementType,
+      sourceFile,
+      diagnostics,
+      resolving,
+      sizeOverrides,
+    );
   }
 
   if (ts.isTypeReferenceNode(typeNode)) {
@@ -1175,12 +1267,17 @@ function mapGeneric(
   >,
 ): ShaderType | undefined {
   const args = typeNode.typeArguments ?? [];
-  if (name === 'Array') {
+  // `Array<T>` and `ReadonlyArray<T>` are the same spelling of `array<T>` as `T[]` (change 0114,
+  // S1).
+  if ((name === 'Array' || name === 'ReadonlyArray') && args.length === 1) {
+    return unsizedArray(args[0]!, sourceFile, diagnostics, resolving, sizeOverrides);
+  }
+  if (name === 'Array' || name === 'ReadonlyArray') {
     pushDiag(
       diagnostics,
       sourceFile,
       typeNode,
-      'JS Array<T> is not a shader type. Use array<T, N>.',
+      `${name}<T> takes one type argument. A list with a size is array<T, N>.`,
     );
     return undefined;
   }

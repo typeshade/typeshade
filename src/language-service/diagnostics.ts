@@ -3,6 +3,7 @@
 import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
+import { READONLY_WRITE_PREFIX } from '../compiler/ts/context.js';
 import { isRemovedCall } from '../compiler/ts/removed-names.js';
 import {
   foreignNameReport,
@@ -1577,6 +1578,13 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     reason: 'A write to a `const` local or a read-only resource.',
   },
   {
+    typescript: 1354,
+    typeshade: new Set(['TS8002']),
+    reason:
+      "`readonly array<f32>`: `readonly` is TypeScript's on `T[]` alone. The compiler names " +
+      '`readonly f32[]` (change 0114, S1).',
+  },
+  {
     typescript: 2540,
     typeshade: new Set(['TS8005']),
     reason: 'A write to a `readonly` field outside its constructor.',
@@ -2600,6 +2608,8 @@ export function mergeDiagnostics(
     if (isInRefusedDecorator(context, diagnostic, compilerErrors)) return false;
     if (repeatsRefusal(context, diagnostic, refusals, compilerErrors)) return false;
     if (repeatsStrictModeRefusal(context, diagnostic, compilerErrors)) return false;
+    if (repeatsReadonlyWrite(diagnostic, compilerErrors)) return false;
+    if (repeatsReadonlyFlow(context, diagnostic, compilerErrors)) return false;
     if (readsDeclarationAsValue(context, diagnostic, compilerErrors)) return false;
     // `Cannot find global type 'Promise'`, which TypeScript reports at the top of the file for
     // an `import(...)` the compiler refuses as an import (TS8072, Rule 3.9): the same mistake.
@@ -2624,6 +2634,90 @@ export function mergeDiagnostics(
     ),
     ...typeshade,
   ];
+}
+
+/**
+ * Whether a TypeScript error is the same refusal as the compiler's write through a name declared
+ * `readonly T[]` or `ReadonlyArray<T>` (change 0114, S1): TS2542 on `xs[i] = v` ("Index signature
+ * in type 'readonly f32[]' only permits reading") and TS2339 on `xs.push(v)` or `xs.fill(v)`
+ * ("Property 'push' does not exist on type 'readonly f32[]'"). The compiler says it once, in one
+ * sentence, as TS8005 on the target or the call, and the merge keeps that one, so the editor and
+ * `compile()` give the same code and the same text for the same mistake (Rule 12.7).
+ */
+function repeatsReadonlyWrite(
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  const code = ruleCodeOf(diagnostic.code);
+  if (code !== 2542 && code !== 2339) return false;
+  return compilerErrors.some(
+    (error) =>
+      error.code === TS_CODES.CONST_ASSIGN &&
+      error.message.startsWith(READONLY_WRITE_PREFIX) &&
+      within(diagnostic.span, error.span),
+  );
+}
+
+/** The compiler refusals that stand for a `readonly` array reaching a place that writes: a copy
+ *  of an array with no size (`TS8099`), a parameter of one (`TS8020`), a binding declaration it
+ *  refused (`TS8002`). */
+const READONLY_FLOW_REFUSALS: ReadonlySet<string> = new Set(['TS8099', 'TS8020', 'TS8002']);
+
+const overlaps = (a: TypeshadeTextSpan, b: TypeshadeTextSpan): boolean =>
+  a.start < spanEnd(b) && b.start < spanEnd(a);
+
+/**
+ * Whether a TypeScript error is the same mistake as a compiler refusal of a `readonly` array that
+ * reaches a place that is not read-only (change 0114, S1). An array with no size lives in a
+ * storage binding or a kernel function's parameter only, so the compiler already refuses every
+ * way a `readonly T[]` name can flow into a writable `T[]`, with a sentence that names the fix:
+ * TS2345 on `g(xs)` and TS4104 on `const a: f32[] = xs` are the same mistake as the TS8099 on that
+ * call or copy, and as the TS8020 on the parameter a local function declares; TS2542 on a write
+ * through a name whose declaration the compiler refused is the declaration's one diagnostic
+ * (Rule 12.4). The merged list keeps the compiler's.
+ */
+function repeatsReadonlyFlow(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  const code = ruleCodeOf(diagnostic.code);
+  const refusals = compilerErrors.filter((e) => READONLY_FLOW_REFUSALS.has(String(e.code)));
+  if (refusals.length === 0) return false;
+  if ((code === 2345 || code === 4104) && diagnostic.message.includes('readonly')) {
+    const call = code === 2345 ? callOf(context, diagnostic.span) : undefined;
+    // TS4104 is on the declared name; the compiler's sentence is on the declaration's value.
+    let decl: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.span.start);
+    while (decl !== undefined && !ts.isVariableDeclaration(decl) && !ts.isStatement(decl)) {
+      decl = decl.parent;
+    }
+    const region =
+      call !== undefined
+        ? spanOfNode(call, context.sourceFile)
+        : decl === undefined
+          ? diagnostic.span
+          : spanOfNode(decl, context.sourceFile);
+    const callee =
+      call === undefined || context.checker === undefined
+        ? undefined
+        : context.checker.getSymbolAtLocation(call.expression)?.declarations?.[0];
+    const declared = callee === undefined ? undefined : spanOfNode(callee, callee.getSourceFile());
+    return refusals.some(
+      (e) => overlaps(e.span, region) || (declared !== undefined && overlaps(e.span, declared)),
+    );
+  }
+  if (code === 2542 && context.checker !== undefined) {
+    let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.span.start);
+    while (node !== undefined && !ts.isIdentifier(node)) node = node.parent;
+    const declaration =
+      node === undefined ? undefined : context.checker.getSymbolAtLocation(node)?.declarations?.[0];
+    if (declaration === undefined || declaration.getSourceFile() !== context.sourceFile) {
+      return false;
+    }
+    const declared = spanOfNode(declaration, context.sourceFile);
+    return refusals.some((e) => overlaps(e.span, declared));
+  }
+  return false;
 }
 
 /**

@@ -7,7 +7,12 @@ import ts from 'typescript';
 import type { BindingDecl, StructDecl } from '../../core/ir/nodes.js';
 import { structT, type ShaderType } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import { mapTsTypeToShaderType, HANDLE_TYPE_NAMES, writesRefusedType } from './type-map.js';
+import {
+  isReadonlyArrayNode,
+  mapTsTypeToShaderType,
+  HANDLE_TYPE_NAMES,
+  writesRefusedType,
+} from './type-map.js';
 import { atomicWithin } from './lower/atomics.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { authorTypeText, recordCallFormBinding, recordRecoveredBinding } from './context.js';
@@ -233,7 +238,7 @@ function fromType(
     // WGSL's default is `read`, and a `let` author wanted to write.
     access =
       type.typeArguments?.[1] !== undefined
-        ? readStorageAccess(type.typeArguments[1], sourceFile, diagnostics)
+        ? readStorageAccess(type.typeArguments[1], sourceFile, diagnostics, inner)
         : isConst
           ? 'read'
           : 'read_write';
@@ -436,7 +441,7 @@ function fromCall(
   let binding = autoBinding;
   let access: StorageBufferAccess | undefined;
   if (kind === 'storage') {
-    access = readStorageAccess(call.typeArguments?.[1], sourceFile, diagnostics);
+    access = readStorageAccess(call.typeArguments?.[1], sourceFile, diagnostics, typeArg);
   } else if (call.typeArguments?.[1] !== undefined) {
     diagnostics.push(
       makeDiagnostic(
@@ -561,12 +566,29 @@ function readStorageAccess(
   accessArg: ts.TypeNode | undefined,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
+  valueArg?: ts.TypeNode,
 ): StorageBufferAccess {
   if (accessArg === undefined) return 'read';
   const written =
     ts.isLiteralTypeNode(accessArg) && ts.isStringLiteral(accessArg.literal)
       ? accessArg.literal.text
       : undefined;
+  // `readonly` is the promise that nothing writes, and "read_write" asks for a buffer that is
+  // written. Until a storage binding's access follows from the program (change 0114, S3), the
+  // two are refused together, once, at the value type, in both halves.
+  if (written === 'read_write' && isReadonlyArrayNode(valueArg, sourceFile)) {
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        valueArg!,
+        `"${valueArg!.getText(sourceFile)}" promises that nothing writes the binding, and ` +
+          `"read_write" asks for a binding that is written. Write the value type without ` +
+          `"readonly" to keep "read_write", or drop "read_write".`,
+        TS_CODES.UNKNOWN_TYPE,
+      ),
+    );
+    return 'read_write';
+  }
   if (written !== undefined && isStorageBufferAccess(written)) return written;
   const got = accessArg.getText(sourceFile);
   diagnostics.push(

@@ -20,7 +20,12 @@ import {
   voidT,
 } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import { authorTypeText, type LoweringScope } from '../context.js';
+import {
+  authorTypeText,
+  readonlyWriteSentence,
+  writeRules,
+  type LoweringScope,
+} from '../context.js';
 import {
   MATH_FN_ALIAS,
   MATH_FN_ARITY,
@@ -355,6 +360,24 @@ export function lowerCall(
       const seen: { recv?: Expr } = {};
       const viaClass = lowerClassCall(node, callee, sourceFile, scope, diagnostics, seen);
       if (viaClass !== 'not-a-class-call') return viaClass;
+      // `push` and `fill` write the array they are called on; a name declared `readonly` is
+      // the author's promise that nothing does (change 0114, S1).
+      if (
+        (callee.name.text === 'push' || callee.name.text === 'fill') &&
+        ts.isIdentifier(callee.expression)
+      ) {
+        const held = scope.resolve(callee.expression.text);
+        if (held !== undefined && writeRules(held).readonlyArray === true) {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            node,
+            readonlyWriteSentence(callee.expression.text),
+            TS_CODES.CONST_ASSIGN,
+          );
+          return undefined;
+        }
+      }
       // `xs.map(f)` and the other four an array has (Rule 8.18, surface §63).
       if (isArrayMethod(callee.name.text) && seen.recv !== undefined) {
         return lowerArrayMethod(node, callee, seen.recv, sourceFile, scope, diagnostics);
