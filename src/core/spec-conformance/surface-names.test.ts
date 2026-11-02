@@ -263,7 +263,7 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   { name: 'discard', reason: 'WGSL `discard` is a statement, and TypeScript has none to borrow' },
 
   // The free spellings of a `Math` member WGSL has no builtin for (`log10`, `log1p`, `expm1`,
-  // `cbrt`, `hypot`) were rows here until change 0112 removed them: the MEMBER is an ECMAScript name
+  // `cbrt`, `hypot`) were rows here until Rule 9.9 removed them: the MEMBER is an ECMAScript name
   // and the one spelling (Rule 9.4). The array folds `sum` and `none` left with them.
   {
     name: 'random',

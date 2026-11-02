@@ -1,6 +1,6 @@
-// Change 0112 (changes/0112-one-spelling.md): the removed spellings of its sections 1 to 3.
+// Verifies: Rule 9.9 (docs/language-design.md; traced in reqs/).
 
-// A name an ECMAScript spelling carries in every case is not authorable (change 0112). Each removed
+// A name an ECMAScript spelling carries in every case is not authorable (Rule 9.9). Each removed
 // spelling is read through both halves on one source (CLAUDE.md, "A test reads both halves"):
 // `compile()`'s diagnostic, code and sentence, and the language service's `getDiagnostics`, which
 // merges the compiler's report with TypeScript's. Each replacement is read the same way, clean in
