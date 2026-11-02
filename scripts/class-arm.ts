@@ -58,7 +58,7 @@
 // entry of the first member whose results differ between two neighbouring elements runs once more
 // on WebGPU with one element given the next element's arguments, and the comparison must report
 // that element. A gate that cannot fail cannot pass. The corpus must also reach what the claim is
-// about: the classes and members below their floors, and each kind of member in `REACH`.
+// about: at least as many classes and members as their floors, and each kind of member in `REACH`.
 //
 // REFUSALS. A leg a tier has no form for is named with the reason the host face gives (an entry's
 // `noGl` or `noCpu`, a kernel function's `noWebgl2` or `noGpu`), and the member is held on the legs

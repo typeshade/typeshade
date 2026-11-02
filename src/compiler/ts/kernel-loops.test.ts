@@ -753,7 +753,7 @@ function nudge(@inout x: f32, d: f32): void {
   const kernel = (params: string, body: string, count = 'vs.length', start = 0): string =>
     `${CLASS}\nexport function f(${params}) {\n  for (let i: u32 = ${String(start)}; i < ${count}; i++) {\n    ${body}\n  }\n}`;
 
-  /** What the proof says of the loop: the facts the planner reads, or the refusal's words. */
+  /** What the proof says of the loop: the facts the planner reads, or the rule that refuses it. */
   const verdict = (body: string): unknown => {
     const r = compile(module(body), { fileName: 'm.shade.ts' });
     const [proof] = proveKernels(r.module);
