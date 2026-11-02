@@ -2,7 +2,7 @@
 //
 // Implements: Rule 2.2 (docs/language-design.md; traced in reqs/).
 
-import { isKnownIntrinsic } from '../../core/intrinsics.js';
+import { isKnownIntrinsic, SUBGROUP_INTRINSICS } from '../../core/intrinsics.js';
 import type { ExpandId } from './math-expand.js';
 
 export const MATH_FN_ALIAS: Readonly<Record<string, string>> = {
@@ -239,6 +239,9 @@ export const EXTRA_BUILTIN_FUNCTIONS: ReadonlySet<string> = new Set([
   'storageBarrier',
   'textureBarrier',
   'workgroupUniformLoad',
+  // The subgroup family (change 0117): each was an ordinary unknown name before, so a file
+  // declaring its own `subgroupAdd` keeps the call, by the same additivity rule.
+  ...SUBGROUP_INTRINSICS,
   'exp2',
   'saturate',
   'fwidth',

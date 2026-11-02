@@ -1282,7 +1282,7 @@ A reason that describes a representation the compiler chose (the halves of an em
 ### 10.1. Definition
 
 A _capability_ (`Capability` in `src/core/ir/nodes.ts`) is a GPU feature a module's emit needs, by a neutral id.
-A capability is _derived_ when the module's shape implies it (a storage binding, a `@compute` entry, a storage texture, a multisampled load, a 1d or cube-array texture, a gather, a `bgra8unorm` storage format, a packed 4x8 call: nine ids, which `enables` cannot name and `capabilityMatrix` reports `declarable: false`), and _declarable_ when only an explicit `enables` entry, or a `"enable <ext>"` directive for a WGSL extension (Rule 10.1), names it (`f16`, `subgroups`, the float render-target family, `multiview`).
+A capability is _derived_ when the module's shape implies it (a storage binding, a `@compute` entry, a storage texture, a multisampled load, a 1d or cube-array texture, a gather, a `bgra8unorm` storage format, a packed 4x8 call: nine ids, which `enables` cannot name and `capabilityMatrix` reports `declarable: false`), and _declarable_ when an explicit `enables` entry, or a `"enable <ext>"` directive for a WGSL extension (Rule 10.1), names it (`f16`, `subgroups`, the float render-target family, `multiview`); a declarable capability a use can also derive (`subgroups`, from a subgroup built-in value or function call, change 0117; `clipDistances` from `@builtin("clip_distances")`) stays declarable, and the directive is for a file with no such use.
 
 ### 10.2. Rules
 
@@ -1547,6 +1547,12 @@ Constants selected by an entry call (Rule 8.24, change 0084) are captured when t
 - Derives from: change `0072` in `changes/`, with its Amendment 1; Rule 11.5; Rule 11.8; Rule 11.13; change `0024` (the `typeshade` condition).
 - Enforced by: `scripts/bake-common-modules.ts`, which bakes `face.ts`, `view.ts` and `index.ts` of each module from its `index.shade.ts`, and `src/common-modules.test.ts`, which holds the baked files to the bake, each function to its contract on the CPU tier, `fillUniform` to `generator(seed)`, and the facts of each face to the planner's grouping; `scripts/gpu-differential.ts`, whose common-module arm runs every function of both modules on WebGPU and on WebGL2 against the f32 oracle; `scripts/bundle-boundary.ts`, which holds each host face to `src/runtime/` and `src/core/` and to its budget in `scripts/bundle-budget.json`; `src/api-surface.test.ts` and `src/api-doc-coverage.test.ts`, which read the two subpaths.
 
+**Rule 11.21.** On the CPU oracle and on GLSL ES 3.00, a subgroup is one invocation: `subgroup_size` is 1, `subgroup_invocation_id` is 0, `subgroup_id` is `local_invocation_index` and `num_subgroups` is the workgroup's invocation count; each subgroup built-in function must give the value it gives a subgroup of one lane (surface §77's table). The determinism report must list a subgroup reduction or scan on a float as `order`, and a broadcast or shuffle whose lane argument is not 0 as `target`. A module that uses a subgroup function must not be refused on GLSL ES 3.00 for the capability alone.
+
+- Rationale: WGSL leaves a subgroup's size to the device and gives a float fold no order, GLSL ES 3.00 has no subgroups, and the oracle runs invocations one after another. One lane is the meaning all three can share: an integer fold followed by an atomic accumulation, the use #536 names, then sums to the same value on every tier, and what the meaning cannot keep (a float fold's order, a read of another lane) is a row of the report rather than a silent difference. The decision to lower on GLSL ES 3.00 instead of failing closed is change 0117's D1, taken by the owner on 2026-11-02.
+- Derives from: `changes/0117-subgroup-operations.md` (section 3, decision D1); WGSL [Subgroup Built-in Functions](https://gpuweb.github.io/gpuweb/wgsl/#subgroup-builtin-functions); Rule 1.3; Rule 11.5; #536.
+- Enforced by: `src/core/passes/subgroups-one-lane.ts` (the GLSL rewrite), `src/core/cpu-runtime.ts` and `src/core/debug/dispatch.ts` (the oracle's values), `src/core/passes/determinism.ts` (the rows), and `src/compiler/ts/subgroups.test.ts`, which holds each to the table on one program.
+
 ## 12. Diagnostics
 
 ### 12.1. Definition
@@ -1703,13 +1709,13 @@ A decision listed here is not made; the "what holds today" column is the behavio
 Two decisions the first draft listed were made by PR #166 and are rules now: a two-row matrix in a uniform block is refused with the remedy (#149, Rule 4.8), and an `f64` across a stage boundary is refused with `f32(x)` while a scalar `f64` vertex attribute is admitted (#151, Rule 2.3).
 Two more were made by #203 and are Rule 7.5 now: the loop trip ceiling is removed, and a `while` is an open loop whose progress is left to the author.
 
-| Decision                                                                                                                                                                               | Issue                                  | What holds today                                                                                             | Who decides                                                   |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
-| Default type of an integer-written literal in an undeclared position: decided `i32` (WGSL), flipped under Rule 13.10 no earlier than `0.2.0`, after `0.1.0` ships the `TS8053` warning | #148                                   | `let i = 0` is `var i: f32 = 0.0;` (Rule 5.1); `compile(src, { deprecations: true })` reports `TS8053` on it | decided by the maintainer; the row leaves when the flip lands |
-| `read_write` storage-texture formats beyond `r32uint`, `r32sint`, `r32float`: a host-feature capability, or refuse                                                                     | #147                                   | `ReadWriteStorageFormat` is the three formats a device accepted when measured (surface §33)                  | measured on a device, then the maintainer                     |
-| Whether `frexp` and `modf`, which return a struct on WGSL, get the implicit result struct GLSL needs                                                                                   | roadmap 0.2 item 8 note; #162 (G1, G2) | neither is authorable                                                                                        | the maintainer                                                |
-| Subgroup operations, pointer values (a reference kept in a local, returned or stored), `f16`                                                                                           | `docs/roadmap.md` After 1.0            | none is authorable; a reference parameter is (Rule 8.25)                                                     | the roadmap, after 1.0                                        |
-| Reverse-mode `grad` of a kernel function and of a `@compute` entry                                                                                                                     | `changes/0056-reverse-mode-grad.md`    | reverse mode of a function, loops included, is authorable (`grad(m, fn, wrt, { mode: 'reverse' })`)          | the later steps of change 0056                                |
+| Decision                                                                                                                                                                               | Issue                                  | What holds today                                                                                                    | Who decides                                                   |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Default type of an integer-written literal in an undeclared position: decided `i32` (WGSL), flipped under Rule 13.10 no earlier than `0.2.0`, after `0.1.0` ships the `TS8053` warning | #148                                   | `let i = 0` is `var i: f32 = 0.0;` (Rule 5.1); `compile(src, { deprecations: true })` reports `TS8053` on it        | decided by the maintainer; the row leaves when the flip lands |
+| `read_write` storage-texture formats beyond `r32uint`, `r32sint`, `r32float`: a host-feature capability, or refuse                                                                     | #147                                   | `ReadWriteStorageFormat` is the three formats a device accepted when measured (surface §33)                         | measured on a device, then the maintainer                     |
+| Whether `frexp` and `modf`, which return a struct on WGSL, get the implicit result struct GLSL needs                                                                                   | roadmap 0.2 item 8 note; #162 (G1, G2) | neither is authorable                                                                                               | the maintainer                                                |
+| Pointer values (a reference kept in a local, returned or stored), `f16`                                                                                                                | `docs/roadmap.md` After 1.0            | neither is authorable; a reference parameter is (Rule 8.25); the subgroup operations left this row with change 0117 | the roadmap, after 1.0                                        |
+| Reverse-mode `grad` of a kernel function and of a `@compute` entry                                                                                                                     | `changes/0056-reverse-mode-grad.md`    | reverse mode of a function, loops included, is authorable (`grad(m, fn, wrt, { mode: 'reverse' })`)                 | the later steps of change 0056                                |
 
 ## Appendix A: TypeShade spelling and WGSL type
 
@@ -1799,14 +1805,14 @@ The counts below cover all four tables. A sub-gap is not counted here; the gap r
 | ----- | ------ | ----- | --- | ------- | ------- | --- | --- | ---- |
 | A     | WebGPU | 175   | 106 | 0       | 49      | 79  | 21  | 430  |
 | A     | WebGL2 | 108   | 13  | 9       | 0       | 125 | 175 | 430  |
-| B     | WebGPU | 215   | 0   | 10      | 0       | 65  | 4   | 294  |
-| B     | WebGL2 | 176   | 0   | 18      | 0       | 39  | 61  | 294  |
+| B     | WebGPU | 241   | 0   | 10      | 0       | 40  | 3   | 294  |
+| B     | WebGL2 | 204   | 0   | 18      | 0       | 39  | 33  | 294  |
 | C     | WebGPU | 96    | 0   | 0       | 1       | 23  | 14  | 134  |
 | C     | WebGL2 | 98    | 0   | 0       | 0       | 27  | 9   | 134  |
 | D     | WebGPU | 28    | 12  | 0       | 2       | 15  | 22  | 79   |
 | D     | WebGL2 | 23    | 11  | 4       | 0       | 30  | 11  | 79   |
-| all   | WebGPU | 514   | 118 | 10      | 52      | 182 | 61  | 937  |
-| all   | WebGL2 | 405   | 24  | 31      | 0       | 221 | 256 | 937  |
+| all   | WebGPU | 540   | 118 | 10      | 52      | 157 | 60  | 937  |
+| all   | WebGL2 | 433   | 24  | 31      | 0       | 221 | 228 | 937  |
 
 17 capabilities are flagged WebGL2-only. Each enters the surface by the door it names (Rule 11.16).
 

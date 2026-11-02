@@ -54,7 +54,10 @@ function drain<T>(g: Generator<unknown, T, void>): T {
 type Vec3 = readonly [number, number, number];
 
 /** The value an entry parameter takes for one invocation: its `@builtin`, or the zero of its
- *  type for a parameter the dispatch has nothing for. */
+ *  type for a parameter the dispatch has nothing for. On the oracle a subgroup is one
+ *  invocation (Rule 11.21, change 0117): `subgroup_size` is 1, `subgroup_invocation_id` is 0,
+ *  `subgroup_id` is the local invocation index and `num_subgroups` is the workgroup's
+ *  invocation count, `invocations`. */
 export function paramValue(
   p: FuncDecl['params'][number],
   gid: Vec3,
@@ -62,8 +65,17 @@ export function paramValue(
   lidx: number,
   wid: Vec3,
   nwg: Vec3,
+  invocations = 1,
 ): CpuValue {
   switch (p.builtin) {
+    case 'subgroup_invocation_id':
+      return 0;
+    case 'subgroup_size':
+      return 1;
+    case 'subgroup_id':
+      return lidx;
+    case 'num_subgroups':
+      return invocations;
     case 'global_invocation_id':
       return [...gid];
     case 'local_invocation_id':
@@ -184,7 +196,9 @@ export function dispatchEach(
               const gid: Vec3 = [wx * size[0] + lx, wy * size[1] + ly, wz * size[2] + lz];
               const lidx = lx + ly * size[0] + lz * size[0] * size[1];
               invoke(
-                decl.params.map((p) => paramValue(p, gid, lid, lidx, wid, nwg)),
+                decl.params.map((p) =>
+                  paramValue(p, gid, lid, lidx, wid, nwg, size[0] * size[1] * size[2]),
+                ),
                 gid,
               );
               invocations++;
@@ -283,7 +297,9 @@ export function dispatchCompute(
               const lid: Vec3 = [lx, ly, lz];
               const gid: Vec3 = [wx * size[0] + lx, wy * size[1] + ly, wz * size[2] + lz];
               const lidx = lx + ly * size[0] + lz * size[0] * size[1];
-              const args = decl.params.map((p) => paramValue(p, gid, lid, lidx, wid, nwg));
+              const args = decl.params.map((p) =>
+                paramValue(p, gid, lid, lidx, wid, nwg, size[0] * size[1] * size[2]),
+              );
               const ctx: StepCtx = {
                 ...base,
                 privates: privatesOf(),

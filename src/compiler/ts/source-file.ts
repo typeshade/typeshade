@@ -919,6 +919,14 @@ function uniformityMessage(
 ): string {
   const site = UNIFORMITY_SITES[v.via];
   const reached = `${site.reached} ${v.cause}`;
+  if (v.kind === 'subgroup') {
+    return (
+      `${v.callee}() is reached ${reached}, and every invocation of the subgroup has to reach ` +
+      `it together: WGSL's subgroup_uniformity rule refuses the call where one may not. ` +
+      `${site.move}, or ${site.on} a value the whole workgroup shares (a uniform, a module ` +
+      `const, @builtin("workgroup_id")).`
+    );
+  }
   if (v.kind === 'barrier') {
     return (
       `${v.callee}() is reached ${reached}, and every invocation of the workgroup has ` +

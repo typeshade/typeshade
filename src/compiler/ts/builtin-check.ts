@@ -355,6 +355,9 @@ export const BUILTIN_STAGE_RULES: Readonly<
     { stage: 'compute', direction: 'input' },
     { stage: 'fragment', direction: 'input' },
   ],
+  // The two WGSL added later (change 0117): compute inputs only, per its built-in value table.
+  subgroup_id: [{ stage: 'compute', direction: 'input' }],
+  num_subgroups: [{ stage: 'compute', direction: 'input' }],
 };
 
 /** The longest `array<f32, N>` WGSL's built-in value table lets `@builtin(clip_distances)` be. */

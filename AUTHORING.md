@@ -2109,7 +2109,7 @@ of the gate `emitModule` runs:
 
 ```
 error[SD0030] unsupported-capability
-  backend 'glsl-es300' cannot emit this module — missing capabilities: compute, subgroups
+  backend 'glsl-es300' cannot emit this module — missing capabilities: compute, clipDistances
 ```
 
 ### Source locations
@@ -2349,19 +2349,20 @@ A capability can need either half, both halves, or neither.
 | `float32Filterable`  | host feature `OES_texture_float_linear`                         | host feature `float32-filterable`                                        |
 | `multiview`          | directive `GL_OVR_multiview2` and host feature `OVR_multiview2` | unsupported, fails closed                                                |
 | `f16`                | unsupported, fails closed                                       | directive `f16` and host feature `shader-f16`                            |
-| `subgroups`          | unsupported, fails closed                                       | directive `subgroups` and host feature `subgroups`                       |
+| `subgroups`          | one invocation per subgroup (Rule 11.21), nothing to request    | directive `subgroups` and host feature `subgroups`                       |
 | `clipDistances`      | unsupported, fails closed                                       | directive `clip_distances` and host feature `clip-distances`             |
 | `primitiveIndex`     | unsupported, fails closed                                       | directive `primitive_index` and host feature `primitive-index`           |
 | `dualSourceBlending` | unsupported, fails closed                                       | directive `dual_source_blending` and host feature `dual-source-blending` |
 | `bgra8unormStorage`  | unsupported, fails closed                                       | host feature `bgra8unorm-storage`, derived                               |
 | `packed4x8Dot`       | unsupported, fails closed                                       | core, derived; a language feature to check                               |
 
-The bottom five rows are the ones nothing declares by hand. Writing
-`builtin<"clip_distances", T>`, `builtin<"primitive_index", u32>` or a `blend_src` option derives the
-capability, because WGSL refuses each of those without the matching `enable`; a
-`"bgra8unorm"` storage texture and a call into the packed 4x8 family derive theirs from the
-binding and from the call. `f16`, which no use can derive, and `subgroups`, for a file that
-reads neither subgroup built-in value, are spelled as the string directive above.
+The bottom six rows are the ones nothing declares by hand. Writing
+`builtin<"clip_distances", T>`, `builtin<"primitive_index", u32>`, `builtin<"subgroup_id", u32>`
+or a `blend_src` option derives the capability, because WGSL refuses each of those without the matching
+`enable`; a `"bgra8unorm"` storage texture, a call into the packed 4x8 family and a call to a
+subgroup built-in function (`subgroupAdd(x)`, change 0117) derive theirs from the binding and
+from the call. `f16`, which no use can derive, is spelled as the string directive above, and so
+is `subgroups` for a file that reads no subgroup built-in value and calls no subgroup function.
 
 A capability with a host half and no source half costs zero emitted bytes: declaring it
 moves no byte of the shader. The `32` in `float32Blend` and `float32Filterable` is
@@ -2395,9 +2396,11 @@ Two notes before you trust a row.
   `multiview` emits the directive and renders single-view. The other four are reachable:
   `clipDistances`, `primitiveIndex` and `dualSourceBlending` are what their attributes need,
   and `subgroups` is reached by `builtin<"subgroup_invocation_id", u32>` or
-  `builtin<"subgroup_size", u32>` on a
-  compute or fragment entry — the subgroup INTRINSICS (`subgroupAdd` and friends) are still
-  absent, which is a separate gap from the capability. Whether a given adapter HAS one of the
+  `builtin<"subgroup_size", u32>` on a compute or fragment entry, by `builtin<"subgroup_id", u32>`
+  or `builtin<"num_subgroups", u32>` on a compute entry, and by a call to one of the 21 subgroup
+  built-in functions (`subgroupAdd` and the rest, change 0117). On GLSL ES 3.00 it costs
+  nothing: a subgroup there is one invocation (Rule 11.21), so a fold is the lane's own value
+  and `subgroup_size` is `1u`. Whether a given adapter HAS one of the
   four is what `reflect().requiredFeatures` is for, and a device only HAS an optional feature
   if `requestDevice` was asked for it — the compile gate does exactly that, deriving the list
   from the corpus, which is how `examples/clip-planes.shade.ts` compiles on its Tint. Its

@@ -168,6 +168,10 @@ export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
   num_workgroups: 'The number of workgroups dispatched, as given to the dispatch call.',
   subgroup_invocation_id: "The current invocation's index within its subgroup.",
   subgroup_size: 'The number of invocations in the current subgroup.',
+  subgroup_id:
+    "The current subgroup's index within its workgroup. Compute stage only; on the CPU oracle and on WebGL2 a subgroup is one invocation, so it is the local invocation index.",
+  num_subgroups:
+    'The number of subgroups in the current workgroup. Compute stage only; on the CPU oracle and on WebGL2 a subgroup is one invocation, so it is the workgroup size.',
   clip_distances:
     "Per-vertex clip distances against the pipeline's enabled user clip planes: a vertex output of `array<f32, N>` with N from 1 to 8. Needs `enable clip_distances;`, which the use derives.",
 };
@@ -175,6 +179,49 @@ export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
 /** One Markdown sentence per builtin function: free math functions, expansions, casts, vector
  * constructors, array, fill, uniform, storage, and random. Shared by `hover.ts` and `completions.ts`. */
 export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
+  // The subgroup family (change 0117, §77).
+  subgroupAdd:
+    "Returns the sum of `value` over the lanes of the subgroup, in every lane. A float sum's order is the device's. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupMul:
+    "Returns the product of `value` over the lanes of the subgroup, in every lane. A float product's order is the device's. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupMin:
+    "Returns the least `value` over the lanes of the subgroup, in every lane. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupMax:
+    "Returns the greatest `value` over the lanes of the subgroup, in every lane. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupAnd:
+    "Returns the bitwise AND of `value` over the lanes of the subgroup, in every lane. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupOr:
+    "Returns the bitwise OR of `value` over the lanes of the subgroup, in every lane. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupXor:
+    "Returns the bitwise XOR of `value` over the lanes of the subgroup, in every lane. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupExclusiveAdd:
+    "Returns the sum of `value` over the lanes before this one in the subgroup, 0 in the first lane. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupInclusiveAdd:
+    "Returns the sum of `value` over the lanes up to and including this one in the subgroup. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupExclusiveMul:
+    "Returns the product of `value` over the lanes before this one in the subgroup, 1 in the first lane. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupInclusiveMul:
+    "Returns the product of `value` over the lanes up to and including this one in the subgroup. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupAll:
+    "Returns true when `e` is true in every lane of the subgroup. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupAny:
+    "Returns true when `e` is true in any lane of the subgroup. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupBallot:
+    "Returns a `vec4u` bitmask with one bit per lane of the subgroup, set where `pred` is true. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupElect:
+    "Returns true in the lowest active lane of the subgroup and false in every other. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupBroadcast:
+    "Returns `e` from the lane `id` of the subgroup, in every lane; `id` must be a number written in the call. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupBroadcastFirst:
+    "Returns `e` from the lowest active lane of the subgroup, in every lane. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupShuffle:
+    "Returns `e` from the lane `id` of the subgroup. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupShuffleDown:
+    "Returns `e` from the lane `delta` above this one in the subgroup. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupShuffleUp:
+    "Returns `e` from the lane `delta` below this one in the subgroup. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
+  subgroupShuffleXor:
+    "Returns `e` from the lane whose index is this lane's XOR `mask`. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
   exp2: 'Returns `2` raised to the power of `x`, componentwise over vectors.',
   saturate:
     'Clamps `x` to the range [0, 1], componentwise over vectors. GLSL ES 3.00 has no `saturate`, so it compiles to `clamp(x, 0.0, 1.0)` there.',
