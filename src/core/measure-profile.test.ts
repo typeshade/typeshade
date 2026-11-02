@@ -33,6 +33,7 @@ describe('profileEmit', () => {
       'autoVars',
       'lowerModule',
       'specializeCalls',
+      'finiteMath',
       'restructureCalls',
       'storageLoadReuse',
       'fp64Lower',
