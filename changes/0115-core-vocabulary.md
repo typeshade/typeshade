@@ -1,7 +1,7 @@
 ---
 id: '0115'
 title: The surface has three layers, ECMAScript, TypeShade's core vocabulary and the target features, and no new global name is added until the place of each layer is decided
-status: draft
+status: accepted
 rules:
   - '2.1'
   - '2.5'
@@ -21,13 +21,13 @@ downstream:
     what: The skill's account of where a name comes from is read against the three layers. If decision D4 takes option (b), the extension offers the auto-import of a target-feature name and its snippets gain the import line.
 ---
 
-<!-- doc-refs: skip-file — a draft proposal names rules it will add -->
+<!-- doc-refs: skip-file — this proposal names rules it adds; their text lands with the implementing pull request -->
 
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                     |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0115, `status: draft`. A discussion draft. No decision is recorded. No implementation exists.                                                                                                                                                                                                                                     |
+| Identity and status           | Proposal 0115, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02; see Approval and plan record, and its open items. No implementation exists.                                                                                                                    |
 | Date and attribution          | Authored 2026-11-02, UTC, by a Claude Code agent. The date is the authorship date, not an approval date.                                                                                                                                                                                                                                   |
 | Request source                | The owner, in a Claude Code session on 2026-11-02, in Korean. The session started from `arrayLength` beside `.length`, and went on to ask what a `"use typeshade"` file is, and how the surface should look ten years from now. The owner approved drafting this view for discussion.                                                      |
 | Applicability / effectivity   | `docs/language-design.md` (Rules 2.1, 9.6 and 13.6, a new Rule 2.5; Rules 3.9 and 11.20 only if decision D4 takes option (b)), `reqs/` (the items of those rules), and the site's rule pages. No compiler code, IR, backend, export, diagnostic code, surface section or example changes in this proposal. No release version is assigned. |
@@ -36,7 +36,7 @@ downstream:
 
 ## What changes
 
-### 1. The three layers (proposal)
+### 1. The three layers (accepted)
 
 Proposal 0100 (accepted) says where a name may come from: ECMAScript, WGSL or the §9.3 table
 (Rule 2.1). It does not say how long each name is meant to last, or who owns its meaning. This
@@ -48,7 +48,7 @@ proposal sorts every author-facing name into one of three layers by that questio
 | 2. Core vocabulary | The sized scalars, the vectors, the matrices, the constructors, the decorators and address spaces, and the math functions common to GPU languages (`dot`, `cross`, `normalize`, `clamp`, `mix`, `sqrt`, `smoothstep`, ...) | TypeShade, which defines and guarantees each name  | Long: GLSL, MSL and WGSL have shared most math names for about 20 years; HLSL shares most (it spells `mix` as `lerp`) |
 | 3. Target features | Textures and samplers, atomics, barriers, derivatives, packing, `workgroupUniformLoad`, `quantizeToF16`, and later subgroups and `f16`                                                                                     | The target's specification, today WGSL             | Short: each WGSL revision and each new target adds or changes some                                                    |
 
-**Rule 2.5 (new, proposed).** Every author-facing name belongs to exactly one layer of the table
+**Rule 2.5 (new, accepted).** Every author-facing name belongs to exactly one layer of the table
 above. A name of layer 1 means what ECMAScript gives it (Rule 1.1, as proposal 0100 amends it). A
 name of layer 2 means what this document gives it, and this document names WGSL as the current
 reference of that meaning. A name of layer 3 means what its target specification gives it.
@@ -56,9 +56,9 @@ reference of that meaning. A name of layer 3 means what its target specification
 - Rationale: a name lasts as long as the owner of its meaning keeps it. The surface should depend
   on the owner that changes least for each kind of name.
 
-### 2. The interim rule (proposal)
+### 2. The interim rule (accepted)
 
-**Rule 13.6 (amended, proposed), added sentence.** Until decision D4 of change 0115 is made, a
+**Rule 13.6 (amended, accepted), added sentence.** Until decision D4 of change 0115 is made, a
 new author-facing name must not be declared as an ambient global. A name of layer 3 that a new
 WGSL feature needs waits for the decision, or is added by an amendment of this proposal that
 names it.
@@ -69,22 +69,27 @@ names it.
 - Effect today (fact): the roadmap places subgroups and `f16` after `1.0.0` (§14). No item before
   `1.0.0` is known to need a new global.
 
-The owner may accept this sentence alone first. The rest of the proposal then stays a draft.
+Decision (2026-11-02): accepted by the owner, with D1 to D6. See the approval record.
 
-### 3. The open decisions
+### 3. The decisions
 
-Each decision gives the options, the recommendation and the reason.
+Each decision gives the options, the recommendation and the reason. The line after each reason
+records the owner's decision of 2026-11-02.
 
 **D1. The layer of each name family.** Option (a): the table in section 1, as written. Option
 (b): a different split. Recommendation: (a). The measured count at `9afe73a` is in the Why
 section.
 
+Decision (2026-11-02): option (a), as recommended.
+
 **D2. `Math` stays layer 1.** Option (a): `Math` keeps ECMAScript's meaning and its scalar
 signatures; vector math is layer 2. Option (b): `Math` members also take vectors, a meaning
 recorded as a TypeShade difference. Recommendation: (a). Reason: TC39 keeps adding to `Math`, and
 a widened member can collide with what TC39 later gives the same name. The Why section has the
-`Math.clamp` case. Draft 0112 proposes the same narrowing for the members the ambient library
-widens today; this decision states the principle, and 0112 carries the change.
+`Math.clamp` case. Accepted proposal 0112 (#878) makes the same narrowing for the members the ambient
+library widens today; this decision states the principle, and 0112 carries the change.
+
+Decision (2026-11-02): option (a), as recommended.
 
 **D3. Who defines a layer 2 name.** Option (a): a layer 2 name keeps meaning what WGSL gives it,
 revision by revision, as Rule 1.1 says today. Option (b): this document writes down the meaning of
@@ -94,6 +99,8 @@ Recommendation: (b), written one family at a time. Reason: the same name runs on
 3.00, the CPU oracle and, by the plan of proposal 0100 (area W), wasm. The meaning must belong to
 the language, not to one of its targets. The CPU oracle is already the reference evaluation (Rule
 1.3).
+
+Decision (2026-11-02): option (b), as recommended, decided before `1.0.0`.
 
 **D4. Where layer 3 lives.**
 
@@ -112,6 +119,10 @@ The precedent exists (fact): `typeshade/random` and `typeshade/algorithms` are s
 that a `"use typeshade"` file imports today, under the `typeshade` condition (Rule 11.20, change
 0072; surface §72 and §73).
 
+Decision (2026-11-02): option (b), as recommended. The conditional items of this proposal
+therefore apply (Rules 3.9 and 11.20, and the downstream items). Open items are listed in the
+approval record.
+
 **D5. The mechanism of a layer 3 module, if D4 takes (b).** A shader module cannot export a
 function without a body today: `export declare function f(x: f32): f32` is refused with `TS8020
 Function "f" needs a body (no ambient declarations)` (measured at `9afe73a`). Option (a): a
@@ -121,11 +132,16 @@ allow a body-less declaration in a library module, bound to an intrinsic id. Rec
 Reason: (b) opens a way for any package to declare a name the compiler then has to know, which
 Rule 2.2 and Rule 9.8 exist to close.
 
+Decision (2026-11-02): option (a), as recommended.
+
 **D6. Does layer 2 also move to modules?** Option (a): no, layer 2 stays global. Option (b): yes,
 `import { dot, normalize } from "typeshade/math"`. Recommendation: (a). Reason: almost every
 shader file uses layer 2, as almost every GLSL file uses `dot` and `normalize`. An import line in
-every file is a cost with little return, because layer 2 is the stable layer. Draft 0113 lets an
-author write short names from `Math` in plain TypeScript where that helps.
+every file is a cost with little return, because layer 2 is the stable layer. Accepted proposal 0113
+(#877), implemented in #889, lets an author write short names from `Math` in plain TypeScript
+where that helps.
+
+Decision (2026-11-02): option (a), as recommended.
 
 **D7. What must be measured before D4 and D5 are decided.**
 
@@ -134,6 +150,9 @@ author write short names from `Math` in plain TypeScript where that helps.
 2. The number of examples and tests that call a layer 3 name: the size of the migration.
 3. The message a global use of a moved name gets: one sentence that names the import line
    (Rule 12.1).
+
+No recommendation is recorded for D7. Its three measurements are not made. They stay open; see
+the approval record.
 
 ## Why
 
@@ -149,7 +168,7 @@ Counted by name pattern:
 | Layer 2: decorators and address spaces                                              | 13        |
 | Layer 2, with layer 1 overlaps and §9.3 extensions: math, folds and the rest        | 72        |
 
-The last group holds the names drafts 0112 and 0113 deal with (`arrayLength`, the free `Math`
+The last group holds the names that accepted proposals 0112 and 0113 deal with (`arrayLength`, the free `Math`
 spellings, the folds).
 
 **An import of a library name today (fact).** Measured at `9afe73a` with `compileTsSource` and the
@@ -188,8 +207,9 @@ TypeScript shape; a global name with no source in ECMAScript is not.
   (D7, item 1). It is not measured.
 - The count by name pattern is an estimate of the split; a reviewer can move a name between
   groups.
-- Related proposals: accepted 0100 (the principle); draft 0112 (one spelling for one meaning, in
-  flight); draft 0113 (#877, destructuring `Math`). None is a dependency of this one.
+- Related proposals: accepted 0100 (the principle); accepted 0112 (#878, one spelling for one
+  meaning); accepted 0113 (#877, destructuring `Math`; implemented in #889). None is a dependency
+  of this one.
 
 ## What it touches
 
@@ -214,8 +234,28 @@ TypeScript shape; a global name with no source in ECMAScript is not.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision on D1 to D7, or on
-the interim sentence of section 2 alone, recorded here with the merge of #879.
+- 2026-11-02, the owner, in a Claude Code session, in Korean ("0115 추천대로 승인"): D1 to D6 are
+  decided as recommended. D1 takes option (a), D2 (a), D3 (b), D4 (b), D5 (a) and D6 (a). The
+  interim sentence of section 2 is accepted.
+- Inference, to confirm by the owner: the interim sentence applies "until decision D4 is made".
+  This decision makes D4, so its condition is met. From this date a new layer 3 name is a module
+  export under D4 (b). A layer 2 name stays global.
+- The status `accepted` is set by the commit that carries this record. The merge of #879 records
+  the acceptance (`changes/README.md`, item 2).
+
+### Open items at acceptance
+
+- **O-1. D7 measurements not made.** Section 3 says these measurements come before D4 and D5 are
+  decided. D4 and D5 were decided first. Next action: measure items 1 to 3 of D7 before the first
+  implementing pull request for a layer 3 module.
+- **O-2. Impact declarations for D4 (b) and D5 (a) not declared.** The last bullet of "What it
+  touches" says an amendment adds the subpath to `exports`, a diagnostic to `codes` and the moved
+  families to `surface`, before acceptance. The front matter has `exports: []`, `codes: []` and
+  `surface: []`. The owner's decision does not name them. This is an open deviation from that
+  text. Next action: an amendment that declares them, before the first implementing pull request.
+- **O-3. Downstream work not searched.** The rule pages, the guide pages and the editor's
+  auto-import are owed by D4 (b). Next action: search each named repository by name, as
+  `changes/README.md` item 5 requires, when the compiler pin moves.
 
 ### Configuration and validation record
 
