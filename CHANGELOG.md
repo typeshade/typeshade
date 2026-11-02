@@ -17,6 +17,13 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **The design rules say what TypeShade borrows (change 0100).** `docs/language-design.md`
+  now defines a `"use typeshade"` program by its own rules: a form borrowed from ECMAScript keeps
+  ECMAScript's meaning, a form borrowed from WGSL keeps WGSL's, and a rule records each
+  difference (Rules 1.1 and 1.3). New §1.8 adds Rules 1.4 to 1.7: TypeScript's spelling first,
+  the representation is the compiler's, TypeShade code is compute code, and every extension
+  projects to valid TypeScript. Rules 2.1, 3.6, 4.1, 4.5 and 13.6 follow, and Appendix B lists
+  the open units of `docs/typeshade-plan.md`. No program changes its result or its diagnostics.
 - **O2 reuses values across calls and storage reads.** Specialization, producer/consumer
   fusion, aggregate splitting and shared arithmetic helpers remove intermediate work.
   Stable storage regions and bounded loops reuse loads; writes and synchronization end reuse.
