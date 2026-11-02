@@ -271,4 +271,22 @@ export const main = compute([4, 1, 1], function main(gid: builtin<"global_invoca
       out: new Array(8).fill(0),
     }),
   },
+  // #900: `xs.length` read inside the index of a load. The pass program declared the length of an
+  // array only when a statement read it outside an index.
+  "a storage index that reads the array's length": {
+    src: `"use typeshade";
+declare const xs: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
+export const main = compute([8, 1, 1], function main(gid: builtin<"global_invocation_id", vec3u>): void {
+  out[gid.x] = xs[(gid.x + 3) % xs.length];
+});
+`,
+    entry: 'main',
+    workgroups: 2,
+    // Ten elements in and sixteen invocations out, so the index wraps for the last nine.
+    bindings: () => ({
+      xs: Array.from({ length: 10 }, (_, i) => i + 0.5),
+      out: new Array(16).fill(0),
+    }),
+  },
 };
