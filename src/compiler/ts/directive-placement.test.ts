@@ -29,7 +29,7 @@ const editor = (source: string) => {
 
 describe('a directive after another statement', () => {
   it.each([
-    ['a class declaration', 'class A {\n  x: f32;\n}\n'],
+    ['a class declaration', 'class A {\n  x!: f32;\n}\n'],
     ['a function declaration', 'function g(): f32 {\n  return 1.;\n}\n'],
     ['a variable declaration', 'const K = 1.;\n'],
     ['the "enable f16" directive', '"enable f16";\n'],
@@ -52,7 +52,7 @@ describe('a directive after another statement', () => {
   });
 
   it('still checks the rest of the file, and the editor still answers hover', () => {
-    const source = `class A {\n  x: f32;\n}\n"use typeshade";\n${BODY.replace('x * 2.', 'x * true')}`;
+    const source = `class A {\n  x!: f32;\n}\n"use typeshade";\n${BODY.replace('x * 2.', 'x * true')}`;
     expect(compile(source).diagnostics.map((d) => d.code)).toContain('TS8069');
     expect(compile(source).diagnostics.length).toBeGreaterThan(1);
     const { service } = editor(source);
@@ -61,7 +61,7 @@ describe('a directive after another statement', () => {
   });
 
   it('is still a TypeShade source, so a bundler routes it to the compiler', () => {
-    expect(isTypeshadeSource(`class A {\n  x: f32;\n}\n"use typeshade";\n${BODY}`)).toBe(true);
+    expect(isTypeshadeSource(`class A {\n  x!: f32;\n}\n"use typeshade";\n${BODY}`)).toBe(true);
   });
 });
 

@@ -271,7 +271,7 @@ function fakeGpu(limits: Record<string, number> = {}) {
 
 it('alternates projected ordinary calls and full-layout resident/fused calls from one default face (0085)', async () => {
   const source = `"use typeshade";
-class Item { a: f32; b: f32; c: f32; unused: f32; }
+class Item { a!: f32; b!: f32; c!: f32; unused!: f32; }
 export function sample(xs: array<Item>, out: array<f32>): void {
   for (let i: u32 = 0; i < xs.length; i++) { out[i] = xs[i].a; }
 }

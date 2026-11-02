@@ -15,11 +15,10 @@ declare const a6: storage<array<f32>>;
 declare const a7: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
 
-@compute([64])
-export function main(@builtin("global_invocation_id") gid: vec3u): void {
+export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>): void {
   const i = gid.x;
   if (i >= out.length) {
     return;
   }
   out[i] = a0[i] + a1[i] + a2[i] + a3[i] + a4[i] + a5[i] + a6[i] + a7[i];
-}
+});

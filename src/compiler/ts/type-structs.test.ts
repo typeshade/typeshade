@@ -90,7 +90,7 @@ describe('a declaration nothing uses is not a struct', () => {
   });
 
   it('collects a class even when nothing refers to it, as it always has', () => {
-    expect(names(`class Unused {\n  a: f32\n}\n${F}`)).toEqual(['Unused']);
+    expect(names(`class Unused {\n  a!: f32\n}\n${F}`)).toEqual(['Unused']);
   });
 
   it('collects exactly the object alias, not an alias of some other type', () => {
@@ -432,7 +432,7 @@ describe('only a CONSUMPTION site makes a candidate reachable', () => {
         x: f32;
       };
       class C {
-        i: Inner;
+        i!: Inner;
       }
       declare const u: uniform<C>;
       export function f(): f32 {
@@ -485,13 +485,13 @@ describe("inheritance puts the base's fields first (roadmap 0.3 item T5, #92)", 
   it('on a class, and through a chain of three', () => {
     const src = `
       class A {
-        a: f32
+        a!: f32
       }
       class B extends A {
-        b: f32
+        b!: f32
       }
       class C extends B {
-        c: f32
+        c!: f32
       }
       declare const u: uniform<C>
       export function f(): f32 {
@@ -506,7 +506,7 @@ describe("inheritance puts the base's fields first (roadmap 0.3 item T5, #92)", 
     expect(
       diagnose(`
       class B extends Missing {
-        b: f32
+        b!: f32
       }
       ${EXTENDS}
     `),
@@ -516,10 +516,10 @@ describe("inheritance puts the base's fields first (roadmap 0.3 item T5, #92)", 
     expect(
       diagnose(`
       class A extends B {
-        a: f32
+        a!: f32
       }
       class B extends A {
-        b: f32
+        b!: f32
       }
       ${EXTENDS}
     `),
@@ -527,10 +527,10 @@ describe("inheritance puts the base's fields first (roadmap 0.3 item T5, #92)", 
     expect(
       diagnose(`
       class A {
-        b: i32
+        b!: i32
       }
       class B extends A {
-        b: f32
+        b!: f32
       }
       ${EXTENDS}
     `),
@@ -551,13 +551,13 @@ describe('one name, one declaration', () => {
       'interface C {\n  a: f32\n}\ninterface C {\n  b: f32\n}',
     ],
     ['an interface and a type alias', 'interface C {\n  a: f32\n}\ntype C = {\n  b: f32\n}'],
-    ['a class and an interface', 'class C {\n  a: f32\n}\ninterface C {\n  b: f32\n}'],
+    ['a class and an interface', 'class C {\n  a!: f32\n}\ninterface C {\n  b: f32\n}'],
   ])('rejects %s', (_label, decls) => {
     expect(diagnose(`${decls}\n${USE}`)).toBe(DUPLICATE);
   });
 
   it('reports it as a duplicate symbol, not a struct-field problem', () => {
-    expect(code(`class C {\n  a: f32\n}\ninterface C {\n  b: f32\n}\n${USE}`)).toBe('TS8023');
+    expect(code(`class C {\n  a!: f32\n}\ninterface C {\n  b: f32\n}\n${USE}`)).toBe('TS8023');
   });
 
   // #172: the check ran only for a struct something uses, so the same pair with no binding
@@ -566,8 +566,8 @@ describe('one name, one declaration', () => {
   const NO_USE = 'export function f(): f32 { return 1.; }';
   const UNUSED: readonly (readonly [string, string, number])[] = [
     ['two interfaces', 'interface C {\n  a: f32\n}\ninterface C {\n  b: f32\n}', 4],
-    ['a class and an interface', 'class C {\n  a: f32\n}\ninterface C {\n  b: f32\n}', 4],
-    ['an interface and a class', 'interface C {\n  a: f32\n}\nclass C {\n  b: f32\n}', 4],
+    ['a class and an interface', 'class C {\n  a!: f32\n}\ninterface C {\n  b: f32\n}', 4],
+    ['an interface and a class', 'interface C {\n  a: f32\n}\nclass C {\n  b!: f32\n}', 4],
   ];
   it.each(UNUSED)('rejects %s that nothing uses, on the second declaration', (_l, decls, line) => {
     const source = `${decls}\n${NO_USE}`;
@@ -581,7 +581,7 @@ describe('one name, one declaration', () => {
   });
 
   it('still reports a used pair once, not once per check', () => {
-    const r = analyze(`class C {\n  a: f32\n}\ninterface C {\n  b: f32\n}\n${USE}`);
+    const r = analyze(`class C {\n  a!: f32\n}\ninterface C {\n  b: f32\n}\n${USE}`);
     expect(r.diagnostics.map((d) => d.code)).toEqual(['TS8023']);
   });
 

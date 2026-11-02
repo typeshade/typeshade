@@ -753,6 +753,12 @@ describe('every refusal that names a line is pinned above', () => {
       note: 'quotes a parameter annotation, `p: f32`, not a declaration',
     },
     {
+      file: 'decorated-form.ts',
+      sites: 4,
+      lines: 0,
+      note: "names the stage call around the author's own body, `vertex(function vs(…) { … })`, a shape and not a line, or a parameter's or field's attribute type, which is no declaration; `tshc migrate` writes both",
+    },
+    {
       file: 'integer-literal-deprecation.ts',
       sites: 1,
       lines: 0,

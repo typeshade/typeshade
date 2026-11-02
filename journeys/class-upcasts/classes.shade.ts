@@ -1,17 +1,17 @@
 "use typeshade";
 
 class Material {
-  value: f32;
+  value!: f32;
   constructor(value: f32) { this.value = value; }
   response(): f32 { return this.value * 2.; }
 }
 class LeafMaterial extends Material {
-  extra: f32;
+  extra!: f32;
   constructor(value: f32, extra: f32) { super(value); this.extra = extra; }
   transmission(): f32 { return this.extra; }
 }
 class Leaf {
-  material: Material;
+  material!: Material;
   constructor(material: Material) { this.material = material; }
 }
 
@@ -28,10 +28,9 @@ function result(first: f32, material: Material, last: f32): f32 {
 }
 function next(): f32 { count += 1.; return count; }
 
-@compute([64])
-export function main(@builtin("global_invocation_id") gid: vec3u): void {
+export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= xs.length) { return; }
   const concrete = new LeafMaterial(xs[gid.x], 10.);
   const leaf = new Leaf(concrete);
   out[gid.x] = leaf.material.response() + result(next(), factory(xs[gid.x]), next());
-}
+});

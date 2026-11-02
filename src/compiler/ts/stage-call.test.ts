@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
+import { isDecoratedFormWarning } from '../../core/testing/decorated-form.js';
 import { hostFace } from './host-face.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
@@ -29,6 +30,12 @@ const IO = `class VsOut {
   @location(0) uv: vec2;
 }
 `;
+/** The same struct in the form of change 0111, which the stage-call side writes. */
+const TYPED_IO = `interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
+}
+`;
 
 const PAIRS: readonly { name: string; decorated: string; called: string }[] = [
   {
@@ -46,8 +53,8 @@ export function fs(v: VsOut): vec4 {
 }
 `,
     called: `"use typeshade";
-${IO}
-export const vs = vertex(function vs(@builtin("vertex_index") i: u32): VsOut {
+${TYPED_IO}
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
   const x = i === 1 ? 0.8 : -0.8;
   return { pos: vec4(x, -0.8, 0., 1.), uv: vec2(x, 0.) };
 });
@@ -74,7 +81,7 @@ export function scale(xs: array<f32>, k: f32): void {
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
 const TILE: u32 = 128;
-export const main = compute([8, 8, 1], function main(@builtin("global_invocation_id") gid: vec3u): void {
+export const main = compute([8, 8, 1], function main(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= src.length) { return; }
   dst[gid.x] = src[gid.x] * 2.;
 });
@@ -113,7 +120,10 @@ describe('a stage call compiles as the decorated entry does (change 0111, D1)', 
       const a = compiled(decorated);
       const b = compiled(called);
       expect(b.diagnostics).toEqual([]);
-      expect(a.diagnostics).toEqual([]);
+      // The decorated form warns once on each of its decorators (TS8028, change 0111,
+      // milestone 4), and says nothing else.
+      expect(a.diagnostics.filter((d) => !isDecoratedFormWarning(d))).toEqual([]);
+      expect(a.diagnostics).toHaveLength(decorated.match(/@\w+/g)!.length);
       expect(b.wgsl).toBe(a.wgsl);
       expect(JSON.stringify(b.glsl)).toBe(JSON.stringify(a.glsl));
     });
@@ -206,7 +216,7 @@ export const fs = fragment(function fs(f: (x: f32) => f32): vec4 {
 describe('the editor reads a stage call as the compiler does', () => {
   it('reports nothing on an entry the compiler accepts', () => {
     const source = `"use typeshade";
-${IO}
+${TYPED_IO}
 export const fs = fragment(function fs(v: VsOut): vec4 {
   return vec4(v.uv.x, v.uv.y, 0.2, 1.);
 });

@@ -61,8 +61,8 @@ export function main(): void {
 describe('a string literal argument of a console call is a label (surface §66)', () => {
   const src = (body: string): string => `"use typeshade";
 class P {
-  a: f32;
-  b: vec3;
+  a!: f32;
+  b!: vec3;
 }
 export function main(x: f32): void {
   ${body}
@@ -144,8 +144,8 @@ export function main(x: f32): void {
 describe('console.table shows one value as a table (surface §66)', () => {
   const src = (body: string): string => `"use typeshade";
 class P {
-  pos: vec2;
-  speed: f32;
+  pos!: vec2;
+  speed!: f32;
 }
 export function main(x: f32): void {
   const ps: array<P, 2> = [{ pos: vec2(x, 2.), speed: 3. }, { pos: vec2(4., 5.), speed: x }];

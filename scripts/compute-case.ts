@@ -38,8 +38,7 @@ function lum(c: vec4f): f32 {
   return c.x * 0.25 + c.y * 0.5 + c.z * 0.25;
 }
 
-@compute([8, 1, 1])
-export function blurRow(@builtin("local_invocation_index") li: u32): void {
+export const blurRow = compute([8, 1, 1], function blurRow(li: builtin<"local_invocation_index", u32>): void {
   const dims = textureDimensions(photo);
   for (let y: u32 = 0; y < dims.y; y++) {
     row[li] = lum(textureLoad(photo, vec2i(i32(li), i32(y)), 0));
@@ -49,7 +48,7 @@ export function blurRow(@builtin("local_invocation_index") li: u32): void {
     out[y * 8 + li] = row[(li + 7) % 8] * 100. + right + f32(dims.x * 1000);
     workgroupBarrier();
   }
-}
+});
 `,
 } as const;
 
@@ -115,8 +114,7 @@ declare const smp: sampler;
 declare const cmp: sampler_comparison;
 declare const out: storage<array<f32>, "read_write">;
 
-@compute([64, 1, 1])
-export function handles(@builtin("local_invocation_index") li: u32): void {
+export const handles = compute([64, 1, 1], function handles(li: builtin<"local_invocation_index", u32>): void {
   const x = i32(li % 4);
   const y = i32((li / 4) % 4);
   const z = i32(li / 16);
@@ -138,7 +136,7 @@ export function handles(@builtin("local_invocation_index") li: u32): void {
   const e = textureSampleCompareLevel(cascades, cmp, uv, z % 2, ref);
   const dims = textureDimensions(vol);
   out[li] = a.x + a.y * 2. + c.z * 4. + f32(b.x + b.w) * 8. + d * 16. + e * 32. + f32(dims.z) * 64.;
-}
+});
 `,
     entry: 'handles',
     workgroups: 1,
@@ -160,8 +158,7 @@ declare const img: texture_storage_2d<"rgba8unorm", "write">;
 declare const ids: texture_storage_2d<"r32uint", "write">;
 let row: workgroup<array<f32, 8>>;
 
-@compute([8, 1, 1])
-export function paint(@builtin("local_invocation_id") lid: vec3u, @builtin("workgroup_id") wid: vec3u): void {
+export const paint = compute([8, 1, 1], function paint(lid: builtin<"local_invocation_id", vec3u>, wid: builtin<"workgroup_id", vec3u>): void {
   const at = vec2i(i32(lid.x), i32(wid.x));
   const seen = textureLoad(acc, at).x;
   row[lid.x] = seen;
@@ -171,7 +168,7 @@ export function paint(@builtin("local_invocation_id") lid: vec3u, @builtin("work
   const dims = textureDimensions(img);
   textureStore(img, vec2u(lid.x, wid.x), vec4f(f32(lid.x) / 7., f32(wid.x) / 7., left / 7., 1.));
   textureStore(ids, at, vec4u(lid.x + wid.x * dims.x, u32(0), u32(0), u32(0)));
-}
+});
 `,
     entry: 'paint',
     workgroups: 8,

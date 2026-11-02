@@ -15,6 +15,7 @@ import type {
 } from '../../core/ir/nodes.js';
 import { stageOf } from '../../core/ir/nodes.js';
 import { stageCallOf } from './stage-call.js';
+import { warnDecoratedForm } from './decorated-form.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import { kernelLoopDiagnostics } from './kernel-loops.js';
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js';
@@ -453,6 +454,9 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   }
   // A name nothing declares in a body no call lowered, which the lowering never read (Rule 2.1).
   reportUndeclaredValues(sourceFile, diagnostics);
+  // The decorated form of the migration release, read as written and warned once each
+  // (change 0111, milestone 4).
+  warnDecoratedForm(sourceFile, diagnostics);
   dropRepeatedDiagnostics(diagnostics);
   sortDiagnosticsByPosition(diagnostics);
   let wgsl: string | undefined;

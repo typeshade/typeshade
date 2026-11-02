@@ -14,7 +14,7 @@ import { BUILTINS, type CpuValue } from '../../core/cpu-runtime.js';
 import { startDebugSession } from '../../core/debug/session.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
-const U = `class U { k: u32; s: i32; v: vec2i; m: mat4; w: vec4 }
+const U = `class U { k!: u32; s!: i32; v!: vec2i; m!: mat4; w!: vec4 }
 declare const u: uniform<U>`;
 const FS = (body: string) => `"use typeshade"
 ${U}
@@ -635,7 +635,7 @@ ${body}
     const body =
       '  const m: i32 = -2147483648\n  const v = abs(vec2i(m, -3))\n  const n = -m\n  return vec4(f32(n), f32(v.x), f32(v.y), 1.)';
     expect(value(body)).toEqual([-2147483648, -2147483648, 3, 1]);
-    const src = `"use typeshade"\n@fragment\nexport function fs(): vec4 {\n${body}\n}\n`;
+    const src = `"use typeshade"\nexport const fs = fragment(function fs(): vec4 {\n${body}\n});\n`;
     const stepped = startDebugSession(compile(src).module, 'fs', [], { precision: 'f64' });
     stepped.continue();
     expect(stepped.result).toEqual([-2147483648, -2147483648, 3, 1]);

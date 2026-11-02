@@ -64,7 +64,7 @@ export function answer(): f32 { const u: Util = new Util(); const e = new N.Empt
 
   it('assigns memory footprint without exposing a generated field in reflection', () => {
     const r = program(`class Empty {}
-class Values { head: f32; item: Empty; items: array<Empty, 2>; tail: f32; }
+class Values { head!: f32; item!: Empty; items!: array<Empty, 2>; tail!: f32; }
 export function consume(v: Values): f32 { return v.head + v.tail; }`);
     const structs = new Map(r.module.structs.map((s) => [s.name, s]));
     const empty = structs.get('Empty')!;

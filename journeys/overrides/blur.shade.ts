@@ -12,8 +12,7 @@ const clamped: override<bool> = false;
 declare const input: storage<array<f32>>;
 declare const output: storage<array<f32>, "read_write">;
 
-@compute([64])
-export function blur(@builtin("global_invocation_id") gid: vec3u) {
+export const blur = compute([64], function blur(gid: builtin<"global_invocation_id", vec3u>) {
   const n = i32(input.length);
   const i = i32(gid.x);
   if (i >= n) {
@@ -28,4 +27,4 @@ export function blur(@builtin("global_invocation_id") gid: vec3u) {
     v = min(v, 1.);
   }
   output[gid.x] = v;
-}
+});

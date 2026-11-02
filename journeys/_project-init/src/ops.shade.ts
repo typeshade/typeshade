@@ -5,5 +5,4 @@ export function twice(xs: array<f32>, out: array<f32>) {
 }
 
 // Shared diagnostics accept shader decorators; ordinary tsc is not the shader checker.
-@compute([1])
-export function empty(@builtin("global_invocation_id") id: vec3u) {}
+export const empty = compute([1], function empty(id: builtin<"global_invocation_id", vec3u>) {});

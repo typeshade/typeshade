@@ -16,11 +16,11 @@ import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
-const FRAGMENT = `class VsOut { @builtin("position") pos: vec4; @location(0) uv: vec2; }
-class Color { @location(0) color: vec4; }
-@vertex export function vs(@builtin("vertex_index") vi: u32): VsOut {
+const FRAGMENT = `interface VsOut { pos: builtin<"position", vec4>; uv: location<0, vec2>; }
+interface Color { color: location<0, vec4>; }
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
-}`;
+});`;
 
 function editor(source: string): string[] {
   const service = createTypeshadeLanguageService();
@@ -53,7 +53,7 @@ function runs(body: string, expected: number) {
   return out;
 }
 
-const Q = `class Q { a: f32; b: f32; ws: array<f32, 4>; }`;
+const Q = `class Q { a!: f32; b!: f32; ws!: array<f32, 4>; }`;
 
 /** The text of the WGSL function `name`. */
 const fnText = (wgsl: string, name: string): string => {
@@ -64,7 +64,7 @@ const fnText = (wgsl: string, name: string): string => {
 describe('item 1: a local that only reads a place reads the place', () => {
   it('a storage element copied in a loop is read field by field, its index read in place', () => {
     const { wgsl, glsl } = emit(
-      `class S { a: f32; b: f32; c: vec4f; }\nconst items = storage<array<S>>();`,
+      `class S { a!: f32; b!: f32; c!: vec4f; }\nconst items = storage<array<S>>();`,
       `export const fs = fragment(function fs(v: VsOut): Color {
   let acc = 0.;
   for (let i = 0; i < 4; i++) {
@@ -164,7 +164,7 @@ export const main = compute([64], function main(i: builtin<"local_invocation_ind
 });
 
 describe('item 2: a struct a call returns into a local is written there (WGSL)', () => {
-  const HIT = `class Hit { t: f32; n: vec3f; ok: bool; }
+  const HIT = `class Hit { t!: f32; n!: vec3f; ok!: bool; }
 function probe(k: f32): Hit { return { t: k * 2., n: vec3f(k), ok: k > 0. }; }`;
 
   it('a var initialized by the call, and an assignment of it, take the result through a pointer', () => {
@@ -190,7 +190,7 @@ function run(): f32 {
 
   it("a constructor builds the caller's local itself, through its returned local", () => {
     const { wgsl } = runs(
-      `class P { x: f32; y: f32; constructor(a: f32) { this.x = a; this.y = a * 3.; } }
+      `class P { x!: f32; y!: f32; constructor(a: f32) { this.x = a; this.y = a * 3.; } }
 function run(): f32 {
   let p = new P(2.);
   return p.x + p.y;
@@ -218,9 +218,9 @@ function run(): f32 {
 });
 
 describe('change 0105: fewer copies', () => {
-  const SHIP = `class Leg { len: f32; w: f32; }
+  const SHIP = `class Leg { len!: f32; w!: f32; }
 class Ship {
-  legs: array<Leg, 2>; k: f32;
+  legs!: array<Leg, 2>; k!: f32;
   constructor(k: f32) { this.legs = [{ len: k, w: 1. }, { len: k * 2., w: 2. }]; this.k = k; }
   leg(i: i32): f32 { return this.legs[i].len * this.k; }
   total(): f32 { return this.leg(0) + this.leg(1); }
@@ -276,7 +276,7 @@ export const main = compute([64], function main(g: builtin<"global_invocation_id
 
   it('item 2: a struct returned into a module variable is written there, unless the callee reads it', () => {
     const { wgsl } = runs(
-      `class Hit { t: f32; n: vec3f; }
+      `class Hit { t!: f32; n!: vec3f; }
 let last: Hit = { t: 0., n: vec3f(0.) };
 function probe(k: f32): Hit { return { t: k * 2., n: vec3f(k) }; }
 function again(k: f32): Hit { return { t: last.t + k, n: last.n }; }

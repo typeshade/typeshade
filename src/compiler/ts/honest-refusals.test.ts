@@ -750,7 +750,7 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
     ],
     [
       'var declaring a binding at the top level',
-      shader('class U {\n  k: f32;\n}\ndeclare var u: uniform<U>;\n', '  return u.k;'),
+      shader('class U {\n  k!: f32;\n}\ndeclare var u: uniform<U>;\n', '  return u.k;'),
       [TOP_VAR],
     ],
     [
@@ -1041,7 +1041,7 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
     [
       "a generic interface typing a class's field, and a read of it",
       shader(
-        'interface G<T> {\n  x: T;\n}\nclass H {\n  g: G<f32>;\n  k: f32;\n}\n' +
+        'interface G<T> {\n  x: T;\n}\nclass H {\n  g!: G<f32>;\n  k!: f32;\n}\n' +
           'function k(h: H): f32 {\n  return h.g.x + h.k;\n}\n',
         '  return a;',
       ),
@@ -1285,7 +1285,7 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
     [
       'a generic interface typing a field of a class a literal builds',
       shader(
-        `${G}class H {\n  g: G<f32>;\n  k: f32 = 1.;\n}\n`,
+        `${G}class H {\n  g!: G<f32>;\n  k: f32 = 1.;\n}\n`,
         '  const h: H = { g: { x: a }, k: 1. };\n  return h.k + h.g.x;',
       ),
       [GENERIC('interface', 'x: T')],
@@ -1293,7 +1293,7 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
     [
       'a generic interface typing the one field of a class a literal builds',
       shader(
-        `${G}class H {\n  g: G<f32>;\n}\n`,
+        `${G}class H {\n  g!: G<f32>;\n}\n`,
         '  const h: H = { g: { x: a } };\n  return h.g.x;',
       ),
       [GENERIC('interface', 'x: T')],
@@ -1308,7 +1308,7 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
     ],
     [
       'a generic interface typing an entry output field',
-      `"use typeshade";\n${G}class VO {\n  @builtin("position") pos: vec4;\n  @location(0) g: G<f32>;\n}\n` +
+      `"use typeshade";\n${G}class VO {\n  pos!: builtin<"position", vec4>;\n  g!: location<0, G<f32>>;\n}\n` +
         'export const vs = vertex(function vs(): VO {\n' +
         '  return { pos: vec4(0.), g: { x: 1. } };\n' +
         '});\n' +
@@ -1360,7 +1360,7 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
     [
       "a generic interface typing a constructor's parameter, and a new of it",
       shader(
-        `${G}class C {\n  k: f32;\n  constructor(g: G<f32>) {\n    this.k = g.x;\n  }\n}\n`,
+        `${G}class C {\n  k!: f32;\n  constructor(g: G<f32>) {\n    this.k = g.x;\n  }\n}\n`,
         '  const c = new C({ x: a });\n  return c.k;',
       ),
       [GENERIC('interface', 'x: T')],
@@ -1376,7 +1376,7 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
     [
       'a generic interface a generic class holds, and a new of it',
       shader(
-        `${G}class B<T> {\n  g: G<T>;\n  constructor(g: G<T>) {\n    this.g = g;\n  }\n}\n`,
+        `${G}class B<T> {\n  g!: G<T>;\n  constructor(g: G<T>) {\n    this.g = g;\n  }\n}\n`,
         '  const b = new B<f32>({ x: a });\n  return b.g.x;',
       ),
       [GENERIC('interface', 'x: T')],
@@ -1467,7 +1467,7 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
   it('the class a generic interface names compiles', () => {
     const r = compile(
       shader(
-        'class G<T> {\n  x: T;\n}\nfunction k(g: G<f32>): f32 {\n  return g.x;\n}\n',
+        'class G<T> {\n  x!: T;\n}\nfunction k(g: G<f32>): f32 {\n  return g.x;\n}\n',
         '  const g: G<f32> = { x: a };\n  return k(g);',
       ),
     );

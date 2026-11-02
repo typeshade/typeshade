@@ -18,17 +18,17 @@ import { autoVars } from '../../core/passes/opt/index.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const BIG = `class Big {
-  a: vec4f; b: vec4f; xs: array<vec4f, 4>;
+  a!: vec4f; b!: vec4f; xs!: array<vec4f, 4>;
   pick(i: i32): f32 { return this.xs[i].x + this.a.x; }
   twice(i: i32): f32 { return this.pick(i) * 2.; }
   bump(k: f32): void { this.a = this.a + vec4f(k); }
 }`;
 
-const FRAGMENT = `class VsOut { @builtin("position") pos: vec4; @location(0) uv: vec2; }
-class Color { @location(0) color: vec4; }
-@vertex export function vs(@builtin("vertex_index") vi: u32): VsOut {
+const FRAGMENT = `interface VsOut { pos: builtin<"position", vec4>; uv: location<0, vec2>; }
+class Color { color!: location<0, vec4>; }
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
-}`;
+});`;
 
 /** The editor's diagnostics on `source`, as `code message`. */
 function editor(source: string): string[] {
@@ -52,7 +52,7 @@ function emit(body: string) {
 /** `emit`, and hold every CPU path's `run()` to `expected`. */
 function runs(body: string, expected: number) {
   const out = emit(
-    `${body}\n@fragment export function fs(v: VsOut): Color { return { color: vec4(run(), 0., 0., 1.) }; }`,
+    `${body}\nexport const fs = fragment(function fs(v: VsOut): Color { return { color: vec4(run(), 0., 0., 1.) }; });`,
   );
   for (const precision of ['f64', 'f32'] as const) {
     expect(compileModule(out.module, { precision }).fns.run!()).toBe(expected);
@@ -141,7 +141,7 @@ export const fs = fragment(function fs(v: VsOut): Color {
 
   it('a struct argument of a plain function is handed by pointer', () => {
     const { wgsl } = runs(
-      `class Rect { w: f32; h: f32; }
+      `class Rect { w!: f32; h!: f32; }
 function area(r: Rect): f32 { return r.w * r.h; }
 function run(): f32 {
   let r: Rect = { w: 3., h: 4. };
@@ -174,7 +174,7 @@ function run(): f32 {
   it('a callee that writes the place by its name reads the copy taken at the call', () => {
     const { wgsl, glsl } = runs(
       `class Cell {
-  a: f32;
+  a!: f32;
   peek(): f32 { G.a = 9.; return this.a; }
 }
 let G: Cell;

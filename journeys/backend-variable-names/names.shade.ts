@@ -15,9 +15,8 @@ function remap(filter: f32): f32 {
   return shared + target_ + target_1;
 }
 
-@compute([64])
-export function main(@builtin("global_invocation_id") gid: vec3u): void {
+export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= xs.length) { return; }
   const as = xs[gid.x];
   out[gid.x] = remap(as) + as;
-}
+});

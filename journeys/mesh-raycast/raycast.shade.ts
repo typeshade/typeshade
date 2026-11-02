@@ -5,8 +5,8 @@
 // first (Rule 7.5, #209). Nothing here is annotated to please the compiler.
 
 class Ray {
-  origin: vec4;
-  dir: vec4;
+  origin!: vec4;
+  dir!: vec4;
 }
 
 declare const verts: storage<array<vec4>>;
@@ -35,8 +35,7 @@ function intersect(o: vec3, d: vec3, a: vec3, b: vec3, c: vec3): f32 {
   return dot(e2, q) * inv;
 }
 
-@compute([64])
-export function trace(@builtin("global_invocation_id") gid: vec3u) {
+export const trace = compute([64], function trace(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x >= rays.length) {
     return;
   }
@@ -50,4 +49,4 @@ export function trace(@builtin("global_invocation_id") gid: vec3u) {
     }
   }
   hits[gid.x] = nearest < 1e30 ? nearest : -1;
-}
+});

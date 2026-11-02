@@ -4,16 +4,15 @@
 // with no fragment entry into a depth texture, which the ground reads back by comparison.
 
 class LightView {
-  viewProj: mat4;
+  viewProj!: mat4;
 }
 
 declare const light: uniform<LightView>;
 
-class VsIn {
-  @location(0) position: vec3;
+interface VsIn {
+  position: location<0, vec3>;
 }
 
-@vertex
-export function vs(v: VsIn): vec4 {
+export const vs = vertex(function vs(v: VsIn): vec4 {
   return light.viewProj * vec4(v.position, 1.);
-}
+});

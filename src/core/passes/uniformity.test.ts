@@ -28,6 +28,7 @@ import { compileTsSource } from '../../compiler/ts/source-file.js';
 import { TS_CODES } from '../../compiler/ts/codes.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { uniformityViolations } from './uniformity.js';
+import { withoutDecoratedForm } from '../testing/decorated-form.js';
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
 import { boolT, f32T, u32T, vec2fT, vec3uT, vec4fT, voidT } from '../ir/types.js';
 
@@ -54,7 +55,11 @@ ${body}
 const editorSays = (source: string): string[] => {
   const service = createTypeshadeLanguageService();
   service.openDocument('a.shade.ts', `"use typeshade"\n${source}`);
-  return service.getDiagnostics('a.shade.ts').map((d) => `${String(d.code)} ${d.message}`);
+  // The decorated form is this file's on purpose (`@diagnostic` beside a stage decorator), and
+  // its TS8028 warnings are asserted once, below; every other row is compared whole.
+  return withoutDecoratedForm(service.getDiagnostics('a.shade.ts')).map(
+    (d) => `${String(d.code)} ${d.message}`,
+  );
 };
 
 const errorsOf = (source: string) => {

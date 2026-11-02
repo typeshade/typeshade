@@ -5,9 +5,9 @@
 // `some` and `every` for "any" and "all", and no loop spelled out.
 
 class Light {
-  pos: vec2;
-  radius: f32;
-  power: f32;
+  pos!: vec2;
+  radius!: f32;
+  power!: f32;
 }
 
 declare const lights: storage<array<Light>>;
@@ -18,8 +18,7 @@ function glowAt(q: vec2) {
   return lights.reduce((sum, l) => sum + l.power / (1. + 16. * dot(l.pos - q, l.pos - q)), 0.);
 }
 
-@compute([64])
-export function shade(@builtin("global_invocation_id") gid: vec3u) {
+export const shade = compute([64], function shade(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x * 3 >= out.length) {
     return;
   }
@@ -30,4 +29,4 @@ export function shade(@builtin("global_invocation_id") gid: vec3u) {
   out[gid.x * 3] = samples.reduce((a, s) => a + s, 0.) / 4.;
   out[gid.x * 3 + 1] = lights.some((l) => distance(l.pos, p) < l.radius) ? 1. : 0.;
   out[gid.x * 3 + 2] = lights.every((l) => distance(l.pos, p) > 2. * l.radius) ? 1. : 0.;
-}
+});
