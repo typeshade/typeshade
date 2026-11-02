@@ -78,6 +78,15 @@ export function f(): P { return new P(); }
     expect(result.text).toContain('class P { uv!: location<0, vec2>; }');
   });
 
+  it('gives the fields of a mixin\'s class expression "!"', () => {
+    const result = migrateSource(`"use typeshade";
+function Tinted<T extends new (...a: any[]) => object>(Base: T) {
+  return class extends Base { tint: vec3; };
+}
+`);
+    expect(result.text).toContain('return class extends Base { tint!: vec3; };');
+  });
+
   it('names a form it leaves as written', () => {
     const result = migrateSource(`"use typeshade";
 @diagnostic("off", "derivative_uniformity")

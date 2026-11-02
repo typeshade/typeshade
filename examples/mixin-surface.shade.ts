@@ -34,7 +34,7 @@ class Bar {
 /** Everything a shape needs to be drawn, added to whatever geometry it already has. */
 function Tinted<TBase extends AnyClass>(Base: TBase) {
   return class extends Base {
-    tint: vec3;
+    tint!: vec3;
     /** The colour this surface shows at a coverage between 0 and 1. */
     lit(cover: f32): vec3 {
       return this.tint * smoothstep(0., 1., cover);
