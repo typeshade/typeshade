@@ -252,31 +252,29 @@ describe('a wrong shape still reports when the call also does arithmetic (issue 
     // that does not link.
     keepsReporting(
       '"use typeshade"\n' +
-        'class VsOut {\n' +
-        '  @builtin("position") pos: vec4\n' +
-        '  @location(0) uv: vec2\n' +
+        'interface VsOut {\n' +
+        '  pos: builtin<"position", vec4>\n' +
+        '  uv: location<0, vec2>\n' +
         '}\n' +
-        '@fragment\n' +
-        'export function fs(vo: VsOut): vec4 {\n' +
+        'export const fs = fragment(function fs(vo: VsOut): vec4 {\n' +
         '  const c: vec3 = vec3(1., 0., 0.)\n' +
         '  return vec4(mix(c * 0.5, vo.uv, 0.5), 1.)\n' +
-        '}\n',
+        '});\n',
     );
   });
 
   it('the same fragment with two vec3 is clean, so the guard is about the shape', () => {
     const source =
       '"use typeshade"\n' +
-      'class VsOut {\n' +
-      '  @builtin("position") pos: vec4\n' +
-      '  @location(0) uv: vec2\n' +
+      'interface VsOut {\n' +
+      '  pos: builtin<"position", vec4>\n' +
+      '  uv: location<0, vec2>\n' +
       '}\n' +
-      '@fragment\n' +
-      'export function fs(vo: VsOut): vec4 {\n' +
+      'export const fs = fragment(function fs(vo: VsOut): vec4 {\n' +
       '  const c: vec3 = vec3(1., 0., 0.)\n' +
       '  const d: vec3 = vec3(0., 1., 0.)\n' +
       '  return vec4(mix(c * 0.5, d, 0.5), 1.)\n' +
-      '}\n';
+      '});\n';
     expect(diagnosticsOf(source).map((d) => `${d.source} ${d.code}: ${d.message}`)).toEqual([]);
   });
 });
@@ -1189,10 +1187,9 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
     'declare const src: storage<array<f32>>\n' +
     'let tile: workgroup<array<f32, 64>>\n' +
     'let calls: u32\n' +
-    '@compute([64, 1, 1])\n' +
-    'export function k(@builtin("local_invocation_id") lid: vec3u): void {\n' +
+    'export const k = compute([64, 1, 1], function k(lid: builtin<"local_invocation_id", vec3u>): void {\n' +
     '  tile[lid.x] = src[lid.x] + f32(calls)\n' +
-    '}\n';
+    '});\n';
 
   /** What the service reports for `source` when TypeScript also reports TS2454, as 5.7 and
    *  later do, on every read of `names` inside the entry point. */
@@ -1201,7 +1198,7 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
     host.openDocument(URI, source);
     const service = ts.createLanguageService(host, ts.createDocumentRegistry());
     const sourceFile = service.getProgram()!.getSourceFile(URI)!;
-    const body = sourceFile.text.indexOf('export function k');
+    const body = sourceFile.text.indexOf('export const k');
     const added: ts.Diagnostic[] = names.flatMap((name) =>
       [...sourceFile.text.slice(body).matchAll(new RegExp(`\\b${name}\\b`, 'g'))].map((match) => ({
         file: sourceFile,
@@ -1238,14 +1235,13 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
     // as an assignment to `acc`.
     const source =
       '"use typeshade"\n' +
-      'class Acc { total: f32; count: u32 }\n' +
+      'class Acc { total!: f32; count!: u32 }\n' +
       'let calls: u32\n' +
       'let acc: Acc\n' +
-      '@fragment\n' +
-      'export function k(@location(0) uv: vec2): vec4 {\n' +
+      'export const k = fragment(function k(uv: location<0, vec2>): vec4 {\n' +
       '  acc.total = uv.x\n' +
       '  return vec4(acc.total, f32(acc.count + calls), 0., 1.)\n' +
-      '}\n';
+      '});\n';
     expect(compiled(source)).toEqual([]);
     const glsl = compile(source).glsl!.fragment;
     expect(glsl).toContain('uint calls = 0u;');
@@ -1260,12 +1256,11 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
       '"use typeshade"\n' +
       'declare const dst: storage<array<f32>, "read_write">\n' +
       'let tile: workgroup<array<f32, 64>>\n' +
-      '@compute([64, 1, 1])\n' +
-      'export function k(@builtin("local_invocation_id") lid: vec3u): void {\n' +
+      'export const k = compute([64, 1, 1], function k(lid: builtin<"local_invocation_id", vec3u>): void {\n' +
       '  tile[lid.x] = 1.\n' +
       '  let x: f32\n' +
       '  dst[lid.x] = x + tile[lid.x]\n' +
-      '}\n';
+      '});\n';
     const said =
       'TS8075 "x" is read here before it is assigned on every path. Assign it before this ' +
       'read, or declare it with a value (Rule 7.6).';
@@ -1281,11 +1276,10 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
       '"use typeshade"\n' +
       'declare const dst: storage<array<f32>, "read_write">\n' +
       'let tile: workgroup<array<f32, 64>>\n' +
-      '@compute([64, 1, 1])\n' +
-      'export function k(@builtin("local_invocation_id") lid: vec3u): void {\n' +
+      'export const k = compute([64, 1, 1], function k(lid: builtin<"local_invocation_id", vec3u>): void {\n' +
       '  let tile: f32\n' +
       '  dst[lid.x] = tile\n' +
-      '}\n';
+      '});\n';
     expect(compiled(source)).toEqual([
       'TS8075 "tile" is read here before it is assigned on every path. Assign it before this ' +
         'read, or declare it with a value (Rule 7.6).',
@@ -1300,10 +1294,9 @@ describe('an override-sized workgroup array draws no TS2749', () => {
       '"use typeshade"\n' +
       'const WG_SIZE: override<u32> = 64;\n' +
       'let tile: workgroup<array<f32, WG_SIZE>>;\n' +
-      '@compute([WG_SIZE])\n' +
-      'export function k(@builtin("local_invocation_id") lid: vec3u): void {\n' +
+      'export const k = compute([WG_SIZE], function k(lid: builtin<"local_invocation_id", vec3u>): void {\n' +
       '  tile[lid.x] = 1.;\n' +
-      '}\n';
+      '});\n';
 
     expect(compile(source).diagnostics).toEqual([]);
     expect(typeScriptDiagnosticsOf(source)).toEqual([]);

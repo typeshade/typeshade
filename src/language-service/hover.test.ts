@@ -92,14 +92,13 @@ describe('getHover: resource bindings (from the cached front-end analysis, §8)'
   const source =
     '"use typeshade";\n' +
     'class Camera {\n' +
-    '  position: vec4\n' +
+    '  position!: vec4\n' +
     '}\n' +
     'declare const camera: uniform<Camera>\n' +
-    '@fragment\n' +
-    'export function fs(): vec4 {\n' +
+    'export const fs = fragment(function fs(): vec4 {\n' +
     '  const local = camera\n' +
     '  return camera.position\n' +
-    '}\n';
+    '});\n';
 
   it('adds the address space and @group/@binding slot under the quick info of a binding', () => {
     const service = createTypeshadeLanguageService();
@@ -317,10 +316,9 @@ describe('getHover: a resource binding, and where its access mode shows', () => 
     '"use typeshade";',
     'declare const ro: storage<array<f32>>',
     'declare const rw: storage<array<f32>, "read_write">',
-    '@compute([64, 1, 1])',
-    'export function cs(@builtin("global_invocation_id") gid: vec3u): void {',
+    'export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {',
     '  rw[gid.x] = ro[gid.x];',
-    '}',
+    '});',
   ].join('\n');
 
   function hoverAt(offset: number): string | undefined {
@@ -426,12 +424,11 @@ describe('getHover: a module variable says let, the keyword it is declared with'
     'declare const out: storage<array<u32>, "read_write">;',
     'let hits: u32;',
     'let tile: workgroup<array<u32, 64>>;',
-    '@compute([64, 1, 1])',
-    'export function cs(@builtin("local_invocation_id") lid: vec3u): void {',
+    'export const cs = compute([64, 1, 1], function cs(lid: builtin<"local_invocation_id", vec3u>): void {',
     '  hits += 1;',
     '  tile[lid.x] = hits;',
     '  out[lid.x] = tile[lid.x];',
-    '}',
+    '});',
   ].join('\n');
 
   function hoverAt(offset: number): string | undefined {
@@ -467,11 +464,10 @@ describe("getHover: an array's length is the type the compiler reads", () => {
     'declare const src: storage<array<f32>>;',
     'declare const dst: storage<array<f32>, "read_write">;',
     'declare const four: storage<array<f32, 4>>;',
-    '@compute([64, 1, 1])',
-    'export function cs(@builtin("global_invocation_id") gid: vec3u): void {',
+    'export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {',
     '  const xs: array<f32, 3> = [1., 2., 3.];',
     '  dst[gid.x] = f32(src.length) + f32(dst.length) + f32(four.length) + f32(xs.length);',
-    '}',
+    '});',
   ].join('\n');
 
   function lengthHoverAfter(receiver: string): string | undefined {
@@ -497,10 +493,9 @@ describe("getHover: an array's length is the type the compiler reads", () => {
       '"use typeshade";',
       'declare const src: storage<array<f32>>;',
       'declare const dst: storage<array<f32>, "read_write">;',
-      '@compute([64, 1, 1])',
-      'export function cs(): void {',
+      'export const cs = compute([64, 1, 1], function cs(): void {',
       '  dst[0] = src.length * 0.5;',
-      '}',
+      '});',
     ].join('\n');
     service.openDocument('m.ts', program);
     const at = program.indexOf('src.length') + 5;
@@ -810,8 +805,8 @@ describe('getHover: class members (#86 step 3)', () => {
   // would say so here rather than in a screenshot.
   const source = `"use typeshade";
 class Ray {
-  origin: vec3;
-  dir: vec3;
+  origin!: vec3;
+  dir!: vec3;
   constructor(origin: vec3, dir: vec3) {
     this.origin = origin;
     this.dir = dir;
@@ -826,12 +821,11 @@ class Ray {
     return vec3(0., 1., 0.);
   }
 }
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let r = new Ray(vec3(uv, 0.), vec3(0., 0., 1.));
   r.advance(1.);
   return vec4(r.at(2.) + Ray.up(), 1.);
-}
+});
 `;
   const service = createTypeshadeLanguageService();
   service.openDocument('m.ts', source);

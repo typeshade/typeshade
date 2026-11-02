@@ -46,10 +46,9 @@ const compilerRefusal = (source: string): string | null => {
 
 const FS = (decl: string, body: string): string => `"use typeshade"
 ${decl}
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
 ${body}
-}
+});
 `;
 
 /** A helper with one optional parameter `v`, called from the fragment entry (change 0088). */
@@ -495,7 +494,7 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
   ],
   [
     "optional: an entry point's parameter",
-    `"use typeshade"\n@fragment\nexport function fs(@location(0) uv: vec2, @location(1) w: f32 | undefined): vec4 {\n  return vec4(uv, 0., 1.)\n}\n`,
+    `"use typeshade"\n@fragment\nexport function fs(uv: location<0, vec2>, w: location<1, f32 | undefined>): vec4 {\n  return vec4(uv, 0., 1.)\n}\n`,
     'refuse',
   ],
   [

@@ -90,20 +90,19 @@ describe('a misspelled name gets every suggestion TypeScript would give, from th
   /** A program that writes each kind of name, correctly; the sweep breaks one use at a time. */
   const PROGRAM = `"use typeshade";
 class Frame {
-  time: f32;
-  scale: f32;
+  time!: f32;
+  scale!: f32;
 }
 declare const frame: uniform<Frame>;
 const GAMMA = 2.2;
 function shade(albedo: vec3, light: f32): vec3 {
   return albedo * light;
 }
-@fragment
-export function fs(@location(0) normal: vec3): vec4 {
+export const fs = fragment(function fs(normal: location<0, vec3>): vec4 {
   const brightness = clamp(frame.time * frame.scale, 0., 1.);
   const tone = pow(shade(normalize(normal), brightness), vec3(1. / GAMMA));
   return vec4(tone, 1.);
-}
+});
 `;
   /** Each name the program writes, at each place it writes it. */
   const NAMES = [
