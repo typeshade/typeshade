@@ -7,7 +7,7 @@
 // says it.
 
 class Random {
-  seed: u32;
+  seed!: u32;
 
   constructor(seed: u32) {
     this.seed = seed;
@@ -37,15 +37,14 @@ class Walker {
 }
 
 class Params {
-  stride: f32;
-  bias: f32;
+  stride!: f32;
+  bias!: f32;
 }
 
 declare const params: uniform<Params>;
 declare const out: storage<array<f32>, "read_write">;
 
-@compute([64])
-export function walk(@builtin("global_invocation_id") gid: vec3u) {
+export const walk = compute([64], function walk(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x * 3 >= out.length) {
     return;
   }
@@ -59,4 +58,4 @@ export function walk(@builtin("global_invocation_id") gid: vec3u) {
   out[gid.x * 3] = w.x;
   out[gid.x * 3 + 1] = w.y;
   out[gid.x * 3 + 2] = w.dist;
-}
+});

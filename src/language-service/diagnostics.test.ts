@@ -560,7 +560,7 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'typeshade TS8005',
     ],
     'a write to a readonly field (TS2540)': [
-      'class S {\n  readonly a: f32\n}\nexport function f(s: S): f32 {\n  let t = s\n  t.a = 1.\n  return t.a\n}',
+      'class S {\n  readonly a!: f32\n}\nexport function f(s: S): f32 {\n  let t = s\n  t.a = 1.\n  return t.a\n}',
       'typeshade TS8005',
     ],
     'one argument short (TS2554)': [
@@ -656,7 +656,7 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'typeshade TS8022',
     ],
     'a field the struct does not declare (TS2339)': [
-      'class S {\n  a: f32\n}\nexport function f(s: S): f32 {\n  return s.b\n}',
+      'class S {\n  a!: f32\n}\nexport function f(s: S): f32 {\n  return s.b\n}',
       'typeshade TS8022',
     ],
     // The compiler reports a return of the wrong type on the `return`, where TypeScript does.
@@ -732,7 +732,7 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'typeshade TS8004',
     ],
     'a value from an unknown field, through an operation (TS2322)': [
-      '"use typeshade"\nclass Frame {\n  time: f32\n}\ndeclare const frame: uniform<Frame>\nexport function f(): vec3 {\n  const t = frame.tiem * 2.\n  const u: vec3 = t\n  return u\n}',
+      '"use typeshade"\nclass Frame {\n  time!: f32\n}\ndeclare const frame: uniform<Frame>\nexport function f(): vec3 {\n  const t = frame.tiem * 2.\n  const u: vec3 = t\n  return u\n}',
       'typeshade TS8022',
     ],
     'a value from a call one argument short, through an operation (TS2345)': [
@@ -762,7 +762,7 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'typeshade TS8022',
     ],
     'a method (TS2339)': [
-      '"use typeshade"\nclass P {\n  x: f32;\n  len(): f32 {\n    return this.x;\n  }\n}\nexport function f(p: P): f32 {\n  return p.lne();\n}',
+      '"use typeshade"\nclass P {\n  x!: f32;\n  len(): f32 {\n    return this.x;\n  }\n}\nexport function f(p: P): f32 {\n  return p.lne();\n}',
       'typeshade TS8035',
     ],
     'a name read above its declaration (TS2448)': [
@@ -870,7 +870,7 @@ describe("the editor shows the compiler's one diagnostic, at its span (both halv
       'TS8004 Unknown function "lerp". HLSL\'s lerp is mix here. @lerp',
     ],
     'a value from an unknown field, into a declared local': [
-      '"use typeshade"\nclass Frame {\n  time: f32\n}\ndeclare const frame: uniform<Frame>\nexport function f(): vec3 {\n  const t = frame.tiem * 2.\n  const u: vec3 = t\n  return u\n}\n',
+      '"use typeshade"\nclass Frame {\n  time!: f32\n}\ndeclare const frame: uniform<Frame>\nexport function f(): vec3 {\n  const t = frame.tiem * 2.\n  const u: vec3 = t\n  return u\n}\n',
       'TS8022 Unknown field "tiem" on Frame. Did you mean "time"? @tiem',
     ],
     'a value from a call one argument short': [
@@ -946,13 +946,13 @@ describe("a GLSL or HLSL name in a construct the compiler refused is the compile
     },
     'a built-in value read': {
       written: 'gl_FragCoord',
-      twin: '@fragment\nexport function f(): vec4 {\n  return vec4(gl_FragCoord.x);\n}\n',
+      twin: 'export const f = fragment(function f(): vec4 {\n  return vec4(gl_FragCoord.x);\n});\n',
       expression: 'gl_FragCoord.x',
       statement: 'const v = gl_FragCoord.x;',
     },
     'a built-in value written': {
       written: 'gl_Position',
-      twin: '@vertex\nexport function f(): vec4 {\n  gl_Position = vec4(0.);\n  return vec4(0.);\n}\n',
+      twin: 'export const f = vertex(function f(): vec4 {\n  gl_Position = vec4(0.);\n  return vec4(0.);\n});\n',
       statement: 'gl_Position = vec4(0.);',
     },
     'an address space': {

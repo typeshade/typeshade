@@ -90,15 +90,20 @@ export const fs = fragment(function fs(): vec4 { return vec4(0.); });
     expect(result.text).toContain(
       'class Unused { p!: builtin<"position", vec4>; uv!: location<0, vec2>; }',
     );
-    const sig = (r: ReturnType<typeof compile>) =>
-      JSON.stringify([r.wgsl, r.glsl, r.diagnostics.map((d) => [d.code, d.message])]);
+    // The decorated source's TS8028 warnings, one per decorator, are what the rewrite removes.
+    const kept = (r: ReturnType<typeof compile>) =>
+      r.diagnostics
+        .filter((d) => !(d.code === 'TS8028' && d.category === 'warning'))
+        .map((d) => [d.code, d.message]);
+    const sig = (r: ReturnType<typeof compile>) => JSON.stringify([r.wgsl, r.glsl, kept(r)]);
+    expect(compile(result.text).diagnostics).toEqual([]);
     expect(compile(result.text).wgsl).toContain('struct Unused');
     expect(sig(compile(result.text))).toBe(sig(compile(source)));
     const refused = `"use typeshade";
 class Unused { @builtin("position") p: vec4; @builtin("clip_distances") cd: f32; }
 export const fs = fragment(function fs(): vec4 { return vec4(0.); });
 `;
-    const codes = (text: string) => compile(text).diagnostics.map((d) => [d.code, d.message]);
+    const codes = (text: string) => kept(compile(text));
     expect(codes(migrateSource(refused).text)).toEqual(codes(refused));
     expect(codes(refused).some(([code]) => code === 'TS8003')).toBe(true);
   });

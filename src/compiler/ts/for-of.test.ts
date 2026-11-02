@@ -58,8 +58,8 @@ export const sum = compute([64], function sum(gid: builtin<"global_invocation_id
 
   it('iterates a sized local array and an array of structs in a uniform', () => {
     const src = `"use typeshade";
-class Light { pos: vec3; power: f32; }
-class Scene { lights: array<Light, 2>; }
+class Light { pos!: vec3; power!: f32; }
+class Scene { lights!: array<Light, 2>; }
 declare const scene: uniform<Scene>;
 export function total(): f32 {
   const ws: array<f32, 3> = [1, 2, 3];
@@ -186,7 +186,7 @@ export function f(): f32 { let s = 0; for (const x of make()) { s += x; } return
   it('a destructuring or `var` declaration, and `for-in`', () => {
     const inFor = (head: string): string[] =>
       errorsOf(`"use typeshade";
-class P { a: f32; b: f32; }
+class P { a!: f32; b!: f32; }
 export function f(): f32 {
   const ps: array<P, 1> = [{ a: 1, b: 2 }];
   const xs: array<f32, 1> = [1];

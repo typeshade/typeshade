@@ -338,24 +338,25 @@ export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_
     // No branch surrounds either barrier, so "move it out of the branch" pointed at nothing
     // the author could find (Rule 12.1). Each remedy named compiles on Tint: the barrier above
     // the `if (…) { return; }`, and a loop bound every invocation shares.
-    const lid = `${HEAD}@compute([64, 1, 1])
-export function k(@builtin("local_invocation_id") lid: vec3u): void {
+    const lid = `${HEAD}export const k = compute([64, 1, 1], function k(lid: builtin<"local_invocation_id", vec3u>): void {
 `;
-    expect(errorsInBoth(`${lid}  if (lid.x > 2) { return; }\n  workgroupBarrier();\n}\n`)).toEqual([
+    expect(
+      errorsInBoth(`${lid}  if (lid.x > 2) { return; }\n  workgroupBarrier();\n});\n`),
+    ).toEqual([
       `${TS_CODES.UNIFORMITY} workgroupBarrier() is reached after a return taken under "lid" (@builtin(local_invocation_id)), and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it above the return, or return on a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).`,
     ]);
-    expect(errorsInBoth(`${lid}  workgroupBarrier();\n  if (lid.x > 2) { return; }\n}\n`)).toEqual(
-      [],
-    );
+    expect(
+      errorsInBoth(`${lid}  workgroupBarrier();\n  if (lid.x > 2) { return; }\n});\n`),
+    ).toEqual([]);
     const inLoop = `${TS_CODES.UNIFORMITY} workgroupBarrier() is reached in a loop whose condition reads "lid" (@builtin(local_invocation_id)), and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it out of the loop, or bound the loop by a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).`;
     expect(
       errorsInBoth(
-        `${lid}  let i: u32 = lid.x;\n  while (i < 8) {\n    workgroupBarrier();\n    i++;\n  }\n}\n`,
+        `${lid}  let i: u32 = lid.x;\n  while (i < 8) {\n    workgroupBarrier();\n    i++;\n  }\n});\n`,
       ),
     ).toEqual([inLoop]);
     expect(
       errorsInBoth(
-        `${lid}  for (let i: u32 = 0; i < lid.x; i++) {\n    workgroupBarrier();\n  }\n}\n`,
+        `${lid}  for (let i: u32 = 0; i < lid.x; i++) {\n    workgroupBarrier();\n  }\n});\n`,
       ),
     ).toEqual([inLoop]);
   });
@@ -744,7 +745,7 @@ ${body}
       'in an arm of a struct ?: on it',
       load(
         '  const z = new P2(0, 0);\n  const a = lid.x > 2 ? workgroupUniformLoad(ps) : z;\n  o[lid.x] = a.x;',
-        'class P2 {\n  x: u32;\n  y: u32;\n  constructor(x: u32, y: u32) {\n    this.x = x;\n    this.y = y;\n  }\n}\nlet ps: workgroup<P2>;\n',
+        'class P2 {\n  x!: u32;\n  y!: u32;\n  constructor(x: u32, y: u32) {\n    this.x = x;\n    this.y = y;\n  }\n}\nlet ps: workgroup<P2>;\n',
       ),
       refusal(
         `in an arm of a ?: whose condition reads ${LID}`,

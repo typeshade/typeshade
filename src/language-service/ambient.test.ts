@@ -594,7 +594,7 @@ describe('vector-with-scalar math shapes: exactly the ones both backends accept'
     it('a swizzle pair from a uniform struct with a uniform-driven t', () => {
       expect(
         diagnosticsOf(
-          'class U {\n  top: vec4\n  bottom: vec4\n  mix_bias: f32\n}\n' +
+          'class U {\n  top!: vec4\n  bottom!: vec4\n  mix_bias!: f32\n}\n' +
             'declare const u: uniform<U>\n' +
             'export function f(uv: vec2): vec4 {\n' +
             '  const t = uv.y + u.mix_bias\n' +
@@ -701,7 +701,7 @@ describe('the ambient texture declarations match what the compiler lowers', () =
     return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`);
   };
   const FS = (decls: string, body: string): string =>
-    `${decls}\n@fragment\nexport function fs(): vec4 {\n${body}\n}`;
+    `${decls}\nexport const fs = fragment(function fs(): vec4 {\n${body}\n});`;
 
   it('accepts an unsigned coordinate on textureLoad and textureStore', () => {
     // WGSL's texel coordinate is "i32, or u32" (wgsl.txt:24129) and Tint accepts the unsigned

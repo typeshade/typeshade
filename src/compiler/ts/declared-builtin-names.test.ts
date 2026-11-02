@@ -471,7 +471,7 @@ export function f(x: f32): f32 {
     [
       'a method of the name, which the call of a method never reaches',
       `"use typeshade";
-class V { v: f32; min(o: f32): f32 { return this.v - o; } }
+class V { v!: f32; min(o: f32): f32 { return this.v - o; } }
 function min(a: f32, b: f32): f32 { return a + b; }
 export function f(x: f32): f32 { const v: V = { v: x }; return v.min(1.) + min(x, 2.) + Math.min(x, 1.); }
 `,

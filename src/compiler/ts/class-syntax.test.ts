@@ -35,9 +35,9 @@ import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
 
-const TAIL = `\n@fragment\nexport function fs(): vec4 { return vec4(1.) }\n`;
+const TAIL = `\nexport const fs = fragment(function fs(): vec4 { return vec4(1.) })\n`;
 /** A tail whose entry calls `run`: the GLSL writer emits only what an entry reaches. */
-const RUN_TAIL = `\n@fragment\nexport function fs(): vec4 { return vec4(run(), 0., 0., 1.) }\n`;
+const RUN_TAIL = `\nexport const fs = fragment(function fs(): vec4 { return vec4(run(), 0., 0., 1.) })\n`;
 
 const errorsOf = (src: string): string[] =>
   compile(src)
@@ -362,7 +362,7 @@ export function run(c: C): f32 { return c.#x }${TAIL}`),
     expect(
       only(`"use typeshade"
 class C { #x: f32 = 1. }
-class D { y: f32; read(c: C): f32 { return c.#x } }${TAIL}`),
+class D { y!: f32; read(c: C): f32 { return c.#x } }${TAIL}`),
     ).toBe(
       `${M} "#x" is private to "C", and this code is outside its class body. Reach it through a member "C" declares without the "#".`,
     );
@@ -403,7 +403,7 @@ class Derived extends Base { #v: f32 = 2.; get dv(): f32 { return this.#v } }${T
     );
     expect(
       only(`"use typeshade"
-class Base { x: f32; #h(): f32 { return 1. } run(): f32 { return this.#h() } }
+class Base { x!: f32; #h(): f32 { return 1. } run(): f32 { return this.#h() } }
 class Derived extends Base { h(): f32 { return 2. } }${TAIL}`),
     ).toBe(
       `${M} "Derived.h" and "Base.#h" would both be the function "Derived_h": a private name is emitted without its "#". Rename one of them.`,
@@ -449,7 +449,7 @@ class Stats {
   static hits = 0.
   static readonly WEIGHT = 0.5
   static made = 0.
-  v: f32
+  v!: f32
   constructor(v: f32) { this.v = v; Stats.made++ }
   static record(v: f32): void { this.hits += v * this.WEIGHT }
   static total(): f32 { return this.hits + this.made }
@@ -476,7 +476,7 @@ export function run(): f32 {
   it('a write to a readonly static, and new on this outside a static member, are refused', () => {
     expect(
       only(`"use typeshade"
-class C { static readonly K = 3.; x: f32 }
+class C { static readonly K = 3.; x!: f32 }
 export function run(): f32 { C.K = 4.; return C.K }${TAIL}`),
     ).toBe(`${TS_CODES.CONST_ASSIGN} Cannot assign to "C.K" — it is static readonly.`);
     // `new this()` builds the class in a static member; in a method `this` is the object.
@@ -516,7 +516,7 @@ export function run(): f32 {
 
   it('a field written without a type takes the one its initializer names', () => {
     const src = `"use typeshade"
-class P { x: f32; y: f32 }
+class P { x!: f32; y!: f32 }
 class C {
   hits = 0
   on = false
@@ -1391,7 +1391,7 @@ export function run(): f32 {
 
   it('statics reached through a generic base are the generic class own, one for every instance', () => {
     const src = `"use typeshade"
-class Pair<T> { a: T; static K = 2.; static twice(): f32 { return this.K * 2. } constructor(a: T) { this.a = a } }
+class Pair<T> { a!: T; static K = 2.; static twice(): f32 { return this.K * 2. } constructor(a: T) { this.a = a } }
 class FPair extends Pair<f32> {
   static total = 1.
   static g(): void { this.total = super.K * 3. }
@@ -1824,7 +1824,7 @@ class Ci implements HasArea { r: f32 = 1.; area(): f32 { return 3. * this.r * th
     ).toBe(refusal);
     expect(
       only(
-        `${I}class Holder { shape: HasArea; x: f32 = 1. }\nexport function run(): f32 { return 1. }${RUN_TAIL}`,
+        `${I}class Holder { shape!: HasArea; x: f32 = 1. }\nexport function run(): f32 { return 1. }${RUN_TAIL}`,
       ),
     ).toBe(refusal);
   });
@@ -1972,70 +1972,70 @@ describe('TS8035 refuses what its catalogue entry says, and nothing that compile
     'new on a class of statics only': `class A { static k(): f32 { return 1. } }
 export function f(): f32 { const a = new A(); return 1. }`,
 
-    'a getter and a setter': `class A { x: f32; get y(): f32 { return this.x } set y(v: f32) { this.x = v } }
+    'a getter and a setter': `class A { x!: f32; get y(): f32 { return this.x } set y(v: f32) { this.x = v } }
 export function f(a: A): f32 { return a.y }`,
-    'a static field': `class A { x: f32; static K: f32 = 2. }
+    'a static field': `class A { x!: f32; static K: f32 = 2. }
 export function f(a: A): f32 { return a.x * A.K }`,
-    'a static method': `class A { x: f32; static k(): f32 { return 2. } }
+    'a static method': `class A { x!: f32; static k(): f32 { return 2. } }
 export function f(a: A): f32 { return a.x * A.k() }`,
-    'an overload signature': `class A { x: f32; m(a: f32): f32; m(a: f32): f32 { return a } }
+    'an overload signature': `class A { x!: f32; m(a: f32): f32; m(a: f32): f32 { return a } }
 export function f(a: A): f32 { return a.m(1.) }`,
-    'an abstract member': `abstract class B { x: f32; abstract m(): f32 }
+    'an abstract member': `abstract class B { x!: f32; abstract m(): f32 }
 class A extends B { m(): f32 { return this.x } }
 export function f(a: A): f32 { return a.m() }`,
     'a # private name': `class A { #x: f32; m(): f32 { return this.#x } }
 export function f(a: A): f32 { return a.m() }`,
-    'a method that changes its object': `class A { x: f32; bump(): void { this.x = this.x + 1. } }
+    'a method that changes its object': `class A { x!: f32; bump(): void { this.x = this.x + 1. } }
 export function f(): f32 { let a: A = { x: 1. }; a.bump(); return a.x }`,
-    'a field holding a function': `class A { x: f32; m = (a: f32): f32 => a }
+    'a field holding a function': `class A { x!: f32; m = (a: f32): f32 => a }
 export function f(a: A): f32 { return a.m(a.x) }`,
-    'a method that changes its object on a const that built it': `class A { x: f32; bump(): void { this.x = this.x + 1. } }
+    'a method that changes its object on a const that built it': `class A { x!: f32; bump(): void { this.x = this.x + 1. } }
 export function f(): f32 { const a: A = { x: 1. }; a.bump(); return a.x }`,
   };
   const REFUSED: Record<string, string> = {
-    'a field holding a function when the field is static': `class A { x: f32; static m = (a: f32): f32 => a }
+    'a field holding a function when the field is static': `class A { x!: f32; static m = (a: f32): f32 => a }
 export function f(a: A): f32 { return a.x }`,
-    'a name declared as another kind than the class it extends declares it': `class B { x: f32; m = (a: f32): f32 => a }
+    'a name declared as another kind than the class it extends declares it': `class B { x!: f32; m = (a: f32): f32 => a }
 class A extends B { m(a: f32): f32 { return a } }
 export function f(a: A): f32 { return a.x }`,
-    'super naming a field holding a function': `class B { x: f32; m = (a: f32): f32 => a }
+    'super naming a field holding a function': `class B { x!: f32; m = (a: f32): f32 => a }
 class A extends B { n(): f32 { return super.m(1.) } }
 export function f(a: A): f32 { return a.x }`,
-    'a static block': `class A { x: f32; static { } }
+    'a static block': `class A { x!: f32; static { } }
 export function f(a: A): f32 { return a.x }`,
-    'an index signature': `class A { x: f32; [k: string]: f32 }
+    'an index signature': `class A { x!: f32; [k: string]: f32 }
 export function f(a: A): f32 { return a.x }`,
-    'a second constructor': `class A { x: f32; constructor(x: f32) { this.x = x } constructor(y: f32) { this.x = y } }
+    'a second constructor': `class A { x!: f32; constructor(x: f32) { this.x = x } constructor(y: f32) { this.x = y } }
 export function f(a: A): f32 { return a.x }`,
-    'a second body for a method': `class A { x: f32; m(): f32 { return 1. } m(): f32 { return 2. } }
+    'a second body for a method': `class A { x!: f32; m(): f32 { return 1. } m(): f32 { return 2. } }
 export function f(a: A): f32 { return a.x }`,
-    'an abstract member with a body': `abstract class B { x: f32; abstract m(): f32 { return 1. } }
-class A extends B { y: f32 }
+    'an abstract member with a body': `abstract class B { x!: f32; abstract m(): f32 { return 1. } }
+class A extends B { y!: f32 }
 export function f(a: A): f32 { return a.x }`,
-    'a class that leaves an abstract member unimplemented': `abstract class B { x: f32; abstract m(): f32 }
-class A extends B { y: f32 }
+    'a class that leaves an abstract member unimplemented': `abstract class B { x!: f32; abstract m(): f32 }
+class A extends B { y!: f32 }
 export function f(a: A): f32 { return a.x }`,
     'a decorator on a method': `class A { x!: f32; @vertex m(): f32 { return this.x } }
 export function f(a: A): f32 { return a.x }`,
-    'an async method': `class A { x: f32; async m(): f32 { return 1. } }
+    'an async method': `class A { x!: f32; async m(): f32 { return 1. } }
 export function f(a: A): f32 { return a.x }`,
-    'one name as two kinds': `class A { x: f32; x(): f32 { return 1. } }
+    'one name as two kinds': `class A { x!: f32; x(): f32 { return 1. } }
 export function f(a: A): f32 { return a.x }`,
-    'a parameter named self_': `class A { x: f32; m(self_: f32): f32 { return self_ } }
+    'a parameter named self_': `class A { x!: f32; m(self_: f32): f32 { return self_ } }
 export function f(a: A): f32 { return a.x }`,
-    'this outside a method': `class A { x: f32 }
+    'this outside a method': `class A { x!: f32 }
 export function f(a: A): f32 { return this.x }`,
-    'an instance method on the class': `class A { x: f32; m(): f32 { return this.x } }
+    'an instance method on the class': `class A { x!: f32; m(): f32 { return this.x } }
 export function f(a: A): f32 { return A.m() }`,
-    'a static method on a value': `class A { x: f32; static k(): f32 { return 2. } }
+    'a static method on a value': `class A { x!: f32; static k(): f32 { return 2. } }
 export function f(a: A): f32 { return a.k() }`,
     'a # member outside its class': `class A { #x: f32; m(): f32 { return this.#x } }
 export function f(a: A): f32 { return a.#x }`,
-    'a getter with no setter assigned': `class A { x: f32; get y(): f32 { return this.x } }
+    'a getter with no setter assigned': `class A { x!: f32; get y(): f32 { return this.x } }
 export function f(): f32 { let a: A = { x: 1. }; a.y = 2.; return a.x }`,
-    'a mutating method on a parameter': `class A { x: f32; bump(): void { this.x = this.x + 1. } }
+    'a mutating method on a parameter': `class A { x!: f32; bump(): void { this.x = this.x + 1. } }
 export function f(a: A): f32 { a.bump(); return a.x }`,
-    'a mutating method on a const that copies': `class A { x: f32; bump(): void { this.x = this.x + 1. } }
+    'a mutating method on a const that copies': `class A { x!: f32; bump(): void { this.x = this.x + 1. } }
 export function f(a: A): f32 { const b = a; b.bump(); return b.x }`,
   };
 

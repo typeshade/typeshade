@@ -26,7 +26,7 @@ import { emitModuleAt } from '../../core/backends/wgsl.js';
 
 /** `body` with an entry that calls `run(2.)`: the GLSL writer emits only what an entry reaches. */
 const RUN = (body: string): string =>
-  `"use typeshade";\n${body}\n@fragment\nexport function fs(): vec4 { return vec4(run(2.), 0., 0., 1.); }\n`;
+  `"use typeshade";\n${body}\nexport const fs = fragment(function fs(): vec4 { return vec4(run(2.), 0., 0., 1.); });\n`;
 
 const errorsOf = (src: string): string[] =>
   compile(src)

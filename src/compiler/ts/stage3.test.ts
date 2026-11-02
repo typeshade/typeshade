@@ -19,16 +19,32 @@ import {
 } from './builtin-check.js';
 import { reflect } from '../../core/reflect.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { withoutDecoratedForm } from '../../core/testing/decorated-form.js';
 
+/** This file is about the decorated form's attributes, written as decorators on purpose. The
+ *  migration release warns on each (`TS8028`, change 0111, milestone 4): the two helpers leave
+ *  those warnings out, which `decorated-form.test.ts` asserts in both halves, and keep every
+ *  other diagnostic. */
 function diag(source: string) {
-  return compileTsSource(source);
+  const r = compileTsSource(source);
+  return { ...r, diagnostics: withoutDecoratedForm(r.diagnostics) };
+}
+
+/** `compile()`, with the decorated-form warnings left out as `diag` leaves them. */
+function compileQuiet(source: string) {
+  const r = compile(source);
+  return { ...r, diagnostics: withoutDecoratedForm(r.diagnostics) };
 }
 
 /** The editor's diagnostics on the same source, as `[source, code, message]`. */
 function editor(source: string): (string | number)[][] {
   const service = createTypeshadeLanguageService();
   service.openDocument('a.ts', source);
-  return service.getDiagnostics('a.ts').map((d) => [d.source, d.code, d.message]);
+  return withoutDecoratedForm(service.getDiagnostics('a.ts')).map((d) => [
+    d.source,
+    d.code,
+    d.message,
+  ]);
 }
 
 /** Why a written `@group` or `@binding` is not applied, whichever form declares the binding. */
@@ -155,7 +171,7 @@ describe('builtin stage/direction compatibility (BUILTIN_STAGE)', () => {
 
 describe('compute workgroup shape', () => {
   it('carries a two-dimensional shape to the emitted attribute and the reflection', () => {
-    const r = compile(`"use typeshade";
+    const r = compileQuiet(`"use typeshade";
 declare const dst: storage<array<u32>, "read_write">;
 @compute([8, 8])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
@@ -170,7 +186,7 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   });
 
   it('carries a three-dimensional shape, keeping a y of 1 between x and z', () => {
-    const r = compile(`"use typeshade";
+    const r = compileQuiet(`"use typeshade";
 declare const dst: storage<array<u32>, "read_write">;
 @compute([4, 1, 2])
 export function cs(@builtin("local_invocation_index") i: u32): void {
@@ -184,7 +200,7 @@ export function cs(@builtin("local_invocation_index") i: u32): void {
 
   it('emits a one-dimensional shape as it always did', () => {
     for (const deco of ['@compute', '@compute([64])', '@compute([64, 1, 1])']) {
-      const r = compile(`"use typeshade"
+      const r = compileQuiet(`"use typeshade"
 declare const dst: storage<array<u32>, "read_write">
 ${deco}
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
@@ -264,14 +280,14 @@ describe('@compute argument shapes (#118, WORKGROUP_ARG)', () => {
 
   it('keeps the default of 64 for a bare @compute and for @compute()', () => {
     for (const deco of ['@compute', '@compute()']) {
-      const r = compile(cs(deco));
+      const r = compileQuiet(cs(deco));
       expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
       expect(r.wgsl).toContain('@workgroup_size(64)');
     }
   });
 
   it('reads the size the author wrote, across lines and through as const', () => {
-    const r1 = compile(
+    const r1 = compileQuiet(
       cs(`@compute([
         128,
         1,
@@ -280,7 +296,7 @@ describe('@compute argument shapes (#118, WORKGROUP_ARG)', () => {
     );
     expect(r1.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r1.wgsl).toContain('@workgroup_size(128)');
-    const r2 = compile(cs('@compute([256] as const)'));
+    const r2 = compileQuiet(cs('@compute([256] as const)'));
     expect(r2.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r2.wgsl).toContain('@workgroup_size(256)');
   });
@@ -558,7 +574,7 @@ function f(): f32 { return 1. }
       '"@align" is WGSL\'s attribute for a struct field, not a parameter. Remove it.',
     ],
   ])("names %s as WGSL's, with where its intent goes", (_what, source, message) => {
-    const r = compileTsSource(`"use typeshade"\n${source}`);
+    const r = diag(`"use typeshade"\n${source}`);
     expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual([
       [TS_CODES.ATTRIBUTE_NAME, message],
     ]);
@@ -788,7 +804,7 @@ declare const u: uniform<T>
       ],
     ],
   ])('refuses %s', (_what, source, messages) => {
-    const r = compileTsSource(`"use typeshade"\n${source}`);
+    const r = diag(`"use typeshade"\n${source}`);
     expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual(
       messages.map((m) => [TS_CODES.ATTRIBUTE_NAME, m]),
     );
@@ -813,7 +829,7 @@ declare const u: uniform<T>
     };
     expect(Object.keys(marks)).toEqual(ATTRIBUTE_NAMES);
     for (const name of ATTRIBUTE_NAMES) {
-      const r = compileTsSource(`"use typeshade"
+      const r = diag(`"use typeshade"
 @${name} const K: f32 = 1.
 @fragment export function fs(): vec4 { return vec4(K) }`);
       expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual([
@@ -841,7 +857,7 @@ const K: f32 = 1.;
   const l = f32(Mode.B) + N.J + v.b + w.c;
   return vec4(u.a + k + K + l);
 }`;
-    const c = compile(source);
+    const c = compileQuiet(source);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(editor(source)).toEqual([]);
     expect(c.wgsl).toContain('@group(0) @binding(0) var<uniform> u: U;');
@@ -1088,7 +1104,7 @@ class C extends Mix(A) {}
       ],
     ],
   ])('refuses %s', (_what, source, expected) => {
-    const r = compileTsSource(`"use typeshade"\n${source}`);
+    const r = diag(`"use typeshade"\n${source}`);
     expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual(expected);
     expect(editor(`"use typeshade"\n${source}`)).toEqual(
       expected.map(([code, message]) => ['typeshade', code, message]),
@@ -1099,7 +1115,7 @@ class C extends Mix(A) {}
     const source = `"use typeshade";
 export function fs(x: f32): vec4;
 @fragment export function fs(@location(0) x: f32): vec4 { return vec4(x); }`;
-    const r = compile(source);
+    const r = compileQuiet(source);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('@fragment');
     expect(r.wgsl).toContain('@location(0) x: f32');
@@ -1111,7 +1127,7 @@ export function fs(x: f32): vec4;
 namespace N {
   @fragment export function fs(@builtin("position") p: vec4): vec4 { return p; }
 }`;
-    const r = compile(source);
+    const r = compileQuiet(source);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('@fragment');
     expect(r.wgsl).toContain('@builtin(position) p: vec4<f32>');
@@ -1125,7 +1141,7 @@ function h(x: f32): f32 { return x * 2.; }
   @invariant @builtin("position") p: vec4,
   @location(0) @interpolate("perspective", "centroid") c: vec4,
 ): vec4 { return c * h(p.x); }`;
-    const r = compile(source);
+    const r = compileQuiet(source);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('@location(0) @interpolate(perspective, centroid) c: vec4<f32>');
     expect(editor(source)).toEqual([]);

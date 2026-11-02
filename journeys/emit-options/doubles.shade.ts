@@ -8,20 +8,19 @@
 // on WebGPU as the manifest it gives says.
 
 class Affine {
-  k: f64;
-  shift: f64;
+  k!: f64;
+  shift!: f64;
 }
 
 declare const affine: uniform<Affine>;
 declare const xs: storage<array<f64>>;
 declare const ys: storage<array<f64>, "read_write">;
 
-@compute([64])
-export function axpy(@builtin("global_invocation_id") gid: vec3u) {
+export const axpy = compute([64], function axpy(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x >= xs.length) {
     return;
   }
   // `bias` is 0, written as the sum it is made of, which the optimizer folds and O0 leaves.
   const bias: f32 = 0.5 * 4. - 2.;
   ys[gid.x] = xs[gid.x] * affine.k + affine.shift + f64(bias);
-}
+});

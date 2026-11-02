@@ -24,15 +24,16 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0108, `status: implemented`: items 1 to 3 are implemented by pull request [#887](https://github.com/typeshade/typeshade/pull/887), and item 4 (Amendment 1) by pull request [#937](https://github.com/typeshade/typeshade/pull/937) (see Configuration and validation record). The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC) and Amendment 1 later the same day; see Approval and plan record. |
-| Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                           |
-| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, while designing an audio library on the compiler. The owner asked whether a built module keeps the author's function comments ("빌드된 파일의 함수 주석이라던가 지원되는지"). The agent reported that the host view carries none. The owner approved the drafting of this proposal ("승인"). No GitHub issue is recorded.                                                                       |
-| Applicability / effectivity   | The host view that `hostFace` writes (`src/compiler/ts/host-face.ts`, `viewText`), its description in `docs/use-typeshade-surface.md` §64, and `src/compiler/ts/host-face.test.ts`. The generated module, the CPU tier, the rules, the exports, the diagnostic codes and the examples do not change. No release version is assigned.                                                                                                                                    |
-| Review baseline               | `main` at `c9efde0f79df0e6b10883b87c8af21d0c72dfbc9` (the merge of pull request #870), read on 2026-11-02.                                                                                                                                                                                                                                                                                                                                                              |
-| Review and revision authority | Pull request [#871](https://github.com/typeshade/typeshade/pull/871) (branch `claude/proposal-0108-host-view-docs`). Git records the revisions of this file. The review and merge of that pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                                                                    |
-| Amendment 1                   | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction, on the branch `claude/0108-amend-members`. It widens item 1 to the members of an exported class (item 4, decision D4), after change 0109 made an exported class a value of the host face. Items 1 to 3, their approval and their record do not change. The merge of its pull request with `status: accepted` records the decision.                                                           |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0108, `status: implemented`: items 1 to 3 are implemented by pull request [#887](https://github.com/typeshade/typeshade/pull/887), and item 4 (Amendment 1) by pull request [#937](https://github.com/typeshade/typeshade/pull/937) (see Configuration and validation record). The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC), Amendment 1 later the same day and Amendment 2 (the static field) the same day; see Approval and plan record.                                                              |
+| Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                     |
+| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, while designing an audio library on the compiler. The owner asked whether a built module keeps the author's function comments ("빌드된 파일의 함수 주석이라던가 지원되는지"). The agent reported that the host view carries none. The owner approved the drafting of this proposal ("승인"). No GitHub issue is recorded.                                                                                                                                                                                 |
+| Applicability / effectivity   | The host view that `hostFace` writes (`src/compiler/ts/host-face.ts`, `viewText`), its description in `docs/use-typeshade-surface.md` §64, and `src/compiler/ts/host-face.test.ts`. The generated module, the CPU tier, the rules, the exports, the diagnostic codes and the examples do not change. No release version is assigned.                                                                                                                                                                                                                                              |
+| Review baseline               | `main` at `c9efde0f79df0e6b10883b87c8af21d0c72dfbc9` (the merge of pull request #870), read on 2026-11-02.                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Review and revision authority | Pull request [#871](https://github.com/typeshade/typeshade/pull/871) (branch `claude/proposal-0108-host-view-docs`). Git records the revisions of this file. The review and merge of that pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                                                                                                                                                                              |
+| Amendment 1                   | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction, on the branch `claude/0108-amend-members`. It widens item 1 to the members of an exported class (item 4, decision D4), after change 0109 made an exported class a value of the host face. Items 1 to 3, their approval and their record do not change. The merge of its pull request with `status: accepted` records the decision.                                                                                                                                                                     |
+| Amendment 2                   | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction, on the branch `claude/0108-amend-static-field`. It removes \"a static field\" from the members item 4 lists, which closes the open deviation of the Configuration and validation record: the view declares no static field (surface §26, change 0109), so its comment has no line to stand on. Items 1 to 3, item 4's other members, decisions D1 to D4, their approval and their record do not change. The owner approved it on 2026-11-02 (UTC); the merge of its pull request records the decision. |
 
 ## What changes
 
@@ -68,7 +69,9 @@ it and throws its error (Rule 11.8); the signature returning void is that call.`
 4. **The members of an exported class carry their comments (Amendment 1).** For a class the view
    declares as `export declare class` (change 0109, Rule 8.20), the view carries the JSDoc blocks
    attached to each member it declares, on the member's line, as item 1 does for a field: a
-   constructor, a method, each half of an accessor, a static field and a static method. A member
+   constructor, a method, each half of an accessor and a static method (a static field is the
+   module constant `Cls_Field` of surface §26, has no line in the view and carries none,
+   Amendment 2). A member
    the view declares `never` carries the author's blocks first and the sentence of change 0109 at
    the end of the last block, as item 2 says for an export. A member the view takes from an
    exported base class stands in the base with its comment. A member a flat declaration takes from
@@ -154,6 +157,12 @@ contain `*/`, so a verbatim copy is a valid comment.
   amendment), or the methods alone. The amendment carries every member, because a host that
   builds an instance reads the constructor, calls the methods, reads the accessors and calls a
   static member on the class.
+- **D5 (Amendment 2).** A static field: dropped from item 4's list (the amendment), or declared
+  in the host class by a change to Rules 8.20 and 8.21 so that its comment has a line. The
+  amendment drops it: a static field is the module constant `Cls_Field` (surface §26), change
+  0109 declares the static functions of a class and no field, and `carriesComment` already admits
+  a static property declaration, so a later change that declares static fields needs no new
+  reader.
 
 **Amendment 1 (2026-11-02).** Change 0109, accepted the same day as this proposal, made an
 exported class a value of the host face, and its listing shows the comment of the method `tick`
@@ -162,6 +171,11 @@ in the view as one of this proposal. The implementation of this proposal (#887) 
 it. The owner's question that started this proposal was about the comments of functions, and a
 unit's `tick` is the function a host developer hovers. Item 4 closes the gap between the two
 accepted texts.
+
+**Amendment 2 (2026-11-02).** The implementation of item 4 (pull request #937) found that the
+view declares no static field, so the comment of a static field has no line to stand on, and
+recorded the difference as an open deviation. The amendment removes "a static field" from item
+4's list and resolves D5. The delivered work does not change.
 
 ## What it touches
 
@@ -226,6 +240,12 @@ of the branch `claude/0108-amend-members` with `status: accepted` records the de
 implements item 4 in a pull request whose commits say `Change: 0108`, after the implementation of
 change 0116 lands, because both change `src/compiler/ts/host-face.ts`. The record of that work
 extends the Configuration and validation record below.
+
+**Amendment 2.** The owner (Seungup) approved the amendment in the Claude Code session on
+2026-11-02 (UTC), in Korean ("추천대로", as recommended), in answer to the orchestrator's report
+that recommended it. D5 is accepted as drafted: a static field is dropped from item 4's list. The
+approved revision is the one this record is part of. The merge of its pull request records the
+decision. No implementation is owed: the delivered work of #937 already follows the amended text.
 
 ### Configuration and validation record
 
@@ -559,9 +579,8 @@ Deviations from the approved text, each with its disposition:
   that rule: the comment of a static field is not carried, and that of a static method beside it
   is. `carriesComment` admits a static property declaration, so the reader is ready if a later
   change declares static fields. The case "leaves the comment of a static field out" of
-  `host-face.test.ts` pins this. Disposition: open. Next action: the owner chooses between an
-  amendment that removes "a static field" from item 4 and a change to Rules 8.20 and 8.21 that
-  makes the host class declare static fields.
+  `host-face.test.ts` pins this. Disposition: closed by Amendment 2 (2026-11-02), which removes "a static field" from item
+  4 and makes the delivered work the approved text.
 - The order of delivery. The Approval and plan record puts item 4 after the implementation of
   change 0116, because both change `src/compiler/ts/host-face.ts`. This pull request was prepared
   while pull request #918 (change 0116) was open. #918 merged into `main` as `9822490f` before this
@@ -587,16 +606,16 @@ Observations, none of them a deviation:
   or the nearest above it. A derived class declared with `extends` repeats that line, with the same
   comment, as it repeats the line before this change.
 - A field that a class writes with a private name (`#x`, Rule 8.12) is declared `private x` in the
-  view, and its comment is not carried, because `memberName` reads no private name. This predates
-  item 4: item 1 names the fields of a class. Next action: a bug fix against item 1, or an
-  amendment, at the owner's choice.
+  view, and its comment was not carried, because `memberName` read no private name. This predates
+  item 4: item 1 names the fields of a class. Filed as issue #951 and fixed by pull request #963
+  (squash commit `a61c861b`, 2026-11-02): the `private x` line carries the blocks of `#x`.
 - An overload signature with no body is now part of the approved text (item 4). The first record
   above says that the approved text did not cover it.
 
 Open items:
 
-- The open deviation above: the static field.
-- The private-name field in the observations above.
+- The static field: closed by Amendment 2.
+- The private-name field in the observations above: fixed by #963 (`a61c861b`).
 - Not run: `bun run gate:compile`, `bun run gate:differential`, `bun run gate:render` and
   `bun run gate:perf`. This change emits no WGSL or GLSL, and the generated module is as before.
   CI runs these gates.

@@ -1079,7 +1079,7 @@ export function record(xs: array<f32>, out: array<f32>) {
 function projectionCorpus(): KernelCorpus[] {
   return Array.from({ length: 8 }, (_, seed) => {
     const scalar = seed < 4 ? 'f32' : seed % 2 === 0 ? 'i32' : 'u32';
-    const fields = Array.from({ length: 8 }, (_, i) => `f${i}: ${scalar};`).join(' ');
+    const fields = Array.from({ length: 8 }, (_, i) => `f${i}!: ${scalar};`).join(' ');
     const helper = seed % 2 === 0 ? 'f32(xs[i].f0)' : 'read(xs[i])';
     const body =
       seed >= 4

@@ -11,19 +11,17 @@ declare const photo: texture_2d<f32>;
 declare const glow: texture_2d<f32>;
 declare const smp: sampler;
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): vec4 {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   return vec4(xs[i], ys[i], 0., 1.);
-}
+});
 
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   const uv = p.xy / vec2(textureDimensions(photo));
   const near = textureLoad(level, vec2i(p.xy), 0).x / 1024.;
   const lamp = glow;
   const via = smp;
   return vec4(near, textureSample(photo, smp, uv).y, textureSample(lamp, via, uv).z, 1.);
-}
+});

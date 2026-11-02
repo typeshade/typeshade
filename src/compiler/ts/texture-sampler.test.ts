@@ -434,15 +434,14 @@ declare const u: uniform<U>
 declare const atlas: texture_2d_array<f32>
 declare const tex: texture_2d<f32>
 declare const smp: sampler
-class V {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+interface V {
+  pos: builtin<"position", vec4>
+  uv: location<0, vec2>
 }
-@fragment
-export function fs(v: V): vec4 {
+export const fs = fragment(function fs(v: V): vec4 {
 `;
 
-  const read = (body: string): string => wgslOf(`${HEAD}  return ${body}\n}\n`);
+  const read = (body: string): string => wgslOf(`${HEAD}  return ${body}\n});\n`);
 
   it('takes an unsigned coordinate on textureLoad, and keeps the level unsigned with it', () => {
     expect(read('textureLoad(tex, vec2u(0, 0), 0)')).toContain(

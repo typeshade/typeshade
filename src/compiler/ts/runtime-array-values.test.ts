@@ -19,7 +19,7 @@ const WHY =
 
 const module = (body: string): string => `"use typeshade";
 declare const b: storage<array<f32>, "read_write">;
-class S { n: u32; xs: array<f32>; }
+class S { n!: u32; xs!: array<f32>; }
 declare const s: storage<S, "read_write">;
 ${body}
 `;

@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { SHADE_DTS } from '../../language-service/ambient.js';
+import { isDecoratedFormWarning } from '../../core/testing/decorated-form.js';
 
 const compiled = (source: string) => compile(source, { fileName: 'file:///a.shade.ts' });
 const editor = (source: string): string[] => {
@@ -69,11 +70,12 @@ export function fs(v: VsOut): vec4 {
 `;
 
 type Struct = 'class' | 'interface' | 'type';
-const TYPED = (struct: Struct): string => `"use typeshade";
+// A class's field takes "!", which a plain `tsc --strict` reads as assigned (TS2564).
+const TYPED = (struct: Struct, bang = struct === 'class' ? '!' : ''): string => `"use typeshade";
 ${struct === 'type' ? 'type VsOut = {' : `${struct} VsOut {`}
-  pos: builtin<"position", vec4, { invariant: true }>;
-  uv: location<0, vec2>;
-  id: location<1, u32, { interpolate: "flat" }>;
+  pos${bang}: builtin<"position", vec4, { invariant: true }>;
+  uv${bang}: location<0, vec2>;
+  id${bang}: location<1, u32, { interpolate: "flat" }>;
 }
 export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
   let x = -0.8;
@@ -96,7 +98,10 @@ describe('an attribute type compiles as the decorator it stands for (change 0111
     it(`entry IO declared as a ${struct}: the same WGSL and GLSL ES 3.00, and no diagnostic`, () => {
       const a = compiled(DECORATED);
       const b = compiled(TYPED(struct));
-      expect(a.diagnostics).toEqual([]);
+      // The decorated form warns once on each of its decorators (TS8028, change 0111,
+      // milestone 4), and says nothing else.
+      expect(a.diagnostics.filter((d) => !isDecoratedFormWarning(d))).toEqual([]);
+      expect(a.diagnostics).toHaveLength(DECORATED.match(/@\w+/g)!.length);
       expect(b.diagnostics).toEqual([]);
       expect(b.wgsl).toBe(a.wgsl);
       expect(JSON.stringify(b.glsl)).toBe(JSON.stringify(a.glsl));

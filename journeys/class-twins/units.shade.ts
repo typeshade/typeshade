@@ -10,7 +10,7 @@
 /** A one-pole lowpass: `z` moves the fraction `k` of the way to its input each sample. */
 export class OnePole {
   z: f32 = 0.;
-  k: f32;
+  k!: f32;
   constructor(k: f32) {
     this.k = k;
   }
@@ -35,7 +35,7 @@ export class OnePole {
 
 /** A one-pole lowpass with an output gain: it calls the method it inherits on itself. */
 export class GainPole extends OnePole {
-  gain: f32;
+  gain!: f32;
   constructor(k: f32, gain: f32) {
     super(k);
     this.gain = gain;
@@ -49,7 +49,7 @@ export class GainPole extends OnePole {
 /** A phase accumulator in [0, 1) that advances by `inc` each sample. */
 export class Phasor {
   phase: f32 = 0.;
-  inc: f32;
+  inc!: f32;
   constructor(inc: f32, phase: f32) {
     this.inc = inc;
     this.phase = fract(phase);
@@ -87,7 +87,7 @@ export class Envelope {
 }
 
 /** Adds `by` to the count it is handed: the caller's place, through `@inout`. */
-function advance(@inout count: u32, by: u32): void {
+function advance(count: inout<u32>, by: u32): void {
   count = count + by;
 }
 
@@ -106,7 +106,7 @@ export class Counter {
 
 /** A stereo panner: a mono sample in, a left and right pair out. */
 export class Pan {
-  gains: vec2f;
+  gains!: vec2f;
   constructor(position: f32) {
     const p = clamp(position, -1., 1.) * 0.5 + 0.5;
     this.gains = vec2f(1. - p, p);
@@ -141,8 +141,7 @@ declare const input: storage<array<f32>>;
 declare const output: storage<array<f32>, "read_write">;
 
 /** Steps one filter of the bank through its block, one invocation per filter. */
-@compute([64])
-export function bank(@builtin("global_invocation_id") gid: vec3u): void {
+export const bank = compute([64], function bank(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= poles.length) {
     return;
   }
@@ -150,21 +149,20 @@ export function bank(@builtin("global_invocation_id") gid: vec3u): void {
     const at = gid.x * BLOCK + n;
     output[at] = poles[gid.x].process(input[at]);
   }
-}
+});
 
 declare const voices: storage<array<Wavetable>, "read_write">;
 declare const played: storage<array<f32>, "read_write">;
 
 /** Plays one wavetable voice for a block, one invocation per voice. */
-@compute([64])
-export function play(@builtin("global_invocation_id") gid: vec3u): void {
+export const play = compute([64], function play(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= voices.length) {
     return;
   }
   for (let n: u32 = 0; n < BLOCK; n++) {
     played[gid.x * BLOCK + n] = voices[gid.x].next();
   }
-}
+});
 
 /** Runs every filter of the bank over its block, one lane per filter. */
 export function run(out: array<f32>, xs: array<f32>, filters: array<OnePole>, block: u32) {

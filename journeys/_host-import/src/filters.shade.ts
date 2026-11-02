@@ -7,7 +7,7 @@
 /** A one-pole lowpass with its state. */
 export class OnePole {
   z: f32 = 0.;
-  k: f32;
+  k!: f32;
   constructor(k: f32) {
     this.k = k;
   }

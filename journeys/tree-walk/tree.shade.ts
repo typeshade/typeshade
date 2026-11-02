@@ -7,8 +7,8 @@
 // (Rule 7.5, #209).
 
 class Params {
-  count: u32;
-  roots: u32;
+  count!: u32;
+  roots!: u32;
 }
 
 declare const params: uniform<Params>;
@@ -16,8 +16,7 @@ declare const values: storage<array<f32>>;
 declare const sums: storage<array<f32>, "read_write">;
 declare const partial: storage<array<f32>, "read_write">;
 
-@compute([64])
-export function subtree(@builtin("global_invocation_id") gid: vec3u) {
+export const subtree = compute([64], function subtree(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x >= params.roots) {
     return;
   }
@@ -40,7 +39,7 @@ export function subtree(@builtin("global_invocation_id") gid: vec3u) {
     }
   }
   sums[gid.x] = sqrtNewton(total);
-}
+});
 
 function sqrtNewton(x: f32): f32 {
   const a = max(x, 0);
@@ -55,11 +54,10 @@ function sqrtNewton(x: f32): f32 {
   return r;
 }
 
-@compute([64])
-export function strided(@builtin("local_invocation_index") lid: u32) {
+export const strided = compute([64], function strided(lid: builtin<"local_invocation_index", u32>) {
   let s = 0;
   for (let i = lid; i < params.count; i += 64) {
     s += values[i];
   }
   partial[lid] = s;
-}
+});

@@ -33,7 +33,7 @@ const F = TS_CODES;
 
 /** `body` with an entry that calls `run(2.)`: the GLSL writer emits only what an entry reaches. */
 const RUN = (body: string): string =>
-  `"use typeshade";\n${body}\n@fragment\nexport function fs(): vec4 { return vec4(run(2.), 0., 0., 1.); }\n`;
+  `"use typeshade";\n${body}\nexport const fs = fragment(function fs(): vec4 { return vec4(run(2.), 0., 0., 1.); });\n`;
 
 /** A `run(k)` whose body starts with `const xs = array<f32, 4>(1., 2., 3., 4.)`. */
 const XS = (body: string, before = ''): string =>

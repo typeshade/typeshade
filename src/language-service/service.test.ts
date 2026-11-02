@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { withoutDecoratedForm } from '../core/testing/decorated-form.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -158,7 +159,8 @@ describe('getDiagnostics: a broken program', () => {
       '@fragment\n' +
       'export function fs(): vec4 { @bogus const l = 1.; return vec4(u.a + k + K + N.J + l); }\n';
     service.openDocument('decorated.ts', text);
-    const diagnostics = service.getDiagnostics('decorated.ts');
+    // The entry is the decorated form's on purpose; its TS8028 warnings are decorated-form.test.ts's.
+    const diagnostics = withoutDecoratedForm(service.getDiagnostics('decorated.ts'));
     expect(
       diagnostics.map((d) => [
         d.source,
@@ -186,10 +188,13 @@ describe('getDiagnostics: a broken program', () => {
       '@fragment\n' +
       'export function fs(): vec4 { return vec4(u.x + u.y + u.z); }\n';
     service.openDocument('field.ts', text);
+    // The entry is the decorated form's on purpose; its TS8028 warnings are decorated-form.test.ts's.
     expect(
-      service
-        .getDiagnostics('field.ts')
-        .map((d) => [d.source, d.code, text.slice(d.span.start, d.span.start + d.span.length)]),
+      withoutDecoratedForm(service.getDiagnostics('field.ts')).map((d) => [
+        d.source,
+        d.code,
+        text.slice(d.span.start, d.span.start + d.span.length),
+      ]),
     ).toEqual([
       ['typeshade', 'TS8028', '@size(16)'],
       ['typeshade', 'TS8010', '@align(16)'],
@@ -266,10 +271,13 @@ describe('getDiagnostics: a broken program', () => {
       'export function fs(): vec4 { @bogus function g(): f32 { return 1.; } ' +
       'return vec4(A.K + N.f() + g()); }\n';
     service.openDocument('unread.ts', text);
+    // The entry is the decorated form's on purpose; its TS8028 warnings are decorated-form.test.ts's.
     expect(
-      service
-        .getDiagnostics('unread.ts')
-        .map((d) => [d.source, d.code, text.slice(d.span.start, d.span.start + d.span.length)]),
+      withoutDecoratedForm(service.getDiagnostics('unread.ts')).map((d) => [
+        d.source,
+        d.code,
+        text.slice(d.span.start, d.span.start + d.span.length),
+      ]),
     ).toEqual([
       ['typeshade', 'TS8028', '@bogus'],
       ['typeshade', 'TS8035', '@bogus'],
@@ -298,10 +306,13 @@ describe('getDiagnostics: a broken program', () => {
       '  return vec4(g(p.x) + m.f() + m.g() + new C().f());\n' +
       '}\n';
     service.openDocument('unread2.ts', text);
+    // The entry is the decorated form's on purpose; its TS8028 warnings are decorated-form.test.ts's.
     expect(
-      service
-        .getDiagnostics('unread2.ts')
-        .map((d) => [d.source, d.code, text.slice(d.span.start, d.span.start + d.span.length)]),
+      withoutDecoratedForm(service.getDiagnostics('unread2.ts')).map((d) => [
+        d.source,
+        d.code,
+        text.slice(d.span.start, d.span.start + d.span.length),
+      ]),
     ).toEqual([
       ['typeshade', 'TS8028', '@bogus'],
       ['typeshade', 'TS8035', '@a'],

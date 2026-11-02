@@ -228,7 +228,14 @@ export const fs = fragment(function fs(v: Varyings): vec4 {
   return vec4(v.uv, 0., 1.);
 });
 `);
-    expect(r.diagnostics).toEqual([]);
+    // The decorated form is read, and warned once (TS8028, change 0111, milestone 4).
+    expect(r.diagnostics.map((d) => [d.category, d.code, d.message])).toEqual([
+      [
+        'warning',
+        'TS8028',
+        '"@location(0)" is the decorated form, which the next release refuses: write "uv: location<0, vec2>", or run "tshc migrate" (change 0111).',
+      ],
+    ]);
     expect(r.wgsl).toContain('@location(0) uv: vec2<f32>,');
     expect(r.wgsl).toContain('@builtin(position) pos: vec4<f32>,');
   });

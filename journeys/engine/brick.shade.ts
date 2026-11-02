@@ -4,44 +4,42 @@
 // same two lights. It is nearer the light than anything, so it reads no shadow.
 
 class Camera {
-  viewProj: mat4;
-  time: f32;
+  viewProj!: mat4;
+  time!: f32;
 }
 
 class Light {
-  dir: vec4;
-  color: vec4;
+  dir!: vec4;
+  color!: vec4;
 }
 
 // The scene's two lights: a key light that casts the shadow, and a fill light from above.
 class Lights {
-  key: Light;
-  fill: Light;
+  key!: Light;
+  fill!: Light;
 }
 
 declare const camera: uniform<Camera>;
 declare const lights: uniform<Lights>;
 
-class VsIn {
-  @location(0) position: vec3;
+interface VsIn {
+  position: location<0, vec3>;
 }
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) world: vec3;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  world: location<0, vec3>;
 }
 
-class Color {
-  @location(0) color: vec4;
+interface Color {
+  color: location<0, vec4>;
 }
 
-@vertex
-export function vs(v: VsIn): VsOut {
+export const vs = vertex(function vs(v: VsIn): VsOut {
   return { pos: camera.viewProj * vec4(v.position, 1.), world: v.position };
-}
+});
 
-@fragment
-export function fs(v: VsOut): Color {
+export const fs = fragment(function fs(v: VsOut): Color {
   // Rows an eighth of a unit high; each row's bricks a quarter wide, every other row offset by
   // half a brick. A point near a row's or a brick's start is mortar.
   const row = floor(v.world.y * 8.);
@@ -54,4 +52,4 @@ export function fs(v: VsOut): Color {
   const light0 = lights.key.color.xyz * max(dot(n, lights.key.dir.xyz), 0.);
   const light1 = lights.fill.color.xyz * max(dot(n, lights.fill.dir.xyz), 0.) * pulse;
   return { color: vec4(albedo * (vec3(0.08, 0.08, 0.08) + light0 + light1), 1.) };
-}
+});

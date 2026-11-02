@@ -337,8 +337,10 @@ export const fs = fragment(function fs(
   function that is neither a kernel function nor an entry it is refused (`TS8028`):
   `"workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Declare "f" without it.`
 
-**The decorated form.** Until the release after the migration release (change 0111, Amendment
-2, D5), the compiler also accepts the decorated form, and reads it as the stage call:
+**The decorated form.** In the migration release (change 0111, Amendment 2, D5), the compiler
+also accepts the decorated form, reads it as the stage call, and warns once on each decorator
+(`TS8028`, §7), naming the new form and `tshc migrate`. The release after it refuses the
+decorated form:
 `@vertex export function vs(@builtin("vertex_index") i: u32)`, `@fragment`, `@compute([64])`,
 and `@workgroup_size([128])` on a kernel function. A bare `@compute` takes the default of 64.
 `@compute({ workgroup: [64, 1, 1] })` is `TS8037`, and `@workgroup_size` on an entry or on a
@@ -464,6 +466,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | `@builtin`, `@location`, `@interpolate`, `@invariant` or `@blend_src` on a parameter of a function that is not an entry: a helper, a local function, a method, a constructor | `TS8028`, `"@location" does not apply to a parameter of a function that is not an entry: it marks an entry's input or output. Remove it.` Tint refuses the WGSL it was (`'@location' is not valid for non-entry point function parameters`) |
 | builtin parameter on an incompatible stage | stage mismatch |
 | `@compute` method on a class | an entry is declared at the top level, not on a class (Rule 8.1) |
+| a decorator of the decorated form where it is read: `@vertex`, `@fragment`, `@compute(…)`, `@workgroup_size(…)` or `@diagnostic(…)` on a function, `@builtin`, `@location`, `@interpolate`, `@invariant`, `@blend_src`, `@inout` or `@out` on a parameter or a field | a `TS8028` warning, one per decorator, in the compiler and in the editor, naming the new spelling (change 0111, the migration release): `"@vertex" is the decorated form, which the next release refuses: write "export const vs = vertex(function vs(…) { … })", or run "tshc migrate" (change 0111).`, and for an attribute the member's type, `write "pos: builtin<"position", vec4, { invariant: true }>"`. A decorator refused where it is written keeps that refusal alone. The release after it refuses each one. The editor drops TypeScript's TS1206 and TS2564 only in a file that still writes the decorated form |
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
 | `.length` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 | a call of a name that change 0112 removed: `arrayLength`, `log10`, `log1p`, `expm1`, `cbrt`, `hypot`, `sum`, `none`, `pow`; a read of `PI`, `E`, `LN2`, `LN10`, `LOG2E` or `LOG10E`; `any(xs, p)` or `all(xs, p)` | `TS8004` for a call, `TS8022` for a read, `TS8019` for the two folds, each in one sentence that names the spelling to write: `arrayLength was removed: write xs.length.`, `PI was removed: write Math.PI.`, `any expects 1 argument, got 2; the array fold was removed: write xs.some(p).` (§10) |
@@ -955,7 +958,7 @@ It is WGSL's abstract-integer rule, narrowed to the places where a type is actua
 const N: u32 = 16; // the declared type — on the IR; see the note below
 
 class Id {
-  id: u32;
+  id!: u32;
 }
 
 export function g(a: i32): i32 {
@@ -6277,9 +6280,9 @@ rewritten one field deeper:
 "use typeshade";
 
 class Palette {
-  count: f32;               // a scalar BEFORE the list, which is where @align earns its keep
-  weights: array<f32, 4>;   // four floats in the source
-  stops: array<vec4, 2>;    // already 16 bytes an element — untouched
+  count!: f32;              // a scalar BEFORE the list, which is where @align earns its keep
+  weights!: array<f32, 4>;  // four floats in the source
+  stops!: array<vec4, 2>;   // already 16 bytes an element — untouched
 }
 declare const U: uniform<Palette>;
 ```
