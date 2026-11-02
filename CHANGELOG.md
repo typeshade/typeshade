@@ -1570,6 +1570,26 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **The host view gives the instance members of an abstract class that no exported class extends the
+  reason of an abstract class (#989).** An exported `abstract` class with no class below it that a
+  host can build has its methods, accessors and function fields lowered for no class, since a member
+  is lowered for the classes that extend its class. The view declared each of them `never` with the
+  reason of every member that was not lowered, `it was not lowered to one function of the module`.
+  #974 gave the static builder of such a class its own sentence, and these members stayed on the
+  generic one. The reason is now:
+
+  ```text
+  "Oscillator" is abstract, so there is no instance of it on which "tick" could run. No exported class that a host can build extends it. Add an exported class that extends it.
+  ```
+
+  It names the class by the name a host imports, and it holds when only abstract classes extend the
+  class, or only a generic class that the module never builds. The editor's hover over the member in
+  a host program shows it. The generated module declared none of an abstract class's instance members, so
+  no member threw it. It now declares each member that the view declares `never` on the abstract
+  class, and a call throws the `TypeError` with the reason. An abstract class that extends another
+  declares the members again, with its own name in the sentence. A member that a class below runs is
+  unchanged: it keeps the types of the functions lowered for that class.
+
 - **A local function and its copy, a namespace constant and an enum member are worded as the author
   wrote them (#987).** After #979 a `TS8070` sentence still named a local function, and the copy of a
   local function that takes a function, as the module emits them (`count_bump`, `count_apply_inc`),
