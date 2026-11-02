@@ -3,7 +3,15 @@
 
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -225,6 +233,148 @@ describe('tshc (command line)', () => {
       expect(version.stdout).toBe(`${pkg.version}\n`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// A directory walk leaves out what a `.gitignore` excludes (#1001). The project below keeps a cache
+// and a build directory out of Git, and a deeper `.gitignore` leaves out generated modules. Each
+// ignored directory holds a module that does not compile, so a walk that enters one fails the
+// command, and a `sync` that enters one writes a host view beside a file that is not the project's.
+describe('tshc (the directory walk and .gitignore)', () => {
+  const project: Record<string, string> = {
+    '/p/.gitignore': '# kept out of Git\n.cache/\n/build\n',
+    '/p/src/.gitignore': 'gen/\n',
+    '/p/src/a.shade.ts': GOOD,
+    '/p/src/gen/z.shade.ts': BAD,
+    '/p/.cache/typeshade/x.shade.ts': BAD,
+    '/p/build/y.shade.ts': BAD,
+    '/p/other/build/w.shade.ts': GOOD,
+  };
+  const info = { version: '9.9.9' };
+
+  it('skips an ignored directory for check, and for sync and migrate with it', () => {
+    expect(run(['check'], project)).toMatchObject({
+      status: 0,
+      stdout: 'No problems found in 2 files.\n',
+    });
+    const files = { ...project };
+    const m = memoryHost(files);
+    expect(runCli(['sync'], m.host, info)).toBe(0);
+    expect(m.stdout()).toBe(
+      'wrote other/build/w.shade.typeshade.ts\nwrote src/a.shade.typeshade.ts\n' +
+        '2 host views written, 0 up to date.\n',
+    );
+    expect(Object.keys(files).filter((f) => f.endsWith('.typeshade.ts'))).toEqual([
+      '/p/other/build/w.shade.typeshade.ts',
+      '/p/src/a.shade.typeshade.ts',
+    ]);
+    expect(runCli(['sync', '--check'], m.host, info)).toBe(0);
+    expect(run(['migrate', '--check'], project)).toMatchObject({
+      status: 0,
+      stdout: '2 files already in the plain form.\n',
+    });
+  });
+
+  it('applies a pattern as Git does: anchored, for a directory only, and included again by !', () => {
+    const files: Record<string, string> = {
+      '/p/.gitignore': '/build\nout/\nscratch/*.shade.ts\n!scratch/keep.shade.ts\n',
+      '/p/build/a.shade.ts': BAD,
+      '/p/lib/build/b.shade.ts': GOOD,
+      '/p/out/c.shade.ts': BAD,
+      '/p/lib/out/d.shade.ts': BAD,
+      '/p/scratch/e.shade.ts': BAD,
+      '/p/scratch/keep.shade.ts': GOOD,
+    };
+    const m = memoryHost(files);
+    expect(runCli(['sync'], m.host, info)).toBe(0);
+    expect(m.stdout()).toBe(
+      'wrote lib/build/b.shade.typeshade.ts\nwrote scratch/keep.shade.typeshade.ts\n' +
+        '2 host views written, 0 up to date.\n',
+    );
+  });
+
+  it('reads the .gitignore files above the directory it starts in, up to the repository root', () => {
+    const files: Record<string, string> = {
+      '/p/.git/HEAD': 'ref: refs/heads/main\n',
+      '/p/.gitignore': 'copy/\n',
+      '/p/packages/app/a.shade.ts': GOOD,
+      '/p/packages/app/copy/b.shade.ts': BAD,
+    };
+    const inApp = () => run(['check'], files, '/p/packages/app');
+    expect(inApp()).toMatchObject({ status: 0, stdout: 'No problems found in 1 file.\n' });
+    // Without a repository around, a file above is nobody's ignore file.
+    const bare = { ...files };
+    delete bare['/p/.git/HEAD'];
+    expect(run(['check'], bare, '/p/packages/app').status).toBe(1);
+    // A repository inside another reads its own .gitignore files only.
+    const nested = {
+      ...files,
+      '/p/packages/app/.git/HEAD': 'ref: refs/heads/main\n',
+    };
+    expect(run(['check'], nested, '/p/packages/app').status).toBe(1);
+  });
+
+  it('searches a path the command names, and still reads the .gitignore files below it', () => {
+    expect(run(['check', '.cache'], project).status).toBe(1);
+    expect(run(['check', '.cache/typeshade/x.shade.ts'], project).status).toBe(1);
+    expect(run(['check', 'src/gen'], project).status).toBe(1);
+    expect(
+      run(['check', '.cache'], { ...project, '/p/.cache/.gitignore': 'typeshade/\n' }),
+    ).toMatchObject({ status: 2, stderr: 'tshc: no .shade.ts files under .cache.\n' });
+  });
+
+  it('keeps the node_modules, dist and .git rule when no .gitignore names them', () => {
+    const files = {
+      '/p/.gitignore': 'unrelated\n',
+      '/p/a.shade.ts': GOOD,
+      '/p/node_modules/pkg/c.shade.ts': BAD,
+      '/p/dist/d.shade.ts': BAD,
+    };
+    expect(run(['check'], files).stdout).toBe('No problems found in 1 file.\n');
+  });
+
+  // The case of the issue: a symbolic link to a checkout of another project, under a directory
+  // Git ignores, on the real Node host. Before the fix, `sync` wrote a host view into the checkout
+  // through the link and `sync --check` then listed the checkout's modules as missing.
+  it('does not read through a link under an ignored directory (bin.ts, a real directory)', () => {
+    const base = mkdtempSync(join(tmpdir(), 'tshc-ignore-'));
+    try {
+      const checkout = join(base, 'checkout');
+      const dir = join(base, 'project');
+      mkdirSync(checkout);
+      mkdirSync(join(dir, 'src'), { recursive: true });
+      mkdirSync(join(dir, '.cache'));
+      writeFileSync(join(checkout, 'b.shade.ts'), BAD);
+      writeFileSync(join(dir, 'src', 'a.shade.ts'), GOOD);
+      writeFileSync(join(dir, '.gitignore'), '.cache/\n*.shade.typeshade.ts\n');
+      try {
+        symlinkSync(checkout, join(dir, '.cache', 'typeshade'), 'dir');
+      } catch {
+        return; // a system that lets this user make no link has no link to follow
+      }
+      const tshc = (...args: string[]) =>
+        spawnSync('bun', [join(PKG_DIR, 'src/cli/bin.ts'), ...args], {
+          cwd: dir,
+          encoding: 'utf8',
+        });
+      const check = tshc('check');
+      expect(check.error, 'could not start bun').toBeUndefined();
+      expect(check.stdout).toBe('No problems found in 1 file.\n');
+      expect(check.status, check.stderr).toBe(0);
+      const sync = tshc('sync');
+      expect(sync.stdout).toBe(
+        'wrote src/a.shade.typeshade.ts\n1 host view written, 0 up to date.\n',
+      );
+      expect(existsSync(join(checkout, 'b.shade.typeshade.ts'))).toBe(false);
+      const again = tshc('sync', '--check');
+      expect(again.stderr).toBe('');
+      expect(again.stdout).toBe('1 host view up to date.\n');
+      expect(again.status).toBe(0);
+      // Named on the command line, the link is followed, as any path is.
+      expect(tshc('check', '.cache').status).toBe(1);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
     }
   });
 });
