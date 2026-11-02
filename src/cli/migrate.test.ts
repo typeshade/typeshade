@@ -78,6 +78,31 @@ export function f(): P { return new P(); }
     expect(result.text).toContain('class P { uv!: location<0, vec2>; }');
   });
 
+  it('keeps a class nothing names, so its struct is still emitted and checked', () => {
+    // The compiler emits a class as a struct whether or not an entry uses it, and an interface
+    // only when something names it. An unused decorated class rewritten as an interface lost
+    // its struct and the checks on it (#921): here, the clip_distances type rule.
+    const source = `"use typeshade";
+class Unused { @builtin("position") p: vec4; @location(0) uv: vec2; }
+export const fs = fragment(function fs(): vec4 { return vec4(0.); });
+`;
+    const result = migrateSource(source);
+    expect(result.text).toContain(
+      'class Unused { p!: builtin<"position", vec4>; uv!: location<0, vec2>; }',
+    );
+    const sig = (r: ReturnType<typeof compile>) =>
+      JSON.stringify([r.wgsl, r.glsl, r.diagnostics.map((d) => [d.code, d.message])]);
+    expect(compile(result.text).wgsl).toContain('struct Unused');
+    expect(sig(compile(result.text))).toBe(sig(compile(source)));
+    const refused = `"use typeshade";
+class Unused { @builtin("position") p: vec4; @builtin("clip_distances") cd: f32; }
+export const fs = fragment(function fs(): vec4 { return vec4(0.); });
+`;
+    const codes = (text: string) => compile(text).diagnostics.map((d) => [d.code, d.message]);
+    expect(codes(migrateSource(refused).text)).toEqual(codes(refused));
+    expect(codes(refused).some(([code]) => code === 'TS8003')).toBe(true);
+  });
+
   it('gives the fields of a mixin\'s class expression "!"', () => {
     const result = migrateSource(`"use typeshade";
 function Tinted<T extends new (...a: any[]) => object>(Base: T) {

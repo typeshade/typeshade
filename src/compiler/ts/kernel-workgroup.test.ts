@@ -105,43 +105,43 @@ describe('a refusal of @workgroup_size reads the same in compile() and the langu
       'TS8077, a kernel function whose loop reduces',
       module(TOTAL),
       TS_CODES.KERNEL_WORKGROUP_REDUCES,
-      '"total" has a loop that reduces, which always runs in workgroups of 256. Remove @workgroup_size from "total", or put the reduction in a function of its own.',
+      '"total" has a loop that reduces, which always runs in workgroups of 256. Declare "total" without workgroup_size, or put the reduction in a function of its own.',
     ],
     [
       'TS8028, a function that is neither a kernel function nor an entry',
       module(`@workgroup_size([64])\nexport function plain(a: f32): f32 {\n  return a;\n}`),
       TS_CODES.ATTRIBUTE_NAME,
-      '"@workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Remove it from "plain".',
+      '"workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Declare "plain" without it.',
     ],
     [
       'TS8028, an entry keeps its refusal and its text',
       module('@compute @workgroup_size(64)\nexport function main(): void {}'),
       TS_CODES.ATTRIBUTE_NAME,
-      '"@workgroup_size" is WGSL\'s attribute, written here as @compute\'s argument: @compute([64]) or @compute([8, 8]).',
+      '"@workgroup_size" is WGSL\'s attribute, written here as compute\'s first argument: compute([64], f) or compute([8, 8], f).',
     ],
     [
       'TS8037, one extent is the grammar: two extents are refused',
       module(SCALE.replace('[128]', '[8, 8]')),
       TS_CODES.WORKGROUP_ARG,
-      '@workgroup_size takes an array of one whole number on a kernel function, as "@workgroup_size([64])", or a module constant in it, as "@workgroup_size([TILE])"; "@workgroup_size([8, 8])" is not one.',
+      'workgroup_size takes an array of one whole number before its function, as "workgroup_size([64], f)", or a module constant in it, as "workgroup_size([TILE], f)"; "[8, 8]" is not one.',
     ],
     [
       'TS8037, a bare number is not an array',
       module(SCALE.replace('[128]', '128')),
       TS_CODES.WORKGROUP_ARG,
-      '@workgroup_size takes an array of one whole number on a kernel function, as "@workgroup_size([64])", or a module constant in it, as "@workgroup_size([TILE])"; "@workgroup_size(128)" is not one.',
+      'workgroup_size takes an array of one whole number before its function, as "workgroup_size([64], f)", or a module constant in it, as "workgroup_size([TILE], f)"; "128" is not one.',
     ],
     [
       'TS8037, an untyped module constant is not one (as @compute)',
       module(`const TILE = 128;\n${SCALE.replace('[128]', '[TILE]')}`),
       TS_CODES.WORKGROUP_ARG,
-      '@workgroup_size takes an array of one whole number on a kernel function, as "@workgroup_size([64])", or a module constant in it, as "@workgroup_size([TILE])"; "@workgroup_size([TILE])" is not one.',
+      'workgroup_size takes an array of one whole number before its function, as "workgroup_size([64], f)", or a module constant in it, as "workgroup_size([TILE], f)"; "[TILE]" is not one.',
     ],
     [
       'TS8037, an override is not an extent in v1 (decision D2)',
       module(`declare const TILE: override<u32>;\n${SCALE.replace('[128]', '[TILE]')}`),
       TS_CODES.WORKGROUP_ARG,
-      '@workgroup_size takes an array of one whole number on a kernel function, as "@workgroup_size([64])", or a module constant in it, as "@workgroup_size([TILE])"; "@workgroup_size([TILE])" is not one.',
+      'workgroup_size takes an array of one whole number before its function, as "workgroup_size([64], f)", or a module constant in it, as "workgroup_size([TILE], f)"; "[TILE]" is not one.',
     ],
   ];
 
@@ -154,7 +154,7 @@ describe('a refusal of @workgroup_size reads the same in compile() and the langu
   it("warns TS8026 on an extent over WebGPU's default limit, in both halves", () => {
     const src = module(SCALE.replace('[128]', '[512]'));
     const want =
-      'warning TS8026 @workgroup_size shape [512, 1, 1] has x = 512, over maxComputeWorkgroupSizeX (256). WebGPU guarantees no more, so a device requested without raising that limit refuses the pipeline.';
+      'warning TS8026 workgroup_size shape [512, 1, 1] has x = 512, over maxComputeWorkgroupSizeX (256). WebGPU guarantees no more, so a device requested without raising that limit refuses the pipeline.';
     expect(compiled(src)).toContain(want);
     expect(edited(src)).toContain(want);
   });
@@ -168,6 +168,6 @@ describe('the editor shows the declared shape (Rule 12.7)', () => {
     const at = service.positionAt('m.shade.ts', src.indexOf('workgroup_size') + 2);
     const hover = service.getHover('m.shade.ts', at)?.contents ?? '';
     expect(hover).toContain('workgroup_size');
-    expect(hover).toContain('@workgroup_size([128])');
+    expect(hover).toContain('workgroup_size([128], f)');
   });
 });

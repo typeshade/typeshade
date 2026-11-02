@@ -1308,6 +1308,54 @@ describe('a fuse scope that fuses, on a recording device', () => {
     expect(gpu.shaders).toHaveLength(2);
   });
 
+  it('words a read with a call in its index in the names of the source (#955)', async () => {
+    // The module emits a class's function as `Voice_shift`. The reason is written at build time from
+    // the loop's IR, and says `Voice.shift`, as the sentence of TS8070 and the source do.
+    const SHIFTED = `"use typeshade";
+class Voice {
+  static shift(i: u32): u32 {
+    return i ^ 1;
+  }
+}
+export function add(out: array<f32>, a: array<f32>, b: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i] + b[i];
+  }
+}
+export function gather(out: array<f32>, t: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = t[Voice.shift(i)];
+  }
+}
+`;
+    const built = hostFace(SHIFTED, {
+      fileName: '/app/shifted.shade.ts',
+      runtime: RUNTIME,
+      fuse: true,
+    });
+    expect(built.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const gpu = fakeGpu();
+    const m = (await loadCode(built.code!, 'shifted')) as unknown as Record<'add' | 'gather', Call>;
+    const [t, out] = [zeros(4), zeros(4)];
+    const [a, b] = [live(1, 2, 3, 4), live(1, 1, 1, 1)];
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.gather(out, t);
+    });
+    const line = SHIFTED.split('\n').findIndex((l) => l.includes('t[Voice.shift(i)]')) + 1;
+    // The read keeps the two calls apart, and the reason names the function as it is written.
+    expect(gpu.flow).toEqual([dispatch, dispatch, 'submit']);
+    expect(report.groups).toEqual([
+      { calls: ['add'], fused: false, workgroupShapes: [[64, 1, 1]] },
+      {
+        calls: ['gather'],
+        fused: false,
+        workgroupShapes: [[64, 1, 1]],
+        why: `add and gather run as two dispatches because gather reads \`t[Voice.shift(i)]\` (line ${line})`,
+      },
+    ]);
+  });
+
   it('fuses the calls on either side of a refusal into groups of their own', async () => {
     const gpu = fakeGpu();
     const m = await loadFused();

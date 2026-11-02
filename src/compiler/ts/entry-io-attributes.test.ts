@@ -124,20 +124,36 @@ export const fs = fragment(function fs(uv: location<0, vec2, { interpolate: ["pe
     expect(c.glsl!.fragment).toContain('smooth centroid in vec2 uv;');
   });
 
-  it('refuses two parameters at one @location, and @interpolate on a @builtin parameter', () => {
-    // The vertex stage here writes no @location(0), so the compiler and the editor list the
-    // missing-output rows first, in document order (Rule 12.7). The rule under test is the
-    // clash row, which both halves must say.
-    const clash = `"use typeshade";
+  it('refuses two parameters at one location, and interpolate on a builtin parameter', () => {
+    // The vertex stage here writes no location<0, …>, so the compiler and the editor list the
+    // missing-output rows first, at the fragment entry's declaration (Rule 12.7). The rule
+    // under test is the clash row, which both halves must say. The two forms give the same rows
+    // at the same places: a stage call's interstage rows were anchored at the file's start,
+    // and so came first, before change 0111's milestone 4.
+    const decorated = `"use typeshade";
 @vertex export function vs(): vec4 { return vec4(0., 0., 0., 1.); }
 @fragment export function fs(@location(0) a: f32, @location(0) b: f32): vec4 {
   return vec4(a, b, 0., 1.);
 }`;
-    const said = 'TS8010 "fs" puts "a" and "b" both at @location(0); each slot carries one value.';
-    const rows = compileTsSource(clash)
-      .diagnostics.filter((d) => d.category === 'error')
-      .map((d) => `${d.code} ${d.message}`);
+    const clash = `"use typeshade";
+export const vs = vertex(function vs(): vec4 { return vec4(0., 0., 0., 1.); });
+export const fs = fragment(function fs(a: location<0, f32>, b: location<0, f32>): vec4 {
+  return vec4(a, b, 0., 1.);
+});`;
+    const said =
+      'TS8010 "fs" puts "a" and "b" both at location<0, …>; each slot carries one value.';
+    const read = (source: string) => {
+      const errors = compileTsSource(source).diagnostics.filter((d) => d.category === 'error');
+      return {
+        rows: errors.map((d) => `${d.code} ${d.message}`),
+        lines: errors.map((d) => source.slice(0, d.start).split('\n').length),
+      };
+    };
+    const { rows, lines } = read(clash);
     expect(rows).toContain(said);
+    expect(read(decorated)).toEqual({ rows, lines });
+    // The missing-output rows sit on the fragment entry's line, not on the file's first.
+    expect(lines).toEqual([3, 3, 3]);
     const service = createTypeshadeLanguageService();
     service.openDocument('c.ts', clash);
     expect(
@@ -147,10 +163,13 @@ export const fs = fragment(function fs(uv: location<0, vec2, { interpolate: ["pe
         .map((d) => `${d.code} ${d.message}`),
     ).toEqual(rows);
     expect(
-      diagnose(`@vertex export function vs(@builtin("vertex_index") @interpolate("flat") vi: u32): vec4 {
+      diagnose(`export const vs = vertex(function vs(vi: builtin<"vertex_index", u32, { interpolate: "flat" }>): vec4 {
   return vec4(f32(vi), 0., 0., 1.)
-}`).message,
-    ).toContain('@interpolate belongs on a @location parameter');
+})`).message,
+    ).toBe(
+      'The interpolate option belongs on a location<…> parameter: it says how a VARYING is ' +
+        'interpolated, and a builtin<…> carries its own rule.',
+    );
   });
 });
 
@@ -267,7 +286,7 @@ class VsOut extends Base {
 }
 @fragment export function fs(v: VsOut): vec4 { return vec4(v.a, v.b.x, 1.) }`);
     expect(d.code).toBe(TS_CODES.STRUCT_FIELD);
-    expect(d.message).toContain('both at @location(0)');
+    expect(d.message).toContain('both at location<0, …>');
   });
 
   it('refuses a @location on a compute entry reached through a struct', () => {
@@ -371,6 +390,6 @@ describe('one more refusal, about where an attribute belongs', () => {
 }
 @vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.) } }
 @fragment export function fs(v: VsOut): vec4 { return vec4(1.) }`);
-    expect(d.message).toContain('@interpolate belongs on a @location field');
+    expect(d.message).toContain('The interpolate option belongs on a location<…> field');
   });
 });

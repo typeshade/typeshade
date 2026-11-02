@@ -219,13 +219,14 @@ export function foreignNameRemedy(name: string): string | undefined {
   }
   switch (row.kind) {
     case 'attribute':
-      return `${whose} is @${row.name} here.`;
+      // The stage call and the attribute type an author writes (change 0111).
+      return `${whose} is ${row.name === 'compute' ? 'compute([x, y, z], f)' : `${row.name}<…>`} here.`;
     case 'address space':
       return `${whose} is the ${row.name} address space here: let x: ${row.name}<T>.`;
     case 'builtin': {
       const type = WGSL_BUILTIN_TYPES[row.name as keyof typeof WGSL_BUILTIN_TYPES] as
         ShaderType | undefined;
-      const declaration = `@builtin("${row.name}") ${paramName(row.name)}: ${type === undefined ? '…' : spelled(type)}`;
+      const declaration = `${paramName(row.name)}: builtin<"${row.name}", ${type === undefined ? '…' : spelled(type)}>`;
       const where =
         row.io === 'output'
           ? "a field of the entry's return"

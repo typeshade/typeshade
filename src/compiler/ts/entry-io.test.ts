@@ -127,7 +127,7 @@ export function fs(v: Out): vec4 {
 }
 `)[0],
     ).toBe(
-      `${TS_CODES.FUNCTION_SHAPE} "vs" is a @vertex entry, so what it returns has to carry the position: give "Out" a field with @builtin("position"), typed vec4.`,
+      `${TS_CODES.FUNCTION_SHAPE} "vs" is a vertex entry, so what it returns has to carry the position: give "Out" a field typed builtin<"position", vec4>.`,
     );
   });
 
@@ -137,7 +137,7 @@ export function fs(v: Out): vec4 {
 export const vs = vertex(function vs(): void {});
 ${FS}`)[0],
     ).toBe(
-      `${TS_CODES.FUNCTION_SHAPE} "vs" is a @vertex entry, so it returns the position: a vec4, which takes @builtin("position") on its own, or a struct with a vec4 field that carries it. It returns nothing.`,
+      `${TS_CODES.FUNCTION_SHAPE} "vs" is a vertex entry, so it returns the position: a vec4, which is the position on its own, or a struct with a field typed builtin<"position", vec4>. It returns nothing.`,
     );
     expect(
       errorsOf(`"use typeshade"
@@ -146,7 +146,7 @@ export const vs = vertex(function vs(): f32 {
 });
 ${FS}`)[0],
     ).toBe(
-      `${TS_CODES.FUNCTION_SHAPE} "vs" is a @vertex entry, so it returns the position: a vec4, which takes @builtin("position") on its own, or a struct with a vec4 field that carries it. It returns f32.`,
+      `${TS_CODES.FUNCTION_SHAPE} "vs" is a vertex entry, so it returns the position: a vec4, which is the position on its own, or a struct with a field typed builtin<"position", vec4>. It returns f32.`,
     );
   });
 });

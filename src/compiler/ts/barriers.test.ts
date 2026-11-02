@@ -260,7 +260,7 @@ describe('barriers: where one may stand', () => {
   // to reach the barrier — and the walk reports one whenever the control flow is not PROVABLY
   // uniform, so a shape it cannot read keeps the refusal it had.
   const branchedOn = (name: string, cause: string) =>
-    `${TS_CODES.UNIFORMITY} ${name}() is reached under ${cause}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it out of the branch, or branch on a value the whole workgroup shares (a uniform, a module const, @builtin("workgroup_id")).`;
+    `${TS_CODES.UNIFORMITY} ${name}() is reached under ${cause}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it out of the branch, or branch on a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).`;
 
   it('not inside a branch on a value the invocations do not share', () => {
     expect(errorsOf(kernel('  if (gid.x > 1) {\n    workgroupBarrier()\n  }'))).toEqual([
@@ -342,12 +342,12 @@ export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_
 export function k(@builtin("local_invocation_id") lid: vec3u): void {
 `;
     expect(errorsInBoth(`${lid}  if (lid.x > 2) { return; }\n  workgroupBarrier();\n}\n`)).toEqual([
-      `${TS_CODES.UNIFORMITY} workgroupBarrier() is reached after a return taken under "lid" (@builtin(local_invocation_id)), and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it above the return, or return on a value the whole workgroup shares (a uniform, a module const, @builtin("workgroup_id")).`,
+      `${TS_CODES.UNIFORMITY} workgroupBarrier() is reached after a return taken under "lid" (@builtin(local_invocation_id)), and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it above the return, or return on a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).`,
     ]);
     expect(errorsInBoth(`${lid}  workgroupBarrier();\n  if (lid.x > 2) { return; }\n}\n`)).toEqual(
       [],
     );
-    const inLoop = `${TS_CODES.UNIFORMITY} workgroupBarrier() is reached in a loop whose condition reads "lid" (@builtin(local_invocation_id)), and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it out of the loop, or bound the loop by a value the whole workgroup shares (a uniform, a module const, @builtin("workgroup_id")).`;
+    const inLoop = `${TS_CODES.UNIFORMITY} workgroupBarrier() is reached in a loop whose condition reads "lid" (@builtin(local_invocation_id)), and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it out of the loop, or bound the loop by a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).`;
     expect(
       errorsInBoth(
         `${lid}  let i: u32 = lid.x;\n  while (i < 8) {\n    workgroupBarrier();\n    i++;\n  }\n}\n`,
@@ -482,7 +482,7 @@ export const fs = fragment(function fs(): vec4 {
       `${TS_CODES.UNIFORMITY} workgroupUniformLoad() is reached under "o" (a read_write storage buffer), and every ` +
         'invocation of the workgroup has to reach it: one that does not is a workgroup that ' +
         'waits forever. Move it out of the branch, or branch on a value the whole workgroup ' +
-        'shares (a uniform, a module const, @builtin("workgroup_id")).',
+        'shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).',
     ]);
     // A fragment entry has no workgroup memory at all, and Tint refuses the VARIABLE there
     // ("var with 'workgroup' address space cannot be used by fragment pipeline stage") rather
@@ -521,7 +521,7 @@ ${body}
 });
 `;
   const refusal = (reached: string, move: string, on: string): string =>
-    `${TS_CODES.UNIFORMITY} workgroupUniformLoad() is reached ${reached}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. ${move}, or ${on} a value the whole workgroup shares (a uniform, a module const, @builtin("workgroup_id")).`;
+    `${TS_CODES.UNIFORMITY} workgroupUniformLoad() is reached ${reached}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. ${move}, or ${on} a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).`;
   const LID = '"lid" (@builtin(local_invocation_id))';
 
   it.each([
@@ -821,7 +821,7 @@ ${body}
 `;
   const LID = '"lid" (@builtin(local_invocation_id))';
   const said = (callee: string, reached: string, move: string, on: string): string =>
-    `${TS_CODES.UNIFORMITY} ${callee}() is reached ${reached}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. ${move}, or ${on} a value the whole workgroup shares (a uniform, a module const, @builtin("workgroup_id")).`;
+    `${TS_CODES.UNIFORMITY} ${callee}() is reached ${reached}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. ${move}, or ${on} a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).`;
 
   it.each([
     [

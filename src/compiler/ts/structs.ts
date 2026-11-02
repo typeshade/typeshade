@@ -2211,8 +2211,8 @@ function setEntryAttributes(
       diag(
         sourceFile,
         member,
-        `@interpolate belongs on a @location field: it says how a VARYING is ` +
-          `interpolated, and a @builtin carries its own rule.`,
+        `The interpolate option belongs on a location<…> field: it says how a VARYING is ` +
+          `interpolated, and a builtin<…> carries its own rule.`,
       ),
     );
   }
@@ -2221,7 +2221,7 @@ function setEntryAttributes(
       diag(
         sourceFile,
         member,
-        `@invariant belongs on @builtin("position"): it is WGSL's promise that this ` +
+        `The invariant option belongs on builtin<"position", vec4>: it is WGSL's promise that this ` +
           `position is computed the same way in two pipelines, and no other output ` +
           `has that meaning.`,
       ),
@@ -2232,7 +2232,7 @@ function setEntryAttributes(
       diag(
         sourceFile,
         member,
-        `@blend_src takes 0 or 1 — the two sources a dual-source blend mixes — ` +
+        `blend_src takes 0 or 1 — the two sources a dual-source blend mixes — ` +
           `not ${String(blendSrc)}.`,
       ),
     );
@@ -2303,8 +2303,8 @@ function checkLocationSlots(
           sourceFile,
           at,
           `Struct "${shown}" puts "${prev}" and "${field.name}" both at ` +
-            `@location(${String(field.location)})` +
-            `${field.blendSrc !== undefined ? ` @blend_src(${String(field.blendSrc)})` : ''}; ` +
+            `location<${String(field.location)}, …` +
+            `${field.blendSrc !== undefined ? `, { blend_src: ${String(field.blendSrc)} }` : ''}>; ` +
             `each slot carries one value.`,
           TS_CODES.STRUCT_FIELD,
         ),
@@ -2331,9 +2331,9 @@ function checkLocationSlots(
       makeDiagnostic(
         sourceFile,
         at,
-        `Struct "${shown}" declares @blend_src(${String(only)}) and not ` +
-          `@blend_src(${String(1 - only)}); a dual-source blend mixes two colours, so both sit ` +
-          `at the same @location.`,
+        `Struct "${shown}" declares { blend_src: ${String(only)} } and not ` +
+          `{ blend_src: ${String(1 - only)} }; a dual-source blend mixes two colours, so both sit ` +
+          `at the same location<…>.`,
         TS_CODES.STRUCT_FIELD,
       ),
     );

@@ -1541,6 +1541,14 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   identifier or a literal, so no block was kept under `n`. A field with a private name now goes by
   the name its line is written with. A method or an accessor with a private name is still not in
   the view, and a static field still has no line.
+- **An instance of a namespace function, and a call inside an index, are worded as the author wrote
+  them (#955).** After #953 the `TS8070` sentence names `Ns.f` for a function of a namespace, but an
+  instance of a generic one and the copy of one that takes a function, which a call makes where it
+  is lowered, kept the name the module emits: `"Ns_pick_u32"` and `"Ns_apply_inc"`. They record the
+  name they are written under where they are made, `Ns.pick` and `Ns.apply`. The reason a fuse scope
+  gives for two dispatches printed a call inside the index of a read with the name the module
+  emits, ``gather reads `t[Voice_shift(i)]` ``, and now prints `t[Voice.shift(i)]`. An instance of a
+  generic function of the top level (`pick_u32`) is not changed.
 
 - **`new this()` in a static builder of an `abstract` class builds each class that extends it
   (#944).** A builder written on an `abstract` base,

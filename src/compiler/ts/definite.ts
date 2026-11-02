@@ -119,9 +119,9 @@ export function checkDefiniteAssignment(
       report(
         id,
         t.out
-          ? `"${t.name}" is @out, and is read here before ${shown} writes it: an @out parameter ` +
+          ? `"${t.name}" is an out<T> parameter, and is read here before ${shown} writes it: it ` +
               `holds no value until the function writes it. Write "${t.name}" first, or declare ` +
-              `it @inout (Rule 8.25).`
+              `it inout<T> (Rule 8.25).`
           : `"${t.name}" is read here before it is assigned on every path. Assign it before ` +
               `this read, or declare it with a value (Rule 7.6).`,
       );
@@ -133,7 +133,7 @@ export function checkDefiniteAssignment(
         if (s.has(t)) continue;
         report(
           at,
-          `"${shown}" returns here without writing "${t.name}", which is @out: the caller's ` +
+          `"${shown}" returns here without writing "${t.name}", an out<T> parameter: the caller's ` +
             `variable would hold no value. Write "${t.name}" on every path (Rule 8.25).`,
         );
       }

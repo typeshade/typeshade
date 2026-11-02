@@ -326,13 +326,13 @@ const REASON = {
   fragmentInput: (p: string) =>
     `parameter "${p}" is what a vertex entry writes, and a draw has no vertex entry but its full-screen triangle; #204, the rendering design, adds a mesh`,
   fragmentOutput:
-    'a draw writes one @location(0) vec4 colour, a vec4 result or a struct of that one field',
+    'a draw writes one location<0, vec4> colour, a vec4 result or a struct of that one field',
   generic:
     'it is generic, and a generic function exists only as the instances the module uses; no proposal adds it yet',
   takesFunction:
     'it takes a function, and such a function exists only as the copies the module uses; no proposal adds it yet',
   reference: (p: string) =>
-    `parameter "${p}" is @inout or @out, which names a place of a shader's caller, and a host call passes values (Rule 8.21); call it from a function of the module, since no proposal adds a host reference yet`,
+    `parameter "${p}" is inout<T> or out<T>, which names a place of a shader's caller, and a host call passes values (Rule 8.21); call it from a function of the module, since no proposal adds a host reference yet`,
   binding:
     'it reaches a resource binding, which a helper call passes none of; call the entry that uses it (Rule 8.24)',
   workgroup:
@@ -2636,7 +2636,7 @@ function viewText(
         const [x, y, z] = e.entry.wg;
         out.push(
           ...above(
-            `A \`@compute\` entry, \`@workgroup_size(${x}, ${y}, ${z})\`: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Resident a call wrote (change 0075); each binding the entry writes is read back into your value in place, or stays on the device in a Resident. The shape shown is its default; options.constants selects declared overrides without changing workgroups (Rules 8.24 and 11.8). ${queuedCall('bindings')}`,
+            `A \`compute([${x}, ${y}, ${z}], f)\` entry: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Resident a call wrote (change 0075); each binding the entry writes is read back into your value in place, or stays on the device in a Resident. The shape shown is its default; options.constants selects declared overrides without changing workgroups (Rules 8.24 and 11.8). ${queuedCall('bindings')}`,
           ),
           ...(e.queuedType !== undefined
             ? [
@@ -2709,7 +2709,7 @@ function viewText(
       case 'fragment':
         out.push(
           ...above(
-            `A full-screen \`@fragment\` entry: draws one frame into \`target\`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24).`,
+            `A full-screen \`fragment(f)\` entry: draws one frame into \`target\`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24).`,
           ),
           `export declare function ${e.name}(target: HTMLCanvasElement | OffscreenCanvas, bindings: ${e.bindingsType}): Promise<void>;`,
         );

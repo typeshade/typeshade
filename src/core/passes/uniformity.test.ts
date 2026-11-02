@@ -75,12 +75,12 @@ function compiled(source: string) {
 /** The whole TS8052 sentence for a `textureSample` (Rule 12.5): where the call is reached, and
  *  the hoist that fits that place. */
 const sampleRefusal = (reached: string, hoist: string): string =>
-  `${TS_CODES.UNIFORMITY} textureSample() is reached ${reached}, which WGSL's derivative_uniformity rule refuses: the implicit level of detail is a difference between neighbouring invocations, and one that did not run has no value to difference against. ${hoist}, or use textureSampleLevel or textureSampleGrad, whose level of detail is the one you wrote, or write @diagnostic("off", "derivative_uniformity") on the entry to take the module as written.`;
+  `${TS_CODES.UNIFORMITY} textureSample() is reached ${reached}, which WGSL's derivative_uniformity rule refuses: the implicit level of detail is a difference between neighbouring invocations, and one that did not run has no value to difference against. ${hoist}, or use textureSampleLevel or textureSampleGrad, whose level of detail is the one you wrote, or give the stage call of the entry the option { diagnostic: ["off", "derivative_uniformity"] } to take the module as written.`;
 
 /** The whole TS8052 sentence for a call the workgroup has to reach together: where it is
  *  reached, where to move it, and what to write the statement on instead. */
 const barrierRefusal = (callee: string, reached: string, move: string, on: string): string =>
-  `${TS_CODES.UNIFORMITY} ${callee}() is reached ${reached}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. ${move}, or ${on} a value the whole workgroup shares (a uniform, a module const, @builtin("workgroup_id")).`;
+  `${TS_CODES.UNIFORMITY} ${callee}() is reached ${reached}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. ${move}, or ${on} a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).`;
 
 const UV = '"VsOut.uv" (a fragment input at @location(0))';
 const LID = '"lid" (@builtin(local_invocation_id))';
@@ -98,7 +98,7 @@ describe('a derivative under a branch the invocations do not share', () => {
     expect(first).toContain('derivative_uniformity');
     // The three fixes are named, because "not allowed" alone leaves an author guessing.
     expect(first).toContain('textureSampleLevel');
-    expect(first).toContain('@diagnostic("off", "derivative_uniformity")');
+    expect(first).toContain('{ diagnostic: ["off", "derivative_uniformity"] }');
   });
 
   it('follows the condition through a local it was copied into, to its ROOT', () => {
@@ -236,8 +236,9 @@ describe('@diagnostic("off", "derivative_uniformity")', () => {
 
   it('is offered where the file can carry it, which a namespace entry cannot', () => {
     // A namespace's entry refuses the attribute (TS8028), and TS8052 still told the author to
-    // write it "on the entry". It is read off any top-level function, so it is offered there when
-    // the file has one, and not at all when it does not.
+    // write it "on the entry". The option is read off a top-level stage call (change 0111), so
+    // it is offered on a top-level entry when the file has one, and not at all when it does not.
+    // The decorated form's `@diagnostic` on a top-level helper is still read, and not offered.
     const ns = (top: string, attrs = '') => `declare const t: texture_2d<f32>
 declare const s: sampler
 ${attrs}${top}namespace N {
@@ -250,9 +251,12 @@ ${attrs}${top}namespace N {
       `${TS_CODES.UNIFORMITY} textureSample() is reached after a return taken under "p" (@builtin(position)), which WGSL's derivative_uniformity rule refuses: the implicit level of detail is a difference between neighbouring invocations, and one that did not run has no value to difference against. Hoist the call above the return, or use textureSampleLevel or textureSampleGrad, whose level of detail is the one you wrote${tail}`;
     expect(errorsOf(ns(''))).toEqual([said('.')]);
     const helper = 'function half(x: f32): f32 { return x * 0.5 }\n';
-    expect(errorsOf(ns(helper))).toEqual([
+    expect(errorsOf(ns(helper))).toEqual([said('.')]);
+    const vs =
+      'export const vs = vertex(function vs(): builtin<"position", vec4> { return vec4(0.) })\n';
+    expect(errorsOf(ns(vs))).toEqual([
       said(
-        ', or write @diagnostic("off", "derivative_uniformity") on a top-level function to take the module as written.',
+        ', or give the stage call of a top-level entry the option { diagnostic: ["off", "derivative_uniformity"] } to take the module as written.',
       ),
     ]);
     expect(compiled(ns(helper, OFF)).wgsl).toContain('diagnostic(off, derivative_uniformity);');
@@ -326,8 +330,8 @@ let tile: workgroup<array<f32, 64>>
     // ONE conflict, ONE diagnostic. Reporting it at both decorators with byte-identical text
     // made a reader check whether two conflicts had been found.
     expect(conflict).toHaveLength(1);
-    expect(conflict[0]).toContain('set to "off" by the @diagnostic on "fs"');
-    expect(conflict[0]).toContain('to "error" by the one on "fs"');
+    expect(conflict[0]).toContain('set to "off" by the diagnostic option of "fs"');
+    expect(conflict[0]).toContain('to "error" by the one of "fs"');
     // The SAME severity written twice says one thing twice, which is not a conflict — and one
     // directive is emitted, not two.
     const twice = compiled(
@@ -349,15 +353,18 @@ export function helper(uv: vec2): vec4 { return textureSample(t, s, uv) }
     // One diagnostic, on the SECOND directive — the one that introduced the disagreement —
     // naming the function each side sits on so the other is findable without searching.
     expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain('set to "off" by the @diagnostic on "helper"');
-    expect(errors[0]).toContain('to "error" by the one on "fs"');
+    expect(errors[0]).toContain('set to "off" by the diagnostic option of "helper"');
+    expect(errors[0]).toContain('to "error" by the one of "fs"');
   });
 
   it('refuses a severity and a rule it does not know, and a wrong argument shape', () => {
     for (const [attr, want] of [
       ['@diagnostic("loud", "derivative_uniformity")\n', 'is not a diagnostic severity'],
       ['@diagnostic("off", "made_up_rule")\n', 'is not a rule this compiler analyses'],
-      ['@diagnostic("off")\n', '@diagnostic takes a severity and a rule'],
+      [
+        '@diagnostic("off")\n',
+        'diagnostic takes a severity and a rule, as strings: { diagnostic: ["off", "derivative_uniformity"] }.',
+      ],
     ] as const) {
       expect(errorsOf(frag(`  return textureSample(t, s, v.uv)`, attr)).join('\n'), attr).toContain(
         want,
@@ -1813,7 +1820,7 @@ ${inner}
   return vec4(c, 0., 0., 1.);`),
       ),
     ).toEqual([
-      `${TS_CODES.UNIFORMITY} dpdx() is reached in a loop where some invocations skip ahead by a continue taken under ${UV}, which WGSL's derivative_uniformity rule refuses: it differences neighbouring invocations, and one that did not run has no value to difference against. Hoist the call out of the loop and select from its result, or compute the quantity some other way — a screen-space derivative has no alternative form, or write @diagnostic("off", "derivative_uniformity") on the entry to take the module as written.`,
+      `${TS_CODES.UNIFORMITY} dpdx() is reached in a loop where some invocations skip ahead by a continue taken under ${UV}, which WGSL's derivative_uniformity rule refuses: it differences neighbouring invocations, and one that did not run has no value to difference against. Hoist the call out of the loop and select from its result, or compute the quantity some other way — a screen-space derivative has no alternative form, or give the stage call of the entry the option { diagnostic: ["off", "derivative_uniformity"] } to take the module as written.`,
     ]);
   });
 
@@ -1930,7 +1937,7 @@ describe('an arm of a ?: that WGSL writes as an if', () => {
   return vec4(r[0], 0., 0., 1.)`),
       ),
     ).toEqual([
-      `${TS_CODES.UNIFORMITY} dpdx() is reached in an arm of a ?: whose condition reads ${UV}, which WGSL's derivative_uniformity rule refuses: it differences neighbouring invocations, and one that did not run has no value to difference against. Hoist the call above the ?: and select from its result, or compute the quantity some other way — a screen-space derivative has no alternative form, or write @diagnostic("off", "derivative_uniformity") on the entry to take the module as written.`,
+      `${TS_CODES.UNIFORMITY} dpdx() is reached in an arm of a ?: whose condition reads ${UV}, which WGSL's derivative_uniformity rule refuses: it differences neighbouring invocations, and one that did not run has no value to difference against. Hoist the call above the ?: and select from its result, or compute the quantity some other way — a screen-space derivative has no alternative form, or give the stage call of the entry the option { diagnostic: ["off", "derivative_uniformity"] } to take the module as written.`,
     ]);
   });
 

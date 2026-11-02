@@ -1286,7 +1286,7 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
     reason:
       "The compiler reads a local before its assignment itself, by TypeScript's rule, and " +
       'reports TS8075 where it does (Rule 7.6, proposal 0043), with one difference TypeScript ' +
-      'cannot see: an argument an `@out` parameter takes assigns the variable, so `let s: f32; ' +
+      'cannot see: an argument an `out<T>` parameter takes assigns the variable, so `let s: f32; ' +
       'add(a, b, s); return s;` reads an assigned `s`. A module variable may be declared with ' +
       'no initializer, and it then starts at zero on every target (surface §24), where ' +
       "TypeScript 5.7 and later report every read. So TypeScript's TS2454 is dropped, and the " +
