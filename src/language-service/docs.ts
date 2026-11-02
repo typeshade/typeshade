@@ -137,6 +137,18 @@ export const STAGE_CALL_DOCS: Readonly<Record<string, string>> = {
     'Sets the workgroup size of a kernel function, an exported function that takes an array with no size or a 2D storage texture, as one extent: `export const scale = workgroup_size([128], function scale(xs: array<f32>) { … })`. A loop that reduces runs at 256 whatever is written.',
 };
 
+/** One Markdown sentence per attribute type of change 0111, the plain-TypeScript spelling of
+ *  an entry input's or output's attribute. Each type means its value type. */
+export const ATTRIBUTE_TYPE_DOCS: Readonly<Record<string, string>> = {
+  builtin:
+    'A WebGPU builtin value of type `T`: `i: builtin<"vertex_index", u32>` on an entry parameter, `pos: builtin<"position", vec4>` on an entry IO field. Options: `{ invariant: true }` on the position.',
+  location:
+    'A shader IO location of type `T`: `uv: location<0, vec2>`. Options: `{ interpolate: "flat" }` or `{ interpolate: ["linear", "centroid"] }`, and `{ blend_src: 0 | 1 }` on a dual-source fragment output.',
+  inout:
+    "A parameter that names the caller's place: reading it reads that place and assigning to it writes it. The caller passes the variable itself: `swap(x, y)`. WGSL `ptr<function, T>`, GLSL ES 3.00 `inout T`.",
+  out: "A parameter that names a place of the caller's that the function writes before reading it and on every path. The caller passes a variable, which may have no value yet: `let s!: f32; add(a, b, s);`. WGSL `ptr<function, T>`, GLSL ES 3.00 `inout T`.",
+};
+
 /** One Markdown sentence per `@builtin(...)` id in `WGSL_BUILTIN_NAMES`. */
 export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
   vertex_index: 'The index of the current vertex within its draw call.',

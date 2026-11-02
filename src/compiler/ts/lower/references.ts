@@ -14,6 +14,7 @@
 
 import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
+import { attributeDecoratorsOf } from '../attribute-types.js';
 import type {
   BindingDecl,
   Expr,
@@ -58,7 +59,8 @@ export function isOutParam(param: FuncDecl['params'][number] | undefined): boole
 /** The qualifier decorators written on `p` (`@inout`, `@out`), in source order. */
 export function qualifiersOf(p: ts.ParameterDeclaration): { name: string; node: ts.Decorator }[] {
   const out: { name: string; node: ts.Decorator }[] = [];
-  for (const d of ts.canHaveDecorators(p) ? (ts.getDecorators(p) ?? []) : []) {
+  // With the qualifier a type stands for, `x: inout<f32>` (change 0111).
+  for (const d of attributeDecoratorsOf(p)) {
     if (ts.isIdentifier(d.expression) && QUALIFIER_NAMES.includes(d.expression.text)) {
       out.push({ name: d.expression.text, node: d });
     }

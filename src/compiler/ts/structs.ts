@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { attributeDecoratorsOf, typeDecoratorsOf } from './attribute-types.js';
 import type { StructDecl, StructField } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { boolT, f32T, structT, typeKey as typeKeyOf } from '../../core/ir/types.js';
@@ -775,8 +776,7 @@ export function collectStructs(
             staticFields++;
             continue;
           }
-          for (const d of member.modifiers ?? []) {
-            if (!ts.isDecorator(d)) continue;
+          for (const d of attributeDecoratorsOf(member)) {
             checkAttributeName(diagnostics, sourceFile, d, 'a struct field');
             const text = d.getText(sourceFile);
             if (/@align/.test(text)) {
@@ -844,79 +844,7 @@ export function collectStructs(
             restrictedFields.set(emittedMemberName(memberName), { access, owner: member.parent });
           }
           const field: StructField = { name: emittedMemberName(memberName), type };
-          const loc = numberDecorator(member, 'location');
-          const decos = ts.canHaveDecorators(member) ? (ts.getDecorators(member) ?? []) : [];
-          const builtinArg = builtinDecoratorArg(decos);
-          const builtin =
-            builtinArg &&
-            checkBuiltinName(diagnostics, sourceFile, builtinArg.argNode, builtinArg.name)
-              ? builtinArg.name
-              : undefined;
-          // The TYPE rule is checked here, at the declaration, and not only where the struct
-          // is used as entry IO (`lower/function.ts`): the capability a `@builtin(...)` id
-          // derives is read off `m.structs` whatever the struct is used for, so a struct that
-          // declares `@builtin("clip_distances")` and is never an entry parameter emitted the
-          // directive and the field with no diagnostic at all.
-          if (builtin) {
-            checkBuiltinType(diagnostics, sourceFile, builtinArg!.argNode, builtin, type);
-          }
-          // The entry-IO attributes (§53). `@interpolate` rides a `@location`; `@invariant`
-          // rides `@builtin("position")`, the one output WGSL lets it steady; `@blend_src`
-          // rides a `@location(0)` fragment output and derives a capability. Each is checked
-          // where it is written, so the message names the line rather than the emitted text.
-          const interpolate = interpolateDecoratorArg(diagnostics, sourceFile, decos);
-          const invariant = hasInvariantDecorator(decos);
-          const blendSrc = numberDecorator(member, 'blend_src');
-          if (interpolate !== undefined && loc === undefined) {
-            diagnostics.push(
-              diag(
-                sourceFile,
-                member,
-                `@interpolate belongs on a @location field: it says how a VARYING is ` +
-                  `interpolated, and a @builtin carries its own rule.`,
-              ),
-            );
-          }
-          if (invariant && builtin !== 'position') {
-            diagnostics.push(
-              diag(
-                sourceFile,
-                member,
-                `@invariant belongs on @builtin("position"): it is WGSL's promise that this ` +
-                  `position is computed the same way in two pipelines, and no other output ` +
-                  `has that meaning.`,
-              ),
-            );
-          }
-          if (blendSrc !== undefined && blendSrc !== 0 && blendSrc !== 1) {
-            diagnostics.push(
-              diag(
-                sourceFile,
-                member,
-                `@blend_src takes 0 or 1 — the two sources a dual-source blend mixes — ` +
-                  `not ${String(blendSrc)}.`,
-              ),
-            );
-          }
-          if (loc !== undefined) (field as { location?: number }).location = loc;
-          if (builtin) (field as { builtin?: string }).builtin = builtin;
-          if (interpolate !== undefined && loc !== undefined) {
-            // The WHOLE argument list, `flat` or `linear, centroid` — the GLSL writer needs
-            // the sampling as well as the type, and storing only the type silently dropped
-            // the `centroid` half.
-            (field as { interpolate?: string }).interpolate = interpolate.slice(
-              '@interpolate('.length,
-              -1,
-            );
-          }
-          const extra =
-            (invariant && builtin === 'position' ? '@invariant ' : '') +
-            (blendSrc !== undefined ? `@blend_src(${String(blendSrc)}) ` : '') +
-            (interpolate !== undefined && loc !== undefined ? `${interpolate} ` : '');
-          if (builtin) (field as { attr?: string }).attr = `${extra}@builtin(${builtin})`.trim();
-          else if (loc !== undefined)
-            (field as { attr?: string }).attr = `@location(${loc}) ${extra}`.trim();
-          if (blendSrc !== undefined) (field as { blendSrc?: number }).blendSrc = blendSrc;
+          setEntryAttributes(field, member, type, sourceFile, diagnostics);
           fields.push(field);
           if (member.initializer !== undefined) {
             fieldInits.push({ name: field.name, type: field.type, init: member.initializer });
@@ -2230,7 +2158,13 @@ function signatureFields(
       continue;
     }
     if (member.questionToken !== undefined) markOmittableField(sourceFile, owner, member.name.text);
-    fields.push({ name: member.name.text, type });
+    const field: StructField = { name: member.name.text, type };
+    // An interface field carries an attribute only in its type, `pos: builtin<'position', vec4>`
+    // (change 0111): TypeScript has no decorator on an interface member.
+    for (const d of typeDecoratorsOf(member))
+      checkAttributeName(diagnostics, sourceFile, d, 'a struct field');
+    setEntryAttributes(field, member, type, sourceFile, diagnostics);
+    fields.push(field);
     recordDeclaration(symbols, sourceFile, member.name, {
       name: member.name.text,
       kind: 'field',
@@ -2241,8 +2175,88 @@ function signatureFields(
   return fields;
 }
 
+/** Reads the entry-IO attributes a field carries, written or stood for by its type (change
+ *  0111), into `field`: `@builtin`, `@location`, `@interpolate`, `@invariant`, `@blend_src`. */
+function setEntryAttributes(
+  field: StructField,
+  member: ts.PropertyDeclaration | ts.PropertySignature,
+  type: ShaderType,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  const loc = numberDecorator(member, 'location');
+  const decos = attributeDecoratorsOf(member);
+  const builtinArg = builtinDecoratorArg(decos);
+  const builtin =
+    builtinArg && checkBuiltinName(diagnostics, sourceFile, builtinArg.argNode, builtinArg.name)
+      ? builtinArg.name
+      : undefined;
+  // The TYPE rule is checked here, at the declaration, and not only where the struct
+  // is used as entry IO (`lower/function.ts`): the capability a `@builtin(...)` id
+  // derives is read off `m.structs` whatever the struct is used for, so a struct that
+  // declares `@builtin("clip_distances")` and is never an entry parameter emitted the
+  // directive and the field with no diagnostic at all.
+  if (builtin) {
+    checkBuiltinType(diagnostics, sourceFile, builtinArg!.argNode, builtin, type);
+  }
+  // The entry-IO attributes (§53). `@interpolate` rides a `@location`; `@invariant`
+  // rides `@builtin("position")`, the one output WGSL lets it steady; `@blend_src`
+  // rides a `@location(0)` fragment output and derives a capability. Each is checked
+  // where it is written, so the message names the line rather than the emitted text.
+  const interpolate = interpolateDecoratorArg(diagnostics, sourceFile, decos);
+  const invariant = hasInvariantDecorator(decos);
+  const blendSrc = numberDecorator(member, 'blend_src');
+  if (interpolate !== undefined && loc === undefined) {
+    diagnostics.push(
+      diag(
+        sourceFile,
+        member,
+        `@interpolate belongs on a @location field: it says how a VARYING is ` +
+          `interpolated, and a @builtin carries its own rule.`,
+      ),
+    );
+  }
+  if (invariant && builtin !== 'position') {
+    diagnostics.push(
+      diag(
+        sourceFile,
+        member,
+        `@invariant belongs on @builtin("position"): it is WGSL's promise that this ` +
+          `position is computed the same way in two pipelines, and no other output ` +
+          `has that meaning.`,
+      ),
+    );
+  }
+  if (blendSrc !== undefined && blendSrc !== 0 && blendSrc !== 1) {
+    diagnostics.push(
+      diag(
+        sourceFile,
+        member,
+        `@blend_src takes 0 or 1 — the two sources a dual-source blend mixes — ` +
+          `not ${String(blendSrc)}.`,
+      ),
+    );
+  }
+  if (loc !== undefined) (field as { location?: number }).location = loc;
+  if (builtin) (field as { builtin?: string }).builtin = builtin;
+  if (interpolate !== undefined && loc !== undefined) {
+    // The WHOLE argument list, `flat` or `linear, centroid` — the GLSL writer needs
+    // the sampling as well as the type, and storing only the type silently dropped
+    // the `centroid` half.
+    (field as { interpolate?: string }).interpolate = interpolate.slice('@interpolate('.length, -1);
+  }
+  const extra =
+    (invariant && builtin === 'position' ? '@invariant ' : '') +
+    (blendSrc !== undefined ? `@blend_src(${String(blendSrc)}) ` : '') +
+    (interpolate !== undefined && loc !== undefined ? `${interpolate} ` : '');
+  if (builtin) (field as { attr?: string }).attr = `${extra}@builtin(${builtin})`.trim();
+  else if (loc !== undefined)
+    (field as { attr?: string }).attr = `@location(${loc}) ${extra}`.trim();
+  if (blendSrc !== undefined) (field as { blendSrc?: number }).blendSrc = blendSrc;
+}
+
 function numberDecorator(node: ts.Node, name: string): number | undefined {
-  for (const d of ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : []) {
+  for (const d of attributeDecoratorsOf(node)) {
     if (!ts.isCallExpression(d.expression)) continue;
     if (!ts.isIdentifier(d.expression.expression) || d.expression.expression.text !== name)
       continue;
