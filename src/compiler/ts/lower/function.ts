@@ -67,7 +67,7 @@ import { refuseAtomicDeclaration } from './atomics.js';
 import { refuseRuntimeArraySignature } from './runtime-array.js';
 import { checkReferenceAliases, markOutParam, qualifiersOf } from './references.js';
 import { checkDefiniteAssignment } from '../definite.js';
-import { kernelSourceNames } from '../kernel-loops.js';
+import { kernelSourceNames, type KernelNames } from '../kernel-loops.js';
 import {
   buildsCallerClass,
   emittedMemberName,
@@ -153,21 +153,27 @@ import {
  *  `Voice_count` of a static field the file writes and `Voice.OFFSET` for the module constant
  *  `Voice_OFFSET` of one it does not. A name declared at the top level is emitted as written and has
  *  no row. The functions are read from the callee table, which holds every function of the file
- *  before any body is lowered, and the instances made by the calls lowered so far. */
-function writtenModuleNames(scope: LoweringScope, sourceFile: ts.SourceFile): [string, string][] {
-  const out: [string, string][] = [];
+ *  before any body is lowered, and the instances made by the calls lowered so far. The rows are in
+ *  two tables, since a call reads a function and a `varref` or a `constref` a value, and neither
+ *  reads a parameter's name (`KernelNames`, #988). */
+function writtenModuleNames(
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+): Pick<KernelNames, 'values' | 'functions'> {
+  const functions = new Map<string, string>();
+  const values = new Map<string, string>();
   for (const [emitted, decl] of scope.calleeTable()) {
     const written = classFunctionOf(decl)?.shown ?? writtenFunctionOf(decl);
-    if (written !== undefined && written !== emitted) out.push([emitted, written]);
+    if (written !== undefined && written !== emitted) functions.set(emitted, written);
   }
   for (const [field, decl] of staticFieldDeclarations(sourceFile)) {
     // A static field that holds a function is a function of the module, named above.
     if (holdsFunction(decl)) continue;
     const dot = field.indexOf('.');
     const member = emittedMemberName(field.slice(dot + 1));
-    out.push([staticConstName(field.slice(0, dot), member), field]);
+    values.set(staticConstName(field.slice(0, dot), member), field);
   }
-  return out;
+  return { values, functions };
 }
 
 export function lowerSourceFunctions(
@@ -3535,17 +3541,14 @@ export function fillFunctionBody(
   (stub as { body: readonly Stmt[] }).body = body;
   // A kernel function's loops are proved on its IR, and a refusal names the author's names
   // (Rule 8.22): keep what each IR name was written as, the functions it calls and the static
-  // fields it reaches among them. The scope names a module-level name as itself, so the written
-  // names come after the scope's.
+  // fields it reaches among them. The scope names a module-level name as itself, which is why a
+  // value of the module has a table of its own: a parameter that shares its IR name is a `param`,
+  // and reads the scope's table (#988).
   if (stub.kernel === true)
-    kernelSourceNames.set(
-      stub,
-      new Map([
-        ...scope.sourceNames(),
-        ...writtenModuleNames(scope, sourceFile),
-        ...kernelMethodNames,
-      ]),
-    );
+    kernelSourceNames.set(stub, {
+      locals: new Map([...scope.sourceNames(), ...kernelMethodNames]),
+      ...writtenModuleNames(scope, sourceFile),
+    });
   // The type a function that writes none returns, which the language service writes into the
   // text TypeScript reads when its return does vector arithmetic (#162, `projection.ts`).
   if (node.type === undefined && stub.stage === undefined) {
