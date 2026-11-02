@@ -4,17 +4,19 @@ import { compile } from './compile.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 
-describe('sum / min / max / fill / none', () => {
-  it('sums an array with +', () => {
-    const r = compileTsSource(`
+describe('reduce / min / max / fill / some', () => {
+  // `sum(xs)` was removed (change 0112): `xs.reduce((a, b) => a + b)` adds the same elements in the
+  // same order, and `removed-names.test.ts` holds the refusal of the old spelling.
+  it('sums an array with reduce and +', () => {
+    const r = compile(`
       "use typeshade";
       export function f(xs: array<f32, 3>): f32 {
-        return sum(xs);
+        return xs.reduce((a, b) => a + b);
       }
     `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    const ret = r.funcs[0]!.body[0];
-    if (ret!.s === 'return') expect(ret.expr?.op).toBe('binop');
+    for (const make of [compileModule, compileModuleJs])
+      expect(make(r.module).fns['f']!([1, 2, 4]), make.name).toBe(7);
   });
 
   it('mins an array via min(a, b) calls', () => {
@@ -107,16 +109,18 @@ export function f(n: u32): u32 {
     ]);
   });
 
-  it('none(xs, pred) is !any', () => {
-    const r = compileTsSource(`
+  it('!xs.some(pred) is none', () => {
+    const r = compile(`
       "use typeshade";
       function pos(x: f32): bool { return x > 0.; }
       export function f(xs: array<f32, 2>): bool {
-        return none(xs, pos);
+        return !xs.some(pos);
       }
     `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    const ret = r.funcs.find((fn) => fn.name === 'f')!.body[0];
-    if (ret!.s === 'return') expect(ret.expr?.op).toBe('compare');
+    for (const make of [compileModule, compileModuleJs]) {
+      const f = make(r.module).fns['f']!;
+      expect([f([-1, -2]), f([-1, 2])], make.name).toEqual([true, false]);
+    }
   });
 });

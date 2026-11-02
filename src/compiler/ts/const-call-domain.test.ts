@@ -22,6 +22,9 @@
 // The compile gate's const-call leg compiles the accepted neighbours on Tint
 // (scripts/compile-gate.ts).
 //
+// The free name `pow` was removed (change 0112): the programs below write `Math.pow(a, b)`, or `**`
+// for a vector, which lower to the same builtin, and the sentence names the spelling written.
+//
 // Both halves read each source: `compile()`'s diagnostics (code and text, Rule 12.5) and the
 // language service's `getDiagnostics`.
 //
@@ -74,21 +77,26 @@ describe('a constant call outside its domain is refused where it is written (#61
   it('refuses each program of the issue, in both halves', () => {
     const rows: [string, string, string][] = [
       [
-        'y = pow(-2., 0.5)',
+        'y = Math.pow(-2., 0.5)',
         '',
-        outside('pow(-2., 0.5)', 'pow', 'the base -2 is below 0', NO_VALUE),
+        outside('Math.pow(-2., 0.5)', 'Math.pow', 'the base -2 is below 0', NO_VALUE),
       ],
       [
-        'let p = pow(-2., 2.)\n  y = y + p',
-        '',
-        outside('pow(-2., 2.)', 'pow', 'the base -2 is below 0', 'Write its value, 4, instead.'),
-      ],
-      [
-        'y = pow(0., -1.)',
+        'let p = Math.pow(-2., 2.)\n  y = y + p',
         '',
         outside(
-          'pow(0., -1.)',
-          'pow',
+          'Math.pow(-2., 2.)',
+          'Math.pow',
+          'the base -2 is below 0',
+          'Write its value, 4, instead.',
+        ),
+      ],
+      [
+        'y = Math.pow(0., -1.)',
+        '',
+        outside(
+          'Math.pow(0., -1.)',
+          'Math.pow',
           'the base is 0 and the exponent -1 is not above 0',
           NO_VALUE,
         ),
@@ -97,8 +105,13 @@ describe('a constant call outside its domain is refused where it is written (#61
       ['y = sqrt(-1.)', '', outside('sqrt(-1.)', 'sqrt', '-1 is below 0', NO_VALUE)],
       [
         'y = y + K',
-        'const K: f32 = pow(-2., 2.)',
-        outside('pow(-2., 2.)', 'pow', 'the base -2 is below 0', 'Write its value, 4, instead.'),
+        'const K: f32 = Math.pow(-2., 2.)',
+        outside(
+          'Math.pow(-2., 2.)',
+          'Math.pow',
+          'the base -2 is below 0',
+          'Write its value, 4, instead.',
+        ),
       ],
     ];
     for (const [body, consts, expected] of rows) both(fs(body, consts), [expected]);
@@ -106,25 +119,25 @@ describe('a constant call outside its domain is refused where it is written (#61
 
   it('gives the module constant the call sentence, not the type sentence', () => {
     // The neighbour the issue quotes: refused before, with "f32 is neither".
-    both(fs('y = y + K', 'const K: f32 = pow(-2., 0.5)'), [
-      outside('pow(-2., 0.5)', 'pow', 'the base -2 is below 0', NO_VALUE),
+    both(fs('y = y + K', 'const K: f32 = Math.pow(-2., 0.5)'), [
+      outside('Math.pow(-2., 0.5)', 'Math.pow', 'the base -2 is below 0', NO_VALUE),
     ]);
   });
 
   it('refuses through a constant, a vector, Math, and an expression', () => {
-    both(fs('y = pow(K, 0.5)', 'const K: f32 = -2.'), [
-      outside('pow(K, 0.5)', 'pow', 'the base -2 is below 0', NO_VALUE),
+    both(fs('y = Math.pow(K, 0.5)', 'const K: f32 = -2.'), [
+      outside('Math.pow(K, 0.5)', 'Math.pow', 'the base -2 is below 0', NO_VALUE),
     ]);
-    both(fs('const k = -2.\n  y = pow(k, 0.5)'), [
-      outside('pow(k, 0.5)', 'pow', 'the base -2 is below 0', NO_VALUE),
+    both(fs('const k = -2.\n  y = Math.pow(k, 0.5)'), [
+      outside('Math.pow(k, 0.5)', 'Math.pow', 'the base -2 is below 0', NO_VALUE),
     ]);
-    both(fs('y = pow(vec2(-2., 2.), vec2(2.)).x'), [
-      outside('pow(vec2(-2., 2.), vec2(2.))', 'pow', 'in .x, the base -2 is below 0', NO_VALUE),
+    both(fs('y = (vec2(-2., 2.) ** vec2(2.)).x'), [
+      outside('vec2(-2., 2.) ** vec2(2.)', '**', 'in .x, the base -2 is below 0', NO_VALUE),
     ]);
     both(fs('y = Math.sqrt(-4.)'), [
       outside('Math.sqrt(-4.)', 'Math.sqrt', '-4 is below 0', NO_VALUE),
     ]);
-    both(fs('y = y + pow(1e19, 2.) * 10.'), [past('pow(1e19, 2.) * 10.', '1e+39')]);
+    both(fs('y = y + Math.pow(1e19, 2.) * 10.'), [past('Math.pow(1e19, 2.) * 10.', '1e+39')]);
   });
 
   it('refuses the other builtins Tint checks', () => {
@@ -160,17 +173,17 @@ describe('a constant call outside its domain is refused where it is written (#61
 describe('the neighbours Tint accepts compile, in both halves (#613)', () => {
   it('passes each one', () => {
     for (const body of [
-      'y = pow(2., 0.5) + pow(10., 2.) + pow(y, 2.)',
-      'y = pow(-0., 2.) + pow(0., 2.) + sqrt(-0.) + sqrt(0.)',
-      'y = pow(-2., y) + pow(y, -1.) + sqrt(-1. * y)',
-      'let k = -2.\n  y = pow(k, 0.5)',
+      'y = Math.pow(2., 0.5) + Math.pow(10., 2.) + Math.pow(y, 2.)',
+      'y = Math.pow(-0., 2.) + Math.pow(0., 2.) + sqrt(-0.) + sqrt(0.)',
+      'y = Math.pow(-2., y) + Math.pow(y, -1.) + sqrt(-1. * y)',
+      'let k = -2.\n  y = Math.pow(k, 0.5)',
       'y = log(1.) + acos(-1.) + asin(1.) + acosh(1.) + atanh(0.5) + inverseSqrt(4.)',
       'y = smoothstep(2., 1., y) + smoothstep(0., 1., y)',
-      'y = y + exp(88.)\n  y = y + exp2(127.)\n  y = y + pow(2., 127.)',
+      'y = y + exp(88.)\n  y = y + exp2(127.)\n  y = y + Math.pow(2., 127.)',
       'y = y / sqrt(0.)',
     ])
       both(fs(body), []);
-    both(fs('y = pow(K, 2.)', 'const K: f32 = 2.'), []);
+    both(fs('y = Math.pow(K, 2.)', 'const K: f32 = 2.'), []);
     // A function of the file named pow is not the builtin (Rule 9.5).
     both(fs('y = pow(-2.)', 'function pow(x: f32): f32 { return x * x; }'), []);
   });

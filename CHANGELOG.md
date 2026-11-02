@@ -1448,6 +1448,27 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Removed
 
+- **A meaning that an ECMAScript form carries in every case has that one spelling (change 0112,
+  change 0112).** The ambient library no longer declares, and the front end no longer resolves, the
+  names below. A program that calls or reads one stops compiling with a sentence that names the
+  spelling to write instead; no deprecation window applies, because nothing compiles to another
+  result (Rule 13.10, before `1.0.0`). The emitted WGSL and GLSL of the replacement are the same.
+  - `arrayLength(xs)`: write `xs.length` (`TS8004`).
+  - `pow(a, b)`: write `a ** b` (`TS8004`).
+  - `PI`, `E`, `LN2`, `LN10`, `LOG2E`, `LOG10E`: write `Math.PI`, `Math.E`, `Math.LN2`,
+    `Math.LN10`, `Math.LOG2E`, `Math.LOG10E` (`TS8022`). `TAU` stays.
+  - `log10`, `log1p`, `expm1`, `cbrt`, `hypot`: write `Math.log10`, `Math.log1p`, `Math.expm1`,
+    `Math.cbrt`, `Math.hypot` (`TS8004`).
+  - `sum(xs)`: write `xs.reduce((a, b) => a + b)` (`TS8004`).
+  - `any(xs, p)` and `all(xs, p)`, the array folds only: write `xs.some(p)` and `xs.every(p)`
+    (`TS8019`). `any(v)` and `all(v)` on a bool or a bool vector stay.
+  - `none(xs, p)`: write `!xs.some(p)` (`TS8004`).
+
+  The thirteen rows of these names leave the §9.3 table (Rule 9.6). A function or constant the
+  file declares under one of these names is the file's own (Rule 9.5). The examples `atomic-histogram`, `gpu-console`,
+  `workgroup-override`, `workgroup-scratch` and `higher-order`, and the examples that wrote `pow`,
+  now use the replacements.
+
 - **The package root no longer exports the IR builder** (proposal 0060, steps 1 to 3; Rule
   11.19). An author writes a program in `"use typeshade"`. The builder's 209 values (`fn`,
   `module`, `Let`, `If`, `Loop`, the node classes `Node`, `ReadonlyNode` and `Builder`, a

@@ -83,7 +83,7 @@ export function f(a: f32, b: f32): f32 {
     x = exp(a) + sqrt(a);
   }
   for (let i: i32 = 0; i < 4; i++) {
-    x += pow(a, 2.);
+    x += a ** 2.;
   }
   return x;
 }`);

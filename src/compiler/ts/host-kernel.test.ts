@@ -190,7 +190,7 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
   it('checks an array a loop only reads against the indices it reads, before anything runs (#655)', async () => {
     // `a` is shorter than `out`: the CPU tier read past its end and threw an internal TypeError.
     const m = await load(
-      `"use typeshade";\nexport function copy4(out: array<vec4f>, a: array<vec4f>): void {\n  for (let i: u32 = 0; i < arrayLength(out); i++) {\n    out[i] = a[i] * 2.;\n  }\n}\n`,
+      `"use typeshade";\nexport function copy4(out: array<vec4f>, a: array<vec4f>): void {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = a[i] * 2.;\n  }\n}\n`,
     );
     const copy4 = m.copy4 as (...a: unknown[]) => Promise<void>;
     await expect(copy4(new Float32Array(4 * 4), new Float32Array(4 * 2))).rejects.toThrow(

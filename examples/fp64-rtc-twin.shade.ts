@@ -42,7 +42,7 @@ export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
 });
 
 export const fs_rtc = fragment(function fs_rtc(vo: VsOut): vec4 {
-  const span = pow(10.0, -u.zoom_exp);
+  const span = 10.0 ** -u.zoom_exp;
   const half = vo.uv.x * 2.0;
   const sx = half - (vo.uv.x < 0.5 ? 0.0 : 1.0);
   const dx = (sx - 0.5) * span;

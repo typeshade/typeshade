@@ -132,9 +132,8 @@ const EXPRESSION_FORMS: Readonly<Record<string, string>> = {
   array: 'array<f32, 2>(0., 1.)',
   fill: 'fill<f32, 2>(0.)',
   random: 'random(0.5)',
-  // The array folds (surface §27), whose function may be written in the call (Rule 8.18).
-  sum: 'sum(array<f32, 2>(0., 1.))',
-  none: 'none(array<f32, 2>(0., 1.), (x) => x > 2.)',
+  // The array fold that stays (surface §27), whose function may be written in the call (Rule 8.18).
+  // `sum`, `any(xs, p)`, `all(xs, p)` and `none` were removed (change 0112).
   zip: 'zip(array<f32, 2>(0., 1.), array<f32, 2>(2., 3.), (a, b) => a * b)',
 };
 
@@ -251,6 +250,9 @@ const AUTHORABLE_NOT_DECLARED: Readonly<Record<string, string>> = {
   // never appear here. Not a deferral and not an omission: the row is authorable today, and
   // `examples/__emit-goldens__/bit-bump.wgsl` carries the `~rolled` it emits.
   '~': 'an operator is spelled by syntax, not by a name, so the ambient library has nothing to declare for it (#160 added it, §52)',
+  arrayLength: INTERNAL(
+    'the builtin `xs.length` lowers to on a runtime-sized storage array; its free spelling was removed (change 0112)',
+  ),
   storageFetchF32: INTERNAL('the GLSL storage-emulation fetch helper'),
   storageFetchI32: INTERNAL('the GLSL storage-emulation fetch helper'),
   storageFetchU32: INTERNAL('the GLSL storage-emulation fetch helper'),

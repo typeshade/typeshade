@@ -29,7 +29,7 @@ declare const total: storage<atomic<u32>, "read_write">;
 class Stats { hits!: atomic<u32>; peak!: atomic<i32>; }
 declare const stats: storage<Stats, "read_write">;
 export const histogram = compute([64, 1, 1], function histogram(gid: builtin<"global_invocation_id", vec3u>): void {
-  if (gid.x >= arrayLength(src)) {
+  if (gid.x >= src.length) {
     return;
   }
   const bin = u32(src[gid.x] * 4.);

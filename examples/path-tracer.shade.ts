@@ -113,5 +113,5 @@ export const fs = fragment(function fs(pos: builtin<"position", vec4>): vec4 {
     color += trace(u.camPos, rd, dot(pos.xy, vec2(12.9898, 78.233)) + u.frame * 7.31 + f32(s) * 3.7);
   }
   const c = color / 16.;
-  return vec4(pow(c / (c + 1.), vec3(1. / 2.2)), 1.);
+  return vec4((c / (c + 1.)) ** vec3(1. / 2.2), 1.);
 });

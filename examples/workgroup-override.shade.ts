@@ -20,11 +20,11 @@ export const copy = compute([WG_SIZE], function copy(
   gid: builtin<"global_invocation_id", vec3u>,
   lid: builtin<"local_invocation_id", vec3u>,
 ): void {
-  if (gid.x < arrayLength(src)) {
+  if (gid.x < src.length) {
     tile[lid.x] = src[gid.x];
   }
   workgroupBarrier();
-  if (gid.x < arrayLength(src)) {
+  if (gid.x < src.length) {
     dst[gid.x] = tile[lid.x];
   }
 });

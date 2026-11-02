@@ -115,17 +115,16 @@ describe('vector arithmetic reaching a call draws no TypeScript diagnostic (issu
     });
   }
 
-  it('a rest parameter is measured by its element type, and the compiler still speaks', () => {
-    // `hypot(...args: T[])` is one of the five variadic math aliases (`MATH_EXPAND_ALIAS`: `log10`,
-    // `log1p`, `expm1`, `cbrt`, `hypot`), which together with `array(...values)` are the ambient
-    // lib's only rest parameters. This program is NOT valid: hypot takes scalars. TypeScript's
-    // complaint about it is the poisoned-inference one (`w` measured against the `number` the
-    // product inferred), so it goes, and what is left is the compiler saying the thing that is
-    // actually wrong.
+  it('a rest parameter is measured by its element type', () => {
+    // `array(...values)` is the ambient lib's one rest parameter. The five variadic math
+    // aliases (`log10`, `log1p`, `expm1`, `cbrt`, `hypot`) were the others, and their free
+    // spellings were removed (change 0112): `Math.hypot` takes plain parameters. `v * s` is a
+    // vector the checker types as `number`, and `w` is a vec3, so a rest parameter measured
+    // against the first argument's `number` would report the good second one.
     const source =
-      '"use typeshade"\nexport function f(v: vec3, w: vec3, s: f32): vec3 {\n  return hypot(v * s, w)\n}\n';
+      '"use typeshade"\nexport function f(v: vec3, w: vec3, s: f32): vec3 {\n  const a = array(v * s, w)\n  return a[1]\n}\n';
     expect(typeScriptDiagnosticsOf(source)).toEqual([]);
-    expect(diagnosticsOf(source).map((d) => `${d.source} ${d.code}`)).toEqual(['typeshade TS8003']);
+    expect(diagnosticsOf(source)).toEqual([]);
   });
 });
 

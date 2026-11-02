@@ -424,12 +424,12 @@ ${FS}`;
 
   it('an interface declares no value, so the constant still reads through it', () => {
     const r =
-      compile(`"use typeshade";\ninterface LN2 {\n  a: f32;\n}\nexport const fs = fragment(function fs(): vec4 {
-  return vec4(LN2);
+      compile(`"use typeshade";\ninterface TAU {\n  a: f32;\n}\nexport const fs = fragment(function fs(): vec4 {
+  return vec4(TAU);
 });
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('0.693147');
+    expect(r.wgsl).toContain('6.28318');
   });
 });
 
@@ -527,7 +527,7 @@ describe('a name nothing declares in a body no call lowers is said too', () => {
 
   it('nothing for a name the file or the library declares, in any scope', () => {
     const r = compile(
-      `"use typeshade";\nconst K: f32 = 2.;\nfunction mk<T>(x: T, n: f32): f32 {\n  const a = PI + K + sin(n) + Math.cos(n);\n  let b = a;\n  b += select(0., 1., n > 0.);\n  _ = sin(b);\n  return b;\n}\n${FS}`,
+      `"use typeshade";\nconst K: f32 = 2.;\nfunction mk<T>(x: T, n: f32): f32 {\n  const a = TAU + K + sin(n) + Math.cos(n);\n  let b = a;\n  b += select(0., 1., n > 0.);\n  _ = sin(b);\n  return b;\n}\n${FS}`,
     );
     expect(r.diagnostics).toEqual([]);
   });
@@ -726,6 +726,7 @@ describe('the editor says the one sentence the compiler says', () => {
       ['enum E {\n  A = 1,\n}\n', 'new E()'],
       ['', 'new Math()'],
       ['', 'new PI()'],
+      ['', 'new TAU()'],
       ['', 'new sampler()'],
       ['interface I {\n  a: f32;\n}\n', 'new I()'],
       ['type S = vec3;\n', 'new S()'],

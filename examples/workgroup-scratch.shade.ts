@@ -38,7 +38,7 @@ export const scratch = compute([64, 1, 1], function scratch(
   gid: builtin<"global_invocation_id", vec3u>,
   lid: builtin<"local_invocation_id", vec3u>,
 ): void {
-  if (gid.x >= arrayLength(src)) {
+  if (gid.x >= src.length) {
     return;
   }
   tile[lid.x] = src[gid.x] * src[gid.x];

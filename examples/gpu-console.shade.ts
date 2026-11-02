@@ -36,7 +36,7 @@ function doubled(v: f32): f32 {
 }
 
 export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>): void {
-  if (gid.x >= arrayLength(xs)) {
+  if (gid.x >= xs.length) {
     return;
   }
   const x = xs[gid.x];

@@ -18,7 +18,7 @@ declare const out: storage<array<f32>, "read_write">;
 @compute([64])
 export function main(@builtin("global_invocation_id") gid: vec3u): void {
   const i = gid.x;
-  if (i >= arrayLength(out)) {
+  if (i >= out.length) {
     return;
   }
   out[i] = a0[i] + a1[i] + a2[i] + a3[i] + a4[i] + a5[i] + a6[i] + a7[i];

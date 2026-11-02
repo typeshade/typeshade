@@ -217,7 +217,7 @@ class P {
   }
 }
 export const k = compute([4, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
-  if (gid.x >= u32(arrayLength(ps))) {
+  if (gid.x >= u32(ps.length)) {
     return;
   }
   ps[gid.x].bump(0.5);

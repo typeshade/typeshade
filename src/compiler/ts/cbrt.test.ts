@@ -1,4 +1,5 @@
-// `Math.cbrt(x)` and the free `cbrt(x)` give ECMAScript's cube root for a negative `x` (#614).
+// `Math.cbrt(x)` gives ECMAScript's cube root for a negative `x` (#614). The free `cbrt(x)` was
+// removed (change 0112); `removed-names.test.ts` reads its refusal.
 //
 // The expansion was `pow(x, 1/3)`. WGSL leaves `pow` outside its domain for every `x < 0`
 // (§17.5.46) and GLSL ES 3.00 leaves the result undefined (§8.2): `x = -8` gave NaN on the CPU
@@ -42,13 +43,12 @@ const count = (text: string, needle: string): number => text.split(needle).lengt
 describe('cbrt of a negative x is the negative root (#614)', () => {
   const source = `"use typeshade";
 export function m(x: f32): f32 { return Math.cbrt(x); }
-export function c(x: f32): f32 { return cbrt(x); }
 `;
 
-  it('emits sign(x) * pow(abs(x), 1/3) on both targets, for both spellings', () => {
+  it('emits sign(x) * pow(abs(x), 1/3) on both targets', () => {
     const r = bothTake(source);
-    expect(count(r.wgsl!, EXPANDED)).toBe(2);
-    expect(count(r.glsl!.fragment, EXPANDED)).toBe(2);
+    expect(count(r.wgsl!, EXPANDED)).toBe(1);
+    expect(count(r.glsl!.fragment, EXPANDED)).toBe(1);
     expect(r.wgsl).not.toContain('pow(x, ');
   });
 
@@ -57,7 +57,7 @@ export function c(x: f32): f32 { return cbrt(x); }
     const f64 = compileModule(r.module).fns;
     const f32 = compileModule(r.module, { precision: 'f32' }).fns;
     const js = compileModuleJs(r.module).fns;
-    for (const fn of ['m', 'c']) {
+    for (const fn of ['m']) {
       for (const x of XS) {
         const want = Math.cbrt(x);
         expect(r.eval(fn, [x]), `${fn}(${String(x)}) eval`).toBe(want);
@@ -82,7 +82,7 @@ describe('an argument with an effect runs once (#614)', () => {
 declare const buf: storage<array<f32>, "read_write">;
 declare const cnt: storage<array<atomic<u32>>, "read_write">;
 function bump(): f32 { buf[0] = buf[0] + 1.; return buf[0]; }
-export function h(x: f32): f32 { return Math.cbrt(bump()) + cbrt(f32(atomicAdd(cnt[0], u32(1)))) + Math.cbrt(x); }
+export function h(x: f32): f32 { return Math.cbrt(bump()) + Math.cbrt(f32(atomicAdd(cnt[0], u32(1)))) + Math.cbrt(x); }
 `;
 
   it('calls bump and atomicAdd once each, through the built function', () => {

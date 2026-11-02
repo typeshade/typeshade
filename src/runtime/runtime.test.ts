@@ -261,7 +261,7 @@ declare const xs: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
 export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>) {
   const i = gid.x;
-  if (i >= arrayLength(xs)) { return; }
+  if (i >= xs.length) { return; }
   out[i] = xs[i] * params.scale;
   console.log("i", i);
 });
@@ -333,7 +333,7 @@ interface VsOut { p: builtin<"position", vec4>; }
 interface Color { c: location<0, vec4>; }
 export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>) {
   const i = gid.x;
-  if (i >= arrayLength(xs)) { return; }
+  if (i >= xs.length) { return; }
   out[i] = xs[i] * gain;
 });
 export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
