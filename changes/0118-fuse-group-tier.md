@@ -1,7 +1,7 @@
 ---
 id: '0118'
 title: Each group of a `fuse` report names the tier it ran on, and a group that ran on a later tier than its plan says why
-status: draft
+status: accepted
 rules:
   - '11.13'
 surface:
@@ -30,12 +30,12 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0118, `status: draft`. The front matter is the identity and lifecycle authority. No approval is recorded; see Approval and plan record.                                                                                                                                                                                                                                                                                                                              |
+| Identity and status           | Proposal 0118, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC) with D1 to D3 as drafted; see Approval and plan record. Implementation is not started; see Configuration and validation record. Downstream adoption is tracked apart.                                                                                                                                                        |
 | Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                 |
 | Request source                | Issue [#946](https://github.com/typeshade/typeshade/issues/946), filed 2026-11-02 from typeshade/typeaudio pull request #5 (`src/explain.ts`), where the engine's `explain` could not say which tier each group of a plan ran on. That repository's `docs/compiler-asks.md` records the ask as candidate P. The owner asked for the downstream loop (a workaround measured there, then a proposal here) in the same session.                                                  |
 | Applicability / effectivity   | Rule 11.13 of `docs/language-design.md` and its items in `reqs/`; `docs/use-typeshade-surface.md` §71; `src/core/fuse-report.ts` (`FuseReport`), `src/core/fuse-plan.ts` (the settled groups), `src/core/host-kernel.ts` (the reasons a tier gives); `src/__api__/surface.md`; the tests and journeys that pin a report. The planner's facts F1 to F8, the fused entry, the tiers a call may run on and the order of the tiers do not change. No release version is assigned. |
 | Review baseline               | `main` at `aaa33067a8877efcdbd8b4dfee2f74af20877a35` (the merge of pull request #956), read on 2026-11-02.                                                                                                                                                                                                                                                                                                                                                                    |
-| Review and revision authority | Pull request [#959](https://github.com/typeshade/typeshade/pull/959) (branch `claude/proposal-0118-group-tier`). Git records the revisions of this file. The review and merge of that pull request with `status: accepted` will record the decision. This file does not name the hash of the commit that contains it.                                                                                                                                                         |
+| Review and revision authority | Pull request [#959](https://github.com/typeshade/typeshade/pull/959) (branch `claude/proposal-0118-group-tier`). Git records the revisions of this file. The merge of that pull request with `status: accepted` records the decision. This file does not name the hash of the commit that contains it.                                                                                                                                                                        |
 
 ## What changes
 
@@ -94,7 +94,7 @@ The report today, and after this change:
 
 A plan whose groups all ran on the plan's tier gains `tier` on each group and no new sentence.
 
-**Decisions, to resolve at acceptance** (Approval and plan record).
+**Decisions, resolved at acceptance** (Approval and plan record).
 
 - **D1.** `tier` is present on every group (the draft), or only on a group whose tier differs
   from the plan's. The draft chooses every group: a consumer then reads one field and never
@@ -190,11 +190,18 @@ Decisions to resolve before acceptance: D1 to D3.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require: the owner's decision in the conversation
-or a review on this proposal's pull request, with D1 to D3 resolved; the approved revision (the
-merged text) and its scope; an agent assigned to implement items 1 to 3, Rule 11.13 and §71 in
-pull requests whose commits say `Change: 0118`; and the validation above named as required. No
-approver, date, milestone, duration or cost is recorded here.
+The owner (Seungup) approved the proposal in the Claude Code session on 2026-11-02 (UTC), in
+Korean ("추천대로", as recommended), in answer to the orchestrator's report that listed pull
+request #959 with its open decisions and the draft's recommendations. D1 to D3 are accepted as
+drafted: `tier` is present on every group; a group below its plan's tier says why in `why`, in
+the sentence family §71 has; the reason is the call layer's own text for the tier. The approved
+revision is the one this record is part of. The merge of
+[#959](https://github.com/typeshade/typeshade/pull/959) with `status: accepted` records the
+decision.
+
+Responsibilities: an agent of this repository implements items 1 to 3, Rule 11.13 and §71 in
+pull requests whose commits say `Change: 0118`. No milestone date is assigned. No duration or
+cost estimate is established.
 
 ### Configuration and validation record
 
