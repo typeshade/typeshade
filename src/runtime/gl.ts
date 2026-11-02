@@ -307,6 +307,9 @@ class GlComputePipelineImpl implements ComputePipeline {
     const out = new Map<string, Given>();
     const states = new Map<ResidentArrayState, string>();
     for (const { b, writes } of reached) {
+      // The `_fp64` guard of an entry that emulates `f64` is no host value: the dispatch binds
+      // a texture of its own to it (`runGlCompute`), as WebGPU binds the runtime's (#966).
+      if (b.name === '_fp64') continue;
       const v = values[b.name];
       const where = `"${e.name}"${at(e)}, binding "${b.name}" (${b.type})`;
       if (v === undefined) throw new TypeError(`${where} is not given.`);
