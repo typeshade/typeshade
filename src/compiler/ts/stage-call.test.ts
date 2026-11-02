@@ -164,7 +164,7 @@ export const scale = workgroup_size([128], function scale(xs: array<f32>): void 
 });
 `;
     const face = hostFace(source, { fileName: '/app/m.shade.ts', runtime: RUNTIME });
-    const kinds = Object.fromEntries(face.exports.map((e) => [e.name, e.kind]));
+    const kinds = Object.fromEntries((face.exports ?? []).map((e) => [e.name, e.kind]));
     expect(kinds).toEqual({ fs: 'fragment', main: 'compute', scale: 'kernel' });
   });
 });
