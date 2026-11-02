@@ -332,6 +332,20 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **The host type family** (change 0116; Rule 8.21). `typeshade/runtime` exports, as types
+  only, one name for each value type a shader writes: `f32`, `f64`, `i32`, `u32` and `bool`;
+  `vec2` to `vec4` with their `f`, `i`, `u`, `b`, `f64` and `d` forms; every `matCxR` with its
+  `matCxRf` alias and the `matN` spelling, a square one taking `f64` as a type argument; and
+  `array<T>` and `array<T, N>`. Each is a name for a host value of Rule 8.21. A scalar is the
+  `number` or `boolean` it is, with its name as an optional phantom property, so a plain literal
+  is one and an `f32` is not a `u32`. A vector and a matrix are `readonly` tuples of their
+  components, and a matrix also has its name. `array<T>` is the typed array, or the array of
+  structs, with its `Resident`; `array<T, N>` is a `readonly T[]`. The names are the ambient
+  library's value types, one for one, and `src/runtime/host-types.test.ts` holds the two lists
+  together. The host view does not spell with them yet: that part waits for an amendment of the
+  proposal, which declares the exports of `typeshade/algorithms` and `typeshade/random` it
+  reshapes. The runtime's split build moved by 1 gzip byte, from the names Bun's minifier gives
+  the entry chunk, measured with Bun 1.4.4.
 - **The host view carries the author's JSDoc** (proposal 0108; Rules 8.20, 8.21 and 11.8, surface
   §64). Each JSDoc block above an exported declaration of a shader module is written into the host
   view, as the author wrote it and in source order: on a function, a constant, an `enum` and each
