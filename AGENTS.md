@@ -314,7 +314,7 @@ true is a set of steps with tools, each an industry practice, not a memory:
   preflight using the same policy. Its input is Claude's JSON tool event, not a Git hook's
   arguments. Local hooks can be bypassed with `--no-verify`; CI remains the shared enforcement.
 - **The repositories that vendor the compiler are held too.** The site, the editor
-  extension, Radiance, TypeNN and TypeCV (`DOWNSTREAM_REPOS` in `scripts/changes.ts`) run
+  extension, Radiance, TypeNN, TypeCV and TypeAudio (`DOWNSTREAM_REPOS` in `scripts/changes.ts`) run
   `scripts/downstream-impact.ts` from the pinned compiler on every compiler-pin
   pull request. It fails while a downstream file still names an export or file the pin removes,
   and while a proposal the pin implements names that repository in `downstream` and the
