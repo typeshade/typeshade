@@ -9,6 +9,8 @@ import {
   u32,
   sin,
   toF32,
+  constExpr,
+  type ConstExprDecl,
   type ModuleDecl,
   type Stmt,
 } from '../../ir/index.js';
@@ -731,5 +733,52 @@ describe('unrollLoops — the state of an unrolled loop', () => {
     const out = unrollLoops(m);
     expect(out.funcs[1]!.body.some((s) => s.s === 'var' && s.name === 's')).toBe(true);
     same(m, out);
+  });
+});
+
+// #869: a bound that is an integer module constant (`i < AA`), and a one-iteration loop whose
+// body exceeds the growth budget. Namek's `AA = 1` sample loops stayed for both reasons.
+describe('unrollLoops — module-constant bounds and one-iteration loops (#869)', () => {
+  /** for i in 0..bound { acc += x * toF32(i) + <fat> } with `fat` extra multiplies. */
+  const loopTo = (bound: ConstExprDecl<typeof i32T>, fat: number): FuncDecl =>
+    fn('f', { x: f32T }, f32T, ({ x }, b) => {
+      const acc = b.var('acc', f32T, f32(0));
+      b.forRange(
+        'i',
+        i32(0),
+        (i) => i.lt(bound.node),
+        (cb, i) => {
+          let term = x.mul(toF32(i));
+          for (let k = 0; k < fat; k++) term = term.mul(x);
+          cb.addAssign(acc, term);
+        },
+      );
+      b.ret(acc);
+    });
+
+  it('unrolls a loop bounded by an integer module constant', () => {
+    const N = constExpr('N', i32T, i32(3));
+    const m = module({ consts: [N], funcs: [loopTo(N, 0)] });
+    expect(countFors(unrollLoops(m))).toBe(0);
+    oracleStable(m, 'f', [[0.5], [-2], [3]]);
+  });
+
+  it('keeps a loop bounded by a constant whose value is not one literal integer', () => {
+    // A computed valueExpr is not read: the proof takes only what every backend agrees on.
+    const N = constExpr('N', i32T, i32(1).add(i32(2)));
+    const m = module({ consts: [N], funcs: [loopTo(N, 0)] });
+    expect(countFors(unrollLoops(m))).toBe(1);
+  });
+
+  it('unrolls one iteration whatever the body costs, and keeps two iterations of it', () => {
+    const one = constExpr('ONE', i32T, i32(1));
+    const two = constExpr('TWO', i32T, i32(2));
+    // 40 multiplies: 1 x cost > MAX_UNROLLED_NODES, 2 x cost too.
+    const m1 = module({ consts: [one], funcs: [loopTo(one, 40)] });
+    const m2 = module({ consts: [two], funcs: [loopTo(two, 40)] });
+    expect(countFors(unrollLoops(m1))).toBe(0);
+    expect(countFors(unrollLoops(m2))).toBe(1);
+    expect(() => emitModule(unrollLoops(m1))).not.toThrow();
+    oracleStable(m1, 'f', [[0.5], [1.25], [-1]]);
   });
 });

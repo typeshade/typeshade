@@ -1417,6 +1417,14 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   counter as well. Both places that give this text now name `let i: i32 = <start>` and
   `let i: u32 = <start>`, in `compile()` and in the editor alike.
 
+- **O2 unrolls a loop bounded by an integer module constant, and a one-iteration loop (#869).**
+  The unroll proof read only a literal start or bound, so `for (let i = 0; i < AA; i++)` with
+  `const AA: i32 = 1` stayed a loop. It now also reads an `i32` or `u32` module constant whose
+  value is one literal integer on every backend. A one-iteration loop no longer meets the
+  64-node growth budget, since its body is copied once. The class-based Namek example renders
+  its one sample without the two `AA` loops, and `rt-renderer-class` writes its two samples out.
+  4 goldens change.
+
 - **O2 unrolls a small fixed-count loop and carries its state through the copies (#845).**
   `unrollLoops` now runs in the default pipeline. After unrolling a block it turns each `var` the
   copies write only by whole assignments in that block into a chain of `let`s, so const-prop and

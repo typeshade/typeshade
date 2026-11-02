@@ -1227,9 +1227,9 @@ fn _spec3_NamekTrees_nearest_into(_dst: ptr<function, _spec4_result>, self_: ptr
 }
 
 fn _flow24_fused(_flow1_input: vec2<f32>) -> vec4<f32> {
-  let _licm0 = f32(AA);
   var _cse0: Ship = Ship(0.0);
-  var _cse3: NamekTree = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
+  let _cse5 = vec2<f32>(0.0, 0.0);
+  var _cse3: NamekTree = NamekTree(_cse5, 0.0, 0.0);
   var _cse1: NamekTrees = NamekTrees(_cse3, _cse3);
   var _flow0_local: NamekScene = NamekScene(_cse0, _cse1, ShipDetails(_cse0, _cse1), Lettering(0.0));
   Ship_new_into(&_flow0_local.ship);
@@ -1251,21 +1251,16 @@ fn _flow24_fused(_flow1_input: vec2<f32>) -> vec4<f32> {
   let _flow13_local = (2.0 / (_flow2_local.y * 3.4));
   let _flow14_local = ((0.0055 + (1.2 / _flow2_local.y)) / 3.4);
   let _cse2 = vec3<f32>(0.0);
-  var _flow15_local: vec3<f32> = _cse2;
-  for (var _flow16_local: i32 = 0; (_flow16_local < AA); _flow16_local = (_flow16_local + 1)) {
-    for (var _flow17_local: i32 = 0; (_flow17_local < AA); _flow17_local = (_flow17_local + 1)) {
-      let _flow18_local = (((vec2<f32>(f32(_flow17_local), f32(_flow16_local)) + 0.5) / _licm0) - 0.5);
-      let _flow19_local = (((2.0 * (_flow3_local + _flow18_local)) - _flow2_local) / _flow2_local.y);
-      let _flow20_local = normalize((((_flow19_local.x * _flow11_local) + (_flow19_local.y * _flow12_local)) + (3.4 * _flow10_local)));
-      _flow15_local += NamekScene_render(&_flow22_arg, _flow9_local, _flow20_local, _flow13_local, _flow14_local);
-    }
-  }
-  _flow15_local /= f32((AA * AA));
+  let _u1_u0_flow18_local = (((_cse5 + 0.5) / f32(AA)) - 0.5);
+  let _u1_u0_flow19_local = (((2.0 * (_flow3_local + _u1_u0_flow18_local)) - _flow2_local) / _flow2_local.y);
+  let _u1_u0_flow20_local = normalize((((_u1_u0_flow19_local.x * _flow11_local) + (_u1_u0_flow19_local.y * _flow12_local)) + (3.4 * _flow10_local)));
+  let _flow15_local_1 = (_cse2 + NamekScene_render(&_flow22_arg, _flow9_local, _u1_u0_flow20_local, _flow13_local, _flow14_local));
+  let _flow15_local_2 = (_flow15_local_1 / f32((AA * AA)));
   let _flow21_local = (_flow3_local / _flow2_local);
-  _flow15_local = ((_flow15_local * vec3<f32>(0.94, 1.0, 0.96)) + vec3<f32>(0.025, 0.035, 0.03));
-  _flow15_local += (0.03 * (Noise_hash12((_flow3_local + (61.7 * fract((u.time * 7.13))))) - 0.5));
-  _flow15_local *= (0.55 + (0.45 * pow(((((16.0 * _flow21_local.x) * _flow21_local.y) * (1.0 - _flow21_local.x)) * (1.0 - _flow21_local.y)), 0.12)));
-  return vec4<f32>(clamp(_flow15_local, _cse2, vec3<f32>(1.0)), 1.0);
+  let _flow15_local_3 = ((_flow15_local_2 * vec3<f32>(0.94, 1.0, 0.96)) + vec3<f32>(0.025, 0.035, 0.03));
+  let _flow15_local_4 = (_flow15_local_3 + (0.03 * (Noise_hash12((_flow3_local + (61.7 * fract((u.time * 7.13))))) - 0.5)));
+  let _flow15_local_5 = (_flow15_local_4 * (0.55 + (0.45 * pow(((((16.0 * _flow21_local.x) * _flow21_local.y) * (1.0 - _flow21_local.x)) * (1.0 - _flow21_local.y)), 0.12))));
+  return vec4<f32>(clamp(_flow15_local_5, _cse2, vec3<f32>(1.0)), 1.0);
 }
 
 fn _flow28_shared(_flow25_input: vec2<f32>, _flow26_input: vec2<f32>, _flow27_input: vec2<f32>) -> vec2<f32> {

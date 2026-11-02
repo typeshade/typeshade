@@ -11,7 +11,8 @@
 // SMALL ONLY. Blind unrolling bloats (a big body copied many times), so — in the
 // same node-count unit auto-inline's exprCost uses — a loop unrolls iff its trip
 // count is <= MAX_TRIP AND trip x body-node-cost <= MAX_UNROLLED_NODES. Anything
-// larger stays a loop. Nested loops unroll inner-first, so the outer budget sees
+// larger stays a loop. A one-iteration loop grows nothing, so it unrolls whatever its
+// body costs (#869). Nested loops unroll inner-first, so the outer budget sees
 // the already-expanded body.
 //
 // INTEGER induction only (i32 / u32). A constant trip count is exact for an integer
@@ -19,6 +20,9 @@
 // termination) can differ between this f64 oracle and real f32 hardware — the
 // codebase's worst bug class — so f32 loops are left to a future pass gated by the
 // real-GPU differential, not decided by this f32-blind one.
+//
+// A bound or start may be an integer module constant (`i < AA`, #869), read from the
+// module's ConstDecl; any other non-literal stays unprovable.
 //
 // SKIPS (leave the loop; never unroll unsoundly):
 //   • non-constant init / bound / step, or a trip count that doesn't terminate
@@ -60,10 +64,35 @@ const MAX_UNROLLED_NODES = 64;
 const SIM_CAP = 1024;
 
 /** A plain numeric constant — a literal, or a negated literal (`unop` = negate). */
-function constNum(e: Expr): number | undefined {
+/** Integer module constants by name, for a loop bound such as `i < AA` (#869). */
+export type IntConsts = ReadonlyMap<string, number>;
+const NO_CONSTS: IntConsts = new Map();
+
+function constNum(e: Expr, consts: IntConsts = NO_CONSTS): number | undefined {
   if (e.op === 'lit' && typeof e.value === 'number') return e.value;
   if (e.op === 'unop' && e.a.op === 'lit' && typeof e.a.value === 'number') return -e.a.value;
+  if (e.op === 'constref') return consts.get(e.name);
   return undefined;
+}
+
+/** The module's `i32` / `u32` scalar constants whose value is one exact integer on every
+ *  backend: a literal `valueExpr`, or a `wgslValue` equal to its `cpuValue`. */
+export function intConsts(m: ModuleDecl): IntConsts {
+  const out = new Map<string, number>();
+  for (const c of m.consts) {
+    const t = c.type;
+    if (!(t.kind === 'scalar' && (t.scalar === 'i32' || t.scalar === 'u32'))) continue;
+    const v =
+      c.valueExpr === undefined
+        ? c.wgslValue === c.cpuValue
+          ? c.wgslValue
+          : undefined
+        : c.valueExpr.op === 'lit' && typeof c.valueExpr.value === 'number'
+          ? c.valueExpr.value
+          : undefined;
+    if (v !== undefined && Number.isInteger(v)) out.set(c.name, v);
+  }
+  return out;
 }
 
 const isVar = (e: Expr, name: string): boolean => e.op === 'varref' && e.name === name;
@@ -103,14 +132,18 @@ function cmpHolds(cop: CmpOp, v: number, bound: number): boolean {
 
 /** The counter compare `i <cop> bound` (normalised so `i` is on the left), or
  *  undefined if `cond` isn't a comparison of the counter against a constant. */
-function readCond(cond: Expr, name: string): { cop: CmpOp; bound: number } | undefined {
+function readCond(
+  cond: Expr,
+  name: string,
+  consts: IntConsts,
+): { cop: CmpOp; bound: number } | undefined {
   if (cond.op !== 'compare') return undefined;
   if (isVar(cond.a, name)) {
-    const bound = constNum(cond.b);
+    const bound = constNum(cond.b, consts);
     return bound === undefined ? undefined : { cop: cond.cop, bound };
   }
   if (isVar(cond.b, name)) {
-    const bound = constNum(cond.a);
+    const bound = constNum(cond.a, consts);
     return bound === undefined ? undefined : { cop: flipCmp(cond.cop), bound };
   }
   return undefined;
@@ -154,16 +187,20 @@ interface LoopInfo {
 /** Prove `s` a small integer fixed-count loop and return its induction var name +
  *  type + the exact sequence of counter values, or undefined if unprovable / big.
  *  Internal shared proof for loop-load-reuse; not re-exported by the optimizer barrel. */
-export function analyzeLoop(s: ForStmt, maxTrip = MAX_TRIP): LoopInfo | undefined {
+export function analyzeLoop(
+  s: ForStmt,
+  maxTrip = MAX_TRIP,
+  consts: IntConsts = NO_CONSTS,
+): LoopInfo | undefined {
   if (s.init.s !== 'var' || s.init.init === undefined) return undefined;
   const type = s.init.type;
   // Integer counter only — an f32 trip count can diverge on real f32 hardware.
   if (!(type.kind === 'scalar' && (type.scalar === 'i32' || type.scalar === 'u32')))
     return undefined;
   const name = s.init.name;
-  const start = constNum(s.init.init);
+  const start = constNum(s.init.init, consts);
   if (start === undefined) return undefined;
-  const cond = readCond(s.cond, name);
+  const cond = readCond(s.cond, name, consts);
   if (cond === undefined) return undefined;
   const step = readStep(s.update, name);
   if (step === undefined || step === 0) return undefined;
@@ -307,11 +344,14 @@ export function tryUnroll(
   counter: { n: number },
   maxNodes = MAX_UNROLLED_NODES,
   maxTrip = MAX_TRIP,
+  consts: IntConsts = NO_CONSTS,
 ): Stmt[] | undefined {
-  const info = analyzeLoop(s, maxTrip);
+  const info = analyzeLoop(s, maxTrip, consts);
   if (info === undefined) return undefined;
   if (!bodyIsUnrollable(s.body, info.name)) return undefined;
-  if (info.seq.length * bodyNodeCost(s.body) > maxNodes) return undefined;
+  // The budget bounds growth. One iteration copies the body once and drops the counter,
+  // the compare and the step, so it grows nothing and is exempt (#869).
+  if (info.seq.length > 1 && info.seq.length * bodyNodeCost(s.body) > maxNodes) return undefined;
 
   const locals = new Set<string>();
   collectLocals(s.body, locals);
@@ -337,6 +377,7 @@ interface UnrollCx {
   readonly counter: { n: number };
   readonly writes: FnWrites;
   readonly taken: Set<string>;
+  readonly consts: IntConsts;
 }
 
 function unrollBlock(body: readonly Stmt[], cx: UnrollCx): readonly Stmt[] {
@@ -345,7 +386,7 @@ function unrollBlock(body: readonly Stmt[], cx: UnrollCx): readonly Stmt[] {
   for (const s of body) {
     if (s.s === 'for') {
       const loop: ForStmt = { ...s, body: unrollBlock(s.body, cx) }; // inner-first
-      const copies = tryUnroll(loop, cx.counter);
+      const copies = tryUnroll(loop, cx.counter, MAX_UNROLLED_NODES, MAX_TRIP, cx.consts);
       if (copies !== undefined) {
         out.push(...copies);
         collectMutatedRoots(copies, written, cx.writes);
@@ -389,6 +430,7 @@ export function seedSuffix(body: readonly Stmt[]): number {
 
 /** Unroll small fixed-count loops throughout a module. Pure (module -> module). */
 export function unrollLoops(m: ModuleDecl): ModuleDecl {
+  const consts = intConsts(m);
   return {
     ...m,
     funcs: m.funcs.map((f): FuncDecl =>
@@ -402,6 +444,7 @@ export function unrollLoops(m: ModuleDecl): ModuleDecl {
               counter: { n: seedSuffix(f.body) },
               writes: fnWrites(m),
               taken: localNames(f),
+              consts,
             }),
           },
     ),

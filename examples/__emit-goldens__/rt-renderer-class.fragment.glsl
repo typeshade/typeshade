@@ -532,16 +532,12 @@ in vec2 ndc;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  vec2 _licm0 = ndc;
-  vec2 _licm1 = u.resolution;
-  float _licm2 = u.frame;
   Camera camera = createCamera(u.time);
   Scene scene = Scene_new();
   Renderer renderer = Renderer_new(scene);
   vec3 color = vec3(0.0);
-  for (int sample_ = 0; (sample_ < SAMPLES_PER_PIXEL); sample_ = (sample_ + 1)) {
-    color += renderSample(renderer, camera, _licm0, _licm1, _licm2, sample_);
-  }
-  color = toneMap((color / float(SAMPLES_PER_PIXEL)));
-  _ret = vec4(color, 1.0);
+  vec3 color_1 = (color + renderSample(renderer, camera, ndc, u.resolution, u.frame, 0));
+  vec3 color_2 = (color_1 + renderSample(renderer, camera, ndc, u.resolution, u.frame, 1));
+  vec3 color_3 = toneMap((color_2 / float(SAMPLES_PER_PIXEL)));
+  _ret = vec4(color_3, 1.0);
 }
