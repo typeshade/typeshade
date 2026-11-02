@@ -95,19 +95,33 @@ class with only public fields by its structure, and `tsc --strict` accepts the r
    `compute([x, y?, z?], f)` carries the workgroup size that `@compute([…])` carries today, and
    `workgroupSize([…], f)` replaces `@workgroup_size([…])` on a kernel function (Rule 8.22).
 
-2. **An attribute of an input or an output** is written in one of two forms (D2):
-   - **D2-a, a field decorator.** A standard class field decorator, which TypeScript accepts:
-     `class VsIn { @builtin('vertex_index') i!: u32 }`. A parameter takes its attributes from
-     the fields of its struct, so an entry with a builtin parameter takes a struct parameter.
-   - **D2-b, a type.** `Builtin<N, T>` and `Location<I, T>` are types that mean `T`, and the
-     compiler reads the attribute from the written type: `i: Builtin<'vertex_index', u32>` on a
-     parameter and `uv: Location<0, vec2>` on a field. An entry I/O struct may then be an
-     `interface` or a `type`, and no field needs an initializer.
+2. **An attribute of an input or an output is a type** (D2, decided). `Builtin<N, T>` and
+   `Location<I, T>` are types that mean `T`, and the compiler reads the attribute from the
+   written type: `i: Builtin<'vertex_index', u32>` on a parameter and
+   `uv: Location<0, vec2>` on a field. An entry I/O struct may be a `class`, an `interface` or a
+   `type` (Rule 6.9), and no field needs a decorator or an initializer:
 
-3. **A field of an entry I/O class** that keeps the class spelling is written with a definite
-   assignment, `pos!: vec4`, or the compiler's ambient options are documented as required (D3).
+   ```ts
+   interface VsOut {
+     pos: Builtin<'position', vec4>;
+     uv: Location<0, vec2>;
+   }
 
-4. **`@inout` and `@out`** (Rule 8.25) move off the parameter (D4).
+   export const vs = vertex(function vs(i: Builtin<'vertex_index', u32>): VsOut {
+     return { pos: vec4(0, 0, 0, 1), uv: vec2(0, 0) };
+   });
+   ```
+
+   The other attributes of Rule 6.7 on an input or an output are a third type argument, an
+   object type of options: `Location<0, u32, { interpolate: 'flat' }>`,
+   `Builtin<'position', vec4, { invariant: true }>`, `Location<0, vec4, { blendSrc: 1 }>` (D7).
+
+3. **A field decorator on an entry I/O field is refused** after the migration period (D5), with
+   the type form in the message. With D2 decided, D3 does not apply.
+
+4. **`@inout` and `@out`** (Rule 8.25) become the types `InOut<T>` and `Out<T>` on the
+   parameter (D4, recommended): `function bump(x: InOut<f32>) { x += 1; }`. The call passes the
+   variable itself, as it does today.
 
 5. The editor's TS1206 filter for entries and the `strictPropertyInitialization` override are
    removed. Any TypeScript diagnostic that a plain `tsc --strict` reports on a `"use typeshade"`
@@ -134,32 +148,34 @@ sits inside ordinary TypeScript.
 
 **Alternatives considered for the stage (D1):**
 
-| Form                                               | Plain `tsc` | Notes                                                                                    |
-| -------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------- |
-| `@vertex export function vs(…)` (today)            | TS1206      | The current form.                                                                        |
-| `export const vs = vertex(function vs(…) { … })`   | accepted    | Proposed. A named function expression keeps the name in stack traces and in the emit.    |
-| `export function vs(…) {…}` and `vertex(vs);`      | accepted    | A top-level statement with no value; it separates the stage from the declaration.        |
-| a static method with a method decorator on a class | accepted    | Rule 8.1 refuses an entry method; a class only to hold an entry adds a name with no use. |
-| `/** @vertex */` JSDoc tag                         | accepted    | A comment changes the meaning of the program; formatters and minifiers may drop it.      |
+| Form                                               | Plain `tsc` | Notes                                                                                      |
+| -------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------ |
+| `@vertex export function vs(…)` (today)            | TS1206      | The current form.                                                                          |
+| `export const vs = vertex(function vs(…) { … })`   | accepted    | Selected (D1). A named function expression keeps the name in stack traces and in the emit. |
+| `export function vs(…) {…}` and `vertex(vs);`      | accepted    | A top-level statement with no value; it separates the stage from the declaration.          |
+| a static method with a method decorator on a class | accepted    | Rule 8.1 refuses an entry method; a class only to hold an entry adds a name with no use.   |
+| `/** @vertex */` JSDoc tag                         | accepted    | A comment changes the meaning of the program; formatters and minifiers may drop it.        |
 
 **Alternatives for an attribute (D2):** D2-a keeps today's field decorators, which `tsc`
-already accepts, and moves every parameter attribute into a struct. D2-b removes decorators
-from entry I/O completely and lets an `interface` describe entry I/O, but the attribute is in a
-type alias that TypeScript erases, so hover and errors show `vec4` and not
-`Builtin<"position", vec4>` unless the ambient library brands the type.
+already accepts, moves every parameter attribute into a struct, and needs `!` on every field
+for `--strict`. D2-b removes decorators from entry I/O completely and lets an `interface`
+describe entry I/O. The owner selected D2-b. Its cost: the attribute is in a type alias that
+TypeScript may erase, so hover and errors can show `vec4` and not `Builtin<"position", vec4>`.
+The language service reads the written type node for hover, and the implementation measures
+whether the ambient library also needs a brand (Configuration and validation record).
 
 **Assumptions.** The emit does not change for a migrated program. The host face (§67) reads the
 stage from the call in place of the decorator and gives the host the same signature.
 
 ## What it touches
 
-- **Rule 6.6**: entry inputs and outputs carry their attributes in the form D2 selects.
+- **Rule 6.6**: entry inputs and outputs carry their attributes as `Builtin<…>` and `Location<…>` types (D2).
 - **Rule 6.7**: the attribute names stay; the places they are written change, and a decorator
   on a function or a parameter is refused with the new form in the message.
 - **Rule 8.1**: an entry point is a top-level `const` initialized by a stage call (D1).
-- **Rule 8.2**: the position output is named in the D2 form.
+- **Rule 8.2**: the position output is `Builtin<"position", vec4>` (D2).
 - **Rule 8.22**: `@workgroup_size([…])` on a kernel function becomes `workgroupSize([…], f)`.
-- **Rule 8.25**: `@inout` and `@out` take the form D4 selects.
+- **Rule 8.25**: `@inout` and `@out` take the form D4 selects; recommended `InOut<T>` and `Out<T>`.
 - **Surface §3, §53, §67, §70**: the sections that define these forms. Every other section
   that shows an entry is rewritten by the migration tool (D5).
 - **codes**: none is added or removed in the draft. A refusal of the old form may reuse
@@ -184,20 +200,33 @@ unknown.
 
 Decisions to resolve before acceptance:
 
-- **D1.** The stage form. Proposed: `export const vs = vertex(function vs(…) { … })`.
-- **D2.** The attribute form: D2-a (field decorators, struct parameters) or D2-b (types).
-- **D3.** For D2-a: `!` on each field, or a documented `strictPropertyInitialization: false`.
-  The second does not meet "plain `tsc --strict`".
-- **D4.** `@inout x: T` and `@out x: T`: a type form (`x: InOut<T>`) or a struct parameter.
-  A type form that means `T` keeps TypeScript's local meaning, where an assignment to a
-  parameter does not reach the caller; Rule 7.2 must record that as a divergence.
-- **D5.** Migration: a period where both forms compile with a deprecation warning, and a
-  `typeshade migrate` codemod, or a single cut.
+Decided by the owner on 2026-11-02, in the Claude Code session ("승인" to the recommended
+choices, confirmed in a follow-up question). This is a decision on the draft's direction, not
+the acceptance of the proposal:
+
+- **D1, decided.** The stage form is `export const vs = vertex(function vs(…) { … })`, with
+  `fragment`, `compute([…], f)` and `workgroupSize([…], f)` in the same shape.
+- **D2, decided.** The attribute form is D2-b, the types `Builtin<N, T>` and `Location<I, T>`.
+- **D3, closed.** It applied to D2-a only.
+
+Open, with the agent's recommendation:
+
+- **D4.** `@inout x: T` and `@out x: T`. Recommended: the types `InOut<T>` and `Out<T>`, the
+  same form as D2. The alternative is a struct parameter, which changes every call site. A type
+  that means `T` keeps TypeScript's local reading, where an assignment to a parameter does not
+  reach the caller; today's decorator form has the same difference. Rule 7.2 records it as a
+  divergence.
+- **D5.** Migration. Recommended: one minor release where both forms compile and the old form
+  gives a warning that names the new form, with a `typeshade migrate` codemod that rewrites a
+  file; the old form is refused in the release after it. The alternative is a single cut, which
+  breaks the five downstream repositories at the same pin move.
 - **D6.** The list of examples and downstream files, from the codemod's dry run.
+- **D7.** The option names in the third type argument (`interpolate`, `invariant`, `blendSrc`)
+  and whether `@diagnostic` stays a function-level form, as a fourth argument of the stage call.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require: the owner's decisions on D1 to D6;
+This record does not yet apply. Acceptance will require: the owner's decisions on D4 to D7;
 `tsc --strict` output on the rewritten `hello-vsout`, a compute example and an `@inout` example
 in the selected forms; and the front matter's examples, codes and surface lists completed from
 the codemod's dry run.
@@ -216,13 +245,14 @@ Measured on 2026-11-02 with `typescript@5.6.3` (the version in `package.json`),
 `tsc --noEmit --strict --target es2022 --lib es2022`, and a minimal ambient file that declares
 `vec2`, `vec4`, `f32`, `u32`, the constructors, `builtin` and `location` as standard field
 decorators, `vertex` and `fragment` as functions that return their argument, and
-`Builtin<N, T> = T`, `Location<I, T> = T`:
+`Builtin<N, T> = T`, `Location<I, T> = T` (with an optional third parameter for the last row), and `InOut<T> = T`:
 
-| Source                                                                      | Result                 |
-| --------------------------------------------------------------------------- | ---------------------- |
-| Today's form (`@vertex` function, parameter decorator, uninitialized field) | TS1206 (2), TS2564 (1) |
-| D1 with D2-a (`vertex(function …)`, field decorators with `!`)              | no diagnostic          |
-| D1 with D2-b (`vertex(function …)`, `Builtin<…>` and `Location<…>` types)   | no diagnostic          |
+| Source                                                                                                  | Result                 |
+| ------------------------------------------------------------------------------------------------------- | ---------------------- |
+| Today's form (`@vertex` function, parameter decorator, uninitialized field)                             | TS1206 (2), TS2564 (1) |
+| D1 with D2-a (`vertex(function …)`, field decorators with `!`)                                          | no diagnostic          |
+| D1 with D2-b (`vertex(function …)`, `Builtin<…>` and `Location<…>` types)                               | no diagnostic          |
+| D2-b with an options argument (`{ invariant: true }`, `{ interpolate: 'flat' }`) and D4 as `InOut<f32>` | no diagnostic          |
 
 `examples/hello-vsout.shade.ts` at the baseline, with the same options and with
 `--experimentalDecorators`, gives TS1206 at lines 20, 21 and 39 and TS2564 on each of its three
