@@ -12,6 +12,7 @@ import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -129,7 +130,8 @@ function shade(m: Mode): f32 {
     );
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('fn shade(m: i32) -> f32 {');
-    expect(r.wgsl).toContain('(i < N_Count)');
+    // O2 unrolls a loop bounded by a small integer constant (#869); the bound is read at O1.
+    expect(emitModuleAt(r.module, 'O1')).toContain('(i < N_Count)');
     agree(r, [3, 0, 0, 1]);
   });
 });

@@ -1423,7 +1423,9 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   value is one literal integer on every backend. A one-iteration loop no longer meets the
   64-node growth budget, since its body is copied once. The class-based Namek example renders
   its one sample without the two `AA` loops, and `rt-renderer-class` writes its two samples out.
-  4 goldens change.
+  4 goldens change. The pass adds 91 gzip bytes to the runtime, 120 to emit and 115 to fuse
+  (aggregates +123, +120 and +128), measured with Bun 1.4.4 against `1cd762a`, where the local
+  measurement equals the recorded caps; CI confirms them.
 
 - **O2 unrolls a small fixed-count loop and carries its state through the copies (#845).**
   `unrollLoops` now runs in the default pipeline. After unrolling a block it turns each `var` the
