@@ -595,16 +595,16 @@ Observations, none of them a deviation:
   or the nearest above it. A derived class declared with `extends` repeats that line, with the same
   comment, as it repeats the line before this change.
 - A field that a class writes with a private name (`#x`, Rule 8.12) is declared `private x` in the
-  view, and its comment is not carried, because `memberName` reads no private name. This predates
-  item 4: item 1 names the fields of a class. Next action: a bug fix against item 1, or an
-  amendment, at the owner's choice.
+  view, and its comment was not carried, because `memberName` read no private name. This predates
+  item 4: item 1 names the fields of a class. Filed as issue #951 and fixed by pull request #963
+  (squash commit `a61c861b`, 2026-11-02): the `private x` line carries the blocks of `#x`.
 - An overload signature with no body is now part of the approved text (item 4). The first record
   above says that the approved text did not cover it.
 
 Open items:
 
 - The static field: closed by Amendment 2.
-- The private-name field in the observations above.
+- The private-name field in the observations above: fixed by #963 (`a61c861b`).
 - Not run: `bun run gate:compile`, `bun run gate:differential`, `bun run gate:render` and
   `bun run gate:perf`. This change emits no WGSL or GLSL, and the generated module is as before.
   CI runs these gates.
