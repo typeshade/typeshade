@@ -1200,9 +1200,9 @@ vec3 NamekScene_render(NamekScene self_, vec3 ro, vec3 rd, float pixA, float lin
 }
 
 vec4 _flow24_fused(vec2 _flow1_input) {
-  float _licm0 = float(AA);
   Ship _cse0 = Ship(0.0);
-  NamekTree _cse3 = NamekTree(vec2(0.0, 0.0), 0.0, 0.0);
+  vec2 _cse5 = vec2(0.0, 0.0);
+  NamekTree _cse3 = NamekTree(_cse5, 0.0, 0.0);
   NamekTrees _cse1 = NamekTrees(_cse3, _cse3);
   NamekScene _flow0_local = NamekScene(_cse0, _cse1, ShipDetails(_cse0, _cse1), Lettering(0.0));
   _flow0_local.ship = Ship_new();
@@ -1224,21 +1224,16 @@ vec4 _flow24_fused(vec2 _flow1_input) {
   float _flow13_local = (2.0 / (_flow2_local.y * 3.4));
   float _flow14_local = ((0.0055 + (1.2 / _flow2_local.y)) / 3.4);
   vec3 _cse2 = vec3(0.0);
-  vec3 _flow15_local = _cse2;
-  for (int _flow16_local = 0; (_flow16_local < AA); _flow16_local = (_flow16_local + 1)) {
-    for (int _flow17_local = 0; (_flow17_local < AA); _flow17_local = (_flow17_local + 1)) {
-      vec2 _flow18_local = (((vec2(float(_flow17_local), float(_flow16_local)) + 0.5) / _licm0) - 0.5);
-      vec2 _flow19_local = (((2.0 * (_flow3_local + _flow18_local)) - _flow2_local) / _flow2_local.y);
-      vec3 _flow20_local = normalize((((_flow19_local.x * _flow11_local) + (_flow19_local.y * _flow12_local)) + (3.4 * _flow10_local)));
-      _flow15_local += NamekScene_render(_flow22_arg, _flow9_local, _flow20_local, _flow13_local, _flow14_local);
-    }
-  }
-  _flow15_local /= float((AA * AA));
+  vec2 _u1_u0_flow18_local = (((_cse5 + 0.5) / float(AA)) - 0.5);
+  vec2 _u1_u0_flow19_local = (((2.0 * (_flow3_local + _u1_u0_flow18_local)) - _flow2_local) / _flow2_local.y);
+  vec3 _u1_u0_flow20_local = normalize((((_u1_u0_flow19_local.x * _flow11_local) + (_u1_u0_flow19_local.y * _flow12_local)) + (3.4 * _flow10_local)));
+  vec3 _flow15_local_1 = (_cse2 + NamekScene_render(_flow22_arg, _flow9_local, _u1_u0_flow20_local, _flow13_local, _flow14_local));
+  vec3 _flow15_local_2 = (_flow15_local_1 / float((AA * AA)));
   vec2 _flow21_local = (_flow3_local / _flow2_local);
-  _flow15_local = ((_flow15_local * vec3(0.94, 1.0, 0.96)) + vec3(0.025, 0.035, 0.03));
-  _flow15_local += (0.03 * (Noise_hash12((_flow3_local + (61.7 * fract((u.time * 7.13))))) - 0.5));
-  _flow15_local *= (0.55 + (0.45 * pow(((((16.0 * _flow21_local.x) * _flow21_local.y) * (1.0 - _flow21_local.x)) * (1.0 - _flow21_local.y)), 0.12)));
-  return vec4(clamp(_flow15_local, _cse2, vec3(1.0)), 1.0);
+  vec3 _flow15_local_3 = ((_flow15_local_2 * vec3(0.94, 1.0, 0.96)) + vec3(0.025, 0.035, 0.03));
+  vec3 _flow15_local_4 = (_flow15_local_3 + (0.03 * (Noise_hash12((_flow3_local + (61.7 * fract((u.time * 7.13))))) - 0.5)));
+  vec3 _flow15_local_5 = (_flow15_local_4 * (0.55 + (0.45 * pow(((((16.0 * _flow21_local.x) * _flow21_local.y) * (1.0 - _flow21_local.x)) * (1.0 - _flow21_local.y)), 0.12))));
+  return vec4(clamp(_flow15_local_5, _cse2, vec3(1.0)), 1.0);
 }
 in vec2 uv;
 layout(location = 0) out vec4 _ret;

@@ -13,6 +13,7 @@ import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -128,7 +129,8 @@ class K {
     );
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('const K_PI: f32 = 3.5;');
-    expect(r.wgsl).toContain('(i < K_N)');
+    // O2 unrolls a loop bounded by a small integer constant (#869); the bound is read at O1.
+    expect(emitModuleAt(r.module, 'O1')).toContain('(i < K_N)');
     // 3 rounds of 2 * 3.5.
     for (const make of [compileModule, compileModuleJs]) {
       expect(make(r.module).fns['fs']!([0.5, 0.5]), make.name).toEqual([21, 0, 0, 1]);

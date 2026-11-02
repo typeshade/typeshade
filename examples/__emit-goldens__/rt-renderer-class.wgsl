@@ -411,21 +411,17 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(v: VsOut) -> @location(0) vec4<f32> {
-  let _licm0 = v.ndc;
-  let _licm1 = u.resolution;
-  let _licm2 = u.frame;
   var camera: Camera;
   createCamera_into(&camera, u.time);
   var scene: Scene;
   Scene_new_into(&scene);
   var renderer: Renderer;
   Renderer_new_into(&renderer, &scene);
-  var color: vec3<f32> = vec3<f32>(0.0);
-  for (var sample: i32 = 0; (sample < SAMPLES_PER_PIXEL); sample = (sample + 1)) {
-    color += renderSample(&renderer, &camera, _licm0, _licm1, _licm2, sample);
-  }
-  color = toneMap((color / f32(SAMPLES_PER_PIXEL)));
-  return vec4<f32>(color, 1.0);
+  let color = vec3<f32>(0.0);
+  let color_1 = (color + renderSample(&renderer, &camera, v.ndc, u.resolution, u.frame, 0));
+  let color_2 = (color_1 + renderSample(&renderer, &camera, v.ndc, u.resolution, u.frame, 1));
+  let color_3 = toneMap((color_2 / f32(SAMPLES_PER_PIXEL)));
+  return vec4<f32>(color_3, 1.0);
 }
 
 fn _flow16_fused(_flow1_input: ptr<function, Scene>, _flow2_input: vec3<f32>, _flow3_input: vec3<f32>, _flow7_input: f32) -> Hit {
