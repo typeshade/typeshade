@@ -550,7 +550,7 @@ An _open loop_ is a `while` loop: it ends when its condition fails, or at a `bre
 
 ### 7.2. Rules
 
-**Rule 7.1.** An operator, a swizzle, an index, and a call must mean what WGSL's typing table gives them. TypeScript's `==` and `!=` are accepted as aliases of the typed shader comparisons `===` and `!==`; no JavaScript coercion is emitted.
+**Rule 7.1.** An operator, a swizzle, an index, and a call must mean what WGSL's typing table gives them. A swizzle of distinct components on the left of `=` or `op=` takes the type and the operator overloads of the same swizzle read (change 0106). TypeScript's `==` and `!=` are accepted as aliases of the typed shader comparisons `===` and `!==`; no JavaScript coercion is emitted.
 
 - Rationale: Rule 1.1 applied to expressions.
 - Derives from: [Expressions](https://gpuweb.github.io/gpuweb/wgsl/#expressions), [Arithmetic Expressions](https://gpuweb.github.io/gpuweb/wgsl/#arithmetic-expr), [Bit Expressions](https://gpuweb.github.io/gpuweb/wgsl/#bit-expr).
@@ -563,6 +563,7 @@ An _open loop_ is a `while` loop: it ends when its condition fails, or at a `bre
 | whole-value parameter reassignment                                                                                  | a fresh mutable local initialized from the immutable parameter; body reads and writes use that local                                                                                                                                                                                                          | Rule 8.8; surface §14 and §52                                                                                       |
 | `c ? a : b` on a scalar or vector                                                                                   | `select(b, a, c)`, WGSL's own argument order; an `if` with a temporary when an arm is costly (a call of a function of the module, a texture read, or 8 or more operations; change 0097), unless an arm holds a derivative, an implicit-LOD sample, a barrier or a call that reaches one, which keeps `select` | surface §10; `CHANGELOG.md` (ternary as `select`); [`select`](https://gpuweb.github.io/gpuweb/wgsl/#select-builtin) |
 | `c ? a : b` on a struct or an array                                                                                 | an `if` with a temporary, since WGSL has no `select` over a composite                                                                                                                                                                                                                                         | surface §31 (#113)                                                                                                  |
+| `v.xy = r`, `v.xy op= r` (change 0106)                                                                              | a `let` that reads every old component the operation needs, then one write per destination component; no `swizzle_assignment` extension                                                                                                                                                                       | a non-constant index of `v` is read once, first; a repeated component (`v.xx`) is refused with `TS8018`             |
 | `a ** b`                                                                                                            | `pow(a, b)`, float-only                                                                                                                                                                                                                                                                                       | surface §10                                                                                                         |
 | `atan(y, x)`                                                                                                        | `atan2(y, x)`                                                                                                                                                                                                                                                                                                 | surface §10                                                                                                         |
 | `switch`                                                                                                            | WGSL's `switch`, which never falls through; a trailing `break` is dropped                                                                                                                                                                                                                                     | surface §14; [Switch Statement](https://gpuweb.github.io/gpuweb/wgsl/#switch-statement)                             |
@@ -1787,14 +1788,14 @@ The counts below cover all four tables. A sub-gap is not counted here; the gap r
 | ----- | ------ | ----- | --- | ------- | ------- | --- | --- | ---- |
 | A     | WebGPU | 175   | 106 | 0       | 49      | 79  | 21  | 430  |
 | A     | WebGL2 | 108   | 13  | 9       | 0       | 125 | 175 | 430  |
-| B     | WebGPU | 214   | 0   | 10      | 0       | 66  | 4   | 294  |
-| B     | WebGL2 | 175   | 0   | 18      | 0       | 40  | 61  | 294  |
+| B     | WebGPU | 215   | 0   | 10      | 0       | 65  | 4   | 294  |
+| B     | WebGL2 | 176   | 0   | 18      | 0       | 39  | 61  | 294  |
 | C     | WebGPU | 96    | 0   | 0       | 1       | 23  | 14  | 134  |
 | C     | WebGL2 | 98    | 0   | 0       | 0       | 27  | 9   | 134  |
 | D     | WebGPU | 28    | 12  | 0       | 2       | 15  | 22  | 79   |
 | D     | WebGL2 | 23    | 11  | 4       | 0       | 30  | 11  | 79   |
-| all   | WebGPU | 513   | 118 | 10      | 52      | 183 | 61  | 937  |
-| all   | WebGL2 | 404   | 24  | 31      | 0       | 222 | 256 | 937  |
+| all   | WebGPU | 514   | 118 | 10      | 52      | 182 | 61  | 937  |
+| all   | WebGL2 | 405   | 24  | 31      | 0       | 221 | 256 | 937  |
 
 17 capabilities are flagged WebGL2-only. Each enters the surface by the door it names (Rule 11.16).
 

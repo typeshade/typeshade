@@ -21,14 +21,14 @@ Each count is one status of one target. The rows column counts the rows of the t
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | A | WebGPU | 175 | 106 | 0 | 49 | 79 | 21 | 430 |
 | A | WebGL2 | 108 | 13 | 9 | 0 | 125 | 175 | 430 |
-| B | WebGPU | 214 | 0 | 10 | 0 | 66 | 4 | 294 |
-| B | WebGL2 | 175 | 0 | 18 | 0 | 40 | 61 | 294 |
+| B | WebGPU | 215 | 0 | 10 | 0 | 65 | 4 | 294 |
+| B | WebGL2 | 176 | 0 | 18 | 0 | 39 | 61 | 294 |
 | C | WebGPU | 96 | 0 | 0 | 1 | 23 | 14 | 134 |
 | C | WebGL2 | 98 | 0 | 0 | 0 | 27 | 9 | 134 |
 | D | WebGPU | 28 | 12 | 0 | 2 | 15 | 22 | 79 |
 | D | WebGL2 | 23 | 11 | 4 | 0 | 30 | 11 | 79 |
-| all | WebGPU | 513 | 118 | 10 | 52 | 183 | 61 | 937 |
-| all | WebGL2 | 404 | 24 | 31 | 0 | 222 | 256 | 937 |
+| all | WebGPU | 514 | 118 | 10 | 52 | 182 | 61 | 937 |
+| all | WebGL2 | 405 | 24 | 31 | 0 | 221 | 256 | 937 |
 
 ## Table A: WebGPU host API
 
@@ -758,7 +758,7 @@ Each count is one status of one target. The rows column counts the rows of the t
 | WGSL language extension | `readonly_and_readwrite_storage_textures` | `src/core/spec-conformance/fixtures/wgsl-names.json §language-extensions-sec` | src/core/passes/required-caps.ts:90-102; src/core/passes/gl-compute.ts:312; docs/language-design.md:1153 | typed (`src/compiler/ts/storage-textures.test.ts`); requires emitted; gap inside: group 6 (#162): read_write beyond r32uint, r32sint and r32float is refused (TS8002); §14 row, docs/language-design.md:1504; roadmap 13b, docs/roadmap.md:228 | typed (`src/core/passes/gl-compute.test.ts`); compute entry only; Rule 10.5 (docs/language-design.md:1153) lifts the deferral for the storage texture (#136) in a compute entry on WebGL2; changes/0054-webgl2-compute.md:171 states the same lift; gap inside: group 6 (#162): read_write beyond r32uint, r32sint and r32float is refused (TS8002); §14 row, docs/language-design.md:1504; roadmap 13b, docs/roadmap.md:228 |  |
 | WGSL language extension | `subgroup_id` | `src/core/spec-conformance/fixtures/wgsl-names.json §language-extensions-sec` | src/compiler/ts/builtin-check.ts:311 | gap (group 13, #536); the front end raises TS8024 (BUILTIN_NAME); §14 row, docs/language-design.md:1506; roadmap After 1.0, docs/roadmap.md:306 | n/a (WebGL2 has no subgroups) |  |
 | WGSL language extension | `subgroup_uniformity` | `src/core/spec-conformance/fixtures/wgsl-names.json §language-extensions-sec` | src/core/spec-conformance/fixtures/wgsl-names.json:708 | n/a (an analysis rule of the subgroups extension; it constrains the subgroup operations, which TypeShade does not spell) | n/a (WebGL2 has no subgroups) |  |
-| WGSL language extension | `swizzle_assignment` | `src/core/spec-conformance/fixtures/wgsl-names.json §language-extensions-sec` | src/compiler/ts/lower/statement.ts:2042-2051; src/compiler/ts/codes.ts:52 | gap (group 9, #640); TS8018 refuses v.xy = …; WGSL at the pinned commit allows it | gap (group 9, #640); GLSL ES 3.00 allows v.xy = … natively; the front end refuses it (TS8018) | WebGPU and WebGL2 both allow a swizzle assignment |
+| WGSL language extension | `swizzle_assignment` | `src/core/spec-conformance/fixtures/wgsl-names.json §language-extensions-sec` | src/compiler/ts/lower/statement.ts (splitSwizzleWrite); changes/0106-swizzle-assignment.md | typed (`src/compiler/ts/swizzle-assign.test.ts`) | typed (`src/compiler/ts/swizzle-assign.test.ts`) | v.xy = … and v.xy op= … lower to a let and one write per component (change 0106), so the extension is not required |
 | WGSL language extension | `texture_and_sampler_let` | `src/core/spec-conformance/fixtures/wgsl-names.json §language-extensions-sec` | docs/language-design.md:1239 | typed (`journeys/textures`); a const of a texture, Rule 11.10 | typed (`src/core/passes/texture-pairs.test.ts`) |  |
 | WGSL language extension | `texture_formats_tier1` | `src/core/spec-conformance/fixtures/wgsl-names.json §language-extensions-sec` | src/core/ir/types.ts:75-100; docs/use-typeshade-surface.md:5377-5382 | gap (group 6, #637); tier-1 storage formats beyond the 17 of ALL_STORAGE_TEXTURE_FORMATS are refused (TS8002 for r8unorm, rg8unorm, rgb10a2unorm, rg16float); roadmap 13b, docs/roadmap.md:228, lists them in a shipped row | gap (group 6, #637); tier-1 storage formats beyond the 17 of ALL_STORAGE_TEXTURE_FORMATS are refused (TS8002 for r8unorm, rg8unorm, rgb10a2unorm, rg16float); roadmap 13b, docs/roadmap.md:228, lists them in a shipped row |  |
 | WGSL language extension | `uniform_buffer_standard_layout` | `src/core/spec-conformance/fixtures/wgsl-names.json §language-extensions-sec` | docs/use-typeshade-surface.md:5894-5899; docs/use-typeshade-surface.md:5943-5945; src/core/backends/glsl.ts:10 | gap (group 12, #643); refused today with no rule number: surface §50 and §51; the array is padded instead (Rule 6.8 agrees); no rule names the extension | n/a (no WebGL2 form of the extension; the writer lays out uniform blocks as std140) |  |
@@ -1349,7 +1349,7 @@ Gap cells: WebGPU 3, WebGL2 41. Sub-gaps: WebGPU 28, WebGL2 14. Issues named: #5
 
 ### Group 9: WGSL spellings the compiler refuses or lacks
 
-Gap cells: WebGPU 28, WebGL2 19. Sub-gaps: WebGPU 10, WebGL2 8. Issues named: #133, #162, #640.
+Gap cells: WebGPU 27, WebGL2 18. Sub-gaps: WebGPU 10, WebGL2 8. Issues named: #133, #162, #640.
 
 - WebGPU, `atomicStoreMax`: gap (#640)
 - WebGPU, `atomicStoreMin`: gap (#640)
@@ -1384,8 +1384,6 @@ Gap cells: WebGPU 28, WebGL2 19. Sub-gaps: WebGPU 10, WebGL2 8. Issues named: #1
 - WebGPU, `atomic_vec2u_min_max`: gap (#640)
 - WebGPU, `atomic_vec2u_min_max`: gap (#640)
 - WebGPU, `buffer_view`: gap (#162)
-- WebGPU, `swizzle_assignment`: gap (#640)
-- WebGL2, `swizzle_assignment`: gap (#640)
 - WebGPU, `modf`: gap (#162)
 - WebGL2, `modf`: gap (#162)
 - WebGPU, `floatBitsToInt`: gap (#640)
