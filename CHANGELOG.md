@@ -24,7 +24,10 @@ repository was published to npm before **`0.1.0`, the first release**.
   not change. `readonly` on a parameter is a promise not to write: a write, `push` or `fill`
   through it is refused with `TS8005` in both halves, and the editor shows that one sentence in
   place of TypeScript's TS2542 and TS2339. `readonly array<f32>` is `TS8002` in both halves, where
-  the editor showed TS1354. `array<T>` stays accepted; S2 to S4 follow. No code or export is added.
+  the editor showed TS1354. `storage<readonly T[], "read_write">` is `TS8002` in both halves until
+  S3 decides a binding's access, and TypeScript's TS2345, TS4104 and TS2542 about a `readonly`
+  array that reaches a writable place give way to the compiler's refusal of the same flow.
+  `array<T>` stays accepted; S2 to S4 follow. No code or export is added.
 
 - **The subgroup built-in functions and values** (change 0117; Rule 11.21, surface §50 and
   §77). The 21 functions of WGSL's `subgroups` extension (`subgroupAdd`, `subgroupBallot`,

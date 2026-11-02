@@ -142,6 +142,84 @@ export function n(xs: ${t}, out: f32[]): u32 {
     });
   });
 
+  describe('a readonly array reaching a place that writes is one diagnostic in both halves', () => {
+    // An array with no size lives in a storage binding or a kernel function's parameter only, so
+    // the compiler refuses every flow into a writable `T[]` with a sentence that names the fix.
+    // TypeScript's TS2345, TS4104 and TS2542 about the same flow are that refusal's repeats.
+    const ROWS: readonly (readonly [string, string, string])[] = [
+      [
+        'passed to a kernel function',
+        'export function g(a: f32[]) {\n  a[0] = 1.\n}\nexport function f(xs: readonly f32[]) {\n  g(xs)\n}',
+        'TS8099 "g" is a kernel function',
+      ],
+      [
+        'passed to a kernel function that takes array<f32>',
+        'export function g(a: array<f32>) {\n  a[0] = 1.\n}\nexport function f(xs: readonly f32[]) {\n  g(xs)\n}',
+        'TS8099 "g" is a kernel function',
+      ],
+      [
+        'passed to a local function',
+        'export function f(xs: readonly f32[], out: f32[]) {\n  const g = (a: f32[]): f32 => a[0]\n  out[0] = g(xs)\n}',
+        'TS8020 Parameter "a" is array<f32>',
+      ],
+      [
+        'copied to a writable local',
+        'export function f(xs: readonly f32[], out: f32[]) {\n  const a: f32[] = xs\n  out[0] = a[0]\n}',
+        'TS8099 "a" would copy "xs"',
+      ],
+      [
+        'copied by name and written',
+        'export function f(xs: readonly f32[]) {\n  const a = xs\n  a[0] = 1.\n}',
+        'TS8099 "a" would copy "xs"',
+      ],
+    ];
+    for (const [what, body, starts] of ROWS) {
+      it(`${what}`, () => {
+        const source = `"use typeshade"\n${body}\n`;
+        const compiler = compilerErrors(source);
+        expect(compiler.length, compiler.join('\n')).toBe(1);
+        expect(compiler[0]).toContain(starts);
+        expect(editorErrors(source)).toEqual(compiler);
+      });
+    }
+  });
+
+  describe('storage<readonly T[]>', () => {
+    const SENTENCE = (written: string): string =>
+      `TS8002 "${written}" promises that nothing writes the binding, and "read_write" asks for a ` +
+      `binding that is written. Write the value type without "readonly" to keep "read_write", ` +
+      `or drop "read_write".`;
+    for (const written of ['readonly f32[]', 'ReadonlyArray<f32>']) {
+      it(`${written} with "read_write" is one TS8002 in both halves, written or not`, () => {
+        for (const write of ['', 'xs[gid.x] = 1.']) {
+          const source = `"use typeshade"\ndeclare const xs: storage<${written}, "read_write">\n@compute([64])\nexport function main(@builtin("global_invocation_id") gid: vec3u) {\n  ${write}\n}\n`;
+          expect(compilerErrors(source), write).toEqual([SENTENCE(written)]);
+          expect(editorErrors(source), write).toEqual([SENTENCE(written)]);
+        }
+      });
+      it(`${written} read is accepted in both halves, with its length and elements`, () => {
+        const source = `"use typeshade"\ndeclare const xs: storage<${written}>\ndeclare const out: storage<f32[], "read_write">\n@compute([64])\nexport function main(@builtin("global_invocation_id") gid: vec3u) {\n  out[gid.x] = xs[gid.x] + f32(xs.length)\n}\n`;
+        expect(compilerErrors(source)).toEqual([]);
+        expect(editorErrors(source)).toEqual([]);
+      });
+    }
+  });
+
+  describe('a list of lists as a kernel function parameter mirrors array<array<f32>>', () => {
+    // Measured on the same source: array<array<f32>> is accepted in both halves, and the new
+    // spellings give the same IR. S1 adds no refusal and removes none.
+    const source = (t: string): string =>
+      `"use typeshade"\nexport function f(xs: ${t}) {\n  xs[0][0] = 1.\n}\n`;
+    for (const t of ['f32[][]', 'Array<f32[]>', 'Array<Array<f32>>']) {
+      it(`${t}`, () => {
+        const base = compilerErrors(source('array<array<f32>>'));
+        expect(compilerErrors(source(t))).toEqual(base);
+        expect(editorErrors(source(t))).toEqual(base);
+        expect(irOf(source(t))).toBe(irOf(source('array<array<f32>>')));
+      });
+    }
+  });
+
   describe('what stays refused says the same in both halves', () => {
     it('readonly array<f32> is TS8002 once, naming readonly f32[] (compiler TS8002 against editor TS1354 before)', () => {
       const source = KERNEL('readonly array<f32>', 'f32[]');
