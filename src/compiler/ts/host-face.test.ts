@@ -2168,6 +2168,217 @@ export function make(): f32 {
       expect(Saw.at(0.25, 1).tick()).toBe(-0.5);
     });
   });
+
+  describe('the instance members of an abstract class that no exported class a host can build extends (#989)', () => {
+    // A member is lowered for the classes below its class (Rule 8.9), and `Oscillator` has no class
+    // below it that is not abstract, so no function of the module is its `tick`, its `step`, its
+    // `scale` or its `wave`. The view declares each `never` on the class, and the reason is what a
+    // host needs to know: the class is abstract, so no instance of it runs the member, and no
+    // exported class a host can build extends it. It is not the reason of every member that was not
+    // lowered.
+    const source = `"use typeshade";
+
+/** A source of samples. */
+export abstract class Oscillator {
+  protected inc: f32 = 0.;
+  /** The next sample. */
+  tick(): f32 {
+    return this.inc;
+  }
+  /** The step of one sample. */
+  get step(): f32 {
+    return this.inc;
+  }
+  /** Scales a sample. */
+  scale = (x: f32): f32 => x * this.inc;
+  abstract wave(p: f32): f32;
+  static unit(): f32 {
+    return 1.;
+  }
+}
+
+/** A class between the two. */
+export abstract class Mid extends Oscillator {}
+`;
+    const reason = (shown: string, member: string): string =>
+      `"${shown}" is abstract, so there is no instance of it on which "${member}" could run. No exported class that a host can build extends it. Add an exported class that extends it`;
+
+    it('is declared never with that sentence as its reason, on each member’s line of the view and in a host’s hover', () => {
+      // Both halves of the shader take the program (Rule 12.7); the view is the compiler's.
+      const f = faceOf(source);
+      expect(f.view).toContain(`/** A source of samples. */
+export declare abstract class Oscillator {
+  protected inc: f32;
+  /** The next sample.
+   *
+   * ${refused(reason('Oscillator', 'tick'))}
+   */
+  tick: never;
+  /** The step of one sample.
+   *
+   * ${refused(reason('Oscillator', 'step'))}
+   */
+  step: never;
+  /** Scales a sample.
+   *
+   * ${refused(reason('Oscillator', 'scale'))}
+   */
+  scale: never;
+  /** ${refused(reason('Oscillator', 'wave'))} */
+  wave: never;
+  static unit(): f32;
+}
+`);
+      expect(f.view).not.toContain('was not lowered');
+      // An abstract class below it names itself, since a host holds a value of that class too.
+      expect(f.view).toContain(`/** A class between the two. */
+export declare abstract class Mid extends Oscillator {
+  /** The next sample.
+   *
+   * ${refused(reason('Mid', 'tick'))}
+   */
+  tick: never;
+  /** The step of one sample.
+   *
+   * ${refused(reason('Mid', 'step'))}
+   */
+  step: never;
+  /** Scales a sample.
+   *
+   * ${refused(reason('Mid', 'scale'))}
+   */
+  scale: never;
+  /** ${refused(reason('Mid', 'wave'))} */
+  wave: never;
+}
+`);
+      // The editor's hover over each member in a host program shows the author's words and then the
+      // reason, and a call of a method is a type error at the host's line.
+      const host = `import type { Oscillator } from './m.shade.ts';
+export function use(o: Oscillator): void {
+  o.tick();
+  o.step;
+  o.scale(1);
+  o.wave(0.5);
+}
+`;
+      const read = (at: string) => hover(f.view!, host, at);
+      expect(read('tick()').documentation).toBe(
+        `The next sample.\n\n${refused(reason('Oscillator', 'tick'))}`,
+      );
+      expect(read('step;').documentation).toBe(
+        `The step of one sample.\n\n${refused(reason('Oscillator', 'step'))}`,
+      );
+      expect(read('scale(1)').documentation).toBe(
+        `Scales a sample.\n\n${refused(reason('Oscillator', 'scale'))}`,
+      );
+      expect(read('wave(0.5)').documentation).toBe(refused(reason('Oscillator', 'wave')));
+      const { errors } = read('tick()');
+      expect(errors).toHaveLength(3);
+      for (const error of errors)
+        expect(error).toMatch(
+          /^This expression is not callable\.\s+Type 'never' has no call signatures\.$/,
+        );
+    });
+
+    it('names the abstract class by the name a host imports', () => {
+      const f = faceOf(`"use typeshade";
+
+abstract class Form {
+  w: f32 = 1.;
+  area(): f32 {
+    return this.w * 2.;
+  }
+}
+
+export { Form as Shape };
+`);
+      expect(f.view).toContain(`export declare abstract class Shape {
+  w: f32;
+  /** ${refused(reason('Shape', 'area'))} */
+  area: never;
+}
+`);
+    });
+
+    it('is thrown by the generated module, as for every member declared never', async () => {
+      const m = await load(source);
+      const Oscillator = m.Oscillator as { prototype: Record<string, unknown>; unit(): number };
+      const thrown = (member: string): TypeError =>
+        new TypeError(
+          `Oscillator.${member} cannot be called from host code: ${reason('Oscillator', member)}`,
+        );
+      for (const member of ['tick', 'scale', 'wave'])
+        expect(() => (Oscillator.prototype[member] as () => unknown)()).toThrow(thrown(member));
+      expect(() => Oscillator.prototype.step).toThrow(thrown('step'));
+      // The static works, and `new` of the class is refused as it was.
+      expect(Oscillator.unit()).toBe(1);
+      expect(() => new (m.Oscillator as new () => unknown)()).toThrow(
+        new TypeError(
+          'new Oscillator cannot be called from host code: it is abstract, so there is no instance of it to build; construct a class that extends it',
+        ),
+      );
+    });
+
+    it('holds when the only class below is generic and the module builds none of it', () => {
+      // A generic class exists as the instances the module uses, and there is none: the view
+      // declares the class `never` with its own reason, and no instance runs a member of the base.
+      const f = faceOf(`"use typeshade";
+
+export abstract class Shape {
+  w: f32 = 1.;
+  area(): f32 {
+    return this.w;
+  }
+}
+
+export class Box<T> extends Shape {}
+`);
+      expect(f.view).toContain(`export declare abstract class Shape {
+  w: f32;
+  /** ${refused(reason('Shape', 'area'))} */
+  area: never;
+}
+`);
+      expect(f.view).toContain(
+        'Not callable from host code (Rule 8.20): it is generic, and its struct exists only as the instances the module uses.',
+      );
+    });
+
+    it('is not the reason of a member a class below the abstract one runs', async () => {
+      const abstractClass = `export abstract class Shape {
+  w: f32 = 1.;
+  area(): f32 {
+    return this.w;
+  }
+  get twice(): f32 {
+    return this.w * 2.;
+  }
+}
+`;
+      // A class that is exported and a class that is not: the members take the types of the
+      // functions lowered for it, and the view declares them as functions of the class.
+      for (const below of [
+        'export class Square extends Shape {}',
+        'class Square extends Shape {}',
+      ]) {
+        const f = faceOf(`"use typeshade";\n\n${abstractClass}\n${below}\n`);
+        expect(f.view).toContain(`export declare abstract class Shape {
+  w: f32;
+  area(): f32;
+  get twice(): f32;
+}
+`);
+        expect(f.view).not.toContain('Add an exported class');
+      }
+      // The classes below carry the members, so the abstract class's own prototype has none.
+      const m = await load(
+        `"use typeshade";\n\n${abstractClass}\nexport class Square extends Shape {}\n`,
+      );
+      const Shape = m.Shape as { prototype: object };
+      expect(Object.getOwnPropertyNames(Shape.prototype)).toEqual(['constructor']);
+    });
+  });
 });
 
 describe('a host call (Rule 8.21)', () => {
