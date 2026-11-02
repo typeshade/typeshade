@@ -15,6 +15,20 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ## [Unreleased]
 
+### Added
+
+- **The subgroup built-in functions and values** (change 0117; Rule 11.21, surface §50 and
+  §77). The 21 functions of WGSL's `subgroups` extension (`subgroupAdd`, `subgroupBallot`,
+  `subgroupElect`, `subgroupBroadcast` and the rest) and the built-in values `subgroup_id` and
+  `num_subgroups` are authorable, with WGSL's signatures from `core.def` through the overlay. A
+  call derives `enable subgroups;` and the host feature, as the two existing built-in values do.
+  On the CPU oracle and on GLSL ES 3.00 a subgroup is one invocation, so a program stays usable
+  on WebGL2; the determinism report lists a float fold as `order` and a float broadcast or
+  shuffle as `target`. The front end refuses an argument no row takes, a computed
+  `subgroupBroadcast` lane, a vertex entry and a call outside uniform control flow, each in a
+  sentence. `examples/subgroup-reduce.shade.ts` is the use #536 asked for. No code or export is
+  added; `subgroupMatrix*`, the `quad*` functions and `@subgroup_size` stay out.
+
 ### Changed
 
 - **The design rules say what TypeShade borrows (change 0100).** `docs/language-design.md`

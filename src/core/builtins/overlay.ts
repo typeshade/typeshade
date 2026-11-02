@@ -24,6 +24,7 @@ export type Family =
   | 'math'
   | 'derivatives, bits and packing'
   | 'atomics, barriers and arrayLength'
+  | 'subgroups'
   | 'textures'
   | 'constructors and conversions'
   | 'operators';
@@ -140,6 +141,32 @@ const ATOMICS_BARRIERS = [
   'workgroupBarrier',
 ];
 
+/** The subgroup built-in functions (change 0117): the 21 of the `subgroups` extension. The
+ *  `quad*` four and the `subgroupMatrix*` family stay deferred (`extensionOf`). */
+const SUBGROUPS = [
+  'subgroupAdd',
+  'subgroupAll',
+  'subgroupAnd',
+  'subgroupAny',
+  'subgroupBallot',
+  'subgroupBroadcast',
+  'subgroupBroadcastFirst',
+  'subgroupElect',
+  'subgroupExclusiveAdd',
+  'subgroupExclusiveMul',
+  'subgroupInclusiveAdd',
+  'subgroupInclusiveMul',
+  'subgroupMax',
+  'subgroupMin',
+  'subgroupMul',
+  'subgroupOr',
+  'subgroupShuffle',
+  'subgroupShuffleDown',
+  'subgroupShuffleUp',
+  'subgroupShuffleXor',
+  'subgroupXor',
+];
+
 /** The family of a builtin function, by name. A `texture*` function is the texture suite's. */
 export function familyOf(kind: string, name: string): Family | undefined {
   if (kind === 'ctor' || kind === 'conv') return 'constructors and conversions';
@@ -147,6 +174,7 @@ export function familyOf(kind: string, name: string): Family | undefined {
   if (MATH.includes(name)) return 'math';
   if (DERIVATIVES_BITS_PACKING.includes(name)) return 'derivatives, bits and packing';
   if (ATOMICS_BARRIERS.includes(name)) return 'atomics, barriers and arrayLength';
+  if (SUBGROUPS.includes(name)) return 'subgroups';
   if (name.startsWith('texture')) return 'textures';
   return undefined;
 }
@@ -171,8 +199,8 @@ export const NOT_WGSL: Readonly<Record<string, string>> = {
 export function extensionOf(name: string): string | undefined {
   if (name.startsWith('subgroupMatrix') || name.startsWith('subgroup_matrix'))
     return "Dawn's experimental subgroup matrices, outside the WGSL surface this package targets";
-  if (name.startsWith('subgroup') || name.startsWith('quad'))
-    return 'the `subgroups` extension: surface §50 spells its built-in values, and no issue asks for its functions yet';
+  if (name.startsWith('quad'))
+    return 'the quad operations of the `subgroups` extension: proposal 0117 leaves them out, since a quad is four invocations of a fragment block and a one-lane meaning for a swap says nothing true';
   return undefined;
 }
 
@@ -188,6 +216,7 @@ export const SUPPORTED_FAMILIES: ReadonlySet<Family> = new Set<Family>([
   'math',
   'derivatives, bits and packing',
   'atomics, barriers and arrayLength',
+  'subgroups',
 ]);
 
 /** Why a row has no instance TypeShade can spell, or undefined when it has one. */

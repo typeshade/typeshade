@@ -2,6 +2,8 @@
 // ones (milestone 1, amendment 2): a stage call is an entry in the document symbols and in the
 // semantic tokens, and the id of a `builtin<"…", T>` type is hovered and completed as the
 // argument of a `builtin("…")` decorator is, filtered by the stage the call names.
+//
+// Verifies: Rule 6.7, Rule 8.1, Rule 8.22 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { createTypeshadeLanguageService } from './service.js';

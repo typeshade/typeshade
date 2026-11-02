@@ -144,6 +144,8 @@ export type WgslBuiltinName =
   | 'num_workgroups'
   | 'subgroup_invocation_id'
   | 'subgroup_size'
+  | 'subgroup_id'
+  | 'num_subgroups'
   | 'clip_distances';
 
 /** Every {@link WgslBuiltinName} value as a runtime array. The type above is a type-only union
@@ -171,6 +173,8 @@ export const WGSL_BUILTIN_NAMES: readonly WgslBuiltinName[] = [
   'num_workgroups',
   'subgroup_invocation_id',
   'subgroup_size',
+  'subgroup_id',
+  'num_subgroups',
   'clip_distances',
 ];
 
@@ -287,6 +291,8 @@ export const WGSL_BUILTIN_TYPES = {
   num_workgroups: vec3uT,
   subgroup_invocation_id: u32T,
   subgroup_size: u32T,
+  subgroup_id: u32T,
+  num_subgroups: u32T,
 } as const satisfies Partial<Record<WgslBuiltinName, ShaderType>>;
 
 /** The {@link WgslBuiltinName} ids whose type WGSL fixes — every id except `clip_distances`,

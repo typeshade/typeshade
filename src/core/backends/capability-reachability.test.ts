@@ -708,6 +708,17 @@ describe('capability reachability (X-GIS #1681 A3)', () => {
 /** A capability an author can reach by writing a program, and the program. Each is compiled
  *  below and `reflect().requiredFeatures` must name the capability. */
 const SOURCE_WITNESSES: Readonly<Partial<Record<Capability, string>>> = {
+  // A subgroup built-in function derives `subgroups` from the call (change 0117, §77), as the
+  // two subgroup built-in values do (§50). Measured: `reflect().requiredFeatures` is exactly
+  // `["subgroups"]` for this program.
+  subgroups: `"use typeshade";
+declare const src: storage<array<u32>>;
+declare const out: storage<array<u32>, "read_write">;
+@compute([64])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  out[gid.x] = subgroupAdd(src[gid.x]);
+}
+`,
   // The three #146 added (§50) are each derived from a `@builtin(...)` id or an attribute an
   // author WRITES, so all three are reachable and belong here rather than on the list below.
   // Measured: `reflect().requiredFeatures` is exactly `["clipDistances"]`, `["primitiveIndex"]`
@@ -849,15 +860,6 @@ const NO_SOURCE_WITNESS: Readonly<
 export function f(): f32 {
   const a: f16 = 1.;
   return f32(a);
-}
-`,
-  },
-  subgroups: {
-    reason:
-      'no subgroup intrinsic in the registry; docs/roadmap.md, After 1.0, row "Subgroup operations": "A WebGPU extension with no WebGL2 equivalent and no oracle meaning yet"',
-    probe: `"use typeshade";
-export function f(x: f32): f32 {
-  return subgroupAdd(x);
 }
 `,
   },

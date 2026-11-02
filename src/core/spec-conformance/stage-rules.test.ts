@@ -90,49 +90,30 @@ const idsSpelling = (names: ReadonlySet<string>): string[] =>
     return name !== null && names.has(name);
   });
 
-// The roadmap row the subgroup and quad entries rest on, cited by its name and not by a line
-// number: a line number goes stale as soon as a row above it moves, which is what happened to
-// the one written here before. The test below checks the row is still there and still says so.
-const SUBGROUP_ROW = 'Subgroup operations';
-const SUBGROUP_ROW_REASON =
-  'A WebGPU extension with no WebGL2 equivalent and no oracle meaning yet';
-const SUBGROUPS = `subgroup operations: docs/roadmap.md, After 1.0, row "${SUBGROUP_ROW}": "${SUBGROUP_ROW_REASON}"`;
-const QUADS = `quad operations, part of the WGSL subgroups extension: docs/roadmap.md, After 1.0, row "${SUBGROUP_ROW}"`;
+// The quad entries rest on proposal 0117, which leaves them out: a quad is four invocations of
+// a fragment block, and a one-lane meaning for a swap says nothing true (its section 6).
+const QUADS =
+  'quad operations, part of the WGSL subgroups extension: changes/0117-subgroup-operations.md, section 6, leaves them out';
 
 /** A staged `core.def` name this package has no catalogue id for. Each entry says why, and the
  *  list is shrink-only: the arm below fails a name that HAS gained an id but kept its entry. */
 
 const NOT_IN_CATALOGUE: Readonly<Record<string, string>> = {
-  // The 25 subgroup names, listed one by one rather than matched by prefix: a prefix would
-  // swallow a future `subgroupSomething` this package DOES spell.
+  // The subgroup matrix names, listed one by one rather than matched by prefix: a prefix would
+  // swallow a `subgroupSomething` this package spells (the 21 functions, change 0117).
   ...Object.fromEntries(
     [
-      'subgroupAdd',
-      'subgroupAll',
-      'subgroupAnd',
-      'subgroupAny',
-      'subgroupBallot',
-      'subgroupBroadcast',
-      'subgroupBroadcastFirst',
-      'subgroupElect',
-      'subgroupExclusiveAdd',
-      'subgroupExclusiveMul',
-      'subgroupInclusiveAdd',
-      'subgroupInclusiveMul',
+      'subgroupMatrixLoad',
+      'subgroupMatrixMultiply',
       'subgroupMatrixMultiplyAccumulate',
       'subgroupMatrixScalarAdd',
       'subgroupMatrixScalarMultiply',
       'subgroupMatrixScalarSubtract',
-      'subgroupMax',
-      'subgroupMin',
-      'subgroupMul',
-      'subgroupOr',
-      'subgroupShuffle',
-      'subgroupShuffleDown',
-      'subgroupShuffleUp',
-      'subgroupShuffleXor',
-      'subgroupXor',
-    ].map((name) => [name, SUBGROUPS]),
+      'subgroupMatrixStore',
+    ].map((name) => [
+      name,
+      "Dawn's experimental subgroup matrices, outside the WGSL surface this package targets",
+    ]),
   ),
   inputAttachmentLoad:
     'input attachments are a WebGPU extension with no WebGL2 equivalent; nothing in this package spells one',
@@ -204,17 +185,6 @@ describe('the compiler stage sets equal the sets core.def states (S4)', () => {
       .map((r) => r.fn)
       .filter((fn) => !spelled.has(fn) && !(fn in NOT_IN_CATALOGUE));
     expect(unaccounted).toEqual([]);
-  });
-
-  it('cites a docs/roadmap.md row that is still there, under "After 1.0", with the reason quoted', () => {
-    const roadmap = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'docs', 'roadmap.md'),
-      'utf8',
-    );
-    const after = roadmap.slice(roadmap.indexOf('### After 1.0'));
-    const row = after.split('\n').find((l) => l.startsWith(`| ${SUBGROUP_ROW} `));
-    expect(row, `roadmap "After 1.0" has no "${SUBGROUP_ROW}" row`).toBeDefined();
-    expect(row).toContain(SUBGROUP_ROW_REASON);
   });
 
   it('loses the NOT_IN_CATALOGUE entry of a name that has since gained an id', () => {

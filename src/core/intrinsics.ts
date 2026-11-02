@@ -255,6 +255,78 @@ function gatherSpellings(): Record<string, Spelling> {
   return out;
 }
 
+/** The subgroup built-in functions of WGSL's `subgroups` extension (change 0117). On WGSL each
+ *  is its own call; on GLSL ES 3.00 and on the CPU oracle a subgroup is one invocation (Rule
+ *  11.21), so `passes/subgroups-one-lane.ts` rewrites each call before the GLSL writer runs and
+ *  the oracle's table gives each its one-lane value. Exported so the capability pass derives
+ *  `subgroups` from a call, the uniformity walk reads the set, and the front end routes one.
+ *
+ *  Exported from `typeshade`.
+ */
+export const SUBGROUP_INTRINSICS: ReadonlySet<string> = new Set([
+  'subgroupAdd',
+  'subgroupAll',
+  'subgroupAnd',
+  'subgroupAny',
+  'subgroupBallot',
+  'subgroupBroadcast',
+  'subgroupBroadcastFirst',
+  'subgroupElect',
+  'subgroupExclusiveAdd',
+  'subgroupExclusiveMul',
+  'subgroupInclusiveAdd',
+  'subgroupInclusiveMul',
+  'subgroupMax',
+  'subgroupMin',
+  'subgroupMul',
+  'subgroupOr',
+  'subgroupShuffle',
+  'subgroupShuffleDown',
+  'subgroupShuffleUp',
+  'subgroupShuffleXor',
+  'subgroupXor',
+]);
+
+/** The subgroup functions that fold the lanes' values (`subgroupAdd` and the rest), whose float
+ *  form has no fixed order; a scan is listed with them. `subgroupMin` and `subgroupMax` are
+ *  exact in any order and are not. Read by the determinism report. */
+export const SUBGROUP_FOLDS: ReadonlySet<string> = new Set([
+  'subgroupAdd',
+  'subgroupMul',
+  'subgroupExclusiveAdd',
+  'subgroupExclusiveMul',
+  'subgroupInclusiveAdd',
+  'subgroupInclusiveMul',
+]);
+
+/** The subgroup functions that read another lane's value, which a subgroup of one lane cannot
+ *  do (Rule 11.21): the broadcasts and the shuffles. Read by the determinism report. */
+export const SUBGROUP_LANE_READS: ReadonlySet<string> = new Set([
+  'subgroupBroadcast',
+  'subgroupBroadcastFirst',
+  'subgroupShuffle',
+  'subgroupShuffleDown',
+  'subgroupShuffleUp',
+  'subgroupShuffleXor',
+]);
+
+/** A subgroup function's spelling: WGSL's call, and on GLSL a throw, since the one-lane pass
+ *  rewrites every call before the writer runs and a call that reaches it was not lowered. */
+const subgroupSpelling = (name: string): Spelling => ({
+  wgsl: (a) => `${name}(${join(a)})`,
+  glsl: () => {
+    throw new Error(
+      `glsl-es300: ${name} is lowered to one lane before the GLSL writer runs (Rule 11.21)`,
+    );
+  },
+});
+
+function subgroupSpellings(): Record<string, Spelling> {
+  const out: Record<string, Spelling> = {};
+  for (const id of SUBGROUP_INTRINSICS) out[id] = subgroupSpelling(id);
+  return out;
+}
+
 /** A builtin WGSL spells natively and GLSL ES 3.00 has no form of at all. The GLSL column
  *  throws rather than inventing one, which is the same shape the storage-texture rows use: a
  *  module reaching it has already slipped past the capability gate, and a throw from the writer
@@ -950,6 +1022,8 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   pack4xI8Clamp: wgslOnly('pack4xI8Clamp'),
   unpack4xU8: wgslOnly('unpack4xU8'),
   unpack4xI8: wgslOnly('unpack4xI8'),
+  // ── The subgroup family (change 0117): one call each on WGSL, one lane on GLSL. ──
+  ...subgroupSpellings(),
   // The fp64 anti-fast-math guard VALUE (runtime 1.0), spelled as a texel
   // fetch from the injected `_fp64` 1×1 texture (passes/fp64-lower.ts owns
   // the binding; the name is reserved). A UBO-sourced guard is defeated by

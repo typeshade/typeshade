@@ -135,7 +135,9 @@ export function runPlan(
                 workgroup: memory.length - 1,
                 wid,
                 gid,
-                args: decl.params.map((p) => paramValue(p, gid, lid, lidx, wid, nwg)),
+                args: decl.params.map((p) =>
+                  paramValue(p, gid, lid, lidx, wid, nwg, size[0] * size[1] * size[2]),
+                ),
                 privates: privatesOf(),
                 waiting: false,
                 log: [],

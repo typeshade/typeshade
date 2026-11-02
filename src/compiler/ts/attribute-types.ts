@@ -1,3 +1,5 @@
+// Implements: Rule 6.6, Rule 6.7, Rule 8.25 (docs/language-design.md; traced in reqs/).
+//
 // The attribute types of change 0111 (decision D2, amendment 1): an entry input's or output's
 // attribute written in its type, which a plain `tsc --strict` accepts, in place of a decorator
 // on a parameter or a field, which it refuses on a function's parameter (TS1206).
