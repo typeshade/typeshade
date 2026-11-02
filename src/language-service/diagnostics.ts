@@ -4,6 +4,7 @@ import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
 import { isRemovedCall } from '../compiler/ts/removed-names.js';
+import { usesDecoratedForm } from '../compiler/ts/decorated-form.js';
 import {
   foreignNameReport,
   refusedVars,
@@ -77,7 +78,9 @@ function isTopLevelFunctionDeclaration(node: ts.Node): node is ts.FunctionDeclar
  * restriction no ambient `.d.ts` can configure away (§6); this predicate recognizes exactly
  * that shape, on the entry function itself or on one of its parameters. The compiler reads
  * every decorator there, and refuses one it does not apply (`TS8028`); any other TS1206 still
- * surfaces unless the compiler refuses the decorator itself (`mergeDiagnostics`).
+ * surfaces unless the compiler refuses the decorator itself (`mergeDiagnostics`). The filter
+ * table applies it only to a file that still writes the decorated form of change 0111
+ * (`usesDecoratedForm`); a file in the new form gets TS1206 as a plain `tsc --strict` does.
  */
 function isDecoratorOnTopLevelFunction(
   context: DiagnosticFilterContext,
@@ -1141,12 +1144,21 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
   {
     code: 1206,
     reason:
-      "@vertex/@fragment/@compute on a top-level or a namespace's function, and " +
-      "@builtin/@location on that function's parameters, are exactly the grammar " +
-      '"use typeshade" defines (the compiler does not require export either — see ' +
-      'lower/function.ts) — legacy decorators otherwise forbid a function declaration or its ' +
-      'parameters as a target, and no compiler option relaxes that. See design doc §6.',
-    when: isDecoratorOnTopLevelFunction,
+      "In a file that still writes the decorated form of change 0111, @vertex/@fragment/@compute on a top-level or a namespace's function, and " +
+      "@builtin/@location on that function's parameters, are the grammar the migration release " +
+      'still reads, and the compiler warns on each (TS8028) — legacy decorators otherwise forbid a function declaration or its ' +
+      'parameters as a target, and no compiler option relaxes that. A file in the new form gets TS1206 as a plain tsc --strict does (change 0111, Amendment 2).',
+    when: (context, diagnostic) =>
+      usesDecoratedForm(context.sourceFile) && isDecoratorOnTopLevelFunction(context, diagnostic),
+  },
+  {
+    code: 2564,
+    reason:
+      'In a file that still writes the decorated form of change 0111, a struct class field has no ' +
+      'initializer, which the migration release still reads: a struct field is zero until written. ' +
+      'A file in the new form gets TS2564 as a plain tsc --strict does, and writes "!" on the field ' +
+      '(change 0111, Amendment 2).',
+    when: (context) => usesDecoratedForm(context.sourceFile),
   },
   {
     code: 2749,

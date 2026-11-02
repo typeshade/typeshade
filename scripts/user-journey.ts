@@ -523,7 +523,7 @@ async function hostImport(
   );
   const dev = await inDevServer(app);
   const printed4 = [1.5, 2.5, 3.5, 4.5].map(
-    (x, i) => `GPU  kernels.shade.ts:41  [${i}, 0, 0]  x ${i} ${x}`,
+    (x, i) => `GPU  kernels.shade.ts:38  [${i}, 0, 0]  x ${i} ${x}`,
   );
   check(
     JSON.stringify(dev.logs) === JSON.stringify(printed4),

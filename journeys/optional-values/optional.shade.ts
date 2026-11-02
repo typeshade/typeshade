@@ -5,8 +5,8 @@
 // Loose null tests (change 0098 D4) retain the same independent JavaScript reference.
 
 class Hit {
-  t: f32;
-  side: i32;
+  t!: f32;
+  side!: i32;
 }
 
 declare const xs: storage<array<f32>>;
@@ -62,7 +62,7 @@ function nearest(a: f32 | undefined, b: f32 | undefined): f32 {
 
 // Null and undefined remain distinct through classes, callbacks, arrays and optional chains.
 class NullableSample {
-  value: f32 | null;
+  value!: f32 | null;
   constructor(value: f32 | null) { this.value = value; }
 }
 class NullableCounter {
@@ -102,10 +102,9 @@ export function value(x: f32): f32 {
   return nullableValue(x) + r + s + n + side * 0.125 + t * 0.001 + (bonus ?? 0.) + (h === undefined ? 0.5 : 0.);
 }
 
-@compute([64])
-export function main(@builtin("global_invocation_id") gid: vec3u): void {
+export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= xs.length) {
     return;
   }
   out[gid.x] = value(xs[gid.x]);
-}
+});

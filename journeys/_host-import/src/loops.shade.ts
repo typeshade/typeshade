@@ -16,8 +16,8 @@ export function render(k: vec4, size: u32, out: array<f32>) {
 }
 
 class Particle {
-  pos: vec4;
-  vel: vec4;
+  pos!: vec4;
+  vel!: vec4;
 }
 
 export function drift(ps: array<Particle>, dt: f32) {
@@ -173,14 +173,14 @@ export function fuseMark(xs: array<f32>, zs: array<f32>) {
 
 // Private input projection (change 0082): logical objects retain all eight fields.
 class LayoutItem {
-  f0: f32;
-  f1: f32;
-  f2: f32;
-  f3: f32;
-  f4: f32;
-  f5: f32;
-  f6: f32;
-  f7: f32;
+  f0!: f32;
+  f1!: f32;
+  f2!: f32;
+  f3!: f32;
+  f4!: f32;
+  f5!: f32;
+  f6!: f32;
+  f7!: f32;
 }
 function layoutPick(p: LayoutItem): f32 { return p.f0; }
 export function layoutRead(xs: array<LayoutItem>, out: array<f32>) {

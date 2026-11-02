@@ -176,8 +176,8 @@ export function f(x: f32, l: Light): f32 {
 }
 `,
       '/p/light.shade.ts': `${D}export class Light {
-  dir: vec3;
-  power: f32;
+  dir!: vec3;
+  power!: f32;
 }
 export function make(x: f32): Light {
   return { dir: vec3(0., 0., 1.), power: x };
@@ -262,7 +262,7 @@ export function f(p: vec2): f32 {
 }
 `,
       '/p/geo.shade.ts': `${D}export class Pt {
-  v: vec2;
+  v!: vec2;
 }
 export function len(p: Pt): f32 {
   return length(p.v);
@@ -302,7 +302,7 @@ export const fs = fragment(function fs(): vec4 {
 });
 `,
       '/p/lib.shade.ts': `${D}export class Camera {
-  exposure: f32;
+  exposure!: f32;
 }
 export declare const camera: uniform<Camera>;
 let count: f32 = 0.;
@@ -672,7 +672,7 @@ describe('one copy of one package version (surface §68)', () => {
       exports: { typeshade: './src/noise.shade.ts' },
     }),
     [`${root}src/noise.shade.ts`]: `${D}export class NoiseParams {
-  octaves: f32;
+  octaves!: f32;
 }
 export declare const params: uniform<NoiseParams>;
 function hash(x: f32): f32 {
@@ -856,7 +856,7 @@ export function f(x: f32): f32 {
   it('refuses two bindings of one name in one module, naming both files', () => {
     const files = {
       '/p/main.shade.ts': `${D}import { g } from "./lib.shade.ts";\nclass T {\n  v: f32;\n}\ndeclare const t: uniform<T>;\nexport function f(): f32 {\n  return t.v + g();\n}\n`,
-      '/p/lib.shade.ts': `${D}class T {\n  v: f32;\n}\ndeclare const t: uniform<T>;\nexport function g(): f32 {\n  return t.v;\n}\n`,
+      '/p/lib.shade.ts': `${D}class T {\n  v!: f32;\n}\ndeclare const t: uniform<T>;\nexport function g(): f32 {\n  return t.v;\n}\n`,
     };
     expect(errorsOf(files)).toEqual([
       `/p/lib.shade.ts:5:15 ${TS_CODES.DUPLICATE_SYMBOL} Binding "t" is declared in both "/p/main.shade.ts" and "/p/lib.shade.ts". A program is one module, and the host knows a binding by its name; rename one.`,
@@ -881,17 +881,17 @@ describe('the names the host knows are never renamed (Rule 3.2)', () => {
     const r = compileTsSources([
       {
         fileName: 'a.ts',
-        source: `${D}@fragment\nexport function fs(): vec4 {\n  return vec4(1.);\n}\n`,
+        source: `${D}export const fs = fragment(function fs(): vec4 {\n  return vec4(1.);\n});\n`,
       },
       {
         fileName: 'b.ts',
-        source: `${D}@fragment\nexport function fs(): vec4 {\n  return vec4(0.);\n}\n`,
+        source: `${D}export const fs = fragment(function fs(): vec4 {\n  return vec4(0.);\n});\n`,
       },
     ]);
     expect(
       r.diagnostics.map((d) => `${d.fileName}:${d.line}:${d.character} ${d.code} ${d.message}`),
     ).toEqual([
-      `b.ts:3:17 ${TS_CODES.DUPLICATE_SYMBOL} Entry point "fs" is declared in both "a.ts" and "b.ts". A program is one module, and the host knows an entry point by its name; rename one.`,
+      `b.ts:2:14 ${TS_CODES.DUPLICATE_SYMBOL} Entry point "fs" is declared in both "a.ts" and "b.ts". A program is one module, and the host knows an entry point by its name; rename one.`,
     ]);
   });
 });
@@ -939,7 +939,7 @@ describe('what the module holds (Rule 3.9)', () => {
   it("leaves out an imported file's own entry point, and the bindings only it reads", () => {
     const files = {
       '/p/main.shade.ts': `${D}import { fbm } from "./lib.shade.ts";\nexport function f(x: f32): f32 {\n  return fbm(x);\n}\n`,
-      '/p/lib.shade.ts': `${D}class U {\n  t: f32;\n}\ndeclare const u: uniform<U>;\nexport function fbm(x: f32): f32 {\n  return x * 2.;\n}\n@fragment\nexport function demo(): vec4 {\n  return vec4(fbm(u.t));\n}\n`,
+      '/p/lib.shade.ts': `${D}class U {\n  t!: f32;\n}\ndeclare const u: uniform<U>;\nexport function fbm(x: f32): f32 {\n  return x * 2.;\n}\nexport const demo = fragment(function demo(): vec4 {\n  return vec4(fbm(u.t));\n});\n`,
     };
     const r = compiled(files);
     expect(r.module.funcs.map((f) => f.name)).toEqual(['fbm', 'f']);
@@ -948,7 +948,7 @@ describe('what the module holds (Rule 3.9)', () => {
 
   it("numbers the entry's own bindings first, so an import moves none of them", () => {
     const files = {
-      '/p/main.shade.ts': `${D}import { tap } from "./lib.shade.ts";\ndeclare const lut: texture_2d<f32>;\ndeclare const smp2: sampler;\n@fragment\nexport function fs(uv: location<0, vec2>): vec4 {\n  return tap(uv) + textureSample(lut, smp2, uv);\n}\n`,
+      '/p/main.shade.ts': `${D}import { tap } from "./lib.shade.ts";\ndeclare const lut: texture_2d<f32>;\ndeclare const smp2: sampler;\nexport const fs = fragment(function fs(uv: location<0, vec2>): vec4 {\n  return tap(uv) + textureSample(lut, smp2, uv);\n});\n`,
       '/p/lib.shade.ts': `${D}declare const atlas: texture_2d<f32>;\ndeclare const smp: sampler;\nexport function tap(uv: vec2): vec4 {\n  return textureSample(atlas, smp, uv);\n}\n`,
     };
     expect(compiled(files).module.bindings.map((b) => `${b.name}@${b.binding}`)).toEqual([
@@ -998,7 +998,7 @@ describe('a mistake belongs to the file it is in (Rule 3.9)', () => {
 // is read by both halves on the same files, and they refuse it alike, with the same mistake in
 // the same file (Rule 12.7).
 describe('a mistake in an imported file holds back the shader text in both halves (Rule 3.9, #202)', () => {
-  const MAIN = `${D}import { pick } from "./lib.shade.ts";\n@fragment\nexport function fs(p: builtin<"position", vec4>): vec4 {\n  return vec4(pick(i32(p.x)));\n}\n`;
+  const MAIN = `${D}import { pick } from "./lib.shade.ts";\nexport const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {\n  return vec4(pick(i32(p.x)));\n});\n`;
   const MAIN_URI = '/p/main.shade.ts';
   const LIB_URI = '/p/lib.shade.ts';
   const lib = (body: string): string => `${D}export function pick(k: i32): f32 {\n${body}\n}\n`;
@@ -1119,7 +1119,7 @@ describe('a mistake in an imported file holds back the shader text in both halve
 
   it('holds the text back for a mistake two files away', () => {
     const program: Files = {
-      [MAIN_URI]: `${D}import { pick } from "./mid.shade.ts";\n@fragment\nexport function fs(p: builtin<"position", vec4>): vec4 {\n  return vec4(pick(i32(p.x)));\n}\n`,
+      [MAIN_URI]: `${D}import { pick } from "./mid.shade.ts";\nexport const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {\n  return vec4(pick(i32(p.x)));\n});\n`,
       '/p/mid.shade.ts': `${D}import { pick as inner } from "./lib.shade.ts";\nexport function pick(k: i32): f32 {\n  return inner(k);\n}\n`,
       [LIB_URI]: lib('  return true;'),
     };
@@ -1131,7 +1131,7 @@ describe('a mistake in an imported file holds back the shader text in both halve
 
   it('reports every mistake of every imported file, each in its own file, in the order compile() gives them', () => {
     const program: Files = {
-      [MAIN_URI]: `${D}import { pick } from "./lib.shade.ts";\nimport { boost, damp } from "./more.shade.ts";\n@fragment\nexport function fs(p: builtin<"position", vec4>): vec4 {\n  return vec4(damp(boost(pick(i32(p.x)))));\n}\n`,
+      [MAIN_URI]: `${D}import { pick } from "./lib.shade.ts";\nimport { boost, damp } from "./more.shade.ts";\nexport const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {\n  return vec4(damp(boost(pick(i32(p.x)))));\n});\n`,
       [LIB_URI]: lib('  return true;'),
       '/p/more.shade.ts': `${D}export function boost(x: f32): f32 {\n  return zork(x);\n}\nexport function damp(x: f32): f32 {\n  return false;\n}\n`,
     };
@@ -1151,7 +1151,7 @@ describe('a mistake in an imported file holds back the shader text in both halve
     // first; the editor's list for the document is what is located in it (Rule 3.9), so the
     // pane gives that list as it stands and then what the front end reports in the imports.
     const program: Files = {
-      [MAIN_URI]: `${D}import { pick } from "./lib.shade.ts";\nfunction own(k: i32): f32 {\n  return false;\n}\n@fragment\nexport function fs(p: builtin<"position", vec4>): vec4 {\n  return vec4(pick(i32(p.x)) + own(1));\n}\n`,
+      [MAIN_URI]: `${D}import { pick } from "./lib.shade.ts";\nfunction own(k: i32): f32 {\n  return false;\n}\nexport const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {\n  return vec4(pick(i32(p.x)) + own(1));\n});\n`,
       [LIB_URI]: lib('  return true;'),
     };
     const reference = errorsOf(program);

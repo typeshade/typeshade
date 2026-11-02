@@ -64,8 +64,8 @@ ${body}
 `;
 
 const U = `class U {
-  a: f32;
-  b: vec2;
+  a!: f32;
+  b!: vec2;
 }
 
 declare const u: uniform<U>;`;
@@ -110,8 +110,8 @@ function f(x: U): f32 {
     'a method called on the uniform',
     program(
       `class U {
-  a: f32;
-  b: vec2;
+  a!: f32;
+  b!: vec2;
   sum(): f32 {
     return this.a + this.b.y;
   }
@@ -130,8 +130,8 @@ declare const u: uniform<U>;`,
     'a method that writes its object, on a local copy',
     program(
       `class U {
-  a: f32;
-  b: vec2;
+  a!: f32;
+  b!: vec2;
   bump(): void {
     this.a = this.a + 1.;
   }
@@ -149,8 +149,8 @@ declare const u: uniform<U>;`,
       `${U}
 
 class W {
-  inner: U;
-  k: f32;
+  inner!: U;
+  k!: f32;
 }
 
 declare const w: uniform<W>;`,
@@ -225,8 +225,8 @@ describe('the twin and its name', () => {
     const r = compile(
       program(
         `class U {
-  a: f32;
-  b: vec2;
+  a!: f32;
+  b!: vec2;
   value(): f32 {
     return this.a;
   }
@@ -248,7 +248,7 @@ declare const u: uniform<U>;`,
     const r = compile(
       program(
         `class Pad_ {
-  a: f32;
+  a!: f32;
 }
 
 declare const u: uniform<Pad_>;
@@ -301,8 +301,8 @@ describe('a call on the block itself reads it by name (Rule 8.28, change 0103)',
     const r = compile(
       program(
         `class U {
-  a: f32;
-  b: vec2;
+  a!: f32;
+  b!: vec2;
   sum(): f32 {
     return this.a + this.b.y;
   }

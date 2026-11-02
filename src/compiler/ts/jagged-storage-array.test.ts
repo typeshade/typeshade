@@ -58,7 +58,7 @@ describe('a storage binding of arrays with no size is refused (#793)', () => {
     ],
     [
       "a struct's last field",
-      'class Grid { n: u32; rows: array<array<u32>>; }\ndeclare const cells: storage<Grid>;',
+      'class Grid { n!: u32; rows!: array<array<u32>>; }\ndeclare const cells: storage<Grid>;',
       'cells.rows[gid.x][0]',
       `TS8002 "Grid" holds "rows: array<array<u32>>", ${REMEDY('u32')}`,
     ],

@@ -9,7 +9,7 @@ import { autoVars } from '../../core/passes/opt/index.js';
 
 function check(body: string, expected: number) {
   const r = compile(
-    `"use typeshade";\n${body}\n@fragment export function fs(): vec4 { return vec4(run(), 0., 0., 1.); }`,
+    `"use typeshade";\n${body}\nexport const fs = fragment(function fs(): vec4 { return vec4(run(), 0., 0., 1.); });`,
   );
   expect(r.diagnostics).toEqual([]);
   for (const precision of ['f64', 'f32'] as const) {
@@ -83,7 +83,7 @@ export function run(): f32 { const a = 2.; return f(a) + a; }`,
 
   it('copies whole vectors, structs and fixed arrays, including later component writes', () => {
     check(
-      `class P { x: f32; }
+      `class P { x!: f32; }
 function v(a: vec2): f32 { a = a + vec2(1.); a.x = 8.; return a.x + a.y; }
 function p(a: P): f32 { a = { x: a.x + 1. }; a.x += 3.; return a.x; }
 function xs(a: array<f32, 2>): f32 { a = [a[1], a[0]]; a[0] += 2.; return a[0] + a[1]; }

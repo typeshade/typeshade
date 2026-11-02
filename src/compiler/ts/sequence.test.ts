@@ -21,7 +21,7 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 
 const RNG = `"use typeshade";
 class Rng {
-  state: u32;
+  state!: u32;
   constructor(seed: u32) {
     this.state = seed;
   }
@@ -63,7 +63,7 @@ function agree(src: string, args: readonly unknown[]): unknown {
 }
 
 const fragment = (body: string): string =>
-  `${RNG}@fragment\nexport function fs(uv: location<0, vec2>): vec4 {\n  let rng = new Rng(u32(uv.x * 1000.))\n${body}\n}\n`;
+  `${RNG}export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {\n  let rng = new Rng(u32(uv.x * 1000.))\n${body}\n})\n`;
 
 describe('a call that writes, inside a larger expression, in source order', () => {
   it('two draws in one constructor are two lets, first to last', () => {
@@ -245,8 +245,8 @@ export const fs = fragment(function fs(): vec4 {
 
   it('field assignments that draw are not folded into a constructor, which would reorder them', () => {
     const src = `${RNG}class Pair {
-  a: f32
-  b: f32
+  a!: f32
+  b!: f32
 }
 function pair(seed: u32): Pair {
   let rng = new Rng(seed)

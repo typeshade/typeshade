@@ -134,7 +134,7 @@ describe('each allowed position holds an optional of each element kind (Rule 7.1
   for (const [kind, type, value, struct, call, at3, zero, fallback] of KINDS) {
     it(`${kind}: a result, an inferred result, a parameter, a local and a callback result`, () => {
       const source = program(
-        `class P { x: f32; y: f32; }
+        `class P { x!: f32; y!: f32; }
 export function opt(k: f32): ${type} | undefined { if (k < 0.) { return undefined; } return ${value}; }
 export function inferred(k: f32) { if (k < 0.) { return undefined; } return ${value}; }
 export function pick(v: ${type} | undefined, d: ${type}): ${type} { return v ?? d; }
@@ -574,7 +574,7 @@ export function run(): f32 { return 1.; }`,
     ],
     [
       'o?.m()',
-      `class P { x: f32; len(): f32 { return this.x; } }
+      `class P { x!: f32; len(): f32 { return this.x; } }
 function point(k: f32): P | undefined { if (k < 0.) { return undefined; } return { x: k }; }
 export function run(k: f32): f32 { const p = point(k); return p?.len() ?? -1.; }`,
       [
@@ -658,7 +658,7 @@ export function run(x: f32): f32 { let s = 0.; while ((root(x) ?? 0.) > s) { s =
     for (const decl of [
       `interface S { w: f32 | undefined; k: f32; }`,
       `type S = { w: f32 | undefined; k: f32 };`,
-      `class S { k: f32; constructor(public w: f32 | undefined) { this.k = 1.; } }`,
+      `class S { k!: f32; constructor(public w: f32 | undefined) { this.k = 1.; } }`,
     ]) {
       const fn = `function g(s: S): f32 { return s.k + (s.w ?? 0.); }`;
       bothAccept(program(`${decl}\n${fn}`));
@@ -859,7 +859,7 @@ export function eqVecTwo(a: vec2 | undefined, b: vec2 | undefined): bool { retur
 
 describe('o?.f, o?.xy and o?.[i] give an optional of the member (Rule 7.10)', () => {
   const source = program(
-    `class P { x: f32; y: f32; }
+    `class P { x!: f32; y!: f32; }
 export function point(k: f32): P | undefined { if (k < 0.) { return undefined; } return { x: k, y: k * 2. }; }
 export function field(k: f32): f32 { return point(k)?.y ?? -1.; }
 export function viaLocal(k: f32): f32 { const p = point(k); const y = p?.y; return y ?? -1.; }
@@ -900,7 +900,7 @@ export function chain(a: f32 | undefined, b: f32 | undefined): f32 { return a ??
 
 describe('a function-typed parameter with an optional result takes a function returning T (Rule 8.18)', () => {
   const source = program(`class Swarm {
-  count: i32;
+  count!: i32;
   each(f: (i: f32) => f32 | undefined): f32 {
     let s = 0.;
     for (let i = 0; i < 3; i++) { s = s + (f(f32(i)) ?? 0.); }
@@ -975,7 +975,7 @@ describe('the editor hovers an optional as the compiler types it, `f32 | undefin
 describe('a struct field and an array element hold an optional in function scope (Rule 7.10, change 0093)', () => {
   it('each of the three struct spellings, a parameter property and f?: T, on every target', () => {
     for (const decl of [
-      `class Hit { t: f32; n: vec2 | undefined; k?: f32; }`,
+      `class Hit { t!: f32; n!: vec2 | undefined; k?: f32; }`,
       `interface Hit { t: f32; n: vec2 | undefined; k?: f32; }`,
       `type Hit = { t: f32; n: vec2 | undefined; k?: f32 };`,
     ]) {
@@ -1019,7 +1019,7 @@ export function read(h: Hit): f32 { return (h.n?.x ?? -1.) + (h.k ?? -10.); }`,
   it('a class field with no initializer starts absent in new C(), and one with an initializer present (decision D4)', () => {
     const r = bothAccept(
       program(
-        `class C { a: f32 | undefined; b: f32 | undefined = 2.; }
+        `class C { a!: f32 | undefined; b: f32 | undefined = 2.; }
 export function make(): C { return new C(); }
 export function set(x: f32): C { const c = new C(); c.a = x; c.b = undefined; return c; }`,
         '(make().a ?? 0.) + (make().b ?? 0.)',
@@ -1061,8 +1061,8 @@ export function count(xs: array<f32 | undefined, 3>): i32 { let n: i32 = 0; for 
   it('a struct of a struct with an optional field, and an optional of such a struct', () => {
     const r = bothAccept(
       program(
-        `class Inner { d: f32 | undefined; }
-class Outer { i: Inner; }
+        `class Inner { d!: f32 | undefined; }
+class Outer { i!: Inner; }
 export function deep(x: f32): f32 { let o = new Outer(); o.i.d = x; return o.i.d ?? 0.; }
 export function opt(x: f32): Outer | undefined { if (x < 0.) { return undefined; } let o = new Outer(); o.i.d = x; return o; }
 export function viaOpt(x: f32): f32 { return opt(x)?.i.d ?? -1.; }`,
@@ -1081,7 +1081,7 @@ export function viaOpt(x: f32): f32 { return opt(x)?.i.d ?? -1.; }`,
 
   it('hovers an optional field and an omittable one as the compiler types them', () => {
     const source = program(
-      `class Hit { t: f32; n: vec2 | undefined; k?: f32; }
+      `class Hit { t!: f32; n!: vec2 | undefined; k?: f32; }
 export function read(h: Hit): f32 { return (h.n?.x ?? 0.) + (h.k ?? 0.); }`,
       'read({ t: uv.x, n: undefined })',
     );
@@ -1091,7 +1091,7 @@ export function read(h: Hit): f32 { return (h.n?.x ?? 0.) + (h.k ?? 0.); }`,
     expect(service.getDiagnostics(uri)).toEqual([]);
     const hover = (needle: string): string =>
       service.getHover(uri, service.positionAt(uri, source.indexOf(needle)))?.contents ?? '';
-    expect(hover('n: vec2 | undefined;')).toContain('Hit.n: vec2<f32> | undefined');
+    expect(hover('n!: vec2 | undefined;')).toContain('Hit.n: vec2<f32> | undefined');
     expect(hover('k?: f32;')).toMatch(/Hit\.k\??: f32( \| undefined)?/);
   });
 });
@@ -1101,7 +1101,7 @@ describe('a layout that holds an optional is refused where it is declared, namin
     `TS8002 "${holder}" holds "${path}: ${inner} | undefined", a value and a flag saying whether ` +
     `it is there, which a local, a parameter, a function's result, a struct field or an array ` +
     `element may hold; ${position} may not. Carry a u32 flag beside the value, "${inner}".`;
-  const DECL = `class U { w: f32 | undefined; k: f32; }\nclass V { u: U; }\nclass W { xs: array<vec2 | undefined, 2>; }`;
+  const DECL = `class U { w!: f32 | undefined; k!: f32; }\nclass V { u: U; }\nclass W { xs: array<vec2 | undefined, 2>; }`;
   const REFUSED: readonly (readonly [string, string, string])[] = [
     ['a uniform binding', `declare const b: uniform<U>;`, HOLDS('U', 'w', 'f32', 'a binding')],
     [
@@ -1210,7 +1210,7 @@ export function kern(xs: array<f32>): f32 {
 
   it('a host-callable export that takes a struct with an optional field is never, naming the field', () => {
     const source = program(
-      `class U { w: f32 | undefined; k: f32; }
+      `class U { w!: f32 | undefined; k!: f32; }
 export function take(u: U): f32 { return u.k; }
 export function give(k: f32): U { return { w: undefined, k }; }
 export function opt(x: f32, k?: f32): f32 { return x + (k ?? 0.); }`,
@@ -1358,7 +1358,7 @@ describe('an optional parameter x?: T is T | undefined, filled with the absent v
       program(
         `export function clampTo(x: f32, limit?: f32): f32 { if (limit === undefined) { return x; } return min(x, limit); }
 export function scaled(x: f32, k?: f32, add?: f32): f32 { return x * (k ?? 1.) + (add ?? 0.); }
-class Box { w: f32; constructor(w: f32, pad?: f32) { this.w = w + (pad ?? 0.); } grow(by?: f32): f32 { return this.w + (by ?? 1.); } }
+class Box { w!: f32; constructor(w: f32, pad?: f32) { this.w = w + (pad ?? 0.); } grow(by?: f32): f32 { return this.w + (by ?? 1.); } }
 export function boxes(x: f32): f32 { return new Box(x).grow() + new Box(x, 1.).grow(2.); }
 export function local(x: f32): f32 { function inner(a: f32, b?: f32): f32 { return a + (b ?? 0.5); } return inner(x) + inner(x, 1.); }
 function apply(f: (x: f32, k?: f32) => f32, x: f32): f32 { return f(x) + f(x, 2.); }
@@ -1507,8 +1507,8 @@ describe('loose null tests on existing optional values (change 0098 D4)', () => 
   it('narrows nested class members and local-function parameters', () => {
     const source = program(
       `
-class Inner { n: f32 | undefined; }
-class Outer { inner: Inner; }
+class Inner { n!: f32 | undefined; }
+class Outer { inner!: Inner; }
 function read(h: Outer): f32 {
   const local = (v: f32 | undefined): f32 => v != null ? v : -2.;
   if (h.inner.n == null) { return -1.; }
@@ -1599,7 +1599,7 @@ function run(k: f32): f32 { return classify() + classify(null) + classify(k); }`
   {
     name: 'class constructor member method getter and setter',
     body: `class Box {
-  value: f32 | null;
+  value!: f32 | null;
   constructor(x: f32 | null) { this.value = x; }
   get item(): f32 | null { return this.value; }
   set item(x: f32 | null) { this.value = x; }
@@ -1615,7 +1615,7 @@ function run(k: f32): f32 {
   },
   {
     name: 'nullable class with a nullable member preserves optional-chain states',
-    body: `class Box { value: f32 | null; constructor(x: f32 | null) { this.value = x; } }
+    body: `class Box { value!: f32 | null; constructor(x: f32 | null) { this.value = x; } }
 function read(x: Box | null): f32 {
   const v = x?.value;
   if (v === undefined) { return 20.; }
@@ -1627,7 +1627,7 @@ function run(k: f32): f32 { return read(null) + read(new Box(null)) + read(new B
   },
   {
     name: 'D7: class nullable member zero differs from optional member zero',
-    body: `class Box { value: f32 | null; maybe?: f32 | null; }
+    body: `class Box { value!: f32 | null; maybe?: f32 | null; }
 function run(k: f32): f32 {
   const box = new Box();
   return (box.value === null ? 10. : 0.) + (box.maybe === undefined ? 20. : 0.) + k;
@@ -1694,7 +1694,7 @@ describe('nullable declaration matrix and evaluation (change 0098)', () => {
     [
       'generic functions and classes retain logical types',
       `function id<T>(x: T): T { return x; }
-class Box<T> { value: T; constructor(x: T) { this.value = x; } get(): T { return this.value; } }
+class Box<T> { value!: T; constructor(x: T) { this.value = x; } get(): T { return this.value; } }
 function run(k: f32): f32 {
 const n = new Box<f32 | null>(null); const u = new Box<f32 | undefined>(undefined);
 const a = id<f32 | null>(n.get()); const b = id<f32 | undefined>(u.get());
@@ -1811,7 +1811,7 @@ function run(k: f32): f32 { return (id<f32 | null>(null) ?? 1.) + (id<f32 | unde
     expect(cpu(r)('run', 4)).toBe(7);
   });
   it('reference arguments require the exact logical storage type', () => {
-    const source = program(`function set(@inout x: f32 | null): void { x = null; }
+    const source = program(`function set(x: inout<f32 | null>): void { x = null; }
 function run(): f32 { let x: f32 | undefined; set(x); return x ?? 0.; }`);
     expect(errorsOf(source).some((d) => d.startsWith('TS8073'))).toBe(true);
     expect(editorCompilerSentences(source).sort()).toEqual(errorsOf(source).sort());
@@ -1870,7 +1870,7 @@ return (before ?? 1.) + (c.item ?? 2.) + (c.pick(null) ?? 4.) + (N.pick(-1.) ?? 
     for (const source of [
       program('let value: f32 | null = null;'),
       program('class C { static value: f32 | null = null; }'),
-      program('class C { value: f32 | null; } declare const c: uniform<C>;'),
+      program('class C { value!: f32 | null; } declare const c: uniform<C>;'),
       `"use typeshade"; export const fs = fragment(function fs(x: location<0, f32 | null>): vec4 { return vec4(1.); });`,
     ]) {
       expect(errorsOf(source).length).toBeGreaterThan(0);
@@ -1880,7 +1880,7 @@ return (before ?? 1.) + (c.item ?? 2.) + (c.pick(null) ?? 4.) + (N.pick(-1.) ?? 
   it('retains present zero and nullable vectors in arrays and chains', () => {
     const r = bothAccept(
       program(
-        `class Box { value: vec2 | null; constructor(v: vec2 | null) { this.value = v; } }
+        `class Box { value!: vec2 | null; constructor(v: vec2 | null) { this.value = v; } }
 function read(box: Box | null | undefined): f32 {
 const v = box?.value; if (v === null) { return 10.; } if (v === undefined) { return 20.; } return v.x;
 }

@@ -5,10 +5,9 @@ declare const src: storage<array<f64>>;
 declare const dst: storage<array<f64>, "read_write">;
 let tile: workgroup<array<array<f64, 3>, WG_SIZE>>;
 
-@compute([WG_SIZE])
-export function copy(
-  @builtin("global_invocation_id") gid: vec3u,
-  @builtin("local_invocation_id") lid: vec3u,
+export const copy = compute([WG_SIZE], function copy(
+  gid: builtin<"global_invocation_id", vec3u>,
+  lid: builtin<"local_invocation_id", vec3u>,
 ): void {
   if (gid.x < src.length) {
     tile[lid.x][0] = src[gid.x];
@@ -18,4 +17,4 @@ export function copy(
   workgroupBarrier();
   if (gid.x < src.length)
     dst[gid.x] = tile[lid.x][0] + tile[lid.x][1] + tile[lid.x][2];
-}
+});

@@ -6,13 +6,13 @@
 // One vertex entry and one fragment entry: the GLSL writer takes one of each per module. The depth
 // of the triangle and the colour of the fragment are overrides, which each pipeline sets.
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-class Color {
-  @location(0) color: vec4;
+interface Color {
+  color: location<0, vec4>;
 }
 
 /** The depth of the triangle in clip space: 0.5 when the pipeline gives none. */
@@ -22,15 +22,13 @@ const depth: override<f32> = 0.5;
 const pick: override<i32> = 0;
 
 /** A fullscreen triangle at `depth`, with `uv` running from 0 at the top left to 1 at the bottom right. */
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(i32(vi) / 2) * 4 - 1;
   const y = f32(i32(vi) % 2) * 4 - 1;
   return { pos: vec4(x, y, depth, 1), uv: vec2(x * 0.5 + 0.5, 0.5 - y * 0.5) };
-}
+});
 
-@fragment
-export function fs(v: VsOut): Color {
+export const fs = fragment(function fs(v: VsOut): Color {
   if (pick == 1) {
     return { color: vec4(1, 0, 0, 1) };
   }
@@ -41,12 +39,11 @@ export function fs(v: VsOut): Color {
     return { color: vec4(1, 1, 1, 1) };
   }
   return { color: vec4(v.uv, 0.5, 1) };
-}
+});
 
 declare const out: storage<array<f32>, "read_write">;
 
 /** Writes 7 to the first word: a kernel pass the host runs after a render pass. */
-@compute([1])
-export function bump(@builtin("global_invocation_id") gid: vec3u) {
+export const bump = compute([1], function bump(gid: builtin<"global_invocation_id", vec3u>) {
   out[gid.x] = 7.;
-}
+});

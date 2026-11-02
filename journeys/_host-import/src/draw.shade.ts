@@ -6,8 +6,8 @@
 // 11.8).
 
 class Wave {
-  time: f32;
-  scale: f32;
+  time!: f32;
+  scale!: f32;
 }
 
 declare const wave: uniform<Wave>;
@@ -15,8 +15,7 @@ declare const image: texture_2d<f32>;
 declare const smp: sampler;
 declare const ramp: storage<array<f32>>;
 
-@fragment
-export function plasma(@builtin("position") p: vec4): vec4 {
+export const plasma = fragment(function plasma(p: builtin<"position", vec4>): vec4 {
   const uv = p.xy * wave.scale;
   let v = 0.;
   for (let i = 0; i < 4; i++) {
@@ -25,12 +24,11 @@ export function plasma(@builtin("position") p: vec4): vec4 {
   }
   const c = v * 0.5 + 0.5;
   return vec4(c, c * c, 1 - c, 1);
-}
+});
 
-@fragment
-export function tiled(@builtin("position") p: vec4): vec4 {
+export const tiled = fragment(function tiled(p: builtin<"position", vec4>): vec4 {
   return textureSample(image, smp, p.xy / 8.);
-}
+});
 
 /** Each element of `out`, its index over the length: 0 up to just under 1. */
 export function fillRamp(out: array<f32>) {
@@ -39,7 +37,6 @@ export function fillRamp(out: array<f32>) {
   }
 }
 
-@fragment
-export function ramped(@builtin("position") p: vec4): vec4 {
+export const ramped = fragment(function ramped(p: builtin<"position", vec4>): vec4 {
   return vec4(ramp[u32(p.x)], ramp[u32(p.y)], 0., 1.);
-}
+});

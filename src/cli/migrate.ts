@@ -20,6 +20,12 @@
 // no type, a decorated class that is more than its fields.
 
 import ts from 'typescript';
+import {
+  ATTRIBUTE_DECORATORS,
+  QUALIFIER_DECORATORS,
+  attributeTypeOf,
+  decoratorParts,
+} from '../compiler/ts/decorated-form.js';
 
 export interface MigrateResult {
   /** The rewritten text; the input itself when nothing changed. */
@@ -36,23 +42,18 @@ interface Edit {
   readonly text: string;
 }
 
+// The vocabulary and the attribute type are the compiler's, which names the same text in its
+// warning on the decorated form (`TS8028`, change 0111, milestone 4).
 const STAGES = new Set(['vertex', 'fragment', 'compute']);
-const ATTRIBUTES = new Set(['builtin', 'location', 'interpolate', 'invariant', 'blend_src']);
-const QUALIFIERS = new Set(['inout', 'out']);
+const ATTRIBUTES = ATTRIBUTE_DECORATORS;
+const QUALIFIERS = QUALIFIER_DECORATORS;
+const partsOf = decoratorParts;
+const attributeType = attributeTypeOf;
 
 /** The decorators the parser keeps among a declaration's modifiers. */
 function decoratorsOf(node: ts.Node): readonly ts.Decorator[] {
   const modifiers = (node as { modifiers?: readonly ts.ModifierLike[] }).modifiers ?? [];
   return modifiers.filter(ts.isDecorator);
-}
-
-/** A decorator's name and its arguments' source text. */
-function partsOf(d: ts.Decorator, sf: ts.SourceFile): { name: string; args: string[] } {
-  const e = d.expression;
-  if (ts.isIdentifier(e)) return { name: e.text, args: [] };
-  if (ts.isCallExpression(e) && ts.isIdentifier(e.expression))
-    return { name: e.expression.text, args: e.arguments.map((a) => a.getText(sf)) };
-  return { name: d.getText(sf), args: [] };
 }
 
 /** The text range a run of decorators takes, with the whitespace after the last one, so
@@ -73,30 +74,6 @@ function decoratorRange(decorators: readonly ts.Decorator[], sf: ts.SourceFile):
     }
   }
   return { pos: start, end };
-}
-
-/** The attribute type a run of attribute decorators stands for around `type`, or undefined
- *  when the run holds none. */
-function attributeType(
-  attrs: readonly { name: string; args: string[] }[],
-  type: string,
-): string | undefined {
-  let out = type;
-  const builtin = attrs.find((a) => a.name === 'builtin');
-  const location = attrs.find((a) => a.name === 'location');
-  const options: string[] = [];
-  for (const a of attrs) {
-    if (a.name === 'invariant') options.push('invariant: true');
-    if (a.name === 'interpolate')
-      options.push(`interpolate: ${a.args.length === 1 ? a.args[0] : `[${a.args.join(', ')}]`}`);
-    if (a.name === 'blend_src') options.push(`blend_src: ${a.args[0]}`);
-  }
-  const third = options.length > 0 ? `, { ${options.join('; ')} }` : '';
-  if (builtin) out = `builtin<${builtin.args[0]}, ${out}${third}>`;
-  else if (location) out = `location<${location.args[0]}, ${out}${third}>`;
-  else if (options.length > 0) return undefined;
-  for (const a of attrs) if (QUALIFIERS.has(a.name)) out = `${a.name}<${out}>`;
-  return out === type ? undefined : out;
 }
 
 /** Rewrites one file. Pure: the text in, the text out. */

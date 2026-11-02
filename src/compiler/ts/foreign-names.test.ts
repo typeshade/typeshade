@@ -76,13 +76,13 @@ describe('a GLSL or HLSL name is refused with TypeShade spelling as the remedy (
       `${TS_CODES.UNKNOWN_TYPE} Unknown type "float3". HLSL's float3 is vec3 here.`,
     ],
     gl_FragCoord: [
-      '@fragment\nexport function f(): vec4 {\n  return vec4(gl_FragCoord.x);\n}',
+      'export const f = fragment(function f(): vec4 {\n  return vec4(gl_FragCoord.x);\n});',
       `${TS_CODES.UNKNOWN_NAME} Unknown identifier "gl_FragCoord". GLSL's gl_FragCoord is a ` +
         'parameter here: pos: builtin<"position", vec4>.',
     ],
     // What a GLSL vertex shader ends with: an output, so a field of the entry's return.
     gl_Position: [
-      '@vertex\nexport function f(): vec4 {\n  gl_Position = vec4(0.);\n  return vec4(0.);\n}',
+      'export const f = vertex(function f(): vec4 {\n  gl_Position = vec4(0.);\n  return vec4(0.);\n});',
       `${TS_CODES.UNKNOWN_NAME} Cannot assign to unknown name "gl_Position". GLSL's ` +
         'gl_Position is a field of the entry\'s return here: pos: builtin<"position", vec4>.',
     ],
@@ -134,17 +134,17 @@ describe('an address space is refused where it is written, and names the wrapper
     ['shared', 'GLSL'],
   ] as const;
   const KERNEL =
-    '@compute([64])\nexport function k(li: builtin<"local_invocation_index", u32>): void {\n';
+    'export const k = compute([64], function k(li: builtin<"local_invocation_index", u32>): void {\n';
   const positions: Readonly<Record<string, (type: string) => string>> = {
     'a module let': (type) =>
-      `let tile: ${type};\n${KERNEL}  tile[li] = 1.;\n  workgroupBarrier();\n}`,
-    "an entry's body": (type) => `${KERNEL}  let tile: ${type};\n  workgroupBarrier();\n}`,
+      `let tile: ${type};\n${KERNEL}  tile[li] = 1.;\n  workgroupBarrier();\n});`,
+    "an entry's body": (type) => `${KERNEL}  let tile: ${type};\n  workgroupBarrier();\n});`,
     'a parameter': (type) => `export function f(a: ${type}): f32 {\n  return 1.;\n}`,
     'a return type': (type) => `export function f(): ${type} {\n  return 1.;\n}`,
     'a field of a class': (type) =>
-      `class C {\n  a: ${type};\n}\nexport function f(): f32 {\n  return 1.;\n}`,
+      `class C {\n  a!: ${type};\n}\nexport function f(): f32 {\n  return 1.;\n}`,
     'an argument of array': (type) =>
-      `let tile: workgroup<array<${type}, 4>>;\n@compute([4])\nexport function k(): void {\n  workgroupBarrier();\n}`,
+      `let tile: workgroup<array<${type}, 4>>;\nexport const k = compute([4], function k(): void {\n  workgroupBarrier();\n});`,
   };
   for (const [space, from] of SPACES) {
     for (const [where, program] of Object.entries(positions)) {

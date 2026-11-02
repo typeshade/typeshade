@@ -22,7 +22,6 @@ export function ridged(p: vec2, k: vec4): f32 {
   return ridge(height(p, k));
 }
 
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   return vec4(normal(p.xy * 0.01, vec4(1., 0.5, 2., 0.25)) * 0.5 + 0.5, 1.);
-}
+});

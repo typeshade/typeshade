@@ -234,7 +234,7 @@ export const fs = fragment(function fs(): vec4 {
 });
 
 describe('class members: what is refused, and what the fix is', () => {
-  const C = (body: string) => `"use typeshade"\nclass C {\n  x: f32\n${body}\n}${TAIL}`;
+  const C = (body: string) => `"use typeshade"\nclass C {\n  x!: f32\n${body}\n}${TAIL}`;
   const only = (src: string) => {
     const errors = errorsOf(src);
     expect(errors, src).toHaveLength(1);
@@ -336,17 +336,17 @@ export function run(): f32 { let b = new B(); b.bump(); return b.x }${TAIL}`);
     ).toEqual([`${M} "C" declares two constructors; a shader function has one body.`]);
     expect(
       bothHalves(`"use typeshade"
-class P<T> { x: T; m(): f32 { return 1. } m(): f32 { return 2. } }
+class P<T> { x!: T; m(): f32 { return 1. } m(): f32 { return 2. } }
 function g(a: P<f32>, b: P<vec2>): f32 { return a.m() + b.m() }${TAIL}`),
     ).toEqual([twice('P', 'm')]);
     expect(
       bothHalves(`"use typeshade"
-class P<T> { x: T; get g(): f32 { return 1. } get g(): f32 { return 2. } }
+class P<T> { x!: T; get g(): f32 { return 1. } get g(): f32 { return 2. } }
 function g(a: P<f32>, b: P<vec2>): f32 { return a.g + b.g }${TAIL}`),
     ).toEqual([`${M} "P.g" has two getters; an accessor has one body.`]);
     expect(
       bothHalves(
-        `"use typeshade"\nnamespace N { export class C { x: f32; m(): f32 { return 1. } m(): f32 { return 2. } } }${TAIL}`,
+        `"use typeshade"\nnamespace N { export class C { x!: f32; m(): f32 { return 1. } m(): f32 { return 2. } } }${TAIL}`,
       ),
     ).toEqual([twice('C', 'm')]);
     // A fieldless class retains its type; the duplicate body is the only error.
@@ -362,25 +362,25 @@ export function g(): f32 { return U.f() }${TAIL}`),
     // A generic class nothing instantiates says it too, where it is written.
     expect(
       bothHalves(`"use typeshade"
-class P<T> { x: T; m(): f32 { return 1. } m(): f32 { return 2. } }${TAIL}`),
+class P<T> { x!: T; m(): f32 { return 1. } m(): f32 { return 2. } }${TAIL}`),
     ).toEqual([twice('P', 'm')]);
     // And a second constructor, once for all the instances of a generic class, which it named
     // by each instance until proposal 0008 (`"P_f32" declares two constructors`).
     expect(
       bothHalves(`"use typeshade"
-class P<T> { x: T; constructor(a: T) { this.x = a } constructor(a: T, b: T) { this.x = b } }
+class P<T> { x!: T; constructor(a: T) { this.x = a } constructor(a: T, b: T) { this.x = b } }
 function g(a: P<f32>, b: P<vec2>): f32 { return a.x + b.x.x }${TAIL}`),
     ).toEqual([`${M} "P" declares two constructors; a shader function has one body.`]);
     // A mixin's class expression is where its members are written: said there, once, however
     // many classes apply it. Keeping the first body compiled the second one silently, which is
     // the one JavaScript runs.
     const tinted = (body: string): string => `"use typeshade"
-class Disc { r: f32 }
+class Disc { r!: f32 }
 function Tinted<TBase extends AnyClass>(Base: TBase) {
-  return class extends Base { tint: vec3; ${body} }
+  return class extends Base { tint!: vec3; ${body} }
 }
-class TD extends Tinted(Disc) { s: f32 }
-class TR extends Tinted(Disc) { w: f32 }
+class TD extends Tinted(Disc) { s!: f32 }
+class TR extends Tinted(Disc) { w!: f32 }
 export function g(t: TD, u: TR): f32 { return t.lit() + u.lit() }${TAIL}`;
     expect(bothHalves(tinted('lit(): f32 { return 1. } lit(): f32 { return 2. }'))).toEqual([
       twice('Tinted(…)', 'lit'),
@@ -389,11 +389,11 @@ export function g(t: TD, u: TR): f32 { return t.lit() + u.lit() }${TAIL}`;
     // applies the mixin at all, as TypeScript says it (TS2393). Until proposal 0008 each of
     // these compiled.
     const overridden = (body: string): string => `"use typeshade"
-class Disc { r: f32 }
+class Disc { r!: f32 }
 function Tinted<TBase extends AnyClass>(Base: TBase) {
-  return class extends Base { tint: vec3; ${body} }
+  return class extends Base { tint!: vec3; ${body} }
 }
-class TD extends Tinted(Disc) { s: f32; lit(): f32 { return 3. } }
+class TD extends Tinted(Disc) { s!: f32; lit(): f32 { return 3. } }
 export function g(t: TD): f32 { return t.lit() }${TAIL}`;
     expect(bothHalves(overridden('lit(): f32 { return 1. } lit(): f32 { return 2. }'))).toEqual([
       twice('Tinted(…)', 'lit'),
@@ -401,7 +401,7 @@ export function g(t: TD): f32 { return t.lit() }${TAIL}`;
     expect(
       bothHalves(`"use typeshade"
 function Tinted<TBase extends AnyClass>(Base: TBase) {
-  return class extends Base { tint: vec3; lit(): f32 { return 1. } lit(): f32 { return 2. } }
+  return class extends Base { tint!: vec3; lit(): f32 { return 1. } lit(): f32 { return 2. } }
 }${TAIL}`),
     ).toEqual([twice('Tinted(…)', 'lit')]);
     // A second constructor in a mixin was dropped, and the first built the object, silently.
@@ -411,12 +411,12 @@ function Tinted<TBase extends AnyClass>(Base: TBase) {
       'constructor() { super(); this.tint = vec3(1.) } constructor(a: f32) { super(); this.tint = vec3(a) }';
     expect(
       errorsOf(`"use typeshade"
-class Disc { r: f32 }
+class Disc { r!: f32 }
 function Tinted<TBase extends AnyClass>(Base: TBase) {
-  return class extends Base { tint: vec3; ${ctors} }
+  return class extends Base { tint!: vec3; ${ctors} }
 }
-class TD extends Tinted(Disc) { s: f32 }
-class TR extends Tinted(Disc) { w: f32 }
+class TD extends Tinted(Disc) { s!: f32 }
+class TR extends Tinted(Disc) { w!: f32 }
 export function g(): f32 { const t = new TD(); const u = new TR(); return t.tint.x + u.tint.x }${TAIL}`),
     ).toEqual([`${M} "Tinted(…)" declares two constructors; a shader function has one body.`]);
   });
@@ -432,17 +432,17 @@ export function g(): f32 { const t = new TD(); const u = new TR(); return t.tint
     ]);
     expect(
       bothHalves(`"use typeshade"
-class P<T> { x: T; f(): f32 { return 1. } static f(): f32 { return 2. } }
+class P<T> { x!: T; f(): f32 { return 1. } static f(): f32 { return 2. } }
 function g(a: P<f32>, b: P<vec2>): f32 { return 1. }${TAIL}`),
     ).toEqual([one('"P.f"', 'the static "P.f"')]);
     expect(
       bothHalves(
-        `"use typeshade"\nnamespace N { export class C { x: f32; f(): f32 { return 1. } static f(): f32 { return 2. } } }${TAIL}`,
+        `"use typeshade"\nnamespace N { export class C { x!: f32; f(): f32 { return 1. } static f(): f32 { return 2. } } }${TAIL}`,
       ),
     ).toEqual([one('"C.f"', 'the static "C.f"')]);
     expect(
       bothHalves(`"use typeshade"
-class P<T> { v: T; #m(): T { return this.v } m(): T { return this.#m() } }
+class P<T> { v!: T; #m(): T { return this.v } m(): T { return this.#m() } }
 function g(a: P<f32>, b: P<vec2>): f32 { return a.m() + b.m().x }${TAIL}`),
     ).toEqual([one('"P.#m"', '"P.m"')]);
     expect(
@@ -454,23 +454,23 @@ function g(a: P<f32>, b: P<vec2>): f32 { return a.m() + b.m().x }${TAIL}`),
     // naming the instance ("P_f32").
     expect(
       bothHalves(`"use typeshade"
-class C { x: f32; f(): f32 { return 1. } static f(): f32 { return 2. } }
+class C { x!: f32; f(): f32 { return 1. } static f(): f32 { return 2. } }
 export function g(c: C): f32 { return c.f() + C.f() }${TAIL}`),
     ).toEqual([one('"C.f"', 'the static "C.f"')]);
     expect(
       bothHalves(`"use typeshade"
-class C { x: f32; static m(): f32 { return 1. } m(): f32 { return 2. } }
-class D extends C { y: f32 }
+class C { x!: f32; static m(): f32 { return 1. } m(): f32 { return 2. } }
+class D extends C { y!: f32 }
 export function g(c: C, d: D): f32 { return c.m() + C.m() + d.m() + D.m() }${TAIL}`),
     ).toEqual([one('The static "C.m"', '"C.m"')]);
     expect(
       bothHalves(`"use typeshade"
-class P<T> { v: T; static m(): f32 { return 1. } m(): T { return this.v } }
+class P<T> { v!: T; static m(): f32 { return 1. } m(): T { return this.v } }
 export function g(a: P<f32>, b: P<vec2>): f32 { return a.m() + b.m().x + P.m() }${TAIL}`),
     ).toEqual([one('The static "P.m"', '"P.m"')]);
     expect(
       bothHalves(`"use typeshade"
-class P<T> { v: T; m(): T { return this.v } static m(): f32 { return 1. } }
+class P<T> { v!: T; m(): T { return this.v } static m(): f32 { return 1. } }
 export function g(a: P<f32>): f32 { return a.m() + P.m() }${TAIL}`),
     ).toEqual([one('"P.m"', 'the static "P.m"')]);
   });
@@ -690,7 +690,7 @@ export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   });
 
   it('refuses a receiver a function cannot write, and a call in expression position', () => {
-    const C = `"use typeshade"\nclass C {\n  x: f32\n  bump(): void { this.x = this.x + 1. }\n}\n`;
+    const C = `"use typeshade"\nclass C {\n  x!: f32\n  bump(): void { this.x = this.x + 1. }\n}\n`;
     const only = (src: string) => {
       const errors = errorsOf(src);
       expect(errors, src).toHaveLength(1);
@@ -816,7 +816,7 @@ export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
     expect(errorsOf(`${Gen}function g(): u32 { return new Gen().next() }${TAIL}`)).toEqual([]);
     // On its own line the value is dropped and the write kept.
     const r = compile(
-      `${Gen}@fragment\nexport function fs(): vec4 {\n  let r: Gen = { s: 1 }\n  r.next()\n  return vec4(f32(r.next()), 0., 0., 1.)\n}\n`,
+      `${Gen}export const fs = fragment(function fs(): vec4 {\n  let r: Gen = { s: 1 }\n  r.next()\n  return vec4(f32(r.next()), 0., 0., 1.)\n})\n`,
     );
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('  Gen_next(&r);\n');
