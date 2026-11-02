@@ -15,8 +15,10 @@ import {
   module,
   storageBuffer,
   vec3uT,
+  vec4fT,
   voidT,
 } from '../ir/index.js';
+import type { Expr, FuncDecl, ModuleDecl } from '../ir/index.js';
 
 /** A compute kernel that reads the host-owned uniform `name` (Proposal 0070, Q3). */
 const readsHostUniform = (name: string) => {
@@ -77,5 +79,72 @@ describe('a host-owned binding keeps its name, or the writer refuses it (Proposa
 
   it('keeps a host-owned uniform that both targets spell', () => {
     expect(emitModule(readsHostUniform('scale'))).toContain('var<uniform> scale: f32;');
+  });
+});
+
+describe('a helper parameter named like a constant its function reads is respelled (Rule 3.2, #999)', () => {
+  // A module built from IR literals, as an engine builds one. The IR tells a `param` from a
+  // `constref`, and the two writers print both as the bare name, so the parameter would hide the
+  // constant in its function. The module emits an enum member as `E_A` and a static field as
+  // `Voice_OFFSET`, which a program reads as `E.A` and `Voice.OFFSET` while a parameter has the
+  // emitted name. A function that does not read the constant keeps its parameter's name.
+  const param = (name: string): Expr => ({ op: 'param', type: f32T, name });
+  const constant = (name: string): Expr => ({ op: 'constref', type: f32T, name });
+  const sum = (a: Expr, b: Expr): Expr => ({ op: 'binop', bop: '+', type: f32T, a, b });
+  const helper = (name: string, parameter: string, body: Expr): FuncDecl => ({
+    name,
+    params: [{ name: parameter, type: f32T }],
+    ret: f32T,
+    body: [{ s: 'return', expr: body }],
+  });
+  const reads = helper('reads', 'K', sum(param('K'), constant('K')));
+  const ignores = helper('ignores', 'K', param('K'));
+  const call = (f: FuncDecl): Expr => ({
+    op: 'call',
+    type: f32T,
+    fn: f.name,
+    args: [{ op: 'lit', type: f32T, value: 7 }],
+    declRef: f,
+  });
+  const fragment: FuncDecl = {
+    name: 'fs',
+    params: [],
+    ret: vec4fT,
+    retAttr: '@location(0)',
+    attrs: ['@fragment'],
+    stage: 'fragment',
+    body: [
+      {
+        s: 'return',
+        expr: {
+          op: 'construct',
+          type: vec4fT,
+          args: [call(reads), call(ignores), { op: 'lit', type: f32T, value: 0 }, constant('K')],
+        },
+      },
+    ],
+  };
+  const m: ModuleDecl = {
+    consts: [{ name: 'K', type: f32T, wgslValue: 2, cpuValue: 2 }],
+    structs: [],
+    bindings: [],
+    funcs: [reads, ignores, fragment],
+  };
+
+  it('respells the parameter where its function reads the constant, and only there', () => {
+    const wgsl = emitModule(m);
+    expect(wgsl).toContain('const K: f32 = 2.0;');
+    expect(wgsl).toContain('fn reads(K_: f32) -> f32 {\n  return (K_ + K);\n}');
+    expect(wgsl).toContain('fn ignores(K: f32) -> f32 {\n  return K;\n}');
+    const glsl = emitGlslModule(m, 'fragment');
+    expect(glsl).toContain('const float K = 2.0;');
+    expect(glsl).toContain('float reads(float K_) {\n  return (K_ + K);\n}');
+    expect(glsl).toContain('float ignores(float K) {\n  return K;\n}');
+  });
+
+  it('leaves the authored module as it was', () => {
+    emitModule(m);
+    expect(reads.params[0]!.name).toBe('K');
+    expect(m.funcs[0]).toBe(reads);
   });
 });
