@@ -4,6 +4,8 @@
 // the emit of each pair is the decorated form's byte for byte, and the program the proposal
 // promises, with no decorator at all, type-checks under a plain `tsc --strict` against the
 // published ambient library.
+//
+// Verifies: Rule 6.6, Rule 6.7, Rule 7.2, Rule 7.6, Rule 8.2, Rule 8.25 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';

@@ -3,6 +3,8 @@
 // the decorated form, which it refuses (TS1206). The call stands for a function declaration made
 // of the wrapped function's own nodes, so each program here is read by both halves and the emit
 // of each pair is the decorated form's, byte for byte.
+//
+// Verifies: Rule 6.7, Rule 8.1, Rule 8.22 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
