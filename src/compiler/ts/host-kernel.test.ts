@@ -238,6 +238,28 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
     expect([...cells]).toEqual([0, 1, 1, 2, 2, 3]);
   });
 
+  it('checks a store at the counter added to a value the loop does not change before anything runs (#983)', async () => {
+    // The loop writes `tape[at + n]`: the call refuses a tape that does not hold `at` through
+    // `at + block.length - 1`, as it does for `out[i * s + 1]`, and the elements land where a
+    // plain loop puts them.
+    const m = await load(
+      `"use typeshade";\nexport function keep(tape: array<f32>, block: array<f32>, at: u32): void {\n  for (let n: u32 = 0; n < block.length; n++) tape[at + n] = block[n];\n}\n`,
+    );
+    const keep = m.keep as (...a: unknown[]) => Promise<void>;
+    const block = Float32Array.of(1, 2, 3);
+    await expect(keep(new Float32Array(5), block, 3)).rejects.toThrow(
+      new TypeError(
+        'keep(): parameter "tape" holds 5 elements, and loop 1 writes it at indices 3 to 5.',
+      ),
+    );
+    const tape = new Float32Array(7);
+    await keep(tape, block, 3);
+    const want = new Float32Array(7);
+    for (let n = 0; n < block.length; n++) want[3 + n] = block[n]!;
+    expect([...tape]).toEqual([...want]);
+    expect([...tape]).toEqual([0, 0, 0, 1, 2, 3, 0]);
+  });
+
   it('checks each array against the indices a loop writes before anything runs', async () => {
     const m = await load(TERRAIN);
     const render = m.render as (...a: unknown[]) => Promise<void>;

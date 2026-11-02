@@ -90,6 +90,13 @@ describe('the proof accepts a loop whose iterations touch nothing another one to
       'scaled out',
     ],
     [
+      'a counter added to a value the loop does not change (R3b, #983)',
+      `export function keep(tape: array<f32>, block: array<f32>, at: u32) {
+  for (let n: u32 = 0; n < block.length; n++) { tape[at + n] = block[n]; }
+}`,
+      'scaled tape',
+    ],
+    [
       'a struct array written in place',
       `class P { pos: vec4; vel: vec4; }
 export function step(ps: array<P>, dt: f32) {
@@ -210,6 +217,23 @@ describe('the proof refuses a loop whose iterations depend on each other, for it
       'R3 shared',
     ],
     [
+      'a counter divided before it is added to a value the loop does not change (R3, #983)',
+      `export function keep(tape: array<f32>, block: array<f32>, at: u32) {
+  for (let n: u32 = 0; n < block.length; n++) { tape[at + n / 2] = block[n]; }
+}`,
+      'R3 shared',
+    ],
+    [
+      'a counter added to a value each iteration declares (R3, #983)',
+      `export function keep(tape: array<f32>, block: array<f32>) {
+  for (let n: u32 = 0; n < block.length; n++) {
+    const off = block.length - n;
+    tape[off + n] = block[n];
+  }
+}`,
+      'R3 shared',
+    ],
+    [
       'a prefix sum (R4)',
       `export function prefix(out: array<f32>) { for (let i: u32 = 1; i < out.length; i++) { out[i] = out[i] + out[i - 1]; } }`,
       'R4 reads-written',
@@ -246,6 +270,66 @@ export function count(a: array<u32>) { for (let i: u32 = 0; i < a.length; i++) {
     expect(v.ok).toBe(false);
     if (!v.ok)
       expect(`${v.refusal.rule} ${'why' in v.refusal ? v.refusal.why : 'call'}`).toBe(want);
+  });
+});
+
+describe('a counter added to a value the loop does not change is a write at 1*i + c (R3b, #983)', () => {
+  // `scaledCoefficient` read the coefficient of the counter from a product, so a counter that
+  // stood alone in the sum had none: `tape[n * 1 + at]` lowered and `tape[at + n]` did not.
+  const keep = (index: string): string =>
+    `export function keep(tape: array<f32>, block: array<f32>, at: u32) {
+  for (let n: u32 = 0; n < block.length; n++) { tape[${index}] = block[n]; }
+}`;
+  const KEEP_I32 = `export function keep(tape: array<f32>, block: array<f32>, at: u32) {
+  for (let k: i32 = 0; k < i32(block.length); k++) { tape[at + u32(k)] = block[u32(k)]; }
+}`;
+
+  it.each([
+    'at + n',
+    'n + at',
+    'at + n * 2',
+    'n * 2 + at',
+    'n * 1 + at',
+    'u32(at) + n',
+    'at + 7 + n',
+  ])('accepts the write at tape[%s]', (index) => {
+    expect(verdict(keep(index))).toBe('scaled tape');
+  });
+
+  /** The functions the lowering hands the call for the one scaled write of `keep`. */
+  function strideOf(body: string) {
+    const r = compile(`"use typeshade";\n${body}\n`, { fileName: 'm.shade.ts' });
+    const f = r.module.funcs.find((x) => x.kernel === true)!;
+    const plan = lowerKernel(
+      f,
+      r.module,
+      proveKernels(r.module).find((x) => x.fn === f.name)!,
+    );
+    if ('noGpu' in plan) throw new Error(plan.noGpu);
+    const [stride] = plan.loops[0]!.strides ?? [];
+    const named = (name: string | undefined) => plan.ranges.find((x) => x.name === name);
+    return { stride, coefficient: named(stride?.coefficient), base: named(stride?.base) };
+  }
+
+  it('gives the bare counter the coefficient 1, as `n * 1` has it', () => {
+    for (const index of ['at + n', 'n + at', 'n * 1 + at']) {
+      const { stride, coefficient, base } = strideOf(keep(index));
+      expect([index, stride?.param]).toEqual([index, 'tape']);
+      expect([index, coefficient?.ret]).toEqual([index, { kind: 'scalar', scalar: 'u32' }]);
+      expect([index, coefficient?.body]).toMatchObject([
+        index,
+        [{ s: 'return', expr: { op: 'lit', value: 1 } }],
+      ]);
+      expect([index, base?.ret]).toEqual([index, { kind: 'scalar', scalar: 'u32' }]);
+    }
+  });
+
+  it('types the 1 as the counter is typed: an i32 counter under a cast gives an i32', () => {
+    const { coefficient } = strideOf(KEEP_I32);
+    expect(coefficient?.ret).toEqual({ kind: 'scalar', scalar: 'i32' });
+    expect(coefficient?.body).toMatchObject([
+      { s: 'return', expr: { op: 'lit', type: { kind: 'scalar', scalar: 'i32' }, value: 1 } },
+    ]);
   });
 });
 
