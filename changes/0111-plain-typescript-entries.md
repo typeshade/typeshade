@@ -5,6 +5,7 @@ status: draft
 rules:
   - '6.6'
   - '6.7'
+  - '7.2'
   - '8.1'
   - '8.2'
   - '8.22'
@@ -114,13 +115,13 @@ class with only public fields by its structure, and `tsc --strict` accepts the r
 
    The other attributes of Rule 6.7 on an input or an output are a third type argument, an
    object type of options: `Location<0, u32, { interpolate: 'flat' }>`,
-   `Builtin<'position', vec4, { invariant: true }>`, `Location<0, vec4, { blendSrc: 1 }>` (D7).
+   `Builtin<'position', vec4, { invariant: true }>`, `Location<0, vec4, { blend_src: 1 }>` (D7).
 
 3. **A field decorator on an entry I/O field is refused** after the migration period (D5), with
    the type form in the message. With D2 decided, D3 does not apply.
 
 4. **`@inout` and `@out`** (Rule 8.25) become the types `InOut<T>` and `Out<T>` on the
-   parameter (D4, recommended): `function bump(x: InOut<f32>) { x += 1; }`. The call passes the
+   parameter (D4, decided): `function bump(x: InOut<f32>) { x += 1; }`. The call passes the
    variable itself, as it does today.
 
 5. The editor's TS1206 filter for entries and the `strictPropertyInitialization` override are
@@ -172,10 +173,12 @@ stage from the call in place of the decorator and gives the host the same signat
 - **Rule 6.6**: entry inputs and outputs carry their attributes as `Builtin<…>` and `Location<…>` types (D2).
 - **Rule 6.7**: the attribute names stay; the places they are written change, and a decorator
   on a function or a parameter is refused with the new form in the message.
+- **Rule 7.2**: its table of divergences records that an assignment to an `InOut<T>` or
+  `Out<T>` parameter reaches the caller, which TypeScript's reading of the type does not show (D4).
 - **Rule 8.1**: an entry point is a top-level `const` initialized by a stage call (D1).
 - **Rule 8.2**: the position output is `Builtin<"position", vec4>` (D2).
 - **Rule 8.22**: `@workgroup_size([…])` on a kernel function becomes `workgroupSize([…], f)`.
-- **Rule 8.25**: `@inout` and `@out` take the form D4 selects; recommended `InOut<T>` and `Out<T>`.
+- **Rule 8.25**: `@inout` and `@out` become `InOut<T>` and `Out<T>` (D4).
 - **Surface §3, §53, §67, §70**: the sections that define these forms. Every other section
   that shows an entry is rewritten by the migration tool (D5).
 - **codes**: none is added or removed in the draft. A refusal of the old form may reuse
@@ -201,32 +204,36 @@ unknown.
 Decisions to resolve before acceptance:
 
 Decided by the owner on 2026-11-02, in the Claude Code session ("승인" to the recommended
-choices, confirmed in a follow-up question). This is a decision on the draft's direction, not
+choices, confirmed in a follow-up question; D4 and D5 by a second "승인" to the recommendations
+that followed). This is a decision on the draft's direction, not
 the acceptance of the proposal:
 
 - **D1, decided.** The stage form is `export const vs = vertex(function vs(…) { … })`, with
   `fragment`, `compute([…], f)` and `workgroupSize([…], f)` in the same shape.
 - **D2, decided.** The attribute form is D2-b, the types `Builtin<N, T>` and `Location<I, T>`.
 - **D3, closed.** It applied to D2-a only.
+- **D4, decided.** `@inout x: T` and `@out x: T` become the types `InOut<T>` and `Out<T>`,
+  the same form as D2. A type that means `T` keeps TypeScript's local reading, where an
+  assignment to a parameter does not reach the caller; today's decorator form has the same
+  difference. Rule 7.2 records it as a divergence.
+- **D5, decided.** Migration: one minor release where both forms compile and the old form gives
+  a warning that names the new form, with a `typeshade migrate` codemod that rewrites a file;
+  the old form is refused in the release after it.
 
 Open, with the agent's recommendation:
 
-- **D4.** `@inout x: T` and `@out x: T`. Recommended: the types `InOut<T>` and `Out<T>`, the
-  same form as D2. The alternative is a struct parameter, which changes every call site. A type
-  that means `T` keeps TypeScript's local reading, where an assignment to a parameter does not
-  reach the caller; today's decorator form has the same difference. Rule 7.2 records it as a
-  divergence.
-- **D5.** Migration. Recommended: one minor release where both forms compile and the old form
-  gives a warning that names the new form, with a `typeshade migrate` codemod that rewrites a
-  file; the old form is refused in the release after it. The alternative is a single cut, which
-  breaks the five downstream repositories at the same pin move.
-- **D6.** The list of examples and downstream files, from the codemod's dry run.
-- **D7.** The option names in the third type argument (`interpolate`, `invariant`, `blendSrc`)
-  and whether `@diagnostic` stays a function-level form, as a fourth argument of the stage call.
+- **D6.** The list of examples and downstream files. Recommended: list at acceptance every
+  `examples/**/*.shade.ts` that carries a stage decorator, a parameter decorator or an entry I/O
+  field decorator, and confirm the list with the codemod's dry run at implementation.
+- **D7.** The option names in the third type argument. Recommended: WGSL's attribute names
+  as written, `interpolate`, `invariant` and `blend_src`, since a name an author writes comes
+  from WGSL, from ECMAScript, or from the extension table of `docs/language-design.md` §9; a
+  camel-case `blendSrc` would need a new row there. `@diagnostic` moves to an options argument
+  of the stage call: `fragment(f, { diagnostic: ['off', 'derivative_uniformity'] })`.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require: the owner's decisions on D4 to D7;
+This record does not yet apply. Acceptance will require: the owner's decisions on D6 and D7;
 `tsc --strict` output on the rewritten `hello-vsout`, a compute example and an `@inout` example
 in the selected forms; and the front matter's examples, codes and surface lists completed from
 the codemod's dry run.
