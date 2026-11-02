@@ -108,7 +108,7 @@ describe('an attribute type compiles as the decorator it stands for (change 0111
     const codes = (source: string): string[] =>
       compiled(source)
         .diagnostics.filter((d) => d.category === 'error')
-        .map((d) => d.code);
+        .map((d) => String(d.code));
     const typed = codes(TYPED('interface').replace('"vertex_index"', '"vertex_idx"'));
     expect(typed).not.toEqual([]);
     expect(typed).toEqual(codes(DECORATED.replace('"vertex_index"', '"vertex_idx"')));
