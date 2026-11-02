@@ -74,7 +74,7 @@ import {
   holdsFunction,
   staticFieldDeclarations,
 } from '../class-names.js';
-import { staticConstName } from '../module-const.js';
+import { staticConstName, writtenConstNames } from '../module-const.js';
 import {
   captureArguments,
   captureBindings,
@@ -120,6 +120,7 @@ import {
 import {
   eachNamespaceStatement,
   namespaceMemberName,
+  recordLocalFunction,
   recordNamespaceFunction,
   recordTemplateInstance,
   refuseNamespaceStatement,
@@ -147,15 +148,17 @@ import {
   type BuiltinStage,
 } from '../builtin-check.js';
 
-/** What the source calls each function and each static field of the module that the module emits
- *  under another name: `Voice.tally` for a class's `Voice_tally`, `Ns.f` for a namespace's `Ns_f`,
- *  `pick` for the instance `pick_u32` of a generic function, `Voice.count` for the module variable
- *  `Voice_count` of a static field the file writes and `Voice.OFFSET` for the module constant
- *  `Voice_OFFSET` of one it does not. A name declared at the top level is emitted as written and has
- *  no row. The functions are read from the callee table, which holds every function of the file
- *  before any body is lowered, and the instances made by the calls lowered so far. The rows are in
- *  two tables, since a call reads a function and a `varref` or a `constref` a value, and neither
- *  reads a parameter's name (`KernelNames`, #988). */
+/** What the source calls each function, each static field and each constant of a namespace or an
+ *  enum of the module that the module emits under another name: `Voice.tally` for a class's
+ *  `Voice_tally`, `Ns.f` for a namespace's `Ns_f`, `pick` for the instance `pick_u32` of a generic
+ *  function, `bump` for the local function `count_bump`, `Voice.count` for the module variable
+ *  `Voice_count` of a static field the file writes, `Voice.OFFSET` for the module constant
+ *  `Voice_OFFSET` of one it does not, `Ns.K` for the `Ns_K` of a namespace's constant and `Mode.B`
+ *  for the `Mode_B` of an enum's member. A name declared at the top level is emitted as written and
+ *  has no row. The functions are read from the callee table, which holds every function of the file
+ *  before any body is lowered, and the instances and the copies made by the calls lowered so far.
+ *  The rows are in two tables, since a call reads a function and a `varref` or a `constref` a value,
+ *  and neither reads a parameter's name (`KernelNames`, #988). */
 function writtenModuleNames(
   scope: LoweringScope,
   sourceFile: ts.SourceFile,
@@ -173,6 +176,7 @@ function writtenModuleNames(
     const member = emittedMemberName(field.slice(dot + 1));
     values.set(staticConstName(field.slice(0, dot), member), field);
   }
+  for (const [emitted, written] of writtenConstNames(sourceFile)) values.set(emitted, written);
   return { values, functions };
 }
 
@@ -1263,6 +1267,9 @@ export function lowerSourceFunctions(
     localCopies.set(key, stub);
     callees.set(emitted, stub);
     writtenAs.set(emitted, fn.localName);
+    // To the author a copy is the one local function it is made from (#987).
+    const declared = writtenFunctionOf(fn.stub);
+    if (declared !== undefined) recordLocalFunction(stub, declared);
     making.push(name);
     try {
       // In the body, a parameter of function type names the function handed over.
