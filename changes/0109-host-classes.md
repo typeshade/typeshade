@@ -482,10 +482,16 @@ as drafted (Approval and plan record, Amendment 1).
 
 **Implementation.** Pull request [#993](https://github.com/typeshade/typeshade/pull/993), branch
 `claude/0109-resident-instances`, from `main` at `bf4a0d19`, by a Claude Code agent at the owner's
-direction. Its commits say `Change: 0109`: `86401940` (the copy, Rule 11.8, §65, `reqs/`, the
-tests, the bundle budgets and the changelog entry), `1c3c4220` (the merge of `main` at `480b6a64`,
-change 0118, with the bundle budgets measured again and the stamps of `SURF-071` resolved), and the
-commit that holds this record.
+direction. Its commits say `Change: 0109`:
+
+- `86401940`: the copy, Rule 11.8, §65, `reqs/`, the tests, the bundle budgets and the changelog
+  entry.
+- `1c3c4220`: the merge of `main` at `480b6a64` (change 0118, #990). The bundle budgets were
+  measured again, and the stamps of `SURF-071` were resolved.
+- `757a18e5`: this record.
+- `524d8517`: the merge of `main` at `3b7019da` (#994), with no conflict. The bundles did not
+  change.
+- The commit that adds `524d8517` and its checks to this record.
 
 **Delivered configuration.**
 
@@ -514,52 +520,60 @@ commit that holds this record.
 5.0.5:
 
 - The eight new tests, run against the `copyOf` of `bf4a0d19` (that file restored in the
-  worktree, with the new tests in place) and against the change: before, each failed, with
-  `expected { phase: +0, step: 0.25 } to be an instance of Voice`, `expected { n: 8.5 } to be an
-instance of Cell`, `TypeError: v.tick is not a function`, `ReferenceError: structuredClone is not
-defined` and the like; after, each passed. `src/compiler/ts/host-class.test.ts` as a whole: 5
-  failed and 22 passed before, 27 passed after.
-- `bunx vitest run src/core src/fuse.test.ts src/compiler/ts/host-class.test.ts
-src/compiler/ts/host-kernel.test.ts src/compiler/ts/host-face.test.ts`: at `86401940`, 231 files
-  and 4,135 tests passed, 3 skipped; at `1c3c4220`, 231 files and 4,145 tests passed, 3 skipped.
+  worktree, with the new tests in place) and against the change. Before, each failed: an element
+  read back was no instance of `Voice` or `Cell`, `tick()` was not a function, or
+  `structuredClone` was not defined. After, each passed. `src/compiler/ts/host-class.test.ts` as
+  a whole: 5 failed and 22 passed before, 27 passed after.
+- The targeted set, `bunx vitest run` over `src/core`, `src/fuse.test.ts`,
+  `src/compiler/ts/host-class.test.ts`, `src/compiler/ts/host-kernel.test.ts` and
+  `src/compiler/ts/host-face.test.ts`: 231 files passed at each commit, with 4,135 tests passed at
+  `86401940`, 4,145 at `1c3c4220` and 4,158 at `524d8517`, and 3 skipped each time.
 - `env -u NODE_OPTIONS bun run test`: at `86401940`, 520 files and 12,116 tests passed, 4 skipped
-  and 1 todo; at `1c3c4220`, 520 files and 12,126 tests passed, 4 skipped and 1 todo. Without `NODE_OPTIONS`, the nine tests of `src/affected-tests.test.ts`
-  and `src/doc-test-selection.test.ts` that this container's `NODE_OPTIONS` fails pass too.
-- `bun run gate:boundary`: exit 0 at `86401940` and at `1c3c4220`. Against `480b6a64` the copy
-  adds 33 gzip bytes to `typeshade/runtime` (150,167; split initial 36,508, +39; aggregate
-  152,077, +40) and 47 to `typeshade/fuse` (111,508; split initial 13,825, +57; aggregate 111,959,
-  +57); `typeshade/emit`, `typeshade/algorithms` and `typeshade/random` do not change. Against
-  `bf4a0d19` it had added 49 and 53. CI's boundary on `86401940` measured the same bytes as this
-  container.
-- `TYPESHADE_CHROMIUM=…/chrome-headless-shell bun run gate:journeys` at `1c3c4220`, after
-  `bun run build` (headless Chromium 1243, SwiftShader): exit 0, "34 journeys, 123 runs: every check
-  passed", 256 checks passed and none failed; the import journey's resident arrays on WebGPU among
-  them (`resident(input.particles)`, the device array of `layoutRows`, `filterBankGpu`,
-  `filterStatesGpu` and `filterKeptGpu`, each with a worst difference of 0).
-- `bun run build`, `bun run lint` and `bun run format:check`: exit 0 at `86401940` and at
-  `1c3c4220`.
+  and 1 todo; at `1c3c4220`, 520 files and 12,126 tests passed, 4 skipped and 1 todo. At
+  `524d8517`, 518 files passed and 2 failed, with 12,154 tests passed and 2 failed. Each failure
+  was the known 90-second timeout, under a load average of 13 to 15 beside the suites of other
+  sessions: "type-checks a draw with plain tsc" in `src/compiler/ts/host-draw.test.ts` and "tshc
+  sync writes the views" in `examples/host-examples.test.ts`. At `524d8517`, a run of the two
+  files then passed `examples/host-examples.test.ts` (16 tests), and the test of
+  `src/compiler/ts/host-draw.test.ts` timed out once more; that file then passed alone (19
+  tests). Without `NODE_OPTIONS`, the nine tests of `src/affected-tests.test.ts` and
+  `src/doc-test-selection.test.ts` that this container's `NODE_OPTIONS` fails pass too.
+- `bun run gate:boundary`: exit 0 at `86401940`, `1c3c4220` and `524d8517`. Against `480b6a64`
+  the copy adds 33 gzip bytes to `typeshade/runtime` (150,167; split initial 36,508, +39;
+  aggregate 152,077, +40) and 47 to `typeshade/fuse` (111,508; split initial 13,825, +57;
+  aggregate 111,959, +57). `typeshade/emit`, `typeshade/algorithms` and `typeshade/random` do not
+  change. Against `bf4a0d19` it had added 49 and 53. CI's boundary on `86401940` measured the
+  same bytes as this container, and `3b7019da` moved no bundle.
+- `bun run gate:journeys` with `TYPESHADE_CHROMIUM` set to the headless Chromium 1243
+  (SwiftShader), after `bun run build`, at `1c3c4220` and again at `524d8517`: exit 0, "34
+  journeys, 123 runs: every check passed", and 256 checks passed with none failed. The import
+  journey's resident arrays on WebGPU are among them: `resident(input.particles)`, the device
+  array of `layoutRows`, `filterBankGpu`, `filterStatesGpu` and `filterKeptGpu`, each with a worst
+  difference of 0.
+- `bun run build`, `bun run lint` and `bun run format:check`: exit 0 at `86401940`, `1c3c4220`
+  and `524d8517`.
 - The time of the copy alone, the amendment's impact estimate, by a script outside the tree in a
   shared container: 100,000 objects `{ phase, step }` took 87 ms with `structuredClone` and 34 ms
   with the new copy on Node 22.23.4, and 28 and 11 ms on Bun 1.4.4; 100,000 instances, 79 and
   28 ms (Node) and 24 and 9 ms (Bun); 100,000 structs with a vec4 field, 142 and 80 ms (Node) and
   101 and 30 ms (Bun). A typed array is sliced, as before.
-- CI on `86401940`: every check green, the four required ones (`typecheck + unit`,
-  `traceability (Doorstop)`, `compile gate (Tint + WebGL2)` and `user journeys (packed tarball,
-WebGPU)`) and the TypeScript 5.9.3 and 6.0.3 legs among them.
+- CI: every required check green on `86401940`, `1c3c4220`, `757a18e5` and `524d8517`
+  (`typecheck + unit`, `traceability (Doorstop)`, `compile gate (Tint + WebGL2)` and
+  `user journeys (packed tarball, WebGPU)`), with the TypeScript 5.9.3 and 6.0.3 legs.
 - Not run in this container: `bun run gate:compile`, `bun run gate:differential`,
   `bun run gate:render` and `bun run gate:perf` (the change emits no shader text and changes no
-  lowering; CI ran the compile, render and perf gates on `86401940`), and the TypeScript 5.9 and
-  6.0 legs, which CI ran.
+  lowering; CI ran the compile, render and perf gates), and the TypeScript 5.9 and 6.0 legs, which
+  CI ran.
 
-**Document validation**, on 2026-11-02 (UTC): `bun run docs:impact` against `origin/main`, at
-`86401940` and at `1c3c4220`, three review items (the text of Rule 11.8, `scripts/bundle-budget.json`
-and `src/core/resident.ts`) and no must-fix item, each mention read and each commit's
-`Docs-Impact:` trailer saying what was read; `bun run docs:refs`, 0 dead references;
-`bun run reqs:sync` with nothing left to write; `python3 scripts/doorstop-check.py -C`, Doorstop
-3.2, with no item flagged once `RULE-1108` was reviewed and the six surface items were cleared, and
-again after the merge; `bun scripts/changes.ts --base origin/main`, exit 0 ("This change touches
-Rule 11.8; surface §65"); `bun scripts/ifchange.ts --base origin/main`, exit 0;
-`bun run precommit --message-file` on each commit's message, exit 0.
+**Document validation**, on 2026-11-02 (UTC): `bun run docs:impact` against `origin/main`, at each
+commit, three review items (the text of Rule 11.8, `scripts/bundle-budget.json` and
+`src/core/resident.ts`) and no must-fix item, each mention read and each commit's `Docs-Impact:`
+trailer saying what was read; `bun run docs:refs`, 0 dead references; `bun run reqs:sync` with
+nothing left to write; `python3 scripts/doorstop-check.py -C`, Doorstop 3.2, with no item flagged
+once `RULE-1108` was reviewed and the six surface items were cleared, and again after each merge;
+`bun scripts/changes.ts --base origin/main`, exit 0 ("This change touches Rule 11.8; surface
+§65"); `bun scripts/ifchange.ts --base origin/main`, exit 0; `bun run precommit --message-file`
+on each commit's message, exit 0.
 
 **Deviations**, each with its disposition: none from the amendment's text. Recorded for the
 reader: `structuredClone` kept the references a value shared, so a value whose objects shared one
