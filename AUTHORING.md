@@ -10,11 +10,11 @@ same way.
 You write a shader as an ordinary TypeScript file whose first statement is the directive
 `"use typeshade"`. The file uses TypeScript's own syntax: `function`, `const` and `let`,
 `if`, `for`, `class`, operators and literals. The types are the GPU's: `f32`, `u32`, `vec3`,
-`mat4`, `array<f32, 16>`. A decorator such as `@fragment` marks the function the GPU calls.
+`mat4`, `array<f32, 16>`. A stage call such as `fragment(f)` marks the function the GPU calls.
 A wrong type or a misspelt field is an error in your editor, at the line you wrote.
 
-Three places carry the structure. A top-level `export function` with a stage decorator
-(`@vertex`, `@fragment` or `@compute`) is an entry point: the function the GPU calls, once
+Three places carry the structure. A top-level `export const` initialized by a stage call
+(`vertex(f)`, `fragment(f)` or `compute([64], f)`) is an entry point: the function the GPU calls, once
 per vertex, per fragment or per compute invocation. Every other function is a helper it
 calls. A `declare const` with a type such as `uniform<T>` or `storage<T>` is a resource the
 host binds. A `class`, an `interface` or a `type` alias is a struct.
@@ -77,8 +77,8 @@ See `docs/use-typeshade-surface.md` §14 and §18.
 
 ### Importing
 
-A shader file imports nothing from the package: the types, the builtins and the decorators
-are the language's own. Host code imports the compiler and the calls that read its result
+A shader file imports nothing from the package: the types, the builtins and the stage
+functions are the language's own. Host code imports the compiler and the calls that read its result
 from the package root:
 
 ```ts
@@ -175,36 +175,38 @@ is a multiply and a subtract.
 
 An _entry point_ is a function the GPU calls directly: once per vertex, once per fragment,
 or once per compute invocation. This page uses the first two. You mark one with a stage
-decorator, `@vertex`, `@fragment` or `@compute`, on a top-level `export function`. Every
-other function you write is a plain helper.
+call that wraps the function, `vertex(f)`, `fragment(f)` or `compute([64], f)`, and give it a
+top-level `export const`: `export const vs = vertex(function vs(…) { … });`. Every other
+function you write is a plain helper. A plain `tsc --strict` accepts this form. The decorated
+form of earlier releases, `@vertex export function vs(…)`, stays accepted until the release
+after the migration release, and `tshc migrate` rewrites a file to the new form.
 
 The vertex stage runs once per vertex. It produces the clip space position and whatever
-the fragment stage needs from it, packed in an _IO struct_: a class whose fields each carry
-an attribute. `@builtin("position")` marks the value the hardware itself consumes, and
-`@location(0)` marks a value that is interpolated across the triangle and read back by the
+the fragment stage needs from it, packed in an _IO struct_: an interface (or a class or a `type`) whose fields each carry
+an attribute in their type. `builtin<"position", vec4>` marks the value the hardware itself
+consumes, and `location<0, vec2>` marks a value that is interpolated across the triangle and read back by the
 fragment stage.
 
 ```ts
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 ```
 
 WGSL fixes the type of every builtin but `clip_distances`, so the compiler checks the type
-you write against the id: `@builtin("position")` on anything but a `vec4` is an error.
+you write against the id: `builtin<"position", T>` with any `T` but `vec4` is an error.
 
 This shader has no vertex buffer. It draws three vertices that cover the screen, and it
 derives their positions from the vertex index alone. A stage input is an ordinary
 parameter with the same attribute:
 
 ```ts
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-}
+});
 ```
 
 `vi` is a `u32`, and `f32(vi & 1)` converts it. A number written without a decimal point
@@ -219,15 +221,14 @@ output as a parameter, so the fields declared on `VsOut` are what it reads: `vo.
 `vec2` with `.x` and `.y` on it.
 
 ```ts
-@fragment
-export function fs(vo: VsOut): vec4 {
+export const fs = fragment(function fs(vo: VsOut): vec4 {
   const shade = 1. - vo.uv.y;
   return vec4(vo.uv.x, shade, 0.5, 1.);
-}
+});
 ```
 
-A bare fragment return goes to `@location(0)`, the first colour attachment, so nothing
-is written for it. A struct return carries one `@location(n)` field per colour attachment.
+A bare fragment return goes to location 0, the first colour attachment, so nothing
+is written for it. A struct return carries one `location<n, T>` field per colour attachment.
 
 ### Assembling the module
 
@@ -237,23 +238,21 @@ it: the struct, the two entries and any helper they call. Put together, the file
 ```ts
 "use typeshade";
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-}
+});
 
-@fragment
-export function fs(vo: VsOut): vec4 {
+export const fs = fragment(function fs(vo: VsOut): vec4 {
   const shade = 1. - vo.uv.y;
   return vec4(vo.uv.x, shade, 0.5, 1.);
-}
+});
 ```
 
 A file that imports another shader file is one module with it:
@@ -647,9 +646,12 @@ function as a parameter, which every call names where it is in scope
 
 ### Entry points
 
-An entry point is a top-level `export function` with a stage decorator: `@vertex`,
-`@fragment` or `@compute`. A compute entry takes its workgroup size in the decorator,
-`@compute([64])` or `@compute([8, 8])`, and a bare `@compute` takes the default of 64.
+An entry point is a top-level `export const` initialized by a stage call that wraps its
+function: `vertex(f)`, `fragment(f)` or `compute([…], f)`. The function is a function
+expression with the constant's name, or an arrow function. A compute entry takes its workgroup
+size as the first argument, `compute([64], f)` or `compute([8, 8], f)`. The decorated form of
+earlier releases (`@compute([64]) export function main(…)`) stays accepted until the release
+after the migration release.
 
 ```ts
 "use typeshade";
@@ -660,8 +662,7 @@ declare const params: uniform<vec4u>;
 declare const input: storage<array<f32>>;
 declare const output: storage<array<f32>, "read_write">;
 
-@compute([64])
-export function reduceWindows(@builtin("global_invocation_id") gid: vec3u): void {
+export const reduceWindows = compute([64], function reduceWindows(gid: builtin<"global_invocation_id", vec3u>): void {
   const idx = gid.x;
   if (idx >= params.x) {
     return;
@@ -672,7 +673,7 @@ export function reduceWindows(@builtin("global_invocation_id") gid: vec3u): void
     acc += input[base + k];
   }
   output[idx] = acc;
-}
+});
 ```
 
 The guard leaves the function before its last statement with a plain `return`.
@@ -684,7 +685,7 @@ shape and pass it through `program.compute(entry, { constants })`, or through an
 entry's optional third argument, `entry(bindings, groups, { constants })`. A program pipeline
 reports the resolved `pipeline.workgroupShape`. Entry calls, including calls in `device.fuse()`,
 use the selected shape without changing the supplied workgroup count. See
-[`docs/use-typeshade-surface.md` §3](docs/use-typeshade-surface.md#3-entries--function-decorators-and-explicit-builtins),
+[`docs/use-typeshade-surface.md` §3](docs/use-typeshade-surface.md#3-entries--stage-calls-and-explicit-builtins),
 [`§15`](docs/use-typeshade-surface.md#15-textures-samplers-and-overrides),
 [`§24`](docs/use-typeshade-surface.md#24-module-variables) and
 [`§69`](docs/use-typeshade-surface.md#69-running-a-compiled-program) for the source form,
@@ -692,19 +693,20 @@ limits and host call.
 
 ### Stage parameters
 
-A stage takes its inputs as attributed parameters. `@builtin("id")` declares a value the
-hardware supplies, such as `"vertex_index"`, `"position"` or `"global_invocation_id"`, and
-`@location(n)` declares a numbered slot that carries data between stages. The same two
-attributes describe the fields of an IO struct, a class both stages then share;
+A stage takes its inputs as parameters whose type carries the attribute. `builtin<"id", T>`
+declares a value the hardware supplies, such as `"vertex_index"`, `"position"` or
+`"global_invocation_id"`, and `location<n, T>` declares a numbered slot that carries data
+between stages. Each type means `T`. The same two types describe the fields of an IO struct,
+an interface or a class both stages then share;
 [Layouts and resources](/guide/authoring/layouts-and-resources/) has the interpolation
 modes.
 
 ```ts
 "use typeshade";
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
 interface Gradient {
@@ -715,8 +717,7 @@ interface Gradient {
 
 declare const u: uniform<Gradient>;
 
-@vertex
-export function vsFull(@builtin("vertex_index") idx: u32): VsOut {
+export const vsFull = vertex(function vsFull(idx: builtin<"vertex_index", u32>): VsOut {
   let pos = vec2(-1., -1.);
   if (idx == 1) {
     pos = vec2(3., -1.);
@@ -724,17 +725,16 @@ export function vsFull(@builtin("vertex_index") idx: u32): VsOut {
     pos = vec2(-1., 3.);
   }
   return { pos: vec4(pos, 0., 1.), uv: vec2((pos.x + 1.) * 0.5, (pos.y + 1.) * 0.5) };
-}
+});
 
-@fragment
-export function fsGradient(vo: VsOut): vec4 {
+export const fsGradient = fragment(function fsGradient(vo: VsOut): vec4 {
   const t = vo.uv.y + u.mixBias;
   const rgb = mix(u.bottom.rgb, u.top.rgb, t);
   return vec4(rgb, 1.);
-}
+});
 ```
 
-A fragment entry that returns a plain value gets `@location(0)`, the first colour
+A fragment entry that returns a plain value gets location 0, the first colour
 attachment, without asking. A vertex entry that returns a plain `vec4` returns the
 position. An entry that returns a struct carries the attributes in the struct fields.
 
@@ -765,10 +765,9 @@ export function hash(p: vec2): f32 {
 
 import { hash } from "./noise.shade.ts";
 
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   return vec4(hash(uv), hash(uv * 2.), 0., 1.);
-}
+});
 ```
 
 [A shader module that imports another](#a-shader-module-that-imports-another) has the host
@@ -853,8 +852,7 @@ belongs in a fragment stage.
 
 declare const dists: storage<array<f32>>;
 
-@fragment
-export function fs(@location(0) alpha: f32, @location(1) @interpolate("flat") count: u32): vec4 {
+export const fs = fragment(function fs(alpha: location<0, f32>, count: location<1, u32, { interpolate: "flat" }>): vec4 {
   let nearest = 1e10;
   for (let i: u32 = 0; i < count; i++) {
     const d = dists[i];
@@ -870,7 +868,7 @@ export function fs(@location(0) alpha: f32, @location(1) @interpolate("flat") co
     discard;
   }
   return vec4(nearest, 0., 0., alpha);
-}
+});
 ```
 
 `discard` is allowed in a fragment entry, and in a helper as long as no vertex or compute
@@ -1004,49 +1002,50 @@ the line that reads it.
 ### IO structs
 
 An IO struct is a group of fields that crosses a stage boundary: a vertex stage returns
-it and a fragment stage takes it as a parameter. It is a `class`, because only a class
-field can carry a decorator, and every field carries a stage attribute.
-`@builtin("id")` declares a value the hardware supplies, and takes a WGSL builtin id such as
-`"position"` or `"vertex_index"`; an id WGSL does not define is an error. `@location(n)`
-declares a numbered slot, with an optional `@interpolate("flat")`, `@interpolate("linear")`
-or `@interpolate("perspective")`. An integer field gets `flat` without asking, because both
+it and a fragment stage takes it as a parameter. It is an `interface`, a `class` or a
+`type`, and every field carries a stage attribute in its type. A `class` field with no
+initializer takes `!` (`pos!: builtin<"position", vec4>`), which a plain `tsc --strict`
+requires. `builtin<"id", T>` declares a value the hardware supplies, and takes a WGSL builtin
+id such as `"position"` or `"vertex_index"`; an id WGSL does not define is an error.
+`location<n, T>` declares a numbered slot, with an optional third type argument
+`{ interpolate: "flat" }`, `{ interpolate: "linear" }` or `{ interpolate: "perspective" }`.
+The decorated class field of earlier releases (`@location(0) uv: vec2`) stays accepted until
+the release after the migration release. An integer field gets `flat` without asking, because both
 targets require it for an integer varying. `"flat"` and `"perspective"` are the modes both
 targets support; `"linear"` has no GLSL ES 3.00 form, so a module that uses it has no GLSL.
 
 ```ts
 "use typeshade";
 
-class VsIn {
-  @location(0) xy: vec2;
-  @location(1) uv: vec2;
+interface VsIn {
+  xy: location<0, vec2>;
+  uv: location<1, vec2>;
 }
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
-  @location(1) vis: f32;
-  @location(2) id: u32; // an integer varying: flat on both targets
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
+  vis: location<1, f32>;
+  id: location<2, u32>; // an integer varying: flat on both targets
 }
 
 // A vertex entry returns the struct. The object literal takes the declared struct,
 // so a missing or extra field is an error.
-@vertex
-export function vsMain(v: VsIn, @builtin("instance_index") inst: u32): VsOut {
+export const vsMain = vertex(function vsMain(v: VsIn, inst: builtin<"instance_index", u32>): VsOut {
   const pos = vec4(v.xy, 0., 1.);
   return { pos: pos, uv: v.uv, vis: 1., id: inst };
-}
+});
 
 // Read fields off a parameter declared with the struct.
-@fragment
-export function fsMain(input: VsOut): vec4 {
+export const fsMain = fragment(function fsMain(input: VsOut): vec4 {
   if (input.vis < 0.) {
     discard;
   }
   return vec4(input.uv, f32(input.id), 1.);
-}
+});
 ```
 
-A vertex entry's `@location` inputs are vertex attributes, loose parameters or the fields of
+A vertex entry's `location<n, T>` inputs are vertex attributes, loose parameters or the fields of
 a struct parameter such as `VsIn`, and `reflect()` reports their buffer layout. A struct
 value built over several statements is a `let` of the struct type whose fields you assign.
 
@@ -1069,11 +1068,10 @@ interface Uniforms {
 
 declare const u: uniform<Uniforms>;
 
-@vertex
-export function vs(@location(0) pos: vec3): vec4 {
+export const vs = vertex(function vs(pos: location<0, vec3>): vec4 {
   const opacity = u.rasterParams.x;
   return u.mvp * vec4(pos, opacity);
-}
+});
 ```
 
 The slot is the declaration's place in the file: each `declare const` takes the next binding
@@ -1096,14 +1094,14 @@ type of a storage buffer, or a struct nested inside another one. Write it as a `
 "use typeshade";
 
 class ShapeSegment {
-  kind: u32;
-  colorIdx: u32;
-  flags: u32;
-  pad: u32;
-  p0: vec2;
-  p1: vec2;
-  p2: vec2;
-  p3: vec2;
+  kind!: u32;
+  colorIdx!: u32;
+  flags!: u32;
+  pad!: u32;
+  p0!: vec2;
+  p1!: vec2;
+  p2!: vec2;
+  p3!: vec2;
 }
 
 declare const segments: storage<array<ShapeSegment>>;
@@ -1131,10 +1129,9 @@ one. Index the array as you index any array:
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
 
-@compute([64, 1, 1])
-export function twice(@builtin("global_invocation_id") gid: vec3u): void {
+export const twice = compute([64, 1, 1], function twice(gid: builtin<"global_invocation_id", vec3u>): void {
   dst[gid.x] = src[gid.x] * 2.0;
-}
+});
 ```
 
 The two declarations emit `var<storage, read> src: array<f32>;` and
@@ -1173,13 +1170,12 @@ like any other resource.
 declare const tex: texture_2d<f32>;
 declare const texSampler: sampler;
 
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   const c = textureSample(tex, texSampler, uv); // fragment only
   const cv = textureSampleLevel(tex, texSampler, uv, 0.); // any stage
   const size = textureDimensions(tex); // vec2u, the extent in texels
   return c + cv * f32(size.x);
-}
+});
 ```
 
 `textureSample` takes its mip level from screen-space derivatives, which only a fragment
@@ -1214,8 +1210,7 @@ declare const atlas: texture_2d_array<f32>;
 declare const atlasSampler: sampler;
 declare const ids: texture_2d<u32>;
 
-@fragment
-export function fs(@builtin("position") p: vec4, @location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>, uv: location<0, vec2>): vec4 {
   const layer: i32 = 2;
   const a = textureSample(atlas, atlasSampler, uv, layer); // implicit LOD, fragment only
   const b = textureSampleLevel(atlas, atlasSampler, uv, layer, 0.); // explicit LOD, any stage
@@ -1224,7 +1219,7 @@ export function fs(@builtin("position") p: vec4, @location(0) uv: vec2): vec4 {
   const id = textureLoad(ids, vec2i(p.xy), 0); // vec4u
   const size = textureDimensions(ids); // vec2u, as for any other texture
   return a + b + c + vec4(f32(n), f32(id.x), f32(size.x), 1.);
-}
+});
 ```
 
 `reflect()` reports each texture binding's dimension and element, which is what a host needs
@@ -1257,20 +1252,18 @@ interface Uniforms {
 
 declare const u: uniform<Uniforms>;
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-@vertex
-export function vs(@location(0) xy: vec2): VsOut {
+export const vs = vertex(function vs(xy: location<0, vec2>): VsOut {
   return { pos: vec4(xy, 0., 1.), uv: xy * 0.5 + 0.5 };
-}
+});
 
-@fragment
-export function fs(vo: VsOut): vec4 {
+export const fs = fragment(function fs(vo: VsOut): vec4 {
   return u.tint * (0.5 + 0.5 * sin(u.time + vo.uv.x));
-}
+});
 ```
 
 ### Emitting WGSL
@@ -1615,10 +1608,9 @@ call is stubbed.
 declare const tex: texture_2d<f32>;
 declare const smp: sampler;
 
-@fragment
-export function shade(@location(0) uv: vec2): vec4 {
+export const shade = fragment(function shade(uv: location<0, vec2>): vec4 {
   return textureSample(tex, smp, uv);
-}
+});
 ```
 
 ```ts
@@ -1708,7 +1700,7 @@ A `"use typeshade"` module is also a module your application can import. With th
 place, an ordinary `.ts` file imports a `.shade.ts` and calls the helper functions it exports.
 Each call runs that function's code **on the CPU**, not on the GPU, at `f32` precision, the way a
 GPU would round it. It is how host code shares a shader's math, for a height query, a picking
-test or a unit test. A `@compute` entry imported the same way runs on the GPU instead: `await
+test or a unit test. A compute entry imported the same way runs on the GPU instead: `await
 entry(bindings, workgroups)` dispatches it on WebGPU and reads what it wrote back into your arrays,
 and `entry(bindings, workgroups, { constants: { WIDTH: 32 } })` selects declared overrides
 with the same validation as `program.compute`. A plan keeps its existing submission and reports
@@ -1751,7 +1743,7 @@ appears to the host as `never`, with the reason, so calling it is a type error w
 the call. Run `npx tshc init` in an existing Vite project to configure the plugin, host views and synchronization scripts (change 0085).
 The command preserves unrelated settings and JSONC comments and refuses conflicts before writing.
 Repeated initialization changes no file. Manual setup and `tshc sync` remain supported.
-Shader checks use the shared `tshc check` diagnostics; ordinary `tsc` still refuses shader decorators.
+Shader checks use the shared `tshc check` diagnostics; ordinary `tsc` accepts the entry forms (stage calls and attribute types), but not vector arithmetic, which TypeScript has no operator overloading for.
 The surface reference describes setup and host values: `docs/use-typeshade-surface.md` §64.
 
 ### A loop over an array
@@ -1767,7 +1759,7 @@ a grid written as two nested loops is one invocation per row. When each cell sho
 invocation, write the grid as one flat loop, `for (let i: u32 = 0; i < w * h; i++)`, and take
 `x = i % w` and `y = i / w` from the index.
 
-A kernel function may set the workgroup size of its loops with `@workgroup_size([128])`, one whole number in the array, as `@compute([128])` sets an entry's (`docs/use-typeshade-surface.md` §3 and §65). A loop that reduces always runs in workgroups of 256, so a reduction in such a function is refused with `TS8077`: move the reduction into a function of its own.
+A kernel function may set the workgroup size of its loops with a stage call, `export const k = workgroup_size([128], function k(xs: array<f32>) { … })`, one whole number in the array, as `compute([128], f)` sets an entry's (`docs/use-typeshade-surface.md` §3 and §65). A loop that reduces always runs in workgroups of 256, so a reduction in such a function is refused with `TS8077`: move the reduction into a function of its own.
 
 A kernel function may also take a texture (`docs/use-typeshade-surface.md` §65): a
 `texture_2d<f32>` it reads with `textureLoad`, and a 2D storage texture, `texture_storage_2d<F, A>`,
@@ -1840,7 +1832,7 @@ own, so no buffer is made for `t` and `u` above, and `read()` of one is an error
 a reduction when you want its sum: `total(u)` as the last call of the scope takes the calls before
 it into its own loop, and nothing joins a group after a reduction.
 
-An entry call (`@compute`) in the body is recorded too. It runs as a dispatch of its own, in the
+An entry call (a compute entry) in the body is recorded too. It runs as a dispatch of its own, in the
 order the body made it: no kernel call joins it, and it joins none. Its storage arrays with no
 size are `resident(...)` values, and a host array in its place is a `TypeError`.
 
@@ -1919,30 +1911,33 @@ takes, the names the module emits and each refusal: `docs/use-typeshade-surface.
 ### A function that changes its caller's variable
 
 A parameter is a copy of the value the call passes, so a write to it leaves the caller alone. To
-change the caller's variable, declare the parameter `@inout`, GLSL's qualifier, and pass the
+change the caller's variable, type the parameter `inout<T>`, GLSL's qualifier, and pass the
 variable itself. Inside the function the parameter is the caller's variable: read it, assign to
 it, and reach its fields as you would reach `this` in a method. A parameter the function only
-writes is `@out`: it starts with no value, so write it before reading it, and on every path.
+writes is `out<T>`: it starts with no value, so write it before reading it, and on every path.
+A local that such a call fills first is declared `let s!: f32;`, which a plain `tsc --strict`
+accepts. The decorated parameters of earlier releases, `@inout a: f32` and `@out c: f32`, stay
+accepted until the release after the migration release.
 
 ```ts
 "use typeshade";
 
 class Ray {
-  origin: vec3;
-  dir: vec3;
+  origin!: vec3;
+  dir!: vec3;
 }
 
-function swap(@inout a: f32, @inout b: f32): void {
+function swap(a: inout<f32>, b: inout<f32>): void {
   const t = a;
   a = b;
   b = t;
 }
 
-function add(a: f32, b: f32, @out c: f32): void {
+function add(a: f32, b: f32, c: out<f32>): void {
   c = a + b;
 }
 
-function advance(@inout r: Ray, t: f32): void {
+function advance(r: inout<Ray>, t: f32): void {
   r.origin = r.origin + r.dir * t;
 }
 
@@ -1950,7 +1945,7 @@ export function demo(): f32 {
   let x: f32 = 1.;
   let y: f32 = 2.;
   swap(x, y); // x is 2. and y is 1.
-  let s: f32;
+  let s!: f32;
   add(x, y, s); // s is 3.
   let r = new Ray();
   r.dir = vec3(1., 0., 0.);
@@ -1964,7 +1959,7 @@ parameter; the CPU oracle copies the value in and stores it back. The argument i
 module variable, an element of a `read_write` storage binding, or a field or an element of one;
 a value, a literal and a vector's component are refused with `TS8073`. One call may not take two
 references to one variable that the function writes, `swap(x, x)`, which is `TS8074`. A read
-before a variable is assigned, or an `@out` parameter read before it is written, is `TS8075`. A
+before a variable is assigned, or an `out<T>` parameter read before it is written, is `TS8075`. A
 function of the file or of a namespace takes a qualifier; a method, an entry and a local
 function take values, and a local function inside such a function may still read and write the
 parameter, as it reads and writes any variable around it. There is no `@in`: a parameter with no
@@ -2021,7 +2016,7 @@ try {
 }
 ```
 
-For a module whose varying is `@interpolate("linear")`, which GLSL ES 3.00 has no form for,
+For a module whose varying is `location<n, T, { interpolate: "linear" }>`, which GLSL ES 3.00 has no form for,
 the call throws an `UnsupportedFeatureError` with the code `SD0030` and this message:
 
 ```
@@ -2165,10 +2160,9 @@ export function shadeHeight(h: f32): vec4 {
 
 import { shadeHeight } from "./terrain.shade.ts";
 
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   return shadeHeight(0.);
-}
+});
 
 // terrain-dem.shade.ts
 "use typeshade";
@@ -2178,10 +2172,9 @@ import { shadeHeight } from "./terrain.shade.ts";
 declare const dem: texture_2d<f32>;
 declare const demSampler: sampler;
 
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   return shadeHeight(textureSample(dem, demSampler, uv).x);
-}
+});
 ```
 
 The host picks the file:
@@ -2226,10 +2219,9 @@ export function shade(base: f32): f32 {
   return acc;
 }
 
-@fragment
-export function fs(@location(0) v: f32): vec4 {
+export const fs = fragment(function fs(v: location<0, f32>): vec4 {
   return vec4(shade(v), 0., 0., 1.);
-}
+});
 ```
 
 WGSL emits `override quality: f32 = 1.0;` and the host pins it through the pipeline's
@@ -2309,8 +2301,8 @@ into a float texture or blending into one.
 
 ### Declaring a capability
 
-Most capabilities declare themselves. Writing `@builtin("clip_distances")`,
-`@builtin("primitive_index")`, a subgroup built-in value or `@blend_src(n)` derives the
+Most capabilities declare themselves. Writing `builtin<"clip_distances", T>`,
+`builtin<"primitive_index", u32>`, a subgroup built-in value or a `blend_src` option derives the
 capability the use needs, and so does a storage binding, a compute entry or a texture of a
 kind one target lacks. An extension no use derives is turned on by a string directive beside
 `"use typeshade"`, one per line, with WGSL's own name:
@@ -2319,9 +2311,8 @@ kind one target lacks. An extension no use derives is turned on by a string dire
 "use typeshade";
 "enable subgroups";
 
-@compute([64])
-export function k(@builtin("global_invocation_id") gid: vec3u) {
-}
+export const k = compute([64], function k(gid: builtin<"global_invocation_id", vec3u>) {
+});
 ```
 
 The vocabulary is fixed and target-neutral, so a raw `EXT_*` or `OVR_*` string never appears
@@ -2366,8 +2357,8 @@ A capability can need either half, both halves, or neither.
 | `packed4x8Dot`       | unsupported, fails closed                                       | core, derived; a language feature to check                               |
 
 The bottom six rows are the ones nothing declares by hand. Writing
-`@builtin("clip_distances")`, `@builtin("primitive_index")`, `@builtin("subgroup_id")` or
-`@blend_src(n)` derives the capability, because WGSL refuses each of those without the matching
+`builtin<"clip_distances", T>`, `builtin<"primitive_index", u32>`, `builtin<"subgroup_id", u32>`
+or a `blend_src` option derives the capability, because WGSL refuses each of those without the matching
 `enable`; a `"bgra8unorm"` storage texture, a call into the packed 4x8 family and a call to a
 subgroup built-in function (`subgroupAdd(x)`, change 0117) derive theirs from the binding and
 from the call. `f16`, which no use can derive, is spelled as the string directive above, and so
@@ -2404,9 +2395,9 @@ Two notes before you trust a row.
   no way to spell `layout(num_views = N) in;` or read `gl_ViewID_OVR`. A module declaring
   `multiview` emits the directive and renders single-view. The other four are reachable:
   `clipDistances`, `primitiveIndex` and `dualSourceBlending` are what their attributes need,
-  and `subgroups` is reached by `@builtin("subgroup_invocation_id")` or
-  `@builtin("subgroup_size")` on a compute or fragment entry, by `@builtin("subgroup_id")` or
-  `@builtin("num_subgroups")` on a compute entry, and by a call to one of the 21 subgroup
+  and `subgroups` is reached by `builtin<"subgroup_invocation_id", u32>` or
+  `builtin<"subgroup_size", u32>` on a compute or fragment entry, by `builtin<"subgroup_id", u32>`
+  or `builtin<"num_subgroups", u32>` on a compute entry, and by a call to one of the 21 subgroup
   built-in functions (`subgroupAdd` and the rest, change 0117). On GLSL ES 3.00 it costs
   nothing: a subgroup there is one invocation (Rule 11.21), so a fold is the lane's own value
   and `subgroup_size` is `1u`. Whether a given adapter HAS one of the
@@ -2502,7 +2493,7 @@ closed if you had picked it on a device that cannot run it.
 
 ### Portable compute kernels
 
-A `"use typeshade"` compute entry runs on both backends. On WebGPU it is a `@compute` entry
+A `"use typeshade"` compute entry runs on both backends. On WebGPU it is a compute entry
 point. On WebGL2, which has no compute stage, it runs as a pass program: a full-screen draw
 per pass into a texture, which the compiler writes and the manifest carries
 (change 0054). The program runtime chooses the tier, so the host code is the same on both.
@@ -2513,14 +2504,13 @@ per pass into a texture, which the compiler writes and the manifest carries
 declare const field: storage<array<f32>>;
 declare const outColor: storage<array<u32>, "read_write">;
 
-@compute([64])
-export function evalField(@builtin("global_invocation_id") gid: vec3u): void {
+export const evalField = compute([64], function evalField(gid: builtin<"global_invocation_id", vec3u>): void {
   const i = gid.x;
   if (i >= arrayLength(field)) {
     return;
   }
   outColor[i] = pack4x8unorm(vec4(field[i], 0., 0., 1.));
-}
+});
 ```
 
 ```ts
@@ -2568,7 +2558,7 @@ usually changes only in its signature.
 "use typeshade";
 
 class Uniforms {
-  origin: f64; // one vec2<f32> slot: the host writes splitF64(value)
+  origin!: f64; // one vec2<f32> slot: the host writes splitF64(value)
 }
 
 declare const u: uniform<Uniforms>;
@@ -2675,7 +2665,7 @@ An f64 uniform field occupies one plain `vec2<f32>` slot, size 8 and align 8. Pa
 host with `splitF64(x)`, which returns the `[hi, lo]` pair in the order the shader reads it.
 A value interpolated from the vertex stage to the fragment stage, a varying, cannot be f64,
 because interpolating a hi/lo pair across a triangle is numerically wrong: an f64 on an
-entry's `@location` parameter, an IO struct field or an entry's return is refused. Interpolate
+entry's `location<n, T>` parameter, an IO struct field or an entry's return is refused. Interpolate
 an f32 quantity instead, or carry the value in a uniform and do the f64 arithmetic in the
 fragment stage. A scalar f64 vertex input is the one exception, since it is a buffer read and
 the pair fits its one slot.
@@ -2701,7 +2691,7 @@ componentwise work runs once for the whole vector.
 "use typeshade";
 
 class P {
-  center: vec2f64;
+  center!: vec2f64;
 }
 
 declare const p: uniform<P>;
@@ -2885,15 +2875,13 @@ function terrainShade(uv: vec2): vec4 {
   return vec4(h, h * 0.5, 0.25, 1.) * u.tint;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): vec4 {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
   return vec4(f32(vi & 1) * 4. - 1., f32(vi >> 1) * 4. - 1., 0., 1.);
-}
+});
 
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   return terrainShade(p.xy * 0.01);
-}
+});
 ```
 
 ### The plugin bag
@@ -3113,7 +3101,7 @@ spelling to the page that explains it, and read the note for what changes.
 | `uniform Block { … } name;`                    | [`declare const name: uniform<Block>`](/guide/authoring/layouts-and-resources/)     | `@group`/`@binding` `var<uniform>`              | the std140 layout comes from `reflect()`, so no offset is counted by hand                                                                                              |
 | a loose `uniform float u_x;`                   | a field of a uniform struct                                                         | a field of a `var<uniform>` struct              | `declare const u_x: uniform<f32>` is WGSL-only, since GLSL ES 3.00 spells a uniform binding as a std140 block                                                          |
 | a symbol or a block the host prelude declares  | none; the IR builder's `externVar`, `hostUniform` and `hostBlock`                   | the same reference, spelled per target          | [`docs/ir-builder.md`](docs/ir-builder.md) has them                                                                                                                    |
-| `in` / `out` / `inout` on a function parameter | none / [`@out`, `@inout`](#a-function-that-changes-its-callers-variable)            | a pointer parameter                             | a parameter with no qualifier is GLSL's `in`                                                                                                                           |
+| `in` / `out` / `inout` on a function parameter | none / [`out<T>`, `inout<T>`](#a-function-that-changes-its-callers-variable)        | a pointer parameter                             | a parameter with no qualifier is GLSL's `in`                                                                                                                           |
 | `#ifdef FEATURE` where this module decides     | [one file per variant](/guide/authoring/conditional-programs/)                      | no preprocessor                                 | the variant that does not declare a binding never has it                                                                                                               |
 | `#ifdef FEATURE` where the host decides        | [`variantFamily`](/guide/authoring/conditional-programs/)                           | one module per point in the matrix              | `emitGuarded` generates the `#if` ladder for a GLSL host that owns the define, and every arm is byte-identical to the standalone variant                               |
 | a variant that changes only a value            | [`override<T>` with `overrideValues`](/guide/authoring/conditional-programs/)       | `override` plus pipeline constants              | building a separate variant for this multiplies pipelines for nothing                                                                                                  |
@@ -3137,28 +3125,27 @@ interface Camera {
 // uniform Camera { mat4 u_matrix; vec2 u_viewport_px; } u_camera;
 declare const u_camera: uniform<Camera>;
 
-@vertex
-export function vs(@location(0) pos: vec2): vec4 {
+export const vs = vertex(function vs(pos: location<0, vec2>): vec4 {
   return u_camera.u_matrix * vec4(pos / u_camera.u_viewport_px, 0., 1.);
-}
+});
 ```
 
 ### Builtin values
 
 A builtin is a value the hardware supplies to a stage. The vocabulary for them is WGSL's,
-written as `@builtin("id")` on a parameter or a struct field, so a `gl_*` spelling or a typo
+written as the type `builtin<"id", T>` on a parameter or a struct field, so a `gl_*` spelling or a typo
 is an error that names TypeShade's spelling. Each backend then spells the id its own way.
 
-| GLSL global                        | `"use typeshade"` spelling                               | Notes                                                                                                                                                                                            |
-| ---------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `gl_Position`                      | `@builtin("position")` on the vertex output              | writes `gl_Position` on GLSL. A vertex entry that returns a bare `vec4` returns the position                                                                                                     |
-| `gl_FragCoord`                     | `@builtin("position")` on a fragment input               | reads `gl_FragCoord` on GLSL. Mind the y origin: GL window space is bottom-left and WGSL framebuffer space is top-left, so flip per target, or derive a y-symmetric value, before consuming `.y` |
-| `gl_VertexID`                      | `@builtin("vertex_index") vi: u32`                       | GLSL wraps the read as `uint(gl_VertexID)`, since the surface types it u32 and GLSL's is int                                                                                                     |
-| `gl_InstanceID`                    | `@builtin("instance_index") ii: u32`                     | the same `uint()` wrap                                                                                                                                                                           |
-| `gl_FrontFacing`                   | `@builtin("front_facing") front: bool`                   |                                                                                                                                                                                                  |
-| `gl_FragDepth`                     | `@builtin("frag_depth")` on a field of the return struct |                                                                                                                                                                                                  |
-| `gl_PointSize` and `gl_PointCoord` | unsupported on both writers                              | point size caps vary per vendor, and WebGPU point primitives are always one pixel. Expand an instanced quad in the vertex stage and interpolate a `@location(n)` corner uv                       |
-| float `mod(x, y)`                  | the builtin `mod()`                                      | that is floor-mod. `%` is trunc-mod, which is WGSL's semantics and spells portably on GLSL too. Pick by the semantics you mean on negative operands                                              |
+| GLSL global                        | `"use typeshade"` spelling                                   | Notes                                                                                                                                                                                            |
+| ---------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `gl_Position`                      | `builtin<"position", vec4>` on the vertex output             | writes `gl_Position` on GLSL. A vertex entry that returns a bare `vec4` returns the position                                                                                                     |
+| `gl_FragCoord`                     | `builtin<"position", vec4>` on a fragment input              | reads `gl_FragCoord` on GLSL. Mind the y origin: GL window space is bottom-left and WGSL framebuffer space is top-left, so flip per target, or derive a y-symmetric value, before consuming `.y` |
+| `gl_VertexID`                      | `vi: builtin<"vertex_index", u32>`                           | GLSL wraps the read as `uint(gl_VertexID)`, since the surface types it u32 and GLSL's is int                                                                                                     |
+| `gl_InstanceID`                    | `ii: builtin<"instance_index", u32>`                         | the same `uint()` wrap                                                                                                                                                                           |
+| `gl_FrontFacing`                   | `front: builtin<"front_facing", bool>`                       |                                                                                                                                                                                                  |
+| `gl_FragDepth`                     | `builtin<"frag_depth", f32>` on a field of the return struct |                                                                                                                                                                                                  |
+| `gl_PointSize` and `gl_PointCoord` | unsupported on both writers                                  | point size caps vary per vendor, and WebGPU point primitives are always one pixel. Expand an instanced quad in the vertex stage and interpolate a `location<n, vec2>` corner uv                  |
+| float `mod(x, y)`                  | the builtin `mod()`                                          | that is floor-mod. `%` is trunc-mod, which is WGSL's semantics and spells portably on GLSL too. Pick by the semantics you mean on negative operands                                              |
 
 A fragment stage reads the framebuffer coordinate through the same `position` builtin the
 vertex stage writes, and writes the depth through a field of its return struct:
@@ -3166,15 +3153,14 @@ vertex stage writes, and writes the depth through a field of its return struct:
 ```ts
 "use typeshade";
 
-class FragOut {
-  @location(0) color: vec4;
-  @builtin("frag_depth") depth: f32;
+interface FragOut {
+  color: location<0, vec4>;
+  depth: builtin<"frag_depth", f32>;
 }
 
-@fragment
-export function fsCoord(@builtin("position") pos: vec4): FragOut {
+export const fsCoord = fragment(function fsCoord(pos: builtin<"position", vec4>): FragOut {
   return { color: vec4(pos.x * 0.001, pos.y * 0.001, 0., 1.), depth: 0.5 };
-}
+});
 ```
 
 ### Targeting WebGL2 only
@@ -3184,7 +3170,7 @@ spellings, and several of the rules behind them exist to make WebGL2 output more
 `round` emits `roundEven`, and float `%` emits a trunc-mod that GLSL ES 3.00 compiles.
 
 A file that uses something only WGSL has, a scalar uniform, a `"read_write"` storage binding
-in a draw or `@interpolate("linear")`, still compiles: `compile()` keeps the WGSL, leaves
+in a draw or `{ interpolate: "linear" }`, still compiles: `compile()` keeps the WGSL, leaves
 `glsl` undefined and says why in a `TS8015` warning. The reverse has no spelling. A GLSL
 construct the language does not model, `gl_PointSize` for one, cannot be written in a
 `"use typeshade"` file. An engine that must emit one builds that statement with the IR
