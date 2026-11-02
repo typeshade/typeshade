@@ -124,3 +124,253 @@ export function f(): f32 { const u = vec2(3., 4.); return param(u.x); }
     expect(r.diagnostics.some((d) => d.code === 'TS8068')).toBe(true);
   });
 });
+
+describe('a read of a static field, an enum member or a namespace constant in a function that has a parameter or a local named like the name the module emits for it (#999)', () => {
+  // The module emits `Voice.OFFSET` as the constant `Voice_OFFSET`, `E.A` as `E_A` and `Ns.K` as
+  // `Ns_K`. A parameter may share that name (Rule 3.2, change 0039), and the author's read of the
+  // field is still the field: the IR tells a `param` from a `constref`. WGSL and GLSL print both
+  // as the bare name, so the writers respell a helper's parameter where it would hide a constant
+  // its function reads, as they do for a builtin its function calls (Proposal 0070, D-C10-1). The
+  // oracle keeps the authored names.
+  const CASES: readonly {
+    name: string;
+    source: string;
+    args: unknown[];
+    value: number;
+    wgsl: readonly string[];
+    glsl: readonly string[];
+  }[] = [
+    {
+      name: 'a static field',
+      source: `"use typeshade";
+class Voice {
+  static OFFSET: u32 = 1;
+}
+function g(Voice_OFFSET: u32): f32 {
+  return f32(Voice_OFFSET) + f32(Voice.OFFSET);
+}
+export const fs = fragment(function fs(): vec4 {
+  return vec4(g(7), 0., 0., 1.);
+});
+`,
+      args: [7],
+      value: 8,
+      wgsl: [
+        'const Voice_OFFSET: u32 = 1u;',
+        'fn g(Voice_OFFSET_: u32) -> f32 {',
+        'return (f32(Voice_OFFSET_) + f32(Voice_OFFSET));',
+      ],
+      glsl: [
+        'const uint Voice_OFFSET = 1u;',
+        'float g(uint Voice_OFFSET_) {',
+        'return (float(Voice_OFFSET_) + float(Voice_OFFSET));',
+      ],
+    },
+    {
+      name: 'a static field, with the parameter written to',
+      source: `"use typeshade";
+class Voice {
+  static OFFSET: u32 = 1;
+}
+function g(Voice_OFFSET: u32): f32 {
+  Voice_OFFSET = Voice_OFFSET + 1;
+  return f32(Voice_OFFSET) + f32(Voice.OFFSET);
+}
+export const fs = fragment(function fs(): vec4 {
+  return vec4(g(7), 0., 0., 1.);
+});
+`,
+      args: [7],
+      value: 9,
+      wgsl: [
+        'const Voice_OFFSET: u32 = 1u;',
+        'fn g(Voice_OFFSET_: u32) -> f32 {',
+        'var Voice_OFFSET_1: u32 = Voice_OFFSET_;',
+        'return (f32(Voice_OFFSET_1) + f32(Voice_OFFSET));',
+      ],
+      glsl: [
+        'const uint Voice_OFFSET = 1u;',
+        'float g(uint Voice_OFFSET_) {',
+        'uint Voice_OFFSET_1 = Voice_OFFSET_;',
+        'return (float(Voice_OFFSET_1) + float(Voice_OFFSET));',
+      ],
+    },
+    {
+      name: 'this in a static member',
+      source: `"use typeshade";
+class Voice {
+  static OFFSET: u32 = 1;
+  static at(Voice_OFFSET: u32): f32 {
+    return f32(Voice_OFFSET) + f32(this.OFFSET);
+  }
+}
+export const fs = fragment(function fs(): vec4 {
+  return vec4(Voice.at(7), 0., 0., 1.);
+});
+`,
+      args: [7],
+      value: 8,
+      wgsl: [
+        'fn Voice_at(Voice_OFFSET_: u32) -> f32 {',
+        'return (f32(Voice_OFFSET_) + f32(Voice_OFFSET));',
+      ],
+      glsl: [
+        'float Voice_at(uint Voice_OFFSET_) {',
+        'return (float(Voice_OFFSET_) + float(Voice_OFFSET));',
+      ],
+    },
+    {
+      name: 'a static field that is a vector',
+      source: `"use typeshade";
+class Voice {
+  static ORIGIN: vec2 = vec2(1., 2.);
+}
+function g(Voice_ORIGIN: vec2): f32 {
+  return Voice_ORIGIN.x + Voice.ORIGIN.y;
+}
+export const fs = fragment(function fs(): vec4 {
+  return vec4(g(vec2(10., 20.)), 0., 0., 1.);
+});
+`,
+      args: [[10, 20]],
+      value: 12,
+      wgsl: [
+        'const Voice_ORIGIN: vec2<f32> = vec2<f32>(1.0, 2.0);',
+        'fn g(Voice_ORIGIN_: vec2<f32>) -> f32 {',
+        'return (Voice_ORIGIN_.x + Voice_ORIGIN.y);',
+      ],
+      glsl: [
+        'const vec2 Voice_ORIGIN = vec2(1.0, 2.0);',
+        'float g(vec2 Voice_ORIGIN_) {',
+        'return (Voice_ORIGIN_.x + Voice_ORIGIN.y);',
+      ],
+    },
+    {
+      name: 'an enum member',
+      source: `"use typeshade";
+enum E {
+  A = 3,
+}
+function g(E_A: f32): f32 {
+  return E_A + f32(E.A);
+}
+export const fs = fragment(function fs(): vec4 {
+  return vec4(g(10.), 0., 0., 1.);
+});
+`,
+      args: [10],
+      value: 13,
+      wgsl: ['const E_A: i32 = 3;', 'fn g(E_A_: f32) -> f32 {', 'return (E_A_ + f32(E_A));'],
+      glsl: ['const int E_A = 3;', 'float g(float E_A_) {', 'return (E_A_ + float(E_A));'],
+    },
+    {
+      name: 'a namespace constant',
+      source: `"use typeshade";
+namespace Ns {
+  export const K: f32 = 3.;
+}
+function g(Ns_K: f32): f32 {
+  return Ns_K + Ns.K;
+}
+export const fs = fragment(function fs(): vec4 {
+  return vec4(g(10.), 0., 0., 1.);
+});
+`,
+      args: [10],
+      value: 13,
+      wgsl: ['const Ns_K: f32 = 3.0;', 'fn g(Ns_K_: f32) -> f32 {', 'return (Ns_K_ + Ns_K);'],
+      glsl: ['const float Ns_K = 3.0;', 'float g(float Ns_K_) {', 'return (Ns_K_ + Ns_K);'],
+    },
+  ];
+
+  it.each(CASES)('$name: legal in both halves, and read as the field on every target', (c) => {
+    const r = compile(c.source, { fileName: 'm.shade.ts' });
+    expect(r.diagnostics).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.shade.ts', c.source);
+    expect(service.getDiagnostics('m.shade.ts')).toEqual([]);
+    for (const text of c.wgsl) expect(r.wgsl).toContain(text);
+    for (const text of c.glsl) expect(r.glsl!.fragment).toContain(text);
+    // The oracle reads the parameter once and the constant once.
+    expect(r.eval(c.source.includes('static at') ? 'Voice_at' : 'g', c.args as never[])).toBe(
+      c.value,
+    );
+  });
+
+  it('a local of that name is a fresh name in the text, and the field is still the constant', () => {
+    const source = `"use typeshade";
+class Voice {
+  static OFFSET: u32 = 1;
+}
+function g(): f32 {
+  const Voice_OFFSET: u32 = 5;
+  return f32(Voice_OFFSET) + f32(Voice.OFFSET);
+}
+export const fs = fragment(function fs(): vec4 {
+  return vec4(g(), 0., 0., 1.);
+});
+`;
+    const r = compile(source, { fileName: 'm.shade.ts' });
+    expect(r.diagnostics).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.shade.ts', source);
+    expect(service.getDiagnostics('m.shade.ts')).toEqual([]);
+    expect(r.wgsl).toContain('const Voice_OFFSET: u32 = 1u;');
+    expect(r.wgsl).toContain('f32(Voice_OFFSET)');
+    expect(r.eval('g')).toBe(6);
+  });
+
+  describe('where the text cannot tell the parameter from the field, the read stays refused as it was', () => {
+    // A module variable is read as a `varref`, which the late rename takes for the parameter's own
+    // when the function has one of that name, and an entry's parameter is the plan's, not the
+    // helper pass's. Reading the field there would give text that reads the parameter, so these
+    // keep the refusal they had, until the writers can tell the two apart.
+    const refused = `TS8022 "Voice" has no static field`;
+    const messages = (source: string): string[] =>
+      compile(source, { fileName: 'm.shade.ts' })
+        .diagnostics.filter((d) => d.category === 'error')
+        .map((d) => `${d.code} ${d.message}`);
+    const edited = (source: string): string[] => {
+      const service = createTypeshadeLanguageService();
+      service.openDocument('m.shade.ts', source);
+      return service
+        .getDiagnostics('m.shade.ts')
+        .filter((d) => d.severity === 'error')
+        .map((d) => `${String(d.code)} ${d.message}`);
+    };
+
+    it('a static field the file writes, in a function with a parameter of that name', () => {
+      const source = `"use typeshade";
+class Voice {
+  static count: u32 = 0;
+  static bump(): void {
+    Voice.count += 1;
+  }
+}
+function g(Voice_count: u32): f32 {
+  return f32(Voice_count) + f32(Voice.count);
+}
+export const fs = fragment(function fs(): vec4 {
+  return vec4(g(7), 0., 0., 1.);
+});
+`;
+      const said = [`${refused} "count".`];
+      expect(messages(source)).toEqual(said);
+      expect(edited(source)).toEqual(said);
+    });
+
+    it('a static field that nothing writes, in an entry with a parameter of that name', () => {
+      const source = `"use typeshade";
+class Voice {
+  static OFFSET: f32 = 1.;
+}
+export const fs = fragment(function fs(Voice_OFFSET: location<0, f32>): vec4 {
+  return vec4(Voice_OFFSET + Voice.OFFSET, 0., 0., 1.);
+});
+`;
+      const said = [`${refused} "OFFSET".`];
+      expect(messages(source)).toEqual(said);
+      expect(edited(source)).toEqual(said);
+    });
+  });
+});
