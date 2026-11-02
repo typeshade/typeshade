@@ -1304,6 +1304,17 @@ export function f(out: array<f32>, t: array<f32>) {
       expect(edited(body), body).toEqual([]);
       expect(worded(body, 'f', 't')?.text, body).toBe(text);
     }
+    // A parameter named like the name the module emits for them is the parameter (#988).
+    const parameters: [string, string][] = [
+      ['namespace Ns {\n  export const K: u32 = 1;\n}', 'Ns_K'],
+      ['enum Mode {\n  A,\n  B,\n}', 'Mode_B'],
+    ];
+    for (const [declaration, name] of parameters) {
+      const body = `${declaration}\nexport function f(out: array<f32>, t: array<f32>, ${name}: u32) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = t[i + ${name}];\n  }\n}`;
+      expect(compiled(body), body).toEqual([]);
+      expect(edited(body), body).toEqual([]);
+      expect(worded(body, 'f', 't')?.text, body).toBe(`t[i + ${name}]`);
+    }
   });
 
   it('prints a parameter or a local as the author wrote it when the module emits a static field or a function under its name (#988)', () => {
