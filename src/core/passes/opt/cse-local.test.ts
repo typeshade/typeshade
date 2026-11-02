@@ -14,6 +14,7 @@ import {
   Var,
 } from '../../ir/index.js';
 import { emitModule } from '../../backends/wgsl.js';
+import { emitGlslModule } from '../../backends/glsl.js';
 import { compileModule } from '../../oracle.js';
 import { structDecl, storageBuffer } from '../../sot.js';
 import { cseLocal } from './cse-local.js';
@@ -68,6 +69,90 @@ describe('cse-local — statement-local CSE', () => {
       ],
     });
     expect(emitModule(m)).not.toMatch(/_lc\d+ = normalize/);
+  });
+});
+
+// ═══ A repeat inside a short-circuit operand (#868) ═══
+//
+// typecv's directionCompatible wrote `ok && length(r.pixel - b) <= e`; the fp64 lowering spells
+// the difference once per lane, four times, in the RHS, and `r` is a var, so neither the fn-top
+// cse nor this pass bound it. The pass now gives the operand a statement of its own.
+describe('cse-local — a repeat inside a short-circuit operand (#868)', () => {
+  /** `return <lhs> OP (n.x + n.y > 0.25)` with n = normalize(v), v a var: the repeat is
+   *  unconditional inside the operand, as typecv's lane-wise `length` is. A repeat split
+   *  across an inner `&&` (the test above) is not this case and stays as it is. */
+  const guarded = (op: 'and' | 'or', repeat = true) =>
+    module({
+      funcs: [
+        fn('h', { x: f32T }, f32T, ({ x }, b) => {
+          const v = Var(vec3(x, x.mul(2), x.mul(3)));
+          v.assign(v.add(vec3(1, 1, 1)));
+          const rhs = repeat
+            ? normalize(v).x.add(normalize(v).y).gt(0.25)
+            : normalize(v).x.gt(0.25);
+          const lhs = x.gt(0);
+          b.ret((op === 'and' ? lhs.and(rhs) : lhs.or(rhs)).select(f32(1), f32(0)));
+        }),
+      ],
+    });
+  const body = (m: ReturnType<typeof guarded>): string => {
+    const w = emitModule(m);
+    return w.slice(w.indexOf('fn h('));
+  };
+
+  it('binds an `&&` operand repeat once, inside `if (_sc)`', () => {
+    const b = body(guarded('and'));
+    expect((b.match(/normalize\(/g) ?? []).length, b).toBe(1);
+    expect(b).toMatch(/var _sc\d+: bool = \(x > 0\.0\);/);
+    expect(b).toMatch(/if \(_sc\d+\) \{\n\s+let _lc\d+ = normalize\(\w+\);/);
+  });
+
+  it('binds an `||` operand repeat once, inside `if (_sc == false)`', () => {
+    const b = body(guarded('or'));
+    expect((b.match(/normalize\(/g) ?? []).length, b).toBe(1);
+    expect(b).toMatch(/if \(\(_sc\d+ == false\)\) \{\n\s+let _lc\d+ = normalize\(\w+\);/);
+  });
+
+  it('leaves a short circuit with no repeat in its operand an expression', () => {
+    expect(body(guarded('and', false))).not.toContain('_sc');
+  });
+
+  it('preserves oracle values on both sides of the guard', () => {
+    for (const op of ['and', 'or'] as const) {
+      const m = guarded(op);
+      const before = compileModule(m).fns.h;
+      const after = compileModule(cseLocal(m)).fns.h;
+      for (const x of [-2, -0.1, 0, 0.05, 0.3, 1, 4]) {
+        expect(after(x), `${op} x=${x}`).toEqual(before(x));
+      }
+    }
+  });
+
+  it("computes the f64 difference of typecv's directionCompatible once", () => {
+    const r = compile(
+      `"use typeshade";
+interface R { pixel: vec2f64; ok: u32 }
+function project(a: vec2f64): R {
+  if (a.x > f64(0)) return { pixel: a * f64(2), ok: 1 };
+  return { pixel: a, ok: 0 };
+}
+export function f(a: vec2f64, b: vec2f64): bool {
+  const r = project(a);
+  return r.ok !== 0 && length(r.pixel - b) <= f64(1);
+}
+`,
+      { fileName: 'direction.shade.ts' },
+    );
+    expect(r.diagnostics).toEqual([]);
+    const w = r.wgsl ?? '';
+    const f = w.slice(w.indexOf('fn f('), w.indexOf('\n}\n', w.indexOf('fn f(')));
+    // Before #868 the lane-wise length spelled `df64_v2_sub(...)` four times in the return.
+    expect((f.match(/df64_v2_sub\(/g) ?? []).length, f).toBe(1);
+    expect(f).toMatch(/var _sc\d+: bool = \(r\.ok != 0u\);/);
+  });
+
+  it('emits GLSL too', () => {
+    expect(() => emitGlslModule(guarded('or'), 'fragment')).not.toThrow();
   });
 });
 

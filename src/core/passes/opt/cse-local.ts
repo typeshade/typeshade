@@ -23,6 +23,23 @@
 // Only the value side of let/var/assign/return is rewritten (control-flow conditions
 // and loop heads are left alone: a for-cond repeat would mis-bind once, not per-iter).
 //
+// A GUARDED REPEAT (#868). A repeat inside the right operand of a `&&` / `||` that is
+// itself evaluated unconditionally is still refused above. When that operand repeats a
+// value, the statement is split so the operand gets a statement of its own:
+//
+//   return ok && f(d.x) <= f(d.y)        // d = r.pixel - b, written twice in the operand
+//   ->
+//   var _sc0: bool = ok;
+//   if (_sc0) { _sc0 = f(d.x) <= f(d.y); }   // the repeat is bound in here, once
+//   return _sc0;
+//
+// (`||` tests `_sc0 == false`.) The operand still runs only when the authored code ran it,
+// once, and the left operand still runs first. Nothing else of the statement runs before
+// the split moves the operator ahead of it: the statement has no effect (checked above),
+// so the order of its other pure operands is unobservable. The `if` is the control flow
+// the short circuit already is, so uniformity does not change. A split is made only when
+// it lets a repeat be bound; any other `&&` stays an expression.
+//
 // Bit-exact (pure dedup — no float arithmetic is changed), so no f32 differential gate
 // is needed; pinned by oracle value-equality like the sibling fn-top `cse`.
 
@@ -138,6 +155,61 @@ function valueExprs(s: Stmt): readonly Expr[] {
   }
 }
 
+/** Keys of `e` that repeat when `e` is evaluated unconditionally (the hoistable repeats). */
+function unconditionalRepeats(
+  e: Expr,
+  localSet: ReadonlySet<string>,
+  loadRoots: ReadonlySet<string>,
+  reads: FnReads,
+): boolean {
+  const t: Tally = { counts: new Map(), condKeys: new Set(), exemplar: new Map() };
+  tally(e, false, localSet, t, loadRoots, reads);
+  return [...t.counts].some(([k, n]) => n >= 2 && !t.condKeys.has(k));
+}
+
+/** The first `&&` / `||` that `e` evaluates unconditionally and whose right operand holds a
+ *  repeat this pass could bind, outermost first; undefined when there is none. */
+function guardedSplitSite(
+  e: Expr,
+  localSet: ReadonlySet<string>,
+  loadRoots: ReadonlySet<string>,
+  reads: FnReads,
+): Extract<Expr, { op: 'logical' }> | undefined {
+  switch (e.op) {
+    case 'logical':
+      if (unconditionalRepeats(e.b, localSet, loadRoots, reads)) return e;
+      return guardedSplitSite(e.a, localSet, loadRoots, reads); // the RHS is conditional
+    case 'select':
+      return guardedSplitSite(e.cond, localSet, loadRoots, reads);
+    case 'matchExpr':
+      return guardedSplitSite(e.scrutinee, localSet, loadRoots, reads);
+    case 'binop':
+    case 'compare':
+      return (
+        guardedSplitSite(e.a, localSet, loadRoots, reads) ??
+        guardedSplitSite(e.b, localSet, loadRoots, reads)
+      );
+    case 'unop':
+      return guardedSplitSite(e.a, localSet, loadRoots, reads);
+    case 'call':
+    case 'construct':
+      for (const a of e.args) {
+        const hit = guardedSplitSite(a, localSet, loadRoots, reads);
+        if (hit !== undefined) return hit;
+      }
+      return undefined;
+    case 'member':
+      return guardedSplitSite(e.base, localSet, loadRoots, reads);
+    case 'index':
+      return (
+        guardedSplitSite(e.base, localSet, loadRoots, reads) ??
+        guardedSplitSite(e.idx, localSet, loadRoots, reads)
+      );
+    default:
+      return undefined;
+  }
+}
+
 // Hoist within-statement repeats of `s` → { the new `let` temps, the rewritten s }.
 function hoistInStatement(
   s: Stmt,
@@ -156,6 +228,46 @@ function hoistInStatement(
   // function calls. Before, one such call anywhere in the function turned the pass off for
   // the whole function, so `b.bump(1.); return vec4f(b.sum());` spelled the call four times.
   if (exprs.some((e) => exprHasEffect(e, writes))) return { lets: [], stmt: s };
+
+  // A guarded repeat: split the short circuit into a statement of its own (#868).
+  for (const e of exprs) {
+    const site = guardedSplitSite(e, localSet, loadRoots, reads);
+    if (site === undefined) continue;
+    const name = `_sc${next.n++}`;
+    const ref: Expr = { op: 'varref', type: site.type, name };
+    const cond: Expr =
+      site.lop === '&&'
+        ? ref
+        : {
+            op: 'compare',
+            type: site.type,
+            cop: '==',
+            a: ref,
+            b: { op: 'lit', type: site.type, value: false },
+          };
+    const arm = processBody(
+      [{ s: 'assign', target: ref, expr: site.b }],
+      localSet,
+      next,
+      loadRoots,
+      reads,
+      writes,
+    );
+    const split: Stmt[] = [
+      { s: 'var', name, type: site.type, init: site.a },
+      { s: 'if', arms: [{ cond, body: arm }] },
+    ];
+    const replace = (x: Expr): Expr => (x === site ? ref : mapChildren(x, replace));
+    const rest = hoistInStatement(
+      mapStmtValue(s, replace),
+      localSet,
+      next,
+      loadRoots,
+      reads,
+      writes,
+    );
+    return { lets: [...split, ...rest.lets], stmt: rest.stmt };
+  }
 
   const t: Tally = { counts: new Map(), condKeys: new Set(), exemplar: new Map() };
   for (const e of exprs) tally(e, false, localSet, t, loadRoots, reads);
@@ -270,7 +382,7 @@ function cseLocalFn(
   // redeclare `_lc0` (cse-local runs repeatedly inside fixpoint).
   let base = 0;
   for (const n of localSet) {
-    const mm = /^_lc(\d+)$/.exec(n);
+    const mm = /^_(?:lc|sc)(\d+)$/.exec(n);
     if (mm) base = Math.max(base, Number(mm[1]) + 1);
   }
   const next = { n: base };
