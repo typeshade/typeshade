@@ -8210,9 +8210,14 @@ value once: a typed array, an array of objects, or any other host value (Rule 8.
 struct a frame's draws share. A kernel function takes the handle wherever it takes the array
 (Rule 11.8). The first call on WebGPU uploads it; the calls after bind the same buffer and read
 nothing back, and `await dev.read()` returns a new copy of what it holds. `dev.write(value)`
-replaces what it holds and `dev.destroy()` releases its buffer, each after the calls made before
-it. The handle is a buffer of the program runtime too (§69), and `configure({ runtime })` puts
-the calls on that runtime's device, so one `Resident` serves both:
+replaces what it holds with a copy of `value` and `dev.destroy()` releases its buffer, each after
+the calls made before it. A copy keeps the class of each object in the value: a plain object
+reads back as a plain object, and an instance as an instance of its class, built without its
+constructor as a struct that a result holds is (change 0109, Amendment 1). So a `Resident` made
+from instances of an exported class (§64) reads back as instances after the calls that write it:
+`instanceof` holds on each element that `read()` returns, and a method runs on it. The handle is
+a buffer of the program runtime too (§69), and `configure({ runtime })` puts the calls on that
+runtime's device, so one `Resident` serves both:
 
 ```ts
 import { resident } from 'typeshade/runtime';
