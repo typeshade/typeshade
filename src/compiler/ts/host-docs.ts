@@ -22,7 +22,7 @@
 // `LinkedProgram.map` finds from a position of the linked source.
 
 import ts from 'typescript';
-import { isStaticMember } from './class-names.js';
+import { emittedMemberName, isStaticMember } from './class-names.js';
 import type { LinkedProgram } from './link.js';
 
 /** One JSDoc block as lines. The first line begins with a slash and two stars, and the last ends
@@ -36,7 +36,8 @@ export interface ExportDocs {
   readonly blocks: readonly DocBlock[];
   /** The blocks attached to each member of an `enum`, each field of a struct and each member of a
    *  class. A member goes by `memberKey`, which is its name for an enum member, a field and an
-   *  instance method, and the constructor of a class by `CONSTRUCTOR`. */
+   *  instance method (for a field with a private name `#x`, `x`), and the constructor of a class by
+   *  `CONSTRUCTOR`. */
   readonly members: ReadonlyMap<string, readonly DocBlock[]>;
 }
 
@@ -145,18 +146,24 @@ function basesOf(decl: ts.Node): string[] {
     .map((name) => name.text);
 }
 
-/** The name a member is written under, when it is a plain one. */
+/** The name a member is written under, when it is a plain one. A field with a private name `#x` is
+ *  the field `x` of the struct (Rule 8.12), and the view declares it `private x` (surface §26), so
+ *  it goes by `x`, the name its line is written with. No other member with a private name is in
+ *  the view: the face leaves out a method or an accessor of that kind. */
 function memberName(member: ts.Node): string | undefined {
   const name = (member as ts.NamedDeclaration).name;
-  return name !== undefined &&
-    (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name))
-    ? name.text
+  if (name === undefined) return undefined;
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+    return name.text;
+  }
+  return ts.isPrivateIdentifier(name) && ts.isPropertyDeclaration(member)
+    ? emittedMemberName(name.text)
     : undefined;
 }
 
 /** The key `member` is kept under in `ExportDocs.members`, or `undefined` when it has no plain
  *  name. A member of an `enum`, a field of a struct and an instance field or method of a class go
- *  by their names, as before. */
+ *  by their names, as before, and a field with a private name `#x` by `x`. */
 function keyOf(member: ts.Node): string | undefined {
   if (ts.isConstructorDeclaration(member)) return CONSTRUCTOR;
   const name = memberName(member);

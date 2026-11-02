@@ -1434,6 +1434,127 @@ export class Limits {
     expect(f.view).not.toMatch(/upper limit|The unit|MAX|UNIT/);
   });
 
+  it('writes the JSDoc of a field with a private name on its private line, as a public field has it (#951)', () => {
+    const source = `"use typeshade";
+
+export class Counter {
+  /** The count so far. */
+  #n: u32 = 0;
+  /**
+   * The step of each tick.
+   * @defaultValue 1
+   */
+  #step: u32 = 1;
+  /** The tag, written with the keyword. */
+  private tag: u32 = 2;
+  /** The total, public. */
+  total: u32 = 0;
+  /** The ticks made, a static with a private name. */
+  static #ticks: u32 = 0;
+  /** Counts once. */
+  tick(): u32 {
+    this.#n += this.#step;
+    return this.#n;
+  }
+}
+`;
+    // Both readers of the shader take the program (Rule 12.7), and it is the compiler that writes
+    // the view. `#n` is the field `n` of the struct (Rule 8.12), which the view declares `private
+    // n` (§26): its line carries the author's blocks, with their tags, as the line of a field
+    // written `private` or public does. A static field is a constant of the module and has no line.
+    const f = faceOf(source);
+    expect(f.view).toContain(`export declare class Counter {
+  constructor();
+  /** The count so far. */
+  private n: u32;
+  /**
+   * The step of each tick.
+   * @defaultValue 1
+   */
+  private step: u32;
+  /** The tag, written with the keyword. */
+  private tag: u32;
+  /** The total, public. */
+  total: u32;
+  /** Counts once. */
+  tick(): u32;
+}
+`);
+    expect(f.view).not.toMatch(/ticks/);
+    // The editor's hover over the member in a host program shows the comment too, and the line is
+    // private to `tsc`, which refuses the access.
+    const host = `import { Counter } from './m.shade.ts';
+const c = new Counter();
+const v = c.n;
+export { v };
+`;
+    const read = hover(f.view!, host, 'n;');
+    expect(read.documentation).toBe('The count so far.');
+    expect(read.errors).toEqual([
+      "Property 'n' is private and only accessible within class 'Counter'.",
+    ]);
+  });
+
+  it('gives a private-name field its comment in a flat declaration and in a class below an exported base (#951)', () => {
+    const f = faceOf(`"use typeshade";
+
+class Hidden {
+  /** The level of the hidden class. */
+  #level: f32 = 0.;
+  /** Reads the level. */
+  peek(): f32 {
+    return this.#level;
+  }
+}
+
+export class Shown extends Hidden {
+  /** Its own field. */
+  #own: f32 = 1.;
+  s: f32 = 0.;
+}
+
+export class Base {
+  /** The base's count. */
+  #count: f32 = 0.;
+  /** Reads the count. */
+  total(): f32 {
+    return this.#count;
+  }
+}
+
+export class Derived extends Base {
+  /** Its own, private. */
+  #mine: f32 = 0.;
+}
+`);
+    // `Hidden` is no export, so `Shown` is declared whole, and the private field it takes carries
+    // the comment of the base's `#level`. `Derived` stands below an exported base, which keeps the
+    // line and the comment of `#count`, and declares its own.
+    expect(f.view).toContain(`export declare class Shown {
+  constructor();
+  /** The level of the hidden class. */
+  private level: f32;
+  /** Its own field. */
+  private own: f32;
+  s: f32;
+  /** Reads the level. */
+  peek(): f32;
+}
+export declare class Base {
+  constructor();
+  /** The base's count. */
+  private count: f32;
+  /** Reads the count. */
+  total(): f32;
+}
+export declare class Derived extends Base {
+  constructor();
+  /** Its own, private. */
+  private mine: f32;
+}
+`);
+  });
+
   it('writes the JSDoc of a static method and of a static accessor on their lines', () => {
     const f = faceOf(`"use typeshade";
 

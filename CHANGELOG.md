@@ -1534,6 +1534,13 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **The host view carries the comment of a field with a private name (#951).** A field written
+  `#n` with a JSDoc block above it was declared `private n: u32;` with no comment, where a public
+  field, a `protected` one and one written `private` carry theirs (change 0108, item 4). The reader
+  of the author's blocks, `memberName` in `host-docs.ts`, took a name only when it was an
+  identifier or a literal, so no block was kept under `n`. A field with a private name now goes by
+  the name its line is written with. A method or an accessor with a private name is still not in
+  the view, and a static field still has no line.
 - **An instance of a namespace function, and a call inside an index, are worded as the author wrote
   them (#955).** After #953 the `TS8070` sentence names `Ns.f` for a function of a namespace, but an
   instance of a generic one and the copy of one that takes a function, which a call makes where it
