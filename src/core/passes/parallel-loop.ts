@@ -1082,7 +1082,9 @@ function mutableNames(f: FuncDecl): Set<string> {
   return vars;
 }
 
-/** The coefficient `k` of `i*k` or `i*k + j` with `k` and `j` loop-invariant. */
+/** The coefficient `k` of `i*k` or `i*k + j` with `k` and `j` loop-invariant, in either order of the
+ *  sum. The counter alone is `1*i`, so `j + i` has the coefficient 1, a literal of the counter's
+ *  type (#983). */
 function scaledCoefficient(e: Expr, i: string, local: ReadonlySet<string>): Expr | undefined {
   const invariant = (x: Expr): boolean => !reads(x, i) && !readsAny(x, local);
   let x = transparent(e);
@@ -1091,6 +1093,7 @@ function scaledCoefficient(e: Expr, i: string, local: ReadonlySet<string>): Expr
     else if (invariant(x.a)) x = transparent(x.b);
     else return undefined;
   }
+  if (isName(x) && x.name === i) return { op: 'lit', type: x.type, value: 1 };
   if (x.op !== 'binop' || x.bop !== '*') return undefined;
   const a = transparent(x.a);
   const b = transparent(x.b);
