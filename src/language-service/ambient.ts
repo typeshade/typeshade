@@ -434,17 +434,6 @@ function componentwiseBroadcastSignature(name: string): string {
   return vectors.map((v) => `declare function ${name}(a: ${v}, b: number): ${v}`).join('\n');
 }
 
-function componentwiseBroadcastMethod(name: string): string {
-  const vectors = [
-    ...F32_VEC_TYPE_NAMES,
-    ...['i32', 'u32'].flatMap((elem) => VEC_ARITIES.map((n) => vecTypeName(elem as VecElem, n))),
-  ];
-  const doc = renderJSDoc(MATH_MEMBER_DOCS[name] ?? `${name} componentwise`)
-    .split('\n')
-    .join('\n  ');
-  return vectors.map((v) => `  ${doc}\n  ${name}(a: ${v}, b: number): ${v}`).join('\n');
-}
-
 function mixSignature(): string {
   const vectorWithScalar = (v: string): string =>
     `declare function mix(a: ${v}, b: ${v}, t: number): ${v}`;
@@ -636,10 +625,9 @@ const langConsts = LANG_CONST_NAMES.map((name) => {
 // A member takes the count of arguments the compiler checks: `MATH_FN_ARITY` for an alias, under
 // the id it resolves to (`fround` under `f32`), and `EXPAND_ARITY` for an expansion, which is one
 // `x` for four of them and two arguments with an optional third for `hypot`. Every parameter and
-// every result is a `number`, which is what an `f32` is to TypeScript (see `scalarBrands`). Where
-// a member lowers to a WGSL builtin the compiler takes a vector too (`Math.sin(v)` on a `vec3`),
-// and TypeScript reports TS2345 there: a disagreement of its own, not read by the sweep, which
-// passes `f32` arguments.
+// every result is a `number`, which is what an `f32` is to TypeScript (see `scalarBrands`). A member
+// takes scalars only (change 0112, Rule 9.4): `Math.sin(v)` and `Math.max(v, 0.)` on a `vec3` are
+// TS2345 here and TS8003 from the compiler, in the one sentence that names the WGSL builtin.
 
 /** The parameters of a member that are not named `x`, or `a` and `b` for two, which are the
  *  names ECMAScript and this surface's documentation give them: `atan2(y, x)` and
@@ -682,10 +670,6 @@ const mathMethods = [
     const [fewest, most] = EXPAND_ARITY[MATH_EXPAND_ALIAS[name]!];
     return mathMethod(name, name, mathParameters(name, fewest, most));
   }),
-  // A vector with a scalar, which the compiler splats (proposal 0033): `Math.max(v, 0)` on a
-  // `vec3` is a `vec3`. The scalar and the vector-with-vector forms are the alias's.
-  componentwiseBroadcastMethod('max'),
-  componentwiseBroadcastMethod('min'),
   // The one member that is not the compiler's, and the one exclusion of the parity assertion
   // (#181): ECMAScript's `Math.random()` takes no argument, and the compiler takes one seed and
   // refuses none, so no spelling of it compiles and is clean in the editor.

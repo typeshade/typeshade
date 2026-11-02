@@ -179,39 +179,51 @@ export function lowerCall(
   // (`const { sqrt } = Math`, Rule 9.4): the call of the member either way. An expansion, `random`
   // and a constant answer here; a function member sets `intrinsicId` and lowers below.
   const mathBinding = ts.isIdentifier(callee) ? mathBindingOf(callee) : undefined;
-  // A name bound to a `Math` member takes the member's signatures, which are scalar (ECMAScript's,
-  // and the ambient library's), where WGSL's builtin of the same name takes a vector too. The
-  // editor's checker refuses `sqrt(v)` in the scope of a bound `sqrt` (TS2345), so the compiler
-  // refuses it with the sentence that names the fix (Rule 9.5, change 0113). `min` and `max` keep
-  // their vector forms, which the ambient library declares for `Math` as well.
-  const scalarOnly = (lowered: Expr | undefined): Expr | undefined => {
-    if (
-      lowered === undefined ||
-      mathBinding === undefined ||
-      !ts.isIdentifier(callee) ||
-      mathBinding.member === 'max' ||
-      mathBinding.member === 'min' ||
-      (lowered.type.kind !== 'vec' && lowered.type.kind !== 'vec64' && lowered.type.kind !== 'mat')
-    ) {
-      return lowered;
+  // A `Math` member takes scalars, as ECMAScript's does (Rule 9.4, change 0112), where the WGSL
+  // builtin of the same name takes a vector too. The editor's checker refuses a vector argument
+  // (TS2345), so the compiler refuses it with the one sentence that names the fix. A call through
+  // a name a `const` binds to the member (change 0113) is refused in that name's words (Rule 9.5).
+  // `fixId` is the WGSL name that takes the vector, when the member's own name is not it.
+  const refuseVectorArgs = (args: readonly Expr[], member: string, fixId = member): boolean => {
+    const vector = args.find(
+      (a) => a.type.kind === 'vec' || a.type.kind === 'vec64' || a.type.kind === 'mat',
+    );
+    if (vector === undefined) return false;
+    // `pow` is not a free name (change 0112): `**` takes the vector. `fround` has no vector form.
+    const builtin = fixId !== 'pow' && resolveMathFn(fixId) === fixId ? fixId : undefined;
+    if (mathBinding !== undefined && ts.isIdentifier(callee)) {
+      const written = callee.text;
+      const fix =
+        builtin === undefined
+          ? ''
+          : written === member
+            ? `; leave ${member} out of the pattern to call the builtin, which takes a vector`
+            : `; call the builtin ${member}, which takes a vector`;
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"${written}" here is Math.${member}, which takes a scalar${fix}.`,
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return true;
     }
-    const written = callee.text;
-    const member = mathBinding.member;
-    const builtin = resolveMathFn(member) === member ? member : undefined;
+    const texts = node.arguments.map((a) => a.getText(sourceFile));
+    const shown = authorTypeText(vector.type);
     const fix =
-      builtin === undefined
-        ? ''
-        : written === member
-          ? `; leave ${member} out of the pattern to call the builtin, which takes a vector`
-          : `; call the builtin ${member}, which takes a vector`;
+      fixId === 'pow' && texts.length === 2
+        ? `; for a ${shown} write ${texts[0]!} ** ${texts[1]!}`
+        : builtin === undefined
+          ? ''
+          : `; for a ${shown} write ${builtin}(${texts.join(', ')})`;
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `"${written}" here is Math.${member}, which takes a scalar${fix}.`,
+      `Math.${member} takes a number${fix}.`,
       TS_CODES.TYPE_MISMATCH,
     );
-    return undefined;
+    return true;
   };
   const takeMathMember = (
     jsName: string,
@@ -231,7 +243,9 @@ export function lowerCall(
       return { result: lowerRandomCall(node, sourceFile, scope, diagnostics) };
     if (resolveMathExpand(jsName)) {
       return {
-        result: scalarOnly(lowerExpandCall(jsName, node, sourceFile, scope, diagnostics)),
+        result: lowerExpandCall(jsName, node, sourceFile, scope, diagnostics, (args) =>
+          refuseVectorArgs(args, jsName),
+        ),
       };
     }
     intrinsicId = resolveMathFn(jsName);
@@ -912,6 +926,10 @@ export function lowerCall(
   // The shapes the signature takes (roadmap 0.2 item 9, #57): one diagnostic on the argument
   // that does not fit, with the fix.
   const display = `${viaMath ? 'Math.' : ''}${intrinsicId === 'atan2' ? 'atan' : intrinsicId}`;
+  if (viaMath) {
+    const member = ts.isPropertyAccessExpression(callee) ? callee.name.text : mathBinding!.member;
+    if (refuseVectorArgs(args, member, intrinsicId)) return undefined;
+  }
   if (!checkMathArgs(intrinsicId, display, args, node, sourceFile, diagnostics)) return undefined;
   // A `clamp` whose constant bounds cross (#373, Rule 12.6). WGSL refuses the pair when both
   // bounds are constant, and GLSL ES 3.00 leaves the result undefined. `settleConstExprs` writes
@@ -954,7 +972,7 @@ export function lowerCall(
   };
   // A constant call outside the builtin's domain, or past the range of f32 (#613, Rule 12.6).
   if (refuseConstCall(call, display, node, sourceFile, scope, diagnostics)) return undefined;
-  return scalarOnly(call);
+  return call;
 }
 
 /** WGSL's `min`/`max` overloads require equal operand shapes, while TypeShade's authoring

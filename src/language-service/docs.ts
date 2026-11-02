@@ -513,6 +513,14 @@ export const CONSTANT_DOCS: Readonly<Record<string, string>> = {
   TAU: 'The mathematical constant 2π (tau), inlined as a compile-time `f32` literal (approximately 6.28318). Defined as 2 times `Math.PI`.',
 };
 
+/** A free function's sentence as its `Math` member says it: the member takes scalars only (Rule 9.4,
+ *  change 0112), so the vector clauses of the free function's sentence are left out. */
+function scalarDoc(doc: string): string {
+  return doc
+    .replace(/,? componentwise over vectors/, '')
+    .replace('scalar/vector operands', 'scalar operands');
+}
+
 /** Documentation for `Math` object members: functions aliasing free functions (fround, random),
  * the ones the compiler expands where WGSL has no builtin (log10, log1p, expm1, cbrt, hypot), and
  * readonly constants (E, LN10, LN2, LOG10E, LOG2E, PI, SQRT1_2, SQRT2). One row per member of
@@ -521,41 +529,41 @@ export const MATH_MEMBER_DOCS: Readonly<Record<string, string>> = {
   fround: FUNCTION_DOCS.f32,
   random:
     'Not a GPU builtin: a call with no seed does not compile, because a shader has no random source. Write `random(seed)` with an `f32`, `vec2` or `vec3` seed for a deterministic hash in the range [0, 1).',
-  abs: FUNCTION_DOCS.abs,
-  acos: FUNCTION_DOCS.acos,
-  acosh: FUNCTION_DOCS.acosh,
-  asin: FUNCTION_DOCS.asin,
-  asinh: FUNCTION_DOCS.asinh,
-  atan: FUNCTION_DOCS.atan,
-  atanh: FUNCTION_DOCS.atanh,
+  abs: scalarDoc(FUNCTION_DOCS.abs),
+  acos: scalarDoc(FUNCTION_DOCS.acos),
+  acosh: scalarDoc(FUNCTION_DOCS.acosh),
+  asin: scalarDoc(FUNCTION_DOCS.asin),
+  asinh: scalarDoc(FUNCTION_DOCS.asinh),
+  atan: scalarDoc(FUNCTION_DOCS.atan),
+  atanh: scalarDoc(FUNCTION_DOCS.atanh),
   atan2: FUNCTION_DOCS.atan2,
   cbrt: 'Returns the cube root of `x`, computed as `sign(x) * pow(abs(x), 1/3)`, for `f32` scalars only. As for ECMAScript `Math.cbrt`, a negative `x` gives a negative root: `Math.cbrt(-8.)` is -2.',
-  ceil: FUNCTION_DOCS.ceil,
-  cos: FUNCTION_DOCS.cos,
-  cosh: FUNCTION_DOCS.cosh,
-  exp: FUNCTION_DOCS.exp,
+  ceil: scalarDoc(FUNCTION_DOCS.ceil),
+  cos: scalarDoc(FUNCTION_DOCS.cos),
+  cosh: scalarDoc(FUNCTION_DOCS.cosh),
+  exp: scalarDoc(FUNCTION_DOCS.exp),
   expm1:
     'Returns e raised to the power of `x` minus 1, computed as `exp(x) - 1`, for `f32` scalars only.',
-  floor: FUNCTION_DOCS.floor,
+  floor: scalarDoc(FUNCTION_DOCS.floor),
   hypot:
     'Returns the Euclidean length of the vector formed from 2 or 3 `f32` scalar arguments, computed via `length`, for `f32` scalars only.',
-  log: FUNCTION_DOCS.log,
+  log: scalarDoc(FUNCTION_DOCS.log),
   log10:
     'Returns the base-10 logarithm of `x` (log(x) times `Math.LOG10E`), for `f32` scalars only.',
   log1p:
     'Returns the natural logarithm of (1 plus `x`), computed as `log(x + 1)`, for `f32` scalars only.',
-  log2: FUNCTION_DOCS.log2,
-  max: FUNCTION_DOCS.max,
-  min: FUNCTION_DOCS.min,
+  log2: scalarDoc(FUNCTION_DOCS.log2),
+  max: scalarDoc(FUNCTION_DOCS.max),
+  min: scalarDoc(FUNCTION_DOCS.min),
   pow: "Returns `x` raised to the power of `y`; `x ** y` is the same operation. The GPU result is undefined when `x` is negative, and on GLSL ES 3.00 also when `x` is 0 and `y` is 0 or less. The CPU oracle follows JavaScript's `Math.pow`: `Math.pow(-2., 3.)` is -8 and `Math.pow(-2., 0.5)` is NaN.",
-  round: FUNCTION_DOCS.round,
-  sign: FUNCTION_DOCS.sign,
-  sin: FUNCTION_DOCS.sin,
-  sinh: FUNCTION_DOCS.sinh,
-  sqrt: FUNCTION_DOCS.sqrt,
-  tan: FUNCTION_DOCS.tan,
-  tanh: FUNCTION_DOCS.tanh,
-  trunc: FUNCTION_DOCS.trunc,
+  round: scalarDoc(FUNCTION_DOCS.round),
+  sign: scalarDoc(FUNCTION_DOCS.sign),
+  sin: scalarDoc(FUNCTION_DOCS.sin),
+  sinh: scalarDoc(FUNCTION_DOCS.sinh),
+  sqrt: scalarDoc(FUNCTION_DOCS.sqrt),
+  tan: scalarDoc(FUNCTION_DOCS.tan),
+  tanh: scalarDoc(FUNCTION_DOCS.tanh),
+  trunc: scalarDoc(FUNCTION_DOCS.trunc),
   E: "The mathematical constant e, inlined as a compile-time `f32` literal (approximately 2.71828). The value matches JavaScript's `Math.E`.",
   LN10: "The natural logarithm of 10, inlined as a compile-time `f32` literal (approximately 2.30259). The value matches JavaScript's `Math.LN10`.",
   LN2: "The natural logarithm of 2, inlined as a compile-time `f32` literal (approximately 0.69315). The value matches JavaScript's `Math.LN2`.",
