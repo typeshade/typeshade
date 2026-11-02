@@ -1570,6 +1570,19 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A function a namespace declares as a constant is worded as the author wrote it (#1004).**
+  `namespace Ns { export const bump = (x: u32): u32 => x + 1; }` is a function of the module under
+  the namespace's name, `Ns_bump`, as its `function` declaration is. The `TS8070` sentence still
+  named it `Ns_bump`, and `describeRead` printed `t[Ns_bump(i)]`, because the registry of the names a
+  message uses (`namespaces.ts`) had a row for the `function` declaration (#908), the instance and
+  the copy (#955, #972) and a local function (#987), and none for this one. The registry now
+  records the constant when the namespace's members are lowered, so the sentence says `Ns.bump`,
+  the same constant in a nested namespace `A.B.bump`, and the copy of one that takes a function
+  `Ns.apply` for `Ns_apply_inc`. A function expression held by the constant reads the same. The
+  reason of a `fuse` report, which is `describeRead`'s text, says it too. A function of the top
+  level declared as a constant is emitted as written and keeps its name. `compile()` and the
+  language service said the same before and say the same now.
+
 - **An entry that emulates `f64` runs on WebGL2, and a draw WebGL2 refuses rejects the call
   (#966).** The pass program of such an entry declares the `_fp64` guard,
   `uniform highp sampler2D _fp64;`, and the executor of change 0054 bound nothing to it. Its
