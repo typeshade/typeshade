@@ -800,6 +800,45 @@ apart at module scope, where the field names alone cannot answer:
 const ORIGIN: P = { x: 0., y: 1. }; // → const ORIGIN: P = P(0.0, 1.0);
 ```
 
+### A `Math` member bound to a name
+
+A top-level `const` whose value is `Math` with an object pattern, or a `Math` member, binds each
+name to that member (Rule 6.3, change 0113). It declares no module constant:
+
+```ts
+const { sqrt, sin, PI } = Math;
+const { abs: a } = Math;
+const s = Math.cbrt;
+
+export function f(x: f32): f32 {
+  return sqrt(a(x)) + sin(x) * PI + s(x);
+}
+```
+
+A bound name is an alias, not a value. A call of a name bound to a function member is the call
+of that member, and lowers as `Math.sqrt(x)` does (Rule 9.4). A name bound to a constant member
+(`PI`, `E`, `LN2`, `LN10`, `LOG2E`, `LOG10E`, `SQRT2`, `SQRT1_2`) is that constant, an inlined
+`f32` literal. No object and no function value exists at run time, and the WGSL, the GLSL and the
+CPU oracle are what the `Math.member` spelling gives. A module-scope binding is visible in the
+whole file; the same `const` in a function body is visible in its block. The bound name takes the
+signatures of the member, the ones the ambient `MathObject` declares.
+
+A bound name is a declaration of the file, so it hides the builtin of its name in its scope (Rule
+9.5). After `const { sqrt } = Math`, `sqrt(v)` on a `vec3` is refused, in the compiler and in the
+editor, since `Math.sqrt` takes a scalar:
+
+```text
+"sqrt" here is Math.sqrt, which takes a scalar; leave sqrt out of the pattern to call the builtin, which takes a vector.
+```
+
+The refusals, each one sentence in both halves (§14 gives the sentences for a struct): a `let`
+of a function member (`let { sqrt } = Math`, `let s = Math.sqrt`), since a `let` would hold a
+function value (`TS8099`); a rest element and a default (`TS8099`); a member `Math` does not have
+(`TS8022`); an assignment pattern (`TS8099`); an `export` of a bound member (`TS8014`), which no
+other module can import; and a member handed to a function that takes one, `ap(Math.sqrt, x)`
+(`TS8099`). A `let` of a constant member copies the number, as `let p = Math.PI` does, in a
+function body. `console` and every other object stay refused.
+
 ### `enum`
 
 A numeric `enum` is a set of named integer constants, which is exactly what a module constant
@@ -1150,6 +1189,13 @@ block may hold two such declarations.
 
 An object pattern takes no type annotation, since each name takes the type of the field it
 reads. Defaults (`{ x = 1. }`), rest (`{ ...r }`) and computed field names remain refused.
+
+A pattern over `Math`, `const { sqrt, PI: pi } = Math`, binds each name to the member of its key
+and lowers to nothing: the name is an alias of the member, not a local that reads a field (§12,
+change 0113). It takes no annotation, and a rest element, a default, a computed name and a nested
+pattern are refused with the sentence for `Math`: `Math` is a set of members, so it has no
+remainder to name and no member absent for a default to stand in for. An assignment pattern,
+`({ sqrt } = Math)`, stays refused as any assignment pattern does.
 
 A function-local array pattern reads a homogeneous fixed-length array by index (change 0086).
 Omitted positions consume an element; fewer positions than the source length are allowed:

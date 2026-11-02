@@ -4,6 +4,7 @@
 
 import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
+import { isStageCall } from './stage-call.js';
 import type { ConstDecl, Expr, StructDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { i32T } from '../../core/ir/types.js';
@@ -35,6 +36,7 @@ import { localFunctionOf } from './lower/local-functions.js';
 import { declarationOf, importsName } from './lower/closures.js';
 import { newTargetOf } from './lower/new-target.js';
 import { isMixinApplication } from './mixins.js';
+import { mathDeclarationOf } from './math-binding.js';
 import {
   emittedMemberName,
   holdsFunction,
@@ -380,12 +382,42 @@ export function collectModuleConsts(
       // its value is the DEFAULT a pipeline may replace, so overrides.ts owns it and folding
       // it here would bake in a value the pipeline is allowed to change (#8 A7).
       if (isOverrideType(decl.type)) continue;
+      // `const { sqrt, PI } = Math` and `const s = Math.sqrt` bind aliases of `Math` members and
+      // declare no module constant (Rule 6.3, change 0113); the shapes over `Math` that have no
+      // form are refused here, and so is an export of one (open point O2).
+      const overMath = mathDeclarationOf(decl, sourceFile);
+      if (overMath !== undefined) {
+        const exported = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+        if (exported && overMath.refusals.length === 0) {
+          diagnostics.push(
+            makeDiagnostic(
+              sourceFile,
+              decl,
+              `"${overMath.names.join('", "')}" binds a Math member, which a module does not ` +
+                `export. Write the const in each module that calls it.`,
+              TS_CODES.TOP_LEVEL,
+            ),
+          );
+        } else {
+          diagnostics.push(...overMath.refusals);
+        }
+        if (exported || overMath.refusals.length > 0) {
+          for (const bound of overMath.names) {
+            refusedDeclarationsOf(scope.calleeTable()).add(bound);
+            refuseModuleName(sourceFile, bound);
+          }
+        }
+        continue;
+      }
       // A `const` with a module-variable wrapper is module-vars.ts's to refuse, with the fix
       // (`let`), not this collector's to fold.
       if (moduleVarSpace(decl.type) !== undefined) continue;
       // `const f = (x: f32): f32 => ...` at the top level is a FUNCTION of the module, which
       // local-functions.ts collects (roadmap 0.3 item T7, #92), not a constant to fold.
       if (localFunctionOf(decl) !== undefined) continue;
+      // `const vs = vertex(function vs(…) { … })` declares an entry point (change 0111), which
+      // lower/function.ts collects; nothing here folds.
+      if (decl.initializer !== undefined && isStageCall(decl.initializer)) continue;
       // `const AgedParticle = Aged(Particle)` names a mixin APPLICATION (T8, #92): a class,
       // decided when the file is compiled, not a value to fold. structs.ts reads it where a
       // class extends it.

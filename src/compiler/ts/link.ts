@@ -29,6 +29,7 @@
 // Implements: Rule 3.9, Rule 3.2 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
+import { stageCallOf } from './stage-call.js';
 import { GLSL_ES300_RESERVED, WGSL_RESERVED } from '../../core/reserved-words.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic, syntaxDiagnostics } from './diagnostic.js';
@@ -277,6 +278,10 @@ function fixedNameOf(stmt: ts.Statement): Unit['fixedName'] {
     return undefined;
   }
   if (!ts.isVariableStatement(stmt)) return undefined;
+  // `const vs = vertex(function vs(…) { … })`, the stage call of change 0111, is an entry; a
+  // `workgroup_size([…], f)` is a kernel function, which a host calls by its name too.
+  const stage = stageCallOf(stmt);
+  if (stage !== undefined) return stage.callee === 'workgroup_size' ? undefined : 'entry point';
   const declared = hasModifier(stmt, ts.SyntaxKind.DeclareKeyword);
   for (const d of stmt.declarationList.declarations) {
     const t = d.type;

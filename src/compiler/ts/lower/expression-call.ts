@@ -32,6 +32,7 @@ import {
   resolveMathExpand,
   resolveMathFn,
 } from '../math-alias.js';
+import { mathBindingOf } from '../math-binding.js';
 import { SCALAR_CAST, literalPeerType } from '../numeric.js';
 import {
   foldNumericLit,
@@ -172,6 +173,82 @@ export function lowerCall(
   /** The name the constructor was written under, for the messages that offer a short form. */
   let ctorName = '';
 
+  // The `Math` member a call names, as `Math.sqrt(x)` writes it or as a name bound to it does
+  // (`const { sqrt } = Math`, Rule 9.4): the call of the member either way. An expansion, `random`
+  // and a constant answer here; a function member sets `intrinsicId` and lowers below.
+  const mathBinding = ts.isIdentifier(callee) ? mathBindingOf(callee) : undefined;
+  // A name bound to a `Math` member takes the member's signatures, which are scalar (ECMAScript's,
+  // and the ambient library's), where WGSL's builtin of the same name takes a vector too. The
+  // editor's checker refuses `sqrt(v)` in the scope of a bound `sqrt` (TS2345), so the compiler
+  // refuses it with the sentence that names the fix (Rule 9.5, change 0113). `min` and `max` keep
+  // their vector forms, which the ambient library declares for `Math` as well.
+  const scalarOnly = (lowered: Expr | undefined): Expr | undefined => {
+    if (
+      lowered === undefined ||
+      mathBinding === undefined ||
+      !ts.isIdentifier(callee) ||
+      mathBinding.member === 'max' ||
+      mathBinding.member === 'min' ||
+      (lowered.type.kind !== 'vec' && lowered.type.kind !== 'vec64' && lowered.type.kind !== 'mat')
+    ) {
+      return lowered;
+    }
+    const written = callee.text;
+    const member = mathBinding.member;
+    const builtin = resolveMathFn(member) === member ? member : undefined;
+    const fix =
+      builtin === undefined
+        ? ''
+        : written === member
+          ? `; leave ${member} out of the pattern to call the builtin, which takes a vector`
+          : `; call the builtin ${member}, which takes a vector`;
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"${written}" here is Math.${member}, which takes a scalar${fix}.`,
+      TS_CODES.TYPE_MISMATCH,
+    );
+    return undefined;
+  };
+  const takeMathMember = (
+    jsName: string,
+    at: ts.Node,
+  ): 'intrinsic' | { readonly result: Expr | undefined } => {
+    if (resolveMathConst(jsName) !== undefined) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"Math.${jsName}" is a constant, not a function.`,
+        TS_CODES.UNSUPPORTED,
+      );
+      return { result: undefined };
+    }
+    if (jsName === 'random')
+      return { result: lowerRandomCall(node, sourceFile, scope, diagnostics) };
+    if (resolveMathExpand(jsName)) {
+      return {
+        result: scalarOnly(lowerExpandCall(jsName, node, sourceFile, scope, diagnostics)),
+      };
+    }
+    intrinsicId = resolveMathFn(jsName);
+    if (!intrinsicId) {
+      // On the member, the name that is wrong, as TypeScript's TS2551 is.
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        at,
+        unknownNameSentence(`"Math.${jsName}(...)" is not a TypeShade Math alias.`, jsName, [
+          MATH_MEMBER_NAMES,
+        ]),
+        TS_CODES.UNKNOWN_NAME,
+      );
+      return { result: undefined };
+    }
+    return 'intrinsic';
+  };
+
   if (ts.isPropertyAccessExpression(callee)) {
     const obj = callee.expression;
     // Keep the authoring surface on the JavaScript Console API spelling. The call remains a
@@ -250,34 +327,8 @@ export function lowerCall(
     }
     if (ts.isIdentifier(obj) && obj.text === 'Math') {
       viaMath = true;
-      const jsName = callee.name.text;
-      if (resolveMathConst(jsName) !== undefined) {
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          node,
-          `"Math.${jsName}" is a constant, not a function.`,
-          TS_CODES.UNSUPPORTED,
-        );
-        return undefined;
-      }
-      if (jsName === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics);
-      if (resolveMathExpand(jsName))
-        return lowerExpandCall(jsName, node, sourceFile, scope, diagnostics);
-      intrinsicId = resolveMathFn(jsName);
-      if (!intrinsicId) {
-        // On the member, the name that is wrong, as TypeScript's TS2551 is.
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          callee.name,
-          unknownNameSentence(`"Math.${jsName}(...)" is not a TypeShade Math alias.`, jsName, [
-            MATH_MEMBER_NAMES,
-          ]),
-          TS_CODES.UNKNOWN_NAME,
-        );
-        return undefined;
-      }
+      const taken = takeMathMember(callee.name.text, callee.name);
+      if (taken !== 'intrinsic') return taken.result;
     } else {
       // A method of a class the file declares, or a static function on the class (#86); a
       // receiver that is not a struct falls through to the refusals below.
@@ -362,6 +413,11 @@ export function lowerCall(
       );
       return undefined;
     }
+  } else if (ts.isIdentifier(callee) && mathBinding !== undefined) {
+    // A name a `const` binds to a `Math` member is that member's call (Rule 9.4).
+    viaMath = true;
+    const taken = takeMathMember(mathBinding.member, callee);
+    if (taken !== 'intrinsic') return taken.result;
   } else if (ts.isIdentifier(callee)) {
     const name = callee.text;
     // A local function, or a parameter that takes a function, is a name the body declares, and
@@ -880,7 +936,7 @@ export function lowerCall(
   };
   // A constant call outside the builtin's domain, or past the range of f32 (#613, Rule 12.6).
   if (refuseConstCall(call, display, node, sourceFile, scope, diagnostics)) return undefined;
-  return call;
+  return scalarOnly(call);
 }
 
 /** WGSL's `min`/`max` overloads require equal operand shapes, while TypeShade's authoring

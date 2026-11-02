@@ -332,6 +332,15 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **A `Math` member is bound to a short name with a `const`** (proposal 0113; Rules 6.3, 9.4 and
+  9.5, surface §12 and §14). `const { sqrt, sin, PI } = Math`, `const { sqrt: s } = Math` and
+  `const s = Math.sqrt` bind each name as an alias of the member, at module scope and in a
+  function: a call is the member's call, a constant is its inlined `f32` literal, and nothing new
+  is emitted on WGSL, GLSL or the CPU oracle. A bound name hides the builtin of its name in its
+  scope, so `sqrt(v)` on a vector is refused there in both halves, with a sentence that names the
+  fix (`TS8003`). A `let` of a function member, a rest element, a default and an `export` of a
+  bound member stay refused (`TS8099`, `TS8014`). No code, export or example is added.
+
 - **A kernel function's loop runs over a trip count the device holds** (proposal 0094, stage 3;
   Rules 8.21, 8.22, 11.8 and 11.13, surface §65 and §71). The statements before a loop, its start
   and its bound may read the elements of the function's arrays and what an earlier loop of the same

@@ -35,7 +35,13 @@ import { EXPAND_ARITY } from '../compiler/ts/math-expand.js';
 import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js';
 import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js';
 import { STORAGE_BUFFER_ACCESS as COMPILER_STORAGE_BUFFER_ACCESS } from '../compiler/ts/bindings.js';
-import { FUNCTION_DOCS, CONSTANT_DOCS, ATTRIBUTE_DOCS, MATH_MEMBER_DOCS } from './docs.js';
+import {
+  FUNCTION_DOCS,
+  CONSTANT_DOCS,
+  ATTRIBUTE_DOCS,
+  MATH_MEMBER_DOCS,
+  STAGE_CALL_DOCS,
+} from './docs.js';
 import { generatedOverloads, scalarOfDeclaration } from './builtin-signatures.js';
 
 /** The overloads the builtin table generates, by name (0017). */
@@ -1663,6 +1669,14 @@ ${renderJSDoc(ATTRIBUTE_DOCS.out)}
 declare function out(target: unknown, context?: unknown, index?: number): void
 ${renderJSDoc(ATTRIBUTE_DOCS.diagnostic)}
 declare function diagnostic(severity: string, rule: string): (target: Function, context?: unknown) => void
+${renderJSDoc(STAGE_CALL_DOCS.vertex!)}
+declare function vertex<F extends (...args: never[]) => unknown>(entry: F, options?: { readonly diagnostic?: readonly [severity: string, rule: string] }): F
+${renderJSDoc(STAGE_CALL_DOCS.fragment!)}
+declare function fragment<F extends (...args: never[]) => unknown>(entry: F, options?: { readonly diagnostic?: readonly [severity: string, rule: string] }): F
+${renderJSDoc(STAGE_CALL_DOCS.compute!)}
+declare function compute<F extends (...args: never[]) => unknown>(workgroupSize: readonly [x: number, y?: number, z?: number], entry: F, options?: { readonly diagnostic?: readonly [severity: string, rule: string] }): F
+${renderJSDoc(STAGE_CALL_DOCS.workgroup_size!)}
+declare function workgroup_size<F extends (...args: never[]) => unknown>(size: readonly [x: number], kernel: F): F
 ${renderJSDoc(ATTRIBUTE_DOCS.vertex)}
 declare function vertex(target: Function, context?: unknown): void
 ${renderJSDoc(ATTRIBUTE_DOCS.fragment)}

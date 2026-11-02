@@ -124,6 +124,19 @@ export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
     'Sets the severity of a WGSL diagnostic rule for the whole module, as in `@diagnostic("off", "derivative_uniformity")` on an entry. Written on the entry, emitted as the module-scope `diagnostic(off, derivative_uniformity);`, because WGSL\'s function attribute does not reach the functions the entry calls. One rule is analysed here: `derivative_uniformity`.',
 };
 
+/** One Markdown sentence per stage call of change 0111, the plain-TypeScript spelling of an
+ *  entry point and of a kernel function's workgroup size. */
+export const STAGE_CALL_DOCS: Readonly<Record<string, string>> = {
+  vertex:
+    "Declares the pipeline's vertex-stage entry point: `export const vs = vertex(function vs(…) { … })`. The entry takes the constant's name. Options: `{ diagnostic: [severity, rule] }`.",
+  fragment:
+    "Declares the pipeline's fragment-stage entry point: `export const fs = fragment(function fs(…) { … })`. The entry takes the constant's name. Options: `{ diagnostic: [severity, rule] }`.",
+  compute:
+    'Declares a compute-stage entry point with its workgroup size, one to three extents: `export const main = compute([64], function main(…) { … })`. Options: `{ diagnostic: [severity, rule] }`.',
+  workgroup_size:
+    'Sets the workgroup size of a kernel function, an exported function that takes an array with no size or a 2D storage texture, as one extent: `export const scale = workgroup_size([128], function scale(xs: array<f32>) { … })`. A loop that reduces runs at 256 whatever is written.',
+};
+
 /** One Markdown sentence per `@builtin(...)` id in `WGSL_BUILTIN_NAMES`. */
 export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
   vertex_index: 'The index of the current vertex within its draw call.',
