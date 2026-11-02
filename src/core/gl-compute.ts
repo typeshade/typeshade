@@ -32,6 +32,13 @@
 //     the first pass a draw fills it from the texture, a word a fragment; after the last, unless
 //     the entry only reads it, a draw puts it back, a texel a fragment, and the context converts
 //     each `vec4` to the texture's format as WebGPU's `textureStore` does.
+//   - The pass program of an entry that emulates `f64` reads the `_fp64` guard, which the host
+//     never passes (Rule 8.21): the dispatch binds a 1 × 1 texture of 1.0 to it, on a unit of its
+//     own (#966).
+//   - WebGL2 runs no draw it refuses: it records an error and leaves the target as it was. A
+//     refused pass would leave every record unchanged, and the pass loop would wait on them for
+//     ever, so the dispatch reads the context's error after each group of draws and rejects with
+//     it, naming the entry (Rule 11.8, #966).
 //
 // The CPU model of this executor is `testing/gl-model.ts`; `scripts/gpu-differential.ts` holds
 // the two to the same words. The model has no texture, sampled or storage, as the CPU tier has
@@ -44,6 +51,10 @@ import type { GlComputeLayout, GlComputeProgram } from './passes/gl-compute.js';
  *  this file does not import: it imports no compiler). */
 const FIRST_PASS = 1;
 const ALL_RUN = 2;
+/** The `_fp64` guard's name (`FP64_GUARD_NAME` in `fp64/df64-lib.ts`, which this file does not
+ *  import: that file builds the emulation's IR, which the runtime does not carry). A module that
+ *  emulates `f64` reads one texel of 1.0 from it. */
+const GUARD = '_fp64';
 import { atomicStep } from './scalar-arith.js';
 import { runPassesAsync, type PassInvocation } from './phase-schedule.js';
 import { byteSize, pack } from './host-entry.js';
@@ -338,6 +349,54 @@ async function readBack(
   return out;
 }
 
+/** Whether the pass program `vertex` declares the `_fp64` guard, as the GLSL writer declares it:
+ *  `uniform highp sampler2D _fp64;`. */
+function declaresGuard(vertex: string): boolean {
+  return new RegExp(`^uniform (?:\\w+ )*sampler2D ${GUARD};$`, 'm').test(vertex);
+}
+
+/** `t` made the `_fp64` guard: one `RGBA8` texel of white, which a `sampler2D` reads as 1.0, as
+ *  the draw paths make it. One level and a `NEAREST` filter, so `texelFetch` finds it complete. */
+function guardTexture(gl: WebGL2RenderingContext, t: WebGLTexture): WebGLTexture {
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 1, 1);
+  gl.texSubImage2D(
+    gl.TEXTURE_2D,
+    0,
+    0,
+    0,
+    1,
+    1,
+    gl.RGBA,
+    gl.UNSIGNED_BYTE,
+    new Uint8Array([255, 255, 255, 255]),
+  );
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+  return t;
+}
+
+/** Throw when the draws `gl` was just given were refused: WebGL2 records an error and draws
+ *  nothing, so the dispatch would go on from records and memory the draw never wrote. `what`
+ *  names the program, with its entry, so the call's `Error` says why it cannot run (Rule 11.8). */
+function drawn(gl: WebGL2RenderingContext, what: string): void {
+  const code = gl.getError();
+  if (code === gl.NO_ERROR) return;
+  const names: readonly (readonly [number, string])[] = [
+    [gl.INVALID_ENUM, 'INVALID_ENUM'],
+    [gl.INVALID_VALUE, 'INVALID_VALUE'],
+    [gl.INVALID_OPERATION, 'INVALID_OPERATION'],
+    [gl.INVALID_FRAMEBUFFER_OPERATION, 'INVALID_FRAMEBUFFER_OPERATION'],
+    [gl.OUT_OF_MEMORY, 'OUT_OF_MEMORY'],
+    [gl.CONTEXT_LOST_WEBGL, 'CONTEXT_LOST_WEBGL'],
+  ];
+  const name = names.find(([value]) => value === code)?.[1] ?? 'an error';
+  throw new Error(
+    `typeshade/webgl2: ${what} did not draw: WebGL2 reported ${name} (0x${code.toString(16)})`,
+  );
+}
+
 /** A chunk of invocations: the record texture of its invocations, one a row. */
 interface Chunk {
   readonly base: number;
@@ -397,10 +456,13 @@ export async function runGlCompute(
     if (given === undefined) throw new Error(`typeshade/webgl2: no texture for '${t.name}'`);
     return { ...given, target: targetOf(gl, t.dim) };
   });
+  // The `_fp64` guard of an entry that emulates `f64` takes a unit of its own.
+  const guarded = declaresGuard(p.vertex);
+  const reads = p.roots.length + 2 + sampled.length + (guarded ? 1 : 0);
   const units = gl.getParameter(gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS) as number;
-  if (p.roots.length + 2 + sampled.length > units)
+  if (reads > units)
     throw new Error(
-      `typeshade/webgl2: the pass program reads ${String(p.roots.length + 2 + sampled.length)} textures, more than the ${String(units)} a vertex stage of this context binds`,
+      `typeshade/webgl2: the pass program reads ${String(reads)} textures, more than the ${String(units)} a vertex stage of this context binds`,
     );
   // Register ownership at creation, before uploads/packing/linking can throw. A
   // partially filled map has not returned its array yet, but still owns its objects.
@@ -453,6 +515,7 @@ export async function runGlCompute(
     gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA32UI, W, invShape.h, invShape.layers);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    const guard = guarded ? guardTexture(gl, createTexture()) : undefined;
 
     // Transform feedback: one buffer per slice of the record, for a batch of `BATCH_LAYERS`
     // layers of invocations at a time. Each invocation reads and writes only its own row, so a
@@ -676,6 +739,15 @@ export async function runGlCompute(
         gl.uniform1i(gl.getUniformLocation(pass, '_phx_inv'), unit++);
         const recUnit = unit++;
         gl.uniform1i(gl.getUniformLocation(pass, '_phx_rec'), recUnit);
+        if (guard !== undefined) {
+          // Left unbound, the guard's `sampler2D` would read unit 0, where a memory root's
+          // `usampler2DArray` is, and WebGL2 refuses a draw that reads one unit as two types.
+          // A sampler object on its unit would filter it in place of its own `NEAREST`.
+          gl.activeTexture(gl.TEXTURE0 + unit);
+          gl.bindTexture(gl.TEXTURE_2D, guard);
+          gl.bindSampler(unit, null);
+          gl.uniform1i(gl.getUniformLocation(pass, GUARD), unit++);
+        }
         const firstSampled = unit;
         try {
           sampled.forEach((t, k) => {
@@ -728,6 +800,7 @@ export async function runGlCompute(
               gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
             }
           }
+          drawn(gl, `${p.entry}'s pass program`);
         } finally {
           gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
           gl.disable(gl.RASTERIZER_DISCARD);
@@ -788,6 +861,7 @@ export async function runGlCompute(
             }
           }
         });
+        drawn(gl, `${p.entry}'s scatter`);
       },
       async resolve(inv, pc) {
         const rq = p.requests[pc]!;
@@ -949,6 +1023,7 @@ void main() {
       gl.uniform1ui(gl.getUniformLocation(program, 'u_layer'), l);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
+    drawn(gl, `${p.entry}'s read of storage texture '${t.name}'`);
   } finally {
     gl.bindSampler(0, null);
     gl.bindTexture(target, null);
@@ -1004,6 +1079,7 @@ void main() {
       gl.uniform1ui(gl.getUniformLocation(program, 'u_layer'), l);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
+    drawn(gl, `${p.entry}'s write of storage texture '${t.name}'`);
   } finally {
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);

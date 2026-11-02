@@ -2479,6 +2479,32 @@ export const main = compute([1], function main(gid: builtin<"global_invocation_i
     );
   });
 
+  it('records the dispatch of an entry that emulates f64, whose guard the dispatch binds itself (#966)', async () => {
+    const rt = await createRuntime({ device: fakeGl() });
+    const packed = manifest(`"use typeshade";
+declare const data: storage<array<f32>, "read_write">;
+function wave(i: u32): f32 {
+  const k: f64 = f64(f32(i));
+  return f32(sin(k * 0.7853981633974483));
+}
+export const twiddle = compute([4], function twiddle(gid: builtin<"global_invocation_id", vec3u>) {
+  data[gid.x] = data[gid.x] + wave(gid.x);
+});
+`);
+    // The entry reaches the guard, which the host view gives no value and the host never passes.
+    expect(packed.entries.find((e) => e.name === 'twiddle')?.bindings).toContainEqual({
+      name: '_fp64',
+      writes: false,
+    });
+    const pipeline = await rt.load(packed).compute('twiddle');
+    const f = rt.frame();
+    expect(() => f.dispatch(pipeline, { data: new Float32Array(4) }, 1)).not.toThrow();
+    // Every binding the host gives is still checked.
+    expect(() => f.dispatch(pipeline, {} as never, 1)).toThrow(
+      '"twiddle" (typeshade-input.ts:7), binding "data" (array<f32>) is not given.',
+    );
+  });
+
   it('refuses an entry with no pass program, naming why', async () => {
     const rt = await createRuntime({ device: fakeGl() });
     const p = manifest(SCALE);
