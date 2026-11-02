@@ -112,7 +112,7 @@ describe('every compute example, on the GL model and the oracle (change 0054)', 
 
   for (const file of files) {
     const src = readFileSync(join(dir, file), 'utf8');
-    if (!src.includes('@compute')) continue;
+    if (!src.includes('@compute') && !/\bcompute\(/.test(src)) continue;
     const r = compile(src);
     if (r.diagnostics.some((d) => d.category === 'error')) continue;
     const m = r.module;

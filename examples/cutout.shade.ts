@@ -26,23 +26,22 @@
 // link is an example ANGLE never gets to check. Aspect comes from the vertex stage instead,
 // which costs this example nothing.
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-class FsOut {
-  @location(0) color: vec4;
+interface FsOut {
+  color: location<0, vec4>;
 }
 
 // Fullscreen triangle: three vertices covering the screen, with a centred [-1, 1] uv. No
 // vertex buffer — the position comes from the vertex index alone.
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
-}
+});
 
 // Discards outside the unit circle; inside, a radial gradient from a bright centre to a dim
 // rim, with the rim itself softened over one pixel of screen space.
@@ -65,7 +64,6 @@ export function discardOutsideCircle(p: vec2): vec4 {
   return vec4(shaded, 1.);
 }
 
-@fragment
-export function fs(v: VsOut): FsOut {
+export const fs = fragment(function fs(v: VsOut): FsOut {
   return { color: discardOutsideCircle(v.uv) };
-}
+});

@@ -21,9 +21,9 @@
 // moves a point. Nothing about the source changed; what a method IS did not change either.
 
 class Body {
-  at: vec2;
-  vel: vec2;
-  spin: f32;
+  at!: vec2;
+  vel!: vec2;
+  spin!: f32;
 
   /** Move one step, and bleed a little speed. */
   step(dt: f32): void {
@@ -51,16 +51,14 @@ class Body {
   }
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): vec4 {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   return vec4(xs[i], ys[i], 0., 1.);
-}
+});
 
-@fragment
-export function fs(@builtin("position") frag: vec4): vec4 {
+export const fs = fragment(function fs(frag: builtin<"position", vec4>): vec4 {
   const uv: vec2 = fract(frag.xy * 0.01) - vec2(0.5);
   let b = new Body();
   b.at = uv;
@@ -72,4 +70,4 @@ export function fs(@builtin("position") frag: vec4): vec4 {
   }
   const glow: f32 = 1. - smoothstep(0., 0.6, b.reach());
   return vec4(glow, glow * 0.4 + b.spin * 0.1, 0.6 - glow * 0.3, 1.);
-}
+});

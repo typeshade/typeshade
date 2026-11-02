@@ -25,7 +25,7 @@
 // keeps every sub-unit digit and stripes cleanly. The fragment stage draws both halves, so
 // the picture itself says whether the emulation ran.
 //
-// WHY NOTHING CROSSES THE ENTRY BOUNDARY. A double cannot be a varying: a @location field
+// WHY NOTHING CROSSES THE ENTRY BOUNDARY. A double cannot be a varying: a `location<…>` field
 // interpolates its two f32 words one at a time, which is not the interpolation of the double
 // they encode, and the compiler refuses one at the declaration. There is no author-facing
 // way to split a double into words and rebuild it, deliberately — the words are the
@@ -35,26 +35,25 @@
 
 class Uniforms {
   // One vec2<f32> slot on both targets; the host writes splitF64(origin) into it.
-  origin: f64;
+  origin!: f64;
   // World units swept across the screen.
-  span: f32;
+  span!: f32;
 }
 
 declare const u: uniform<Uniforms>;
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
-  // No f64 here, and no words standing in for one: `@location(1) origin: f64` is refused at
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
+  // No f64 here, and no words standing in for one: `origin: location<1, f64>` is refused at
   // this declaration, and the fragment stage reads `u.origin` instead.
 }
 
-@vertex
-export function vs(@builtin("vertex_index") idx: u32): VsOut {
+export const vs = vertex(function vs(idx: builtin<"vertex_index", u32>): VsOut {
   const x = f32(idx & 1) * 4. - 1.;
   const y = f32(idx >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-}
+});
 
 // The whole numeric core, as a plain function so the CPU oracle can call it directly: the
 // fragment stage below is the same expression with the uniform read inlined. That is what
@@ -70,8 +69,7 @@ export function stripeAt(origin: f64, offset: f32): f64 {
   return fract(world / stripe);
 }
 
-@fragment
-export function fs(vo: VsOut): vec4 {
+export const fs = fragment(function fs(vo: VsOut): vec4 {
   // The uniform, read in the stage that needs it. A literal beside a scalar f64 is lifted to
   // an f64 literal carrying the full double, so the pass splits 2.5 rather than widening the
   // f32 rounding of it.
@@ -96,4 +94,4 @@ export function fs(vo: VsOut): vec4 {
   // where f32 still holds the coordinate, and up to half a stripe once it cannot.
   const drift = abs(narrowed.z - flat);
   return vec4(shade, drift, fract(narrowed.y * 0.5), 1.);
-}
+});

@@ -18,22 +18,21 @@
 //   `this.SIZE` reads its own static (Rule 8.13);
 // - `private` and `protected` are enforced as TypeScript enforces them (Rule 8.15).
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-class FsOut {
-  @location(0) color: vec4;
+interface FsOut {
+  color: location<0, vec4>;
 }
 
 // Fullscreen triangle, as `rng-method.shade.ts` draws it.
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
-}
+});
 
 /** A disc: where it is, how big and what colour, each set by a method that hands the disc back. */
 class Disc {
@@ -88,8 +87,7 @@ class Capped extends Disc {
   }
 }
 
-@fragment
-export function fs(v: VsOut): FsOut {
+export const fs = fragment(function fs(v: VsOut): FsOut {
   // A chain as a statement: `at`, then `tinted`, each on `a`.
   let a = Disc.unit();
   a.at(vec2(-0.45, 0.)).tinted(vec3(0.95, 0.74, 0.32));
@@ -104,4 +102,4 @@ export function fs(v: VsOut): FsOut {
   col = mix(col, b.tint, b.coverage(v.uv));
   col = mix(col, c.tint, c.coverage(v.uv));
   return { color: vec4(col, 1.) };
-}
+});

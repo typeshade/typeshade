@@ -178,7 +178,7 @@ describe('every compute example, phased and in lockstep (change 0054)', () => {
 
   for (const file of files) {
     const src = readFileSync(join(dir, file), 'utf8');
-    if (!src.includes('@compute')) continue;
+    if (!src.includes('@compute') && !/\bcompute\(/.test(src)) continue;
     const r = compile(src);
     if (r.diagnostics.some((d) => d.category === 'error')) continue;
     const m = r.module;

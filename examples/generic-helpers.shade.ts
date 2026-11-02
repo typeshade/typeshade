@@ -37,16 +37,14 @@ function pair<T>(a: T, b: T): array<T, 2> {
   return both;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): vec4 {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   return vec4(pick(vi === u32(0), head(xs), xs[i]), ys[i], 0., 1.);
-}
+});
 
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   const uv: vec2 = fract(p.xy * 0.01);
   // pick at f32, and again at vec3: two instances of one declaration.
   const gain = pick(uv.x > 0.5, 1.2, 0.6);
@@ -56,4 +54,4 @@ export function fs(@builtin("position") p: vec4): vec4 {
   const band = f32(head(steps)) * 0.1;
   const span = pair(uv.x, uv.y);
   return vec4(tint * gain * (span[0] + span[1] + band), 1.);
-}
+});

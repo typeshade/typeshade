@@ -22,13 +22,12 @@
 // exercise them in a renderable example: a packed `u32` is not a colour, but unpacking it back
 // is, and a wrong spelling on either target shows up as a wrong pixel rather than as nothing.
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   // `array(...)` with no type arguments: the element type and the count come from the
   // elements, as WGSL infers them.
   const xs = array(-1., 3., -1.);
@@ -36,10 +35,9 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
   return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
-}
+});
 
-@fragment
-export function fs(v: VsOut): vec4 {
+export const fs = fragment(function fs(v: VsOut): vec4 {
   // The zero value, and a vector whose element the TYPE ARGUMENT names. `vec3<u32>(...)` used
   // to build a `vec3<f32>` with no diagnostic at all.
   const origin = vec2();
@@ -92,4 +90,4 @@ export function fs(v: VsOut): vec4 {
   const rgb: vec3 =
     coarse * 0.5 + vec3(rgba8.x, signed8.y * 0.5 + 0.5, s16.x * 0.5 + 0.5) * 0.4 + vec3(banded * 0.1);
   return vec4(clamp(rgb + vec3(edge), vec3(0.), vec3(1.)), rgba8.w);
-}
+});

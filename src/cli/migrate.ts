@@ -211,6 +211,23 @@ export function migrateSource(text: string, fileName = 'a.shade.ts'): MigrateRes
       edits.push({ start: m.name.getEnd(), end: m.name.getEnd(), text: '!' });
   };
   const visitClasses = (n: ts.Node): void => {
+    // A mixin's class expression, `return class extends Base { tint: vec3; }`, has no
+    // attribute; its fields take `!` as a declared class's do.
+    if (ts.isClassExpression(n)) {
+      for (const m of n.members) {
+        if (
+          ts.isPropertyDeclaration(m) &&
+          !(m.modifiers ?? []).some((x) => x.kind === ts.SyntaxKind.StaticKeyword) &&
+          m.initializer === undefined &&
+          m.questionToken === undefined &&
+          m.exclamationToken === undefined &&
+          m.type !== undefined
+        ) {
+          definite(m);
+          changes++;
+        }
+      }
+    }
     if (ts.isClassDeclaration(n) && n.name) {
       const decorated = n.members.some(
         (m) => ts.isPropertyDeclaration(m) && decoratorsOf(m).length > 0,

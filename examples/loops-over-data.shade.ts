@@ -22,13 +22,13 @@
 // - `fs` weighs three samples with `for (const w of WEIGHTS)`, the loop a TypeScript author
 //   writes over an array: a counted loop over its indices, with the element read each trip.
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-class Color {
-  @location(0) color: vec4;
+interface Color {
+  color: location<0, vec4>;
 }
 
 interface Frame {
@@ -40,12 +40,11 @@ declare const frame: uniform<Frame>;
 
 const WEIGHTS: array<f32, 3> = [0.25, 0.5, 0.25];
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(i32(vi) / 2) * 4. - 1.;
   const y = f32(i32(vi) % 2) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) * 0.5 + vec2(0.5, 0.5) };
-}
+});
 
 /** Accumulates a soft ring along the ray, in as many steps as the host asks for. */
 function march(uv: vec2, steps: i32): f32 {
@@ -94,8 +93,7 @@ function isqrt(x: f32): f32 {
   return r;
 }
 
-@fragment
-export function fs(v: VsOut): Color {
+export const fs = fragment(function fs(v: VsOut): Color {
   const ring = march(v.uv, frame.steps);
   const n = f32(leaves(frame.depth));
   let s = 0.;
@@ -105,4 +103,4 @@ export function fs(v: VsOut): Color {
     k += 1.;
   }
   return { color: vec4(ring, fract(n / 7.), s, 1.) };
-}
+});

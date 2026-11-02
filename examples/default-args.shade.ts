@@ -17,9 +17,9 @@
 // parameter is an expression and would run twice. One shader, both targets, three calls that
 // each omit a different argument.
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
 const WARM: vec3 = vec3(1., 0.72, 0.42);
@@ -37,17 +37,15 @@ function bands(uv: vec2, tint: vec3 = WARM, count: f32 = 6.): vec3 {
   return tint * t;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
   return { pos: vec4(p, 0., 1.), uv: p };
-}
+});
 
-@fragment
-export function fs(v: VsOut): vec4 {
+export const fs = fragment(function fs(v: VsOut): vec4 {
   // Every argument written, one omitted, all the optional ones omitted.
   const cool = bands(v.uv, vec3(0.38, 0.6, 1.), 10.);
   const warm = bands(v.uv);
@@ -55,4 +53,4 @@ export function fs(v: VsOut): vec4 {
   // Annotated for the editor: the ambient lib types vector arithmetic loosely.
   const lit: vec3 = mixed * vignette(v.uv);
   return vec4(grade(lit), 1.);
-}
+});

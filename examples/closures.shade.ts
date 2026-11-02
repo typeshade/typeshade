@@ -17,22 +17,21 @@
 // - a `function` declaration may be called above its statement;
 // - a loop's variable is read like any other, the value of the trip the call is in.
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-class FsOut {
-  @location(0) color: vec4;
+interface FsOut {
+  color: location<0, vec4>;
 }
 
 // Fullscreen triangle, as `rng-method.shade.ts` draws it.
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
-}
+});
 
 /** Paint laid down in dabs: the arrow function in `strokes` writes the brush it belongs to. */
 class Brush {
@@ -49,8 +48,7 @@ class Brush {
   }
 }
 
-@fragment
-export function fs(v: VsOut): FsOut {
+export const fs = fragment(function fs(v: VsOut): FsOut {
   const p = v.uv;
   const width = 0.03;
   let glow = 0.;
@@ -82,4 +80,4 @@ export function fs(v: VsOut): FsOut {
     }
   }
   return { color: vec4(col, 1.) };
-}
+});

@@ -14,16 +14,16 @@
 // repeated head.
 
 class Uniforms {
-  time: f32;
-  resolution: vec2;
-  warp: f32;
+  time!: f32;
+  resolution!: vec2;
+  warp!: f32;
 }
 
 declare const U: uniform<Uniforms>;
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
 // Centred, isotropic screen coordinates: y spans ±1 over the height and x spans
@@ -33,12 +33,11 @@ function screenCoords(uv: vec2, resolution: vec2): vec2 {
   return vec2((uv.x * 2. - 1.) * asp, uv.y * 2. - 1.);
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-}
+});
 
 // An exact integer hash (lowbias32 with xxHash's primes): every target and the CPU oracle
 // agree on every bit of it. `fract(sin(x) * 43758.5453)` did not, since WGSL bounds `sin`
@@ -77,8 +76,7 @@ function fbm(p: vec2): f32 {
     noise(p * 8.2) * 0.0625;
 }
 
-@fragment
-export function fs(vo: VsOut): vec4 {
+export const fs = fragment(function fs(vo: VsOut): vec4 {
   const t = U.time;
   const res = U.resolution;
   const p: vec2 = screenCoords(vo.uv, res) * 1.8;
@@ -98,4 +96,4 @@ export function fs(vo: VsOut): vec4 {
   const b = mix(a, vec3(0.2, 0.5, 0.55), clamp(length(q) * 0.9, 0., 1.));
   const c = mix(b, vec3(0.66, 0.3, 0.2), clamp(smoothstep(0.4, 1., r.y) * 0.6, 0., 1.));
   return vec4(c * (f * 1.4 + 0.35), 1.);
-}
+});

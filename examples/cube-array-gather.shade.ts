@@ -33,16 +33,14 @@ declare const shadow: texture_depth_2d;
 declare const pointShadows: texture_depth_cube_array;
 declare const shadowSmp: sampler_comparison;
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): vec4 {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   return vec4(xs[i], ys[i], 0., 1.);
-}
+});
 
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   const uv: vec2 = fract(p.xy * 0.004);
   const dir: vec3 = normalize(vec3(uv * 2. - 1., 1.));
 
@@ -73,4 +71,4 @@ export function fs(@builtin("position") p: vec4): vec4 {
   // type of `a * b` is a number, and the annotation is what keeps the next line's call typed.
   const shade: vec3 = mix(sky.rgb, dull.rgb, 0.5) * (0.4 + 0.6 * lit * litPoint) + heat.rgb * edge;
   return vec4(shade * clamp(steps / 256., 0.5, 1.), 1.);
-}
+});

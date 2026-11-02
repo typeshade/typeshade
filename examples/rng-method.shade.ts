@@ -20,27 +20,26 @@
 // constructor, in that order, on WGSL and on GLSL ES 3.00, which leaves the order of an
 // operator's operands to the driver (Rule 7.9).
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-class FsOut {
-  @location(0) color: vec4;
+interface FsOut {
+  color: location<0, vec4>;
 }
 
 // Fullscreen triangle, as `private-state.shade.ts` draws it.
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
-}
+});
 
 /** A PCG generator: a linear congruential step, then O'Neill's RXS-M-XS permutation of the
  *  state as the output. */
 class Rng {
-  state: u32;
+  state!: u32;
 
   constructor(seed: u32) {
     this.state = seed;
@@ -56,8 +55,7 @@ class Rng {
   }
 }
 
-@fragment
-export function fs(v: VsOut): FsOut {
+export const fs = fragment(function fs(v: VsOut): FsOut {
   const cell = vec2u(u32((v.uv.x + 1.) * 96.), u32((v.uv.y + 1.) * 96.));
   let rng = new Rng(cell.x * 1973 + cell.y * 9277 + 26699);
   // Three draws in one constructor: three lets ahead of it, first to last.
@@ -67,4 +65,4 @@ export function fs(v: VsOut): FsOut {
   const sparkle = rng.next() > 0.985 ? rng.next() : 0.;
   const base = mix(vec3(0.08, 0.1, 0.16), vec3(0.3, 0.22, 0.35), v.uv.y * 0.5 + 0.5);
   return { color: vec4(base + (grain - vec3(0.5)) * 0.12 + vec3(sparkle), 1.) };
-}
+});

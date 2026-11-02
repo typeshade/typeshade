@@ -17,14 +17,14 @@
 // runs the same program through Tint and a WebGL2 context; a fullscreen triangle shades the
 // sphere by its normal.
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
 class Ray {
-  origin: vec3;
-  dir: vec3;
+  origin!: vec3;
+  dir!: vec3;
   constructor(origin: vec3, dir: vec3) {
     this.origin = origin;
     this.dir = normalize(dir);
@@ -38,7 +38,7 @@ class Ray {
 }
 
 class Sphere {
-  center: vec3;
+  center!: vec3;
   radius: f32 = 1.;
   hit(r: Ray): f32 {
     // Annotated for the editor: the ambient lib types vector arithmetic loosely, and `dot` is
@@ -54,17 +54,15 @@ class Sphere {
   }
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
   return { pos: vec4(p, 0., 1.), uv: p };
-}
+});
 
-@fragment
-export function fs(v: VsOut): vec4 {
+export const fs = fragment(function fs(v: VsOut): vec4 {
   const ray = new Ray(vec3(0., 0., 2.), vec3(v.uv, 0.) + Ray.forward());
   const sphere = new Sphere();
   const t = sphere.hit(ray);
@@ -73,4 +71,4 @@ export function fs(v: VsOut): vec4 {
   }
   const n = normalize(ray.at(t) - sphere.center);
   return vec4(n * 0.5 + vec3(0.5), 1.);
-}
+});

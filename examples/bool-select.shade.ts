@@ -15,22 +15,20 @@
 // comparison as an operator and GLSL ES 3.00 as `lessThan(a, b)` with `mix(f, t, mask)` for the
 // pick; both go through the compile gate, so the two spellings agree about the picture.
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
   return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
-}
+});
 
-@fragment
-export function fs(v: VsOut): vec4 {
+export const fs = fragment(function fs(v: VsOut): vec4 {
   const past = v.uv > vec2(0.5, 0.5);
   const cool = vec3(0.1, 0.3, 0.8);
   const warm = vec3(0.9, 0.5, 0.1);
@@ -45,4 +43,4 @@ export function fs(v: VsOut): vec4 {
     color = color * 0.6;
   }
   return vec4(color, 1.);
-}
+});

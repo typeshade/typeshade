@@ -26,11 +26,10 @@ declare const sums: storage<array<f32>, "read_write">;
 
 let tile: workgroup<array<f32, 64>>;
 
-@compute([64, 1, 1])
-export function reduce(
-  @builtin("global_invocation_id") gid: vec3u,
-  @builtin("local_invocation_id") lid: vec3u,
-  @builtin("workgroup_id") wid: vec3u,
+export const reduce = compute([64, 1, 1], function reduce(
+  gid: builtin<"global_invocation_id", vec3u>,
+  lid: builtin<"local_invocation_id", vec3u>,
+  wid: builtin<"workgroup_id", vec3u>,
 ): void {
   tile[lid.x] = src[gid.x];
   workgroupBarrier();
@@ -43,4 +42,4 @@ export function reduce(
   if (lid.x === 0) {
     sums[wid.x] = tile[0];
   }
-}
+});

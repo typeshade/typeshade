@@ -17,9 +17,9 @@ const MAX_STEPS: i32 = 96;
 const MAX_BOUNCES: i32 = 3;
 const SAMPLES_PER_PIXEL: i32 = 2;
 
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) ndc: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  ndc: location<0, vec2>;
 }
 
 interface Frame {
@@ -31,8 +31,8 @@ interface Frame {
 declare const u: uniform<Frame>;
 
 class Ray {
-  origin: vec3;
-  direction: vec3;
+  origin!: vec3;
+  direction!: vec3;
 
   constructor(origin: vec3, direction: vec3) {
     this.origin = origin;
@@ -45,10 +45,10 @@ class Ray {
 }
 
 class Material {
-  albedo: vec3;
-  metallic: f32;
-  roughness: f32;
-  emission: vec3;
+  albedo!: vec3;
+  metallic!: f32;
+  roughness!: f32;
+  emission!: vec3;
 
   constructor(
     albedo: vec3,
@@ -96,7 +96,7 @@ class Material {
 
 /** Base SDF primitive. Concrete shapes only supply distanceTo(). */
 abstract class SdfShape {
-  material: Material;
+  material!: Material;
 
   constructor(material: Material) {
     this.material = material;
@@ -120,8 +120,8 @@ abstract class SdfShape {
 
 namespace SDF {
   export class SdfSphere extends SdfShape {
-    center: vec3;
-    radius: f32;
+    center!: vec3;
+    radius!: f32;
 
     constructor(
       center: vec3,
@@ -139,8 +139,8 @@ namespace SDF {
   }
 
   export class SdfBox extends SdfShape {
-    center: vec3;
-    halfSize: vec3;
+    center!: vec3;
+    halfSize!: vec3;
 
     constructor(
       center: vec3,
@@ -164,9 +164,9 @@ namespace SDF {
   }
 
   export class SdfTorus extends SdfShape {
-    center: vec3;
-    majorRadius: f32;
-    minorRadius: f32;
+    center!: vec3;
+    majorRadius!: f32;
+    minorRadius!: f32;
 
     constructor(
       center: vec3,
@@ -188,7 +188,7 @@ namespace SDF {
   }
 
   export class SdfPlane extends SdfShape {
-    height: f32;
+    height!: f32;
 
     constructor(
       height: f32,
@@ -207,8 +207,8 @@ namespace SDF {
 }
 
 class Hit {
-  distance: f32;
-  objectIndex: i32;
+  distance!: f32;
+  objectIndex!: i32;
 
   constructor(distance: f32, objectIndex: i32) {
     this.distance = distance;
@@ -221,9 +221,9 @@ class Hit {
 }
 
 class PointLight {
-  position: vec3;
-  color: vec3;
-  intensity: f32;
+  position!: vec3;
+  color!: vec3;
+  intensity!: f32;
 
   constructor(
     position: vec3,
@@ -243,9 +243,9 @@ class PointLight {
 }
 
 class Camera {
-  position: vec3;
-  lookAt: vec3;
-  fov: f32;
+  position!: vec3;
+  lookAt!: vec3;
+  fov!: f32;
 
   constructor(
     position: vec3,
@@ -274,11 +274,11 @@ class Camera {
 }
 
 class Scene {
-  redSphere: SDF.SdfSphere;
-  blueBox: SDF.SdfBox;
-  goldTorus: SDF.SdfTorus;
-  ground: SDF.SdfPlane;
-  light: PointLight;
+  redSphere!: SDF.SdfSphere;
+  blueBox!: SDF.SdfBox;
+  goldTorus!: SDF.SdfTorus;
+  ground!: SDF.SdfPlane;
+  light!: PointLight;
 
   constructor() {
     this.redSphere = new SDF.SdfSphere(
@@ -427,7 +427,7 @@ class Scene {
 }
 
 class Renderer {
-  scene: Scene;
+  scene!: Scene;
 
   constructor(scene: Scene) {
     this.scene = scene;
@@ -579,7 +579,7 @@ function renderSample(
   frame: f32,
   sample: i32,
 ): vec3 {
-  // Use a user-defined NDC varying instead of @builtin(position): WGSL fragment position is
+  // Use a user-defined NDC varying instead of `builtin<"position", vec4>`: WGSL fragment position is
   // top-left-origin while GLSL gl_FragCoord is bottom-left-origin. NDC is shared by both targets.
   const pixel = (ndc * 0.5 + vec2(0.5)) * resolution;
   const jitter = pixelJitter(pixel, frame, sample);
@@ -605,8 +605,7 @@ function toneMap(color: vec3): vec3 {
   return pow(mapped, vec3(1. / 2.2));
 }
 
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): VsOut {
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
 
@@ -614,10 +613,9 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
     pos: vec4(x, y, 0., 1.),
     ndc: vec2(x, y),
   };
-}
+});
 
-@fragment
-export function fs(v: VsOut): vec4 {
+export const fs = fragment(function fs(v: VsOut): vec4 {
   const camera = createCamera(u.time);
   const scene = new Scene();
   const renderer = new Renderer(scene);
@@ -636,4 +634,4 @@ export function fs(v: VsOut): vec4 {
 
   color = toneMap(color / f32(SAMPLES_PER_PIXEL));
   return vec4(color, 1.);
-}
+});
