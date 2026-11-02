@@ -87,6 +87,28 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
 }`,
     'This loop runs on the CPU because line 4 writes "b[idx[i]]", an element two iterations can share. Write at an index made from "i".',
   ],
+  // #983: a counter that stands alone in a sum with a value the loop does not change is a write
+  // at `1*i + c` and runs on the GPU. A counter divided first, or added to a value each
+  // iteration declares, still reaches an element twice.
+  [
+    'R3, a counter divided before it is added to a value the loop does not change',
+    `export function keep(tape: array<f32>, block: array<f32>, at: u32) {
+  for (let n: u32 = 0; n < block.length; n++) {
+    tape[at + n / 2] = block[n];
+  }
+}`,
+    'This loop runs on the CPU because line 4 writes "tape[at + n / 2]", an element two iterations can share. Write at an index made from "n".',
+  ],
+  [
+    'R3, a counter added to a value each iteration declares',
+    `export function keep(tape: array<f32>, block: array<f32>) {
+  for (let n: u32 = 0; n < block.length; n++) {
+    const off = block.length - n;
+    tape[off + n] = block[n];
+  }
+}`,
+    'This loop runs on the CPU because line 5 writes "tape[off + n]", an element two iterations can share. Write at an index made from "n".',
+  ],
   [
     'R4, a read of what another iteration writes',
     `export function prefix(out: array<f32>) {
@@ -848,6 +870,91 @@ describe('a row-major write needs one width for the whole loop (#398)', () => {
       expect(edited(body), body).toEqual([]);
       expect(gpuLoops(body), body).toBe(1);
     }
+  });
+});
+
+describe('a write at the counter added to a value the loop does not change runs on the GPU (#983)', () => {
+  // Rule 8.22, R3: a write at `a*i + c`, with `a` and `c` the same in every iteration, lands on
+  // a different element in each. The proof read the coefficient of the counter from a product, so
+  // a counter that stood alone in the sum (`at + n`) had none, and TS8070 told the author to
+  // "write at an index made from n", which the author had written. `n * 1 + at` was accepted.
+  const keep = (
+    index: string,
+  ): string => `export function keep(tape: array<f32>, block: array<f32>, at: u32): void {
+  for (let n: u32 = 0; n < block.length; n++) {
+    tape[${index}] = block[n];
+  }
+}`;
+
+  /** The plan of the GPU loops, as the plugin writes it into the generated module. */
+  const gpu = (body: string) => {
+    const face = hostFace(module(body), { fileName: '/app/m.shade.ts' });
+    const kernel = face.exports?.find((e) => e.kind === 'kernel');
+    return kernel?.kind === 'kernel' ? kernel.face.gpu : undefined;
+  };
+
+  /** Each index as the author writes it, the same index in plain JavaScript, and the store as
+   *  the WGSL writes it (the uniform `keep_args` holds `at`). */
+  const FORMS: readonly (readonly [string, (n: number, at: number) => number, string])[] = [
+    ['at + n', (n, at) => at + n, 'tape[(keep_args.at + n)] = block[n];'],
+    ['n + at', (n, at) => n + at, 'tape[(n + keep_args.at)] = block[n];'],
+    ['at + n * 2', (n, at) => at + n * 2, 'tape[(keep_args.at + (n * 2u))] = block[n];'],
+    ['n * 2 + at', (n, at) => n * 2 + at, 'tape[((n * 2u) + keep_args.at)] = block[n];'],
+    ['n * 1 + at', (n, at) => n * 1 + at, 'tape[(n + keep_args.at)] = block[n];'],
+    ['at + 7 + n', (n, at) => at + 7 + n, 'tape[((keep_args.at + 7u) + n)] = block[n];'],
+  ];
+
+  it('runs the loop of the issue on the GPU: no TS8070 in the compiler, none in the editor', () => {
+    const issue = `export function keep(tape: array<f32>, block: array<f32>, at: u32): void {
+  for (let n: u32 = 0; n < block.length; n++) tape[at + n] = block[n];
+}`;
+    expect(compiled(issue)).toEqual([]);
+    expect(edited(issue)).toEqual([]);
+    expect(gpu(issue)?.loops).toHaveLength(1);
+  });
+
+  it.each(FORMS)(
+    'runs the write at tape[%s] on the GPU, in both halves',
+    (index, _plain, store) => {
+      const body = keep(index);
+      expect(compiled(body), index).toEqual([]);
+      expect(edited(body), index).toEqual([]);
+      expect(gpu(body)?.loops, index).toHaveLength(1);
+      expect(gpu(body)?.wgsl, index).toContain(`@compute @workgroup_size(64)\nfn keep_loop0(`);
+      expect(gpu(body)?.wgsl, index).toContain(store);
+    },
+  );
+
+  it('plans the bare counter as it plans `n * 1 + at`, the workaround the author wrote', () => {
+    const workaround = gpu(keep('n * 1 + at'))?.loops;
+    expect(workaround).toHaveLength(1);
+    for (const index of ['at + n', 'n + at'])
+      expect(gpu(keep(index))?.loops, index).toEqual(workaround);
+  });
+
+  it.each(FORMS)('writes tape[%s] on the CPU oracle as a plain loop does', (index, plain) => {
+    const r = compile(module(keep(index)), { fileName: 'm.shade.ts' });
+    expect(r.diagnostics).toEqual([]);
+    const cpu = compileModule(r.module, { precision: 'f32' });
+    const block = [1, 2, 3, 4, 5];
+    const tape = new Array<number>(24).fill(0);
+    cpu.fns.keep!(tape as never, block as never, 3 as never);
+    const want = new Array<number>(24).fill(0);
+    for (let n = 0; n < block.length; n++) want[plain(n, 3)] = block[n]!;
+    expect(tape).toEqual(want);
+    expect(tape.filter((x) => x !== 0)).toHaveLength(block.length);
+  });
+
+  it('runs an i32 counter under a cast on the GPU too, in both halves', () => {
+    const body = `export function keep(tape: array<f32>, block: array<f32>, at: u32): void {
+  for (let k: i32 = 0; k < i32(block.length); k++) {
+    tape[at + u32(k)] = block[u32(k)];
+  }
+}`;
+    expect(compiled(body)).toEqual([]);
+    expect(edited(body)).toEqual([]);
+    expect(gpu(body)?.loops).toHaveLength(1);
+    expect(gpu(body)?.wgsl).toContain('tape[(keep_args.at + u32(k))] = block[u32(k)];');
   });
 });
 
