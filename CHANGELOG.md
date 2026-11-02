@@ -42,6 +42,14 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **A constant argument reaches a function under a numerical contract** (#850 N5; Rule 11.22).
+  At `-O2`, a call that passes a scalar literal to a function opted in with `numerics(...)` calls
+  a copy of it with the literal in place, so `finite-math` folds what the literal decides:
+  `tick(b, x, 0., 0.)` on a `tick` that returns `mix(base, x, curl) + spread * hash(base.xy)`
+  becomes a copy that returns `base`. Calls with the same literals share a copy, and the original
+  is dropped once no call reaches it. An exact function is never copied, so the default output
+  does not change, and no golden moved.
+
 - **The design rules say what TypeShade borrows (change 0100).** `docs/language-design.md`
   now defines a `"use typeshade"` program by its own rules: a form borrowed from ECMAScript keeps
   ECMAScript's meaning, a form borrowed from WGSL keeps WGSL's, and a rule records each
