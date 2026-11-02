@@ -70,6 +70,8 @@ import { functionParams } from './function-types.js';
 import { captureArguments } from './local-functions.js';
 import {
   accessorFnName,
+  buildsCallerClass,
+  callerClassForm,
   emittedMemberName,
   isPrivateName,
   isStaticMember,
@@ -239,6 +241,48 @@ const refusedMember = (name: string, member: string, scope: LoweringScope): bool
   [name, ...scope.ancestorsOf(name)].some((c) =>
     scope.declarationRefused(methodFnName(c, emittedMemberName(member))),
   );
+
+/**
+ * The refusal of a call of a static through an `abstract` class when the static builds its value
+ * with `new this()` under the `this` parameter of 0020: `this` is the class the call names, and an
+ * abstract class has no instance to build, as TypeScript says of the call (TS2684). The static is
+ * lowered for each class that extends the abstract one and for none else (`collectClassFunctions`),
+ * so the call is the place to say it, and the sentence offers the first class that extends it
+ * (Rule 12.1). Undefined for any other call.
+ */
+function abstractBuilderSentence(
+  owner: string,
+  member: string,
+  scope: LoweringScope,
+): string | undefined {
+  if (!scope.isAbstractStruct(owner)) return undefined;
+  const classes = scope.classOrigins();
+  // The nearest class that writes a static of this name is the one the call reaches.
+  for (const c of [owner, ...scope.ancestorsOf(owner)]) {
+    const struct = classes.find((s) => s.decl.name === c);
+    const written =
+      struct === undefined
+        ? undefined
+        : memberFunctionsOf(struct).find(
+            (m) =>
+              isStaticMember(m) &&
+              accessorHalf(m) === undefined &&
+              writtenMemberName(m.name) === member,
+          );
+    if (written === undefined) continue;
+    if (!buildsCallerClass(written)) return undefined;
+    const shown = classOfStruct(owner).written;
+    const through = classes.find(
+      (s) => !s.abstract && s.binding === undefined && scope.extendsStruct(s.decl.name, owner),
+    );
+    return (
+      `"${shown}.${member}()" builds its value with "new this()", and "${shown}" is abstract, so ` +
+      `there is no instance of it to build. Call it through a class that extends it` +
+      (through === undefined ? '.' : `, "${classOfStruct(through.decl.name).written}.${member}()".`)
+    );
+  }
+  return undefined;
+}
 
 function pushDiag(
   diagnostics: TsCompilerDiagnostic[],
@@ -1000,37 +1044,6 @@ function methodSignature(
   return method.type === undefined ? { params, ret, infers: true } : { params, ret };
 }
 
-/**
- * The `this` parameter of a static that says it returns the class the call names (0020):
- * `static unit<C extends Disc>(this: { new (): C; … }): C`. The parameter is typed by an object
- * type with a construct signature that returns one of the method's own type parameters, and the
- * method returns that type parameter. Anything else is not this form, and is read as written.
- */
-export function callerClassForm(
-  method: MemberFunction,
-): { readonly thisParam: ts.ParameterDeclaration; readonly typeParam: string } | undefined {
-  const first = method.parameters[0];
-  if (first === undefined || !ts.isIdentifier(first.name) || first.name.text !== 'this') {
-    return undefined;
-  }
-  const t = first.type;
-  if (t === undefined || !ts.isTypeLiteralNode(t)) return undefined;
-  const ctor = t.members.find(ts.isConstructSignatureDeclaration);
-  const built = ctor?.type;
-  if (built === undefined || !ts.isTypeReferenceNode(built) || !ts.isIdentifier(built.typeName)) {
-    return undefined;
-  }
-  const name = built.typeName.text;
-  const own = (method as ts.MethodDeclaration).typeParameters?.some((p) => p.name.text === name);
-  const ret = method.type;
-  const returnsIt =
-    ret !== undefined &&
-    ts.isTypeReferenceNode(ret) &&
-    ts.isIdentifier(ret.typeName) &&
-    ret.typeName.text === name;
-  return own === true && returnsIt ? { thisParam: first, typeParam: name } : undefined;
-}
-
 /** The refusal of a static declared to return the class that declares it, which builds its value
  *  with `new this()` and which the class `caller` inherits (0020), with the form to write. The
  *  classes are named as the author writes them, and their types spelled so (Rule 12.7): `Slot`
@@ -1201,8 +1214,12 @@ export function collectClassFunctions(
       struct.binding !== undefined ? effective.bodies.filter((b) => !b.isStatic) : effective.bodies;
     // An abstract class is a base and never a value, so it contributes no instance method and
     // no constructor of its own; its bodies are lowered into each concrete class below. Its
-    // statics are functions like any other and are kept.
-    return struct.abstract ? own.filter((b) => b.isStatic) : own;
+    // statics are functions like any other and are kept, but for one that builds its value with
+    // `new this()` under the `this` parameter of 0020: `this` is the class the call names, and
+    // an abstract class has no instance to build, so that body is lowered for each concrete
+    // class that extends it, and a call through the abstract class is refused where it is
+    // written (`abstractBuilderSentence`).
+    return struct.abstract ? own.filter((b) => b.isStatic && !buildsCallerClass(b.node)) : own;
   };
   const mutatingOf = mutatingBodiesOfAll(
     structs.map((s) => ({ name: s.decl.name, bodies: bodiesOf(s) })),
@@ -2031,6 +2048,13 @@ export function lowerClassCall(
       // of either adds nothing (Rule 12.4).
       if (scope.isWithheld(name, emittedMemberName(member))) return undefined;
       if (refusedMember(name, member, scope)) return undefined;
+      // A static an abstract class writes that builds its value with `new this()` has no function
+      // of that class, and the call that names the class is where it is refused.
+      const builder = abstractBuilderSentence(name, member, scope);
+      if (builder !== undefined) {
+        pushDiag(diagnostics, sourceFile, node, builder);
+        return undefined;
+      }
       pushDiag(
         diagnostics,
         sourceFile,

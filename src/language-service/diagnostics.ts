@@ -1572,6 +1572,13 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     reason: 'A `new` on an `abstract` class.',
   },
   {
+    typescript: 2684,
+    typeshade: new Set(['TS8035']),
+    reason:
+      'A static that builds its value with `new this()` (change 0020), called through an ' +
+      '`abstract` class, whose constructor type is not the one its `this` parameter takes.',
+  },
+  {
     typescript: 2588,
     typeshade: new Set(['TS8005']),
     reason: 'A write to a `const` local or a read-only resource.',
