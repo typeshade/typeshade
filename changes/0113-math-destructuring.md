@@ -1,7 +1,7 @@
 ---
 id: '0113'
 title: An author binds Math members to short names with a const, `const { sqrt, PI } = Math`, as TypeScript writes it
-status: draft
+status: accepted
 rules:
   - '6.3'
   - '9.4'
@@ -26,7 +26,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                 |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0113, `status: draft`. The front matter is the identity and lifecycle authority. No implementation exists.                                                                                                                                                                                                                                    |
+| Identity and status           | Proposal 0113, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02; see Approval and plan record. No implementation exists.                                                                                                                                                    |
 | Date and attribution          | Authored 2026-11-02, UTC, by a Claude Code agent. This is the authorship date, not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                             |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean. The owner asked whether an author should always have to write `Math.` for math that is almost all of a shader ("항상 Math 라는걸 쓰도록 유도하는 것도 고민됩니다"), and then approved drafting this proposal ("승인").                                                         |
 | Applicability / effectivity   | `docs/language-design.md` (Rules 6.3, 9.4 and 9.5), `docs/use-typeshade-surface.md` (§12 and §14), `reqs/` (the items of those rules), the front end (`src/compiler/ts/`), the language service (`src/language-service/`), and their tests. No IR node, backend, CPU tier, export, diagnostic code or example changes. No release version is assigned. |
@@ -218,7 +218,8 @@ names the builtin and how to reach it.
 
 - 2026-11-02, the owner (Seungup), in a Claude Code session, in Korean ("승인"): O1 and O2 decided
   as proposed. O3 stays out of scope.
-- Acceptance requires the merge of this proposal with `status: accepted`.
+- 2026-11-02, the owner, in the same session ("머지 승인"): the proposal is accepted. The merge of
+  this file with `status: accepted` records the decision.
 
 ### Configuration and validation record
 
