@@ -75,6 +75,14 @@
 // change 0054 and holds every storage word to the executor's CPU model; it has its own
 // instruments, below its header.
 //
+// THE COMMON-MODULE ARM. `common-modules-arm.ts` calls every function of `typeshade/algorithms`
+// and `typeshade/random` through its baked host face, on WebGPU and on WebGL2 (change 0072).
+//
+// THE CLASS ARM. `class-arm.ts` writes a twin module for each exported class of the examples and
+// of `journeys/class-twins/`, and holds each member a host could call, as an entry's local and as
+// a kernel function's element, to the oracle's `C_new` and member function on WebGPU, WebGL2,
+// the CPU tier and the oracle (change 0110); it has its own instruments, below its header.
+//
 // WHY IT CANNOT BE VACUOUSLY GREEN (AGENTS.md#gate-discipline):
 //
 //   1. WebGPU and WebGL2 must be reachable: no adapter, device or context fails the gate.
@@ -203,6 +211,7 @@ import { compile, emitGlslModule, emitModule } from '../src/index.js';
 import { createTypeshadeLanguageService } from '../src/language-service/service.js';
 import { computeArm } from './gl-compute-arm.js';
 import { commonModulesArm } from './common-modules-arm.js';
+import { classArm } from './class-arm.js';
 import type { ShaderType, StructDecl } from '../src/index.js';
 
 const SEEDS = Number(process.env['TYPESHADE_DIFF_SEEDS'] ?? 48);
@@ -2864,9 +2873,10 @@ async function chainArm(page: Page): Promise<number> {
 
 async function main(): Promise<number> {
   const browserSettings = gateBrowserSettings(process.env);
-  // `TYPESHADE_DIFF_ARMS=kernel,chain,glsl,compute,common` runs a subset; every arm by default.
+  // `TYPESHADE_DIFF_ARMS=kernel,chain,glsl,compute,common,class` runs a subset; every arm by
+  // default.
   const arms = new Set(
-    (process.env['TYPESHADE_DIFF_ARMS'] ?? 'kernel,chain,glsl,compute,common').split(','),
+    (process.env['TYPESHADE_DIFF_ARMS'] ?? 'kernel,chain,glsl,compute,common,class').split(','),
   );
   const server = await serve();
   const port = (server.address() as AddressInfo).port;
@@ -2879,8 +2889,8 @@ async function main(): Promise<number> {
   try {
     const url = `http://127.0.0.1:${String(port)}/`;
     await verifyGateGpu(browser, url, browserSettings, {
-      webgpu: arms.has('kernel') || arms.has('chain') || arms.has('common'),
-      webgl: arms.has('glsl') || arms.has('compute') || arms.has('common'),
+      webgpu: arms.has('kernel') || arms.has('chain') || arms.has('common') || arms.has('class'),
+      webgl: arms.has('glsl') || arms.has('compute') || arms.has('common') || arms.has('class'),
     });
     const page = await browser.newPage();
     await page.goto(url);
@@ -2891,6 +2901,10 @@ async function main(): Promise<number> {
     // The common modules (change 0072, Rule 11.20): every function of `typeshade/algorithms` and
     // `typeshade/random` through its baked host face, on WebGPU and on WebGL2, against the oracle.
     if (arms.has('common')) failures += await commonModulesArm(page);
+    // The classes (change 0110): each member a host could call of every exported class of the
+    // examples and of `journeys/class-twins/`, through a twin module, on every tier and on the
+    // oracle.
+    if (arms.has('class')) failures += await classArm(page);
   } catch (error) {
     primaryFailed = true;
     throw error;

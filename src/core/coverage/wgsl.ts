@@ -3404,10 +3404,11 @@ export const WGSL_ROWS: readonly Row[] = [
     kind: 'WGSL language extension',
     name: '`swizzle_assignment`',
     covers: ['wgsl:languageExtensions:swizzle_assignment'],
-    evidence: 'src/compiler/ts/lower/statement.ts:2042-2051; src/compiler/ts/codes.ts:52',
-    note: 'WebGPU and WebGL2 both allow a swizzle assignment',
-    webgpu: gap(9, 'TS8018 refuses v.xy = …; WGSL at the pinned commit allows it', 640),
-    webgl2: gap(9, 'GLSL ES 3.00 allows v.xy = … natively; the front end refuses it (TS8018)', 640),
+    evidence:
+      'src/compiler/ts/lower/statement.ts (splitSwizzleWrite); changes/0106-swizzle-assignment.md',
+    note: 'v.xy = … and v.xy op= … lower to a let and one write per component (change 0106), so the extension is not required',
+    webgpu: typed('src/compiler/ts/swizzle-assign.test.ts'),
+    webgl2: typed('src/compiler/ts/swizzle-assign.test.ts'),
   },
   {
     table: 'B',

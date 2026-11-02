@@ -327,31 +327,34 @@ describe('the CPU oracle evaluates the same writes', () => {
 });
 
 describe('rejections', () => {
-  it('rejects a swizzle naming more than one component, as WGSL does', () => {
+  it('rejects a swizzle that names a component twice (change 0106)', () => {
     const src = `
       export function f(a: f32): vec3 {
         let v = vec3(0.);
-        v.xy = vec2(a, a);
+        v.xx = vec2(a, a);
         return v;
       }
     `;
     expect(diagnose(src)).toBe(
-      'Cannot assign to the swizzle ".xy" — WGSL writes one component at a time. ' +
-        'Assign each component (e.g. v.x = …; v.y = …), or build a whole vec3 and assign that.',
+      'Cannot assign to the swizzle ".xx" — it names ".x" twice, so two writes would land on ' +
+        'one component. Name each component once.',
     );
     expect(code(src)).toBe('TS8018');
   });
 
-  it('rejects a multi-component rgba swizzle too', () => {
-    expect(
-      diagnose(`
-        export function f(a: f32): vec4 {
-          let c = vec4(0.);
-          c.rg = vec2(a, a);
-          return c;
-        }
-      `),
-    ).toContain('Cannot assign to the swizzle ".rg"');
+  it('accepts a swizzle of distinct components, xyzw and rgba alike (change 0106)', () => {
+    // Before change 0106 these were TS8018; src/compiler/ts/swizzle-assign.test.ts holds what
+    // they lower to and compute.
+    for (const target of ['v.xy', 'v.zx', 'c.rg', 'c.bar']) {
+      const r = compileTsSource(`"use typeshade";
+export function f(a: f32): vec4 {
+  let v = vec4(0.);
+  let c = vec4(0.);
+  ${target} = ${target.length === 4 ? 'vec2(a, a)' : 'vec3(a, a, a)'};
+  return v + c;
+}`);
+      expect(r.diagnostics, target).toEqual([]);
+    }
   });
 
   it('rejects a write through a parameter', () => {

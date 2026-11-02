@@ -7,7 +7,14 @@ rules:
 surface:
   - 50
   - 77
-exports: []
+exports:
+  - SUBGROUP_FOLDS
+  - SUBGROUP_INTRINSICS
+  - SUBGROUP_LANE_READS
+  - FixedTypeBuiltinName
+  - WGSL_BUILTIN_TYPES
+  - WgslBuiltinName
+  - builtin
 exports-removed: []
 codes: []
 examples:
@@ -254,6 +261,13 @@ decision concrete:
   generated declarations and docs strings, `CHANGELOG.md`.
 - Codes: none. A misuse is `TS8003` (a wrong argument type), `TS8019` (arity) or the uniformity
   refusal's existing code.
+- Exports (amendment of 2026-11-02, before the implementation is merged; the accepted text
+  declared none): three new, `SUBGROUP_INTRINSICS`, `SUBGROUP_FOLDS` and `SUBGROUP_LANE_READS`
+  in `src/core/intrinsics.ts`, the family's id sets beside `PACKED_4X8_IDS` and
+  `TEXTURE_GATHER_IDS`, which the determinism pass, the GLSL lowering and the front end read;
+  and four reshaped, `WgslBuiltinName`, `FixedTypeBuiltinName`, `WGSL_BUILTIN_TYPES` and
+  `builtin` in `src/core/sot.ts`, which gain `subgroup_id` and `num_subgroups` as they gained
+  `subgroup_invocation_id` and `subgroup_size`. Nothing is removed.
 
 ### Draft impact estimate
 

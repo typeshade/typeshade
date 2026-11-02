@@ -453,7 +453,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | an access word outside `"read"` and `"read_write"` | `TS8002`. `storage<T, Access> Access is "read" or "read_write"; got "write". A storage BUFFER has no write-only mode; that is a storage texture's, texture_storage_2d<Format, "write">.` Collected as `read_write` (§1); TS2344 in the editor |
 | a second type argument on a `uniform<T>` | `TS8002`. `uniform<T> takes one type argument. A uniform buffer is read-only, so it has no access mode to write.` TS2314 in the editor |
 | the retired `{ access }` option on the call form | `TS8099`, naming the type-argument spelling to write (§1). Reported and ignored: the mode comes from the type argument |
-| assign to a read resource: a `uniform<T>`, or a `storage<T>` with no `"read_write"` | `TS8005`, whose sentence names the `storage<T, "read_write">` line to write when the target is a storage binding, the compiler READ its declared type (a recovered type names no line: the line would drop what it could not read) and the target is a place on some mode (`md[0]` on an `f64` matrix, `src.length`, an emulated-double lane `dv[0].x` and a multi-component swizzle `v.xy` are each the same refusal on either mode, and name no line). TS2542 on an index and TS2540 on a field in the editor, before `compile()` is called (§1) |
+| assign to a read resource: a `uniform<T>`, or a `storage<T>` with no `"read_write"` | `TS8005`, whose sentence names the `storage<T, "read_write">` line to write when the target is a storage binding, the compiler READ its declared type (a recovered type names no line: the line would drop what it could not read) and the target is a place on some mode (`md[0]` on an `f64` matrix, `src.length`, an emulated-double lane `dv[0].x` and a swizzle that repeats a component `v.xx` are each the same refusal on either mode, and name no line). TS2542 on an index and TS2540 on a field in the editor, before `compile()` is called (§1) |
 | two resources share `@binding` | name both |
 | a decorator on a declaration: a binding, an override, a `const` or `let` at any depth, an enum, an interface, a type alias, a namespace, a function declared in another function's body, or a `static` field | `TS8028`, one per decorator, saying what it is: `@group` and `@binding` are WGSL's and not applied, since `reflect()` reports the group and slot each binding gets (§1); `@id` is not applied, since the host sets an override by its name; `@size` and `@align` are named as a struct field's (§51); an attribute the compiler reads elsewhere by what it marks (`"@fragment" does not apply to a local function: it marks an entry function. Remove it.`); a name WGSL does not have either is `Unknown attribute`. The editor shows this sentence alone, without TypeScript's TS1206, or its TS2304 on a name the ambient library does not declare |
 | `@size` on a function, a parameter or a class, `@align` on a function or a parameter | `TS8028`, `"@align" is WGSL's attribute for a struct field, not a function. Remove it.` On a field, and `@align` on a class, they keep their own sentences (§51) |
@@ -550,9 +550,18 @@ emitted as `p = 1.0;`, which Tint refuses; it is `TS8018` now, naming the local 
 through: it names the caller's place, so `p = 1.` and `p.x = 1.` write the variable the caller
 passed (§70).
 
-A swizzle target names exactly **one** component. `v.xy = …` and `c.rg = …` are rejected
-(`TS8018`), which is what WGSL does: assign each component, or build the whole vector and
-assign that. `v.r` `v.g` `v.b` `v.a` are components like `v.x` … `v.w` and are writable.
+A swizzle target of `=` and of every compound `op=` may name **two to four distinct**
+components (change 0106): `v.xy = r`, `p.zx += r`, `c.rgb *= s`. The right-hand side has the
+swizzle's type, or is a scalar where the operator has a vector-scalar overload. Every old
+component the operation reads is read before any is written, so `d.xy *= d.yx` with
+`d = vec2(2., 3.)` gives `vec2(6., 6.)`, and `e.yx *= vec2(0.5, 2.)` with `e = vec2(2., 3.)`
+gives `vec2(4., 1.5)`. A non-constant index of the target (`ps[next()].xy += r`) is read once,
+before the right-hand side. The emitted code is a `let` of the result and one write per
+component, on WGSL and on GLSL ES 3.00 alike, so no `swizzle_assignment` extension is needed.
+A swizzle that names a component twice (`v.xx = …`) is rejected with `TS8018`, which names the
+repeated component. A swizzle as an `@inout` or `@out` argument, `++` and `--` still take one
+component, and a lane of an emulated-double vector is no place (§39). `v.r` `v.g` `v.b` `v.a`
+are components like `v.x` … `v.w`.
 
 `++` and `--` step a **numeric scalar**: `f32`, `i32`, `u32` and `f64`. On a member or element
 target they lower to the compound form (`ps[i].a += 1.`), so the target is written once instead
@@ -2605,6 +2614,26 @@ declaration undefined where WGSL zeroes it, and a field the body never assigns h
 same on both. A struct with a matrix field falls back to the bare `var self_: M;` (the zero of a
 matrix is not spelled yet), which is WGSL's zero and GLSL's undefined value, as any local
 declared without an initializer is today.
+
+**A class means one thing wherever it stands** (Rule 8.29, change 0110). A class is its struct
+and its functions. What holds for a struct holds for the class's fields, and what holds for a
+function holds for its constructor, its methods, its accessors and its static functions. That is
+true in every place a struct or a function can be: a binding, a local, a workgroup variable, a
+kernel function's array, a `Resident`, the host face, the CPU tier, the oracle, the host view,
+reflection and a package. `new Ray(a, b)` is a call of `Ray_new` wherever you write it. A method
+that changes its object writes the object you call it on, as an `@inout` argument writes its
+place (§70), so `voices[v].tick()` in a kernel function's loop writes `voices` at `v` (§65).
+Where a host may call a function (§64), the same conditions decide for a method, and a method
+that fails one has the reason a function would have. The rule claims no more than that: a method
+that reaches a binding, a workgroup variable or a builtin only a GPU computes has no host call, a
+host call of a method runs on the CPU tier and never dispatches, and a read of a `Resident` is
+asynchronous. The class arm of `bun run gate:differential` holds the rule. For each exported class
+of the examples and of `journeys/class-twins/` it writes a twin module that builds the class with
+`new` and calls each member a host could call, in an entry and in a kernel function's loop, and it
+calls the member on the host class too (§64). Every result and every field after the call must be
+the oracle's bits on WebGPU, on WebGL2, on the CPU tier and on the host, or within the room a row
+of the determinism report leaves (§38). A member the host may not call must be refused by the host
+class with the same reason.
 
 **A method that reads its object reads it in place** (Rule 8.28, change 0103). When the object
 is a place (a `let` local, on WGSL any struct or array local (change 0105), a module variable, a uniform, a storage element, or a field or an
@@ -7345,6 +7374,7 @@ entry runs on takes the limits and features that `configure({ limits, features }
 
 export const EPS: f32 = 0.001;
 
+/** The height of the terrain at `p`, from the four wave constants `k`. */
 export function height(p: vec2, k: vec4): f32 {
   return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
 }
@@ -7451,16 +7481,39 @@ bundle reads the source, through the plugin:
 // Generated by typeshade from terrain.shade.ts. Do not edit; `tshc sync` rewrites it.
 
 export declare const EPS: number;
+/** The height of the terrain at `p`, from the four wave constants `k`. */
 export declare function height(p: readonly [number, number], k: readonly [number, number, number, number]): number;
 export declare function normal(p: readonly [number, number], k: readonly [number, number, number, number]): [number, number, number];
 /** A full-screen `@fragment` entry: draws one frame into `target`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24). */
 export declare function fs(target: HTMLCanvasElement | OffscreenCanvas, bindings: {}): Promise<void>;
 ```
 
+**The author's comments** (change 0108). The view carries the JSDoc the author wrote. Each block
+(`/** … */`) above an exported declaration is copied into the view, as written and in source order,
+above the export. This holds for a function, a constant, a class, an `interface` or a `type` and each
+of its fields, an `enum` and each of its members, a `@compute` entry, a kernel function, a
+full-screen `@fragment` entry and an export that is `never`. What the module re-exports from a
+shader file it imports (§68) carries the comment of the file that declares it. A `//` comment, a
+`/* */` comment and a comment inside a body are not copied. The comment of a constructor, a method
+or an accessor of a class is not copied either. The tags are copied and are not checked.
+
+Where the view writes a sentence of its own, that sentence stands at the end of the last block, after
+one empty comment line. The editor shows the last block of a declaration, so a hover shows the
+author's words first and the contract second. An export with no JSDoc has the sentence alone. A
+class stands over several lines, so the comment of a field is on the line of the field. An
+`interface`, a `type` and an `enum` stand on one line, and over several lines when one of their
+fields or members has a comment. A field that an `interface`, or a class whose base is not exported
+as a class, takes from its base carries the comment of the base's field, as TypeScript's hover
+shows it.
+
+The sentence of a kernel function and of a `@compute` entry also says how a call is queued (Rule 11.8,
+§65, §67). A call whose written arrays or bindings are all `Resident`s, and that returns nothing, may
+be made without `await`. The signature that returns `void` is that call.
+
 The plugin rewrites a view when its module changes, in `vite dev` and in `vite build`. On a clean
 checkout `tsc` often runs before Vite (create-vite's `build` script is `tsc && vite build`), so
 `tshc sync` writes every view first; `tshc sync --check` fails on one that is missing or
-stale. The views are generated files, and git-ignored.
+stale. A change to a comment alone makes the view stale. The views are generated files, and git-ignored.
 
 **The default export is the program.** A module's host import has one more export than the module
 writes: its default export is the compiled program's manifest (§69), which the view types as
@@ -7571,9 +7624,11 @@ filters[0].tick(1); // the method, on the CPU tier, with the same math the kerne
 await run(out, xs, filters, 1024); // the instances, taken as the structs they are
 ```
 
-The view declares the class with the host type of each member:
+The view declares the class with the host type of each member, and carries the comment of the
+class (change 0108). The comment of a method is not copied:
 
 ```ts
+/** A one-pole lowpass with its state. */
 export declare class OnePole {
   constructor(k: number);
   z: number;
@@ -7762,6 +7817,10 @@ is selected. A smaller upload is a memory result; complete-call speed requires m
   it adds to is not read (`has`, `get`, `size`);
 - R5: a function it calls writes no module variable and no binding;
 - R6: it has no barrier, no workgroup memory and no `console` call.
+
+A method that changes its object, called on an element of an array parameter, is a write to that
+element at that index, as an `@inout` argument is (Rule 8.29), so `voices[v].tick()` is a write
+at `v`, which R3 admits.
 
 **A loop the proof refuses runs on the CPU**, with a warning, TS8070, on the loop. The program is
 correct either way. The first sentence names the line and your names, and the second the remedy:
@@ -9602,6 +9661,8 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 - F5: the group binds each distinct array of its calls once, and one more for each variable that a reduction at its end folds. A device allows `maxStorageBuffersPerShaderStage` of them to a dispatch: the value in the device's report from `callDevice()` (§65), and 8 where the report has none. The refusal names that value. A scratch array that the entry holds as a local counts for none, and counts for one until the last call that names it has joined.
 - F6: a loop that reduces (§65) can be the last call of a group, and the calls before it run as a prologue of each of its iterations. Nothing joins a group after it. A reduction alone is not fused.
 - F7: the calls of a group run at one workgroup size. A call with `workgroup_size([n], f)` (§65) sets it, and every call of a group that sets one sets the same size. A call with none takes the size of its group, which is 64 when no call sets one. A reduction runs at 256, so a call that sets a size joins it only at 256.
+
+The facts read a method call's accesses through the object it is called on (Rule 8.29), so a chain of methods fuses as the same chain written inline: `voices[i].level()` reads `voices` at `i`, and a call that reads `voices[i + 1].level()` stands apart with `` b reads `voices[i + 1]` ``.
 
 **What stays apart, and how the report says it.** A call that does not join the group before it starts a group of its own, and the `why` of that group says in your names which fact failed. Its words are `a and b run as two dispatches because` and a reason, where `a` is the call that the fact fails against and `b` the call that stands apart. An access is given as the compiler words it for `TS8070` (§65): the access as you wrote it, and the one-based line of its statement. These are all the reasons:
 

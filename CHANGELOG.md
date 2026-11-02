@@ -332,6 +332,28 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **The host view carries the author's JSDoc** (proposal 0108; Rules 8.20, 8.21 and 11.8, surface
+  §64). Each JSDoc block above an exported declaration of a shader module is written into the host
+  view, as the author wrote it and in source order: on a function, a constant, an `enum` and each
+  of its members, a class, an `interface` or a `type` and each of its fields, a `@compute` entry, a
+  kernel function, a full-screen `@fragment` entry and an export that is `never`. The comment of a
+  constructor, a method or an accessor of a class is not copied. A re-export of another shader file
+  carries the comment of the file that declares it. The sentence the view writes itself stands at
+  the end of the last block, after one empty comment line, so a hover shows the author's words
+  first. The sentence of a kernel function and of a `@compute` entry also says that a call whose
+  written arrays or bindings are all `Resident`s, and that returns nothing, may be made without
+  `await`. The generated module does not change. The baked views of `typeshade/algorithms` and
+  `typeshade/random` carry the comments of their shader sources.
+- **A swizzle of distinct components is an assignment target** (proposal 0106; Rules 7.1 and
+  7.2, surface §7 and §9). `v.xy = r`, `p.zx += r` and `c.rgb *= s` compile, for `=` and every
+  compound `op=` the vector has. Every old component the operation reads is read into one `let`
+  before any is written, so `d.xy *= d.yx` with `d = vec2(2., 3.)` gives `vec2(6., 6.)`; a
+  non-constant index of the target that reads a place or calls is read once, first. The emitted
+  code is one write per component on WGSL and GLSL ES 3.00, so WGSL's `swizzle_assignment`
+  extension is not needed. A swizzle that names a component twice (`v.xx = …`) stays `TS8018`
+  and names the component; an `@inout` argument, `++`, `--` and an emulated-double lane still
+  take one component. On a read binding `v.xy = …` is now `TS8005`.
+
 - **A `Math` member is bound to a short name with a `const`** (proposal 0113; Rules 6.3, 9.4 and
   9.5, surface §12 and §14). `const { sqrt, sin, PI } = Math`, `const { sqrt: s } = Math` and
   `const s = Math.sqrt` bind each name as an alias of the member, at module scope and in a

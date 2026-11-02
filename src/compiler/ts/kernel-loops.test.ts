@@ -1,6 +1,7 @@
 // Verifies: Rule 8.22 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 8.23 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 8.6 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 8.29 (docs/language-design.md; traced in reqs/).
 //
 // A kernel function (change 0013, part 1): an exported function that takes an array with no
 // size. Its array is the caller's storage, read and written in place, its loops are proved
@@ -718,4 +719,171 @@ describe("the first access that is not at the loop counter, in the author's word
       )?.text,
     ).toBe('a[i - 1]');
   });
+});
+
+describe('a loop that calls a method on an element is proved as the same loop written inline (change 0110, D4)', () => {
+  // A method that changes its object is, at a call, a write to the object it is called on, as an
+  // `@inout` argument is, for the independence proof (proposal 0110). Each form below is written
+  // twice: through a member of `Voice`, and inline, the member's body written into the loop. The
+  // class and the helper are the same lines in both, so the loop is on the same line in both.
+  // Both halves read each program (CLAUDE.md): `compile()` and the language service give the
+  // same diagnostics, and the proof gives the same verdict and the same facts.
+  const CLASS = `class Voice {
+  phase: f32;
+  freq: f32;
+  tick(dt: f32): f32 {
+    this.phase = this.phase + this.freq * dt;
+    return this.phase;
+  }
+  level(): f32 {
+    return this.phase * 0.5;
+  }
+  static mixOf(a: f32, b: f32): f32 {
+    return a * 0.5 + b * 0.5;
+  }
+  bumpBy(d: f32): void {
+    nudge(this.phase, d);
+  }
+}
+function nudge(@inout x: f32, d: f32): void {
+  x = x + d;
+}`;
+  /** The kernel function `f` with `params` and one loop over `count` from `start` whose body is
+   *  `body`, after the class; the loop's body is line 24. */
+  const kernel = (params: string, body: string, count = 'vs.length', start = 0): string =>
+    `${CLASS}\nexport function f(${params}) {\n  for (let i: u32 = ${String(start)}; i < ${count}; i++) {\n    ${body}\n  }\n}`;
+
+  /** What the proof says of the loop: the facts the planner reads, or the rule that refuses it. */
+  const verdict = (body: string): unknown => {
+    const r = compile(module(body), { fileName: 'm.shade.ts' });
+    const [proof] = proveKernels(r.module);
+    const v = proof!.loops[0]!;
+    if (!v.ok) return { refused: v.refusal.rule };
+    // By name: the proof lists what a statement writes in the order it finds it, the target of
+    // `t[i] = vs[i].tick(dt)` before the object of the call, and the planner reads the facts by
+    // parameter.
+    const byName = <T extends { name: string }>(xs: readonly T[]): T[] =>
+      [...xs].sort((x, y) => x.name.localeCompare(y.name));
+    return {
+      reads: byName(v.reads.map(({ name, atI, forms }) => ({ name, atI, forms }))),
+      stores: byName(v.stores.map(({ name, atI, readBack }) => ({ name, atI, readBack }))),
+      reductions: v.reductions.length,
+    };
+  };
+
+  const ACCEPTED: readonly (readonly [string, string, string])[] = [
+    [
+      'a method that changes its object, on an element',
+      kernel('vs: array<Voice>, t: array<f32>, dt: f32', 't[i] = vs[i].tick(dt);'),
+      kernel(
+        'vs: array<Voice>, t: array<f32>, dt: f32',
+        'vs[i].phase = vs[i].phase + vs[i].freq * dt; t[i] = vs[i].phase;',
+      ),
+    ],
+    [
+      'a method that reads its object',
+      kernel('u: array<f32>, vs: array<Voice>', 'u[i] = vs[i].level();'),
+      kernel('u: array<f32>, vs: array<Voice>', 'u[i] = vs[i].phase * 0.5;'),
+    ],
+    [
+      'a static function',
+      kernel(
+        't: array<f32>, a: array<f32>, b: array<f32>',
+        't[i] = Voice.mixOf(a[i], b[i]);',
+        't.length',
+      ),
+      kernel(
+        't: array<f32>, a: array<f32>, b: array<f32>',
+        't[i] = a[i] * 0.5 + b[i] * 0.5;',
+        't.length',
+      ),
+    ],
+    [
+      'a method that hands a field to an @inout parameter',
+      kernel('vs: array<Voice>, d: f32', 'vs[i].bumpBy(d);'),
+      kernel('vs: array<Voice>, d: f32', 'nudge(vs[i].phase, d);'),
+    ],
+  ];
+
+  it.each(ACCEPTED)('%s: accepted with the facts of the inline loop', (_, method, inline) => {
+    for (const body of [method, inline]) {
+      expect(compiled(body)).toEqual([]);
+      expect(edited(body)).toEqual([]);
+    }
+    const facts = verdict(method);
+    expect(facts).not.toHaveProperty('refused');
+    expect(facts).toEqual(verdict(inline));
+  });
+
+  it('reads a changing method on an element as a write at that element, at the counter', () => {
+    // `vs[i].tick(dt)` writes `vs` at `i` and reads it back, as the inline form does.
+    expect(verdict(ACCEPTED[0]![1])).toEqual({
+      reads: [],
+      stores: [
+        { name: 't', atI: true, readBack: false },
+        { name: 'vs', atI: true, readBack: true },
+      ],
+      reductions: 0,
+    });
+  });
+
+  /** Each refusal, through the member and inline: `[name, method, inline, method's words,
+   *  inline's words]`. The proof refuses both on the same line by the same rule; the words name
+   *  what each form writes or reads, the object the method is called on or the field the inline
+   *  form names. */
+  const REFUSED_BOTH: readonly (readonly [string, string, string, string, string])[] = [
+    [
+      'a changing method on an element two iterations share (R3)',
+      kernel('vs: array<Voice>, t: array<f32>, dt: f32', 't[i] = vs[0].tick(dt);', 't.length'),
+      kernel(
+        'vs: array<Voice>, t: array<f32>, dt: f32',
+        'vs[0].phase = vs[0].phase + vs[0].freq * dt; t[i] = vs[0].phase;',
+        't.length',
+      ),
+      'This loop runs on the CPU because line 24 writes "vs[0]", an element two iterations can share. Write at an index made from "i".',
+      'This loop runs on the CPU because line 24 writes "vs[0].phase", an element two iterations can share. Write at an index made from "i".',
+    ],
+    [
+      'a reading method on an element another iteration writes (R4)',
+      kernel(
+        'vs: array<Voice>, u: array<f32>, dt: f32',
+        'vs[i].tick(dt); u[i] = vs[i - 1].level();',
+        'vs.length',
+        1,
+      ),
+      kernel(
+        'vs: array<Voice>, u: array<f32>, dt: f32',
+        'vs[i].phase = vs[i].phase + vs[i].freq * dt; u[i] = vs[i - 1].phase * 0.5;',
+        'vs.length',
+        1,
+      ),
+      'This loop runs on the CPU because line 24 reads "vs[i - 1]", which another iteration writes. Read from an array the loop does not write.',
+      'This loop runs on the CPU because line 24 reads "vs[i - 1].phase", which another iteration writes. Read from an array the loop does not write.',
+    ],
+    [
+      'a static function handed an element another iteration writes (R4)',
+      kernel('t: array<f32>, a: array<f32>', 't[i] = Voice.mixOf(a[i], t[i - 1]);', 't.length', 1),
+      kernel('t: array<f32>, a: array<f32>', 't[i] = a[i] * 0.5 + t[i - 1] * 0.5;', 't.length', 1),
+      'This loop runs on the CPU because line 24 reads "t[i - 1]", which another iteration writes. Read from an array the loop does not write.',
+      'This loop runs on the CPU because line 24 reads "t[i - 1]", which another iteration writes. Read from an array the loop does not write.',
+    ],
+    [
+      'a method that hands a field of a shared element to an @inout parameter (R3)',
+      kernel('vs: array<Voice>, d: f32', 'vs[0].bumpBy(d);'),
+      kernel('vs: array<Voice>, d: f32', 'nudge(vs[0].phase, d);'),
+      'This loop runs on the CPU because line 24 writes "vs[0]", an element two iterations can share. Write at an index made from "i".',
+      'This loop runs on the CPU because line 24 writes "vs[0].phase", an element two iterations can share. Write at an index made from "i".',
+    ],
+  ];
+
+  it.each(REFUSED_BOTH)(
+    '%s: refused as the inline loop is',
+    (_, method, inline, mWords, iWords) => {
+      expect(compiled(method)).toEqual([`warning TS8070 ${mWords}`]);
+      expect(edited(method)).toEqual([`warning TS8070 ${mWords}`]);
+      expect(compiled(inline)).toEqual([`warning TS8070 ${iWords}`]);
+      expect(edited(inline)).toEqual([`warning TS8070 ${iWords}`]);
+      expect(verdict(method)).toEqual(verdict(inline));
+    },
+  );
 });

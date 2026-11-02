@@ -584,11 +584,12 @@ describe('a refusal names no line when it could not make the line good', () => {
       says: ['TS8018 Cannot assign to the lane ".x" of a vec2f64'],
     },
     {
-      what: 'a multi-component swizzle, which WGSL writes one component at a time',
+      // Since change 0106 `v.xy = …` is a place, so only a repeated component is no place.
+      what: 'a swizzle that names a component twice',
       read: 'declare const v: storage<vec4>',
       writable: 'declare const v: storage<vec4, "read_write">',
-      body: 'v.xy = vec2(1., 2.)',
-      says: ['TS8018 Cannot assign to the swizzle ".xy"'],
+      body: 'v.xx = vec2(1., 2.)',
+      says: ['TS8018 Cannot assign to the swizzle ".xx"'],
     },
   ];
 
