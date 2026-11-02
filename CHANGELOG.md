@@ -1554,6 +1554,21 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **An entry that emulates `f64` runs on WebGL2, and a draw WebGL2 refuses rejects the call
+  (#966).** The pass program of such an entry declares the `_fp64` guard,
+  `uniform highp sampler2D _fp64;`, and the executor of change 0054 bound nothing to it. Its
+  sampler read unit 0, where a memory root's `usampler2DArray` is, so WebGL2 refused every draw
+  with `GL_INVALID_OPERATION` ("Two textures of different types use the same sampler location").
+  A refused draw writes no record, so the pass loop ran the same pass again for ever, and the
+  call's promise never settled. The executor now binds a 1 × 1 texture of 1.0 to the guard, on a
+  unit of its own, as a full-screen draw on WebGL2 binds it. After each group of draws it reads
+  the context's error, and a draw that WebGL2 refused rejects the call with an `Error` that names
+  the entry, the program and the error:
+
+  ```text
+  typeshade/webgl2: twiddle's pass program did not draw: WebGL2 reported INVALID_OPERATION (0x502)
+  ```
+
 - **A kernel function's loop that writes at the counter added to a value the loop does not change
   runs on the GPU (#983).** `for (let n: u32 = 0; n < block.length; n++) tape[at + n] = block[n];`
   was refused with `TS8070`: the loop "writes `tape[at + n]`, an element two iterations can share",
