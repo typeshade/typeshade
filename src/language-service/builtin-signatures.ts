@@ -197,8 +197,13 @@ export function overloadOf(
   if (![...parsed.params, parsed.ret].every(isValueType))
     return locationOverloadOf(row, parsed, matchers);
   const types = valueRowTypes(row)!;
+  // A matcher written as the type itself (`iu32`, change 0117) admits what it names.
   const domain = (s: string): TypeshadeScalar[] =>
-    s in row.implicit ? scalarDomain(row.implicit[s]!, matchers) : [s as TypeshadeScalar];
+    s in row.implicit
+      ? scalarDomain(row.implicit[s]!, matchers)
+      : s in matchers
+        ? scalarDomain(s, matchers)
+        : [s as TypeshadeScalar];
   const all = [...types.params, types.ret];
   const anchor = all.find((t) => t.k === 'vec' && (t.n in row.implicit || t.s in row.implicit));
 
@@ -232,7 +237,8 @@ export function overloadOf(
   const params = types.params.map((t, i) => {
     const name = paramName(row, i);
     if (t.k === 'vec') return `${name}: ${vecName(t.s as TypeshadeScalar, t.n)}`;
-    if (!(t.s in row.implicit)) return `${name}: ${t.s}`;
+    if (!(t.s in row.implicit))
+      return `${name}: ${t.s in matchers ? `(${domain(t.s).join(' | ')})` : t.s}`;
     const elems = domain(t.s);
     const bound =
       elems.length === 1 && elems[0] === 'bool'

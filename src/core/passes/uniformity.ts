@@ -95,7 +95,12 @@
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
 import { stageOf } from '../ir/nodes.js';
 import { eachStmtExpr, mapChildren } from '../ir/visit.js';
-import { BARRIER_INTRINSICS, DERIVATIVE_INTRINSICS, isKnownIntrinsic } from '../intrinsics.js';
+import {
+  BARRIER_INTRINSICS,
+  DERIVATIVE_INTRINSICS,
+  isKnownIntrinsic,
+  SUBGROUP_INTRINSICS,
+} from '../intrinsics.js';
 import { argAccess, eachOperand } from './access.js';
 import type { SourceSpan } from '../ir/span.js';
 import type { ShaderType } from '../ir/types.js';
@@ -187,8 +192,10 @@ export interface UniformityViolation {
   /** The intrinsic called: `textureSample`, `dpdx`, `workgroupBarrier`, … */
   readonly callee: string;
   /** `'derivative'` when the call needs uniform control flow for its implicit LOD or because
-   *  it IS a derivative, `'barrier'` when it needs it so the workgroup can rejoin. */
-  readonly kind: 'derivative' | 'barrier';
+   *  it IS a derivative, `'barrier'` when it needs it so the workgroup can rejoin, and
+   *  `'subgroup'` when it is a subgroup built-in function, which every lane of the subgroup
+   *  has to reach together (change 0117; WGSL's `subgroup_uniformity` rule). */
+  readonly kind: 'derivative' | 'barrier' | 'subgroup';
   /** Whether the callee is one of `dpdx` / `dpdy` / `fwidth` and their variants — the ones
    *  with no explicit-LOD alternative to name as a fix, since a screen-space derivative is
    *  what they ARE. */
@@ -1149,6 +1156,21 @@ function walkFunction(
           kind: 'derivative',
           isDerivativeBuiltin: /^(dpdx|dpdy|fwidth)/.test(x.fn),
           cause: why,
+          via: via ?? 'branch',
+          span: x.span,
+        });
+      }
+    } else if (SUBGROUP_INTRINSICS.has(x.fn)) {
+      // A subgroup function takes the barrier's rule, measured on Tint (change 0117): under
+      // `if (gid.x > 4u)` a `subgroupAdd` is "'subgroupAdd' must only be called from uniform
+      // control flow", and under a condition on a uniform it is accepted.
+      if (at === 'non-uniform' || at === 'unknown') {
+        found.push({
+          fn: f.name,
+          callee: x.fn,
+          kind: 'subgroup',
+          isDerivativeBuiltin: false,
+          cause: at === 'non-uniform' ? why : `${why}, which this compiler cannot prove uniform`,
           via: via ?? 'branch',
           span: x.span,
         });

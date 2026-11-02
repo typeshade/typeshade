@@ -93,6 +93,7 @@ import {
   type ParenMode,
 } from '../emit.js';
 import { autoVars } from '../passes/opt/index.js';
+import { lowerSubgroupsToOneLane } from '../passes/subgroups-one-lane.js';
 import { requiredCaps } from '../passes/required-caps.js';
 import { wgslLayout } from '../reflect.js';
 import { structHasIntegerLane } from '../glsl-data-texture.js';
@@ -524,6 +525,10 @@ const BUILTIN_IN: Readonly<Record<string, string>> = {
   vertex_index: 'gl_VertexID',
   instance_index: 'gl_InstanceID',
   front_facing: 'gl_FrontFacing',
+  // A subgroup is one invocation on this target (Rule 11.21, change 0117): the fragment's
+  // lane is lane 0 of a subgroup of 1. The compute pair is spelled in `passes/gl-compute.ts`.
+  subgroup_invocation_id: '0u',
+  subgroup_size: '1u',
 };
 // One name per semantic: `frag_coord` was a GLSL-only ALIAS of the fragment-input
 // `position` row above, so a module authored against it emitted fine here and died
@@ -597,14 +602,15 @@ function structByName(structs: ReadonlyMap<string, StructDecl>, name: string): S
  *  `textureGather` (no `sampler1D`, no cube-array sampler, and `textureGather` is ES 3.10 —
  *  measured on a WebGL2 driver, roadmap 0.4 item 12b), none for `bgra8unormStorage` /
  *  `packed4x8Dot` (#147, #152: a storage-texture format and a WGSL-only builtin family), and
- *  none for `f16` / `subgroups` / `clipDistances` / `primitiveIndex` / `dualSourceBlending`
+ *  none for `f16` / `clipDistances` / `primitiveIndex` / `dualSourceBlending`
  *  (WGSL `enable` language features with no GLSL ES 3.00 counterpart; the middle two are
- *  derived from a `@builtin(...)` id rather than declared, §50). That is FOURTEEN of the
- *  eighteen capabilities, and THIRTEEN of them fail closed here, naming the cap.
+ *  derived from a `@builtin(...)` id rather than declared, §50). `subgroups` HAS a row since
+ *  change 0117: a subgroup is one invocation here (Rule 11.21). That leaves THIRTEEN of the
+ *  eighteen capabilities without one, and TWELVE of them fail closed here, naming the cap.
  *  `storageBuffer` is the one exception and does NOT — a storage module
  *  is REWRITTEN to a data texture (lowerStorageToDataTexture) BEFORE the gate runs, so by
  *  the time assertCaps looks there is no storage binding left to require it. The
- *  profile's emptiness for all fourteen is the pinned invariant either way, not an oversight
+ *  profile's emptiness for all thirteen is the pinned invariant either way, not an oversight
  *  (extension-profile.test.ts, passes/required-caps.test.ts, enable-directives.test.ts).
  *
  *  The three HOST-side rows cost ZERO emitted bytes: WebGL2 activates them through
@@ -612,6 +618,11 @@ function structByName(structs: ReadonlyMap<string, StructDecl>, name: string): S
  *  writing to an RGBA32F attachment is spelled exactly like one writing to RGBA8). */
 const GLSL_CAP_PROFILE: CapProfile = {
   floatRenderTarget: { hostFeature: 'EXT_color_buffer_float' },
+  // `subgroups` is supported outright (change 0117, Rule 11.21): a subgroup is one invocation
+  // on this target, every subgroup function is rewritten to its one-lane value before the
+  // writer runs (`passes/subgroups-one-lane.ts`), and the built-in values read as constants
+  // (`BUILTIN_IN` below, `passes/gl-compute.ts`). No directive, no host feature.
+  subgroups: {},
   float32Blend: { hostFeature: 'EXT_float_blend' },
   float32Filterable: { hostFeature: 'OES_texture_float_linear' },
   // The one SOURCE-DIRECTIVE cap: the shader itself must declare it (ES 3.00 §3.4), AND
@@ -634,7 +645,7 @@ const GLSL_CAP_PROFILE: CapProfile = {
  *
  *  Everything GLSL ES 3.00 cannot express throws {@link UnsupportedFeatureError}
  *  (`SD0030`) before any source is produced: a `@compute` entry that is not declared
- *  `portable`, a multisampled (`2d-ms`) texture load, `f16`, subgroups, a standalone
+ *  `portable`, a multisampled (`2d-ms`) texture load, `f16`, a standalone
  *  `sampler` binding (GLSL has only the combined `sampler2D`), and a vertex entry that
  *  returns a bare non-struct output (GLSL links inter-stage varyings by field name, so
  *  the output must be a struct whose field the fragment input shares). A `storage`
@@ -2091,10 +2102,13 @@ function glslEntryName(m: ModuleDecl, name: string | undefined): string | undefi
   return name === undefined ? undefined : (spellingsOf(m).glsl.entries.get(name) ?? name);
 }
 
-function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
+function lowerForGlsl(authored: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // The spelling plan of the AUTHORED module (Proposal 0070), read before any rename below: the
   // renames change the module object, and the plan must stay the one of the authored names.
-  const plan = spellingsOf(m);
+  const plan = spellingsOf(authored);
+  // A subgroup is one invocation here (Rule 11.21, change 0117): each subgroup call becomes
+  // the value the oracle gives it, before any pass reads a call by its name.
+  let m = lowerSubgroupsToOneLane(authored);
   // A function the module declares under the name of a built-in function of GLSL ES 3.00, which
   // that language does not let a program redeclare, is emitted under another name, and each call
   // through it with it (Rule 9.5, change 0029). Before the two lowerings below, which read a

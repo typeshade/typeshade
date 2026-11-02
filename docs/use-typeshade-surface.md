@@ -6105,24 +6105,32 @@ export function fs(@builtin("primitive_index") pi: u32): vec4 { // fragment INPU
 | `primitive_index` | fragment input | `u32` | `primitiveIndex` · `enable primitive_index;` · `primitive-index` |
 | `subgroup_invocation_id` | compute **or fragment** input | `u32` | `subgroups` · `enable subgroups;` · `subgroups` |
 | `subgroup_size` | compute **or fragment** input | `u32` | `subgroups` · `enable subgroups;` · `subgroups` |
+| `subgroup_id` | compute input | `u32` | `subgroups` · `enable subgroups;` · `subgroups` (change 0117) |
+| `num_subgroups` | compute input | `u32` | `subgroups` · `enable subgroups;` · `subgroups` (change 0117) |
 
 `@blend_src(0|1)` on a fragment output derives `dualSourceBlending` the same way (§53).
 
 `clip_distances` used to be admitted with no stage rule and no size rule at all: it sat on a
 fragment input and emitted WGSL Tint refused. Each row's stage, direction and type is now
 checked at the authoring line. The subgroup pair read as compute-only, which refused a legal
-fragment program; both stages are accepted.
+fragment program; both stages are accepted. `subgroup_id` and `num_subgroups` are compute inputs
+only, as Tint has them: on a fragment entry Tint answers `only valid as a compute shader input`,
+and the front end refuses the pair there first (`TS8025`).
 
-**Each of the four fails closed on GLSL ES 3.00.** That target has no row for any of these
-capabilities, so `emitGlslModule` throws `SD0030` naming it rather than emitting a varying a
-WebGL2 driver would reinterpret.
+**`clip_distances` and `primitive_index` fail closed on GLSL ES 3.00.** That target has no row
+for either capability, so `emitGlslModule` throws `SD0030` naming it rather than emitting a
+varying a WebGL2 driver would reinterpret. The four subgroup values do not fail closed: on GLSL
+ES 3.00, as on the CPU oracle, a subgroup is one invocation (Rule 11.21, change 0117), so
+`subgroup_invocation_id` is `0u`, `subgroup_size` is `1u`, `subgroup_id` is the local invocation
+index and `num_subgroups` is the workgroup size. §77 has the table, and the determinism report
+names what that meaning cannot keep.
 
 **The author spelling for the rest: a string directive beside `"use typeshade"`.** An
 extension no use in the file derives is turned on by the file itself. `f16` is the one no use can
-derive, since its type is not on this surface yet (Rule 4.7). `subgroups` is derived by
-`subgroup_invocation_id` and `subgroup_size` (the table above), and the directive turns it on for
-a file that reads neither; the subgroup built-in functions (`subgroupAdd` and the rest) are not
-on this surface, so those two values are the only use there is to derive it from:
+derive, since its type is not on this surface yet (Rule 4.7). `subgroups` is derived by the four
+built-in values of the table above and by a call to any of the 21 subgroup built-in functions
+(§77, change 0117); the directive turns it on for a file that reads none and calls none, which is
+a file that only passes the module on to one that does:
 
 ```ts
 "use typeshade";
@@ -10470,3 +10478,165 @@ declared absent and assigned on one path, a callback result through a function-t
 `array<f32 | undefined, 4>` filled on some indices and folded in a loop, and a helper with
 `limit?: f32` called with and without it; both are on the compile gate on Tint and WebGL2, with
 their emit goldens in `examples/__emit-goldens__/`.
+
+## 77. The subgroup built-in functions: `subgroupAdd` and the twenty beside it
+
+Change 0117 puts the 21 subgroup built-in functions of WGSL's `subgroups` extension on this
+surface, with WGSL's own names and signatures, and the two built-in values WGSL added beside the
+pair of §50: `@builtin("subgroup_id")` and `@builtin("num_subgroups")`, both `u32`, both compute
+inputs. A subgroup is the set of invocations a device runs together in lockstep, between the
+adapter's `subgroupMinSize` and `subgroupMaxSize` wide; a subgroup function reads or folds the
+values of every lane of it in one instruction, with no workgroup memory and no barrier. The use
+#536 asked for is a fold before an atomic: one `atomicAdd` per subgroup instead of one per lane.
+
+```ts
+"use typeshade";
+
+declare const src: storage<array<u32>>;
+declare const bins: storage<array<atomic<u32>>, "read_write">;
+
+@compute([64])
+export function main(@builtin("global_invocation_id") gid: vec3u): void {
+  const v = subgroupAdd(src[gid.x]); // the subgroup's sum, in every lane
+  if (subgroupElect()) {
+    atomicAdd(bins[0], v); // one atomic per subgroup instead of one per lane
+  }
+}
+```
+
+```wgsl
+enable subgroups;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let v = subgroupAdd(src[gid.x]);
+  if (subgroupElect()) {
+    _ = atomicAdd(&bins[0], v);
+  }
+}
+```
+
+**The names.** Every name is WGSL's (Rule 2.1(a)); no TypeShade spelling is added, so §9.3 does not
+change. The signatures come from Tint's overload table through the overlay (Rule 12.7, change
+0017), in a new family `subgroups`, so the editor's declarations and the compiler's typing are one
+table: `subgroupAdd(x)` on a `vec3u` is a `vec3u` in both halves, and a `bool` argument is refused
+by both. The `f16` instances of each row stay out, as Rule 4.7 keeps them out of every family.
+
+| Group | Names | Takes | Gives |
+| --- | --- | --- | --- |
+| reductions | `subgroupAdd`, `subgroupMul`, `subgroupMin`, `subgroupMax` | an `f32`, `i32` or `u32`, or a vector of them | the same type: the fold of every lane's value |
+| bit reductions | `subgroupAnd`, `subgroupOr`, `subgroupXor` | an `i32` or `u32`, or a vector of them | the same type |
+| scans | `subgroupExclusiveAdd`, `subgroupInclusiveAdd`, `subgroupExclusiveMul`, `subgroupInclusiveMul` | an `f32`, `i32` or `u32`, or a vector of them | the same type: the fold of the lanes before this one, without or with it |
+| votes | `subgroupAll(p)`, `subgroupAny(p)` | a `bool` | a `bool`: whether every lane's, or any lane's, `p` is true |
+| ballot | `subgroupBallot(p)` | a `bool` | a `vec4u`: one bit per lane, lane `i` at bit `i % 32` of word `i / 32` |
+| election | `subgroupElect()` | nothing | a `bool`: true in exactly one lane |
+| broadcasts | `subgroupBroadcast(x, lane)`, `subgroupBroadcastFirst(x)` | a scalar or vector of `f32`, `i32` or `u32`, and a lane written as a number in the call | the named lane's `x`, or the first active lane's |
+| shuffles | `subgroupShuffle(x, lane)`, `subgroupShuffleDown(x, delta)`, `subgroupShuffleUp(x, delta)`, `subgroupShuffleXor(x, mask)` | the same, and a `u32` lane or delta computed at run time | lane `lane`'s `x`, lane `id + delta`'s, lane `id - delta`'s, lane `id ^ mask`'s |
+
+A bare integer literal in a lane position is a `u32`, as WGSL materialises it there (§10): the
+WGSL for `subgroupBroadcast(x, 3)` is `subgroupBroadcast(x, 3u)`. `subgroupBroadcast`'s lane is a
+const-expression in WGSL (Tint: `must be a const-expression`), so it is written as a number in the
+call; a lane computed at run time is `subgroupShuffle`'s.
+
+**The capability.** A call derives `subgroups`, as the four built-in values do (§50): WGSL refuses
+the call without `enable subgroups;` (Tint: `cannot call built-in function 'subgroupAdd' without
+extension 'subgroups'`), so the use is the declaration. The WGSL writer emits the directive,
+`reflect().requiredFeatures` carries `subgroups`, and the compile gate requests the host feature
+from the modules themselves, which is how `examples/subgroup-reduce.shade.ts` compiles on its
+Tint. A function the file declares under one of the names is the file's own (Rule 9.5), is called
+as such and derives nothing. The string directive `"enable subgroups";` stays for a file that
+reads no subgroup value and calls no subgroup function.
+
+**The stage and the control flow.** A subgroup function is a fragment or compute call: a vertex
+entry that reaches one is refused with `WGSL allows a subgroup built-in function in a fragment or
+compute stage only.`, over the call graph as a barrier's rule is. `subgroup_id` and `num_subgroups`
+are compute inputs; on a fragment entry the front end refuses them (`TS8025`) where Tint says `only
+valid as a compute shader input`. And every invocation of the subgroup has to reach the call
+together: WGSL's `subgroup_uniformity` rule refuses the call where one may not, and §54's walk
+states it first, with the value the invocations do not share:
+
+```
+error[TS8052] subgroupAdd() is reached under "gid" (@builtin(global_invocation_id)), and every
+invocation of the subgroup has to reach it together: WGSL's subgroup_uniformity rule refuses the
+call where one may not.
+```
+
+Under a uniform, a constant or an override the call compiles, as Tint accepts it. The right side of
+`subgroupElect() && subgroupAny(p)` is reached by one lane and refused the same way, measured on
+Tint. A lane past the end of an array contributes an identity instead of returning early, as the
+example does: an early `return` is a lane the fold cannot wait for.
+
+**One invocation, on GLSL ES 3.00 and on the CPU oracle (Rule 11.21).** GLSL ES 3.00 has no
+subgroups, and the oracle runs invocations one after another. Both give a subgroup the meaning of
+one invocation, by decision D1 of change 0117 (the alternative was failing the GLSL emit closed, as
+§50 did until this change): `subgroup_size` is `1u`, `subgroup_invocation_id` is `0u`,
+`subgroup_id` is `local_invocation_index`, `num_subgroups` is the workgroup's invocation count,
+and each function gives the value it gives a subgroup of one lane, with `x` the lane's argument:
+
+| Function | Value |
+| --- | --- |
+| `subgroupAdd`, `subgroupMul`, `subgroupMin`, `subgroupMax`, `subgroupAnd`, `subgroupOr`, `subgroupXor` | `x` |
+| `subgroupInclusiveAdd`, `subgroupInclusiveMul` | `x` |
+| `subgroupExclusiveAdd` | `0` of `x`'s type |
+| `subgroupExclusiveMul` | `1` of `x`'s type |
+| `subgroupAll(p)`, `subgroupAny(p)` | `p` |
+| `subgroupBallot(p)` | `vec4u(u32(p), 0, 0, 0)` |
+| `subgroupElect()` | `true` |
+| `subgroupBroadcast(x, lane)`, `subgroupShuffle(x, lane)` | `x`; a `lane` other than 0 is a `target` row |
+| `subgroupBroadcastFirst(x)` | `x` |
+| `subgroupShuffleDown(x, delta)`, `subgroupShuffleUp(x, delta)`, `subgroupShuffleXor(x, mask)` | `x`; a `delta` or `mask` other than 0 is a `target` row |
+
+The GLSL writer rewrites each call to that value before any pass reads a call by its name
+(`src/core/passes/subgroups-one-lane.ts`), and the folder then does what it does with any
+constant: `subgroupExclusiveAdd(x) + x` is `x`. The oracle's own table gives the same values
+(`src/core/cpu-runtime.ts`), and a debug run's resolver the same four built-in values
+(`docs/debugging.md`). The GLSL for the example above is the lane's own value and one atomic per
+invocation, which sums to the same total: an integer sum has one value in any order. The
+determinism report (§38) lists what the meaning cannot keep:
+
+- a reduction or a scan on a float is an `order` row: the device folds its subgroup in its own
+  order, which differs by device and by subgroup size, and the two tiers fold one lane;
+- a broadcast or a shuffle on a float whose lane argument is not 0 is a `target` row: it reads a
+  lane the two tiers do not have. A read of lane 0 is not listed, since that is the lane they
+  have, and `subgroupBroadcastFirst` reads it. An integer read differs the same way and is not
+  listed, since the report is by float kind (§38); change 0117's record carries that as an open
+  deviation;
+- `subgroupMin`, `subgroupMax`, the bit folds, the votes, the ballot, the election and every
+  integer fold have one answer in any order and are not listed.
+
+Whether a device may report a subgroup size of 1 is not verified (#536's open point). The rule does
+not claim it may: the one-lane meaning is TypeShade's for its own tiers, recorded as a divergence,
+and the WebGPU tier runs the device's.
+
+**The refusals, in both halves (Rules 12.1, 12.5 and 12.7).** Each is one sentence at the argument
+or the call; the editor refuses the same programs over the generated declarations.
+
+| Program | Refusal |
+| --- | --- |
+| `subgroupAdd(p)` on a `bool` | `TS8003 subgroupAdd takes an f32, i32 or u32, or a vector of them; got bool.` |
+| `subgroupAnd(x)` on an `f32` | `TS8003 subgroupAnd takes an i32 or u32, or a vector of them; got f32.` |
+| `subgroupAll(x)` on an `f32` | `TS8003 subgroupAll takes a bool; got f32.` |
+| `subgroupAdd(x, x)` | `TS8019 subgroupAdd expects 1 argument(s), got 2.` |
+| `subgroupBroadcast(x, i)` with `i` a parameter | `TS8003 subgroupBroadcast's lane is a number written in the call (a const-expression in WGSL). For a lane computed at run time write subgroupShuffle(e, id).` |
+| `subgroupShuffle(x, i)` with `i` an `f32` | `TS8003 subgroupShuffle's lane must be a u32; got f32.` |
+| a vertex entry that reaches a subgroup call | `WGSL allows a subgroup built-in function in a fragment or compute stage only.` |
+| a call under a value the invocations do not share | `TS8052`, the sentence above (§54) |
+| `@builtin("subgroup_id")` on a fragment entry | `TS8025`, naming the compute stage |
+
+**Measured on Tint** (Chrome for Testing 153, SwiftShader, 2026-11-02, Rule 13.3): every function
+and the four values compile under `enable subgroups;`; a call without the directive is refused;
+a broadcast lane that is not a const-expression is refused and an `i32` literal lane accepted; a
+call under a non-uniform branch is refused and under a uniform one accepted; `subgroupAny` on the
+right of `&&` after `subgroupElect()` is refused; `subgroup_id` and `num_subgroups` on a fragment
+entry are refused.
+
+**What this does not reach**, by change 0117's section 6: the four `quad*` functions (a quad is
+four invocations of a fragment block, and a one-lane meaning for a swap says nothing true), the
+`subgroupMatrix*` family and `subgroup_matrix` types (a separate extension on its own types),
+`@subgroup_size` (`subgroup_size_control`, which the gate's adapter does not offer), and a fold
+the compiler emits on its own. `docs/performance.md` holds the measurement a proposal for the
+last would start from.
+
+`examples/subgroup-reduce.shade.ts` is the complete example: an integer fold before an atomic,
+with `subgroup_id` and `num_subgroups` on the entry, on the compile gate on Tint; WGSL-only on the
+gallery, since it is a compute entry over storage buffers.

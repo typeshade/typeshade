@@ -39,7 +39,14 @@ function bindParam(
   bind: Record<string, string>,
 ): boolean {
   const bindOne = (name: string, value: string, admits: (v: string) => boolean): boolean => {
-    if (!(name in row.implicit)) return name === value;
+    // A matcher written as the type itself (`iu32`, the lane of a subgroup broadcast or
+    // shuffle, change 0117) constrains the argument and binds nothing: no result names it.
+    if (!(name in row.implicit))
+      return (
+        name === value ||
+        (name in COREDEF.matchers &&
+          (scalarDomain(name, COREDEF.matchers) as string[]).includes(value))
+      );
     const seen = bind[name];
     if (seen !== undefined) return seen === value;
     if (!admits(value)) return false;

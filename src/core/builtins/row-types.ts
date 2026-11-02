@@ -9,6 +9,7 @@
 // has no form here yet, and the family that needs one adds it. The editor's generated declarations (`builtin-signatures.ts`) and the
 // both-halves witness (`coredef-witness.ts`) read rows through this one parse.
 import type { CoreDefRow } from './coredef-types.js';
+import { COREDEF } from './coredef.js';
 
 /** The scalar types TypeShade has, which an instance of a row may bind a type parameter to. */
 export const TYPESHADE_SCALARS = ['f32', 'i32', 'u32', 'bool'] as const;
@@ -62,7 +63,14 @@ export function rowTypes(
   if (ret === undefined || params.some((p) => p === undefined)) return undefined;
   for (const t of [...(params as RowType[]), ret]) {
     if (t.k === 'void') continue;
-    if (!(t.s in row.implicit) && !isTypeshadeScalar(t.s)) return undefined;
+    // A matcher written as the type itself (`iu32`, the lane of a subgroup broadcast or
+    // shuffle, change 0117) is read as a scalar constrained by it, where it admits one.
+    if (
+      !(t.s in row.implicit) &&
+      !isTypeshadeScalar(t.s) &&
+      !(t.s in COREDEF.matchers && scalarDomain(t.s, COREDEF.matchers).length > 0)
+    )
+      return undefined;
     if (t.k === 'vec' && !/^[234]$/.test(t.n) && !(t.n in row.implicit)) return undefined;
   }
   // A result whose type parameter no argument binds is chosen by an explicit type argument

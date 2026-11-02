@@ -12,7 +12,12 @@
 import { stageOf, type ModuleDecl, type Capability } from '../ir/index.js';
 import { Capabilities, type Backend, UnsupportedFeatureError } from '../backend.js';
 import { collectFnRefs } from '../ir/collect-refs.js';
-import { PACKED_4X8_IDS, PACKED_4X8_LANGUAGE_FEATURE, TEXTURE_GATHER_IDS } from '../intrinsics.js';
+import {
+  PACKED_4X8_IDS,
+  PACKED_4X8_LANGUAGE_FEATURE,
+  SUBGROUP_INTRINSICS,
+  TEXTURE_GATHER_IDS,
+} from '../intrinsics.js';
 
 /** Capability DEPENDENCIES (X-GIS #1670) — declaring the key implies needing the values, so a
  *  host activating off `reflect().requiredFeatures` gets the whole set rather than the
@@ -39,6 +44,8 @@ const BUILTIN_CAPS: Readonly<Record<string, Capability>> = {
   primitive_index: 'primitiveIndex',
   subgroup_invocation_id: 'subgroups',
   subgroup_size: 'subgroups',
+  subgroup_id: 'subgroups',
+  num_subgroups: 'subgroups',
 };
 
 /** Every `@builtin(<id>)` this module spells, from the structured `builtin` field on an IO
@@ -120,6 +127,19 @@ export function usesPacked4x8(m: ModuleDecl): boolean {
   return false;
 }
 
+/** Whether the module CALLS a subgroup built-in function (change 0117), as opposed to naming
+ *  one: a module that declares its own `subgroupAdd` keeps the call to its own function (Rule
+ *  9.5), so the extension is not reached. A call derives the `subgroups` capability the way the
+ *  subgroup built-in values do (§50): WGSL refuses the call without `enable subgroups;`. */
+export function usesSubgroups(m: ModuleDecl): boolean {
+  const declared = new Set(m.funcs.map((f) => f.name));
+  for (const f of m.funcs) {
+    const refs = collectFnRefs(f);
+    for (const id of SUBGROUP_INTRINSICS) if (refs.calls.has(id) && !declared.has(id)) return true;
+  }
+  return false;
+}
+
 /** The capabilities a module's emit requires. */
 export function requiredCaps(m: ModuleDecl): Capability[] {
   const caps = new Set<Capability>();
@@ -164,6 +184,8 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
   // Asked ONCE, outside the loop above: `usesPacked4x8` walks the whole module itself, so a
   // call per function walked it N times over for one module-wide answer.
   if (usesPacked4x8(m)) caps.add('packed4x8Dot');
+  // A subgroup function derives the extension from the call (change 0117, §50).
+  if (usesSubgroups(m)) caps.add('subgroups');
   for (const f of m.funcs) {
     // stageOf reads structured `stage` first (X-GIS #763 S2) — a hand-built
     // `{ stage: 'compute' }` decl without attrs must NOT slip past the gate.
