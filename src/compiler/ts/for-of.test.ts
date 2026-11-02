@@ -32,14 +32,13 @@ describe('for-of over an array', () => {
     const src = `"use typeshade";
 declare const data: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
-@compute([64])
-export function sum(@builtin("global_invocation_id") gid: vec3u) {
+export const sum = compute([64], function sum(gid: builtin<"global_invocation_id", vec3u>) {
   let s = 0;
   for (const x of data) {
     s += x;
   }
   out[gid.x] = s;
-}
+});
 `;
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
@@ -138,14 +137,13 @@ export function nested(): f32 {
   it('emits a sized array loop in GLSL ES 3.00 too', () => {
     const r = compile(`"use typeshade";
 const WEIGHTS: array<f32, 9> = [0.05, 0.09, 0.12, 0.15, 0.18, 0.15, 0.12, 0.09, 0.05];
-@fragment
-export function fs(@builtin("position") p: vec4): vec4 {
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   let c = 0;
   for (const w of WEIGHTS) {
     c += w * p.x;
   }
   return vec4(c, 0, 0, 1);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     // Nine taps, more than the eight trips O2 unrolls, so the GLSL writer's entry path, which

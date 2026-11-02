@@ -58,7 +58,7 @@ describe('sink aggregate initialization to the path that needs its snapshot', ()
   it('does not delay the snapshot across a condition that mutates its source', () => {
     const m = fixture(
       'if (change(source)) { result = make(x); }',
-      'function change(@inout a: array<f32, 3>): bool { a[0] = 99.; return false; }',
+      'function change(a: inout<array<f32, 3>>): bool { a[0] = 99.; return false; }',
     );
     expect(sinkAggregateInit(m)).toEqual(m);
     expect(compileModule(m).fns.f!(2, false)).toEqual([4, 6, 8]);

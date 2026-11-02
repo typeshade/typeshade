@@ -19,15 +19,13 @@ import { createRuntime } from './runtime.js';
 
 // A uniform block, which WebGL2 takes as a std140 struct (the GLSL writer refuses a bare vec4).
 const DRAW = `"use typeshade";
-class VsIn { @location(0) pos: vec2; }
-class VsOut { @builtin("position") p: vec4; }
-class Color { @location(0) c: vec4; }
-class Tint { c: vec4; }
+interface VsIn { pos: location<0, vec2>; }
+interface VsOut { p: builtin<"position", vec4>; }
+interface Color { c: location<0, vec4>; }
+class Tint { c!: vec4; }
 declare const tint: uniform<Tint>;
-@vertex
-export function vs(v: VsIn): VsOut { return { p: vec4(v.pos, 0., 1.) }; }
-@fragment
-export function fs(v: VsOut): Color { return { c: tint.c }; }
+export const vs = vertex(function vs(v: VsIn): VsOut { return { p: vec4(v.pos, 0., 1.) }; });
+export const fs = fragment(function fs(v: VsOut): Color { return { c: tint.c }; });
 `;
 
 const manifest = () => {
@@ -352,7 +350,7 @@ describe('the parity matrix of proposal 0064 (PR-1 rows)', () => {
     const { gl } = glFake();
     const rt = await createRuntime({ device: gl });
     await expect(rt.load(manifest()).render({ multisample: { count: 4 } })).rejects.toThrow(
-      'The render pipeline of "fs" (typeshade-input.ts:9): the WebGL2 tier draws with one sample; a multisampled target is not here.',
+      'The render pipeline of "fs" (typeshade-input.ts:8): the WebGL2 tier draws with one sample; a multisampled target is not here.',
     );
   });
 
@@ -370,7 +368,7 @@ describe('the parity matrix of proposal 0064 (PR-1 rows)', () => {
     const { gl } = glFake();
     const rt = await createRuntime({ device: gl });
     const program = rt.load(manifest());
-    const sets = 'The render pipeline of "fs" (typeshade-input.ts:9) sets blendConstant';
+    const sets = 'The render pipeline of "fs" (typeshade-input.ts:8) sets blendConstant';
     await expect(program.render({ blendConstant: [0, 0, 0] } as never)).rejects.toThrow(
       `${sets} to [0, 0, 0]; it takes four numbers from 0 to 1.`,
     );
@@ -649,7 +647,7 @@ describe('the parity matrix of proposal 0064 (PR-2 rows)', () => {
         depth: { format: STENCIL_DEPTH, stencil: { reference: 256 } },
       } as RenderState),
     ).toBe(
-      'The render pipeline of "fs" (typeshade-input.ts:9) sets depth.stencil.reference to 256; it takes a whole number from 0 to 255.',
+      'The render pipeline of "fs" (typeshade-input.ts:8) sets depth.stencil.reference to 256; it takes a whole number from 0 to 255.',
     );
   });
 
@@ -667,7 +665,7 @@ describe('the parity matrix of proposal 0064 (PR-2 rows)', () => {
     });
     // The fake exposes no EXT_polygon_offset_clamp, so the clamp is refused, with the extension named.
     expect(await refusalOf(state)).toBe(
-      'The render pipeline of "fs" (typeshade-input.ts:9) sets depth.bias.clamp to 0.5; the WebGL2 tier takes a non-zero clamp only through EXT_polygon_offset_clamp, and this context lacks it.',
+      'The render pipeline of "fs" (typeshade-input.ts:8) sets depth.bias.clamp to 0.5; the WebGL2 tier takes a non-zero clamp only through EXT_polygon_offset_clamp, and this context lacks it.',
     );
     const bound = {
       depth: { format: 'depth32float', bias: { constant: -2, slopeScale: 3 } },
@@ -680,7 +678,7 @@ describe('the parity matrix of proposal 0064 (PR-2 rows)', () => {
       depth: { format: 'depth24plus', bias: { constant: 1 } },
     } as RenderState;
     const pointSentence =
-      'The render pipeline of "fs" (typeshade-input.ts:9) sets depth.bias.constant 1 on a point-list topology; a bias applies to triangles only; give 0.';
+      'The render pipeline of "fs" (typeshade-input.ts:8) sets depth.bias.constant 1 on a point-list topology; a bias applies to triangles only; give 0.';
     expect(await refusalOf(point)).toBe(pointSentence);
     const fake = gpuFake();
     const rt = await createRuntime({ device: fake.device as never });
@@ -700,7 +698,7 @@ describe('the parity matrix of proposal 0064 (PR-2 rows)', () => {
     );
     const count = { multisample: { count: 4, mask: 5 } } as RenderState;
     const sentence =
-      'The render pipeline of "fs" (typeshade-input.ts:9) sets multisample.mask with count 4; the mask takes count 1 only; remove the mask or set count 1.';
+      'The render pipeline of "fs" (typeshade-input.ts:8) sets multisample.mask with count 4; the mask takes count 1 only; remove the mask or set count 1.';
     expect(await refusalOf(count)).toBe(sentence);
   });
 

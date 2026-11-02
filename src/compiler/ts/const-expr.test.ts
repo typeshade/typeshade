@@ -262,16 +262,15 @@ describe('compile() emits no constant expression Tint refuses (#368)', () => {
     // ANGLE compiled the GLSL this wrote before with `WARNING: '/' : Divide by zero error
     // during constant folding` and a value of its choosing (measured, Chromium on SwiftShader).
     const source = `"use typeshade";
-class P { k: u32; s: i32; }
+class P { k!: u32; s!: i32; }
 declare const p: uniform<P>;
 const S: i32 = 3;
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const k = p.k;
   const a = 7 / (k - k);
   const b = p.s + (S << 31);
   return vec4(f32(a), f32(b), f32(clamp(k, (k - k) + 5, (k - k) + 2)), 1.);
-}
+});
 `;
     const r = compile(source, { fileName: 'm.shade.ts' });
     expect(r.diagnostics).toEqual([]);
@@ -332,17 +331,16 @@ describe('a divisor that is a converted float constant (#578)', () => {
 
   it('a fragment entry: both targets get the run-time answer for a converted constant', () => {
     const source = `"use typeshade";
-class P { k: u32; }
+class P { k!: u32; }
 declare const p: uniform<P>;
 ${KV}
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const k = p.k;
   const a = k / u32(V.x);
   const b = k % u32(V.z);
   const c = k << u32(V.w);
   return vec4(f32(a), f32(b), f32(c), 1.);
-}
+});
 `;
     const r = compile(source, { fileName: 'm.shade.ts' });
     expect(r.diagnostics).toEqual([]);
@@ -363,11 +361,10 @@ describe('an integer vector the optimizer folds to zero (#370)', () => {
     const source = `"use typeshade";
 declare const data: storage<array<u32>, "read_write">;
 function sum2(z: vec2u): u32 { return z.x + z.y; }
-@compute([1, 1, 1])
-export function main(): void {
+export const main = compute([1, 1, 1], function main(): void {
   const v = vec2u(data[0], data[2]);
   data[1] = sum2(v - v) + sum2(v ^ v) + sum2(v * 0);
-}
+});
 `;
     const r = compile(source, { fileName: 'm.shade.ts' });
     expect(r.diagnostics).toEqual([]);

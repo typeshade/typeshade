@@ -4,23 +4,21 @@ import { compileTsSource } from './source-file.js';
 const SRC = `
 "use typeshade";
 
-class Clip {
-  @builtin("position") pos: vec4;
+interface Clip {
+  pos: builtin<"position", vec4>;
 }
 
-class Color {
-  @location(0) color: vec4;
+interface Color {
+  color: location<0, vec4>;
 }
 
-@vertex
-export function vs(@builtin("vertex_index") i: u32): Clip {
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
   return { pos: vec4(0., 0., 0., 1.) };
-}
+});
 
-@fragment
-export function fs(): Color {
+export const fs = fragment(function fs(): Color {
   return { color: vec4(1., 0., 0., 1.) };
-}
+});
 `;
 
 describe('week1 Clip / Color', () => {

@@ -23,8 +23,8 @@ import { stageOf } from '../../core/ir/index.js';
 
 const RAY = `"use typeshade";
 class Ray {
-  origin: vec3;
-  dir: vec3;
+  origin!: vec3;
+  dir!: vec3;
   hits: u32 = 0;
   constructor(origin: vec3, dir: vec3) {
     this.origin = origin;
@@ -40,14 +40,13 @@ class Ray {
     return vec3(0., 1., 0.);
   }
 }
-class P { a: f32; b: vec2; }
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+class P { a!: f32; b!: vec2; }
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   const r = new Ray(vec3(uv, 0.), vec3(0., 0., 2.));
   const q = r.farther(1.);
   const p = new P();
   return vec4(q.at(1.) + Ray.up() + vec3(p.a), f32(r.hits));
-}
+});
 `;
 
 const errorsOf = (src: string) =>
@@ -71,8 +70,7 @@ const bothHalves = (src: string): string[] => {
 };
 
 const TAIL = `
-@fragment
-export function fs(): vec4 { return vec4(1.) }
+export const fs = fragment(function fs(): vec4 { return vec4(1.) });
 `;
 
 describe('class members: what each one lowers to', () => {
@@ -132,16 +130,15 @@ describe('class members: what each one lowers to', () => {
 
   it('the zero struct reaches every field kind, and a matrix falls back to the bare var', () => {
     const r = compile(`"use typeshade";
-class Q { a: f32; b: vec2u; ok: bool; xs: array<i32, 2>; }
-class P { a: f32; q: Q; n: u32 = 3; }
-class M { m: mat4; }
-@fragment
-export function fs(): vec4 {
+class Q { a!: f32; b!: vec2u; ok!: bool; xs!: array<i32, 2>; }
+class P { a!: f32; q!: Q; n: u32 = 3; }
+class M { m!: mat4; }
+export const fs = fragment(function fs(): vec4 {
   const p = new P();
   const q = new Q();
   const m = new M();
   return vec4(p.a + f32(p.n) + f32(q.xs[1]) + f32(p.q.b.y), 0., 0., 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     // O1 pins full zero initialization; O2 can project the demanded fields.
@@ -163,7 +160,7 @@ export function fs(): vec4 {
   it('a constructor may return early and call a method; both returns hand back self', () => {
     const r = compile(`"use typeshade";
 class C {
-  x: f32;
+  x!: f32;
   constructor(a: f32) {
     if (a > 1.) {
       this.x = this.twice(a);
@@ -173,10 +170,9 @@ class C {
   }
   twice(a: f32): f32 { return a * 2.; }
 }
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   return vec4(new C(uv.x).x, 0., 0., 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain(
@@ -197,16 +193,15 @@ export function fs(@location(0) uv: vec2): vec4 {
   it('access modifiers are accepted and mean nothing to the shader', () => {
     const r = compile(`"use typeshade";
 class C {
-  private x: f32;
+  private x!: f32;
   readonly y: f32 = 2.;
   public constructor(x: f32) { this.x = x; }
   protected inner(): f32 { return this.x; }
   public sum(): f32 { return this.inner() + this.y; }
 }
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   return vec4(new C(uv.x).sum(), 0., 0., 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.eval('fs', [[1, 0]])).toEqual([3, 0, 0, 1]);
@@ -226,12 +221,11 @@ class Ray {
   swizzle(k: f32): f32 { return this.reverse * k; }
 }
 interface Tile { map: f32; find: f32 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const r = new Ray();
   const t: Tile = { map: 4., find: 5. };
   return vec4(r.reverse, r.join, r.swizzle(3.), t.map + t.find);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('fn Ray_swizzle(self_: ptr<function, Ray>, k: f32) -> f32 {');
@@ -549,8 +543,8 @@ describe('class members: a method that changes its object', () => {
   const PARTICLES = `"use typeshade";
 declare const ps: storage<array<Particle>, "read_write">;
 class Particle {
-  pos: vec2;
-  vel: vec2;
+  pos!: vec2;
+  vel!: vec2;
   age: u32 = 0;
   step(dt: f32): void {
     this.pos = this.pos + this.vel * dt;
@@ -569,33 +563,31 @@ class Particle {
     return length(this.vel);
   }
 }
-@compute([64, 1, 1])
-export function k(@builtin("global_invocation_id") gid: vec3u): void {
+export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
   ps[gid.x].tick(0.5);
   let p = ps[gid.x];
   p.step(1.);
   ps[gid.x].vel = vec2(p.speed(), f32(p.age));
-}
+});
 `;
 
   // The same class with a local receiver only, so the GLSL path (which has no compute stage)
   // can show the `inout` spelling.
   const RENDER_PARTICLES = `"use typeshade";
 class Particle {
-  pos: vec2;
-  vel: vec2;
+  pos!: vec2;
+  vel!: vec2;
   age: u32 = 0;
   step(dt: f32): void {
     this.pos = this.pos + this.vel * dt;
     this.age++;
   }
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   let p = new Particle();
   p.step(1.);
   return vec4(p.pos, f32(p.age), 1.);
-}
+});
 `;
 
   it('takes its object by reference, and the call is a plain statement', () => {
@@ -664,7 +656,7 @@ export function fs(): vec4 {
   it('a let local, a module variable and this inside a constructor are places', () => {
     const r = compile(`"use typeshade";
 class C {
-  x: f32;
+  x!: f32;
   constructor(x: f32) {
     this.x = x;
     this.bump();
@@ -677,13 +669,12 @@ class C {
   }
 }
 let acc: C = { x: 10. };
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let c = new C(uv.x);
   c.bump();
   acc.bump();
   return vec4(c.twice(), acc.x, 0., 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     // Three places, two address spaces: the constructor's own `self_` and the local `c` are
@@ -762,20 +753,19 @@ export function fs(@location(0) uv: vec2): vec4 {
   // to equality.
   const RANDOM = `"use typeshade";
 class Random {
-  seed: u32;
+  seed!: u32;
   gen(): f32 {
     this.seed = this.seed * 747796405 + 2891336453;
     return f32(this.seed >> 8) / 16777216.;
   }
 }
-@fragment
-export function fs(@location(0) uv: vec2): vec4 {
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   let rng = new Random();
   rng.seed = u32(uv.x * 1000.);
   const a = rng.gen();
   const b = rng.gen();
   return vec4(a, b, 0., 1.);
-}
+});
 `;
   /** `gen`'s step on the host, in u32 arithmetic. */
   const step = (s: number): number => (Math.imul(s, 747796405) + 2891336453) >>> 0;

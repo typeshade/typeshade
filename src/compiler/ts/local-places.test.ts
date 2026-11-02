@@ -38,7 +38,7 @@ function emit(body: string, fs: string) {
   return { wgsl: r.wgsl!, glsl: r.glsl!.fragment, module: r.module };
 }
 
-const RUN_FS = `@fragment export function fs(v: VsOut): Color { return { color: vec4(run(), 0., 0., 1.) }; }`;
+const RUN_FS = `export const fs = fragment(function fs(v: VsOut): Color { return { color: vec4(run(), 0., 0., 1.) }; });`;
 
 /** `emit` with an entry that calls `run()`, and every CPU path's `run()` held to `expected`. */
 function runs(body: string, expected: number) {
@@ -65,14 +65,14 @@ describe('item 1: a local that only reads a place reads the place', () => {
   it('a storage element copied in a loop is read field by field, its index read in place', () => {
     const { wgsl, glsl } = emit(
       `class S { a: f32; b: f32; c: vec4f; }\nconst items = storage<array<S>>();`,
-      `@fragment export function fs(v: VsOut): Color {
+      `export const fs = fragment(function fs(v: VsOut): Color {
   let acc = 0.;
   for (let i = 0; i < 4; i++) {
     const q = items[u32(i) + u32(v.uv.x)];
     acc += q.a * q.b + q.c[i & 3];
   }
   return { color: vec4(acc, 0., 0., 1.) };
-}`,
+});`,
     );
     const fs = fnText(wgsl, 'fs');
     expect(fs).not.toMatch(/let q = /);
@@ -149,16 +149,15 @@ function run(): f32 {
 
   it('stays a copy of shared memory across a barrier', () => {
     const r = compile(`"use typeshade";
-class Cell { a: f32; b: f32; }
+class Cell { a!: f32; b!: f32; }
 let tile: workgroup<array<Cell, 64>>;
 const out = storage<array<f32>, "read_write">();
-@compute([64])
-export function main(@builtin("local_invocation_index") i: u32) {
+export const main = compute([64], function main(i: builtin<"local_invocation_index", u32>) {
   tile[i].a = f32(i);
   const c = tile[(i + u32(1)) % u32(64)];
   workgroupBarrier();
   out[i] = c.a;
-}`);
+});`);
     expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([]);
     expect(fnText(r.wgsl!, 'main')).toMatch(/var c: Cell = tile\[/);
   });
@@ -250,11 +249,10 @@ function run(): f32 {
     const source = `"use typeshade";
 const claimed = storage<atomic<u32>, "read_write">();
 const out = storage<array<u32>, "read_write">();
-@compute([64])
-export function cs(@builtin("global_invocation_id") gid: vec3u) {
+export const cs = compute([64], function cs(gid: builtin<"global_invocation_id", vec3u>) {
   const claim = atomicCompareExchangeWeak(claimed, u32(0), gid.x + u32(1));
   out[gid.x] = claim.old_value;
-}`;
+});`;
     const r = compile(source);
     expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([]);
     expect(editor(source)).toEqual([]);
@@ -263,13 +261,12 @@ export function cs(@builtin("global_invocation_id") gid: vec3u) {
 
   it('item 2: a struct returned into a storage element is written there', () => {
     const source = `"use typeshade";
-class Hit { t: f32; n: vec3f; }
+class Hit { t!: f32; n!: vec3f; }
 const out = storage<array<Hit>, "read_write">();
 function probe(k: f32): Hit { return { t: k * 2., n: vec3f(k) }; }
-@compute([64])
-export function main(@builtin("global_invocation_id") g: vec3u) {
+export const main = compute([64], function main(g: builtin<"global_invocation_id", vec3u>) {
   out[g.x] = probe(f32(g.x));
-}`;
+});`;
     const r = compile(source);
     expect(editor(source)).toEqual([]);
     expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([]);

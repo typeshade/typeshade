@@ -27,34 +27,32 @@ const errorsOf = (src: string) =>
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => d.message);
 
-const FS = `@fragment
-export function fs(): vec4 {
+const FS = `export const fs = fragment(function fs(): vec4 {
   return vec4(1.)
-}
+});
 `;
 
 describe('a mixin is a function that returns a class, run when the file is compiled', () => {
   it('splices its fields behind the base and ahead of the class that applied it', () => {
     const r = compile(`"use typeshade";
 class Particle {
-  pos: vec3;
+  pos!: vec3;
 }
 function Aged<TBase extends AnyClass>(Base: TBase) {
   return class extends Base {
-    age: f32;
+    age!: f32;
     faded(): f32 {
       return 1. - this.age;
     }
   };
 }
 class Body extends Aged(Particle) {
-  mass: f32;
+  mass!: f32;
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const b = new Body();
   return vec4(b.pos, b.faded() + b.mass);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct Body {\n  pos: vec3<f32>,\n  age: f32,\n  mass: f32,\n}');
@@ -67,26 +65,25 @@ export function fs(): vec4 {
   it('chains, innermost first', () => {
     const r = compile(`"use typeshade";
 class Particle {
-  pos: vec3;
+  pos!: vec3;
 }
 function Aged<TBase extends AnyClass>(Base: TBase) {
   return class extends Base {
-    age: f32;
+    age!: f32;
   };
 }
 function Named<TBase extends AnyClass>(Base: TBase) {
   return class extends Base {
-    tag: u32;
+    tag!: u32;
   };
 }
 class Body extends Named(Aged(Particle)) {
-  mass: f32;
+  mass!: f32;
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const b = new Body();
   return vec4(b.pos.x, b.age, f32(b.tag), b.mass);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain(
@@ -98,17 +95,16 @@ export function fs(): vec4 {
     const r = compile(`"use typeshade";
 function Tagged() {
   return class {
-    tag: u32;
+    tag!: u32;
   };
 }
 class Body extends Tagged() {
-  mass: f32;
+  mass!: f32;
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const b = new Body();
   return vec4(f32(b.tag), b.mass, 0., 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct Body {\n  tag: u32,\n  mass: f32,\n}');
@@ -117,22 +113,21 @@ export function fs(): vec4 {
   it('is applied through a const, the spelling the TypeScript handbook uses', () => {
     const r = compile(`"use typeshade";
 class Particle {
-  pos: vec3;
+  pos!: vec3;
 }
 function Aged<TBase extends AnyClass>(Base: TBase) {
   return class extends Base {
-    age: f32;
+    age!: f32;
   };
 }
 const AgedParticle = Aged(Particle);
 class Body extends AgedParticle {
-  mass: f32;
+  mass!: f32;
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const b = new Body();
   return vec4(b.pos.x, b.age, b.mass, 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct Body {\n  pos: vec3<f32>,\n  age: f32,\n  mass: f32,\n}');
@@ -143,21 +138,20 @@ export function fs(): vec4 {
   it('reads the mixin wherever it is written, above or below its use', () => {
     const r = compile(`"use typeshade";
 class Body extends Aged(Particle) {
-  mass: f32;
+  mass!: f32;
 }
 class Particle {
-  pos: vec3;
+  pos!: vec3;
 }
 function Aged<TBase extends AnyClass>(Base: TBase) {
   return class extends Base {
-    age: f32;
+    age!: f32;
   };
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const b = new Body();
   return vec4(b.pos.x, b.age, b.mass, 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct Body {\n  pos: vec3<f32>,\n  age: f32,\n  mass: f32,\n}');
@@ -168,14 +162,14 @@ describe('what a mixin may carry', () => {
   it('a constructor, including one that calls super over a base that has one', () => {
     const r = compile(`"use typeshade";
 class Particle {
-  pos: vec3;
+  pos!: vec3;
   constructor(p: vec3) {
     this.pos = p;
   }
 }
 function Aged<TBase extends AnyClass>(Base: TBase) {
   return class extends Base {
-    age: f32;
+    age!: f32;
     constructor(p: vec3, a: f32) {
       super(p);
       this.age = a;
@@ -183,11 +177,10 @@ function Aged<TBase extends AnyClass>(Base: TBase) {
   };
 }
 class Body extends Aged(Particle) {}
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const b = new Body(vec3(1.), 0.5);
   return vec4(b.pos, b.age);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     // Each constructor builds into its local through a pointer (change 0105).
@@ -198,22 +191,21 @@ export function fs(): vec4 {
   it('a static function, which belongs to the applying class', () => {
     const r = compile(`"use typeshade";
 class Particle {
-  pos: vec3;
+  pos!: vec3;
 }
 function Scaled<TBase extends AnyClass>(Base: TBase) {
   return class extends Base {
-    k: f32;
+    k!: f32;
     static unit(): f32 {
       return 1.;
     }
   };
 }
 class Body extends Scaled(Particle) {}
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const b = new Body();
   return vec4(b.pos, Body.unit() + b.k);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('fn Body_unit() -> f32 {');
@@ -223,20 +215,18 @@ export function fs(): vec4 {
     const r = compile(`"use typeshade";
 function WithUv() {
   return class {
-    @location(0) uv: vec2;
+    @location(0) uv!: vec2;
   };
 }
 class Varyings extends WithUv() {
-  @builtin("position") pos: vec4;
+  pos!: builtin<"position", vec4>;
 }
-@vertex
-export function vs(): Varyings {
+export const vs = vertex(function vs(): Varyings {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0.) };
-}
-@fragment
-export function fs(v: Varyings): vec4 {
+});
+export const fs = fragment(function fs(v: Varyings): vec4 {
   return vec4(v.uv, 0., 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('@location(0) uv: vec2<f32>,');
@@ -246,24 +236,23 @@ export function fs(v: Varyings): vec4 {
   it('a method reading a field of the base it was mixed over', () => {
     const r = compile(`"use typeshade";
 class Particle {
-  pos: vec3;
+  pos!: vec3;
 }
 function Aged<TBase extends AnyClass>(Base: TBase) {
   return class extends Base {
-    age: f32;
+    age!: f32;
     faded(): vec3 {
       return this.pos * (1. - this.age);
     }
   };
 }
 class Body extends Aged(Particle) {
-  mass: f32;
+  mass!: f32;
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const b = new Body();
   return vec4(b.faded(), b.mass);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('return ((*self_).pos * (1.0 - (*self_).age));');
@@ -272,25 +261,24 @@ export function fs(): vec4 {
   it('applies over an abstract base, whose abstract method the class supplies', () => {
     const r = compile(`"use typeshade";
 abstract class Shape {
-  k: f32;
+  k!: f32;
   abstract area(): f32;
 }
 function Scaled<TBase extends AnyClass>(Base: TBase) {
   return class extends Base {
-    s: f32;
+    s!: f32;
   };
 }
 class Disc extends Scaled(Shape) {
-  r: f32;
+  r!: f32;
   area(): f32 {
     return this.r * this.r * this.s;
   }
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const d = new Disc();
   return vec4(d.area(), d.k, d.s, 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct Disc {\n  k: f32,\n  s: f32,\n  r: f32,\n}');
@@ -301,27 +289,26 @@ describe('a name declared twice in the chain is an override, closest to the valu
   it('the applying class overrides a mixin method, silently', () => {
     const r = compile(`"use typeshade";
 class Particle {
-  pos: vec3;
+  pos!: vec3;
 }
 function Aged<TBase extends AnyClass>(Base: TBase) {
   return class extends Base {
-    age: f32;
+    age!: f32;
     faded(): f32 {
       return 1. - this.age;
     }
   };
 }
 class Body extends Aged(Particle) {
-  mass: f32;
+  mass!: f32;
   faded(): f32 {
     return 0.5;
   }
 }
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const b = new Body();
   return vec4(b.faded(), b.mass, 0., 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain(
@@ -332,11 +319,11 @@ export function fs(): vec4 {
   it('an outer mixin overrides an inner one', () => {
     const r = compile(`"use typeshade";
 class Particle {
-  pos: vec3;
+  pos!: vec3;
 }
 function A<TBase extends AnyClass>(Base: TBase) {
   return class extends Base {
-    v: f32;
+    v!: f32;
     pick(): f32 {
       return 1.;
     }
@@ -350,11 +337,10 @@ function B<TBase extends AnyClass>(Base: TBase) {
   };
 }
 class Body extends B(A(Particle)) {}
-@fragment
-export function fs(): vec4 {
+export const fs = fragment(function fs(): vec4 {
   const b = new Body();
   return vec4(b.pick(), b.v, 0., 1.);
-}
+});
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('fn Body_pick(self_: ptr<function, Body>) -> f32 {\n  return 2.0;\n}');

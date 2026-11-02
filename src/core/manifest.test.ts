@@ -205,16 +205,14 @@ describe('the manifest (Rule 11.10)', () => {
 declare const photo: texture_2d<f32>;
 declare const trail: texture_2d<f32>;
 declare const smp: sampler;
-class Color { @location(0) c: vec4; }
-@vertex
-export function vs(@builtin("vertex_index") vi: u32): vec4 {
+interface Color { c: location<0, vec4>; }
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
   return vec4(f32(vi), 0., 0., 1.);
-}
-@fragment
-export function fs(@builtin("position") p: vec4): Color {
+});
+export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
   console.log("at", p.x);
   return { c: textureSample(photo, smp, p.xy) + textureLoad(trail, vec2i(p.xy), 0) };
-}
+});
 `;
       const r = compile(src);
       expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
@@ -260,21 +258,19 @@ declare const heights: storage<array<f32>>;
 declare const ids: storage<array<u32>>;
 declare const offsets: storage<array<i32>>;
 declare const uvs: storage<array<vec2>>;
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) @interpolate("flat") i: u32;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  i: location<0, u32, { interpolate: "flat" }>;
 }
-@vertex
-export function vs(@builtin("vertex_index") v: u32): VsOut {
+export const vs = vertex(function vs(v: builtin<"vertex_index", u32>): VsOut {
   return { pos: vec4(f32(v), heights[v], 0., 1.), i: v };
+});
+interface Color {
+  color: location<0, vec4>;
 }
-class Color {
-  @location(0) color: vec4;
-}
-@fragment
-export function fs(o: VsOut): Color {
+export const fs = fragment(function fs(o: VsOut): Color {
   return { color: vec4(f32(ids[o.i]), f32(offsets[o.i]), uvs[o.i].x, 1.) };
-}
+});
 `;
     const r = compile(src);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
@@ -403,25 +399,23 @@ describe('a manifest packed under emit options (change 0028)', () => {
    *  and one a full-screen fragment entry, which has a WebGL2 draw that declares the guard. A
    *  module with a compute entry has no GLSL, so the two are apart. */
   const F64_KERNEL = compiled(`"use typeshade";
-class Zoom { cx: f64; scale: f64; }
+class Zoom { cx!: f64; scale!: f64; }
 declare const zoom: uniform<Zoom>;
 declare const out: storage<array<f32>, "read_write">;
-@compute([4])
-export function main(@builtin("global_invocation_id") gid: vec3u) {
+export const main = compute([4], function main(gid: builtin<"global_invocation_id", vec3u>) {
   const x: f64 = zoom.cx + f64(f32(gid.x)) * zoom.scale;
   console.log("x", f32(x));
   out[gid.x] = f32(fract(x * 1000));
-}
+});
 `);
   const F64_DRAW = compiled(`"use typeshade";
-class Zoom { cx: f64; scale: f64; }
+class Zoom { cx!: f64; scale!: f64; }
 declare const zoom: uniform<Zoom>;
-@fragment
-export function deep(@builtin("position") p: vec4): vec4 {
+export const deep = fragment(function deep(p: builtin<"position", vec4>): vec4 {
   const x: f64 = zoom.cx + f64(p.x) * zoom.scale;
   console.log("x", f32(x));
   return vec4(f32(fract(x * 1000)), p.y / 32, 0, 1);
-}
+});
 `);
 
   for (const emit of matrix)

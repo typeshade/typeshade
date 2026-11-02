@@ -63,14 +63,13 @@ interface U {
   k: f32;
 }
 declare const u: uniform<U>;
-class V {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface V {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
-@fragment
-export function fs(v: V): vec4 {
+export const fs = fragment(function fs(v: V): vec4 {
   return vec4(u.xs[0] + u.k, 0., 0., 1.);
-}
+});
 `;
 
   // CLOSED by #156, which chose the second of the two answers this row admitted: the array is
@@ -99,14 +98,13 @@ interface U {
   n: i32;
 }
 declare const u: uniform<U>;
-class V {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface V {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
-@fragment
-export function fs(v: V): vec4 {
+export const fs = fragment(function fs(v: V): vec4 {
   return vec4(f32(u.x << u.n), 0., 0., 1.);
-}
+});
 `;
 
   // CLOSED by #160: the binary path now wraps the right-hand side the way the compound path
@@ -123,18 +121,16 @@ describe('an integer varying emitted without @interpolate(flat) (L53)', () => {
   // (wgsl.txt:14932-14933). The GLSL writer already adds `flat` (`backends/glsl.ts`), so the
   // two targets disagree: the WebGL2 leg links and the WebGPU one does not.
   const src = `"use typeshade";
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) id: u32;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  id: location<0, u32>;
 }
-@vertex
-export function vs(@builtin("vertex_index") i: u32): VsOut {
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
   return { pos: vec4(0., 0., 0., 1.), id: i };
-}
-@fragment
-export function fs(o: VsOut): vec4 {
+});
+export const fs = fragment(function fs(o: VsOut): vec4 {
   return vec4(f32(o.id), 0., 0., 1.);
-}
+});
 `;
 
   // CLOSED by #158: `flat` is derived for every integer varying, so the two targets agree —
@@ -144,18 +140,16 @@ export function fs(o: VsOut): vec4 {
     expect(wgsl).toContain('@location(0) @interpolate(flat) id: u32,');
     // A FLOAT varying must not pick it up: the rule is about integers, not about locations.
     const float = compilesClean(`"use typeshade";
-class VsOut {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
-@vertex
-export function vs(@builtin("vertex_index") i: u32): VsOut {
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
-}
-@fragment
-export function fs(o: VsOut): vec4 {
+});
+export const fs = fragment(function fs(o: VsOut): vec4 {
   return vec4(o.uv, 0., 1.);
-}
+});
 `);
     expect(float).toContain('@location(0) uv: vec2<f32>,');
     expect(float).not.toContain('@interpolate(flat)');
@@ -170,14 +164,13 @@ export function h(a: f32): f32 {
   a = 1.;
   return a;
 }
-class V {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface V {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
-@fragment
-export function fs(v: V): vec4 {
+export const fs = fragment(function fs(v: V): vec4 {
   return vec4(h(v.uv.x), 0., 0., 1.);
-}
+});
 `;
 
   // #431 keeps the immutable input and writes a fresh value local instead (Rule 8.8).
@@ -195,14 +188,13 @@ export function h(a: f32): f32 {
   a_ = 1.;
   return a_;
 }
-class V {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface V {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
-@fragment
-export function fs(v: V): vec4 {
+export const fs = fragment(function fs(v: V): vec4 {
   return vec4(h(v.uv.x), 0., 0., 1.);
-}
+});
 `;
     expect(compilesClean(fixed)).toContain('var a_: f32 = a;');
   });
@@ -239,14 +231,13 @@ interface U {
   ${name}: f32;
 }
 declare const u: uniform<U>
-class V {
-  @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
+interface V {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
 }
-@fragment
-export function fs(v: V): vec4 {
+export const fs = fragment(function fs(v: V): vec4 {
   return vec4(u.${name}, 0., 0., 1.)
-}
+});
 `;
 
   it('compiles every name WGSL reserves, under a fresh spelling of the field (change 0070)', () => {
