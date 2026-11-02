@@ -74,6 +74,8 @@ describe('#8 B5 — builtin(name)', () => {
       'num_workgroups',
       'subgroup_invocation_id',
       'subgroup_size',
+      'subgroup_id',
+      'num_subgroups',
       'clip_distances',
     ];
     const covered = Object.keys(WGSL_BUILTIN_TYPES);

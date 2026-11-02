@@ -32,6 +32,8 @@ const BUILTINS_BY_STAGE: Readonly<Record<'vertex' | 'fragment' | 'compute', read
     'num_workgroups',
     'subgroup_invocation_id',
     'subgroup_size',
+    'subgroup_id',
+    'num_subgroups',
   ],
 };
 

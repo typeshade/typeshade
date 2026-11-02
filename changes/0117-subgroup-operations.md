@@ -1,13 +1,20 @@
 ---
 id: '0117'
 title: The subgroup built-in functions and the `subgroup_id` and `num_subgroups` built-in values are authorable behind `enable subgroups`, with a one-invocation meaning on the oracle and on GLSL ES 3.00
-status: accepted
+status: implemented
 rules:
   - '11.21'
 surface:
   - 50
   - 77
-exports: []
+exports:
+  - SUBGROUP_FOLDS
+  - SUBGROUP_INTRINSICS
+  - SUBGROUP_LANE_READS
+  - FixedTypeBuiltinName
+  - WGSL_BUILTIN_TYPES
+  - WgslBuiltinName
+  - builtin
 exports-removed: []
 codes: []
 examples:
@@ -254,6 +261,13 @@ decision concrete:
   generated declarations and docs strings, `CHANGELOG.md`.
 - Codes: none. A misuse is `TS8003` (a wrong argument type), `TS8019` (arity) or the uniformity
   refusal's existing code.
+- Exports (amendment of 2026-11-02, before the implementation is merged; the accepted text
+  declared none): three new, `SUBGROUP_INTRINSICS`, `SUBGROUP_FOLDS` and `SUBGROUP_LANE_READS`
+  in `src/core/intrinsics.ts`, the family's id sets beside `PACKED_4X8_IDS` and
+  `TEXTURE_GATHER_IDS`, which the determinism pass, the GLSL lowering and the front end read;
+  and four reshaped, `WgslBuiltinName`, `FixedTypeBuiltinName`, `WGSL_BUILTIN_TYPES` and
+  `builtin` in `src/core/sot.ts`, which gain `subgroup_id` and `num_subgroups` as they gained
+  `subgroup_invocation_id` and `subgroup_size`. Nothing is removed.
 
 ### Draft impact estimate
 
@@ -294,11 +308,36 @@ decision concrete:
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires: the accepted revision, the implementing pull
-requests (each with `Change: 0117`), the delivered configuration (commit, Tint version, the
-WebGL2 driver, the device of any hardware measurement), the observed results of the validation
-list, the document audit (§50, §77, AUTHORING.md, the roadmap, the decisions table, `reqs/`),
-and each deviation with its disposition.
+- Accepted revision: pull request #911, merged to `main` as `0b52a0a` with `status: accepted`.
+- Implementing pull request: the pull request opened from branch `claude/0117-subgroups` (its
+  number is recorded on `main` by the merge commit; every commit says `Change: 0117`), from
+  `0b52a0a`, by the owner's Claude Code session on 2026-11-02; no person is assigned by name.
+  The merged revision is the delivered configuration, and Git records it.
+- Delivered configuration of the validation: the pull request's head commit; Tint of Chrome for
+  Testing 153 on SwiftShader (`bun run gate:compile`, `TYPESHADE_CHROMIUM`); the WebGL2 half of
+  the gate on the same Chromium; no hardware device (the owner's adapter is a company machine
+  and is not available to this work).
+- Observed results: `bun run build`, `bun run lint`, `bun run format:check`, `bun run test` and
+  `bun run gate:compile` green on the head commit; `src/compiler/ts/subgroups.test.ts` holds both
+  halves, the oracle, the determinism rows and the refusals to section 3's table on one program;
+  `examples/subgroup-reduce.shade.ts` compiles on the gate's Tint on a device that asked for
+  `subgroups`. The pull request's checks are the retained evidence.
+- Document audit: surface §50 and §77, Rule 11.21 and the decisions table of
+  `docs/language-design.md`, AUTHORING.md's capability table and notes, `docs/roadmap.md`,
+  `docs/debugging.md`, `docs/performance.md`, `docs/capability-coverage.md` (baked),
+  `CHANGELOG.md`, and `reqs/` (`RULE-1121`, `SURF-050`, `SURF-077` reviewed).
+- Deviations:
+  - D-1, open. Rule 11.21 lists a broadcast or shuffle whose lane argument is not 0 as `target`.
+    The determinism report is by float kind (surface §38, `DeterminismEntry.elem` is `f32` or
+    `f64`), so an integer broadcast or shuffle from another lane has no row, though it differs
+    on a subgroup of one the same way. Closing it needs a row kind for an integer read, a change
+    to §38 this proposal does not declare, or an amendment of the sentence to float reads.
+    Next action: the owner's decision, in a proposal-only pull request.
+  - D-2, closed. Section 3's table gives `subgroupBroadcastFirst` the value `x` and no `target`
+    row; the first active lane of a subgroup of one is lane 0, which the rule's sentence leaves
+    out, so the implementation lists it under no row. Read as the approved text intends.
+- Pending: the downstream deliveries below are tracked in their repositories and are not
+  presumed complete.
 
 ## What it owes downstream
 

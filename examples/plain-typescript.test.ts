@@ -4,6 +4,8 @@
 // none) and no TS2564 (a field with no initializer). The diagnostics of vector arithmetic,
 // which TypeScript has no operator overloading for, stay out of this check and in the language
 // service's filters (amendment 3).
+//
+// Verifies: Rule 6.6, Rule 8.1 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
