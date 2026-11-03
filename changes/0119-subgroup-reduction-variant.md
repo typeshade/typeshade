@@ -5,7 +5,7 @@ status: accepted
 rules:
   - '8.22'
   - '10.2'
-  - '11.22'
+  - '11.23'
 surface:
   - 38
   - 65
@@ -13,6 +13,7 @@ surface:
 exports:
   - DeviceInfo
   - DeviceOptions
+  - DeviceStatistics
   - EmitIdentityInput
   - EmitOptions
   - HostExport
@@ -41,14 +42,14 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0119, `status: accepted`. The front matter is the identity and lifecycle authority. The owner accepted the proposal on 2026-11-02 with O1, O3 and O4 decided as the draft assumed; see Approval and plan record. No implementation has started.                                                                                                                                                                                                                                                                                                                              |
-| Date and attribution          | Authored 2026-11-02, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, after change 0117 landed and typeshade/web PR #22 put the measurement on the site: the owner asked whether TypeShade code "naturally" becomes subgroup operations, pointed at `docs/compiler-owns-performance.md` (PR #930) as the principle the pointer changes 0103 to 0105 followed, and approved this draft before answering that note's open decisions ("승인"). Issue #536 (2026-10-08) is the earlier request; TypeCV's `docs/gpu-throughput.md` gap G2 is the downstream use.                         |
-| Applicability / effectivity   | `docs/language-design.md` (Rule 8.22, Rule 10.2, a new Rule 11.22), `reqs/`, `docs/use-typeshade-surface.md` (§38, §65, §69), `AUTHORING.md`, `docs/roadmap.md`, `docs/performance.md`, `src/core/passes/kernel-lower.ts`, `src/core/fuse-group.ts`, `src/core/emit.ts`, `src/core/emit-identity.ts`, `src/core/reflect.ts`, `src/core/manifest-types.ts`, `src/compiler/ts/pack.ts`, `src/compiler/ts/host-face.ts`, `src/core/host-entry.ts`, `src/core/device-info.ts`, `src/runtime/device.ts`, `src/runtime/runtime.ts`, `scripts/perf-gate.ts`. No release version is assigned. |
-| Review baseline               | `main` at `3f74848` (2026-11-02), the merge of #964.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Review and revision authority | Pull request [#977](https://github.com/typeshade/typeshade/pull/977) (branch `claude/0119-subgroup-reduction`). Git records the revisions of this file; the merge of that pull request with `status: accepted` records the decision.                                                                                                                                                                                                                                                                                                                                                  |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Identity and status           | Proposal 0119, `status: accepted`. The front matter is the identity and lifecycle authority. The owner accepted the proposal on 2026-11-02 with O1, O3 and O4 decided as the draft assumed; see Approval and plan record. No implementation has started.                                                                                                                                                                                                                                                                                                                                                           |
+| Date and attribution          | Authored 2026-11-02, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, after change 0117 landed and typeshade/web PR #22 put the measurement on the site: the owner asked whether TypeShade code "naturally" becomes subgroup operations, pointed at `docs/compiler-owns-performance.md` (PR #930) as the principle the pointer changes 0103 to 0105 followed, and approved this draft before answering that note's open decisions ("승인"). Issue #536 (2026-10-08) is the earlier request; TypeCV's `docs/gpu-throughput.md` gap G2 is the downstream use.                                                      |
+| Applicability / effectivity   | `docs/language-design.md` (Rule 8.22, Rule 10.2, a new Rule 11.23, numbered 11.22 in the draft), `reqs/`, `docs/use-typeshade-surface.md` (§38, §65, §69), `AUTHORING.md`, `docs/roadmap.md`, `docs/performance.md`, `src/core/passes/kernel-lower.ts`, `src/core/fuse-group.ts`, `src/core/emit.ts`, `src/core/emit-identity.ts`, `src/core/reflect.ts`, `src/core/manifest-types.ts`, `src/compiler/ts/pack.ts`, `src/compiler/ts/host-face.ts`, `src/core/host-entry.ts`, `src/core/device-info.ts`, `src/runtime/device.ts`, `src/runtime/runtime.ts`, `scripts/perf-gate.ts`. No release version is assigned. |
+| Review baseline               | `main` at `3f74848` (2026-11-02), the merge of #964.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Review and revision authority | Pull request [#977](https://github.com/typeshade/typeshade/pull/977) (branch `claude/0119-subgroup-reduction`). Git records the revisions of this file; the merge of that pull request with `status: accepted` records the decision.                                                                                                                                                                                                                                                                                                                                                                               |
 
 ## What changes
 
@@ -284,9 +285,9 @@ nothing from 0117 unless someone rewrites each of them by hand, with the device'
 - `AUTHORING.md`: one paragraph under the kernel function section and one under running.
 - Exports, reshaped: `EmitOptions` and `EmitIdentityInput` (`subgroupFolds`), `Pack` (`emit`),
   `HostExport` (the compute entry's `wgslSubgroup`), `DeviceOptions` (`subgroups`), `DeviceInfo`
-  (`subgroups`), `Reflection` (`variants`), `ReflectOptions` (`variant`). None removed. The
-  implementing pull request amends this list in a proposal-only pull request if its diff
-  reshapes another, as 0117's #917 did.
+  (`subgroups`), `DeviceStatistics` (`variants`, amendment 1), `Reflection` (`variants`),
+  `ReflectOptions` (`variant`). None removed. The implementing pull request amends this list in
+  a proposal-only pull request if its diff reshapes another, as 0117's #917 did.
 - Code: `kernel-lower.ts` (the variant of `reductionEntries` and of the scatter), `fuse-group.ts`
   (the variant of a fused group), `emit.ts`, `emit-identity.ts`, `reflect.ts`,
   `manifest-types.ts`, `pack.ts`, `host-face.ts` and the host module writer, `host-entry.ts`
@@ -351,6 +352,14 @@ nothing from 0117 unless someone rewrites each of them by hand, with the device'
 - Required validation at implementation: the functional and document lists under Draft impact
   estimate, and the Configuration and validation record below. No duration or cost estimate is
   established.
+- Amendment 2 (2026-11-03, before the docs stage is merged): the new rule is declared as 11.23,
+  not 11.22, which change 0107's numerical contract took first (open point O5 foresaw it).
+- Amendment 1 (2026-11-03, before the runtime stage is merged): `DeviceStatistics` joins the
+  reshaped exports. Section 4 says the device report names the variant each entry runs; the
+  runtime has no `device.report()`, and its per-call record is `Device.statistics`, so the
+  statistics gain `variants`, the text the last call of each kernel function dispatched. The
+  draft listed `DeviceInfo` for the probe's observation and no export for the per-call record.
+  Recorded in the pull request that carries this amendment; Git records the revision.
 
 ### Configuration and validation record
 
