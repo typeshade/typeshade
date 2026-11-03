@@ -328,6 +328,12 @@ true is a set of steps with tools, each an industry practice, not a memory:
   `//vscode-typeshade/…` target did not change with its block. They run `ifchange.ts` over their
   own tree with `TYPESHADE_DOCS_ROOT`, and their `.claude/settings.json` runs the same check as
   a commit hook (`downstream-impact.ts --hook`).
+  The command depends on the kind of pin. The site, the editor and Radiance pin a git submodule
+  inside their tree, and name it with `--submodule <path>`. TypeNN, TypeCV and TypeAudio install a
+  source tarball, which carries no git history, and have no checkout of the compiler in their tree.
+  They run the script from a checkout of the compiler at any path, outside the repository too,
+  and name it with `--compiler <path>`, with both pins as `--old <commit>` and `--new <commit>`.
+  `bun scripts/downstream-impact.ts --help` lists the options.
 - **CI enforces it for everyone.** On a pull request, the `check` job runs
   `docs:impact --check`, `ifchange.ts` and `changes.ts` (reading the commit messages and the
   pull request's description for the `Change:` line), and the traceability job runs
