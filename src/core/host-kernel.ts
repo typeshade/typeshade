@@ -137,6 +137,10 @@ export interface KernelLoop {
     readonly a: number;
     readonly c: number;
     readonly read?: true;
+    /** For a read under comparisons of the counter with a bound (#997): each comparison and the
+     *  CPU-tier function that gives its bound. The read is checked over the iterations where
+     *  they all hold. Absent in a face written before that change. */
+    readonly guards?: readonly { readonly cop: '<' | '<=' | '>' | '>='; readonly fn: string }[];
   }[];
   /** The textures it stores into at `vec2(i % W, i / W)`, each with the CPU-tier function that
    *  gives `W` (change 0077). Absent in a face written before that change. */
@@ -1397,8 +1401,21 @@ function rangesOf(cpu: GeneratedCpu, k: KernelFace, values: readonly unknown[]):
     for (const c of loop.checks) {
       const i = k.params.findIndex((p) => p.name === c.param);
       const length = values[i] as number;
-      const top = c.a > 0 ? c.a * hi + c.c : c.a * lo + c.c;
-      const bottom = c.a > 0 ? c.a * lo + c.c : c.a * hi + c.c;
+      // A read under comparisons of the counter with a bound happens in the iterations where they
+      // hold (#997): the counters from `from` to `to`. The interval holds every such iteration.
+      let [from, to] = [lo, hi];
+      for (const g of c.guards ?? []) {
+        init?.();
+        const bound = Number(cpu.F[g.fn]!(...lengths));
+        if (!Number.isFinite(bound)) continue;
+        if (g.cop === '<') to = Math.min(to, bound - 1);
+        else if (g.cop === '<=') to = Math.min(to, bound);
+        else if (g.cop === '>') from = Math.max(from, bound + 1);
+        else from = Math.max(from, bound);
+      }
+      if (from > to) continue;
+      const top = c.a > 0 ? c.a * to + c.c : c.a * from + c.c;
+      const bottom = c.a > 0 ? c.a * from + c.c : c.a * to + c.c;
       if (top >= length || bottom < 0)
         throw new TypeError(
           `${k.name}(): parameter "${c.param}" holds ${length} elements, and loop ${j + 1} ${c.read ? 'reads' : 'writes'} it at indices ${bottom} to ${top}.`,
