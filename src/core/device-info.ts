@@ -34,7 +34,7 @@ export interface DeviceInfo {
   /** What the subgroup probe saw when the device opened (change 0119): the adapter's size range,
    *  the `subgroup_size` and `num_subgroups` one workgroup of 256 lanes had, and whether a
    *  subgroup's lanes were consecutive. `null` on a tier without WebGPU, on a device without the
-   *  `subgroups` feature, where `createDevice({ subgroups: 'never' })` kept the probe off, or
+   *  `subgroups` feature, where `createDevice({ subgroups: 'off' })` kept the probe off, or
    *  where the probe failed; a kernel call of the device then runs the tree text. */
   readonly subgroups: {
     readonly minSize: number | null;

@@ -86,10 +86,10 @@ export type DeviceOptions = {
   /** Whether a kernel call of the device dispatches the subgroup variant of a function's WGSL
    *  (change 0119). `'auto'`, the default, runs the subgroup probe when a WebGPU device that has
    *  the `subgroups` feature opens, and dispatches the variant where the probe passed;
-   *  `info.subgroups` holds what it saw. `'never'` runs no probe and keeps every call on the
-   *  tree, for a measurement of the two texts on one device. There is no `'always'`: a device
+   *  `info.subgroups` holds what it saw. `'off'` runs no probe and keeps every call on the
+   *  tree, for a measurement of the two texts on one device. There is no `'on'`: a device
    *  without the feature cannot compile the variant. */
-  readonly subgroups?: 'auto' | 'never';
+  readonly subgroups?: 'auto' | 'off';
   /** The time one chunk of a long kernel may take, in milliseconds (change 0074): 250 by default.
    *  `device.chunkSize()` sizes each chunk of a key to fit eight tenths of it. A value that is not
    *  a finite number from 1 to 60000 is a `RangeError`. */
@@ -752,15 +752,15 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
   if (
     options.subgroups !== undefined &&
     options.subgroups !== 'auto' &&
-    options.subgroups !== 'never'
+    options.subgroups !== 'off'
   )
     throw new TypeError(
-      `createDevice({ subgroups }): ${JSON.stringify(options.subgroups)} is not a setting; the choices are 'auto' and 'never'.`,
+      `createDevice({ subgroups }): ${JSON.stringify(options.subgroups)} is not a setting; the choices are 'auto' and 'off'.`,
     );
   // The subgroup probe (change 0119), on a WebGPU device that has the feature, unless the host
   // keeps it off.
   const probe = (d: GpuDevice): Promise<SubgroupObservation | null> =>
-    options.subgroups === 'never' ? Promise.resolve(null) : probeSubgroups(d);
+    options.subgroups === 'off' ? Promise.resolve(null) : probeSubgroups(d);
   if (options.device !== undefined) {
     if (typeof options.device !== 'object' || options.device === null || isWebGl2(options.device))
       throw new TypeError('createDevice({ device }): device takes a GPUDevice.');

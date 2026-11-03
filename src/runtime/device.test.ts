@@ -1601,10 +1601,10 @@ export function mean(xs: array<f32>): f32 {
       await dev.dispose();
     }
   });
-  it("keeps every call on the tree with subgroups: 'never', on a device that fails the probe, and on one without the feature", async () => {
+  it("keeps every call on the tree with subgroups: 'off', on a device that fails the probe, and on one without the feature", async () => {
     const m = await subgroupOps();
     for (const [gpu, options] of [
-      [fakeGpu({}, 'pass'), { subgroups: 'never' as const }],
+      [fakeGpu({}, 'pass'), { subgroups: 'off' as const }],
       [fakeGpu({}, 'fail'), {}],
       [fakeGpu(), {}],
     ] as const) {
@@ -1613,7 +1613,7 @@ export function mean(xs: array<f32>): f32 {
       try {
         expect(dev.info.subgroups).toBeNull();
         expect(gpu.codes.filter((c) => c.includes('fn probe('))).toHaveLength(
-          options.subgroups === 'never' || !gpu.raw.features.has('subgroups') ? 0 : 1,
+          options.subgroups === 'off' || !gpu.raw.features.has('subgroups') ? 0 : 1,
         );
         await m.total(dev.array(new Uint32Array([1, 2, 3])));
         expect(gpu.codes.some((c) => c.includes('fn total_loop0(') && c.includes('subgroup'))).toBe(
@@ -1624,8 +1624,8 @@ export function mean(xs: array<f32>): f32 {
         await dev.dispose();
       }
     }
-    await expect(createDevice({ subgroups: 'always' as never })).rejects.toThrow(
-      "createDevice({ subgroups }): \"always\" is not a setting; the choices are 'auto' and 'never'.",
+    await expect(createDevice({ subgroups: 'on' as never })).rejects.toThrow(
+      "createDevice({ subgroups }): \"on\" is not a setting; the choices are 'auto' and 'off'.",
     );
   });
   it('probes the default device when the call layer opens it, and the default owner selects by it', async () => {
