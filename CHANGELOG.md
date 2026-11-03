@@ -1570,6 +1570,24 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **`resident()`, `write()` and `device.array()` refuse a value they cannot copy, and name the place
+  (#1002).** A handle holds a copy of the host value it is given, made level by level (`copyOf` in
+  `src/core/resident.ts`). A level that no prototype and no own property can make again got a copy
+  with no word. A nested `Date` or `ArrayBuffer` came back as an object without its slots. A
+  `DataView` threw from inside the copy. A value that held itself overflowed the stack. An own
+  `"__proto__"` key, as `JSON.parse` makes one, set the prototype of the copy. Each is now a
+  `TypeError` that names the place and the kind:
+  `resident(): takes a host value, and particles[2].born is a Date, which no binding holds.` A
+  `write()` says `write()` first. A cycle says what it refers back to, as in
+  `me refers back to the value, a cycle`. The refusal covers every built-in that keeps its data in
+  internal slots, a `RegExp`, an `Error`, a `Promise`, a `WeakMap` and a boxed number among them. A
+  refused `write()` leaves the handle with what it held. An own `"__proto__"` key is copied as the
+  data property it is, and the copy keeps its prototype. A value that two places hold is no cycle,
+  and each place copies it. The copy of a plain value is not slower: the first walk keeps no place,
+  and a second walk that does runs only where a level is refused or the value is deeper than 100
+  levels. Surface §65 names no list of host values, only Rule 8.21, which none of these values
+  meets, so it needs no sentence.
+
 - **An `f64` local kept across a barrier runs on WebGL2 (#970).** The pass program of change 0054
   keeps each local of a split entry in its record between passes, in 32-bit words, and refused
   every scalar but `u32`, `i32`, `f32` and `bool`:

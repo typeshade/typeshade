@@ -80,7 +80,8 @@ export interface Resident<T = ResidentValue> {
    * with none waiting, at once. The copy keeps the class of each object in `value`. The next use
    * uploads it.
    *
-   * @throws `TypeError` inside the body of `fuse()`, as `read()` does.
+   * @throws `TypeError` inside the body of `fuse()`, as `read()` does, and for a value that holds
+   *   what no binding holds, as `resident()` does; the handle keeps what it held.
    */
   write(value: T): void;
   /** Release the device buffer, after every call made before this one. A use after it throws,
@@ -198,7 +199,7 @@ export class ResidentArrayState {
    *  caller gets a copy, so the host copy stays equal to the device's (`sync(true)`). */
   async snapshot(): Promise<unknown> {
     await this.sync(true);
-    return copyOf(this.host);
+    return copyOf(this.host, 'read()');
   }
 
   /** The host copy as a check of a call sees it. A handle with none yet says what it would hold. */
@@ -354,6 +355,50 @@ export function adopt(handle: object, state: ResidentArrayState): void {
   states.set(handle, state);
 }
 
+/** Where a value sits in the value being copied: its key in the object above it, up to the root. */
+interface Place {
+  readonly up: Place | undefined;
+  readonly key: string | number;
+}
+
+/** A place as the author writes it, `particles[2].born`, and `the value` for the root. The entries
+ *  of a `Map` are named as `Array.from(map)` holds them, `scores[0][1]` for the value of the first. */
+function placeName(at: Place | undefined): string {
+  if (at === undefined) return 'the value';
+  const keys: (string | number)[] = [];
+  for (let p: Place | undefined = at; p !== undefined; p = p.up) keys.push(p.key);
+  return keys
+    .reverse()
+    .map((k, i) =>
+      typeof k === 'number'
+        ? `[${k}]`
+        : /^[A-Za-z_$][\w$]*$/u.test(k)
+          ? `${i === 0 ? '' : '.'}${k}`
+          : `[${JSON.stringify(k)}]`,
+    )
+    .join('');
+}
+
+/** What `x` is, when it keeps its data in internal slots, so that no prototype and no own property
+ *  makes a copy of it: a `Date`, an `ArrayBuffer`, a `DataView`, a `RegExp`, an `Error`, a `Promise`
+ *  and the rest of the built-ins that are none of the kinds `copyOf` copies. `undefined` for an
+ *  array, a typed array, a `Map`, a `Set` and an ordinary object, an instance of a class among them. */
+function slotKind(x: object): string | undefined {
+  if (Array.isArray(x) || x instanceof Map || x instanceof Set) return undefined;
+  if (ArrayBuffer.isView(x)) return x instanceof DataView ? 'a DataView' : undefined;
+  const proto: unknown = Object.getPrototypeOf(x);
+  if (proto === Object.prototype || proto === null) return undefined;
+  const tag = Object.prototype.toString.call(x).slice(8, -1);
+  return tag === 'Object' ? undefined : `${/^[AEIOU]/u.test(tag) ? 'an' : 'a'} ${tag}`;
+}
+
+/** What the first walk of {@link copyOf} throws when a level needs the second: the walk that keeps
+ *  the places. */
+const LOOK_AGAIN = Symbol('lookAgain');
+
+/** The depth at which the first walk of {@link copyOf} doubts that the value ends. */
+const MOST_DEPTH = 100;
+
 /**
  * A copy of `v`, so that the handle and the caller never share an array or an object (Rule
  * 11.8). A typed array is sliced. An array, a `Map` and a `Set` are copied entry by entry. Any
@@ -361,17 +406,105 @@ export function adopt(handle: object, state: ResidentArrayState): void {
  * instance of a class stays an instance of that class and its constructor does not run (change
  * 0109, Amendment 1, decision D5). Each level is a new value. The copy calls no
  * `structuredClone`, which an `AudioWorkletGlobalScope` does not have.
+ *
+ * A level it cannot copy is refused with a `TypeError` that names its place, `particles[2].born`,
+ * and what it is (Rule 11.8, issue #1002): a `Date`, an `ArrayBuffer`, a `DataView` or another
+ * object with internal slots, which the prototype and the own properties do not make again; and an
+ * object that holds itself, which has no end to copy. A value two places hold is no cycle, and each
+ * place copies it. An own property named `__proto__` is copied as the data property it is, and
+ * does not set the prototype of the copy. `caller` is the call that refuses, as its sentence starts.
+ *
+ * The first walk keeps no place and no list of the objects it is in, since a value that a host
+ * gives is shallow and has nothing to refuse. It stops at a level it must look at again, a kind it
+ * cannot copy or a depth at which a cycle is possible, and a second walk of the value keeps both.
  */
-function copyOf<T>(v: T): T {
+function copyOf<T>(v: T, caller: string): T {
   if (typeof v !== 'object' || v === null) return v;
-  if (ArrayBuffer.isView(v)) return (v as unknown as Float32Array).slice() as T;
-  if (Array.isArray(v)) return Array.from(v, copyOf) as T;
-  // An entry of a `Map` is a new array of its key and its value, which the copy copies in turn.
-  if (v instanceof Map) return new Map(Array.from(v, copyOf)) as T;
-  if (v instanceof Set) return new Set(Array.from(v, copyOf)) as T;
-  const out = Object.create(Object.getPrototypeOf(v) as object | null) as Record<string, unknown>;
-  for (const k of Object.keys(v)) out[k] = copyOf((v as Record<string, unknown>)[k]);
-  return out as T;
+  try {
+    return walkCopy(v, caller, false) as T;
+  } catch (e) {
+    if (e !== LOOK_AGAIN) throw e;
+  }
+  return walkCopy(v, caller, true) as T;
+}
+
+/** One walk of {@link copyOf}. With `places` it keeps each level's place and the objects it is
+ *  in, and refuses; without, it throws {@link LOOK_AGAIN} where it would refuse. */
+function walkCopy(root: object, caller: string, places: boolean): object {
+  // The objects being copied, from the root to the one in hand, each with its place.
+  const open = new Map<object, Place | undefined>();
+  const refuse = (at: Place | undefined, what: string): never => {
+    if (!places) throw LOOK_AGAIN;
+    throw new TypeError(
+      `${caller}: takes a host value, and ${placeName(at)} ${what}, which no binding holds.`,
+    );
+  };
+  const child = (
+    c: unknown,
+    at: Place | undefined,
+    key: string | number,
+    depth: number,
+  ): unknown =>
+    typeof c === 'object' && c !== null
+      ? copy(c, places ? { up: at, key } : undefined, depth + 1)
+      : c;
+  const copy = (x: object, at: Place | undefined, depth: number): object => {
+    if (places ? open.has(x) : depth > MOST_DEPTH)
+      return refuse(at, `refers back to ${placeName(open.get(x))}, a cycle`);
+    if (places) open.set(x, at);
+    let out: object;
+    if (Array.isArray(x)) {
+      const items: unknown[] = [];
+      for (let i = 0; i < x.length; i++) items.push(child(x[i], at, i, depth));
+      out = items;
+    } else if (Object.getPrototypeOf(x) === Object.prototype) {
+      out = copyFields(x, {});
+    } else {
+      const kind = slotKind(x);
+      if (kind !== undefined) return refuse(at, `is ${kind}`);
+      if (ArrayBuffer.isView(x)) {
+        out = (x as unknown as Float32Array).slice();
+      } else if (x instanceof Map) {
+        // An entry is a pair of its key and its value, each a place of its own.
+        const entries = new Map<unknown, unknown>();
+        let i = 0;
+        for (const [k, val] of x) {
+          const entry: Place | undefined = places ? { up: at, key: i } : undefined;
+          i++;
+          entries.set(child(k, entry, 0, depth), child(val, entry, 1, depth));
+        }
+        out = entries;
+      } else if (x instanceof Set) {
+        const members = new Set<unknown>();
+        let i = 0;
+        for (const val of x) members.add(child(val, at, i++, depth));
+        out = members;
+      } else {
+        out = copyFields(x, Object.create(Object.getPrototypeOf(x) as object | null) as object);
+      }
+    }
+    if (places) open.delete(x);
+    return out;
+
+    /** The own enumerable properties of `x`, each copied into `into`. */
+    function copyFields(from: object, into: object): object {
+      const target = into as Record<string, unknown>;
+      for (const k of Object.keys(from)) {
+        const val = child((from as Record<string, unknown>)[k], at, k, depth);
+        // Assigning `__proto__` would set the prototype of the copy, as `JSON.parse` can give it.
+        if (k === '__proto__')
+          Object.defineProperty(target, k, {
+            value: val,
+            writable: true,
+            enumerable: true,
+            configurable: true,
+          });
+        else target[k] = val;
+      }
+      return target;
+    }
+  };
+  return copy(root, undefined, 0);
 }
 
 /** Why `v` is not a host value a Resident can hold, or undefined when it is. */
@@ -385,7 +518,10 @@ function notHostValue(v: unknown): string | undefined {
       ? undefined
       : `a ${v.constructor.name}, which no binding holds`;
   if (Array.isArray(v)) return undefined;
-  if (typeof v === 'object' && v !== null) return undefined;
+  if (typeof v === 'object' && v !== null) {
+    const kind = slotKind(v);
+    return kind === undefined ? undefined : `${kind}, which no binding holds`;
+  }
   return v === null ? 'null' : `a ${typeof v}`;
 }
 
@@ -413,7 +549,10 @@ export type ZeroedArray<E extends ZeroedElement> = E extends 'f32'
  *   `Float64Array`, an array, or an object for a struct.
  * @param element - with a length: `'f32'`, `'i32'` or `'u32'`, the element of the zeros.
  * @returns the handle, whose `write` replaces its contents and `destroy` frees its buffer.
- * @throws `TypeError` for any other value, and for a length or an element a zeroed handle refuses.
+ * @throws `TypeError` for any other value, for a value that holds a `Date`, an `ArrayBuffer`, a
+ *   `DataView` or another object with internal slots, or that holds itself, and for a length or an
+ *   element a zeroed handle refuses. The message names the place that holds it, as in
+ *   `particles[2].born`, and what it is.
  */
 export function resident<T>(value: T): Resident<T>;
 export function resident<E extends ZeroedElement>(
@@ -432,7 +571,7 @@ function hostState(value: unknown): ResidentArrayState {
     throw new TypeError(
       `resident(): takes a host value (a number, a tuple, a typed array, an array or an object), not ${not}.`,
     );
-  return new ResidentArrayState(copyOf(value));
+  return new ResidentArrayState(copyOf(value, 'resident()'));
 }
 
 /** How a refused argument of `resident()` reads in its message. */
@@ -485,7 +624,7 @@ function handleOf(state: ResidentArrayState): Resident<unknown> {
       live();
       const bad = notHostValue(v);
       if (bad !== undefined) throw new TypeError(`write(): takes a host value, not ${bad}.`);
-      const copy = copyOf(v);
+      const copy = copyOf(v, 'write()');
       kernelQueue.whenIdle(() => {
         state.assign(copy);
       });
