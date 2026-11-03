@@ -403,7 +403,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.drawElements',
     ],
     evidence:
-      'src/runtime/program.ts:321-352; src/runtime/gl-draw.ts (drawArraysInstanced, drawElementsInstanced)',
+      'src/runtime/program.ts:326-357; src/runtime/gl-draw.ts (drawArraysInstanced, drawElementsInstanced)',
     note: 'Geometry: count, instances, indices (uint16/uint32); a first vertex, index or instance has no form; drawRangeElements has no caller in src/',
     webgpu: andGap(
       typed('scripts/compile-gate.ts'),
@@ -612,8 +612,8 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextOverloads.compressedTexSubImage2D',
     ],
     evidence:
-      'src/runtime/resources.ts:155-156 (read cannot copy a compressed format); changes/0050-texture-write.md:284, 387 (write refuses a compressed format, and no write of compressed blocks)',
-    note: 'the runtime makes no compressed texture and uploads none; a texture the host makes is bound as is (src/runtime/resources.ts:209; src/runtime/gl-draw.ts:1433-1435)',
+      'src/runtime/resources.ts:153-154 (read cannot copy a compressed format); changes/0050-texture-write.md:284, 387 (write refuses a compressed format, and no write of compressed blocks)',
+    note: 'the runtime makes no compressed texture and uploads none; a texture the host makes is bound as is (src/runtime/resources.ts:206-210; src/runtime/gl-draw.ts:1433-1435)',
     webgpu: andGap(
       raw(
         'GPUTexture',
@@ -702,7 +702,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.samplerParameterf',
       'webgl:WebGL2RenderingContextBase.samplerParameteri',
     ],
-    evidence: 'src/runtime/resources.ts:76-93; src/runtime/gl-draw.ts (samplerParameteri)',
+    evidence: 'src/runtime/resources.ts:74-91; src/runtime/gl-draw.ts (samplerParameteri)',
     note: 'filter, address and compare are typed; the LOD clamps have no typed form; anisotropy is its own row',
     webgpu: andGap(
       typed(
@@ -729,7 +729,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: '`EXT_texture_filter_anisotropic`',
     covers: ['webgl:EXT_texture_filter_anisotropic'],
     evidence:
-      'src/runtime/resources.ts:322-325 (a host GPUSampler is bound as is); src/runtime/gl-draw.ts:1441-1444 (samplerOf takes a WebGLSampler)',
+      'src/runtime/resources.ts:298-300 (a host GPUSampler is bound as is); src/runtime/gl-draw.ts:1441-1444 (samplerOf takes a WebGLSampler)',
     note: 'a host sampler carries the anisotropy: a host GPUSampler on WebGPU, a host WebGLSampler on WebGL2',
     webgpu: andGap(
       raw('GPUSampler', 'a host GPUSampler with maxAnisotropy is bound as is'),
@@ -792,7 +792,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.invalidateSubFramebuffer',
     ],
     evidence:
-      'src/runtime/runtime.ts:468-498 (FrameImpl.pass); src/runtime/runtime.ts:544-558 (depthStencilAttachmentOf); src/runtime/gl-draw.ts:1627-1784 (recordPass)',
+      'src/runtime/runtime.ts:468-499 (FrameImpl.pass); src/runtime/runtime.ts:548-565 (depthStencilAttachmentOf); src/runtime/gl-draw.ts:1627-1784 (recordPass)',
     note: 'a hint: the contents after a pass may be dropped',
     webgpu: typed(
       'journeys/pass-attachments',
@@ -868,7 +868,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: '`readPixels` (synchronous readback), `PIXEL_PACK_BUFFER`',
     covers: ['webgl:WebGL2RenderingContextOverloads.readPixels'],
-    evidence: 'src/runtime/gl-draw.ts (readPixels); src/runtime/resources.ts:37-72',
+    evidence: 'src/runtime/gl-draw.ts (readPixels); src/runtime/resources.ts:35-70',
     note: 'Texture.read() and readFloats() on both tiers',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: andGap(
@@ -893,7 +893,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.clearStencil',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:1627-1784 (recordPass); src/runtime/runtime.ts:468-498 (FrameImpl.pass); src/runtime/runtime.ts:544-558 (depthStencilAttachmentOf)',
+      'src/runtime/gl-draw.ts:1627-1784 (recordPass); src/runtime/runtime.ts:468-499 (FrameImpl.pass); src/runtime/runtime.ts:547-564 (depthStencilAttachmentOf)',
     note: 'PassTargets clear values',
     webgpu: typed(
       'journeys/pass-attachments',
@@ -912,7 +912,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.depthFunc',
       'webgl:WebGLRenderingContextBase.depthMask',
     ],
-    evidence: 'src/runtime/program.ts:271-277; src/runtime/gl-draw.ts (depthFunc, depthMask)',
+    evidence: 'src/runtime/program.ts:276-282; src/runtime/gl-draw.ts (depthFunc, depthMask)',
     note: 'RenderState.depth; the switch that turns the test on is in Capability switches',
     webgpu: typed('scripts/compile-gate.ts'),
     webgl2: typed('scripts/compile-gate.ts'),
@@ -954,7 +954,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: '`EXT_depth_clamp`',
     covers: ['webgl:EXT_depth_clamp'],
-    evidence: 'src/runtime/program.ts:261-319 (no unclipped depth field)',
+    evidence: 'src/runtime/program.ts:266-324 (no unclipped depth field)',
     note: 'depth clamping is unclippedDepth on WebGPU; the runtime sets no depth clamp on either tier; no DEPTH_CLAMP use in src/runtime or src/core',
     webgpu: gap(1, 'unclippedDepth (depth clamp)', 632),
     webgl2: andGap(
@@ -980,7 +980,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.stencilOpSeparate',
     ],
     evidence:
-      'src/runtime/program.ts:292 (RenderState.depth.stencil); src/runtime/program.ts:1189-1208 (depthStencilOf); src/runtime/gl-draw.ts:1449 (setState)',
+      'src/runtime/program.ts:297 (RenderState.depth.stencil); src/rhi/webgpu.ts:199-218 (depthStencilOf); src/runtime/gl-draw.ts:1449 (setState)',
     note: 'the stencil test, its functions, operations and masks are set by each draw of a pipeline with depth.stencil',
     webgpu: typed(
       'journeys/pipeline-state',
@@ -997,7 +997,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: '`WEBGL_stencil_texturing`',
     covers: ['webgl:WEBGL_stencil_texturing'],
     evidence:
-      'src/runtime/gl-draw.ts:1627-1784 (a stencil attachment is cleared to 0 and never tested); src/runtime/resources.ts:48-49 (a depth or stencil format other than depth32float rejects a read)',
+      'src/runtime/gl-draw.ts:1627-1784 (a stencil attachment is cleared to 0 and never tested); src/runtime/resources.ts:46-47 (a depth or stencil format other than depth32float rejects a read)',
     note: 'the stencil aspect of a depth-stencil texture as a sampled texture; the same capability as the stencil-only aspect of GPUTextureAspect in table A',
     webgpu: gap(
       6,
@@ -1021,11 +1021,11 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.blendFuncSeparate',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:1470-1471 (blendFuncSeparate, blendEquationSeparate); src/runtime/program.ts:61-70',
+      'src/runtime/gl-draw.ts:1470-1471 (blendFuncSeparate, blendEquationSeparate); src/runtime/program.ts:66-75',
     note: 'TargetState.blend; min and max are core in WebGL2 (ES 3.00), the form EXT_blend_minmax adds in WebGL 1.0; the switch that turns blending on is in Capability switches',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend (src/runtime/program.ts:70)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend (src/runtime/program.ts:75)',
       645,
     ),
     webgl2: gap(
@@ -1041,7 +1041,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     covers: ['webgl:WebGLRenderingContextBase.blendColor'],
     evidence:
       'src/runtime/gl-draw.ts:783 (the constant factor maps to CONSTANT_COLOR); src/runtime/gl-draw.ts:1449-1468 (setState sets the functions, not the colour)',
-    note: 'the constant blend factor is typed (TargetState.blend, src/runtime/program.ts:66-72); the constant colour is typed by RenderPass.setBlendConstant and RenderState.blendConstant',
+    note: 'the constant blend factor is typed (TargetState.blend, src/runtime/program.ts:71-77); the constant colour is typed by RenderPass.setBlendConstant and RenderState.blendConstant',
     webgpu: typed(
       'journeys/render-state',
       'RenderPass.setBlendConstant; also src/runtime/runtime.test.ts',
@@ -1100,7 +1100,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     note: 'TargetState.writeMask; one mask for every target on WebGL2',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask (src/runtime/program.ts:71)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask (src/runtime/program.ts:76)',
       645,
     ),
     webgl2: gap(
@@ -1182,7 +1182,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Polygon offset: `polygonOffset`, `EXT_polygon_offset_clamp`',
     covers: ['webgl:EXT_polygon_offset_clamp', 'webgl:WebGLRenderingContextBase.polygonOffset'],
     evidence:
-      'src/runtime/program.ts:283 (RenderState.depth.bias); src/runtime/program.ts:1189-1208 (depthStencilOf); src/runtime/gl-draw.ts:516-535 (refuseBias); src/runtime/gl-draw.ts:1449 (setState, the polygon offset)',
+      'src/runtime/program.ts:288 (RenderState.depth.bias); src/rhi/webgpu.ts:199-218 (depthStencilOf); src/runtime/gl-draw.ts:516-535 (refuseBias); src/runtime/gl-draw.ts:1449 (setState, the polygon offset)',
     note: 'depthBias is pipeline state; each draw sets the polygon offset from its pipeline',
     webgpu: typed(
       'journeys/pipeline-state',
@@ -1202,7 +1202,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: 'Sample coverage: `sampleCoverage`',
     covers: ['webgl:WebGLRenderingContextBase.sampleCoverage'],
-    evidence: 'src/runtime/program.ts:301-303',
+    evidence: 'src/runtime/program.ts:306-308',
     note: 'alphaToCoverage and the sample mask have no typed form',
     webgpu: gap(1, 'alphaToCoverageEnabled and the sample mask', 632),
     webgl2: gap(
@@ -1472,7 +1472,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: '`EXT_texture_mirror_clamp_to_edge`',
     covers: ['webgl:EXT_texture_mirror_clamp_to_edge'],
-    evidence: 'src/runtime/resources.ts:76-93',
+    evidence: 'src/runtime/resources.ts:74-91',
     note: 'WebGPU has no mirror-clamp mode',
     webgpu: na('WebGPU has no mirror-clamp mode'),
     webgl2: gap(11, 'WebGL2-only, no portable meaning; no door yet (Rule 11.16)', 642),
@@ -1488,7 +1488,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WEBGL_multi_draw.multiDrawElementsInstancedWEBGL',
       'webgl:WEBGL_multi_draw.multiDrawElementsWEBGL',
     ],
-    evidence: 'src/runtime/program.ts:321-352 (one draw per call, from a Geometry)',
+    evidence: 'src/runtime/program.ts:326-357 (one draw per call, from a Geometry)',
     note: 'WebGPU has no multi-draw; the nearest form is indirect draw',
     webgpu: gap(
       5,
@@ -1509,7 +1509,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WEBGL_draw_instanced_base_vertex_base_instance',
       'webgl:WEBGL_multi_draw_instanced_base_vertex_base_instance',
     ],
-    evidence: 'src/runtime/program.ts:321-352',
+    evidence: 'src/runtime/program.ts:326-357',
     note: 'first and base offsets have no typed form',
     webgpu: gap(2, 'firstInstance needs indirect-first-instance (group 5) for indirect draws', 633),
     webgl2: gap(2, 'first and base offsets have no typed form', 633),
