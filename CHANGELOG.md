@@ -29,6 +29,24 @@ repository was published to npm before **`0.1.0`, the first release**.
   SwiftShader, subgroup size 4): both texts of a `u32` sum, an `i32` `min`/`max` pair and two
   histograms compile and write equal bits. Nothing an author writes changes; the runtime's
   selection of the text is the next stage.
+- **The runtime selects the subgroup variant by feature and probe** (change 0119, stage 2). When
+  a WebGPU device opens, through `createDevice()` or on the call layer's first call, and the
+  adapter has the `subgroups` feature, the call layer requests it (never requires it) and runs a
+  known-answer probe: one workgroup of 256 lanes folds a reduction and a scatter in the exact
+  shape the variant emits, and the host compares the folds with their answers. Where the probe
+  passes, every kernel call of that owner dispatches the subgroup variant of a face that has one;
+  where it fails, or the feature is absent, or `createDevice({ subgroups: 'off' })` keeps it
+  off, the call runs the tree text. `device.info.subgroups` records what the probe saw: the
+  adapter's size range, the subgroup size and count one workgroup had, and whether a subgroup's
+  lanes were consecutive. `device.statistics.variants` names the text the last call of each
+  kernel function dispatched, `'subgroup'` or `'tree'`. Measured on SwiftShader (subgroup size 4) by the `subgroup-folds` journey: a sum, a histogram and a min/max pair over 1000 integers
+  write the bits the plain-JavaScript reference computes.
+- **The rules of the subgroup variant** (change 0119, stage 3). Rule 8.22 names the variant of a
+  reduction and a scatter and the operators it is emitted for; Rule 10.2 keeps a feature a
+  variant alone needs out of `requiredFeatures`; Rule 11.23 (new) says what a variant is, that
+  its bits are equal, and that the runtime selects it when a device opens by feature and probe.
+  Surface §38, §65 and §69 and the authoring guide describe it. The proposal's draft called the
+  rule 11.22, which change 0107's numerical contract took first.
 - **A numerical contract, opted into per function** (change 0107, stages 1 and 2; Rule 6.7, Rule 9.6,
   Rule 11.22, surface §3, §38 and §78). `const f = numerics(["finite-math"], function f(…) { … })`, or
   a stage call's `{ numerics: [...] }` option, lets `-O2` fold `x * 0`, `x - x`, `mix(a, b, 0)`
@@ -87,8 +105,8 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   `indices.buffer` given an object that is not a `GPUBuffer`. The WebGL2 tier is unchanged
   (milestone M2). The interface and its backend add code to the runtime, so the caps of
   `typeshade/runtime` in `scripts/bundle-budget.json` take the measured gzip sizes: single file
-  151,478 to 152,980 (+1,502), split initial 37,190 to 38,586 (+1,396) and split total 153,424 to
-  154,826 (+1,402). The floors and the other subpaths do not change.
+  153,129 to 154,587 (+1,458), split initial 38,589 to 40,000 (+1,411) and split total 155,026 to
+  156,496 (+1,470). The floors and the other subpaths do not change.
 
 - **A constant argument reaches a function under a numerical contract** (#850 N5; Rule 11.22).
   At `-O2`, a call that passes a scalar literal to a function opted in with `numerics(...)` calls
@@ -1597,6 +1615,21 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `docs/ir-builder.md` describes the builder for engines and tools.
 
 ### Fixed
+
+- **The call checks a read under a guard on the counter over the iterations the guard keeps (#997).**
+  A kernel function's call checks each array a loop reads at `a*i + c` against its length before it
+  dispatches (#655). It took the whole range of the counter for the range of the read. A loop that
+  reads `xs` only under `if (i < 4)`, over `i < 8`, was refused for a `xs` of 4 elements with
+  `padTo(): parameter "xs" holds 4 elements, and loop 1 reads it at indices 0 to 7.`, though no
+  iteration reads past the end, and `compile()` and the editor said nothing. The proof now notes the
+  comparisons of the counter with a loop-invariant bound that a read stands under: `i < 4`, `4 > i`,
+  `i <= n`, `i < xs.length`, a conjunction of such, a guard inside a guard, and the `else` of one
+  comparison. The plan carries each bound as a function of the host (`padTo__guard0_0`), and the
+  call checks the read over the iterations where every comparison holds. A read under no guard keeps
+  the whole range, and so does one under a test of anything but the counter against a bound
+  (`i % 2 == 0`, an or). A guard that keeps the read outside the array is refused as before:
+  `i < 6` over 4 elements, with the same sentence. A bound that reads an element of an array has no
+  value before the loop runs, and is left out. A read in an arm of `?:` is not narrowed.
 
 - **`resident()`, `write()` and `device.array()` refuse a value they cannot copy, and name the place
   (#1002).** A handle holds a copy of the host value it is given, made level by level (`copyOf` in

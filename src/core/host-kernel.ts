@@ -137,6 +137,10 @@ export interface KernelLoop {
     readonly a: number;
     readonly c: number;
     readonly read?: true;
+    /** For a read under comparisons of the counter with a bound (#997): each comparison and the
+     *  CPU-tier function that gives its bound. The read is checked over the iterations where
+     *  they all hold. Absent in a face written before that change. */
+    readonly guards?: readonly { readonly cop: '<' | '<=' | '>' | '>='; readonly fn: string }[];
   }[];
   /** The textures it stores into at `vec2(i % W, i / W)`, each with the CPU-tier function that
    *  gives `W` (change 0077). Absent in a face written before that change. */
@@ -420,12 +424,35 @@ const TREE_PARAMS = [
   'workgroup_id',
 ] as const;
 
-function entriesOf(k: KernelFace, flavor: Fp64Flavor, held = false): LoopEntries[] {
+/** The WGSL a call dispatches: the subgroup variant where the owner selects it and the face has
+ *  one (change 0119, Rule 11.23), under the owner's flavor of the emulated double (change 0073). */
+function textOf(v: Variant, integer: boolean, subgroup: boolean): string {
+  if (subgroup && v.wgslSubgroup !== undefined)
+    return integer && v.wgslSubgroupInteger !== undefined ? v.wgslSubgroupInteger : v.wgslSubgroup;
+  return integer ? v.wgslInteger! : v.wgsl;
+}
+
+/** The key a text's entries are cached under: the flavor, the variant and the held form. */
+function underOf(
+  v: Variant & { readonly key: string },
+  integer: boolean,
+  subgroup: boolean,
+): string {
+  return `${integer ? 'integer' : 'float'}${subgroup && v.wgslSubgroup !== undefined ? '+subgroup' : ''}${v.key}`;
+}
+
+function entriesOf(
+  k: KernelFace,
+  flavor: Fp64Flavor,
+  held = false,
+  subgroup = false,
+): LoopEntries[] {
   const g = k.gpu!;
   const v = variantOf(k, held);
   // A module that emulates no `f64` has one WGSL, and the flavor changes nothing (change 0073).
   const integer = flavor === 'integer' && v.wgslInteger !== undefined;
-  const under = `${integer ? 'integer' : 'float'}${v.key}`;
+  const text = textOf(v, integer, subgroup);
+  const under = underOf(v, integer, subgroup);
   let per = entries.get(k);
   if (per === undefined) entries.set(k, (per = new Map()));
   let es = per.get(under);
@@ -453,7 +480,7 @@ function entriesOf(k: KernelFace, flavor: Fp64Flavor, held = false): LoopEntries
       const entry = (fn: string, bindings: DrawBinding[], tree = false): ComputeEntry => ({
         name: k.name,
         fn,
-        wgsl: integer ? v.wgslInteger! : v.wgsl,
+        wgsl: text,
         wg: tree && loop.reduce === undefined ? [KERNEL_TREE, 1, 1] : [loop.wg, 1, 1],
         params: loop.reduce !== undefined || tree ? TREE_PARAMS : TREE_PARAMS.slice(0, 2),
         bindings: [...bindings, ...guard],
@@ -524,12 +551,12 @@ function entriesOf(k: KernelFace, flavor: Fp64Flavor, held = false): LoopEntries
  *  partials of each loop that reduces, which it reads at the slot its uniform names. */
 const finishEntries = new WeakMap<KernelFace, Map<string, ComputeEntry>>();
 
-function finishOf(k: KernelFace, flavor: Fp64Flavor, held = false): ComputeEntry {
+function finishOf(k: KernelFace, flavor: Fp64Flavor, held = false, subgroup = false): ComputeEntry {
   const g = k.gpu!;
   const fin = g.finish!;
   const v = variantOf(k, held);
   const integer = flavor === 'integer' && v.wgslInteger !== undefined;
-  const under = `${integer ? 'integer' : 'float'}${v.key}`;
+  const under = underOf(v, integer, subgroup);
   let per = finishEntries.get(k);
   if (per === undefined) finishEntries.set(k, (per = new Map()));
   const had = per.get(under);
@@ -541,7 +568,7 @@ function finishOf(k: KernelFace, flavor: Fp64Flavor, held = false): ComputeEntry
   const entry: ComputeEntry = {
     name: k.name,
     fn: fin.entry,
-    wgsl: integer ? v.wgslInteger! : v.wgsl,
+    wgsl: textOf(v, integer, subgroup),
     wg: [1, 1, 1],
     params: TREE_PARAMS.slice(0, 2),
     bindings: [
@@ -900,6 +927,7 @@ export async function tierFit(
             k,
             owner.fp64Flavor(d),
             held.some((h) => h !== undefined),
+            owner.subgroupFolds?.(d) === true,
           ).bindings.filter((b) => b.space === 'storage').length;
     if (stores > most)
       return {
@@ -911,6 +939,7 @@ export async function tierFit(
       k,
       owner.fp64Flavor(d),
       held.some((h) => h !== undefined),
+      owner.subgroupFolds?.(d) === true,
     );
     if (ranged !== undefined && ranged.count > most)
       return {
@@ -999,6 +1028,19 @@ export async function runChecked(
       run?.tiers.add(tier);
       const physical =
         run === undefined && states.every((s) => s === undefined) ? projectedInputs(k, hosts) : k;
+      // The subgroup variant, where the owner's device passed the probe and the face has one
+      // (change 0119); the owner's statistics name the text the call ran.
+      const subgroup = owner.subgroupFolds?.(d) === true;
+      owner.dispatched?.(
+        k.name,
+        subgroup &&
+          variantOf(
+            physical,
+            held.some((h) => h !== undefined),
+          ).wgslSubgroup !== undefined
+          ? 'subgroup'
+          : 'tree',
+      );
       const folded = await onDevice(
         d,
         physical,
@@ -1009,6 +1051,7 @@ export async function runChecked(
         owner.fp64Flavor(d),
         values,
         held,
+        subgroup,
       );
       return result(async () => tailResult(cpu, k, values, await folded()));
     }
@@ -1358,8 +1401,21 @@ function rangesOf(cpu: GeneratedCpu, k: KernelFace, values: readonly unknown[]):
     for (const c of loop.checks) {
       const i = k.params.findIndex((p) => p.name === c.param);
       const length = values[i] as number;
-      const top = c.a > 0 ? c.a * hi + c.c : c.a * lo + c.c;
-      const bottom = c.a > 0 ? c.a * lo + c.c : c.a * hi + c.c;
+      // A read under comparisons of the counter with a bound happens in the iterations where they
+      // hold (#997): the counters from `from` to `to`. The interval holds every such iteration.
+      let [from, to] = [lo, hi];
+      for (const g of c.guards ?? []) {
+        init?.();
+        const bound = Number(cpu.F[g.fn]!(...lengths));
+        if (!Number.isFinite(bound)) continue;
+        if (g.cop === '<') to = Math.min(to, bound - 1);
+        else if (g.cop === '<=') to = Math.min(to, bound);
+        else if (g.cop === '>') from = Math.max(from, bound + 1);
+        else from = Math.max(from, bound);
+      }
+      if (from > to) continue;
+      const top = c.a > 0 ? c.a * to + c.c : c.a * from + c.c;
+      const bottom = c.a > 0 ? c.a * from + c.c : c.a * to + c.c;
       if (top >= length || bottom < 0)
         throw new TypeError(
           `${k.name}(): parameter "${c.param}" holds ${length} elements, and loop ${j + 1} ${c.read ? 'reads' : 'writes'} it at indices ${bottom} to ${top}.`,
@@ -1448,9 +1504,10 @@ function deviceBindings(
   k: KernelFace,
   flavor: Fp64Flavor,
   held: boolean,
+  subgroup = false,
 ): { readonly loop: number; readonly count: number } | undefined {
   if (k.gpu?.trips === undefined) return undefined;
-  const es = entriesOf(k, flavor, held);
+  const es = entriesOf(k, flavor, held, subgroup);
   let most: { loop: number; count: number } | undefined;
   for (const [j, e] of es.entries())
     for (const x of [e.loop, e.range]) {
@@ -1497,13 +1554,14 @@ async function onDevice(
   flavor: Fp64Flavor,
   values: readonly unknown[] = [],
   held: readonly (HeldLength | undefined)[] = [],
+  subgroup = false,
 ): Promise<Folded> {
   const g = k.gpu!;
   // A call that passes a held length runs the WGSL in which every array a loop pushes onto has a
   // length word (change 0094).
   const holds = held.some((h) => h !== undefined);
   const variant = variantOf(k, holds);
-  const es = entriesOf(k, flavor, holds);
+  const es = entriesOf(k, flavor, holds, subgroup);
   const batch = run?.batchOn(d) ?? new DispatchBatch(d);
   const folds: Folded[] = [];
   // Each texture, as `checkCall` found it (change 0077).
@@ -1754,7 +1812,7 @@ async function onDevice(
     try {
       // From the WGSL text the loops ran: the second, for a call that passes a held length.
       await batch.add(
-        finishOf(k, flavor, holds),
+        finishOf(k, flavor, holds, subgroup),
         { values: bound_, images, samplers: new Map(), onDevice: bound },
         [1, 1, 1],
       );

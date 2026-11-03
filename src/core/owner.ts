@@ -27,6 +27,7 @@ import {
   type ResidentArrayState,
 } from './resident.js';
 import type { Tier } from './tiers.js';
+import { subgroupObservationOf } from './subgroup-probe.js';
 
 /** Whose device a call runs on, and whose arrays it may take. */
 export interface CallOwner {
@@ -40,6 +41,13 @@ export interface CallOwner {
    *  dispatches for a module that emulates `f64`, and the IR a plan of this owner fuses.
    *  `native` is the actual GPU executing the call, used by the default owner's auto policy. */
   fp64Flavor(native?: object): Fp64Flavor;
+  /** Whether a kernel call of this owner dispatches the subgroup variant of a face that has one
+   *  (change 0119): on a device that has the `subgroups` feature and passed the subgroup probe
+   *  when it opened. An owner without the method runs the tree. */
+  subgroupFolds?(native?: object): boolean;
+  /** Told which text a kernel call of this owner dispatched (change 0119), by the function's
+   *  name, so that the owner's statistics can name it. */
+  dispatched?(kernel: string, variant: 'tree' | 'subgroup'): void;
   /** Refuse a new ordinary call after disposal starts. Captured calls already in the queue remain valid. */
   assertCall?(): void;
 }
@@ -53,6 +61,8 @@ export const defaultOwner: CallOwner = Object.freeze({
   tiers: () => preferredTiers(),
   device: () => gpuDevice(),
   fp64Flavor: (native?: object) => configuredFp64Flavor(native),
+  // The probe ran on the default device when it opened (`gpuDevice()`, change 0119).
+  subgroupFolds: (native?: object) => native != null && subgroupObservationOf(native) !== null,
 });
 
 /** The owner of each texture a device made (`device.texture()`, change 0077). A texture is on

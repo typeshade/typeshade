@@ -39,6 +39,7 @@ import {
 } from '../core/host-entry.js';
 import type { CallOwner } from '../core/owner.js';
 import type { Fp64Flavor } from '../core/passes/fp64-lower.js';
+import { probeSubgroups, type SubgroupObservation } from '../core/subgroup-probe.js';
 import {
   adopt,
   checkFp64Flavor,
@@ -83,6 +84,13 @@ export type DeviceOptions = {
    *  module that emulates `f64`, the `_fp64` guard bound under `'float'` and absent under
    *  `'integer'`. A module that emulates no `f64` is unchanged. */
   readonly fp64Flavor?: 'auto' | Fp64Flavor;
+  /** Whether a kernel call of the device dispatches the subgroup variant of a function's WGSL
+   *  (change 0119, Rule 11.23). `'auto'`, the default, runs the subgroup probe when a WebGPU device that has
+   *  the `subgroups` feature opens, and dispatches the variant where the probe passed;
+   *  `info.subgroups` holds what it saw. `'off'` runs no probe and keeps every call on the
+   *  tree, for a measurement of the two texts on one device. There is no `'on'`: a device
+   *  without the feature cannot compile the variant. */
+  readonly subgroups?: 'auto' | 'off';
   /** The time one chunk of a long kernel may take, in milliseconds (change 0074): 250 by default.
    *  `device.chunkSize()` sizes each chunk of a key to fit eight tenths of it. A value that is not
    *  a finite number from 1 to 60000 is a `RangeError`. */
@@ -125,6 +133,10 @@ export interface DeviceStatistics {
   readonly uploadBytes: number;
   /** The bytes `read()` of the device's arrays returned. */
   readonly readBytes: number;
+  /** The text the last kernel call of each function dispatched on WebGPU (change 0119), by the
+   *  function's name: `'subgroup'` for the subgroup variant, `'tree'` for the function's own.
+   *  A function whose face has no variant, and every call on another tier, is `'tree'`. */
+  readonly variants: Readonly<Record<string, 'tree' | 'subgroup'>>;
 }
 
 /** A tier `createDevice()` tried before the one that opened, with the reason it did not. Not an
@@ -293,6 +305,8 @@ class DeviceImpl implements Device {
   #readBytes = 0;
   /** What the device learned of each chunk key (change 0074). */
   readonly #rates = new Map<string, ChunkRate>();
+  /** The text the last call of each kernel function dispatched (change 0119). */
+  readonly #variants = new Map<string, 'tree' | 'subgroup'>();
   #disposing: Promise<void> | undefined;
   /** The textures the device made (change 0077), destroyed by `dispose()`. */
   readonly #textures = new Set<TextureImpl>();
@@ -306,10 +320,11 @@ class DeviceImpl implements Device {
     poolBytes: number,
     fp64Flavor: 'auto' | Fp64Flavor,
     timeBudgetMs: number,
+    subgroups: SubgroupObservation | null = null,
   ) {
     this.tier = tier;
     const native = gpu ?? (tier === 'webgl2' ? glContext() : null);
-    this.info = deviceInfo(tier, native);
+    this.info = deviceInfo(tier, native, subgroups);
     this.fp64Flavor =
       fp64Flavor === 'auto' ? automaticFp64Flavor(tier, native, this.info) : fp64Flavor;
     this.timeBudgetMs = timeBudgetMs;
@@ -334,6 +349,12 @@ class DeviceImpl implements Device {
       tiers: () => tiers,
       device: () => Promise.resolve(gpu),
       fp64Flavor: () => this.fp64Flavor,
+      // The probe ran when this device opened (change 0119): a call dispatches the variant
+      // where it passed.
+      subgroupFolds: () => this.info.subgroups !== null,
+      dispatched: (kernel: string, variant: 'tree' | 'subgroup') => {
+        this.#variants.set(kernel, variant);
+      },
       assertCall: () => this.#usable('call()'),
     });
   }
@@ -344,6 +365,7 @@ class DeviceImpl implements Device {
       liveBytes: this.#liveBytes,
       pooledBytes: this.#pooledBytes,
       allocations: this.#allocations,
+      variants: Object.freeze(Object.fromEntries(this.#variants)),
       reuses: this.#reuses,
       uploadBytes: this.#uploadBytes,
       readBytes: this.#readBytes,
@@ -728,6 +750,18 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
     options.fp64Flavor === undefined
       ? 'auto'
       : checkFp64Flavor('createDevice({ fp64Flavor })', options.fp64Flavor);
+  if (
+    options.subgroups !== undefined &&
+    options.subgroups !== 'auto' &&
+    options.subgroups !== 'off'
+  )
+    throw new TypeError(
+      `createDevice({ subgroups }): ${JSON.stringify(options.subgroups)} is not a setting; the choices are 'auto' and 'off'.`,
+    );
+  // The subgroup probe (change 0119), on a WebGPU device that has the feature, unless the host
+  // keeps it off.
+  const probe = (d: GpuDevice): Promise<SubgroupObservation | null> =>
+    options.subgroups === 'off' ? Promise.resolve(null) : probeSubgroups(d);
   if (options.device !== undefined) {
     if (typeof options.device !== 'object' || options.device === null || isWebGl2(options.device))
       throw new TypeError('createDevice({ device }): device takes a GPUDevice.');
@@ -741,6 +775,7 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
       poolBytes,
       fp64Flavor,
       timeBudgetMs,
+      await probe(options.device as GpuDevice),
     );
   }
   if (options.runtime !== undefined) {
@@ -768,6 +803,7 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
       poolBytes,
       fp64Flavor,
       timeBudgetMs,
+      await probe(rt.device as GpuDevice),
     );
   }
   const prefer = options.prefer ?? TIERS;
@@ -792,7 +828,17 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
         continue;
       }
       if (d !== null)
-        return new DeviceImpl(tier, tiers, skipped, d, true, poolBytes, fp64Flavor, timeBudgetMs);
+        return new DeviceImpl(
+          tier,
+          tiers,
+          skipped,
+          d,
+          true,
+          poolBytes,
+          fp64Flavor,
+          timeBudgetMs,
+          await probe(d),
+        );
       skipped.push({ tier, reason: 'there is no WebGPU device' });
     } else if (tier === 'webgl2') {
       if (glContext() !== null)

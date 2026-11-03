@@ -31,6 +31,7 @@ import type { CpuValue } from './cpu-runtime.js';
 import { decodeConsole, type ConsoleLog } from './console.js';
 import type { PackOverride } from './manifest-types.js';
 import { copyLimits, isMinimumLimit } from './device-limits.js';
+import { probeSubgroups } from './subgroup-probe.js';
 import { retainAdapter } from './device-info.js';
 import { printConsole, printDropped } from './console-print.js';
 
@@ -668,6 +669,10 @@ interface GpuShaderModule {
 }
 /** The optional WebGPU feature that a fuse report's `gpuTime` needs (change 0066). */
 export const TIMESTAMP_QUERY = 'timestamp-query';
+/** The feature the subgroup variant of a kernel function's WGSL needs (change 0119, Rule 11.23):
+ *  requested where the adapter has it, as `timestamp-query` is, and never required, so it is not
+ *  among the module's `requiredFeatures` (Rule 10.2). */
+export const SUBGROUPS = 'subgroups';
 
 /** The most queries WebGPU allows in one query set. A flush of more passes than half of it goes
  *  without timestamps: an oversized set is a validation error, which would fail the flush. */
@@ -876,9 +881,13 @@ export function configuredRuntime(): { readonly device: object } | undefined {
 export function gpuDevice(): Promise<GpuDevice | null> {
   if (hostRuntime !== undefined) return Promise.resolve(hostRuntime.device as GpuDevice);
   if (device === undefined) {
-    // The promise a call awaits is the request itself: no step is added to the await (the
-    // timing of the calls is the same as before this change).
-    const request = requestCallDevice(asked);
+    // The promise a call awaits is the request, then the subgroup probe on the device it gave
+    // (change 0119, Rule 11.23): the first call waits for the probe, so that every call of the
+    // device runs the text the probe selected.
+    const request = requestCallDevice(asked).then(async (d) => {
+      if (d !== null) await probeSubgroups(d);
+      return d;
+    });
     device = request;
     request.then(
       (d) => {
@@ -971,6 +980,8 @@ export async function requestCallDevice(
   const features = [...want.features];
   if (adapter.features?.has(TIMESTAMP_QUERY) === true && !features.includes(TIMESTAMP_QUERY))
     features.push(TIMESTAMP_QUERY);
+  if (adapter.features?.has(SUBGROUPS) === true && !features.includes(SUBGROUPS))
+    features.push(SUBGROUPS);
   const descriptor: { requiredFeatures?: string[]; requiredLimits?: Record<string, number> } = {};
   if (features.length > 0) descriptor.requiredFeatures = features;
   if (Object.keys(want.limits).length > 0) descriptor.requiredLimits = { ...want.limits };

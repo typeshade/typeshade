@@ -833,3 +833,100 @@ export function step(ps: array<P>, dt: f32) {
     expect(v.ok).toBe(true);
   });
 });
+
+// ─── the guard a read stands under (#997) ────────────────────────────────────────────────────
+
+describe('the guards a read of an outer array stands under: comparisons of the counter with a bound', () => {
+  // The call checks a read at `a*i + c` against the array's length over the iterations of the
+  // loop (#655). A read under `if (i < 4)` happens in the iterations below 4 only, so the proof
+  // says which comparisons of the counter with a loop-invariant bound hold where the read is.
+
+  /** A bound as the author writes it. */
+  const show = (e: Expr): string =>
+    e.op === 'lit'
+      ? String(e.value)
+      : e.op === 'param' || e.op === 'varref'
+        ? e.name
+        : e.op === 'call' && e.fn === 'arrayLength'
+          ? `${show(e.args[0]!)}.length`
+          : e.op === 'binop'
+            ? `${show(e.a)} ${e.bop} ${show(e.b)}`
+            : e.op;
+
+  /** Each read of `xs` as `a*i+c`, with the guards it stands under: `1*i+0 if i < 4 && i >= n`. */
+  const readsOfXs = (body: string): string[] => {
+    const v = proof(body).loops[0]!;
+    if (!v.ok) throw new Error(`refused: ${v.refusal.rule}`);
+    const xs = v.reads.find((r) => r.name === 'xs');
+    return (xs?.forms ?? []).map((f) => {
+      const gs = (f.guards ?? []).map((g) => `i ${g.cop} ${show(g.bound)}`);
+      return `${f.a}*i+${f.c}${gs.length > 0 ? ` if ${gs.join(' && ')}` : ''}`;
+    });
+  };
+  const loop = (
+    inside: string,
+    extra = '',
+  ): string => `export function padTo(out: array<f32>, xs: array<f32>${extra}): void {
+  for (let i: u32 = 0; i < 8; i++) {
+    let v = 0.;
+    ${inside}
+    out[i] = v;
+  }
+}`;
+
+  it.each([
+    ['no guard', 'v = xs[i];', ['1*i+0']],
+    ['the issue', 'if (i < 4) { v = xs[i]; }', ['1*i+0 if i < 4']],
+    ['a bound at or below', 'if (i <= 3) { v = xs[i]; }', ['1*i+0 if i <= 3']],
+    ['the bound on the left', 'if (4 > i) { v = xs[i]; }', ['1*i+0 if i < 4']],
+    ['a lower bound', 'if (i >= 2) { v = xs[i]; }', ['1*i+0 if i >= 2']],
+    ['a shifted read', 'if (i < 4) { v = xs[i + 1]; }', ['1*i+1 if i < 4']],
+    ['the length of the array', 'if (i < xs.length) { v = xs[i]; }', ['1*i+0 if i < xs.length']],
+    ['two comparisons', 'if (i >= 2 && i < 6) { v = xs[i]; }', ['1*i+0 if i >= 2 && i < 6']],
+    [
+      'the else of one comparison',
+      'if (i >= 4) { v = 1.; } else { v = xs[i]; }',
+      ['1*i+0 if i < 4'],
+    ],
+    [
+      'the else of a comparison, after an else if',
+      'if (i >= 6) { v = 1.; } else if (i >= 4) { v = 2.; } else { v = xs[i]; }',
+      ['1*i+0 if i < 6 && i < 4'],
+    ],
+    [
+      'a guard inside a guard',
+      'if (i < 6) { if (i >= 2) { v = xs[i]; } }',
+      ['1*i+0 if i < 6 && i >= 2'],
+    ],
+    [
+      'the same read under a guard and under none',
+      'if (i < 4) { v = xs[i]; } v += xs[i];',
+      ['1*i+0 if i < 4', '1*i+0'],
+    ],
+    [
+      'a test of the counter and a bound that is no comparison',
+      'if (i % 2 == 0) { v = xs[i]; }',
+      ['1*i+0'],
+    ],
+    ['an or', 'if (i < 2 || i > 5) { v = xs[i]; }', ['1*i+0']],
+    ['the else of an and', 'if (i < 2 && i > 0) { v = 1.; } else { v = xs[i]; }', ['1*i+0']],
+  ])('%s', (_name, inside, want) => {
+    expect(readsOfXs(loop(inside))).toEqual(want);
+  });
+
+  it('keeps a bound that is a parameter, and the comparison of a parameter alone says nothing', () => {
+    expect(readsOfXs(loop('if (i < n) { v = xs[i]; }', ', n: u32'))).toEqual(['1*i+0 if i < n']);
+    expect(readsOfXs(loop('if (n > 2) { v = xs[i]; }', ', n: u32'))).toEqual(['1*i+0']);
+  });
+
+  it('says nothing of a comparison with a value the loop declares', () => {
+    // `lim` is read from an array in the loop, so it is no bound the call can compute.
+    const body = loop('const lim = ys[0]; if (i < lim) { v = xs[i]; }', ', ys: array<u32>');
+    expect(readsOfXs(body)).toEqual(['1*i+0']);
+  });
+
+  it('does not change the verdict: the loop is accepted with and without the guard', () => {
+    for (const inside of ['v = xs[i];', 'if (i < 4) { v = xs[i]; }'])
+      expect(verdict(loop(inside))).toBe('affine out');
+  });
+});

@@ -168,6 +168,15 @@ before a proposal spends a design on one, `bun run bench:subgroup-reduce`
 (`scripts/bench-subgroup-reduce.ts`) measures what it would buy on the device it runs on. It is a
 measurement, not a gate: it enforces no threshold.
 
+Change 0119 then made the fold the compiler's (Rule 8.22, Rule 11.23, surface §65): a kernel
+function whose loop reduces a `u32` or an `i32`, or an `f32` with `min` or `max`, or scatters into
+an integer array, has a second text in which each subgroup folds first, and the runtime
+dispatches it on a device that has `subgroups` and passed its known-answer probe. The source
+does not change, so typeshade.dev's benchmark compares the pin before the change against the pin
+after it on every visitor's device, which is the measurement that decides whether the variant
+stays the default. `bench:subgroup-reduce` keeps its hand-written variants as the ceiling and the
+floor the compiler's two texts are read against.
+
 **What it runs.** Two families, every variant in the compiler's own binding layout, with the same
 dispatches and the same uniform words, so the only difference timed is the fold.
 
