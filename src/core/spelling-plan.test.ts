@@ -207,6 +207,119 @@ describe('planSpellings: collisions, one spelling per target, and determinism', 
   });
 });
 
+describe('planSpellings: a constant an entry reads under the name of one of its parameters (#1009)', () => {
+  // The source reads such a constant as `Voice.OFFSET`, and the module emits it as `Voice_OFFSET`
+  // (Rule 3.2). An entry's parameters are the plan's and the host's, so the constant is respelled.
+  const read = (name: string): FuncDecl['body'] => [
+    { s: 'return', expr: { op: 'constref', type: f32T, name } },
+  ];
+  const entry = (name: string, params: string[], body: FuncDecl['body'], stage = 'fragment') =>
+    ({
+      ...helper(name, params, body),
+      stage,
+      attrs: [`@${stage}`],
+    }) as FuncDecl;
+
+  it('gives the constant a fresh spelling on both targets, and the parameter keeps its name', () => {
+    const m = moduleOf({
+      consts: [constOf('K')],
+      funcs: [entry('fs', ['K'], read('K'))],
+    });
+    const plan = planSpellings(m);
+    for (const t of [plan.wgsl, plan.glsl]) {
+      expect(t.consts.get('K')).toBe('K_');
+      expect(t.members.size).toBe(0);
+    }
+  });
+
+  it('leaves the constant alone when the entry does not read it, and when a helper has the parameter', () => {
+    const idle = moduleOf({ consts: [constOf('K')], funcs: [entry('fs', ['K'], [])] });
+    expect(spellsNothing(planSpellings(idle).wgsl)).toBe(true);
+    // A helper's parameter is the late pass's (`sanitizeVariableNames`), not the plan's.
+    const helped = moduleOf({
+      consts: [constOf('K')],
+      funcs: [helper('g', ['K'], read('K'))],
+    });
+    expect(spellsNothing(planSpellings(helped).wgsl)).toBe(true);
+    // Another name: the parameter hides nothing the entry reads.
+    const other = moduleOf({
+      consts: [constOf('K'), constOf('L')],
+      funcs: [entry('fs', ['K'], read('L'))],
+    });
+    expect(spellsNothing(planSpellings(other).wgsl)).toBe(true);
+  });
+
+  it('respells the constant once for any number of entries, past every authored name', () => {
+    const m = moduleOf({
+      consts: [constOf('K'), constOf('K_')],
+      funcs: [
+        entry('vs', ['K'], read('K'), 'vertex'),
+        entry('fs', ['K'], read('K')),
+        entry('cs', ['K', 'K_1'], read('K'), 'compute'),
+      ],
+    });
+    const plan = planSpellings(m);
+    expect(plan.wgsl.consts.get('K')).toBe('K_2');
+    expect([...plan.wgsl.consts.keys()]).toEqual(['K']);
+    for (const t of [plan.wgsl, plan.glsl]) {
+      const values = valuesOf(t);
+      expect(new Set(values).size).toBe(values.length);
+      for (const value of values) expect(['K', 'K_', 'K_1']).not.toContain(value);
+    }
+  });
+
+  it('reads the constant wherever the entry body holds it, and no other entry is affected', () => {
+    const m = moduleOf({
+      consts: [constOf('K'), constOf('L')],
+      funcs: [
+        entry(
+          'fs',
+          ['K', 'L'],
+          [
+            {
+              s: 'if',
+              arms: [
+                {
+                  cond: { op: 'lit', type: { kind: 'scalar', scalar: 'bool' }, value: true },
+                  body: [
+                    {
+                      s: 'let',
+                      name: 'v',
+                      expr: {
+                        op: 'binop',
+                        type: f32T,
+                        bop: '+',
+                        a: { op: 'param', type: f32T, name: 'L' },
+                        b: { op: 'constref', type: f32T, name: 'K' },
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        ),
+        entry('other', ['K'], [], 'compute'),
+      ],
+    });
+    const plan = planSpellings(m);
+    expect([...plan.wgsl.consts]).toEqual([['K', 'K_']]);
+    expect(planSpellings(fromPortable(toPortable(m, 'test')))).toEqual(plan);
+  });
+
+  it('respells a constant that a target already renames only once, and not for the parameter', () => {
+    // `class` is a reserved word on both targets, so its constant is respelled for its own sake
+    // and the fresh spelling collides with no parameter.
+    const m = moduleOf({
+      consts: [constOf('class')],
+      funcs: [entry('fs', ['class'], read('class'))],
+    });
+    const plan = planSpellings(m);
+    expect(plan.wgsl.consts.get('class')).toBe('class_');
+    expect(plan.wgsl.members.get('class')).toBe('class_1');
+  });
+});
+
 describe('planSpellings: host-owned names and their structs', () => {
   const hostModule = (): ModuleDecl =>
     moduleOf({

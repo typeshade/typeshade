@@ -14,8 +14,9 @@
 //
 // Implements: Rule 3.2, Rule 3.3, Rule 3.4 (docs/language-design.md; traced in reqs/).
 
-import type { ModuleDecl, ShaderType } from './ir/index.js';
+import type { Expr, FuncDecl, ModuleDecl, ShaderType } from './ir/index.js';
 import { stageOf } from './ir/index.js';
+import { eachExpr, eachStmtExpr } from './ir/visit.js';
 import { collectLocals } from './passes/opt/expr-utils.js';
 import { predeclaredFunctionNames } from './passes/predeclared-names.js';
 import { freshSpelling } from './passes/variable-names.js';
@@ -155,6 +156,28 @@ function collisionSet(m: ModuleDecl, t: SpellTarget): Set<string> {
   return out;
 }
 
+/** The names of the module constants that `f` reads, and that each function it calls reads, in
+ *  the order they are first read. The optimizer may inline a callee into `f`, which then reads what
+ *  the callee read. A call by the name of a function of the module is taken for a call of it. */
+function constantsReadBy(f: FuncDecl, byName: ReadonlyMap<string, FuncDecl>): Set<string> {
+  const names = new Set<string>();
+  const seen = new Set<FuncDecl>();
+  const walk = (g: FuncDecl): void => {
+    if (seen.has(g)) return;
+    seen.add(g);
+    const visit = (e: Expr): void => {
+      if (e.op === 'constref') names.add(e.name);
+      else if (e.op === 'call') {
+        const callee = byName.get(e.fn);
+        if (callee !== undefined) walk(callee);
+      }
+    };
+    for (const s of g.body) eachStmtExpr(s, (e) => eachExpr(e, visit));
+  };
+  walk(f);
+  return names;
+}
+
 /** The plan of one target. Each kind is allocated once per distinct authored name, in the order
  *  of section 2.3, so the numbering is deterministic. */
 function planTarget(m: ModuleDecl, t: SpellTarget): TargetSpellings {
@@ -245,6 +268,23 @@ function planTarget(m: ModuleDecl, t: SpellTarget): TargetSpellings {
       (entryParams.has(name) && helperNames.has(name)),
     unspell,
   );
+
+  // A constant an entry reads under the name of one of its own parameters (Rule 3.2). The source
+  // cannot spell such a read with the constant's own name, which the parameter hides. It spells it
+  // `Voice.OFFSET`, which the module emits as the constant `Voice_OFFSET`, as it does an enum member
+  // (`E_A`) and a namespace constant (`Ns_K`). WGSL then prints the parameter for the constant, and
+  // GLSL declares the entry's input and the constant under one name. An entry's parameters are the
+  // host's to see, so the constant takes the fresh spelling, and the parameter keeps its name. A
+  // helper's parameter is the late pass's (`sanitizeVariableNames`), not the plan's.
+  const byName = new Map(m.funcs.map((f) => [f.name, f] as const));
+  const hidden = new Set<string>();
+  for (const f of m.funcs) {
+    if (stageOf(f) === undefined) continue;
+    const params = new Set(f.params.map((p) => members.get(p.name) ?? p.name));
+    for (const name of constantsReadBy(f, byName))
+      if (params.has(consts.get(name) ?? name)) hidden.add(name);
+  }
+  for (const [name, fresh] of allocate(hidden, () => true, unspell)) consts.set(name, fresh);
 
   return {
     funcs,
