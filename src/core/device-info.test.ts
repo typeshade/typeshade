@@ -168,7 +168,13 @@ describe('device snapshots', () => {
   });
 
   it('is safe without browser globals on the CPU tier and leaves builds unstamped', () => {
-    expect(deviceInfo('cpu')).toEqual({ build: buildInfo, tier: 'cpu', webgpu: null, webgl: null });
+    expect(deviceInfo('cpu')).toEqual({
+      build: buildInfo,
+      tier: 'cpu',
+      webgpu: null,
+      webgl: null,
+      subgroups: null,
+    });
     expect(buildInfo.revision).toBeNull();
   });
 });
