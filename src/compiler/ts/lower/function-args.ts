@@ -30,6 +30,7 @@ import { constructorCallbackMessage, isValueConstructor } from './constructors.j
 import { misfit, type FunctionShape } from './function-types.js';
 import { isAsyncOrGenerator } from '../semantic.js';
 import { optionalDeclaredType, fitsOptional } from '../optional.js';
+import { variableRefused } from '../refused-names.js';
 
 function push(
   diagnostics: TsCompilerDiagnostic[],
@@ -80,6 +81,34 @@ export function capturesOfArgument(
   return keys;
 }
 
+/** The function an arrow function or a function expression written as an argument stands for,
+ *  lifted out of the body `scope` lowers (Rule 8.18); undefined, having said why, when it cannot
+ *  be. A variable it reads, itself or through a local function it names, that the body declared
+ *  above it and that holds no value because a refusal stands in its declaration or in one its
+ *  initializer reads (`variableRefused`), lifts nothing and says nothing more: that refusal is
+ *  the one diagnostic of the one mistake (Rule 12.4, #967), and `LoweringScope.liftArgument`
+ *  would add that the variable "is not declared yet", which points away from it. A variable
+ *  declared below it is still not declared yet there, whatever its declaration says. */
+export function liftWritten(
+  node: ts.ArrowFunction | ts.FunctionExpression,
+  shape: FunctionShape,
+  hint: string,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): FuncDecl | undefined {
+  const at = node.getStart(sourceFile);
+  const refused = capturesOfArgument(node, scope).some(
+    (k) =>
+      k !== THIS_CAPTURE &&
+      k.getEnd() <= at &&
+      scope.bindingOfDeclaration(k) === undefined &&
+      variableRefused(k, sourceFile, diagnostics),
+  );
+  if (refused) return undefined;
+  return scope.liftArgument(node, shape, hint, sourceFile, diagnostics);
+}
+
 /** The function the call `node` hands to its parameter `index`, `param` of `owner`, whose type
  *  is `shape`: one the file declares, by its name, or an arrow function written in the call,
  *  lifted out of the calling body. Undefined, having said why, for anything else. */
@@ -108,7 +137,7 @@ export function functionArgument(
   }
   const x = bare(arg);
   if (ts.isArrowFunction(x) || ts.isFunctionExpression(x)) {
-    return scope.liftArgument(x, shape, pname, sourceFile, diagnostics);
+    return liftWritten(x, shape, pname, scope, sourceFile, diagnostics);
   }
   if (ts.isIdentifier(x)) {
     const decl = scope.resolveCallee(x.text);
