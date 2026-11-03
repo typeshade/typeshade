@@ -123,6 +123,11 @@ export type KernelParam =
 /** One loop of a kernel function the call dispatches. */
 export interface KernelLoop {
   readonly entry: string;
+  /** Whether the subgroup variant of the function's WGSL (change 0119) folds this
+   *  loop inside a subgroup: a reduction every operator of which gives one value in every order,
+   *  or a scatter whose writes a lane makes at most once. Absent when the variant runs the loop
+   *  as the tree and the per-lane atomics do. */
+  readonly subgroupFold?: true;
   readonly range: string;
   readonly cop: '<' | '<=' | '>' | '>=';
   readonly step: number;
@@ -194,6 +199,8 @@ export interface PushWord {
 interface Variant {
   readonly wgsl: string;
   readonly wgslInteger?: string;
+  readonly wgslSubgroup?: string;
+  readonly wgslSubgroupInteger?: string;
   readonly args: EntryBinding;
   readonly words: readonly PushWord[];
   readonly guard?: { readonly group: number; readonly binding: number };
@@ -282,6 +289,12 @@ export interface KernelFace {
      *  emulates `f64` (change 0073): a call of an owner whose flavor is `'integer'` dispatches
      *  it, and binds no guard. */
     readonly wgslInteger?: string;
+    /** The subgroup variant (change 0119): the same entries with each loop
+     *  {@link KernelLoop.subgroupFold} marks folded inside a subgroup first, which needs the
+     *  `subgroups` feature. Present when a loop has one; the bits it writes are the tree's. Under
+     *  the `'integer'` flavor too when the module emulates `f64`. */
+    readonly wgslSubgroup?: string;
+    readonly wgslSubgroupInteger?: string;
     /** The uniform of the scalar parameters, `_start` and `_n`. */
     readonly args: EntryBinding;
     /** Each array parameter's storage binding. */
@@ -290,6 +303,8 @@ export interface KernelFace {
     readonly projected?: {
       readonly wgsl: string;
       readonly wgslInteger?: string;
+      readonly wgslSubgroup?: string;
+      readonly wgslSubgroupInteger?: string;
       readonly arrays: readonly EntryBinding[];
     };
     /** Each texture parameter's binding (change 0077). */
@@ -323,6 +338,8 @@ export interface KernelFace {
     readonly held?: {
       readonly wgsl: string;
       readonly wgslInteger?: string;
+      readonly wgslSubgroup?: string;
+      readonly wgslSubgroupInteger?: string;
       readonly args: EntryBinding;
       readonly words: readonly PushWord[];
       /** Where its `_fp64` guard is, after the length words, when the module emulates `f64`. */
@@ -387,6 +404,8 @@ function variantOf(k: KernelFace, held: boolean): Variant & { readonly key: stri
   return {
     wgsl: g.wgsl,
     ...(g.wgslInteger !== undefined ? { wgslInteger: g.wgslInteger } : {}),
+    ...(g.wgslSubgroup !== undefined ? { wgslSubgroup: g.wgslSubgroup } : {}),
+    ...(g.wgslSubgroupInteger !== undefined ? { wgslSubgroupInteger: g.wgslSubgroupInteger } : {}),
     args: g.args,
     words: g.words ?? [],
     ...(g.guard !== undefined ? { guard: g.guard } : {}),
