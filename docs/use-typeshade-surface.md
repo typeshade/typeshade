@@ -3080,11 +3080,17 @@ export const fs = fragment(function fs(): vec4 {
 ```
 
 A public name never reaches a private member, so `c.count` above is the getter and never the
-field; an object literal cannot build a class with a private field (build it with `new`), and a
-spread and a destructuring pattern leave the private fields out, as TypeScript's do. Refused:
-`#x` named outside its class body (TS8035), and two members of one class chain that would share
-an emitted name, `#x` beside `x` or a `#x` a class and one it extends both declare (TS8010 for a
-field, TS8035 for a function).
+field; an object literal cannot build a class with a private field (build it with `new`), and
+neither can a plain object on the host (§64), and a spread and a destructuring pattern leave the
+private fields out, as TypeScript's do. Refused: `#x` named outside its class body (TS8035), and
+two members of one class chain that would share an emitted name, `#x` beside `x` or a `#x` a
+class and one it extends both declare (TS8010 for a field, TS8035 for a function).
+
+A host sees the same pairing (change 0109, Amendment 2). The view of an exported class declares
+the field as itself, `#count: u32;`, beside the getter `get count(): u32;`, and `tsc` takes the
+two. An instance built with `new` holds the field as its own property under the string key
+`"#count"`, so `c.count` on the host is the getter too. A plain object of the fields has no such
+key, and the host's check refuses it with the reason: build the value with `new`.
 
 ### Parameter properties, a field's type from its initializer, and `readonly`
 
@@ -7562,9 +7568,9 @@ before you write into it.
 
 A struct goes by its name, as an argument and as a result (decision D7). An `interface` or a
 `type` is the object of its fields. An exported class is the class, so a host passes an instance
-it built with `new`; the call still takes a plain object of the fields (Rule 8.21), and `tsc`
-refuses one where the class has a method or an accessor the object lacks, since TypeScript
-compares types by their shape. A struct the view declares no name for is its fields, and so is
+it built with `new`; the call still takes a plain object of the fields (Rule 8.21), a struct with
+a private field apart (below), and `tsc` refuses one where the class has a method or an accessor
+the object lacks, since TypeScript compares types by their shape. A struct the view declares no name for is its fields, and so is
 a constant of a struct, which is a frozen object of its fields. In a binding and in an array with
 no size, a struct that holds a key or a `Record` is its fields too, since they hold a key as its
 id. An enum, a key type and a `Record` keep their spelling.
@@ -7760,8 +7766,8 @@ without `extends`; its JavaScript class extends all the same.
 An instance is taken wherever a struct's object is: as a parameter, a field, an element of an
 `array<T, N>`, an element of a kernel function's array or a binding of an entry. The check reads
 the fields the struct declares and ignores the prototype, and a plain object of the fields is
-taken as before at run time; the view writes the class's name there (change 0116, decision D7),
-so `tsc` asks for an instance. A struct a result holds is an instance of its class where the class is exported
+taken as before at run time, a struct with a private field apart (below); the view writes the
+class's name there (change 0116, decision D7), so `tsc` asks for an instance. A struct a result holds is an instance of its class where the class is exported
 and not abstract, built without running its constructor, so `tick()` works on what a helper
 returned. A generic
 class stays `never`. A class with a field that has no host value (an atomic, a texture, an
@@ -7770,6 +7776,49 @@ does on the host runs on the GPU: the GPU runs a method through a kernel functio
 calls it on an element of an array (§65, §67). A host method converts at the boundary at each
 call, as a helper does, so a host loop that ticks an instance once per sample pays that per
 sample: the host method is the reference, and the kernel is the fast path.
+
+**A private name** (change 0109, Amendment 2). A field written `#n` is declared as itself in the
+view, with its comment, and a host cannot name it. A public accessor or method of the name `n`
+stands beside it, as in §26, and `tsc` takes the two:
+
+```ts
+"use typeshade";
+
+export class Counter {
+  /** The count so far. */
+  #n: u32 = 0;
+  /** The count, read through the accessor. */
+  get n(): u32 {
+    return this.#n;
+  }
+  /** Counts once. */
+  tick(): u32 {
+    this.#n = this.#n + 1;
+    return this.#n;
+  }
+}
+```
+
+```ts
+export declare class Counter {
+  constructor();
+  /** The count so far. */
+  #n: u32;
+  /** The count, read through the accessor. */
+  get n(): u32;
+  /** Counts once. */
+  tick(): u32;
+}
+```
+
+An instance holds the field as its own property under the string key `"#n"`, so `c.n` reaches the
+accessor on the prototype, as it does in the shader, and `Object.keys(c)` lists `"#n"`. The host
+value of a struct with that field carries the key wherever one is taken or given: a parameter, a
+result, a constant, an element of a kernel function's array, a binding of an entry and an element
+of a `Resident`. A plain object of the fields has no such key. The call refuses it with a
+`TypeError` that names the key and says to build the value with `new`, and `tsc` refuses it too,
+since the private name gives the class a brand. A private method and a private static are not in
+the view. TypeScript reads `#n` in a view for a `target` of ES2015 or later (TS18028 otherwise).
 
 **The name** (Rule 3.8). A shader module a host imports is named `*.shade.ts`. The plugin refuses
 a `.ts` the bundle reads that begins with `"use typeshade"` under any other name, with the

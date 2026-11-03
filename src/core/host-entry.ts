@@ -33,6 +33,7 @@ import type { PackOverride } from './manifest-types.js';
 import { copyLimits, isMinimumLimit } from './device-limits.js';
 import { retainAdapter } from './device-info.js';
 import { printConsole, printDropped } from './console-print.js';
+import { missingField, shaderField } from './host-values.js';
 
 // ─── what the generated module carries ───────────────────────────────────────────────────────
 
@@ -51,7 +52,9 @@ export type Layout =
   | { readonly k: 'm'; readonly c: number; readonly r: number; readonly cs: number }
   /** `n` is null for a runtime-sized array; `st` is the element stride in bytes. */
   | { readonly k: 'a'; readonly n: number | null; readonly st: number; readonly e: Layout }
-  /** A struct: each field's name, byte offset and layout, and the struct's size. */
+  /** A struct: each field's name, byte offset and layout, and the struct's size. A name is the key
+   *  the field's host value is held under, `#x` for the field `x` that a private name declares
+   *  (Rule 8.21, change 0109, Amendment 2). */
   | {
       readonly k: 'o';
       readonly f: readonly (readonly [string, number, Layout])[];
@@ -414,7 +417,7 @@ export function pack(
         throw new Misfit(path, `got ${describe(v)}`);
       const o = v as Record<string, unknown>;
       for (const [name, off, fl] of l.f) {
-        if (!(name in o)) throw new Misfit(`${path}.${name}`, 'the field is missing');
+        if (!(name in o)) throw new Misfit(`${path}.${name}`, missingField(name));
         pack(dv, at + off, fl, o[name], `${path}.${name}`);
       }
       return;
@@ -591,7 +594,7 @@ export function toCpu(l: Layout, v: unknown, box: boolean): CpuValue {
     case 'o': {
       const o = v as Record<string, unknown>;
       const out: Record<string, CpuValue> = {};
-      for (const [name, , fl] of l.f) out[name] = toCpu(fl, o[name], false);
+      for (const [name, , fl] of l.f) out[shaderField(name)] = toCpu(fl, o[name], false);
       return out as unknown as CpuValue;
     }
   }
@@ -633,7 +636,8 @@ export function fromCpu(l: Layout, c: CpuValue, target: unknown, box: boolean): 
     case 'o': {
       const o = target as Record<string, unknown>;
       const src = c as unknown as Record<string, CpuValue>;
-      for (const [name, , fl] of l.f) o[name] = fromCpu(fl, src[name]!, o[name], false);
+      for (const [name, , fl] of l.f)
+        o[name] = fromCpu(fl, src[shaderField(name)]!, o[name], false);
       return o;
     }
   }

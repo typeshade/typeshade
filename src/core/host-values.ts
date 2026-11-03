@@ -54,11 +54,26 @@ export type HostType =
       readonly e: HostType;
       readonly s: string;
     }
+  // A struct: each field under the key its host value holds it under, which is the field's own
+  // name, or `#x` for the field `x` that a private name `#x` declares (Rule 8.12, change 0109,
+  // Amendment 2).
   | {
       readonly k: 'struct';
       readonly f: readonly (readonly [string, HostType])[];
       readonly s: string;
     };
+
+/** The name of the field of a shader's struct that the host key `key` stands for: the key `#x` of
+ *  a private name is the field `x` (Rule 8.12), and any other key is the field of its name. */
+export const shaderField = (key: string): string => (key.charCodeAt(0) === 35 ? key.slice(1) : key);
+
+/** Why a host object has no field under `key`. A private name is held by an instance built with
+ *  `new` and by no plain object a host writes, so its sentence says to build one (change 0109,
+ *  Amendment 2, as surface section 26 says of an object literal). */
+export const missingField = (key: string): string =>
+  key.charCodeAt(0) === 35
+    ? `the field is missing. ${JSON.stringify(key)} is a private name, which an instance holds and a plain object does not. Build the value with new`
+    : 'the field is missing';
 
 const RANGE: Record<'i32' | 'u32', readonly [number, number]> = {
   i32: [-0x80000000, 0x7fffffff],
@@ -194,9 +209,9 @@ function convertIn(t: HostType, v: unknown, path: string): CpuValue {
         throw new Misfit(path, `got ${describe(v)}`);
       const o = v as Record<string, unknown>;
       const out: Record<string, CpuValue> = {};
-      for (const [name, ft] of t.f) {
-        if (!(name in o)) throw new Misfit(`${path}.${name}`, 'the field is missing');
-        out[name] = convertIn(ft, o[name], `${path}.${name}`);
+      for (const [key, ft] of t.f) {
+        if (!(key in o)) throw new Misfit(`${path}.${key}`, missingField(key));
+        out[shaderField(key)] = convertIn(ft, o[key], `${path}.${key}`);
       }
       return out as unknown as CpuValue;
     }
@@ -280,7 +295,7 @@ export function fromShader(t: HostType, v: CpuValue): unknown {
     case 'struct': {
       const o = v as unknown as Record<string, CpuValue>;
       const out: Record<string, unknown> = {};
-      for (const [name, ft] of t.f) out[name] = fromShader(ft, o[name]!);
+      for (const [key, ft] of t.f) out[key] = fromShader(ft, o[shaderField(key)]!);
       return out;
     }
   }
@@ -322,7 +337,7 @@ function assignFields(target: object, t: HostType, v: CpuValue, classes: HostCla
   if (t.k !== 'struct') return;
   const o = v as unknown as Record<string, CpuValue>;
   const out = target as Record<string, unknown>;
-  for (const [name, ft] of t.f) out[name] = fromShaderIn(ft, o[name]!, classes);
+  for (const [key, ft] of t.f) out[key] = fromShaderIn(ft, o[shaderField(key)]!, classes);
 }
 
 /** The generated module's CPU tier, as a member call reads it: its functions, and the values a

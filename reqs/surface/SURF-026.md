@@ -20,15 +20,16 @@ links:
 - RULE-0816: 4o-oQhesBW9n9XwG1L78TuLDzJ4ugP2K2qE8LS2K06E=
 - RULE-0818: WSJEXSLWucW9-ovejXz9e-mLa7u8vqZrdwezeNyrr7M=
 - RULE-0819: 2D92Uur_1PtJq4PAX_vx-kOcr0i4SbSGiaNJkCSbJ_g=
+- RULE-0821: yJBnA6-cHdQGUSr5b4JS1M2csJ5ohEBU8erBE5FViEo=
 - RULE-0828: V8ipeRbiwYGOQTgzqHmfFLsSBod7WJW41jqlpKUUxJE=
 - RULE-0829: gLh3JC7_BHLfF3wRgTIbyg7QbEEW7nSgKZoXM0-eKZk=
 - RULE-1207: Mvr2vY3Krl66Bglu9ejs51aqLb_3vraF1hO4FLdrK48=
 normative: true
 ref: ''
-reviewed: 0YBp5UtgE5UC7oub6F_PKXhxj-a8xAjQ4V3kthEYusc=
+reviewed: ZJkncsC61grtMQM2SaXKTcXaWe8U9cCKDBIsKel9g7o=
 source: docs/use-typeshade-surface.md §26
 ---
 
 # Classes with methods, a constructor and static functions
 
-docs/use-typeshade-surface.md §26, "Classes with methods, a constructor and static functions": the surface section that explains Rule 2.1, Rule 6.9, Rule 6.10, Rule 7.2, Rule 7.9, Rule 8.4, Rule 8.8, Rule 8.9, Rule 8.10, Rule 8.11, Rule 8.12, Rule 8.13, Rule 8.14, Rule 8.15, Rule 8.16, Rule 8.18, Rule 8.19, Rule 8.28, Rule 8.29, Rule 12.7.
+docs/use-typeshade-surface.md §26, "Classes with methods, a constructor and static functions": the surface section that explains Rule 2.1, Rule 6.9, Rule 6.10, Rule 7.2, Rule 7.9, Rule 8.4, Rule 8.8, Rule 8.9, Rule 8.10, Rule 8.11, Rule 8.12, Rule 8.13, Rule 8.14, Rule 8.15, Rule 8.16, Rule 8.18, Rule 8.19, Rule 8.21, Rule 8.28, Rule 8.29, Rule 12.7.

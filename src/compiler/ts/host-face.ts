@@ -34,7 +34,7 @@ import { fnReads, fnWrites } from '../../core/passes/effects.js';
 import { GPU_STUBS, type CpuValue } from '../../core/cpu-runtime.js';
 import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../core/intrinsics.js';
 import { generateModuleJs } from '../../core/cpu-codegen.js';
-import type { HostNumber, HostType } from '../../core/host-values.js';
+import { shaderField, type HostNumber, type HostType } from '../../core/host-values.js';
 import { zeroOf } from '../../core/cpu-runtime.js';
 import { optionalInner } from './optional.js';
 import { typeLayout } from '../../core/reflect.js';
@@ -111,7 +111,7 @@ import {
   layoutOf,
   type Pack,
 } from '../../core/manifest.js';
-import type { PackLayout } from '../../core/manifest-types.js';
+import { packLayout, type PackLayout } from '../../core/manifest-types.js';
 import { collectionKeyOf, keyTypeText, keysOf, recordKeyText, recordOf } from './key-types.js';
 import {
   CONSTRUCTOR,
@@ -275,7 +275,8 @@ type ClassMember =
 const isRefused = (m: ClassMember): boolean =>
   m.kind === 'method' ? 'reason' in m.call : m.reason !== undefined;
 
-/** A field of an exported class as the view declares it. */
+/** A field of an exported class as the view declares it. `name` is its host key, `#x` for a field
+ *  a private name declares. */
 interface ClassField {
   readonly name: string;
   readonly type: HostType;
@@ -430,6 +431,53 @@ export function hostTypeOf(
   }
 }
 
+// A field a private name `#x` declares is the field `x` of the struct (Rule 8.12), and the host
+// value holds it under the key `#x` (Rule 8.21, change 0109, Amendment 2). A host type and a byte
+// layout name each field by its host key, so the structs they are built from are the module's own
+// with those fields renamed, and the CPU tier's values keep the field's name (`shaderField`).
+
+/** The fields each struct declares with a private name, by the struct's name and the field's
+ *  emitted name; a struct with none is not in it. */
+function privateFieldsOf(
+  collected: readonly CollectedStruct[],
+): ReadonlyMap<string, ReadonlySet<string>> {
+  return new Map(
+    collected
+      .filter((s) => (s.privateFields?.size ?? 0) > 0)
+      .map((s) => [s.decl.name, new Set(s.privateFields!.keys())] as const),
+  );
+}
+
+/** `structs` with each field a private name declares under its host key, `#x`. A module with no
+ *  such field keeps its map. */
+function keyedStructs(
+  structs: ReadonlyMap<string, StructDecl>,
+  privates: ReadonlyMap<string, ReadonlySet<string>>,
+): ReadonlyMap<string, StructDecl> {
+  if (privates.size === 0) return structs;
+  return new Map(
+    [...structs].map(([name, decl]) => {
+      const keyed = privates.get(name);
+      return [
+        name,
+        keyed === undefined
+          ? decl
+          : {
+              ...decl,
+              fields: decl.fields.map((f) =>
+                keyed.has(f.name) ? { ...f, name: `#${f.name}` } : f,
+              ),
+            },
+      ] as const;
+    }),
+  );
+}
+
+/** A host key as the name of a property in a type: an identifier as it is, any other key quoted.
+ *  The key of a private name, `#x`, is of the second kind. */
+const propName = (key: string): string =>
+  /^[A-Za-z_$][\w$]*$/.test(key) ? key : JSON.stringify(key);
+
 // The view spells each host value with the name of the host type family (change 0116,
 // `src/runtime/host-types.ts`): a scalar, a vector, a matrix and an array by the name the shader
 // writes, which `typeshade/runtime` exports as a name for the same host value. A struct goes by
@@ -470,7 +518,7 @@ function argType(t: HostType, named: ReadonlyMap<string, string>): string {
     case 'struct':
       return (
         named.get(t.s) ??
-        `{ ${t.f.map(([n, ft]) => `readonly ${n}: ${argType(ft, named)}`).join('; ')} }`
+        `{ ${t.f.map(([n, ft]) => `readonly ${propName(n)}: ${argType(ft, named)}`).join('; ')} }`
       );
   }
 }
@@ -517,10 +565,10 @@ function fieldsBody(
   fieldDocs?: ReadonlyMap<string, readonly DocBlock[]>,
 ): string {
   if (fieldDocs === undefined || !fields.some(([n]) => fieldDocs.has(n)))
-    return `{ ${fields.map(([n, t]) => `${n}: ${t}`).join('; ')} }`;
+    return `{ ${fields.map(([n, t]) => `${propName(n)}: ${t}`).join('; ')} }`;
   const lines = fields.flatMap(([n, t]) => [
     ...commentLines(fieldDocs.get(n) ?? [], undefined, '  '),
-    `  ${n}: ${t};`,
+    `  ${propName(n)}: ${t};`,
   ]);
   return `{\n${lines.join('\n')}\n}`;
 }
@@ -717,14 +765,16 @@ function boundName(t: ShaderType | undefined, naming: Naming | undefined): strin
   return 'none' in h || holdsKey(h) ? undefined : name;
 }
 
-/** The type of the field `name` of the struct `t`, read from its declaration. */
+/** The type of the field `name` of the struct `t`, read from its declaration. A layout of the call
+ *  layer names a field a private name declares by its host key, `#x`, and the manifest's by `x`. */
 const fieldType = (
   t: ShaderType | undefined,
   name: string,
   naming: Naming | undefined,
 ): ShaderType | undefined =>
   t?.kind === 'struct'
-    ? naming?.structs.get(t.name)?.fields.find((f) => f.name === name)?.type
+    ? naming?.structs.get(t.name)?.fields.find((f) => f.name === name || f.name === `#${name}`)
+        ?.type
     : undefined;
 
 /** The TypeScript type of a binding's host value in the bindings object, spelled with the host
@@ -757,7 +807,7 @@ function bindingTsType(
     case 'o':
       return (
         boundName(t, naming) ??
-        `{ ${l.f.map(([n, , fl]) => `${ro}${n}: ${bindingTsType(fl, writes, false, fieldType(t, n, naming), naming)}`).join('; ')} }`
+        `{ ${l.f.map(([n, , fl]) => `${ro}${propName(n)}: ${bindingTsType(fl, writes, false, fieldType(t, n, naming), naming)}`).join('; ')} }`
       );
   }
 }
@@ -856,6 +906,9 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     ...(r.directives.length > 0 ? { diagnostics: [...r.directives] } : {}),
   };
   const structs = new Map(structDecls.map((s) => [s.name, s]));
+  // The structs a host type and a byte layout are built from name a private field by its host key.
+  const privates = privateFieldsOf(r.structs);
+  const hostStructs = keyedStructs(structs, privates);
   const declared = new Set(m.funcs.map((f) => f.name));
   const byName = new Map(m.funcs.map((f) => [f.name, f]));
   const callees = new Map(m.funcs.map((f) => [f.name, calleesOf(f, declared)]));
@@ -899,7 +952,9 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
         sf: faceSource,
         symbols: faceSymbols,
         byName,
-        structs,
+        structs: hostStructs,
+        cpuStructs: structs,
+        privates,
         collected: r.structs,
         constsByName,
         bindingNames,
@@ -1020,7 +1075,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
   // A struct a signature writes goes by the name the view declares for it (change 0116, decision
   // D7), which is known once every export has its face: an entry's bindings object is written
   // again with the names.
-  const naming: Naming = { named: structNames(logged, false), structs };
+  const naming: Naming = { named: structNames(logged, false), structs: hostStructs };
   const bindingType = (n: string): ShaderType | undefined => typeOfBinding(m.bindings, n);
   logged = logged.map((e) =>
     e.kind === 'compute' || e.kind === 'fragment' ? namedBindings(e, bindingType, naming) : e,
@@ -1059,7 +1114,13 @@ interface FaceCtx {
   readonly sf: ts.SourceFile;
   readonly symbols: ReturnType<typeof compileTsSource>['symbols'];
   readonly byName: ReadonlyMap<string, FuncDecl>;
+  /** The module's structs with each field a private name declares under its host key, which the
+   *  host types and the byte layouts are built from (Rule 8.21, change 0109, Amendment 2). */
   readonly structs: ReadonlyMap<string, StructDecl>;
+  /** The module's structs as the CPU tier's values hold them, a private name without its `#`. */
+  readonly cpuStructs: ReadonlyMap<string, StructDecl>;
+  /** The fields each struct declares with a private name. */
+  readonly privates: ReadonlyMap<string, ReadonlySet<string>>;
   readonly collected: ReturnType<typeof compileTsSource>['structs'];
   readonly constsByName: ReadonlyMap<string, ConstDecl>;
   readonly bindingNames: ReadonlySet<string>;
@@ -1338,10 +1399,27 @@ function wgslEntryPoint(f: FuncDecl, c: FaceCtx): { entryPoint?: string } {
 /** A `@compute` entry's pass program for the WebGL2 tier (change 0054), or why it has none. */
 function glTier(f: FuncDecl, c: FaceCtx): { gl: GlComputeProgram } | { noGl: string } {
   try {
-    return { gl: buildGlCompute(c.entry.module, f.name) };
+    const gl = buildGlCompute(c.entry.module, f.name);
+    // The call packs a uniform the pass program reads from a host value, which holds a private
+    // field under its host key (Rule 8.21, change 0109, Amendment 2), so the layout of the uniform
+    // is built again from the structs that name the field so. The manifest keeps the layouts it
+    // is built with, from the IR alone (Rule 11.10).
+    if (c.privates.size === 0) return { gl };
+    return {
+      gl: { ...gl, uniforms: gl.uniforms.map((u) => ({ ...u, layout: uniformLayout(u, c) })) },
+    };
   } catch (e) {
     return { noGl: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/** The byte layout of the uniform `u` of a pass program, built from the structs of `c`, which
+ *  name a private field by its host key; the layout it has where the entry has no such binding. */
+function uniformLayout(u: GlComputeProgram['uniforms'][number], c: FaceCtx): PackLayout {
+  const type = c.entry.bindings.find((b) => b.name === u.name)?.type;
+  if (type === undefined) return u.layout;
+  const layout = layoutOf(type, 'std140', c.structs, authorTypeText);
+  return 'none' in layout ? u.layout : packLayout(layout);
 }
 
 const isBufferBinding = (b: DrawBinding): b is EntryBinding =>
@@ -1512,7 +1590,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ranges: [],
     };
   }
-  const structs = new Map(plan.module.structs.map((x) => [x.name, x]));
+  const structs = keyedStructs(new Map(plan.module.structs.map((x) => [x.name, x])), c.privates);
   const argsLayout = layoutOf(
     { kind: 'struct', name: plan.argsStruct },
     'std140',
@@ -1696,7 +1774,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
               const layout = layoutOf(
                 binding.type,
                 'std430',
-                new Map(projectedModule.structs.map((s) => [s.name, s])),
+                keyedStructs(new Map(projectedModule.structs.map((s) => [s.name, s])), c.privates),
                 authorTypeText,
               );
               if ('none' in layout) throw new Error(layout.none);
@@ -2410,17 +2488,16 @@ function classFace(
     return { kind: 'shape', name, reason: t.none, fields };
   }
   const type = t as HostType & { k: 'struct' };
-  const fields = type.f.map(([field, ft]): ClassField => {
-    // A private name `#x` is the field `x` (Rule 8.12), and the view keeps it private.
+  const fields = type.f.map(([key, ft]): ClassField => {
+    // A private name `#x` is the field `x` of the struct (Rule 8.12) and the key `#x` of the host
+    // value, and the view declares it as itself: the name keeps it private, so it takes no keyword
+    // (change 0109, Amendment 2).
+    const field = shaderField(key);
     const written = struct.privateFields?.get(field)?.written ?? field;
     const at = memberDeclarationInChain(decl, written, false);
-    const access = isPrivateName(written)
-      ? 'private'
-      : at === undefined
-        ? undefined
-        : keywordAccessOf(at);
+    const access = isPrivateName(written) || at === undefined ? undefined : keywordAccessOf(at);
     return {
-      name: field,
+      name: key,
       type: ft,
       ...(access !== undefined ? { access } : {}),
       readonly: at !== undefined && isReadonlyMember(at),
@@ -2445,7 +2522,7 @@ function classFace(
     // constructor function: `new` builds the zero struct, as the module's own `new` does.
     ctor =
       written === undefined && !c.byName.has(fn)
-        ? { zero: zeroOf({ kind: 'struct', name: local }, c.structs) }
+        ? { zero: zeroOf({ kind: 'struct', name: local }, c.cpuStructs) }
         : memberCall(fn, written, false, false, c);
   }
   return {
@@ -2535,7 +2612,7 @@ function packHostType(l: PackLayout, t?: ShaderType, naming?: Naming): string {
       return `array<${packHostType(e, te, naming)}, ${l.length}>`;
     }
     case 'struct': {
-      const packed = `{ ${l.fields.map((f) => `readonly ${f.name}: ${packHostType(f.layout, fieldType(t, f.name, naming), naming)}`).join('; ')} }`;
+      const packed = `{ ${l.fields.map((f) => `readonly ${propName(f.name)}: ${packHostType(f.layout, fieldType(t, f.name, naming), naming)}`).join('; ')} }`;
       const name = boundName(t, naming);
       return name === undefined ? packed : `${name} | ${packed}`;
     }

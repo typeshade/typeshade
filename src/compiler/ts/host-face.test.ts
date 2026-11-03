@@ -19,6 +19,9 @@ import { hostFace, type HostExport } from './host-face.js';
 import { tscDiagnostics } from '../../core/testing/tsc-diagnostics.js';
 import { compile } from './compile.js';
 import { compileModule } from '../../core/oracle.js';
+import { buildManifest } from '../../core/manifest.js';
+import { layoutFromPack } from '../../core/manifest-types.js';
+import { Misfit, pack as packBytes } from '../../core/host-entry.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
@@ -2749,7 +2752,10 @@ export function make(): Hidden {
     // The field is the class's own (`#n` is TypeScript's private name), and a plain object is no
     // `Counter`: it lacks the brand the private name gives the class.
     expect(
-      await hostErrors(COUNTER, `${head}export const a = c.#n;\nexport const b = level({ n: 1 });\n`),
+      await hostErrors(
+        COUNTER,
+        `${head}export const a = c.#n;\nexport const b = level({ n: 1 });\n`,
+      ),
     ).toEqual(['app.ts TS18013', 'app.ts TS2345']);
     expect(
       await hostErrors(
@@ -2782,11 +2788,86 @@ export const v = c.n;
         `import { make, peek } from './terrain.shade.ts';\nexport const a: number = peek(make());\n`,
       ),
     ).toEqual([]);
+    // An object built by hand lacks the key (a literal would be an excess property, TS2353).
     expect(
       await hostErrors(
         HIDDEN,
-        `import { peek } from './terrain.shade.ts';\nexport const a = peek({ x: 0, y: 1 });\n`,
+        `import { peek } from './terrain.shade.ts';\nconst plain = { x: 0, y: 1 };\nexport const a = peek(plain);\n`,
       ),
     ).toEqual(['app.ts TS2345']);
+    // The module holds the key too: what `make()` returns is a plain object of the fields, since
+    // no export makes it a class, and `peek` takes it back; one without the key is refused.
+    const m = await load(HIDDEN);
+    const made = (m.make as () => object)();
+    expect(Object.keys(made)).toEqual(['#x', 'y']);
+    expect((m.peek as (h: object) => number)(made)).toBe(0);
+    expect(() => (m.peek as (h: object) => number)({ x: 0, y: 1 })).toThrow(
+      new TypeError(
+        'peek(): parameter "h" (Hidden): at .#x, the field is missing. "#x" is a private name, which an instance holds and a plain object does not. Build the value with new.',
+      ),
+    );
+  });
+
+  /** A private name in a struct that an entry reaches as a uniform and as a storage array. */
+  const BINDINGS = `"use typeshade";
+
+export class Gain {
+  #g: f32 = 1.;
+  get g(): f32 {
+    return this.#g;
+  }
+  scale: f32 = 2.;
+}
+
+declare const gain: uniform<Gain>;
+declare const bank: storage<array<Gain>, "read_write">;
+declare const buf: storage<array<f32>, "read_write">;
+
+export const scaled = compute([64], function scaled(gid: builtin<"global_invocation_id", vec3u>) {
+  if (gid.x >= buf.length) {
+    return;
+  }
+  buf[gid.x] = buf[gid.x] * gain.g * bank[0].scale;
+});
+`;
+
+  it('names the private field by its host key in the layouts of the call layer, the WebGL2 pass program among them, and moves no byte', async () => {
+    const f = face(BINDINGS);
+    const entry = f.exports.find((e) => e.name === 'scaled');
+    expect(entry?.kind).toBe('compute');
+    if (entry?.kind !== 'compute') return;
+    // The entry's bindings, which the call packs and reads back by.
+    const names = (l: unknown): string[] =>
+      [...JSON.stringify(l).matchAll(/\["(#?[a-z]+)",\d+,/g)].map((x) => x[1]!);
+    const gain = entry.entry.bindings.find((b) => b.name === 'gain');
+    expect(gain && 'layout' in gain ? names(gain.layout) : []).toEqual(['#g', 'scale']);
+    // The pass program the WebGL2 tier runs packs its uniform from the same host value.
+    expect('gl' in entry.entry).toBe(true);
+    if (!('gl' in entry.entry)) return;
+    const uniform = entry.entry.gl.uniforms.find((u) => u.name === 'gain')!;
+    expect(JSON.stringify(uniform.layout)).toContain('"name":"#g"');
+    // The key is the only difference from the layout the module's own structs give: offsets, sizes
+    // and strides are the same.
+    const own = compile(BINDINGS).module;
+    const plain = buildManifest(own, {}, compile(BINDINGS).wgsl);
+    const was = plain.gl?.computes?.scaled;
+    expect(was && !('none' in was) ? JSON.stringify(was.uniforms[0]!.layout) : '').toBe(
+      JSON.stringify(uniform.layout).replaceAll('"#g"', '"g"'),
+    );
+    // The call packs an instance by that layout, and refuses a plain object of the fields.
+    const m = await load(BINDINGS);
+    const Gain = m.Gain as new () => object;
+    const layout = layoutFromPack(uniform.layout);
+    const bytes = new DataView(new ArrayBuffer(16));
+    packBytes(bytes, 0, layout, new Gain(), 'gain');
+    expect([bytes.getFloat32(0, true), bytes.getFloat32(4, true)]).toEqual([1, 2]);
+    expect(() => packBytes(bytes, 0, layout, { g: 1, scale: 2 }, 'gain')).toThrow(Misfit);
+    // The manifest is built from the IR alone, with no TypeScript (Rule 11.10): it is the one the
+    // module's own structs give, a private field named without its `#`.
+    const program = m.default as typeof plain;
+    expect(JSON.stringify(program.bindings.map((b) => b.layout))).toBe(
+      JSON.stringify(plain.bindings.map((b) => b.layout)),
+    );
+    expect(JSON.stringify(program.bindings)).not.toContain('"#g"');
   });
 });
