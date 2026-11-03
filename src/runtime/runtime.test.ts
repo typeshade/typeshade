@@ -27,6 +27,7 @@ import type { ConsoleEvent } from '../core/console.js';
 import { configure, resident, residentState } from '../core/resident.js';
 import { DEVICE_VIEW, gpuDevice, imageOf } from '../core/host-entry.js';
 import { createRuntime, runtime, type Frame, type RenderPass, type Runtime } from './runtime.js';
+import { createDevice } from './device.js';
 import { passOf, stencilReferenceOf, type PassHost } from './program.js';
 import type { Texture } from './resources.js';
 import { repack } from '../emit.js';
@@ -1613,6 +1614,143 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
     } finally {
       globalThis.structuredClone = saved;
     }
+  });
+
+  describe('a value it cannot copy is refused where it is given, with its place (issue #1002)', () => {
+    // Rule 11.8: a call that cannot run says why. `resident()`, `device.array()` and `write()` copy
+    // a host value level by level, and a level that no prototype and no own property can make
+    // again is refused with the place that holds it and what it is. It was a copy with no word:
+    // a `Date` or an `ArrayBuffer` without its slots, a `DataView` that threw from inside, a cycle
+    // that overflowed the stack, and an own "__proto__" key that set the prototype of the copy.
+    const SAID = 'which no binding holds.';
+    const world = (born: unknown) => ({ particles: [{ born: 1 }, { born: 2 }, { born }] });
+    const REFUSED: readonly (readonly [string, unknown, string])[] = [
+      ['a Date', world(new Date(0)), 'particles[2].born is a Date'],
+      ['an ArrayBuffer', world(new ArrayBuffer(4)), 'particles[2].born is an ArrayBuffer'],
+      ['a DataView', world(new DataView(new ArrayBuffer(4))), 'particles[2].born is a DataView'],
+      ['a RegExp', world(/x/u), 'particles[2].born is a RegExp'],
+      ['an Error', world(new Error('x')), 'particles[2].born is an Error'],
+      ['a Promise', world(Promise.resolve(1)), 'particles[2].born is a Promise'],
+      ['a WeakMap', world(new WeakMap()), 'particles[2].born is a WeakMap'],
+      ['a boxed number', world(Object(1)), 'particles[2].born is a Number'],
+      ['a value of a Map', { scores: new Map([[1, new Date(0)]]) }, 'scores[0][1] is a Date'],
+      ['a key of a Map', { scores: new Map([[new Date(0), 1]]) }, 'scores[0][0] is a Date'],
+      ['a member of a Set', { tags: new Set([new Date(0)]) }, 'tags[0] is a Date'],
+      ['an element of an array', [1, new Date(0)], '[1] is a Date'],
+      ['a property that is no identifier', { 'a b': new Date(0) }, '["a b"] is a Date'],
+      ['an array in an array', [[0], [new DataView(new ArrayBuffer(1))]], '[1][0] is a DataView'],
+    ];
+
+    it.each(REFUSED)(
+      'refuses %s in resident(), write() and device.array()',
+      async (_n, v, where) => {
+        const lead = 'takes a host value, and';
+        expect(() => resident(v)).toThrow(new TypeError(`resident(): ${lead} ${where}, ${SAID}`));
+        const r = resident({ kept: [1, 2] });
+        expect(() => r.write(v as never)).toThrow(
+          new TypeError(`write(): ${lead} ${where}, ${SAID}`),
+        );
+        // The refused write changed nothing: the handle still holds what it held.
+        expect(await r.read()).toStrictEqual({ kept: [1, 2] });
+        const dev = await createDevice({ prefer: ['cpu'] });
+        expect(() => dev.array(v)).toThrow(new TypeError(`resident(): ${lead} ${where}, ${SAID}`));
+        // The refusal came before a slot was made.
+        expect(dev.statistics.live).toBe(0);
+        await dev.dispose();
+      },
+    );
+
+    it('refuses such a value given whole, as it refuses a Uint8Array', () => {
+      expect(() => resident(new Date(0))).toThrow(
+        'resident(): takes a host value (a number, a tuple, a typed array, an array or an object), not a Date, which no binding holds.',
+      );
+      expect(() => resident([1]).write(new DataView(new ArrayBuffer(1)) as never)).toThrow(
+        'write(): takes a host value, not a DataView, which no binding holds.',
+      );
+    });
+
+    it('refuses a value that holds itself, and says what it refers back to', () => {
+      const self: Record<string, unknown> = { name: 'a' };
+      self.me = self;
+      const parent: { children: unknown[] } = { children: [] };
+      parent.children.push({ parent });
+      const list: unknown[] = [1];
+      list.push(list);
+      const deep = { b: { c: {} as Record<string, unknown> } };
+      deep.b.c.back = deep.b;
+      const map = new Map<string, unknown>();
+      map.set('k', map);
+      const set = new Set<unknown>();
+      set.add(set);
+      const lead = 'resident(): takes a host value, and';
+      for (const [v, where] of [
+        [self, 'me refers back to the value'],
+        [parent, 'children[0].parent refers back to the value'],
+        [list, '[1] refers back to the value'],
+        [deep, 'b.c.back refers back to b'],
+        [map, '[0][1] refers back to the value'],
+        [set, '[0] refers back to the value'],
+      ] as const)
+        expect(() => resident(v)).toThrow(new TypeError(`${lead} ${where}, a cycle, ${SAID}`));
+      const r = resident([1]);
+      expect(() => r.write(self as never)).toThrow(
+        new TypeError(
+          `write(): takes a host value, and me refers back to the value, a cycle, ${SAID}`,
+        ),
+      );
+    });
+
+    it('takes a value two places hold, which is no cycle, and copies it for each place', async () => {
+      const shared = [1, 2];
+      const r = resident({ a: shared, b: shared, c: [shared, shared] });
+      const back = await r.read();
+      expect(back).toStrictEqual({
+        a: [1, 2],
+        b: [1, 2],
+        c: [
+          [1, 2],
+          [1, 2],
+        ],
+      });
+      expect(new Set([back.a, back.b, back.c[0], back.c[1]]).size).toBe(4);
+    });
+
+    it('copies an own "__proto__" key as a data property, and leaves the prototype of the copy alone', async () => {
+      const given = JSON.parse('{"__proto__": {"x": 1}, "y": 2}') as Record<string, unknown>;
+      expect(Object.keys(given)).toEqual(['__proto__', 'y']);
+      const own = (o: object) => Object.getOwnPropertyDescriptor(o, '__proto__');
+      const check = (copy: unknown): void => {
+        const c = copy as Record<string, unknown>;
+        expect(Object.getPrototypeOf(c)).toBe(Object.prototype);
+        expect(Object.keys(c)).toEqual(['__proto__', 'y']);
+        expect(c.y).toBe(2);
+        // The value is the property's own, a copy of the given one, and nothing was inherited.
+        expect(own(c)?.value).toStrictEqual({ x: 1 });
+        expect(own(c)?.value).not.toBe(own(given)?.value);
+        expect(own(c)).toMatchObject({ writable: true, enumerable: true, configurable: true });
+        expect('x' in c).toBe(false);
+      };
+      const r = resident(given);
+      check(await r.read());
+      r.write(given);
+      check(await r.read());
+      // Below the root too, and in an array of such objects.
+      const nested = resident({ inner: [given] });
+      check((await nested.read()).inner[0]);
+    });
+
+    it('keeps the prototype it copies from: a class, a plain object and a value with none', async () => {
+      class Pos {
+        constructor(public x = 0) {}
+      }
+      const bare = Object.assign(Object.create(null) as Record<string, unknown>, { x: 1 });
+      const back = await resident({ pos: new Pos(3), bare, plain: { x: 2 } }).read();
+      expect(back.pos).toBeInstanceOf(Pos);
+      expect(back.pos.x).toBe(3);
+      expect(Object.getPrototypeOf(back.bare)).toBeNull();
+      expect(back.bare.x).toBe(1);
+      expect(Object.getPrototypeOf(back.plain)).toBe(Object.prototype);
+    });
   });
 
   it("hands the call layer a Texture's view, which it binds as it is", async () => {
