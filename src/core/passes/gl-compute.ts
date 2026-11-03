@@ -30,6 +30,7 @@ import type { BindingDecl, Expr, FuncDecl, ModuleDecl, Stmt, StructDecl } from '
 import {
   boolT,
   f32T,
+  f64T,
   i32T,
   storageTexel,
   u32T,
@@ -54,6 +55,7 @@ import { splitPhases } from './phase-split.js';
 import { lowerMemoryWords, referenced, type WordPlan } from './memory-words.js';
 import { reachFrom } from './stage-bindings.js';
 import { texturePairs } from './texture-pairs.js';
+import { splitF64 } from '../fp64/df64-lib.js';
 
 /** The width of every texture the executor makes: memory, state and output wrap into rows. */
 export const GL_COMPUTE_WIDTH = 2048;
@@ -148,8 +150,11 @@ const fetchIn =
     );
   };
 
-/** The 32-bit lanes of a value of `t`, in the state's order: what a state variable takes. */
-class Lanes {
+/** The 32-bit lanes of a value of `t`, in the state's order: what a state variable takes. An
+ *  emulated double takes the two `f32` words the GPU holds it as, `hi` and then `lo`, as a binding
+ *  holds it (Rule 8.21), and a `vecN<f64>` a pair for each lane (#970). Exported for its tests,
+ *  which run a double through its words and back on the `f32` oracle. */
+export class Lanes {
   constructor(private readonly structs: ReadonlyMap<string, StructDecl>) {}
 
   count(t: ShaderType): number {
@@ -157,9 +162,16 @@ class Lanes {
       case 'scalar':
       case 'atomic':
         return 1;
+      case 'f64':
+        return 2;
       case 'vec':
         return t.n;
+      case 'vec64':
+        return 2 * t.n;
       case 'mat':
+        // A matrix of doubles has no column a pass could read or rebuild: the emulation carries
+        // only `*` and `transpose` for it (surface §39).
+        if (t.elem === 'f64') throw new GlComputeError(`a ${typeKey(t)} cannot be kept in state`);
         return t.cols * t.rows;
       case 'struct':
         return this.structs.get(t.name)!.fields.reduce((n, f) => n + this.count(f.type), 0);
@@ -184,12 +196,24 @@ class Lanes {
           return [{ op: 'select', type: u32T, cond: v, ifTrue: lit(1), ifFalse: lit(0) }];
         throw new GlComputeError(`a ${s} cannot be kept in state`);
       }
+      case 'f64': {
+        // `hi` is the nearest `f32`, and `lo` what is left of the double: an `f32` holds it
+        // exactly, since the emulation keeps its pair normalized (`fp64-lower.ts`), so `v` reads
+        // back as the same pair. The narrow, the subtraction and the widen are the pass's own.
+        const hi = call('f32', f32T, [v]);
+        const lo = call('f32', f32T, [bin('-', v, call('f64', f64T, [hi]), f64T)]);
+        return [call('bitcastU32', u32T, [hi]), call('bitcastU32', u32T, [lo])];
+      }
       case 'vec':
         return Array.from({ length: t.n }, (_, k) =>
           this.words(
             { kind: 'scalar', scalar: t.elem },
             member(v, 'xyzw'[k]!, { kind: 'scalar', scalar: t.elem }),
           ),
+        ).flat();
+      case 'vec64':
+        return Array.from({ length: t.n }, (_, k) =>
+          this.words(f64T, member(v, 'xyzw'[k]!, f64T)),
         ).flat();
       case 'mat': {
         const col: ShaderType = { kind: 'vec', n: t.rows, elem: 'f32' };
@@ -222,6 +246,12 @@ class Lanes {
         if (s === 'f32') return call('bitcastF32', f32T, [w]);
         return cmp('!=', w, lit(0));
       }
+      case 'f64': {
+        // The pair again: `hi + lo`, which is the double, as the two words are normalized.
+        const hi = call('f64', f64T, [call('bitcastF32', f32T, [words.shift()!])]);
+        const lo = call('f64', f64T, [call('bitcastF32', f32T, [words.shift()!])]);
+        return bin('+', hi, lo, f64T);
+      }
       case 'vec':
         return {
           op: 'construct',
@@ -229,6 +259,12 @@ class Lanes {
           args: Array.from({ length: t.n }, () =>
             this.value({ kind: 'scalar', scalar: t.elem }, words),
           ),
+        };
+      case 'vec64':
+        return {
+          op: 'construct',
+          type: t,
+          args: Array.from({ length: t.n }, () => this.value(f64T, words)),
         };
       case 'mat': {
         const col: ShaderType = { kind: 'vec', n: t.rows, elem: 'f32' };
@@ -267,10 +303,16 @@ class Lanes {
     };
     walk(init);
     const view = new DataView(new ArrayBuffer(4));
+    const bitsOf = (x: number): number => {
+      view.setFloat32(0, x, true);
+      return view.getUint32(0, true);
+    };
     const scalars: string[] = [];
     const kinds = (x: ShaderType): void => {
       if (x.kind === 'scalar') scalars.push(x.scalar);
+      else if (x.kind === 'f64') scalars.push('f64');
       else if (x.kind === 'vec') for (let k = 0; k < x.n; k++) scalars.push(x.elem);
+      else if (x.kind === 'vec64') for (let k = 0; k < x.n; k++) scalars.push('f64');
       else if (x.kind === 'mat') for (let k = 0; k < x.cols * x.rows; k++) scalars.push('f32');
       else if (x.kind === 'struct') this.structs.get(x.name)!.fields.forEach((f) => kinds(f.type));
       else if (x.kind === 'array') for (let i = 0; i < x.size!; i++) kinds(x.elem);
@@ -278,14 +320,15 @@ class Lanes {
     kinds(t);
     // A vector literal of one argument is a splat.
     const values =
-      flat.length === 1 && n > 1 ? new Array<number | boolean>(n).fill(flat[0]!) : flat;
-    return values.map((v, i) => {
-      if (typeof v === 'boolean') return v ? 1 : 0;
-      if (scalars[i] === 'f32') {
-        view.setFloat32(0, v, true);
-        return view.getUint32(0, true);
-      }
-      return v >>> 0;
+      flat.length === 1 && scalars.length > 1
+        ? new Array<number | boolean>(scalars.length).fill(flat[0]!)
+        : flat;
+    // A double is its pair, `hi` and `lo`, as the pass splits a literal of one.
+    return values.flatMap((v, i) => {
+      if (typeof v === 'boolean') return [v ? 1 : 0];
+      if (scalars[i] === 'f64') return splitF64(v).map(bitsOf);
+      if (scalars[i] === 'f32') return [bitsOf(v)];
+      return [v >>> 0];
     });
   }
 }

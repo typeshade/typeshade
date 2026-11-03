@@ -1570,6 +1570,17 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **An `f64` local kept across a barrier runs on WebGL2 (#970).** The pass program of change 0054
+  keeps each local of a split entry in its record between passes, in 32-bit words, and refused
+  every scalar but `u32`, `i32`, `f32` and `bool`:
+  `fftSmallDouble(): no tier it may use can run it (webgl2: a f64 cannot be kept in state)`. An
+  emulated double is now kept as the two `f32` words the GPU holds it as, `hi` and `lo`, and a
+  `vecN<f64>` as a pair for each lane; the next pass reads back their sum, which is the same pair.
+  A matrix of doubles is still refused, now with its own reason
+  (`a mat2x2<f64> cannot be kept in state`), since the emulation reads no column of one. The
+  compile gate's compute case `across` keeps an `f64` and a `vec2f64` across a barrier: both WebGL2
+  tiers must run it, with the `_fp64` guard bound as #966 binds it, and match WebGPU.
+
 - **The CPU tier generates the reverse-mode derivative of a function with a loop, and no longer gives
   it to the interpreter (#1017).** `grad(m, 'f', ['k'], { mode: 'reverse' })` writes each loop of the
   derivative over a counter it declares ahead of the loop, so the first statement of the loop is an
