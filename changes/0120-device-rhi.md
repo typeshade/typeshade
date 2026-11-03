@@ -1,7 +1,7 @@
 ---
 id: '0120'
 title: A host opens one `Device` and draws a vertex and fragment entry pair with it on WebGPU, WebGL2 and the CPU tier, over a render hardware interface that TypeShade owns
-status: draft
+status: accepted
 rules:
   - '8.21'
   - '8.24'
@@ -52,7 +52,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0120, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Identity and status           | Proposal 0120, `status: accepted`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Date and attribution          | Authored 2026-11-03 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-03, asked that every example on typeshade.dev come with real host code that runs it through the TypeShade runtime and device, and that the Playground's Result show what that code draws. The owner named X-GIS's render hardware interface (`rhi/src/rhi.ts` in `X-GIS/X-GIS`) as the model and decided D1 to D6 in the same session (Decisions). No GitHub issue is recorded.                                                                                                                                                                         |
 | Applicability / effectivity   | `docs/language-design.md` Rules 8.21, 8.24, 11.7, 11.8, 11.10, 11.11 and 11.17 and their items in `reqs/`; `docs/use-typeshade-surface.md` §3, §65, §66, §67 and §69; `typeshade/runtime` (`src/runtime.ts`, `src/runtime/`), the call layer (`src/core/host-*.ts`, `gl-compute.ts`, `gl-context.ts`, `resident.ts`, `owner.ts`), `typeshade/compute` (`src/core/compute/runner.ts`), the host face (`src/compiler/ts/host-face.ts`), a new `src/rhi/`, `examples/`, `src/__api__/surface.md`, and the downstream repositories. The emitted WGSL and GLSL ES 3.00 do not change. No release version is assigned. |
@@ -318,9 +318,11 @@ with `status: accepted`.
   site's own renderer is removed. This is downstream work, and X-GIS is a downstream that may move
   to the RHI.
 
-### Open decisions
+### Decisions O1 to O8
 
-Each needs the owner's decision before acceptance. Each names the draft's recommendation.
+The draft left these open. The owner decided each as the draft recommended, on 2026-11-03 in the
+Claude Code session ("승인"): O1 (a), O2 (a), O3 (a), O4 (a), O5 (a), O6 (a), O7 (a), O8 (a). The
+text of each option stays as the draft gave it, so the record shows what was weighed.
 
 - **O1. The RHI public or internal.** (a) Internal at first: `src/rhi/`, in no `package.json`
   subpath, imported by `typeshade/runtime` and `typeshade/compute`. (b) Public now as
@@ -621,11 +623,16 @@ canvases, which the Playground's Result meets first.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require: the owner's decision on O1 to O8; the
-review and merge of this proposal's pull request with `status: accepted`; the approved revision
-and scope, with the front matter adjusted to the decided options (O1 (b) adds the `typeshade/rhi`
-exports; O2 other than (a) withdraws Rule 11.10); the assigned responsibilities and the agreed
-milestones. No duration or cost estimate is established.
+- **Decision.** The owner accepted this proposal on 2026-11-03 in the Claude Code session: D1 to
+  D6 as decided, and O1 to O8 each as the draft recommended (option (a)). The merge of pull
+  request [#1030](https://github.com/typeshade/typeshade/pull/1030) with `status: accepted` records
+  the acceptance.
+- **Approved scope.** The front matter as it stands, which already matches the decided options:
+  the RHI is internal (O1 (a)), so no `typeshade/rhi` export is listed, and Rule 11.10 gains the
+  sentence of O2 (a).
+- **Responsibilities.** Implementation is not yet assigned. Each implementing pull request carries
+  `Change: 0120`.
+- **Milestones.** M1 to M7 in the order of the plan above. Duration and cost are not estimated.
 
 ### Configuration and validation record
 
