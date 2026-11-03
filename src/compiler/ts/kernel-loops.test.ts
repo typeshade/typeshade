@@ -412,6 +412,111 @@ export function count(a: array<u32>) {
 }`,
     'This loop runs on the CPU because line 12 calls "apply", which writes "calls". Return the value from "apply" and combine it in the loop instead.',
   ],
+  // #1004: a function a namespace declares as a constant is a function of the module under the
+  // namespace's name (`Ns_bump`), as its `function` declaration is. The sentence names it as the
+  // author wrote it (`Ns.bump`, `A.B.bump`), also for a copy of one that takes a function
+  // (`Ns_apply_inc`), as it names the others of the namespace (#908, #955). A function of the top
+  // level declared as a constant is emitted as written (`bump`) and has nothing to respell.
+  [
+    'R5, a function a namespace declares as an arrow function that writes a module variable',
+    `let calls: u32 = 0;
+namespace Ns {
+  export const bump = (x: u32): u32 => {
+    calls += 1;
+    return x + 1;
+  };
+}
+export function count(a: array<u32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = Ns.bump(a[i]);
+  }
+}`,
+    'This loop runs on the CPU because line 11 calls "Ns.bump", which writes "calls". Return the value from "Ns.bump" and combine it in the loop instead.',
+  ],
+  [
+    'R5, a function a namespace declares as a function expression that writes a module variable',
+    `let calls: u32 = 0;
+namespace Ns {
+  export const bump = function (x: u32): u32 {
+    calls += 1;
+    return x + 1;
+  };
+}
+export function count(a: array<u32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = Ns.bump(a[i]);
+  }
+}`,
+    'This loop runs on the CPU because line 11 calls "Ns.bump", which writes "calls". Return the value from "Ns.bump" and combine it in the loop instead.',
+  ],
+  [
+    'R5, a function a nested namespace declares as an arrow function that writes a module variable',
+    `let calls: u32 = 0;
+namespace A {
+  export namespace B {
+    export const bump = (x: u32): u32 => {
+      calls += 1;
+      return x + 1;
+    };
+  }
+}
+export function count(a: array<u32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = A.B.bump(a[i]);
+  }
+}`,
+    'This loop runs on the CPU because line 13 calls "A.B.bump", which writes "calls". Return the value from "A.B.bump" and combine it in the loop instead.',
+  ],
+  [
+    'R5, a copy of a function a namespace declares as an arrow function that takes a function',
+    `let calls: u32 = 0;
+function inc(x: u32): u32 {
+  return x + 1;
+}
+namespace Ns {
+  export const apply = (f: (x: u32) => u32, x: u32): u32 => {
+    calls += 1;
+    return f(x);
+  };
+}
+export function count(a: array<u32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = Ns.apply(inc, a[i]);
+  }
+}`,
+    'This loop runs on the CPU because line 14 calls "Ns.apply", which writes "calls". Return the value from "Ns.apply" and combine it in the loop instead.',
+  ],
+  [
+    'R5, a function of the top level declared as an arrow function keeps its name',
+    `let calls: u32 = 0;
+const bump = (x: u32): u32 => {
+  calls += 1;
+  return x + 1;
+};
+export function count(a: array<u32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = bump(a[i]);
+  }
+}`,
+    'This loop runs on the CPU because line 9 calls "bump", which writes "calls". Return the value from "bump" and combine it in the loop instead.',
+  ],
+  [
+    'R5, an arrow function of the top level whose own name looks like a namespace member keeps its name',
+    `let calls: u32 = 0;
+namespace Ns {
+  export const other = (x: u32): u32 => x;
+}
+const Ns_bump = (x: u32): u32 => {
+  calls += 1;
+  return x + 1;
+};
+export function count(a: array<u32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = Ns_bump(a[i]);
+  }
+}`,
+    'This loop runs on the CPU because line 12 calls "Ns_bump", which writes "calls". Return the value from "Ns_bump" and combine it in the loop instead.',
+  ],
   // #987: a read carries no span of its own, so the sentence prints it from the IR with the
   // names the table holds: a namespace's constant (`Ns.K`, emitted `Ns_K`), an enum's member
   // (`Mode.B`, emitted `Mode_B`) and a call of a local function (`behind`, emitted `f_behind`).
@@ -1283,6 +1388,53 @@ export function f(out: array<f32>, t: array<f32>) {
     expect(compiled(copy)).toEqual([]);
     expect(edited(copy)).toEqual([]);
     expect(worded(copy, 'f', 't')?.text).toMatch(/^t\[apply\(/);
+  });
+
+  it('prints a function a namespace declares as a constant in the index as the author wrote it, and its copy by the same name (#1004)', () => {
+    // The module emits it as `Ns_shift`, as it emits the namespace's `function` declaration, and
+    // the copy of one that takes a function as `Ns_apply_inc`. The report says `Ns.shift`,
+    // `A.B.shift` and `Ns.apply`. A function of the top level declared as a constant keeps its name.
+    const reading = (declaration: string, call: string): string =>
+      `${declaration}\nexport function f(out: array<f32>, t: array<f32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = t[${call}];\n  }\n}`;
+    const inc = 'function inc(x: u32): u32 {\n  return x + 1;\n}\n';
+    const cases: [string, string, string][] = [
+      [
+        'namespace Ns {\n  export const shift = (i: u32): u32 => i ^ 1;\n}',
+        'Ns.shift(i)',
+        't[Ns.shift(i)]',
+      ],
+      [
+        'namespace Ns {\n  export const shift = function (i: u32): u32 {\n    return i ^ 1;\n  };\n}',
+        'Ns.shift(i)',
+        't[Ns.shift(i)]',
+      ],
+      [
+        'namespace A {\n  export namespace B {\n    export const shift = (i: u32): u32 => i ^ 1;\n  }\n}',
+        'A.B.shift(i)',
+        't[A.B.shift(i)]',
+      ],
+      // The copy takes the arguments its own parameters name, so the function handed to it is
+      // not one of them.
+      [
+        `${inc}namespace Ns {\n  export const apply = (g: (x: u32) => u32, x: u32): u32 => g(x) ^ 1;\n}`,
+        'Ns.apply(inc, i)',
+        't[Ns.apply(i)]',
+      ],
+      // A function of the top level declared as a constant, and one named like a namespace
+      // member, keep their names.
+      ['const shift = (i: u32): u32 => i ^ 1;', 'shift(i)', 't[shift(i)]'],
+      [
+        'namespace Ns {\n  export const other = (i: u32): u32 => i;\n}\nconst Ns_shift = (i: u32): u32 => i ^ 1;',
+        'Ns_shift(i)',
+        't[Ns_shift(i)]',
+      ],
+    ];
+    for (const [declaration, call, text] of cases) {
+      const body = reading(declaration, call);
+      expect(compiled(body), body).toEqual([]);
+      expect(edited(body), body).toEqual([]);
+      expect(worded(body, 'f', 't')?.text, body).toBe(text);
+    }
   });
 
   it('prints a namespace constant and an enum member in the index as the author wrote them (#987)', () => {

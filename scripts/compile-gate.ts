@@ -101,6 +101,17 @@
 // programs of `ENTRY_WRAPPER_SOURCES` are judged as examples are, on both compilers, and the
 // leg's instrument is the old spelling `main__impl`, which ANGLE must refuse.
 //
+// THE SHADOWED-CALL LEG (#1010, Rule 3.2). The module emits `Voice.shift(3)` as the call
+// `Voice_shift(3u)`, and a parameter or a local may have that name. Both writers print a call by
+// the bare name of its function, so Tint said `cannot use parameter 'Voice_shift' as call target`
+// and ANGLE `'Voice_shift' : function name expected`, and an entry parameter of that name was
+// `'Voice_shift' : redefinition` in GLSL, where it is a global `in`. The writers respell the
+// parameter or the local (`src/core/passes/variable-names.ts`) and the entry parameter
+// (`src/core/spelling-plan.ts`). The programs of `SHADOWED_CALL_SOURCES` are judged as examples
+// are, on both compilers and on both tiers that draw, with the varying that shares an entry
+// parameter's name linked across the two stages. Their instrument is the unfixed text, which
+// Tint and ANGLE refused when it was measured (the pull request of #1010), and the cut arm.
+//
 // THE CONST-CALL LEG (#613, Rule 13.3). WGSL evaluates a builtin call whose arguments are all
 // constant when it creates the shader, and Tint refuses one outside the builtin's domain or past
 // the range of f32. The front end refuses those (`src/compiler/ts/lower/const-call.ts`) and must
@@ -977,6 +988,109 @@ function entryWrapperVerdicts(all: readonly Job[], verdicts: readonly Verdict[])
   return failures;
 }
 
+// ── The shadowed-call leg (#1010, Rule 3.2) ──
+
+/** A render pair for each place a name may hide a function the program calls: a helper's
+ *  parameter, a helper's local the optimizer cannot fold, a function a namespace declares as a
+ *  constant, an entry parameter that its entry calls the function beside, and one that a helper
+ *  calls the function beside. The class function is emitted as `Voice_shift`, the namespace
+ *  function as `Ns_f`. */
+const shadowedCallSource = (parts: {
+  readonly declarations: string;
+  readonly varying?: string;
+  readonly fragment: string;
+}): string => `"use typeshade";
+${parts.declarations}
+interface VsOut {
+  pos: builtin<"position", vec4>;
+${parts.varying ?? '  uv: location<0, vec2>;'}
+}
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+  const x = f32(i) * 0.5;
+  return { pos: vec4(x, x, 0., 1.), ${parts.varying === undefined ? 'uv: vec2(x, x)' : 'Voice_shift: x'} };
+});
+${parts.fragment}
+`;
+
+const SHADOWED_CALL_CLASS = `class Voice {
+  static shift(k: f32): f32 {
+    return k + 1.;
+  }
+}`;
+
+const SHADOWED_CALL_SOURCES: readonly { readonly id: string; readonly source: string }[] = [
+  {
+    id: 'shadowed-call/helper parameter',
+    source: shadowedCallSource({
+      declarations: `${SHADOWED_CALL_CLASS}
+function g(Voice_shift: f32): f32 {
+  return Voice.shift(3.) + Voice_shift;
+}`,
+      fragment: `export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+  return vec4(g(uv.x), 0., 0., 1.);
+});`,
+    }),
+  },
+  {
+    id: 'shadowed-call/helper local',
+    source: shadowedCallSource({
+      declarations: `${SHADOWED_CALL_CLASS}
+function g(a: f32): f32 {
+  const Voice_shift: f32 = a + 5.;
+  return Voice.shift(3.) + Voice_shift;
+}`,
+      fragment: `export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+  return vec4(g(uv.x), 0., 0., 1.);
+});`,
+    }),
+  },
+  {
+    id: 'shadowed-call/namespace constant function',
+    source: shadowedCallSource({
+      declarations: `namespace Ns {
+  export const f = (k: f32): f32 => k + 1.;
+}
+function g(Ns_f: f32): f32 {
+  return Ns.f(3.) + Ns_f;
+}`,
+      fragment: `export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+  return vec4(g(uv.x), 0., 0., 1.);
+});`,
+    }),
+  },
+  {
+    id: 'shadowed-call/entry parameter, the entry calls the function',
+    source: shadowedCallSource({
+      declarations: SHADOWED_CALL_CLASS,
+      varying: '  Voice_shift: location<0, f32>;',
+      fragment: `export const fs = fragment(function fs(Voice_shift: location<0, f32>): vec4 {
+  return vec4(Voice.shift(3.) + Voice_shift, 0., 0., 1.);
+});`,
+    }),
+  },
+  {
+    id: 'shadowed-call/entry parameter, a helper calls the function',
+    source: shadowedCallSource({
+      declarations: `${SHADOWED_CALL_CLASS}
+function h(): f32 {
+  return Voice.shift(3.);
+}`,
+      varying: '  Voice_shift: location<0, f32>;',
+      fragment: `export const fs = fragment(function fs(Voice_shift: location<0, f32>): vec4 {
+  return vec4(h() + Voice_shift, 0., 0., 1.);
+});`,
+    }),
+  },
+];
+
+/** The shadowed-call programs, judged as examples are. */
+const SHADOWED_CALL_EXAMPLES = SHADOWED_CALL_SOURCES.map(({ id, source }) => {
+  const c = compile(source);
+  const errors = c.diagnostics.filter((d) => d.category === 'error');
+  if (errors.length > 0) throw new Error(`${id} does not compile: ${errors[0]!.message}`);
+  return { id, module: c.module, renderable: true };
+});
+
 // ── The const-call leg (#613, Rule 13.3) ──
 
 /** A render pair whose fragment entry makes the calls Tint accepts beside the ones it refuses:
@@ -1442,6 +1556,7 @@ function jobs(): Job[] {
     ...CONSOLE_EXAMPLES,
     ...DECLARED_NAMES_EXAMPLES,
     ...ENTRY_WRAPPER_EXAMPLES,
+    ...SHADOWED_CALL_EXAMPLES,
     ...CONST_CALL_EXAMPLES,
   ]
     .map((ex) => {

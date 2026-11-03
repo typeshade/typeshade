@@ -1570,6 +1570,52 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A parameter or a local named like a function its function calls is respelled in the emitted
+  text (#1010).** The module emits `Voice.shift(3)` as the call `Voice_shift(3u)`, a namespace's
+  `Ns.f` as `Ns_f`, the instance `pick<u32>` as `pick_u32`, a local function `bump` of `g` as
+  `g_bump` and the copy of `apply` made for `inc` as `apply_inc`. A parameter or a local may have
+  that name (Rule 3.2, change 0039), and `compile()` and the language service accepted the program.
+  WGSL and GLSL print a call by the bare name of its function, so in
+  `function g(Voice_shift: u32): u32 { return Voice.shift(3) + Voice_shift; }` the text called the
+  parameter. Tint said `cannot use parameter 'Voice_shift' as call target`, and WebGL2 said
+  `'Voice_shift' : function name expected`. A local that the optimizer cannot fold, and the
+  parameter of an entry, were refused the same way. `sanitizeVariableNames` respells a helper's
+  parameter or local that hides a builtin its function calls (Proposal 0070, D-C10-1) or a constant
+  it reads (#999). It now respells one that hides a function its function calls, and only there:
+
+  ```text
+  fn Voice_shift(k: u32) -> u32 { … }
+  fn g(Voice_shift_: u32) -> u32 { return (Voice_shift(3u) + Voice_shift_); }
+  ```
+
+  The parameter of an entry is the spelling plan's, not the pass's. It takes a fresh spelling when
+  a helper function has its name, whether the entry calls the function or not: in GLSL the
+  parameter is a global `in`, and WebGL2 said `'Voice_shift' : redefinition` where a helper, not
+  the entry, made the call. The oracle, the CPU codegen and the debugger keep the authored names.
+  The kernel function of the issue needed nothing: its scalar parameter is a field of the uniform of
+  the call (`f_args.Voice_shift`), and it compiled before.
+
+  The respelling adds code to the writers, so three caps of `scripts/bundle-budget.json` take the
+  measured gzip sizes, single file: `typeshade/runtime` 150,666 to 150,700 (+34),
+  `typeshade/emit` 116,857 to 116,947 (+90) and `typeshade/fuse` 111,631 to 111,679 (+48). The
+  split totals of the runtime and fuse move from 152,539 to 152,556 and from 112,066 to 112,106,
+  and the emit's initial chunk and total from 116,857 to 116,947. The initial chunks of the runtime
+  and fuse hold (36,511 and 13,826; measured 36,508 and 13,824). Bun 1.4.4 measured them, as
+  `.bun-version` pins it. These are bundle-size measurements, not GPU performance measurements.
+
+- **A function a namespace declares as a constant is worded as the author wrote it (#1004).**
+  `namespace Ns { export const bump = (x: u32): u32 => x + 1; }` is a function of the module under
+  the namespace's name, `Ns_bump`, as its `function` declaration is. The `TS8070` sentence still
+  named it `Ns_bump`, and `describeRead` printed `t[Ns_bump(i)]`, because the registry of the names a
+  message uses (`namespaces.ts`) had a row for the `function` declaration (#908), the instance and
+  the copy (#955, #972) and a local function (#987), and none for this one. The registry now
+  records the constant when the namespace's members are lowered, so the sentence says `Ns.bump`,
+  the same constant in a nested namespace `A.B.bump`, and the copy of one that takes a function
+  `Ns.apply` for `Ns_apply_inc`. A function expression held by the constant reads the same. The
+  reason of a `fuse` report, which is `describeRead`'s text, says it too. A function of the top
+  level declared as a constant is emitted as written and keeps its name. `compile()` and the
+  language service said the same before and say the same now.
+
 - **An `f64` local kept across a barrier runs on WebGL2 (#970).** The pass program of change 0054
   keeps each local of a split entry in its record between passes, in 32-bit words, and refused
   every scalar but `u32`, `i32`, `f32` and `bool`:
@@ -1594,6 +1640,21 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   module variable, read beside a parameter of that name stays refused, in a function and in an
   entry, as in #999: the IR holds a name once in a function, and the oracle, the code generator and
   the debugger read the parameter for the variable.
+
+- **The CPU tier generates the reverse-mode derivative of a function with a loop, and no longer gives
+  it to the interpreter (#1017).** `grad(m, 'f', ['k'], { mode: 'reverse' })` writes each loop of the
+  derivative over a counter it declares ahead of the loop, so the first statement of the loop is an
+  assignment. `emitForInit` in `src/core/cpu-codegen.ts` took a `let` or a `var` there and nothing
+  else, so `generateModuleJs(...).fallbacks` named the derivative (`["f_vjp"]`) and
+  `compileModuleJs` ran it on the interpreter. The call of a loss with a 1024-trip frame loop took
+  7.39 ms against 0.298 ms once generated, with the same bits (Bun 1.4.4); the host face's CPU
+  tier, which runs through `compileModuleJs`, inherited the fallback. `emitForInit` now takes an
+  assignment and a compound assignment as the first statement of a loop, the two forms beside a
+  declaration that the shared walk's `forHeader` writes on WGSL and GLSL ES 3.00 and that the
+  interpreter runs, and `emitForUpdate` shares the code that writes them. Reverse mode keeps its
+  assignment: its count sweep reads the counter after the loop, and a declaration in the header ends
+  with the loop. A loop whose first statement is a call, which `forHeader` refuses on both targets,
+  still falls back.
 
 - **`tshc check`, `tshc sync` and `tshc migrate` leave out the paths a `.gitignore` excludes when they
   search a directory (#1001).** The search skipped `node_modules`, `dist` and `.git` and nothing
