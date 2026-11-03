@@ -1652,19 +1652,36 @@ function identityJs(r: LoopReduction): string {
     : one;
 }
 
-function emitForInit(s: Stmt, S: FnCtx): string {
-  if (s.s === 'let') return `${declareVar(s.name, S)} = ${emitExpr(s.expr, S)}`;
-  if (s.s === 'var')
-    return `${declareVar(s.name, S)} = ${s.init ? emitExpr(s.init, S) : zeroLit(s.type, S.mod.structs)}`;
-  throw new CodegenUnsupported(`for-init ${s.s}`);
-}
-
-function emitForUpdate(s: Stmt, S: FnCtx): string {
+/** An assignment or a compound assignment of a `for` header, as an expression: the two forms
+ *  the shared walk's `forHeader` (`core/emit.ts`) writes there on WGSL and GLSL ES 3.00 beside
+ *  a declaration. `undefined` for any other statement. */
+function emitHeaderAssign(s: Stmt, S: FnCtx): string | undefined {
   if (s.s === 'assign') return emitAssignExpr(s.target, bindJs(emit(s.expr, S), s.expr.type, S), S);
   if (s.s === 'assignOp') {
     const val = applyBinJs(s.bop, s.target, s.expr, numKindOf(s.target.type), S);
     return emitAssignExpr(s.target, val, S);
   }
+  return undefined;
+}
+
+/** The first statement of a `for`: a declaration, an assignment or a compound assignment, which
+ *  are the forms `forHeader` writes and the interpreter runs. Reverse mode (change 0056) opens
+ *  each loop of a derivative with an assignment to a counter it declared ahead of the loop, since
+ *  its count sweep reads the counter after the loop has ended and a declaration in the header
+ *  would end with the loop. A function whose loop opened with anything else fell back to the
+ *  interpreter (issue #1017). */
+function emitForInit(s: Stmt, S: FnCtx): string {
+  if (s.s === 'let') return `${declareVar(s.name, S)} = ${emitExpr(s.expr, S)}`;
+  if (s.s === 'var')
+    return `${declareVar(s.name, S)} = ${s.init ? emitExpr(s.init, S) : zeroLit(s.type, S.mod.structs)}`;
+  const assigned = emitHeaderAssign(s, S);
+  if (assigned !== undefined) return assigned;
+  throw new CodegenUnsupported(`for-init ${s.s}`);
+}
+
+function emitForUpdate(s: Stmt, S: FnCtx): string {
+  const assigned = emitHeaderAssign(s, S);
+  if (assigned !== undefined) return assigned;
   throw new CodegenUnsupported(`for-update ${s.s}`);
 }
 

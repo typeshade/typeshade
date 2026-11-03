@@ -1849,3 +1849,99 @@ describe('compileModuleJs — an operand that may be missing keeps the helper (#
     }
   });
 });
+
+describe('compileModuleJs — a loop whose first statement is an assignment (issue #1017)', () => {
+  // Reverse mode (change 0056) writes a loop over a counter it declared ahead of the loop and
+  // reads after it, so the loop opens with an assignment, not a declaration. The shared walk
+  // writes that header on WGSL and GLSL ES 3.00 (`forHeader`) and the interpreter runs the
+  // statement. The generator took only a `let` or a `var` there and gave the function up.
+  const j = vref('j', i32T);
+  const n = param('n', i32T);
+  const next = assign(j, bin('+', j, lit(1, i32T), i32T));
+  const m: ModuleDecl = {
+    consts: [],
+    structs: [],
+    bindings: [],
+    funcs: [
+      // The counter outlives the loop: a declaration in the header would end with it.
+      func('assigned', [{ name: 'n', type: i32T }], i32T, [
+        varS('j', i32T, lit(-5, i32T)),
+        varS('sum', i32T, lit(0, i32T)),
+        forS(assign(j, lit(0, i32T)), cmp('<', j, n), next, [assignOp(vref('sum', i32T), '+', j)]),
+        ret(bin('+', bin('*', vref('sum', i32T), lit(100, i32T), i32T), j, i32T)),
+      ]),
+      // A compound assignment opens a loop the same way.
+      func('compound', [{ name: 'n', type: i32T }], i32T, [
+        varS('j', i32T, lit(3, i32T)),
+        forS(assignOp(j, '+', lit(2, i32T)), cmp('<', j, n), next, []),
+        ret(j),
+      ]),
+      // A vector the header assigns is a copy, as a `var` binding is: the write in the loop
+      // reaches the copy and not the vector the function was given.
+      func(
+        'copied',
+        [
+          { name: 'u', type: vec2fT },
+          { name: 'n', type: i32T },
+        ],
+        vec2fT,
+        [
+          varS('v', vec2fT, construct(vec2fT, [lit(0), lit(0)])),
+          varS('j', i32T, lit(0, i32T)),
+          forS(assign(vref('v', vec2fT), param('u', vec2fT)), cmp('<', j, n), next, [
+            assign(member(vref('v', vec2fT), 'x'), lit(9)),
+          ]),
+          ret(bin('+', param('u', vec2fT), vref('v', vec2fT), vec2fT)),
+        ],
+      ),
+      // A header the GPU writers refuse (`forHeader` takes a declaration, an assignment or a
+      // compound assignment) stays on the interpreter, which gives the answer.
+      func('callInit', [{ name: 'n', type: i32T }], i32T, [
+        varS('j', i32T, lit(0, i32T)),
+        forS({ s: 'call', expr: call('abs', [lit(1, i32T)], i32T) }, cmp('<', j, n), next, []),
+        ret(j),
+      ]),
+    ],
+  };
+
+  it.each(['f64', 'f32'] as const)(
+    'generates each function but the one with a call in its header, %s',
+    (precision) => {
+      // The instrument (AGENTS.md#gate-discipline): the list is not empty by construction,
+      // since the function the writers refuse is on it.
+      expect(generateModuleJs(m, { precision }).fallbacks).toEqual(['callInit']);
+    },
+  );
+
+  it.each(['f64', 'f32'] as const)(
+    'every function equals the interpreter, below, at and above the counter start, %s',
+    (precision) => {
+      const js = compileModuleJs(m, { precision });
+      const interp = compileModule(m, { precision });
+      const divergences: string[] = [];
+      for (const f of m.funcs)
+        for (const count of [-3, 0, 1, 2, 7]) {
+          const args = f.params.map((q) => (q.type === vec2fT ? [1.5, 2.5] : count));
+          const a = js.fns[f.name]!(...(clone(args) as never[]));
+          const b = interp.fns[f.name]!(...(clone(args) as never[]));
+          if (!bitEqual(a, b))
+            divergences.push(
+              `${f.name}(${JSON.stringify(args)}): js=${JSON.stringify(a)} interp=${JSON.stringify(b)}`,
+            );
+        }
+      expect(divergences).toEqual([]);
+    },
+  );
+
+  it('keeps the counter the header assigned after the loop, and copies the vector it assigned', () => {
+    const js = compileModuleJs(m);
+    // 0 + 1 + 2 + 3 + 4 = 10 in the sum, and the counter stops at 5.
+    expect(js.fns.assigned!(5)).toBe(1005);
+    // The counter starts at 3 + 2, and a bound of 0 never runs the loop.
+    expect(js.fns.compound!(8)).toBe(8);
+    expect(js.fns.compound!(0)).toBe(5);
+    // u + v, with v the copy of u that the loop wrote 9 into: u itself keeps its x.
+    expect(js.fns.copied!([1.5, 2.5], 2)).toEqual([10.5, 5]);
+    expect(js.fns.copied!([1.5, 2.5], 0)).toEqual([3, 5]);
+  });
+});
