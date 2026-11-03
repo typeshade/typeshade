@@ -1594,6 +1594,21 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   compile gate's compute case `across` keeps an `f64` and a `vec2f64` across a barrier: both WebGL2
   tiers must run it, with the `_fp64` guard bound as #966 binds it, and match WebGPU.
 
+- **The CPU tier generates the reverse-mode derivative of a function with a loop, and no longer gives
+  it to the interpreter (#1017).** `grad(m, 'f', ['k'], { mode: 'reverse' })` writes each loop of the
+  derivative over a counter it declares ahead of the loop, so the first statement of the loop is an
+  assignment. `emitForInit` in `src/core/cpu-codegen.ts` took a `let` or a `var` there and nothing
+  else, so `generateModuleJs(...).fallbacks` named the derivative (`["f_vjp"]`) and
+  `compileModuleJs` ran it on the interpreter. The call of a loss with a 1024-trip frame loop took
+  7.39 ms against 0.298 ms once generated, with the same bits (Bun 1.4.4); the host face's CPU
+  tier, which runs through `compileModuleJs`, inherited the fallback. `emitForInit` now takes an
+  assignment and a compound assignment as the first statement of a loop, the two forms beside a
+  declaration that the shared walk's `forHeader` writes on WGSL and GLSL ES 3.00 and that the
+  interpreter runs, and `emitForUpdate` shares the code that writes them. Reverse mode keeps its
+  assignment: its count sweep reads the counter after the loop, and a declaration in the header ends
+  with the loop. A loop whose first statement is a call, which `forHeader` refuses on both targets,
+  still falls back.
+
 - **`tshc check`, `tshc sync` and `tshc migrate` leave out the paths a `.gitignore` excludes when they
   search a directory (#1001).** The search skipped `node_modules`, `dist` and `.git` and nothing
   else, and it followed a symbolic link to a directory. A link to a checkout of another project, put
