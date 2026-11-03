@@ -1,4 +1,4 @@
-// ═══ The subgroup probe: a known-answer test that selects the subgroup variant (change 0119) ═══
+// ═══ The subgroup probe: a known-answer test that selects the subgroup variant (change 0119, Rule 11.23) ═══
 //
 // A kernel function's WGSL may carry a second text in which each subgroup folds first with the
 // subgroup functions (`KernelFace.gpu.wgslSubgroup`, `core/passes/kernel-lower.ts`). The runtime

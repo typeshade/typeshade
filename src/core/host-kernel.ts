@@ -425,7 +425,7 @@ const TREE_PARAMS = [
 ] as const;
 
 /** The WGSL a call dispatches: the subgroup variant where the owner selects it and the face has
- *  one (change 0119), under the owner's flavor of the emulated double (change 0073). */
+ *  one (change 0119, Rule 11.23), under the owner's flavor of the emulated double (change 0073). */
 function textOf(v: Variant, integer: boolean, subgroup: boolean): string {
   if (subgroup && v.wgslSubgroup !== undefined)
     return integer && v.wgslSubgroupInteger !== undefined ? v.wgslSubgroupInteger : v.wgslSubgroup;
