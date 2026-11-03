@@ -31,6 +31,18 @@ export interface DeviceInfo {
     readonly unmaskedVendor: string | null;
     readonly unmaskedRenderer: string | null;
   } | null;
+  /** What the subgroup probe saw when the device opened (change 0119): the adapter's size range,
+   *  the `subgroup_size` and `num_subgroups` one workgroup of 256 lanes had, and whether a
+   *  subgroup's lanes were consecutive. `null` on a tier without WebGPU, on a device without the
+   *  `subgroups` feature, where `createDevice({ subgroups: 'never' })` kept the probe off, or
+   *  where the probe failed; a kernel call of the device then runs the tree text. */
+  readonly subgroups: {
+    readonly minSize: number | null;
+    readonly maxSize: number | null;
+    readonly size: number;
+    readonly numSubgroups: number;
+    readonly consecutive: boolean;
+  } | null;
 }
 
 type Identity = Omit<NonNullable<DeviceInfo['webgpu']>, 'features' | 'limits'>;
@@ -105,7 +117,11 @@ export function retainAdapter(device: object, adapter: object): void {
 }
 
 /** A snapshot of one owner. Reading it later performs no browser operation. */
-export function deviceInfo(tier: Tier, native?: object | null): DeviceInfo {
+export function deviceInfo(
+  tier: Tier,
+  native?: object | null,
+  subgroups: DeviceInfo['subgroups'] = null,
+): DeviceInfo {
   let webgpu: DeviceInfo['webgpu'] = null;
   let webgl: DeviceInfo['webgl'] = null;
   if (tier === 'webgpu') {
@@ -137,5 +153,11 @@ export function deviceInfo(tier: Tier, native?: object | null): DeviceInfo {
       unmaskedRenderer: parameter(read(() => debug?.UNMASKED_RENDERER_WEBGL)),
     });
   }
-  return Object.freeze({ build: buildInfo, tier, webgpu, webgl });
+  return Object.freeze({
+    build: buildInfo,
+    tier,
+    webgpu,
+    webgl,
+    subgroups: subgroups === null ? null : Object.freeze({ ...subgroups }),
+  });
 }
