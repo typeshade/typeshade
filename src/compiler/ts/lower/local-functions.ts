@@ -32,7 +32,7 @@ import {
   type FileFunctions,
   type LoweringScope,
 } from '../context.js';
-import { recordLocalFunction } from '../namespaces.js';
+import { recordLocalFunction, recordNamespaceFunction } from '../namespaces.js';
 import { parseParams, parseReturnType } from './function.js';
 import type { Receiver } from './class-methods.js';
 import { closureUse, declarationOf, functionAround, type ClosureUse } from './closures.js';
@@ -197,8 +197,11 @@ export function collectLocalFunctions(
     const stub: FuncDecl = { name, params, ret, body: [] };
     (stub as { span?: unknown }).span = spanOf(sourceFile, node);
     (stub as { nameSpan?: unknown }).nameSpan = spanOf(sourceFile, decl.name);
-    // The module emits it as `fs_f`; a message names it as it is declared (#987).
+    // The module emits it as `fs_f`; a message names it as it is declared (#987). A namespace's
+    // `const f = …` is the function `Ns_f`, which a message names `Ns.f` as it does the namespace's
+    // `function f` (#1004); at the top level it is `f` already and has nothing to record.
     if (declaredInFunction(decl)) recordLocalFunction(stub, local);
+    else recordNamespaceFunction(stub, decl);
     // An optional parameter takes the absent value where a call omits it (change 0093).
     if (fnAt.size === 0) recordParamDefaults(stub, node.parameters, 0, true);
     out.push({
