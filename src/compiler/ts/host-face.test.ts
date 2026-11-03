@@ -1459,19 +1459,20 @@ export class Counter {
 }
 `;
     // Both readers of the shader take the program (Rule 12.7), and it is the compiler that writes
-    // the view. `#n` is the field `n` of the struct (Rule 8.12), which the view declares `private
-    // n` (§26): its line carries the author's blocks, with their tags, as the line of a field
-    // written `private` or public does. A static field is a constant of the module and has no line.
+    // the view. `#n` is the field `n` of the struct (Rule 8.12), which the view declares as `#n`
+    // (§26, change 0109, Amendment 2): its line carries the author's blocks, with their tags, as
+    // the line of a field written `private` or public does. A static field is a constant of the
+    // module and has no line.
     const f = faceOf(source);
     expect(f.view).toContain(`export declare class Counter {
   constructor();
   /** The count so far. */
-  private n: u32;
+  #n: u32;
   /**
    * The step of each tick.
    * @defaultValue 1
    */
-  private step: u32;
+  #step: u32;
   /** The tag, written with the keyword. */
   private tag: u32;
   /** The total, public. */
@@ -1481,17 +1482,28 @@ export class Counter {
 }
 `);
     expect(f.view).not.toMatch(/ticks/);
-    // The editor's hover over the member in a host program shows the comment too, and the line is
-    // private to `tsc`, which refuses the access.
-    const host = `import { Counter } from './m.shade.ts';
+    // The editor's hover over a member in a host program shows the comment too. A field written
+    // with the keyword is private to `tsc`, which refuses the access but hovers the member. A field
+    // with a private name is no member a host can name, so there is nothing to hover and the
+    // access is "does not exist" (TS2339), where the line keeps the comment for a reader of the
+    // view.
+    const keyword = `import { Counter } from './m.shade.ts';
+const c = new Counter();
+const v = c.tag;
+export { v };
+`;
+    const read = hover(f.view!, keyword, 'tag;');
+    expect(read.documentation).toBe('The tag, written with the keyword.');
+    expect(read.errors).toEqual([
+      "Property 'tag' is private and only accessible within class 'Counter'.",
+    ]);
+    const named = `import { Counter } from './m.shade.ts';
 const c = new Counter();
 const v = c.n;
 export { v };
 `;
-    const read = hover(f.view!, host, 'n;');
-    expect(read.documentation).toBe('The count so far.');
-    expect(read.errors).toEqual([
-      "Property 'n' is private and only accessible within class 'Counter'.",
+    expect(hover(f.view!, named, 'n;').errors).toEqual([
+      "Property 'n' does not exist on type 'Counter'.",
     ]);
   });
 
@@ -1529,13 +1541,14 @@ export class Derived extends Base {
 `);
     // `Hidden` is no export, so `Shown` is declared whole, and the private field it takes carries
     // the comment of the base's `#level`. `Derived` stands below an exported base, which keeps the
-    // line and the comment of `#count`, and declares its own.
+    // line and the comment of `#count`, and declares its own. Each line is the private name as
+    // itself (change 0109, Amendment 2).
     expect(f.view).toContain(`export declare class Shown {
   constructor();
   /** The level of the hidden class. */
-  private level: f32;
+  #level: f32;
   /** Its own field. */
-  private own: f32;
+  #own: f32;
   s: f32;
   /** Reads the level. */
   peek(): f32;
@@ -1543,14 +1556,14 @@ export class Derived extends Base {
 export declare class Base {
   constructor();
   /** The base's count. */
-  private count: f32;
+  #count: f32;
   /** Reads the count. */
   total(): f32;
 }
 export declare class Derived extends Base {
   constructor();
   /** Its own, private. */
-  private mine: f32;
+  #mine: f32;
 }
 `);
   });
@@ -2604,5 +2617,176 @@ export const fs = fragment(function fs(): vec4 { return vec4(dpdx(1.)); });
 `);
     expect(f.code).toContain('"helper": function');
     expect(f.code).not.toContain('"fs": function');
+  });
+});
+
+// ═══ A private name beside a public member of its name (change 0109, Amendment 2, issue #971) ═══
+//
+// A class that pairs a private name with an accessor or a method of one name is the ordinary
+// pairing (surface §26): `#n` is the struct member `n`, and `get n()` is the function `Counter_get_n`.
+// The view declared the field `private n` and the accessor `get n`, which `tsc` reads as TS2300, and
+// the generated class made the field the own property `n`, which an accessor of that name on the
+// prototype answers for. The view declares a private name as itself, `#n`, and an instance holds the
+// field under the key "#n" (decision D6). The program is taken by both halves of the shader
+// (Rule 12.7), and the view by its two readers: `tsc` and the editor's hover.
+describe('a private name beside a public member of its name (change 0109, Amendment 2, #971)', () => {
+  /** The program of issue #971: a private field and the accessor of its name. */
+  const COUNTER = `"use typeshade";
+
+export class Counter {
+  /** The count so far. */
+  #n: u32 = 0;
+  /** The count, read through the accessor. */
+  get n(): u32 {
+    return this.#n;
+  }
+  /** Counts once. */
+  tick(): u32 {
+    this.#n = this.#n + 1;
+    return this.#n;
+  }
+}
+
+export function level(c: Counter): u32 {
+  return c.n;
+}
+`;
+
+  /** A private field and a method of its name, and a field no private name stands beside. */
+  const GAUGE = `"use typeshade";
+
+export class Gauge {
+  /** The level. */
+  #level: f32 = 0.;
+  /** Reads the level. */
+  level(): f32 {
+    return this.#level;
+  }
+  /** The id, which nothing changes. */
+  readonly #id: u32 = 7;
+  /** The scale, public. */
+  scale: f32 = 1.;
+  /** Sets the level. */
+  set(v: f32): void {
+    this.#level = v;
+  }
+}
+`;
+
+  /** A class no export declares as a value, which a signature names: the view spells it by its
+   *  fields, and a private name is a key that is not an identifier. */
+  const HIDDEN = `"use typeshade";
+
+class Hidden {
+  #x: f32 = 0.;
+  y: f32 = 1.;
+  get x(): f32 {
+    return this.#x;
+  }
+}
+
+export function peek(h: Hidden): f32 {
+  return h.x;
+}
+
+export function make(): Hidden {
+  return new Hidden();
+}
+`;
+
+  it('is taken by both halves of the shader, the compiler and the editor (Rule 12.7)', () => {
+    for (const [name, source] of Object.entries({ COUNTER, GAUGE, HIDDEN })) {
+      expect([name, compile(source, { fileName: 'm.shade.ts' }).diagnostics]).toEqual([name, []]);
+      const service = createTypeshadeLanguageService();
+      service.openDocument('m.shade.ts', source);
+      expect([name, service.getDiagnostics('m.shade.ts')]).toEqual([name, []]);
+    }
+  });
+
+  it('declares the private name as itself beside the accessor of its name, with its comment', () => {
+    const v = face(COUNTER).view;
+    expect(v).toContain(`export declare class Counter {
+  constructor();
+  /** The count so far. */
+  #n: u32;
+  /** The count, read through the accessor. */
+  get n(): u32;
+  /** Counts once. */
+  tick(): u32;
+}
+`);
+    // `private n` and `get n` were one name twice.
+    expect(v).not.toMatch(/\bprivate n\b/);
+  });
+
+  it('declares the private name as itself beside a method of its name, and keeps each comment on its line', () => {
+    const v = face(GAUGE).view;
+    expect(v).toContain(`export declare class Gauge {
+  constructor();
+  /** The level. */
+  #level: f32;
+  /** The id, which nothing changes. */
+  readonly #id: u32;
+  /** The scale, public. */
+  scale: f32;
+  /** Reads the level. */
+  level(): f32;
+  /** Sets the level. */
+  set(v: f32): void;
+}
+`);
+  });
+
+  it('is type-checked by tsc: a host reads the accessor and cannot name the field', async () => {
+    const head = `import { Counter, level } from './terrain.shade.ts';\nconst c = new Counter();\n`;
+    // Before the change the view was TS2300, twice, and a host file did not type-check at all.
+    expect(
+      await hostErrors(
+        COUNTER,
+        `${head}export const n: number = c.n;\nexport const t: number = c.tick();\nexport const l: number = level(c);\n`,
+      ),
+    ).toEqual([]);
+    // The field is the class's own (`#n` is TypeScript's private name), and a plain object is no
+    // `Counter`: it lacks the brand the private name gives the class.
+    expect(
+      await hostErrors(COUNTER, `${head}export const a = c.#n;\nexport const b = level({ n: 1 });\n`),
+    ).toEqual(['app.ts TS18013', 'app.ts TS2345']);
+    expect(
+      await hostErrors(
+        GAUGE,
+        `import { Gauge } from './terrain.shade.ts';\nconst g = new Gauge();\nexport const v: number = g.level() + g.scale;\ng.set(2);\n`,
+      ),
+    ).toEqual([]);
+  });
+
+  it('shows the accessor on hover over the read of a name the field shares, in the editor', () => {
+    const f = face(COUNTER);
+    const host = `import { Counter } from './m.shade.ts';
+const c = new Counter();
+export const v = c.n;
+`;
+    const read = hover(f.view, host, 'n;');
+    expect(read.errors).toEqual([]);
+    expect(read.documentation).toBe('The count, read through the accessor.');
+  });
+
+  it('spells a class no export declares by its fields, a private name as a quoted key', async () => {
+    const f = face(HIDDEN);
+    expect(f.view).toContain(
+      'export declare function peek(h: { readonly "#x": f32; readonly y: f32 }): f32;',
+    );
+    expect(f.view).toContain('export declare function make(): { "#x": f32; y: f32 };');
+    expect(
+      await hostErrors(
+        HIDDEN,
+        `import { make, peek } from './terrain.shade.ts';\nexport const a: number = peek(make());\n`,
+      ),
+    ).toEqual([]);
+    expect(
+      await hostErrors(
+        HIDDEN,
+        `import { peek } from './terrain.shade.ts';\nexport const a = peek({ x: 0, y: 1 });\n`,
+      ),
+    ).toEqual(['app.ts TS2345']);
   });
 });

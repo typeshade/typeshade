@@ -502,6 +502,41 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
     FS('function f(x: f32 | null): f32 { return 0.; }', '  return vec4(uv, 0., 1.)'),
     'accept',
   ],
+  // A private name beside a public member of its name is the ordinary pairing of surface §26
+  // (change 0109, Amendment 2, #971). The host view declares both, `#n: u32;` and `get n(): u32;`,
+  // so both halves of the shader must take the program, and agree on the type the accessor has.
+  [
+    'a private field beside the accessor of its name',
+    FS(
+      'class Counter {\n  #n: u32 = 0;\n  get n(): u32 { return this.#n; }\n  tick(): u32 { this.#n = this.#n + 1; return this.#n; }\n}',
+      '  const c = new Counter();\n  c.tick();\n  const k: u32 = c.n;\n  return vec4(f32(k), 0., 0., 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'the accessor beside a private field has the field type, not another',
+    FS(
+      'class Counter {\n  #n: u32 = 0;\n  get n(): u32 { return this.#n; }\n}',
+      '  const c = new Counter();\n  const k: f32 = c.n;\n  return vec4(k, 0., 0., 1.)',
+    ),
+    'refuse',
+  ],
+  [
+    'a private field beside the method of its name',
+    FS(
+      'class Gauge {\n  #level: f32 = 0.;\n  level(): f32 { return this.#level; }\n}',
+      '  const g = new Gauge();\n  return vec4(g.level(), 0., 0., 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'the private name read outside its class, beside the accessor of its name',
+    FS(
+      'class Counter {\n  #n: u32 = 0;\n  get n(): u32 { return this.#n; }\n}',
+      '  const c = new Counter();\n  return vec4(f32(c.#n), 0., 0., 1.)',
+    ),
+    'refuse',
+  ],
 ];
 
 describe('the ambient library declares what the compiler lowers, no wider and no narrower', () => {

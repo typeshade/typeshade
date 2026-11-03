@@ -975,3 +975,256 @@ describe('a Resident of instances reads back as instances (Rule 11.8, Amendment 
     expect(app.ticked).toEqual([0.75, 0.5, 0.375]);
   });
 });
+
+// ═══ A private name is the key "#n" of an instance (Rule 8.21, change 0109, Amendment 2, D6) ═══
+//
+// The program of issue #971: a class whose field `#n` stands beside the accessor `get n()`. The
+// generated class made the field the own property `n`, which the accessor on the prototype
+// answers for: `new Counter()` threw "Attempted to assign to readonly property", and with a setter
+// it would have called the setter. The instance holds the field under the string key "#n" now, so
+// `c.n` is the accessor, and every place a struct's object is taken reads and writes that key.
+
+/** A counter whose count is a private name beside the accessor of its name, a helper that takes
+ *  one and one that builds one, a kernel function and an entry over a bank of them. */
+const COUNTERS = `"use typeshade";
+
+/** Counts up from a start. */
+export class Counter {
+  /** The count so far. */
+  #n: u32;
+  /** The step of each tick. */
+  step: u32 = 1;
+  constructor(start: u32) {
+    this.#n = start;
+  }
+  /** The count, read through the accessor. */
+  get n(): u32 {
+    return this.#n;
+  }
+  /** Counts once and returns the count. */
+  tick(): u32 {
+    this.#n = this.#n + this.step;
+    return this.#n;
+  }
+}
+
+/** The count of a counter, through its accessor. */
+export function level(c: Counter): u32 {
+  return c.n;
+}
+
+/** A counter that starts at \`start\`, built in the module. */
+export function make(start: u32): Counter {
+  return new Counter(start);
+}
+
+/** Ticks every counter of the bank once. */
+export function run(out: array<u32>, counters: array<Counter>) {
+  for (let i: u32 = 0; i < counters.length; i++) {
+    out[i] = counters[i].tick();
+  }
+}
+
+declare const bank: storage<array<Counter>, "read_write">;
+declare const outs: storage<array<u32>, "read_write">;
+
+export const tickAll = compute([64], function tickAll(gid: builtin<"global_invocation_id", vec3u>) {
+  if (gid.x >= bank.length) {
+    return;
+  }
+  outs[gid.x] = bank[gid.x].tick();
+});
+`;
+
+/** A counter as the host sees it: the accessor `n` on the prototype, and the field under "#n". */
+type Count = { n: number; step: number; tick(): number; '#n': number };
+
+/** The sentence a check gives for a plain object of a struct with a private field: the object
+ *  lacks the key, and an instance built with `new` has it. */
+const NO_KEY =
+  'the field is missing. "#n" is a private name, which an instance holds and a plain object does not. Build the value with new';
+
+describe('a private name is the key "#n" of an instance (Rule 8.21, Amendment 2, D6, #971)', () => {
+  it('is taken by both halves of the shader, the compiler and the editor (Rule 12.7)', () => {
+    expect(compile(COUNTERS, { fileName: 'm.shade.ts' }).diagnostics).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.shade.ts', COUNTERS);
+    expect(service.getDiagnostics('m.shade.ts')).toEqual([]);
+    // The kernel's loop lowers, so the instances are taken by the GPU tier's layout as well (§65).
+    const run = face(COUNTERS).exports.find((e) => e.name === 'run');
+    expect(run?.kind).toBe('kernel');
+    if (run?.kind === 'kernel') expect(run.face.noGpu).toBeUndefined();
+  });
+
+  it('builds an instance with the field under the key "#n", and c.n is the accessor on the prototype', async () => {
+    const m = await load(COUNTERS);
+    const Counter = m.Counter as new (start: number) => Count;
+    // Before the change this threw: the own property `n` met the getter alone on the prototype.
+    const c = new Counter(5);
+    expect(c).toBeInstanceOf(Counter);
+    expect(Object.keys(c)).toEqual(['#n', 'step']);
+    expect(c['#n']).toBe(5);
+    // The accessor answers for `n`, and no own property shadows it.
+    expect(Object.getOwnPropertyNames(c)).not.toContain('n');
+    expect(Object.getOwnPropertyDescriptor(Counter.prototype, 'n')?.get).toBeTypeOf('function');
+    expect(c.n).toBe(5);
+    expect({ ...c }).toEqual({ '#n': 5, step: 1 });
+    expect(JSON.stringify(c)).toBe('{"#n":5,"step":1}');
+  });
+
+  it('a method that changes the field writes the key back in place, and the accessor follows', async () => {
+    const m = await load(COUNTERS);
+    const Counter = m.Counter as new (start: number) => Count;
+    const c = new Counter(5);
+    expect(c.tick()).toBe(6);
+    expect(c['#n']).toBe(6);
+    expect(c.n).toBe(6);
+    expect(Object.keys(c)).toEqual(['#n', 'step']);
+    // The accessor is read from the prototype each time, and answers for the field's new value.
+    c.step = 3;
+    expect(c.tick()).toBe(9);
+    expect(c.n).toBe(9);
+  });
+
+  it('a helper reads the field from the key, and a result is an instance that holds it under the key (D1)', async () => {
+    const m = await load(COUNTERS);
+    const Counter = m.Counter as new (start: number) => Count;
+    const level = m.level as (c: object) => number;
+    const make = m.make as (start: number) => Count;
+    expect(level(new Counter(5))).toBe(5);
+    const made = make(7);
+    expect(made).toBeInstanceOf(Counter);
+    expect(Object.keys(made)).toEqual(['#n', 'step']);
+    expect(made['#n']).toBe(7);
+    expect(made.n).toBe(7);
+    // Built without its constructor, the instance still ticks on the CPU tier.
+    expect(made.tick()).toBe(8);
+    expect(level(made)).toBe(8);
+  });
+
+  it('refuses a plain object of the struct with the reason, in a helper', async () => {
+    const m = await load(COUNTERS);
+    const level = m.level as (c: object) => number;
+    // The fields by their emitted names, as a host builds a struct, lack the key (Rule 8.12).
+    expect(() => level({ n: 5, step: 1 })).toThrow(
+      new TypeError(`level(): parameter "c" (Counter): at .#n, ${NO_KEY}.`),
+    );
+    expect(() => level({ step: 1 })).toThrow(
+      new TypeError(`level(): parameter "c" (Counter): at .#n, ${NO_KEY}.`),
+    );
+  });
+
+  it('a kernel function takes instances in its array and writes the key back in place', async () => {
+    const m = await load(COUNTERS);
+    const Counter = m.Counter as new (start: number) => Count;
+    const run = m.run as (out: Uint32Array, counters: unknown) => Promise<void>;
+    const counters = [10, 20, 30].map((s) => new Counter(s));
+    const kept = [...counters];
+    const out = new Uint32Array(3);
+    await run(out, counters);
+    expect([...out]).toEqual([11, 21, 31]);
+    counters.forEach((c, i) => {
+      expect(c).toBe(kept[i]);
+      expect(c).toBeInstanceOf(Counter);
+      expect(Object.keys(c)).toEqual(['#n', 'step']);
+      expect(c['#n']).toBe(11 + 10 * i);
+      expect(c.n).toBe(11 + 10 * i);
+    });
+    // A second call goes on from what the first left.
+    await run(out, counters);
+    expect([...out]).toEqual([12, 22, 32]);
+  });
+
+  it('a kernel function refuses a plain object in its array with the reason', async () => {
+    const m = await load(COUNTERS);
+    const run = m.run as (out: Uint32Array, counters: unknown) => Promise<void>;
+    await expect(run(new Uint32Array(1), [{ n: 1, step: 1 }])).rejects.toThrow(
+      new TypeError(`run(): parameter "counters" (array<Counter>): at [0].#n, ${NO_KEY}.`),
+    );
+  });
+
+  it('an entry takes instances in its bindings and writes the key back in place', async () => {
+    const m = await load(COUNTERS);
+    const Counter = m.Counter as new (start: number) => Count;
+    const tickAll = m.tickAll as (b: unknown, w: unknown) => Promise<void>;
+    const bank = [new Counter(1), new Counter(2)];
+    const kept = [...bank];
+    const outs = new Uint32Array(2);
+    await tickAll({ bank, outs }, 1);
+    expect([...outs]).toEqual([2, 3]);
+    bank.forEach((c, i) => {
+      expect(c).toBe(kept[i]);
+      expect(c).toBeInstanceOf(Counter);
+      expect(Object.keys(c)).toEqual(['#n', 'step']);
+      expect(c['#n']).toBe(2 + i);
+      expect(c.n).toBe(2 + i);
+    });
+  });
+
+  it('an entry refuses a plain object in its binding with the reason', async () => {
+    const m = await load(COUNTERS);
+    const tickAll = m.tickAll as (b: unknown, w: unknown) => Promise<void>;
+    await expect(
+      tickAll({ bank: [{ n: 1, step: 1 }], outs: new Uint32Array(1) }, 1),
+    ).rejects.toThrow(
+      new TypeError(`tickAll(): binding "bank" (array<Counter>): at [0].#n, ${NO_KEY}.`),
+    );
+  });
+
+  it('a Resident of instances keeps the key through a kernel call and read()', async () => {
+    const m = await load(COUNTERS);
+    const rt = (await import(
+      /* @vite-ignore */ pathToFileURL(RUNTIME).href
+    )) as typeof import('../../core/host-runtime.js');
+    const Counter = m.Counter as new (start: number) => Count;
+    const run = m.run as (out: Uint32Array, counters: unknown) => Promise<void>;
+    const given = [1, 2].map((s) => new Counter(s));
+    const bank = rt.resident(given);
+    await run(new Uint32Array(2), bank);
+    const back = await bank.read();
+    back.forEach((c, i) => {
+      expect(c).toBeInstanceOf(Counter);
+      expect(c).not.toBe(given[i]);
+      expect(Object.keys(c)).toEqual(['#n', 'step']);
+      expect(c['#n']).toBe(2 + i);
+      // The accessor answers for the copy's field, and a method runs on the copy.
+      expect(c.n).toBe(2 + i);
+    });
+    expect(back[0]!.tick()).toBe(3);
+    // The caller's instances hold what they held: the Resident holds its own copy.
+    expect(given.map((c) => c['#n'])).toEqual([1, 2]);
+    // write() keeps the key of the instances it is given.
+    bank.write([new Counter(40)]);
+    const again = await bank.read();
+    expect(again[0]).toBeInstanceOf(Counter);
+    expect(again[0]!['#n']).toBe(40);
+    expect(again[0]!.n).toBe(40);
+  });
+
+  it('is type-checked by tsc: the accessor reads, the field has no name, a plain object is no Counter', async () => {
+    const head = [
+      "import { Counter, level, make, run } from './filters.shade.ts';",
+      'const c: Counter = new Counter(1);',
+      'const out = new Uint32Array(2);',
+      '',
+    ].join('\n');
+    const { elsewhere, byLine } = await hostCodes(COUNTERS, head, [
+      'const a: number = c.n + c.tick() + level(c) + make(2).n;',
+      'await run(out, [c, new Counter(2)]);',
+      'const hidden = c.#n;',
+      'level({ n: 1, step: 1 });',
+      'await run(out, [{ n: 1, step: 1 }]);',
+      'console.log(a, hidden);',
+    ]);
+    // The view itself type-checks: before the change it was TS2300, twice.
+    expect(elsewhere).toEqual([]);
+    expect(byLine).toEqual([
+      'const a: number = c.n + c.tick() + level(c) + make(2).n;: ',
+      'await run(out, [c, new Counter(2)]);: ',
+      'const hidden = c.#n;: TS18013',
+      'level({ n: 1, step: 1 });: TS2345',
+      'await run(out, [{ n: 1, step: 1 }]);: TS2769',
+      'console.log(a, hidden);: ',
+    ]);
+  });
+});
