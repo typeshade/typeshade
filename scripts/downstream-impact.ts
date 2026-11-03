@@ -3,12 +3,12 @@
 // typeshade.dev (`typeshade.github.io`) and the editor packages (`vscode-typeshade`) vendor this
 // repository as a git submodule and move the pin in one pull request at a time
 // (`.github/workflows/pin-compiler.yml` in each), and so does the engine Radiance (`radiance`,
-// proposal 0064, R28). TypeNN (`typenn`) and TypeCV (`typecv`), the two
+// proposal 0064, R28). TypeNN (`typenn`), TypeCV (`typecv`) and TypeAudio (`typeaudio`), the
 // libraries built on the call layer, install the compiler from a source tarball instead
-// (`package.json`); they are downstream repositories too (proposal 0071, D6), and run this script
-// with a checkout of the compiler at `--submodule` and the two pins as `--old` and `--new`, since
-// a tarball carries no git history. TypeAudio (`typeaudio`), a third library built on the call
-// layer, is a downstream repository too; it has no compiler pin yet. Everything this repository
+// (`package.json`); they are downstream repositories too (proposal 0071, D6). A tarball carries no
+// git history, and the repository has no checkout of the compiler in its tree. Each of them runs
+// this script from a checkout of the compiler at any path, outside the repository too, named with
+// `--compiler`, and names the two pins with `--old` and `--new` (#1000). Everything this repository
 // does to keep its own prose true stops at its own root, so a compiler change that removed an
 // export the site's copy still names, or rewrote a section the editor's docs restate, arrived
 // downstream as a green pin with stale text beside it. This script runs IN the downstream
@@ -30,18 +30,23 @@
 //              done. Nothing waives it.
 //
 // The downstream repository's own `LINT.IfChange` pairs are checked by the same `ifchange.ts`,
-// pointed at the downstream root: `TYPESHADE_DOCS_ROOT=$PWD bun <submodule>/scripts/ifchange.ts`.
+// pointed at the downstream root: `TYPESHADE_DOCS_ROOT=$PWD bun <checkout>/scripts/ifchange.ts`.
 //
-// Usage, from the downstream root:
+// Usage, from the downstream root. A repository that vendors the compiler as a git submodule names
+// the submodule, a path inside the repository:
 //   bun vendor/typeshade/scripts/downstream-impact.ts --repo vscode-typeshade \
-//       --submodule vendor/typeshade --old <sha> [--new <sha>] [--base origin/main] \
+//       --submodule vendor/typeshade [--old <sha>] [--new <sha>] [--base origin/main] \
 //       [--check] [--markdown]
-// `--old` defaults to the pin on `--base`, `--new` to the checked-out pin. `--hook` is the Claude
-// Code commit hook (below).
+// A repository that installs a tarball names a checkout of the compiler at any path, and both pins:
+//   bun ../typeshade/scripts/downstream-impact.ts --repo typeaudio \
+//       --compiler ../typeshade --old <sha> --new <sha> [--base origin/main] \
+//       [--check] [--markdown]
+// `--old` defaults to the pin on `--base`, which only a submodule has, and `--new` to the pin that
+// is checked out. `--hook` is the Claude Code commit hook (below). `--help` prints the options.
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseBlocks, waiver, type Block } from './ifchange.js';
 import { surface } from './doc-impact.js';
@@ -117,30 +122,57 @@ const TEXT = /\.(md|mdx|ts|mts|mjs|js|cjs|astro|json|ya?ml|html|css)$/;
 export interface Options {
   readonly root: string;
   readonly repo: string;
-  readonly submodule: string;
+  /** The checkout of the compiler, absolute or relative to `root`. It lies inside the repository
+   *  when the compiler is a git submodule, and anywhere when a tarball is installed. */
+  readonly compiler: string;
   readonly oldSha: string;
   readonly newSha: string;
   readonly base: string;
 }
 
+const real = (path: string): string => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+};
+
+/**
+ * Where the checkout of the compiler lies: its directory, and its path from `root` (written with
+ * `/`) when `root` holds it, else `null`. Only a path inside the repository can be excluded from
+ * the repository's own `git diff` (`:!<path>`) or read as a gitlink on a branch; git refuses a
+ * pathspec outside the repository. A link is followed, so a link inside the repository to a
+ * checkout outside it counts as outside.
+ */
+export function locateCompiler(
+  root: string,
+  compiler: string,
+): { dir: string; inTree: string | null } {
+  const dir = resolve(root, compiler);
+  const from = relative(real(root), real(dir));
+  const outside = from === '' || from === '..' || from.startsWith(`..${sep}`) || isAbsolute(from);
+  return { dir, inTree: outside ? null : from.split(sep).join('/') };
+}
+
 export function downstreamImpact(o: Options): { mustFix: Finding[]; waived: string | null } {
-  const sub = join(o.root, o.submodule);
+  const { dir: sub, inTree } = locateCompiler(o.root, o.compiler);
+  const exclude = inTree === null ? [] : [`:!${inTree}`];
   const files = run(o.root, 'ls-files')
     .split('\n')
     .filter(
       (f) =>
         f &&
         TEXT.test(f) &&
-        !f.startsWith(`${o.submodule}/`) &&
-        f !== o.submodule &&
+        (inTree === null || (!f.startsWith(`${inTree}/`) && f !== inTree)) &&
         !/(^|\/)(package-lock\.json|bun\.lock|CHANGELOG\.md)$/.test(f) &&
         existsSync(join(o.root, f)),
     );
   const mergeBase = run(o.root, 'merge-base', o.base, 'HEAD').trim();
-  const branchDiff = run(o.root, 'diff', '-U0', mergeBase, '--', '.', `:!${o.submodule}`);
+  const branchDiff = run(o.root, 'diff', '-U0', mergeBase, '--', '.', ...exclude);
   const touched = touchedLines(branchDiff);
   const changedFiles = new Set(
-    run(o.root, 'diff', '--name-only', mergeBase, '--', '.', `:!${o.submodule}`)
+    run(o.root, 'diff', '--name-only', mergeBase, '--', '.', ...exclude)
       .split('\n')
       .filter(Boolean),
   );
@@ -176,7 +208,10 @@ export function downstreamImpact(o: Options): { mustFix: Finding[]; waived: stri
     const [status, path, to] = row.split('\t');
     if (!status || !path || !(status.startsWith('D') || status.startsWith('R'))) continue;
     if (!path.includes('/') && !/\.(md|ts)$/.test(path)) continue;
-    const needles = [`${o.submodule}/${path}`, path.includes('/') ? path : `/${path}`];
+    const needles = [
+      ...(inTree === null ? [] : [`${inTree}/${path}`]),
+      path.includes('/') ? path : `/${path}`,
+    ];
     for (const [f, lines] of text) {
       lines.forEach((l, i) => {
         if (needles.some((n) => l.includes(n)) && untouched(f, i + 1)) {
@@ -291,7 +326,8 @@ export function renderFindings(findings: readonly Finding[], markdown: boolean):
 // `ifchange.ts` over this repository's staged diff. It blocks the commit (exit 2, the report goes
 // to the agent) on a removed export or file still named here, on a proposal the new pin owes
 // this repository and `compiler-changes.md` does not record, and on an unmet ThenChange that
-// the message does not waive with a `NO_IFTTT=<reason>` line.
+// the message does not waive with a `NO_IFTTT=<reason>` line. A gitlink is how a submodule records
+// its pin, so a repository that installs a tarball has no use for the hook.
 
 function hook(repo: string, submodule: string): number {
   let input: { tool_input?: { command?: string } };
@@ -311,7 +347,14 @@ function hook(repo: string, submodule: string): number {
   const oldSha = tryRun(root, 'rev-parse', `HEAD:${submodule}`).trim();
   const newSha = /^\d+ ([0-9a-f]{40}) /.exec(tryRun(root, 'ls-files', '-s', submodule))?.[1] ?? '';
   if (oldSha && newSha && oldSha !== newSha) {
-    const { mustFix } = downstreamImpact({ root, repo, submodule, oldSha, newSha, base: 'HEAD' });
+    const { mustFix } = downstreamImpact({
+      root,
+      repo,
+      compiler: submodule,
+      oldSha,
+      newSha,
+      base: 'HEAD',
+    });
     const binding = mustFix.filter((f) => f.kind !== 'ifchange' || !waiver(message));
     if (binding.length) {
       report.push(
@@ -338,26 +381,77 @@ function hook(repo: string, submodule: string): number {
   return 2;
 }
 
+const USAGE = `usage: downstream-impact.ts --repo <name> [--submodule <path> | --compiler <path>]
+         [--old <sha>] [--new <sha>] [--base <ref>] [--check] [--markdown]
+
+Run it from the root of the downstream repository. It reads the API surface, the files, the
+LINT.IfChange blocks and the proposals of the compiler between two commits of a checkout of the
+compiler, and lists what this repository still owes.
+
+  --repo <name>       this repository's name under the typeshade organisation (required)
+  --submodule <path>  the compiler is a git submodule of this repository. The path lies inside it,
+                      relative to this directory (default vendor/typeshade). The site, the editor
+                      and Radiance pin the compiler this way
+  --compiler <path>   a checkout of the compiler at any path: beside this repository, or anywhere
+                      else, absolute or relative to this directory. TypeNN, TypeCV and TypeAudio
+                      install a source tarball, which carries no git history, so they use this
+  --old <sha>         the compiler commit before the pin moves. Default: the submodule's pin on
+                      --base. A checkout named by --compiler has no pin to read, so it needs --old
+  --new <sha>         the compiler commit after the pin moves. Default: the checkout's HEAD
+  --base <ref>        the branch this one started from (default origin/main)
+  --check             exit 1 while a finding binds
+  --markdown          print the findings as Markdown
+  --hook              the Claude Code commit hook; it reads a gitlink, so it takes --submodule
+  --help              print this text
+`;
+
+function fail(message: string): never {
+  console.error(`downstream-impact.ts: ${message}`);
+  process.exit(2);
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const arg = (name: string): string | undefined => {
     const i = args.indexOf(name);
     return i >= 0 ? args[i + 1] : undefined;
   };
+  if (args.includes('--help')) {
+    console.log(USAGE);
+    process.exit(0);
+  }
   const root = process.cwd();
-  const submodule = arg('--submodule') ?? 'vendor/typeshade';
+  const submodule = arg('--submodule');
+  const compiler = arg('--compiler');
   const base = arg('--base') ?? 'origin/main';
   const repo = arg('--repo');
-  if (repo && args.includes('--hook')) process.exit(hook(repo, submodule));
+  if (repo && args.includes('--hook')) process.exit(hook(repo, submodule ?? 'vendor/typeshade'));
   if (!repo) {
-    console.error(
-      'usage: downstream-impact.ts --repo <name> [--submodule <path>] [--old <sha>] [--new <sha>] [--base <ref>]',
-    );
+    console.error(USAGE);
     process.exit(2);
   }
-  const oldSha = arg('--old') ?? run(root, 'rev-parse', `${base}:${submodule}`).trim();
-  const newSha = arg('--new') ?? run(join(root, submodule), 'rev-parse', 'HEAD').trim();
-  const { mustFix, waived } = downstreamImpact({ root, repo, submodule, oldSha, newSha, base });
+  if (submodule !== undefined && compiler !== undefined)
+    fail('name the compiler checkout once, with --submodule <path> or with --compiler <path>.');
+  const checkout = compiler ?? submodule ?? 'vendor/typeshade';
+  if (!existsSync(resolve(root, checkout)))
+    fail(`no compiler checkout at ${resolve(root, checkout)}.`);
+  const { dir, inTree } = locateCompiler(root, checkout);
+  const oldSha =
+    arg('--old') ??
+    (inTree === null
+      ? fail(
+          `--old <sha> is needed. The checkout at ${dir} lies outside this repository, so no gitlink on ${base} gives the old pin.`,
+        )
+      : run(root, 'rev-parse', `${base}:${inTree}`).trim());
+  const newSha = arg('--new') ?? run(dir, 'rev-parse', 'HEAD').trim();
+  const { mustFix, waived } = downstreamImpact({
+    root,
+    repo,
+    compiler: checkout,
+    oldSha,
+    newSha,
+    base,
+  });
   const markdown = args.includes('--markdown');
   console.log(markdown ? '## What this compiler bump owes this repository\n' : '');
   console.log(renderFindings(mustFix, markdown));

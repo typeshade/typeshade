@@ -15,6 +15,7 @@ import { TS_CODES, type TsCode } from '../codes.js';
 import { captureArguments, namesLocalFunction } from './local-functions.js';
 import { nameListSpread } from '../semantic.js';
 import type { FunctionShape } from './function-types.js';
+import { liftWritten } from './function-args.js';
 
 export function lowerArrayCtor(
   node: ts.CallExpression,
@@ -467,7 +468,7 @@ export function lowerArrayFold(
     if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) {
       const shape = foldCallbackShape(name, args);
       if (shape !== undefined) {
-        const decl = scope.liftArgument(arg, shape, name, sourceFile, diagnostics);
+        const decl = liftWritten(arg, shape, name, scope, sourceFile, diagnostics);
         if (decl === undefined) return undefined;
         const captured = captureArguments(decl, name, arg, sourceFile, scope, diagnostics);
         if (captured === undefined) return undefined;

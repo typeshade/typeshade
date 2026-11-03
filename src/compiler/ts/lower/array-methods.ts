@@ -45,6 +45,7 @@ import { captureArguments, namesLocalFunction } from './local-functions.js';
 import { constructorCallbackMessage, isValueConstructor } from './constructors.js';
 import { declarationOf } from './closures.js';
 import { misfit, type FunctionShape } from './function-types.js';
+import { liftWritten } from './function-args.js';
 
 type Method = 'map' | 'forEach' | 'some' | 'every' | 'reduce' | 'findIndex' | 'findLastIndex';
 
@@ -330,7 +331,7 @@ export function lowerArrayMethod(
       );
     }
     // As many of the arguments as it takes: one it leaves off is one the loop does not pass.
-    f = scope.liftArgument(arrow, shapeOf(Math.min(n, full.length)), hint, sourceFile, diagnostics);
+    f = liftWritten(arrow, shapeOf(Math.min(n, full.length)), hint, scope, sourceFile, diagnostics);
     // One whose body did not lower says nothing it returns, and said why already (Rule 12.4).
     if (f === undefined || !scope.calleeReady(f, arrow, sourceFile, diagnostics)) return undefined;
   } else if (ts.isIdentifier(fnNode)) {

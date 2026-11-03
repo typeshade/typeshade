@@ -846,6 +846,101 @@ export function run(k: f32): f32 {
   });
 });
 
+describe('a function handed over that reads a variable whose declaration was refused (Rule 12.4, #967)', () => {
+  /** `body` with an entry that calls `run(2.)`, written as a stage call. */
+  const STAGED = (body: string): string =>
+    `"use typeshade";\n${body}\nexport const fs = fragment(function fs(): vec4 {\n  return vec4(run(2.), 0., 0., 1.);\n});\n`;
+  /** The module constant of #967, which the front end refuses (part 2 of the issue asks for it). */
+  const DOUBLE = `const TAU_DOUBLE: f64 = 6.283185307179586;\n`;
+  const REFUSED = `${TS_CODES.TYPE_MISMATCH} Module const "TAU_DOUBLE" must be f32, i32, u32, or bool for now.`;
+  const NOT_YET = (name: string): string =>
+    `${TS_CODES.UNKNOWN_NAME} The function written here reads "${name}", which is not declared yet where it runs: a let or a const is not there before its declaration, and TypeScript throws. Declare "${name}" above this call.`;
+  /** What each half says of `src`: `compile()`'s errors, and every diagnostic of the editor. */
+  const halves = (src: string): { compiler: string[]; editor: string[] } => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', src);
+    return {
+      compiler: errorsOf(src),
+      editor: service
+        .getDiagnostics('a.ts')
+        .map((d) => `${d.source} ${String(d.code)} ${d.message}`),
+    };
+  };
+  const once = (diagnostic: string) => ({
+    compiler: [diagnostic],
+    editor: [`typeshade ${diagnostic}`],
+  });
+
+  it('says only the refusal of the module constant, read through a local by an arrow function handed to a call', () => {
+    expect(
+      halves(
+        STAGED(`${APPLY}${DOUBLE}export function run(k: f32): f32 {
+  const step = TAU_DOUBLE / 8.;
+  return apply((x) => x * f32(step), k);
+}`),
+      ),
+    ).toEqual(once(REFUSED));
+  });
+
+  it('says only the refusal through an array method, a fold and a local function the arrow names', () => {
+    for (const body of [
+      `const xs = array<f32, 2>(1., 3.);
+  const ys = xs.map((x) => x * f32(step));
+  return ys[0] + k;`,
+      `const xs = array<f32, 2>(1., 3.);
+  const z = zip(xs, xs, (a, b) => a * b + f32(step));
+  return z[0] + k;`,
+      `function at(x: f32): f32 {
+    return x * f32(step);
+  }
+  return apply((x) => at(x), k);`,
+    ])
+      expect(
+        halves(
+          STAGED(`${APPLY}${DOUBLE}export function run(k: f32): f32 {
+  const step = TAU_DOUBLE / 8.;
+  ${body}
+}`),
+        ),
+        body,
+      ).toEqual(once(REFUSED));
+  });
+
+  it('says only a refusal of another kind that the variable reads', () => {
+    expect(
+      halves(
+        STAGED(`${APPLY}export function run(k: f32): f32 {
+  let a: f32[] = [1., 2.];
+  const step = a[0];
+  return apply((x) => x * step, k);
+}`),
+      ),
+    ).toEqual(once(`${TS_CODES.UNKNOWN_TYPE} T[] is a JS array type. Use array<T, N>.`));
+  });
+
+  it('still says a variable declared below the call is not declared yet, whatever its declaration says', () => {
+    const src = STAGED(`${APPLY}${DOUBLE}export function run(k: f32): f32 {
+  const r = apply((x) => x * f32(later), k);
+  const later = TAU_DOUBLE / 8.;
+  return r;
+}`);
+    expect(halves(src)).toEqual({
+      compiler: [REFUSED, NOT_YET('later')],
+      editor: [`typeshade ${REFUSED}`, `typeshade ${NOT_YET('later')}`],
+    });
+  });
+
+  it('runs the same shape over a constant the front end takes, with no diagnostic in either half', () => {
+    const src = STAGED(`${APPLY}const SCALE: f32 = 8.;
+export function run(k: f32): f32 {
+  const step = SCALE / 2.;
+  return apply((x) => x * step, k);
+}`);
+    expect(halves(src)).toEqual({ compiler: [], editor: [] });
+    expect(run(src)).toBe(8);
+  });
+});
+
 describe('examples/higher-order.shade.ts', () => {
   it('renders the disc, the petals, the glow and the rings on every CPU path', () => {
     const src = readFileSync(
