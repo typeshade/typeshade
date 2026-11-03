@@ -106,7 +106,7 @@ npx -p typeshade tshc check src/                  # anywhere: the package is typ
 bun vendor/typeshade/src/cli/bin.ts check src/    # from a submodule, which resolves to source
 ```
 
-A directory is searched for `*.shade.ts` files, skipping `node_modules`, `dist` and `.git`; a file named on the command line is checked whatever its name. Each diagnostic prints with the line it points at:
+A directory is searched for `*.shade.ts` files, skipping `node_modules`, `dist`, `.git` and every path a `.gitignore` excludes; a file named on the command line is checked whatever its name. The `.gitignore` files are read as Git reads them, from the root of the repository (the nearest directory with a `.git`) down to each directory searched. A path named on the command line is searched even when a `.gitignore` excludes it, and `.git/info/exclude` and the global ignore file are not read. A symbolic link to a directory that no `.gitignore` excludes is followed. The same search serves `tshc sync` and `tshc migrate`. Each diagnostic prints with the line it points at:
 
 ```text
 src/light.shade.ts:4:10 - error TS8003: Type mismatch: cannot + vec3 and vec2. Vectors must have the same size.

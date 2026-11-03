@@ -40,7 +40,7 @@ symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
 
 The explicit `tshc init` command is `cli/init.ts` (change 0085), dispatched by `cli/run.ts`. `tshc migrate`, the rewrite of the decorated form to the stage calls and attribute types of change 0111, is `cli/migrate.ts`.
 `cli/config-edit.ts` preserves JSONC text, and `cli/vite-config.ts` edits static Vite plugin lists without executing them.
-`cli/paths.ts` shares the CLI's Windows-aware path rules. Node access remains in `cli/bin.ts`.
+`cli/paths.ts` shares the CLI's Windows-aware path rules. `cli/ignore.ts` reads the `.gitignore` files that the directory walk of `check`, `sync` and `migrate` follows (#1001). Node access remains in `cli/bin.ts`.
 The initializer plans all configuration changes before writing and installs synchronization hooks with explicit empty-tree support.
 
 ## Key directories
