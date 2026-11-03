@@ -1770,6 +1770,16 @@ for an ordered scope. A texture call runs on WebGPU, and on the CPU
 tier where there is none: a device of the CPU tier holds its textures in memory, and an
 `ImageData` is copied there. WebGL2 does not run it yet.
 
+On a WebGPU device that has the `subgroups` feature, an integer reduction (`u32` or `i32` with
+any operator, `f32` with `min` or `max`) and a scatter into an integer array whose write a lane
+makes at most once run as a second text of the function, in which each subgroup folds first with
+the subgroup functions (change 0119, Rule 11.23). Nothing in the source names a subgroup, and the
+bits are the tree's: the runtime runs a known-answer probe when the device opens and dispatches
+that text only where the probe passed. `device.info.subgroups` shows what the probe saw,
+`device.statistics.variants` which text each function's last call ran, and
+`createDevice({ subgroups: 'off' })` keeps every call on the tree. An `f32` sum keeps the tree
+in both texts, since its bits depend on the order (Rule 7.2).
+
 ### A chain of calls in one dispatch
 
 A host that calls several kernel functions over the same data pays a dispatch, and a submission,

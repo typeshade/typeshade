@@ -4848,6 +4848,10 @@ const { determinism } = compile(source);
 //    accuracy: '2^-11 absolute error for x in [-π, π]', count: 1, where: ['fs'] }]
 ```
 
+The subgroup variant of a kernel function's loop (§65, change 0119) adds no row: the runtime
+selects it only for an operator whose result has one value in every order, so the `order` row of
+an `f32` sum or product, which keeps the tree in every text, is the only row a reduction has.
+
 The multiply, the scale and the offset are correctly rounded and do not appear; `sin` does, with
 the bound the spec gives it. An empty list means every operation in the module has one answer on
 its own. A GPU result and the oracle can then differ by the oracle's own rounding, and by a chain
@@ -8056,6 +8060,29 @@ added to what it held. A scatter with `*`, which no atomic does, an array one lo
 and another writes in place or reads, and a scatter into anything but an element, run the function
 on the CPU.
 
+**The subgroup variant.** On a WebGPU device that has the `subgroups` feature, a loop that
+reduces a `u32` or an `i32` with any operator, or an `f32` with `min` or `max`, and a map loop
+that scatters into an integer array with a write a lane makes at most once (no `continue` in the
+body, no write inside an inner loop), have a second text beside the function's own (change 0119,
+Rule 11.23). In it a reduction folds each subgroup with the subgroup function of its operator
+(`subgroupAdd`, `subgroupMin` and the rest, §77), lane 0 of each subgroup writes the fold to the
+slot of its `subgroup_id`, and after one barrier lane 0 of the workgroup combines the
+`num_subgroups` slots: one barrier in place of the tree's eight, in the loop's dispatch and in
+each fold of partials. A scatter defers each write to the end of the iteration and then serves
+the pending lanes' least key a turn: the lanes that hold it fold with the subgroup function, one
+lane adds the fold with the atomic, until no lane is pending, so a subgroup whose keys agree
+takes one atomic in place of one per lane. The bits are the tree's and the atomics', since the
+operators give one value in every order; an `f32` sum or product, an emulated double, a loop
+that continues and a write inside an inner loop stay on the tree and the per-lane atomics in
+both texts. Nothing in the source names a subgroup. The runtime runs the text the device's probe
+selected when the device opened (§69): `device.info.subgroups` says what the probe saw and
+`device.statistics.variants` which text the last call of each function ran, `'subgroup'` or
+`'tree'`; `createDevice({ subgroups: 'off' })` keeps every call on the tree, for a comparison
+of the two texts on one device. The face carries the text as `wgslSubgroup` and marks each loop
+it folds (`subgroupFold`). The scatter's entry turns WGSL's `subgroup_uniformity` rule off for
+itself: its control flow is subgroup uniform by construction, since every lane of a subgroup
+receives the same `subgroupAny`, and Tint does not read a subgroup function's result as uniform.
+
 **An `f32` scatter.** An `f32` parameter array that a loop adds into with `+=` at an index it
 computes, `g[idx[i]] += x[i]`, runs on the CPU tier, which the proof's GPU form refuses. The CPU
 tier and the oracle add each iteration's contributions to one element in program order, then fold
@@ -8960,6 +8987,23 @@ load-time emitter could not emit the program again. A word an option does not ta
 `TypeError` too, naming what the option takes, since a writer reads an unknown level as the full
 optimizer, an unknown `parens` as `'minimal'` and an unknown flavor as `'float'`, and the manifest
 would record it.
+
+**The subgroup variant of a kernel call.** A kernel function's face may carry a second WGSL text
+(§65, change 0119, Rule 11.23). When a WebGPU device opens, through `createDevice()`, from the
+`device` or `runtime` it is given, or on the call layer's first call, and the adapter has the
+`subgroups` feature, the runtime requests the feature (as it requests `timestamp-query`, never
+required) and runs a known-answer probe on the device before the first call resolves: one
+workgroup of 256 lanes folds a reduction and a scatter in the exact shape the variant emits, and
+writes what it saw of its subgroups. Where the folds are their known answers, every kernel call
+of that owner dispatches the subgroup variant of a face that has one, under the owner's flavor
+of the emulated double; where they are not, the feature is absent, the device refused the probe
+or `createDevice({ subgroups: 'off' })` kept it off, the call runs the function's own text.
+`device.info.subgroups` is the observation, or `null`: the adapter's `subgroupMinSize` and
+`subgroupMaxSize`, the `subgroup_size` and `num_subgroups` one workgroup of 256 lanes saw, and
+whether a subgroup's lanes were consecutive. `device.statistics.variants` names the text the
+last call of each kernel function dispatched. The probe runs once per device and is cached, so a
+second owner of one device asks nothing of it; a fused plan (§71) runs the function's own text
+in this version.
 
 ```ts
 const shown = packModule(module, {

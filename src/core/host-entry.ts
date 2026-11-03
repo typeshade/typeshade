@@ -669,8 +669,9 @@ interface GpuShaderModule {
 }
 /** The optional WebGPU feature that a fuse report's `gpuTime` needs (change 0066). */
 export const TIMESTAMP_QUERY = 'timestamp-query';
-/** The feature the subgroup variant of a kernel function's WGSL needs (change 0119): requested
- *  where the adapter has it, as `timestamp-query` is, and never required. */
+/** The feature the subgroup variant of a kernel function's WGSL needs (change 0119, Rule 11.23):
+ *  requested where the adapter has it, as `timestamp-query` is, and never required, so it is not
+ *  among the module's `requiredFeatures` (Rule 10.2). */
 export const SUBGROUPS = 'subgroups';
 
 /** The most queries WebGPU allows in one query set. A flush of more passes than half of it goes
@@ -881,8 +882,8 @@ export function gpuDevice(): Promise<GpuDevice | null> {
   if (hostRuntime !== undefined) return Promise.resolve(hostRuntime.device as GpuDevice);
   if (device === undefined) {
     // The promise a call awaits is the request, then the subgroup probe on the device it gave
-    // (change 0119): the first call waits for the probe, so that every call of the device runs
-    // the text the probe selected.
+    // (change 0119, Rule 11.23): the first call waits for the probe, so that every call of the
+    // device runs the text the probe selected.
     const request = requestCallDevice(asked).then(async (d) => {
       if (d !== null) await probeSubgroups(d);
       return d;

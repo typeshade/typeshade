@@ -3,7 +3,7 @@ active: true
 derived: false
 level: 74
 links:
-- RULE-0822: tU4KW4DgphHYhjdPzBs7vzpMXCfL1pXKA33p31nrIpE=
+- RULE-0822: fezcgpY4wDrzJXALSBEPwI_q645htFUorbublsTcvlw=
 normative: true
 ref: ''
 reviewed: w_mw6VowASBH0eNaiJmo7lmEdU_JybmELMKb8o5hpmc=

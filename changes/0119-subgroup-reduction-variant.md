@@ -1,7 +1,7 @@
 ---
 id: '0119'
 title: A kernel function's integer reduction and its scatter fold inside a subgroup first on a device that has `subgroups`, as a second WGSL variant the runtime selects by feature and probe; no source changes
-status: accepted
+status: implemented
 rules:
   - '8.22'
   - '10.2'
@@ -44,7 +44,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0119, `status: accepted`. The front matter is the identity and lifecycle authority. The owner accepted the proposal on 2026-11-02 with O1, O3 and O4 decided as the draft assumed; see Approval and plan record. No implementation has started.                                                                                                                                                                                                                                                                                                                                                           |
+| Identity and status           | Proposal 0119, `status: implemented`. The front matter is the identity and lifecycle authority. The owner accepted the proposal on 2026-11-02 with O1, O3 and O4 decided as the draft assumed; see Approval and plan record. The compiler repository's work is delivered in three pull requests; see Configuration and validation record. Downstream deliveries are tracked apart and not presumed complete.                                                                                                                                                                                                       |
 | Date and attribution          | Authored 2026-11-02, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, after change 0117 landed and typeshade/web PR #22 put the measurement on the site: the owner asked whether TypeShade code "naturally" becomes subgroup operations, pointed at `docs/compiler-owns-performance.md` (PR #930) as the principle the pointer changes 0103 to 0105 followed, and approved this draft before answering that note's open decisions ("승인"). Issue #536 (2026-10-08) is the earlier request; TypeCV's `docs/gpu-throughput.md` gap G2 is the downstream use.                                                      |
 | Applicability / effectivity   | `docs/language-design.md` (Rule 8.22, Rule 10.2, a new Rule 11.23, numbered 11.22 in the draft), `reqs/`, `docs/use-typeshade-surface.md` (§38, §65, §69), `AUTHORING.md`, `docs/roadmap.md`, `docs/performance.md`, `src/core/passes/kernel-lower.ts`, `src/core/fuse-group.ts`, `src/core/emit.ts`, `src/core/emit-identity.ts`, `src/core/reflect.ts`, `src/core/manifest-types.ts`, `src/compiler/ts/pack.ts`, `src/compiler/ts/host-face.ts`, `src/core/host-entry.ts`, `src/core/device-info.ts`, `src/runtime/device.ts`, `src/runtime/runtime.ts`, `scripts/perf-gate.ts`. No release version is assigned. |
@@ -363,13 +363,74 @@ nothing from 0117 unless someone rewrites each of them by hand, with the device'
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require: the accepted revision's pull request and
-merge commit; the implementing pull requests and the merged commits; the tested configuration
-(the head commit, the Chromium and SwiftShader versions of the compile gate, the hardware
-adapter of `gate:perf` where one ran); the observed results of the functional validation list
-above, retained as the pull requests' checks and the perf gate's records; the document audit of
-the list above; each deviation with its disposition; and the pending downstream deliveries, which
-compiler status `implemented` does not presume complete.
+- Accepted revision: pull request #977, merged to `main` as `64caf3e` with `status: accepted`;
+  amendment 1 (`DeviceStatistics` among the reshaped exports), pull request #1024.
+- Implementing pull requests, each with `Change: 0119`, opened by the owner's Claude Code session
+  on 2026-11-03 from `main` at `45e4654`; no person is assigned by name; the merged revisions are
+  the delivered configuration, and Git records them:
+  - Stage 1, #1020: the subgroup variant's WGSL. `lowerKernel` returns `subgroupModule` beside
+    `module`, the face carries `wgslSubgroup` (and `wgslSubgroupInteger` under the emulated
+    double's integer flavor) and marks each loop it folds (`subgroupFold`); the compile gate
+    compiles every corpus kernel's variant under `+subgroup`.
+  - Stage 2, #1026: the runtime's selection. `requestCallDevice` requests `subgroups` where the
+    adapter has it; `src/core/subgroup-probe.ts` is the known-answer probe, run once per device
+    when it opens (`createDevice()`, or the call layer's `gpuDevice()`); `DeviceInfo.subgroups`,
+    `DeviceStatistics.variants`, `createDevice({ subgroups })`, `CallOwner.subgroupFolds` and
+    `dispatched`; the dispatch's choice of text in `host-kernel.ts`; the `subgroup-folds`
+    journey; the fuse journey's harness counts the probe.
+  - Stage 3, the pull request that carries this record: Rule 8.22 and Rule 10.2 amended, Rule
+    11.23 added, surface §38, §65 and §69, `AUTHORING.md`, `docs/roadmap.md`,
+    `docs/performance.md`, `CHANGELOG.md`, `reqs/` (RULE-0822, RULE-1002, RULE-1123, SURF-065 and
+    SURF-069 reviewed; SURF-003, SURF-063, SURF-072 and SURF-074 cleared).
+- Delivered configuration of the validation: each pull request's head commit; the cloud
+  container (Bun 1.4.4, Node 22.23.4); Tint and WebGPU of Chrome for Testing 153 on SwiftShader
+  (subgroup size 4, consecutive lanes); no hardware adapter (the owner's is a company machine
+  and is not available to this work).
+- Observed results, functional (2026-11-03):
+  - Both texts of a `u32` sum, an `i32` `min`/`max` pair, a histogram and a masked histogram
+    over 1000 elements compile on Tint and write equal bits on SwiftShader (stage 1's harness
+    outside the repository, and `src/compiler/ts/host-kernel.test.ts` for the texts).
+  - `bun run gate:compile`: 198 examples, 0 failures, three corpus kernels under `+subgroup`.
+  - `bun run gate:journeys`: green; `subgroup-folds` 0, 1 and 2 exact on WebGPU through the
+    import journey and on the oracle; `loop-fuse` 0 to 3 exact on the three tiers.
+  - `src/runtime/device.test.ts`: the probe on a device that passes, fails, lacks the feature or
+    keeps it off, and the default owner's probe before its first call; `subgroup-probe.test.ts`:
+    the answers, the reader and the probe's text; `bun run test` at stage 1: 12,212 passed, the
+    12 failures in five files being the container's (the CI document scope and the full history)
+    or a stale bake and `dist/`, which the stage re-baked and rebuilt.
+  - `bun run lint`, `tsc --noEmit`: passed at each stage.
+- Document audit (stage 3): Rules 8.22, 10.2 and 11.23 and `reqs/` through `reqs:sync` and
+  `doorstop-check.py -C -e -F`; surface §38, §65, §69; `AUTHORING.md`; `docs/roadmap.md` item
+  15; `docs/performance.md`; `src/AGENTS.md` and `AGENTS.md` rows; `CHANGELOG.md`;
+  `docs:impact` and `docs:refs` on each pull request.
+- Deviations:
+  - D-1, closed by this record. The variant is produced by the kernel lowering
+    (`KernelPlan.subgroupModule`) and emitted through `emitModule` as it is, not by an
+    `EmitOptions.subgroupFolds` flag: the kernel module is lowered once and emitted per flavor
+    already. `EmitOptions`, `EmitIdentityInput`, `Pack` and `ReflectOptions` are not reshaped,
+    and `Pack.emit` records no `subgroupFolds`. The declared exports stay declared and unused.
+  - D-2, open. A fused plan (`fuse-entry.ts`) runs the function's own text: the fused entry is
+    built from the loops' IR by the planner, which has one text. Next action: a later change
+    that builds the variant of a fused group, measured first.
+  - D-3, open. `reflect().variants` is not delivered: the reflection reads the authored module,
+    and the kernel texts are the face's. Next action: decide whether the face's `subgroupFold`
+    marks are the report the proposal meant, in an amendment.
+  - D-4, closed. The new rule is 11.23, not 11.22, which change 0107 took first (O5).
+  - D-5, closed. The scatter variant's entry and the probe turn WGSL's `subgroup_uniformity`
+    rule off for themselves: Tint (Chrome for Testing 153) does not read a subgroup function's
+    result as uniform, and refused every shape measured (an `if` on `subgroupAny`,
+    `subgroupBallot` or `subgroupBroadcastFirst`, a loop that breaks on one); their control
+    flow is subgroup uniform by construction, and the differential holds the bits. Recorded in
+    surface §65.
+  - D-6, closed. The call layer's default device is probed too (`gpuDevice()`), not only a
+    device of `createDevice()`: the proposal's section 4 says the runtime selects when it opens
+    the device, and the journeys run on the default device.
+  - D-7, closed. The setting's second value is `'off'`, not `'never'`: the literal `'never'` in
+    `DeviceOptions` moved the printed order of an unrelated export's union (`RenderState`'s
+    `depth.compare`, `"always" | "never"`) in the baked API surface, which the change-scope
+    check reads as a touch of that export. `'auto'` and `'off'` are the choices, and the
+    refusal names them.
+- Pending: the downstream deliveries below, tracked in their repositories.
 
 ## What it owes downstream
 
