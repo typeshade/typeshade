@@ -1570,6 +1570,23 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **`tshc check`, `tshc sync` and `tshc migrate` leave out the paths a `.gitignore` excludes when they
+  search a directory (#1001).** The search skipped `node_modules`, `dist` and `.git` and nothing
+  else, and it followed a symbolic link to a directory. A link to a checkout of another project, put
+  under the ignored `.cache/` of a project, made the checkout's `*.shade.ts` files the project's:
+  `tshc sync --check` listed each one as `missing; run tshc sync`, and `tshc sync` wrote a host view
+  into the checkout through the link. The search now reads the `.gitignore` files as Git reads them,
+  from the root of the repository (the nearest directory with a `.git`) down to each directory it
+  enters, and leaves out an entry they ignore, a directory with everything inside it. A
+  `.gitignore` in a directory below the one the search starts in applies from there, and a `!`
+  includes again what an earlier line ignored. A path named on the command line is searched even
+  when a `.gitignore` excludes it. The reader is `src/cli/ignore.ts`, and a test puts the pattern
+  forms it reads to `git check-ignore`. `.git/info/exclude` and the global ignore file are not read.
+
+  A symbolic link to a directory that no `.gitignore` excludes is still followed: a project may link
+  a shared directory of shaders into its tree, and the link is its own source. `tshc --help` and the
+  README say what the search skips.
+
 - **A function handed over that reads a local whose declaration was refused says nothing more
   (#967).** `const TAU_DOUBLE: f64 = 6.283185307179586;` is refused with `TS8003`, as a module
   constant of the emulated double is not here yet. A local initialized from it,
