@@ -1652,3 +1652,112 @@ export const ramp = workgroup_size([1], function ramp(out: array<f32>, k: f32) {
     expect(got).toEqual(want);
   });
 });
+
+describe('the subgroup variant of a kernel function (change 0119)', () => {
+  const source = `"use typeshade";
+export function total(xs: array<u32>): u32 {
+  let s: u32 = 0;
+  for (let i: u32 = 0; i < xs.length; i++) s += xs[i];
+  return s;
+}
+export function extremes(xs: array<i32>): vec2i {
+  let lo: i32 = 2147483647;
+  let hi: i32 = -2147483648;
+  for (let i: u32 = 0; i < xs.length; i++) { lo = min(lo, xs[i]); hi = max(hi, xs[i]); }
+  return vec2i(lo, hi);
+}
+export function histogram(xs: array<u32>, bins: array<u32>): void {
+  for (let i: u32 = 0; i < xs.length; i++) bins[xs[i] & 7] += 1;
+}
+export function masked(xs: array<u32>, bins: array<u32>): void {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    if (xs[i] > 3) { bins[xs[i] & 7] += xs[i]; }
+  }
+}
+export function mean(xs: array<f32>): f32 {
+  let s: f32 = 0;
+  for (let i: u32 = 0; i < xs.length; i++) s += xs[i];
+  return s / f32(xs.length);
+}
+export function skipping(xs: array<u32>, bins: array<u32>): void {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    if (xs[i] == 0) continue;
+    bins[xs[i] & 7] += 1;
+  }
+}
+export function repeated(xs: array<u32>, bins: array<u32>): void {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    for (let j: u32 = 0; j < 2; j++) bins[(xs[i] + j) & 7] += 1;
+  }
+}
+`;
+  const gpuOf = (f: ReturnType<typeof face>, name: string) => {
+    const e = f.exports.find((x) => x.name === name);
+    if (e?.kind !== 'kernel') throw new Error(`${name} is ${e?.kind}`);
+    expect(e.face.noGpu).toBeUndefined();
+    return e.face.gpu!;
+  };
+  it('folds an integer reduction inside a subgroup in a second text, and keeps the tree text', () => {
+    const f = face(source);
+    for (const name of ['total', 'extremes']) {
+      const g = gpuOf(f, name);
+      expect(g.wgsl).not.toContain('subgroup');
+      expect(g.wgslInteger).toBeUndefined();
+      expect(g.loops.map((l) => l.subgroupFold)).toEqual([true]);
+      const v = g.wgslSubgroup!;
+      expect(v).toBeDefined();
+      expect(v).toContain('enable subgroups;');
+      expect(v).toContain('@builtin(subgroup_id) _sgid: u32');
+      expect(v).toContain('@builtin(num_subgroups) _nsg: u32');
+      expect(v).toContain('workgroupBarrier();');
+      // One barrier per entry in place of the tree's eight (one before the first stride and one
+      // after each stride but the last).
+      expect(v.match(/workgroupBarrier\(\);/g)).toHaveLength(2);
+      expect(g.wgsl.match(/workgroupBarrier\(\);/g)).toHaveLength(2 * 8);
+      expect(v).not.toContain('@diagnostic');
+    }
+    expect(gpuOf(f, 'total').wgslSubgroup).toContain('let _sg_s = subgroupAdd(_sums.s);');
+    const extremes = gpuOf(f, 'extremes').wgslSubgroup!;
+    expect(extremes).toContain('subgroupMin(_sums.lo)');
+    expect(extremes).toContain('subgroupMax(_sums.hi)');
+    expect(extremes).toContain('_acc_lo = min(_acc_lo, extremes_loop0_tree_lo[_sgj]);');
+  });
+  it('defers a scatter to the end of the iteration and folds the lanes that share a key', () => {
+    const f = face(source);
+    for (const name of ['histogram', 'masked']) {
+      const g = gpuOf(f, name);
+      expect(g.wgsl).not.toContain('subgroup');
+      expect(g.loops.map((l) => l.subgroupFold)).toEqual([true]);
+      const v = g.wgslSubgroup!;
+      expect(v).toContain('enable subgroups;');
+      expect(v).toContain('@compute @workgroup_size(64) @diagnostic(off, subgroup_uniformity)');
+      expect(v).toContain('_sgw0 = _live;');
+      expect(v).toContain('if (subgroupAny(_sgp0)) {');
+      expect(v).toContain('let _sgkey0 = subgroupMin(select(4294967295u, _sgk0, _sgp0));');
+      expect(v).toContain('let _sgs0 = subgroupAdd(select(0u, _sgv0, _sgm0));');
+      expect(v).toContain('if (subgroupElect()) {');
+      expect(v).toContain('_ = atomicAdd(&bins[_sgkey0], _sgs0);');
+      expect(v).toContain('_sgp0 = select(_sgp0, false, _sgm0);');
+      // The lane's write stays one atomic in the tree text.
+      expect(g.wgsl).toContain('_ = atomicAdd(&bins[');
+      expect(g.wgsl.match(/atomicAdd/g)).toHaveLength(1);
+      expect(v.match(/atomicAdd/g)).toHaveLength(1);
+    }
+    // The write under the author's `if` is predicated into the slots, not moved.
+    expect(gpuOf(f, 'masked').wgslSubgroup).toContain('if ((xs[i] > 3u)) {\n    _sgw0 = _live;');
+  });
+  it('keeps a float sum, a loop that continues and a write inside an inner loop on the tree and the atomics', () => {
+    const f = face(source);
+    for (const name of ['mean', 'skipping', 'repeated']) {
+      const g = gpuOf(f, name);
+      expect(g.wgslSubgroup).toBeUndefined();
+      expect(g.loops.map((l) => l.subgroupFold)).toEqual([undefined]);
+      expect(g.wgsl).not.toContain('subgroup');
+    }
+  });
+  it('carries the variant into the generated host module', () => {
+    const f = face(source);
+    expect(f.code).toContain('wgslSubgroup');
+    expect(f.code).toContain('enable subgroups;');
+  });
+});
