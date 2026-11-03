@@ -84,7 +84,7 @@ export type DeviceOptions = {
    *  `'integer'`. A module that emulates no `f64` is unchanged. */
   readonly fp64Flavor?: 'auto' | Fp64Flavor;
   /** Whether a kernel call of the device dispatches the subgroup variant of a function's WGSL
-   *  (change 0119). `'auto'`, the default, runs the subgroup probe when a WebGPU device that has
+   *  (change 0119, Rule 11.23). `'auto'`, the default, runs the subgroup probe when a WebGPU device that has
    *  the `subgroups` feature opens, and dispatches the variant where the probe passed;
    *  `info.subgroups` holds what it saw. `'off'` runs no probe and keeps every call on the
    *  tree, for a measurement of the two texts on one device. There is no `'on'`: a device

@@ -1,5 +1,5 @@
-// The subgroup probe (change 0119): the known answers of its folds, what its words say of a
-// device, and the texts of the probe itself.
+// The subgroup probe (change 0119, Rule 11.23): the known answers of its folds, what its words
+// say of a device, and the texts of the probe itself.
 
 import { describe, expect, it } from 'vitest';
 import {

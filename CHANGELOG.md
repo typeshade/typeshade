@@ -35,12 +35,18 @@ repository was published to npm before **`0.1.0`, the first release**.
   known-answer probe: one workgroup of 256 lanes folds a reduction and a scatter in the exact
   shape the variant emits, and the host compares the folds with their answers. Where the probe
   passes, every kernel call of that owner dispatches the subgroup variant of a face that has one;
-  where it fails, or the feature is absent, or `createDevice({ subgroups: 'never' })` keeps it
+  where it fails, or the feature is absent, or `createDevice({ subgroups: 'off' })` keeps it
   off, the call runs the tree text. `device.info.subgroups` records what the probe saw: the
   adapter's size range, the subgroup size and count one workgroup had, and whether a subgroup's
   lanes were consecutive. `device.statistics.variants` names the text the last call of each
   kernel function dispatched, `'subgroup'` or `'tree'`. Measured on SwiftShader (subgroup size 4) by the `subgroup-folds` journey: a sum, a histogram and a min/max pair over 1000 integers
   write the bits the plain-JavaScript reference computes.
+- **The rules of the subgroup variant** (change 0119, stage 3). Rule 8.22 names the variant of a
+  reduction and a scatter and the operators it is emitted for; Rule 10.2 keeps a feature a
+  variant alone needs out of `requiredFeatures`; Rule 11.23 (new) says what a variant is, that
+  its bits are equal, and that the runtime selects it when a device opens by feature and probe.
+  Surface §38, §65 and §69 and the authoring guide describe it. The proposal's draft called the
+  rule 11.22, which change 0107's numerical contract took first.
 - **A numerical contract, opted into per function** (change 0107, stages 1 and 2; Rule 6.7, Rule 9.6,
   Rule 11.22, surface §3, §38 and §78). `const f = numerics(["finite-math"], function f(…) { … })`, or
   a stage call's `{ numerics: [...] }` option, lets `-O2` fold `x * 0`, `x - x`, `mix(a, b, 0)`

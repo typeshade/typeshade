@@ -1520,6 +1520,8 @@ describe('entry constants keep device caches, fp64 ownership and plan accounting
   });
 });
 
+// The runtime selects the subgroup variant by feature and probe (Rule 11.23), and requests the
+// feature without requiring it (Rule 10.2).
 describe('the subgroup variant of a kernel call (change 0119)', () => {
   const SUBGROUP_OPS = `"use typeshade";
 export function total(xs: array<u32>): u32 {
