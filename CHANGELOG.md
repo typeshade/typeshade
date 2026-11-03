@@ -1603,6 +1603,52 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   and fuse hold (36,511 and 13,826; measured 36,508 and 13,824). Bun 1.4.4 measured them, as
   `.bun-version` pins it. These are bundle-size measurements, not GPU performance measurements.
 
+- **`tshc check`, `tshc sync` and `tshc migrate` leave out the paths a `.gitignore` excludes when they
+  search a directory (#1001).** The search skipped `node_modules`, `dist` and `.git` and nothing
+  else, and it followed a symbolic link to a directory. A link to a checkout of another project, put
+  under the ignored `.cache/` of a project, made the checkout's `*.shade.ts` files the project's:
+  `tshc sync --check` listed each one as `missing; run tshc sync`, and `tshc sync` wrote a host view
+  into the checkout through the link. The search now reads the `.gitignore` files as Git reads them,
+  from the root of the repository (the nearest directory with a `.git`) down to each directory it
+  enters, and leaves out an entry they ignore, a directory with everything inside it. A
+  `.gitignore` in a directory below the one the search starts in applies from there, and a `!`
+  includes again what an earlier line ignored. A path named on the command line is searched even
+  when a `.gitignore` excludes it. The reader is `src/cli/ignore.ts`, and a test puts the pattern
+  forms it reads to `git check-ignore`. `.git/info/exclude` and the global ignore file are not read.
+
+  A symbolic link to a directory that no `.gitignore` excludes is still followed: a project may link
+  a shared directory of shaders into its tree, and the link is its own source. `tshc --help` and the
+  README say what the search skips.
+
+- **A function handed over that reads a local whose declaration was refused says nothing more
+  (#967).** `const TAU_DOUBLE: f64 = 6.283185307179586;` is refused with `TS8003`, as a module
+  constant of the emulated double is not here yet. A local initialized from it,
+  `const step = TAU_DOUBLE / 8.;`, holds no value, and an arrow function handed to a call that read
+  `step` drew `TS8022` as well: "The function written here reads "step", which is not declared yet
+  where it runs", although `step` is declared above the call. The same held for every refusal such
+  a local reads, and for an arrow function handed to an array's method or to `zip`, or one that
+  calls a local function that reads the local. Such a function is now not lifted, and the refusal
+  is the one diagnostic, in `compile()` and in the editor (Rule 12.4). A variable declared below
+  the call still draws `TS8022`, since it is not declared yet where the function runs.
+
+- **`scripts/downstream-impact.ts` reads a compiler checkout that lies outside the repository it
+  runs in (#1000).** TypeNN, TypeCV and TypeAudio install the compiler from a source tarball, so
+  they have no checkout of it in their tree. The script took the checkout only as `--submodule`, a
+  path inside the repository, and used that path as the exclude pathspec of its own `git diff`. A
+  checkout beside the repository, `--submodule ../typeshade-pinref`, died there:
+  `fatal: :!../typeshade-pinref: '../typeshade-pinref' is outside repository`. The checkout is now
+  named with `--compiler <path>`, at any path, absolute or relative to the repository, and
+  `--submodule <path>` stays for a git submodule inside it. A `--submodule` path outside the
+  repository works as well. The script reads `changes/`, the API surface and the two commits in
+  that checkout. It adds the exclude pathspec, and leaves the checkout out of the files it scans,
+  only when the checkout lies inside the repository. A link inside the repository to a checkout
+  outside it counts as outside.
+
+  A checkout outside the repository has no gitlink on `--base`, so `--old <sha>` is needed there,
+  and the script says so instead of failing in `git`. It also refuses a checkout named twice and a
+  checkout that is not there. `--help` prints the options. `AGENTS.md` (Docs follow the code) says
+  which form each kind of pin uses. The run of the site, the editor and Radiance reads what it read.
+
 - **An entry that emulates `f64` runs on WebGL2, and a draw WebGL2 refuses rejects the call
   (#966).** The pass program of such an entry declares the `_fp64` guard,
   `uniform highp sampler2D _fp64;`, and the executor of change 0054 bound nothing to it. Its
