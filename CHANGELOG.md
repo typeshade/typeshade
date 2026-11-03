@@ -85,7 +85,10 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   `TypeError` before WebGPU sees them: `rt.submit()` given something that is not a
   `GPUCommandEncoder` (with the sentence an empty call has), and a geometry's `vertices` or
   `indices.buffer` given an object that is not a `GPUBuffer`. The WebGL2 tier is unchanged
-  (milestone M2).
+  (milestone M2). The interface and its backend add code to the runtime, so the caps of
+  `typeshade/runtime` in `scripts/bundle-budget.json` take the measured gzip sizes: single file
+  151,478 to 152,980 (+1,502), split initial 37,190 to 38,586 (+1,396) and split total 153,424 to
+  154,826 (+1,402). The floors and the other subpaths do not change.
 
 - **A constant argument reaches a function under a numerical contract** (#850 N5; Rule 11.22).
   At `-O2`, a call that passes a scalar literal to a function opted in with `numerics(...)` calls
