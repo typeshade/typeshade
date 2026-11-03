@@ -670,7 +670,21 @@ async function runFuse(job) {
   const submit = GPUQueue.prototype.submit;
   const dispatch = GPUComputePassEncoder.prototype.dispatchWorkgroups;
   const createBuffer = GPUDevice.prototype.createBuffer;
-  const seen = { submits: 0, dispatches: 0, sizes: [] };
+  const createShaderModule = GPUDevice.prototype.createShaderModule;
+  const seen = { submits: 0, dispatches: 0, sizes: [], probes: 0 };
+  // The subgroup probe the runtime runs once when a device that has the feature opens (change
+  // 0119): one module, one dispatch and one submission that no plan made. Counted by its module,
+  // so the device's count can be held to the plan's.
+  GPUDevice.prototype.createShaderModule = function (...a) {
+    const code = a[0]?.code;
+    if (
+      typeof code === 'string' &&
+      code.includes('fn probe(') &&
+      code.includes('enable subgroups;')
+    )
+      seen.probes++;
+    return createShaderModule.apply(this, a);
+  };
   GPUQueue.prototype.submit = function (...a) {
     seen.submits++;
     return submit.apply(this, a);
@@ -693,6 +707,7 @@ async function runFuse(job) {
     GPUQueue.prototype.submit = submit;
     GPUComputePassEncoder.prototype.dispatchWorkgroups = dispatch;
     GPUDevice.prototype.createBuffer = createBuffer;
+    GPUDevice.prototype.createShaderModule = createShaderModule;
   }
 }
 
@@ -1286,8 +1301,13 @@ for (const job of fuses) {
       );
     // The device is the witness: the report counts what it was given, and the host's reads are
     // submissions the report does not count.
+    // The subgroup probe, where the device ran it on this call (change 0119), is one dispatch
+    // and one submission of the device's that the plan did not make.
     const device = n.seen
-      ? { submits: n.submissions + run.reads, dispatches: n.dispatches }
+      ? {
+          submits: n.submissions + run.reads + got.seen.probes,
+          dispatches: n.dispatches + got.seen.probes,
+        }
       : { submits: 0, dispatches: 0 };
     if (got.seen.submits !== device.submits || got.seen.dispatches !== device.dispatches)
       fail(
