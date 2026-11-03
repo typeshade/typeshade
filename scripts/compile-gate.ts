@@ -414,7 +414,10 @@ void main() {
 /** The WGSL each kernel function of the corpus lowers to (change 0013): the `@compute` entries
  *  its call dispatches, which `emitModule` of the example itself leaves out. A function that
  *  runs on the CPU has none. A function that pushes has a second text too, which a call that
- *  passes a held length runs (change 0094), under `<example>#<function>+held`. */
+ *  passes a held length runs (change 0094), under `<example>#<function>+held`. A function whose
+ *  loop folds inside a subgroup has the subgroup variant of each of its texts (change 0119),
+ *  under `+subgroup`, which needs the `subgroups` feature: Tint reads it on a device that has
+ *  the feature, and the leg records it as skipped on one that has not. */
 function kernelJobs(): Job[] {
   return ALL_EXAMPLES.flatMap((ex) =>
     proveKernels(ex.module).flatMap((proof): Job[] => {
@@ -438,6 +441,18 @@ function kernelJobs(): Job[] {
         plan.lookups === undefined
           ? lowerKernel(f, ex.module, proof, { held: true })
           : undefined;
+      const subgroup = (text: ModuleDecl | undefined, suffix: string, what: string): Job[] =>
+        text === undefined
+          ? []
+          : [
+              {
+                id: `${id}${suffix}+subgroup`,
+                wgsl: emitModule(text),
+                glsl: null,
+                pipeline: null,
+                pipelineSkip: `the subgroup variant of ${what}, dispatched as compute`,
+              },
+            ];
       return [
         {
           id,
@@ -446,6 +461,7 @@ function kernelJobs(): Job[] {
           pipeline: null,
           pipelineSkip: "a kernel function's loops, dispatched as compute",
         },
+        ...subgroup(plan.subgroupModule, '', "a kernel function's loops"),
         ...(held !== undefined && !('noGpu' in held)
           ? [
               {
@@ -456,6 +472,11 @@ function kernelJobs(): Job[] {
                 pipelineSkip:
                   "a kernel function's loops after a held length, dispatched as compute",
               },
+              ...subgroup(
+                held.subgroupModule,
+                '+held',
+                "a kernel function's loops after a held length",
+              ),
             ]
           : []),
       ];
@@ -1483,6 +1504,9 @@ function wantedFeatures(): string[] {
   const caps = new Set<Capability>();
   for (const ex of [...ALL_EXAMPLES, ...PASS_EXAMPLES])
     for (const c of reflect(ex.module).requiredFeatures) caps.add(c);
+  // The subgroup variant of a kernel function (change 0119) is a text the example's own
+  // reflection does not require: the corpus asks for the feature where one exists.
+  if (kernelJobs().some((j) => j.id.endsWith('+subgroup'))) caps.add('subgroups');
   return [...new Set(hostFeaturesFor(wgslBackend, [...caps]))].sort();
 }
 
