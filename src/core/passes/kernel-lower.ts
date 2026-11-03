@@ -163,12 +163,22 @@ export interface KernelLoopPlan {
    *  `return`: in an entry it ends the invocation, so it would end whatever a fused entry runs
    *  after it. */
   readonly continues: boolean;
+  /** Whether the subgroup variant of the plan (change 0119) folds this loop inside a subgroup:
+   *  a reduction every operator of which gives one value in every order, or a scatter whose
+   *  writes a lane makes at most once. Absent when the variant runs this loop as the tree and
+   *  the per-lane atomics do. */
+  readonly subgroupFold?: true;
 }
 
 /** What the call of a kernel function dispatches, when the function lowers. */
 export interface KernelPlan {
   /** The module the entries are in; a target emits it as WGSL. */
   readonly module: ModuleDecl;
+  /** The subgroup variant of {@link module} (change 0119): the same entries and
+   *  bindings, with each loop {@link KernelLoopPlan.subgroupFold} marks folded inside a subgroup
+   *  first, by the subgroup function of its operator, so it needs the `subgroups` feature. The
+   *  bits it writes are the tree's and the atomics'. Absent when no loop has a variant. */
+  readonly subgroupModule?: ModuleDecl;
   /** The uniform binding of the scalar parameters, `_start` and `_n`. */
   readonly argsBinding: string;
   readonly argsStruct: string;
@@ -445,6 +455,8 @@ export function lowerKernel(
   );
   const plans: KernelLoopPlan[] = [];
   const entries: FuncDecl[] = [];
+  // The subgroup variant of each entry that has one (change 0119), by the entry it stands for.
+  const variantOf = new Map<FuncDecl, FuncDecl>();
   const ranges: FuncDecl[] = [];
   const extraStructs: StructDecl[] = [];
   const extraVars: ModuleVarDecl[] = [];
@@ -651,6 +663,12 @@ export function lowerKernel(
     if (reductions.length === 0) {
       const { entry, iteration } = entryFor(loopCtx);
       entries.push(entry);
+      // The subgroup variant of a loop that scatters (change 0119): the writes are deferred to
+      // the end of the iteration, which a `continue` (a return of the entry) would skip, and a
+      // write inside an inner loop may happen more than once a lane, so neither gets one.
+      const folds =
+        loopCtx.scatter.size > 0 && !continues && scattersAtMostOnce(st.body, loopCtx.scatter);
+      if (folds) variantOf.set(entry, entryFor({ ...loopCtx, subgroupScatter: true }).entry);
       plans.push({
         ...common,
         entry: entry.name,
@@ -658,11 +676,19 @@ export function lowerKernel(
         iterates: entry.name,
         iteration,
         continues,
+        ...(folds ? { subgroupFold: true } : {}),
       });
       continue;
     }
     const lowered = reductionEntries(loopCtx, reductions);
     entries.push(...lowered.funcs);
+    // The subgroup variant of a loop that reduces (change 0119): every variable it reduces folds
+    // to one value in every order, so the bits stay the tree's.
+    const folds = reductions.every(subgroupFoldable);
+    if (folds) {
+      const variant = reductionEntries({ ...loopCtx, subgroup: true }, reductions);
+      lowered.funcs.forEach((e, i) => variantOf.set(e, variant.funcs[i]!));
+    }
     extraStructs.push(lowered.struct);
     extraVars.push(...lowered.workgroup);
     partBindings.push(...lowered.vars.map((r) => ({ name: r.binding, type: r.type })));
@@ -674,6 +700,7 @@ export function lowerKernel(
       iterates: lowered.iterate,
       iteration: 0,
       continues,
+      ...(folds ? { subgroupFold: true } : {}),
     });
   }
 
@@ -947,16 +974,24 @@ export function lowerKernel(
     vars: [...(m.vars ?? []).filter((x) => x.space !== 'workgroup'), ...extraVars],
     ...(m.enables !== undefined ? { enables: m.enables } : {}),
   };
+  const every = [...entries, ...variantOf.values()];
   for (const name of scatter) {
-    if (entries.some((e) => readsOutsideAtomics(e.body, bindingNames.get(name) ?? name)))
+    if (every.some((e) => readsOutsideAtomics(e.body, bindingNames.get(name) ?? name)))
       return {
         noGpu: `a loop reads "${name}", which a loop scatters into: an atomic is read only by an atomic`,
       };
-    if (entries.some((e) => stillPlain(e.body, bindingNames.get(name) ?? name)))
+    if (every.some((e) => stillPlain(e.body, bindingNames.get(name) ?? name)))
       return { noGpu: `it scatters into "${name}" at a place other than an element` };
   }
+  // The subgroup variant (change 0119): the same module with each entry that has a variant
+  // replaced by it. Its calls of the subgroup functions derive `enable subgroups;`.
+  const subgroupModule: ModuleDecl | undefined =
+    variantOf.size === 0
+      ? undefined
+      : { ...module, funcs: module.funcs.map((x) => variantOf.get(x) ?? x) };
   return {
     module,
+    ...(subgroupModule !== undefined ? { subgroupModule } : {}),
     argsBinding,
     argsStruct,
     loops: plans,
@@ -1222,6 +1257,13 @@ interface LoopCtx {
    *  trip buffer, and the element its start's bits are at, the trip count after it. The entry
    *  reads them there instead of the uniform's `_start` and `_n`. */
   readonly trips?: { readonly binding: string; readonly at: number };
+  /** The subgroup variant (change 0119): a loop that reduces folds each subgroup with the
+   *  subgroup function of its operator before the workgroup slots. */
+  readonly subgroup?: boolean;
+  /** The subgroup variant of a map loop that scatters (change 0119): each write is deferred to
+   *  the end of the iteration, folded over the lanes of the subgroup that share its key, and one
+   *  lane adds the fold. */
+  readonly subgroupScatter?: boolean;
 }
 
 const boolT: ShaderType = { kind: 'scalar', scalar: 'bool' };
@@ -1354,12 +1396,20 @@ function argsOf(c: LoopCtx): (name: string, type: ShaderType) => Expr {
 
 /** The `@compute` entry's parameters: the three ids every entry reads (the workgroup's for the
  *  return of a workgroup wholly past the trip count, change 0096), and what a tree reads. */
-function entryParams(tree: boolean): FuncDecl['params'] {
+function entryParams(tree: boolean, subgroup = false): FuncDecl['params'] {
   return [
     { name: '_gid', type: vec3u, builtin: 'global_invocation_id' },
     { name: '_nwg', type: vec3u, builtin: 'num_workgroups' },
     { name: '_wid', type: vec3u, builtin: 'workgroup_id' },
     ...(tree ? [{ name: '_lid', type: u32T, builtin: 'local_invocation_index' }] : []),
+    // The subgroup variant of a reduction (change 0119) reads which subgroup a lane is in.
+    ...(subgroup
+      ? [
+          { name: '_sgi', type: u32T, builtin: 'subgroup_invocation_id' },
+          { name: '_sgid', type: u32T, builtin: 'subgroup_id' },
+          { name: '_nsg', type: u32T, builtin: 'num_subgroups' },
+        ]
+      : []),
   ];
 }
 
@@ -1392,10 +1442,16 @@ function iterationOf(
   // A parameter is a field of the uniform, or the storage binding of its name; the length of a
   // pushed array, which only a loop whose range the device holds reads, is its length word.
   const rewrite = entryRewrite(c, field);
+  // The subgroup variant of a scatter (change 0119): each write becomes an assignment of its
+  // key and its value to the lane's slots, and the folds after the iteration add them.
+  const deferred: DeferredScatter[] = [];
+  const body = ownContinuesReturn(c.loop.body, ret);
   let rest = [
     ...c.prelude,
     ...reset,
-    ...ownContinuesReturn(c.loop.body, ret).map((st) => toAtomics(st, c.scatter)),
+    ...(c.subgroupScatter === true
+      ? deferScatters(body, c.scatter, deferred)
+      : body.map((st) => toAtomics(st, c.scatter))),
   ].map((st) => mapStmt(st, rewrite));
   if (lane?.skip === true) rest = [{ s: 'if', arms: [{ cond: lane.mask, body: rest }] }];
   else if (lane !== undefined) {
@@ -1404,7 +1460,9 @@ function iterationOf(
   }
   return [
     { s: 'let', name: c.counter, expr: i },
+    ...deferred.flatMap(scatterSlots),
     ...rest,
+    ...deferred.flatMap((d) => scatterFold(d).map((st) => mapStmt(st, rewrite))),
     ...(ret !== undefined ? [{ s: 'return', expr: ret } as Stmt] : []),
   ];
 }
@@ -1420,7 +1478,13 @@ function entryFor(c: LoopCtx): { entry: FuncDecl; iteration: number } {
     ...iterationOf(c, undefined, [], { k: kcRef, mask: liveRef, skip: c.skip }),
   ];
   return {
-    entry: computeEntry(`${c.f.name}_loop${c.j}`, body, false, c.wg),
+    entry: computeEntry(
+      `${c.f.name}_loop${c.j}`,
+      body,
+      false,
+      c.wg,
+      c.subgroupScatter === true ? 'scatter' : undefined,
+    ),
     iteration: scaffold.length,
   };
 }
@@ -1430,16 +1494,26 @@ function computeEntry(
   body: Stmt[],
   tree: boolean,
   size: number = KERNEL_WORKGROUP,
+  variant?: 'reduce' | 'scatter',
 ): FuncDecl {
   const wg = tree ? KERNEL_TREE : size;
   return {
     name,
-    params: entryParams(tree),
+    params: entryParams(tree, variant === 'reduce'),
     ret: { kind: 'void' },
     body,
     stage: 'compute',
     workgroupSize: wg,
-    attrs: [`@compute @workgroup_size(${wg})`],
+    // The scatter variant's fold (change 0119) branches on what `subgroupAny` returns, which
+    // every lane of the subgroup receives alike, so its control flow is subgroup uniform by
+    // construction; Tint's analysis (Chrome for Testing 153, measured 2026-11-03) does not
+    // read a subgroup function's result as uniform and refuses the fold under the default
+    // rule, so the entry turns the rule off for itself. The differential against the tree
+    // text is what holds the fold to its bits.
+    attrs: [
+      `@compute @workgroup_size(${wg})`,
+      ...(variant === 'scatter' ? ['@diagnostic(off, subgroup_uniformity)'] : []),
+    ],
   };
 }
 
@@ -1588,6 +1662,81 @@ function reductionEntries(
           arms: [{ cond: liveRef, body: [{ s: 'assign', target: sumsRef, expr: ranRef }] }],
         },
       ];
+  // The subgroup variant (change 0119): each lane's value folds over its subgroup with the
+  // subgroup function of the operator, lane 0 of each subgroup writes the fold to the slot of its
+  // `subgroup_id`, and after one barrier lane 0 of the workgroup combines the `num_subgroups`
+  // slots into slot 0, which `store` reads as it reads the tree's. The operators are those for
+  // which every order gives one value, so the bits are the tree's.
+  const subgroupFold = (value: (r: LoopReduction) => Expr): Stmt[] => {
+    const sgi: Expr = { op: 'param', type: u32T, name: '_sgi' };
+    const sgid: Expr = { op: 'param', type: u32T, name: '_sgid' };
+    const nsg: Expr = { op: 'param', type: u32T, name: '_nsg' };
+    const fold = (r: LoopReduction): Expr => ({
+      op: 'varref',
+      type: r.type,
+      name: `_sg_${r.name}`,
+    });
+    const acc = (r: LoopReduction): Expr => ({
+      op: 'varref',
+      type: r.type,
+      name: `_acc_${r.name}`,
+    });
+    const j: Expr = { op: 'varref', type: u32T, name: '_sgj' };
+    return [
+      ...reductions.map((r): Stmt => ({
+        s: 'let',
+        name: `_sg_${r.name}`,
+        expr: { op: 'call', type: r.type, fn: SUBGROUP_FOLD_OF[r.op], args: [value(r)] },
+      })),
+      {
+        s: 'if',
+        arms: [
+          {
+            cond: { op: 'compare', type: boolT, cop: '==', a: sgi, b: u(0) },
+            body: reductions.map((r): Stmt => ({
+              s: 'assign',
+              target: slot(r, sgid),
+              expr: fold(r),
+            })),
+          },
+        ],
+      },
+      barrier,
+      {
+        s: 'if',
+        arms: [
+          {
+            cond: { op: 'compare', type: boolT, cop: '==', a: lid, b: u(0) },
+            body: [
+              ...reductions.map((r): Stmt => ({
+                s: 'var',
+                name: `_acc_${r.name}`,
+                type: r.type,
+                init: identityOf(r),
+              })),
+              {
+                s: 'for',
+                init: { s: 'var', name: '_sgj', type: u32T, init: u(0) },
+                cond: { op: 'compare', type: boolT, cop: '<', a: j, b: nsg },
+                update: { s: 'assign', target: j, expr: bin('+', j, u(1)) },
+                body: reductions.map((r): Stmt => ({
+                  s: 'assign',
+                  target: acc(r),
+                  expr: combineOf(r, acc(r), slot(r, j)),
+                })),
+              },
+              ...reductions.map((r): Stmt => ({
+                s: 'assign',
+                target: slot(r, u(0)),
+                expr: acc(r),
+              })),
+            ],
+          },
+        ],
+      },
+    ];
+  };
+  const subgroup = c.subgroup === true;
   const loopEntry = computeEntry(
     base,
     [
@@ -1599,15 +1748,21 @@ function reductionEntries(
         init: { op: 'construct', type: structT, args: reductions.map(identityOf) },
       },
       ...iteration,
-      ...reductions.map((r): Stmt => ({
-        s: 'assign',
-        target: slot(r, lid),
-        expr: { op: 'member', type: r.type, base: sumsRef, field: r.name },
-      })),
-      ...tree,
+      ...(subgroup
+        ? subgroupFold((r) => ({ op: 'member', type: r.type, base: sumsRef, field: r.name }))
+        : [
+            ...reductions.map((r): Stmt => ({
+              s: 'assign',
+              target: slot(r, lid),
+              expr: { op: 'member', type: r.type, base: sumsRef, field: r.name },
+            })),
+            ...tree,
+          ]),
       store(group),
     ],
     true,
+    undefined,
+    subgroup ? 'reduce' : undefined,
   );
   const reduceEntry = computeEntry(
     `${base}_fold`,
@@ -1630,16 +1785,24 @@ function reductionEntries(
             },
           ],
         },
-        {
-          s: 'assign',
-          target: slot(r, lid),
-          expr: { op: 'varref', type: r.type, name: `_v_${r.name}` },
-        },
+        ...(subgroup
+          ? []
+          : [
+              {
+                s: 'assign',
+                target: slot(r, lid),
+                expr: { op: 'varref', type: r.type, name: `_v_${r.name}` },
+              } as Stmt,
+            ]),
       ]),
-      ...tree,
+      ...(subgroup
+        ? subgroupFold((r) => ({ op: 'varref', type: r.type, name: `_v_${r.name}` }))
+        : tree),
       store(bin('+', field('_out', u32T), group)),
     ],
     true,
+    undefined,
+    subgroup ? 'reduce' : undefined,
   );
   return {
     funcs: [helper, loopEntry, reduceEntry],
@@ -1651,6 +1814,257 @@ function reductionEntries(
     iterate: helper.name,
   };
 }
+
+// ─── the subgroup variant (change 0119) ──────────────────────────────────────────
+//
+// On a device that has the `subgroups` feature the runtime may dispatch a second text of the
+// module, in which a reduction folds each subgroup with the subgroup function of its operator
+// before the workgroup slots, and a scatter folds the lanes of a subgroup that share a key
+// before one of them adds. Both are emitted only for an operator that gives one value in every
+// order, so the bits are the tree's and the per-lane atomics' (Rule 7.2), and a float sum or
+// product keeps the tree in both texts.
+
+/** The subgroup function that folds a subgroup with `op` (change 0117, surface §77). */
+const SUBGROUP_FOLD_OF: Readonly<Record<LoopReduction['op'], string>> = {
+  '+': 'subgroupAdd',
+  '*': 'subgroupMul',
+  '&': 'subgroupAnd',
+  '|': 'subgroupOr',
+  '^': 'subgroupXor',
+  min: 'subgroupMin',
+  max: 'subgroupMax',
+};
+
+/** Whether `r` gives one value in every order, so its subgroup fold writes the tree's bits: an
+ *  integer operator on `u32` or `i32`, or `min` and `max` on those or on `f32`; a scalar or a
+ *  vector of one. An `f32` sum or product, an emulated double and a `bool` stay on the tree. */
+function subgroupFoldable(r: LoopReduction): boolean {
+  const t = r.type;
+  const elem = t.kind === 'scalar' ? t.scalar : t.kind === 'vec' ? t.elem : undefined;
+  if (elem === 'u32' || elem === 'i32') return true;
+  if (elem === 'f32') return r.op === 'min' || r.op === 'max';
+  return false;
+}
+
+/** Whether every write into an array of `scatter` in `body` happens at most once a lane: none is
+ *  inside a loop of the body. A `switch` or an `if` around one is a predicate of the slots. */
+function scattersAtMostOnce(body: readonly Stmt[], scatter: ReadonlySet<string>): boolean {
+  const writesInto = (sts: readonly Stmt[]): boolean => {
+    let found = false;
+    for (const st of sts)
+      eachStmtExpr(
+        st,
+        () => undefined,
+        (inner) => {
+          if (
+            (inner.s === 'assign' || inner.s === 'assignOp') &&
+            inner.target.op === 'index' &&
+            inner.target.base.op === 'param' &&
+            scatter.has(inner.target.base.name)
+          )
+            found = true;
+        },
+      );
+    return found;
+  };
+  let ok = true;
+  const visit = (st: Stmt): void => {
+    if (st.s === 'for') {
+      if (writesInto([st])) ok = false;
+      return;
+    }
+    mapStmtExpr(
+      st,
+      (e) => e,
+      (b) => {
+        visit(b);
+        return b;
+      },
+    );
+  };
+  body.forEach(visit);
+  return ok;
+}
+
+/** One deferred write of the scatter variant: its slots, its operator and the array it adds
+ *  to, as the write named it (a parameter, which the entry's rewrite binds). */
+interface DeferredScatter {
+  readonly i: number;
+  readonly op: LoopReduction['op'];
+  /** The array, typed `array<atomic<T>>`. */
+  readonly array: Expr;
+  /** `T`, a `u32` or an `i32`. */
+  readonly elem: ShaderType;
+}
+
+const scatterRef = (d: DeferredScatter, what: 'w' | 'k' | 'v' | 'p'): Expr => ({
+  op: 'varref',
+  type: what === 'w' || what === 'p' ? boolT : what === 'k' ? u32T : d.elem,
+  name: `_sg${what}${d.i}`,
+});
+
+/** `sts` with each write into an array of `scatter` replaced by the assignment of the lane's
+ *  slots: whether it wrote (`_live`, so a lane past the trip count adds nothing), the key as a
+ *  `u32`, and the value. Nested statements too. */
+function deferScatters(
+  sts: readonly Stmt[],
+  scatter: ReadonlySet<string>,
+  deferred: DeferredScatter[],
+): Stmt[] {
+  return mapBlock(sts, (st): Stmt[] | undefined => {
+    if (st.s !== 'assign' && st.s !== 'assignOp') return undefined;
+    const t = st.target;
+    if (t.op !== 'index' || t.base.op !== 'param' || !scatter.has(t.base.name)) return undefined;
+    const combine = writeCombine(st).combine;
+    if (combine === undefined) return undefined;
+    const at = atomicArray(t.base.type);
+    const d: DeferredScatter = {
+      i: deferred.length,
+      op: combine.op,
+      array: { ...t.base, type: at },
+      elem: { kind: 'scalar', scalar: (at as { elem: { elem: 'u32' | 'i32' } }).elem.elem },
+    };
+    deferred.push(d);
+    const key: Expr =
+      t.idx.type.kind === 'scalar' && t.idx.type.scalar === 'u32'
+        ? t.idx
+        : { op: 'call', type: u32T, fn: 'u32', args: [t.idx] };
+    return [
+      { s: 'assign', target: scatterRef(d, 'w'), expr: liveRef },
+      { s: 'assign', target: scatterRef(d, 'k'), expr: key },
+      { s: 'assign', target: scatterRef(d, 'v'), expr: combine.with },
+    ];
+  });
+}
+
+/** The identity of `op` in `elem`, as a literal. */
+function scatterIdentity(d: DeferredScatter): Expr {
+  const scalar = (d.elem as { scalar: 'u32' | 'i32' }).scalar;
+  return { op: 'lit', type: d.elem, value: treeIdentity(d.op, scalar) as number };
+}
+
+/** The slots of a deferred write, before the iteration: nothing written, key 0, the identity. */
+function scatterSlots(d: DeferredScatter): Stmt[] {
+  return [
+    { s: 'var', name: `_sgw${d.i}`, type: boolT, init: { op: 'lit', type: boolT, value: false } },
+    { s: 'var', name: `_sgk${d.i}`, type: u32T, init: u(0) },
+    { s: 'var', name: `_sgv${d.i}`, type: d.elem, init: scatterIdentity(d) },
+  ];
+}
+
+/** The fold of a deferred write, after the iteration, in uniform control flow: while a lane of
+ *  the subgroup still has a write pending, the pending lanes' least key is served: the lanes
+ *  that hold it fold their values with the subgroup function of the operator (the others give
+ *  the identity), one lane adds the fold to the element with the atomic, and those lanes are
+ *  done. Each turn serves one distinct key, so a subgroup whose keys are all equal takes one
+ *  atomic in place of one per lane, and the loop is bounded by the subgroup size. */
+function scatterFold(d: DeferredScatter): Stmt[] {
+  const w = scatterRef(d, 'w');
+  const k = scatterRef(d, 'k');
+  const v = scatterRef(d, 'v');
+  const p = scatterRef(d, 'p');
+  const j: Expr = { op: 'varref', type: u32T, name: `_sgj${d.i}` };
+  const key: Expr = { op: 'varref', type: u32T, name: `_sgkey${d.i}` };
+  const mine: Expr = { op: 'varref', type: boolT, name: `_sgm${d.i}` };
+  const sum: Expr = { op: 'varref', type: d.elem, name: `_sgs${d.i}` };
+  const atomicT = (d.array.type as { elem: ShaderType }).elem;
+  const none = u(0xffffffff);
+  return [
+    { s: 'var', name: `_sgp${d.i}`, type: boolT, init: w },
+    {
+      s: 'for',
+      init: { s: 'var', name: `_sgj${d.i}`, type: u32T, init: u(0) },
+      cond: { op: 'compare', type: boolT, cop: '<', a: j, b: u(SUBGROUP_MAX) },
+      update: { s: 'assign', target: j, expr: bin('+', j, u(1)) },
+      body: [
+        {
+          s: 'if',
+          arms: [
+            {
+              cond: { op: 'call', type: boolT, fn: 'subgroupAny', args: [p] },
+              body: [
+                {
+                  s: 'let',
+                  name: `_sgkey${d.i}`,
+                  expr: {
+                    op: 'call',
+                    type: u32T,
+                    fn: 'subgroupMin',
+                    args: [{ op: 'select', type: u32T, cond: p, ifTrue: k, ifFalse: none }],
+                  },
+                },
+                {
+                  s: 'let',
+                  name: `_sgm${d.i}`,
+                  expr: {
+                    op: 'logical',
+                    type: boolT,
+                    lop: '&&',
+                    a: p,
+                    b: { op: 'compare', type: boolT, cop: '==', a: k, b: key },
+                  },
+                },
+                {
+                  s: 'let',
+                  name: `_sgs${d.i}`,
+                  expr: {
+                    op: 'call',
+                    type: d.elem,
+                    fn: SUBGROUP_FOLD_OF[d.op],
+                    args: [
+                      {
+                        op: 'select',
+                        type: d.elem,
+                        cond: mine,
+                        ifTrue: v,
+                        ifFalse: scatterIdentity(d),
+                      },
+                    ],
+                  },
+                },
+                {
+                  s: 'if',
+                  arms: [
+                    {
+                      cond: { op: 'call', type: boolT, fn: 'subgroupElect', args: [] },
+                      body: [
+                        {
+                          s: 'call',
+                          expr: {
+                            op: 'call',
+                            type: d.elem,
+                            fn: ATOMIC_OF[d.op]!,
+                            args: [{ op: 'index', type: atomicT, base: d.array, idx: key }, sum],
+                          },
+                        },
+                      ],
+                    },
+                  ],
+                },
+                {
+                  s: 'assign',
+                  target: p,
+                  expr: {
+                    op: 'select',
+                    type: boolT,
+                    cond: mine,
+                    ifTrue: { op: 'lit', type: boolT, value: false },
+                    ifFalse: p,
+                  },
+                },
+              ],
+            },
+          ],
+          elseBody: [{ s: 'break' }],
+        },
+      ],
+    },
+  ];
+}
+
+/** The most lanes a WGSL subgroup has: the fold's loop serves at least one key a turn, so it
+ *  ends within this many turns. */
+const SUBGROUP_MAX = 128;
 
 /** `a op b` in `r`'s type. */
 function combineOf(r: LoopReduction, a: Expr, b: Expr): Expr {

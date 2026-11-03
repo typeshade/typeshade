@@ -1575,6 +1575,8 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     return { kind: 'kernel', name, face: { ...face, noGpu: plan.noGpu }, ranges: [] };
   let wgsl: string;
   let wgslInteger: string | undefined;
+  let wgslSubgroup: string | undefined;
+  let wgslSubgroupInteger: string | undefined;
   try {
     wgsl = emitModule(plan.module);
     // A function of a module that emulates `f64` carries its WGSL under the `'integer'` flavor
@@ -1591,6 +1593,19 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       face: { ...face, noGpu: `its WGSL did not emit: ${why}` },
       ranges: [],
     };
+  }
+  // The subgroup variant (change 0119), under each flavor the function has a text for. A text
+  // of it that does not emit is a defect of the variant, not of the function: the function keeps
+  // its tree text and runs on the GPU, with no variant.
+  if (plan.subgroupModule !== undefined) {
+    try {
+      wgslSubgroup = emitModule(plan.subgroupModule);
+      if (wgslInteger !== undefined)
+        wgslSubgroupInteger = emitModule(plan.subgroupModule, { fp64Flavor: 'integer' });
+    } catch {
+      wgslSubgroup = undefined;
+      wgslSubgroupInteger = undefined;
+    }
   }
   // The layouts below are applied to the CPU tier's values, which name a field a private name
   // declares as the module does (the arguments by value, the records of a Map or a Set), or to
@@ -1763,6 +1778,10 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     collected === undefined && pushing < 0 && plan.trips === undefined
       ? projectKernelInputs(plan, f)
       : undefined;
+  const projectedSubgroup =
+    projectedModule === undefined || plan.subgroupModule === undefined
+      ? undefined
+      : projectKernelInputs({ ...plan, module: plan.subgroupModule }, f);
   const projected =
     projectedModule === undefined
       ? undefined
@@ -1770,6 +1789,16 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
           wgsl: emitModule(projectedModule),
           ...(wgslInteger !== undefined
             ? { wgslInteger: emitModule(projectedModule, { fp64Flavor: 'integer' }) }
+            : {}),
+          ...(projectedSubgroup !== undefined
+            ? {
+                wgslSubgroup: emitModule(projectedSubgroup),
+                ...(wgslInteger !== undefined
+                  ? {
+                      wgslSubgroupInteger: emitModule(projectedSubgroup, { fp64Flavor: 'integer' }),
+                    }
+                  : {}),
+              }
             : {}),
           arrays: arrays
             .filter((b) => !recordNames.has(b.name))
@@ -1836,6 +1865,8 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
         wgsl,
         ...(projected !== undefined ? { projected } : {}),
         ...(wgslInteger !== undefined ? { wgslInteger } : {}),
+        ...(wgslSubgroup !== undefined ? { wgslSubgroup } : {}),
+        ...(wgslSubgroupInteger !== undefined ? { wgslSubgroupInteger } : {}),
         args: {
           name: plan.argsBinding,
           group: 0,
@@ -1964,6 +1995,8 @@ function heldVariant(
   if ('noGpu' in plan) return undefined;
   let wgsl: string;
   let wgslInteger: string | undefined;
+  let wgslSubgroup: string | undefined;
+  let wgslSubgroupInteger: string | undefined;
   try {
     wgsl = emitModule(plan.module);
     wgslInteger =
@@ -1972,6 +2005,16 @@ function heldVariant(
         : undefined;
   } catch {
     return undefined;
+  }
+  if (plan.subgroupModule !== undefined) {
+    try {
+      wgslSubgroup = emitModule(plan.subgroupModule);
+      if (wgslInteger !== undefined)
+        wgslSubgroupInteger = emitModule(plan.subgroupModule, { fp64Flavor: 'integer' });
+    } catch {
+      wgslSubgroup = undefined;
+      wgslSubgroupInteger = undefined;
+    }
   }
   const structs = new Map(plan.module.structs.map((x) => [x.name, x]));
   const args = layoutOf(
@@ -1985,6 +2028,8 @@ function heldVariant(
   return {
     wgsl,
     ...(wgslInteger !== undefined ? { wgslInteger } : {}),
+    ...(wgslSubgroup !== undefined ? { wgslSubgroup } : {}),
+    ...(wgslSubgroupInteger !== undefined ? { wgslSubgroupInteger } : {}),
     args: {
       name: plan.argsBinding,
       group: 0,

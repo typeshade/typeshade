@@ -32,6 +32,7 @@ import {
 } from '../core/resident.js';
 import type { Resident } from '../core/resident.js';
 import type { GpuDevice } from '../core/host-entry.js';
+import { PROBE_LANES, PROBE_WORDS, probeExpectation } from '../core/subgroup-probe.js';
 import { createDevice } from './device.js';
 
 const RUNTIME = resolve(__dirname, '../core/host-runtime.ts');
@@ -125,8 +126,15 @@ interface FakeBuffer {
 /** A WebGPU device that makes nothing and records what it is given. Its buffers hold real bytes:
  *  `writeBuffer` and `copyBufferToBuffer` copy them, `clearBuffer` zeroes them, and a map reads
  *  them, so a value that no dispatch computed reads back as it was written or cleared. */
-function fakeGpu(limits: Record<string, number> = {}) {
+function fakeGpu(
+  limits: Record<string, number> = {},
+  /** Whether the fake has the `subgroups` feature, and what it answers the subgroup probe
+   *  (change 0119): `'pass'` writes the known answers at subgroup size 4, `'fail'` a wrong sum. */
+  subgroups?: 'pass' | 'fail',
+) {
   const commands: string[] = [];
+  /** The entry point of the pipeline the current pass set. */
+  let setEntry = '';
   const made: FakeBuffer[] = [];
   /** The buffer and the byte offset of each indirect dispatch, in order (change 0075). */
   const indirect: { record: FakeBuffer; offset: number }[] = [];
@@ -144,7 +152,7 @@ function fakeGpu(limits: Record<string, number> = {}) {
   const fences = { count: 0 };
   const device = {
     destroyed: false,
-    features: new Set<string>(),
+    features: new Set<string>(subgroups === undefined ? [] : ['subgroups']),
     limits,
     createShaderModule: (d: { code: string }) => {
       codes.push(d.code);
@@ -170,7 +178,7 @@ function fakeGpu(limits: Record<string, number> = {}) {
       compute: { constants?: Record<string, number>; entryPoint: string };
     }) => {
       pipelines.push(descriptor);
-      return { getBindGroupLayout: () => ({}) };
+      return { getBindGroupLayout: () => ({}), entryPoint: descriptor.compute.entryPoint };
     },
     createBindGroupLayout: () => ({}),
     createPipelineLayout: () => ({}),
@@ -199,9 +207,28 @@ function fakeGpu(limits: Record<string, number> = {}) {
     },
     createCommandEncoder: () => ({
       beginComputePass: () => ({
-        setPipeline: () => undefined,
+        setPipeline: (p: { entryPoint?: string }) => {
+          setEntry = p.entryPoint ?? '';
+        },
         setBindGroup: () => undefined,
-        dispatchWorkgroups: (x: number) => commands.push(`dispatch ${x}`),
+        dispatchWorkgroups: (x: number) => {
+          commands.push(`dispatch ${x}`);
+          // The subgroup probe's dispatch (change 0119): the fake writes what a device of
+          // subgroup size 4 with consecutive lanes writes, folded right or with a wrong sum.
+          if (setEntry === 'probe' && subgroups !== undefined) {
+            const out = made.find((b) => b.size === PROBE_WORDS * 4 && (b.usage & 128) !== 0)!;
+            const words = new Uint32Array(out.bytes);
+            for (let lane = 0; lane < PROBE_LANES; lane++) {
+              words[lane] = Math.floor(lane / 4);
+              words[PROBE_LANES + lane] = lane % 4;
+            }
+            const { sum, bins } = probeExpectation();
+            words[PROBE_LANES * 2] = 4;
+            words[PROBE_LANES * 2 + 1] = PROBE_LANES / 4;
+            words[PROBE_LANES * 2 + 2] = subgroups === 'pass' ? sum : sum + 1;
+            bins.forEach((b, i) => (words[PROBE_LANES * 2 + 3 + i] = b));
+          }
+        },
         dispatchWorkgroupsIndirect: (b: { record: FakeBuffer }, offset: number) => {
           indirect.push({ record: b.record, offset });
           commands.push(`dispatchIndirect at ${offset}`);
@@ -1489,6 +1516,136 @@ describe('entry constants keep device caches, fp64 ownership and plan accounting
       } finally {
         await dev.dispose();
       }
+    }
+  });
+});
+
+describe('the subgroup variant of a kernel call (change 0119)', () => {
+  const SUBGROUP_OPS = `"use typeshade";
+export function total(xs: array<u32>): u32 {
+  let s: u32 = 0;
+  for (let i: u32 = 0; i < xs.length; i++) s += xs[i];
+  return s;
+}
+export function histogram(xs: array<u32>, bins: array<u32>): void {
+  for (let i: u32 = 0; i < xs.length; i++) bins[xs[i] & 7] += 1;
+}
+export function mean(xs: array<f32>): f32 {
+  let s: f32 = 0;
+  for (let i: u32 = 0; i < xs.length; i++) s += xs[i];
+  return s / f32(xs.length);
+}
+`;
+  async function subgroupOps(): Promise<Record<'total' | 'histogram' | 'mean', Call>> {
+    const generated = hostFace(SUBGROUP_OPS, {
+      fileName: '/app/subgroups.shade.ts',
+      runtime: RUNTIME,
+    });
+    expect(generated.diagnostics).toEqual([]);
+    const dir = mkdtempSync(join(tmpdir(), 'typeshade-subgroups-'));
+    dirs.push(dir);
+    const file = join(dir, 'subgroups.mjs');
+    writeFileSync(file, generated.code!);
+    return (await import(/* @vite-ignore */ pathToFileURL(file).href)) as Record<
+      'total' | 'histogram' | 'mean',
+      Call
+    >;
+  }
+  const adapterOf = (gpu: ReturnType<typeof fakeGpu>) => ({
+    features: gpu.raw.features,
+    limits: {},
+    requestDevice: async (d?: { requiredFeatures?: readonly string[] }) => {
+      requested.push(d?.requiredFeatures ?? []);
+      return gpu.device;
+    },
+  });
+  let requested: (readonly string[])[] = [];
+  afterEach(() => {
+    requested = [];
+  });
+  it('probes a device that has the feature when it opens, and dispatches the variant where it passed', async () => {
+    const m = await subgroupOps();
+    const gpu = fakeGpu({}, 'pass');
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => adapterOf(gpu) } });
+    const dev = await createDevice({ prefer: ['webgpu'] });
+    try {
+      // The feature is requested where the adapter has it, never required.
+      expect(requested).toEqual([['subgroups']]);
+      expect(dev.info.subgroups).toEqual({
+        minSize: null,
+        maxSize: null,
+        size: 4,
+        numSubgroups: 64,
+        consecutive: true,
+      });
+      expect(gpu.codes.filter((c) => c.includes('fn probe('))).toHaveLength(1);
+      const xs = dev.array(new Uint32Array([1, 2, 3, 4, 5]));
+      const bins = dev.array(new Uint32Array(8));
+      await m.total(xs);
+      await m.histogram(xs, bins);
+      await m.mean(dev.array(new Float32Array([1, 2])));
+      const texts = gpu.codes.filter((c) => !c.includes('fn probe('));
+      expect(
+        texts.some((c) => c.includes('fn total_loop0(') && c.includes('enable subgroups;')),
+      ).toBe(true);
+      expect(
+        texts.some((c) => c.includes('fn histogram_loop0(') && c.includes('subgroupElect()')),
+      ).toBe(true);
+      expect(texts.some((c) => c.includes('fn mean_loop0(') && c.includes('subgroup'))).toBe(false);
+      expect(dev.statistics.variants).toEqual({
+        total: 'subgroup',
+        histogram: 'subgroup',
+        mean: 'tree',
+      });
+    } finally {
+      await dev.dispose();
+    }
+  });
+  it("keeps every call on the tree with subgroups: 'off', on a device that fails the probe, and on one without the feature", async () => {
+    const m = await subgroupOps();
+    for (const [gpu, options] of [
+      [fakeGpu({}, 'pass'), { subgroups: 'off' as const }],
+      [fakeGpu({}, 'fail'), {}],
+      [fakeGpu(), {}],
+    ] as const) {
+      vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => adapterOf(gpu) } });
+      const dev = await createDevice({ prefer: ['webgpu'], ...options });
+      try {
+        expect(dev.info.subgroups).toBeNull();
+        expect(gpu.codes.filter((c) => c.includes('fn probe('))).toHaveLength(
+          options.subgroups === 'off' || !gpu.raw.features.has('subgroups') ? 0 : 1,
+        );
+        await m.total(dev.array(new Uint32Array([1, 2, 3])));
+        expect(gpu.codes.some((c) => c.includes('fn total_loop0(') && c.includes('subgroup'))).toBe(
+          false,
+        );
+        expect(dev.statistics.variants).toEqual({ total: 'tree' });
+      } finally {
+        await dev.dispose();
+      }
+    }
+    await expect(createDevice({ subgroups: 'on' as never })).rejects.toThrow(
+      "createDevice({ subgroups }): \"on\" is not a setting; the choices are 'auto' and 'off'.",
+    );
+  });
+  it('probes the default device when the call layer opens it, and the default owner selects by it', async () => {
+    const m = await subgroupOps();
+    const gpu = fakeGpu({}, 'pass');
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => adapterOf(gpu) } });
+    configure({ runtime: null, features: [], prefer: ['webgpu'] });
+    try {
+      await m.total(new Uint32Array([1, 2, 3]));
+      expect(gpu.codes.filter((c) => c.includes('fn probe('))).toHaveLength(1);
+      expect(
+        gpu.codes.some((c) => c.includes('fn total_loop0(') && c.includes('enable subgroups;')),
+      ).toBe(true);
+      // The probe ran once, before the first dispatch.
+      expect(gpu.codes.findIndex((c) => c.includes('fn probe('))).toBeLessThan(
+        gpu.codes.findIndex((c) => c.includes('fn total_loop0(')),
+      );
+    } finally {
+      gpu.lose({ reason: 'destroyed', message: 'test finished' });
+      await gpu.device.lost;
     }
   });
 });

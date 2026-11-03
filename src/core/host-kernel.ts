@@ -123,6 +123,11 @@ export type KernelParam =
 /** One loop of a kernel function the call dispatches. */
 export interface KernelLoop {
   readonly entry: string;
+  /** Whether the subgroup variant of the function's WGSL (change 0119) folds this
+   *  loop inside a subgroup: a reduction every operator of which gives one value in every order,
+   *  or a scatter whose writes a lane makes at most once. Absent when the variant runs the loop
+   *  as the tree and the per-lane atomics do. */
+  readonly subgroupFold?: true;
   readonly range: string;
   readonly cop: '<' | '<=' | '>' | '>=';
   readonly step: number;
@@ -194,6 +199,8 @@ export interface PushWord {
 interface Variant {
   readonly wgsl: string;
   readonly wgslInteger?: string;
+  readonly wgslSubgroup?: string;
+  readonly wgslSubgroupInteger?: string;
   readonly args: EntryBinding;
   readonly words: readonly PushWord[];
   readonly guard?: { readonly group: number; readonly binding: number };
@@ -282,6 +289,12 @@ export interface KernelFace {
      *  emulates `f64` (change 0073): a call of an owner whose flavor is `'integer'` dispatches
      *  it, and binds no guard. */
     readonly wgslInteger?: string;
+    /** The subgroup variant (change 0119): the same entries with each loop
+     *  {@link KernelLoop.subgroupFold} marks folded inside a subgroup first, which needs the
+     *  `subgroups` feature. Present when a loop has one; the bits it writes are the tree's. Under
+     *  the `'integer'` flavor too when the module emulates `f64`. */
+    readonly wgslSubgroup?: string;
+    readonly wgslSubgroupInteger?: string;
     /** The uniform of the scalar parameters, `_start` and `_n`. */
     readonly args: EntryBinding;
     /** Each array parameter's storage binding. */
@@ -290,6 +303,8 @@ export interface KernelFace {
     readonly projected?: {
       readonly wgsl: string;
       readonly wgslInteger?: string;
+      readonly wgslSubgroup?: string;
+      readonly wgslSubgroupInteger?: string;
       readonly arrays: readonly EntryBinding[];
     };
     /** Each texture parameter's binding (change 0077). */
@@ -323,6 +338,8 @@ export interface KernelFace {
     readonly held?: {
       readonly wgsl: string;
       readonly wgslInteger?: string;
+      readonly wgslSubgroup?: string;
+      readonly wgslSubgroupInteger?: string;
       readonly args: EntryBinding;
       readonly words: readonly PushWord[];
       /** Where its `_fp64` guard is, after the length words, when the module emulates `f64`. */
@@ -387,6 +404,8 @@ function variantOf(k: KernelFace, held: boolean): Variant & { readonly key: stri
   return {
     wgsl: g.wgsl,
     ...(g.wgslInteger !== undefined ? { wgslInteger: g.wgslInteger } : {}),
+    ...(g.wgslSubgroup !== undefined ? { wgslSubgroup: g.wgslSubgroup } : {}),
+    ...(g.wgslSubgroupInteger !== undefined ? { wgslSubgroupInteger: g.wgslSubgroupInteger } : {}),
     args: g.args,
     words: g.words ?? [],
     ...(g.guard !== undefined ? { guard: g.guard } : {}),
@@ -401,12 +420,35 @@ const TREE_PARAMS = [
   'workgroup_id',
 ] as const;
 
-function entriesOf(k: KernelFace, flavor: Fp64Flavor, held = false): LoopEntries[] {
+/** The WGSL a call dispatches: the subgroup variant where the owner selects it and the face has
+ *  one (change 0119), under the owner's flavor of the emulated double (change 0073). */
+function textOf(v: Variant, integer: boolean, subgroup: boolean): string {
+  if (subgroup && v.wgslSubgroup !== undefined)
+    return integer && v.wgslSubgroupInteger !== undefined ? v.wgslSubgroupInteger : v.wgslSubgroup;
+  return integer ? v.wgslInteger! : v.wgsl;
+}
+
+/** The key a text's entries are cached under: the flavor, the variant and the held form. */
+function underOf(
+  v: Variant & { readonly key: string },
+  integer: boolean,
+  subgroup: boolean,
+): string {
+  return `${integer ? 'integer' : 'float'}${subgroup && v.wgslSubgroup !== undefined ? '+subgroup' : ''}${v.key}`;
+}
+
+function entriesOf(
+  k: KernelFace,
+  flavor: Fp64Flavor,
+  held = false,
+  subgroup = false,
+): LoopEntries[] {
   const g = k.gpu!;
   const v = variantOf(k, held);
   // A module that emulates no `f64` has one WGSL, and the flavor changes nothing (change 0073).
   const integer = flavor === 'integer' && v.wgslInteger !== undefined;
-  const under = `${integer ? 'integer' : 'float'}${v.key}`;
+  const text = textOf(v, integer, subgroup);
+  const under = underOf(v, integer, subgroup);
   let per = entries.get(k);
   if (per === undefined) entries.set(k, (per = new Map()));
   let es = per.get(under);
@@ -434,7 +476,7 @@ function entriesOf(k: KernelFace, flavor: Fp64Flavor, held = false): LoopEntries
       const entry = (fn: string, bindings: DrawBinding[], tree = false): ComputeEntry => ({
         name: k.name,
         fn,
-        wgsl: integer ? v.wgslInteger! : v.wgsl,
+        wgsl: text,
         wg: tree && loop.reduce === undefined ? [KERNEL_TREE, 1, 1] : [loop.wg, 1, 1],
         params: loop.reduce !== undefined || tree ? TREE_PARAMS : TREE_PARAMS.slice(0, 2),
         bindings: [...bindings, ...guard],
@@ -505,12 +547,12 @@ function entriesOf(k: KernelFace, flavor: Fp64Flavor, held = false): LoopEntries
  *  partials of each loop that reduces, which it reads at the slot its uniform names. */
 const finishEntries = new WeakMap<KernelFace, Map<string, ComputeEntry>>();
 
-function finishOf(k: KernelFace, flavor: Fp64Flavor, held = false): ComputeEntry {
+function finishOf(k: KernelFace, flavor: Fp64Flavor, held = false, subgroup = false): ComputeEntry {
   const g = k.gpu!;
   const fin = g.finish!;
   const v = variantOf(k, held);
   const integer = flavor === 'integer' && v.wgslInteger !== undefined;
-  const under = `${integer ? 'integer' : 'float'}${v.key}`;
+  const under = underOf(v, integer, subgroup);
   let per = finishEntries.get(k);
   if (per === undefined) finishEntries.set(k, (per = new Map()));
   const had = per.get(under);
@@ -522,7 +564,7 @@ function finishOf(k: KernelFace, flavor: Fp64Flavor, held = false): ComputeEntry
   const entry: ComputeEntry = {
     name: k.name,
     fn: fin.entry,
-    wgsl: integer ? v.wgslInteger! : v.wgsl,
+    wgsl: textOf(v, integer, subgroup),
     wg: [1, 1, 1],
     params: TREE_PARAMS.slice(0, 2),
     bindings: [
@@ -881,6 +923,7 @@ export async function tierFit(
             k,
             owner.fp64Flavor(d),
             held.some((h) => h !== undefined),
+            owner.subgroupFolds?.(d) === true,
           ).bindings.filter((b) => b.space === 'storage').length;
     if (stores > most)
       return {
@@ -892,6 +935,7 @@ export async function tierFit(
       k,
       owner.fp64Flavor(d),
       held.some((h) => h !== undefined),
+      owner.subgroupFolds?.(d) === true,
     );
     if (ranged !== undefined && ranged.count > most)
       return {
@@ -980,6 +1024,19 @@ export async function runChecked(
       run?.tiers.add(tier);
       const physical =
         run === undefined && states.every((s) => s === undefined) ? projectedInputs(k, hosts) : k;
+      // The subgroup variant, where the owner's device passed the probe and the face has one
+      // (change 0119); the owner's statistics name the text the call ran.
+      const subgroup = owner.subgroupFolds?.(d) === true;
+      owner.dispatched?.(
+        k.name,
+        subgroup &&
+          variantOf(
+            physical,
+            held.some((h) => h !== undefined),
+          ).wgslSubgroup !== undefined
+          ? 'subgroup'
+          : 'tree',
+      );
       const folded = await onDevice(
         d,
         physical,
@@ -990,6 +1047,7 @@ export async function runChecked(
         owner.fp64Flavor(d),
         values,
         held,
+        subgroup,
       );
       return result(async () => tailResult(cpu, k, values, await folded()));
     }
@@ -1429,9 +1487,10 @@ function deviceBindings(
   k: KernelFace,
   flavor: Fp64Flavor,
   held: boolean,
+  subgroup = false,
 ): { readonly loop: number; readonly count: number } | undefined {
   if (k.gpu?.trips === undefined) return undefined;
-  const es = entriesOf(k, flavor, held);
+  const es = entriesOf(k, flavor, held, subgroup);
   let most: { loop: number; count: number } | undefined;
   for (const [j, e] of es.entries())
     for (const x of [e.loop, e.range]) {
@@ -1478,13 +1537,14 @@ async function onDevice(
   flavor: Fp64Flavor,
   values: readonly unknown[] = [],
   held: readonly (HeldLength | undefined)[] = [],
+  subgroup = false,
 ): Promise<Folded> {
   const g = k.gpu!;
   // A call that passes a held length runs the WGSL in which every array a loop pushes onto has a
   // length word (change 0094).
   const holds = held.some((h) => h !== undefined);
   const variant = variantOf(k, holds);
-  const es = entriesOf(k, flavor, holds);
+  const es = entriesOf(k, flavor, holds, subgroup);
   const batch = run?.batchOn(d) ?? new DispatchBatch(d);
   const folds: Folded[] = [];
   // Each texture, as `checkCall` found it (change 0077).
@@ -1735,7 +1795,7 @@ async function onDevice(
     try {
       // From the WGSL text the loops ran: the second, for a call that passes a held length.
       await batch.add(
-        finishOf(k, flavor, holds),
+        finishOf(k, flavor, holds, subgroup),
         { values: bound_, images, samplers: new Map(), onDevice: bound },
         [1, 1, 1],
       );

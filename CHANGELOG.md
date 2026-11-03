@@ -17,6 +17,30 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **The subgroup variant of a kernel function's WGSL** (change 0119, stage 1). A kernel function
+  whose loop reduces a `u32` or an `i32` with any operator, or an `f32` with `min` or `max`, or
+  scatters into an integer array with a write a lane makes at most once, gets a second text
+  beside its WGSL, `wgslSubgroup` on the face (and `wgslSubgroupInteger` when the module emulates
+  `f64`), in which each subgroup folds first with the subgroup function of the operator: a
+  reduction takes one barrier in place of the tree's eight, and a scatter folds the lanes that
+  share a key before one lane adds. The text needs the `subgroups` feature; the bits it writes
+  are the tree's and the atomics', so a float sum stays on the tree in both texts. The face marks
+  each loop the variant folds (`subgroupFold`). Measured on Tint (Chrome for Testing 153,
+  SwiftShader, subgroup size 4): both texts of a `u32` sum, an `i32` `min`/`max` pair and two
+  histograms compile and write equal bits. Nothing an author writes changes; the runtime's
+  selection of the text is the next stage.
+- **The runtime selects the subgroup variant by feature and probe** (change 0119, stage 2). When
+  a WebGPU device opens, through `createDevice()` or on the call layer's first call, and the
+  adapter has the `subgroups` feature, the call layer requests it (never requires it) and runs a
+  known-answer probe: one workgroup of 256 lanes folds a reduction and a scatter in the exact
+  shape the variant emits, and the host compares the folds with their answers. Where the probe
+  passes, every kernel call of that owner dispatches the subgroup variant of a face that has one;
+  where it fails, or the feature is absent, or `createDevice({ subgroups: 'never' })` keeps it
+  off, the call runs the tree text. `device.info.subgroups` records what the probe saw: the
+  adapter's size range, the subgroup size and count one workgroup had, and whether a subgroup's
+  lanes were consecutive. `device.statistics.variants` names the text the last call of each
+  kernel function dispatched, `'subgroup'` or `'tree'`. Measured on SwiftShader (subgroup size 4) by the `subgroup-folds` journey: a sum, a histogram and a min/max pair over 1000 integers
+  write the bits the plain-JavaScript reference computes.
 - **A numerical contract, opted into per function** (change 0107, stages 1 and 2; Rule 6.7, Rule 9.6,
   Rule 11.22, surface §3, §38 and §78). `const f = numerics(["finite-math"], function f(…) { … })`, or
   a stage call's `{ numerics: [...] }` option, lets `-O2` fold `x * 0`, `x - x`, `mix(a, b, 0)`
