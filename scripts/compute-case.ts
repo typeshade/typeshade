@@ -20,6 +20,8 @@
 // whose texel of 1.0 the executor binds on a unit of its own. The emulation multiplies by the
 // guard, so a guard that reads anything else changes the values. `butterfly` reads its pair across
 // a barrier, so the guard is bound on every pass; `twiddle` reaches none, so the CPU tier runs it.
+// `across` keeps its angle, an `f64`, and its twiddle, a `vec2f64`, in locals across the barrier,
+// so the pass program carries each double in its record as two `f32` words, `hi` and `lo` (#970).
 //
 // `PROGRAM_CASES` are entries the call layer cannot call at all: they reach a texture that has
 // no host value there (#204), so the page dispatches each through the program runtime alone, on
@@ -93,6 +95,24 @@ export const butterfly = compute([64, 1, 1], function butterfly(li: builtin<"loc
   }
 });
 `,
+  across: `"use typeshade";
+
+declare const data: storage<array<f32>, "read_write">;
+let tile: workgroup<array<f32, 64>>;
+
+export const across = compute([64, 1, 1], function across(li: builtin<"local_invocation_index", u32>): void {
+  const k = li % 32;
+  const angle: f64 = f64(-6.283185307179586) * f64(f32(k)) / f64(64.);
+  const w = vec2f64(cos(angle), sin(angle));
+  tile[li] = data[li];
+  workgroupBarrier();
+  if (li < 32) {
+    data[li] = tile[k] + tile[k + 32] * f32(w.x) + f32(angle);
+  } else {
+    data[li] = tile[k] - tile[k + 32] * f32(w.y);
+  }
+});
+`,
 } as const;
 
 /** The cases that must run on both WebGL2 tiers, the call layer's and the program runtime's: a
@@ -101,6 +121,7 @@ export const ON_WEBGL2: readonly (keyof typeof COMPUTE_CASES)[] = [
   'textured',
   'twiddle',
   'butterfly',
+  'across',
 ];
 
 /** A texture a program case binds, as the page makes it on each tier. */
