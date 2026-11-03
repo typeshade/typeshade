@@ -433,9 +433,10 @@ export function hostTypeOf(
 }
 
 // A field a private name `#x` declares is the field `x` of the struct (Rule 8.12), and the host
-// value holds it under the key `#x` (Rule 8.21, change 0109, Amendment 2). A host type and a byte
-// layout name each field by its host key, so the structs they are built from are the module's own
-// with those fields renamed, and the CPU tier's values keep the field's name (`shaderField`).
+// value holds it under the key `#x` (Rule 8.21, change 0109, Amendment 2). A host type, and a byte
+// layout that takes a host value, name each field by its host key, so the structs they are built
+// from are the module's own with those fields renamed. A layout that takes a value of the CPU tier
+// keeps the field's name, as the CPU tier's values do (`shaderField` maps the one to the other).
 
 /** The fields each struct declares with a private name, by the struct's name and the field's
  *  emitted name; a struct with none is not in it. */

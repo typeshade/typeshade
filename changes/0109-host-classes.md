@@ -662,8 +662,130 @@ the sentence on a `Resident` of instances; the editor's host reference says that
 instances reads back as instances. This implementation also meets item 2 of typeaudio's ask F (no
 `structuredClone` in `resident()` and `dev.array()`), which typeaudio records when its pin moves.
 
-**Amendment 2.** Not started. The record of item 7 and decision D6 follows here when it is
-implemented, in the order of the record above.
+**Amendment 2.** The record of item 7 and decision D6 follows, in the order of the record above.
+
+**Accepted revision.** The text merged by pull request
+[#1023](https://github.com/typeshade/typeshade/pull/1023) as `11a97d9a` on `main`, with D6 accepted
+as drafted (Approval and plan record, Amendment 2).
+
+**Implementation.** Pull request [#1028](https://github.com/typeshade/typeshade/pull/1028), branch
+`claude/0109-a2-private-names`, from `main` at `11a97d9a`, by a Claude Code agent at the owner's
+direction. Its commits say `Change: 0109`:
+
+- `c5a6ecde`: the tests, which fail on `11a97d9a` for the reasons of issue #971.
+- `b92ac181`: the view, the generated class, the conversions, Rule 8.21, surface §26 and §64,
+  `src/AGENTS.md` and `reqs/`.
+- `5d51d606`: the merge of `main` at `75bd8cc8` (#1022 and #1025), with no conflict.
+- The commit that holds the shared leaf `src/core/host-key.ts`, the bundle budgets, the changelog
+  entry and this record.
+
+**Delivered configuration.**
+
+- `src/compiler/ts/host-face.ts`: `classFace` names a field a private name declares by its host key,
+  `#x`, and gives it no keyword; `classView` prints it as itself with its comment. `keyedStructs`
+  makes the module's structs with those fields renamed, and each host type and each byte layout of
+  the call layer that takes a host value is built from them: a helper's types, the arrays of a
+  kernel function, the bindings of an entry and the uniform of a WebGL2 pass program (`glTier`,
+  `uniformLayout`). A layout that takes a value of the CPU tier keeps the field's name: the
+  arguments of a kernel function by value and the records of a Map or a Set, and the physical
+  layout of a kernel function's private input projection, which `projectInputLayout` matches to
+  the logical layout by the field. `FaceCtx.cpuStructs` gives the zero struct of a constructor. A
+  key that is no identifier is a quoted name in a type (`propName`).
+- `src/compiler/ts/host-docs.ts`: the comment of a field with a private name goes by `#x`.
+- `src/core/host-key.ts` (new): `shaderField`, the field of a host key, and `missingField`, the
+  sentence of the check. `src/core/host-values.ts` (`toShader`, `fromShader`, `fromShaderIn` and the
+  writes of `callMember`) and `src/core/host-entry.ts` (`pack`, `toCpu`, `fromCpu` and
+  `projectInputLayout`; `readInto` writes the key a layout gives it) read the host key and write
+  the field, and the other way round.
+- `docs/language-design.md` Rule 8.21 (three sentences, "Derives from" and "Enforced by");
+  `reqs/rules/RULE-0821.md` reviewed; `reqs/surface/SURF-026.md` reviewed; `SURF-064.md`,
+  `SURF-065.md`, `SURF-067.md`, `SURF-069.md`, `SURF-075.md` and `SURF-076.md` cleared after reading
+  each section against the new Rule 8.21 (only §26 and §64 change).
+- `docs/use-typeshade-surface.md` §26 (the private names), §64 (a paragraph on a private name with
+  a listing of the source and of the view, and the plain-object sentences), `src/AGENTS.md`,
+  `CHANGELOG.md`, `scripts/bundle-budget.json`.
+- `src/compiler/ts/host-face.test.ts`, `src/compiler/ts/host-class.test.ts`,
+  `src/core/host-private-key.test.ts` (new) and `src/language-service/ambient-parity.test.ts`.
+
+**Functional validation**, on 2026-11-03 (UTC), Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3, Vitest
+5.0.5:
+
+- The tests of the amendment, run against the code of `11a97d9a` with the tests of `c5a6ecde` in
+  place: `src/compiler/ts/host-face.test.ts` with `-t "Amendment 2"` gave 5 failed and 1 passed (the
+  one that passed is the test that both halves of the shader take the program), and
+  `src/compiler/ts/host-class.test.ts` with `-t "Amendment 2"` gave 10 failed and 1 passed. After
+  `b92ac181` they pass.
+- Two tests of the later commit were each run once without the code they pin. Without the match by
+  field in `projectInputLayout`, the upload of a private field a kernel function reads was
+  `[0, 3, 0, 3]` for `[7, 3, 8, 3]`. With the layout of a struct passed by value built from the host
+  key, `pack` refused the value of the CPU tier at `.gain.#g`. Both pass with the code.
+- `env -u NODE_OPTIONS bun run test` on the tree of `e5a21e4c`, from 2026-11-03T02:25:45Z to
+  02:39:55Z (847.62 s): 522 files and 12,419 tests passed, 4 skipped and 1 todo.
+- `bun run build`, `bun run lint` and `bun run format:check`: exit 0 on that tree.
+- `bun run gate:boundary`: exit 0 after the caps moved. Measured on that tree in gzip bytes, against
+  `75bd8cc8` measured in a clean worktree by the same script: `typeshade/runtime` 151,578 (+135;
+  split initial 37,304, +115; aggregate 153,541, +145), `typeshade/fuse` 112,593 (+139; split initial
+  14,578, +136; aggregate 113,150, +261), `typeshade/algorithms` 48,235 (+131), `typeshade/random`
+  32,034 (+116), `typeshade/emit` 117,301 (+0). The import of `host-values.ts` from `host-entry.ts`
+  had cost 962 bytes of the runtime's split initial download; the leaf `host-key.ts` took it to 115.
+  CI measured the same bytes as this container on that tree.
+- Not run in this container: `bun run gate:compile`, `bun run gate:differential`,
+  `bun run gate:render` and `bun run gate:perf` (the change emits no shader text and changes no
+  lowering; CI runs them), and the TypeScript 5.9 and 6.0 legs, which CI runs.
+
+**Document validation**, on 2026-11-03 (UTC): `bun run docs:refs`, 0 dead references; `bun run docs:impact` read for each commit, with the
+three review lists (Rule 8.21's citations, the files the change modifies and their rows in
+`src/AGENTS.md`) answered in each commit's `Docs-Impact:` trailer; `bun run reqs:sync` with nothing
+left to write; `python3 scripts/doorstop-check.py -C -e -F`, Doorstop 3.2, with no item flagged,
+after `RULE-0821` and `SURF-026` were reviewed and the links of `SURF-026`, `SURF-064`, `SURF-065`,
+`SURF-067`, `SURF-069`, `SURF-075` and `SURF-076` were cleared after reading each section against
+Rule 8.21 (the rule's wording changed three times, and each change was followed by a new review of
+`RULE-0821` and a new clearing); `bun scripts/changes.ts --base origin/main`, exit 0 ("This change
+touches Rule 8.21; surface §26, surface §64"; still to do: Rule 8.20, Rule 11.8, surface §65);
+`bun scripts/ifchange.ts --base origin/main`, exit 0; `bun run precommit --message-file` on each
+commit's message, exit 0; `bun scripts/semicolons.ts --check`, exit 0.
+
+**Deviations**, each with its disposition:
+
+1. The Implementation paragraph names the conversions of `host-values.ts` and `readInto` and
+   `fromCpu` in `host-entry.ts`. The delivery also changes `pack`, `toCpu` and `projectInputLayout`
+   of `host-entry.ts`, which read the host value or match its fields, and `host-face.ts` writes the
+   key into each layout of the call layer that takes a host value; without them an instance could
+   not be taken by a kernel function or an entry, or its field would be uploaded as 0 (the
+   Validation asks for the instance to be taken). Closed: the approved text's Validation decides
+   it.
+2. What it touches says that §64's listing and its sentence on a private field say `#x: u32;` where
+   they said `private x: u32;`. §64 at `11a97d9a` had neither a listing nor a sentence with a
+   private field. The delivery adds both, as a paragraph and two listings. Open: an amendment may
+   say that §64 gains them.
+3. The delivery adds one sentence that the proposal does not state, in §64 and in the changelog:
+   TypeScript reads `#n` in a view for a `target` of ES2015 or later, and reports TS18028 below it
+   (observed with TypeScript 5.6.3 and `target: ES5`). Open: the owner may keep or drop the
+   sentence.
+4. The Implementation paragraph does not name the manifest. Rule 11.10 builds it from the IR alone,
+   so it still names the field `x` and not `#x`, and the delivery leaves it so. See Pending work.
+5. The check refuses a plain object by the key it lacks. An object that a host writes with the
+   string key `"#x"` is taken, since the check reads the fields a struct declares and ignores the
+   prototype (Rule 8.21). `tsc` refuses such an object where the class is the type, because the
+   private name gives the class a brand. Open: an amendment may say it in Rule 8.21 if the owner
+   wants it refused at run time too.
+
+**Pending work.** The program runtime reads a binding by the manifest's layout, which names the
+field `x` (Rule 11.10). On the merged tree an instance of a class with a private field `#x` that is
+given to `rt.dispatch` or `rt.draw` as a binding value is therefore packed by the name `x`. Two
+cases were observed with `pack` over the manifest's layout of a binding of such a class, on 2026-11-03:
+a class with no accessor of the name `x` gives `the field is missing` at `[0].x`; a class with
+`get x()` gives the value the accessor returns and not the field's (the field held 5, the accessor
+returned 10, and the packed word was 10). The first case worked before this amendment, since the
+instance held the field as the own property `x`. In the second, no instance could be built before
+it (issue #971). Rule 8.21 says that a buffer binding of the
+program runtime takes the same host value, so the gap is in this amendment's reach but outside what
+the proposal declares (the manifest, Rule 11.10, surface §69). The next action is the owner's
+decision: key the manifest for the module of a host face and amend Rule 11.10 and §69 to say it, or
+make the runtime's pack read an own property `#x` first. The downstream work that Amendment 2 adds to
+What it owes downstream is not started: the site's pages that copy §26 and §64, in English and in
+Korean, the editor's host reference and fixture, and typeaudio's unit class and its
+`compiler-changes.md`.
 
 ## What it owes downstream
 

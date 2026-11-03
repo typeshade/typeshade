@@ -2741,22 +2741,26 @@ export function make(): Hidden {
   });
 
   it('is type-checked by tsc: a host reads the accessor and cannot name the field', async () => {
-    const head = `import { Counter, level } from './terrain.shade.ts';\nconst c = new Counter();\n`;
-    // Before the change the view was TS2300, twice, and a host file did not type-check at all.
+    // One program: the lines that read the accessor have no error, which includes the view's own
+    // (before the change it was TS2300, twice, and a host file did not type-check at all). The
+    // field is the class's own, since `#n` is TypeScript's private name (TS18013), and a plain
+    // object is no `Counter`: it lacks the brand the private name gives the class (TS2345).
     expect(
       await hostErrors(
         COUNTER,
-        `${head}export const n: number = c.n;\nexport const t: number = c.tick();\nexport const l: number = level(c);\n`,
-      ),
-    ).toEqual([]);
-    // The field is the class's own (`#n` is TypeScript's private name), and a plain object is no
-    // `Counter`: it lacks the brand the private name gives the class.
-    expect(
-      await hostErrors(
-        COUNTER,
-        `${head}export const a = c.#n;\nexport const b = level({ n: 1 });\n`,
+        `import { Counter, level } from './terrain.shade.ts';
+const c = new Counter();
+export const n: number = c.n;
+export const t: number = c.tick();
+export const l: number = level(c);
+export const a = c.#n;
+export const b = level({ n: 1 });
+`,
       ),
     ).toEqual(['app.ts TS18013', 'app.ts TS2345']);
+  });
+
+  it('is type-checked by tsc beside a method of the name of a private field', async () => {
     expect(
       await hostErrors(
         GAUGE,
@@ -2776,23 +2780,43 @@ export const v = c.n;
     expect(read.documentation).toBe('The count, read through the accessor.');
   });
 
+  it('reads c.n in the shader as the accessor, in both halves (Rule 12.7)', () => {
+    // The editor resolves `c.n` to the accessor and not to the field, whose comment is another.
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.shade.ts', COUNTER);
+    const at = COUNTER.indexOf('c.n;') + 2;
+    const shown =
+      service.getHover('m.shade.ts', service.positionAt('m.shade.ts', at))?.contents ?? '';
+    expect(shown).toContain('u32');
+    expect(shown).toContain('The count, read through the accessor.');
+    expect(shown).not.toContain('The count so far.');
+    // The compiler lowers the same read to the accessor's function, of the same type.
+    const level = compile(COUNTER, { fileName: 'm.shade.ts' }).module.funcs.find(
+      (f) => f.name === 'level',
+    );
+    const body = level?.body[0];
+    expect(body).toMatchObject({
+      s: 'return',
+      expr: { op: 'call', fn: 'Counter_get_n', type: { kind: 'scalar', scalar: 'u32' } },
+    });
+  });
+
   it('spells a class no export declares by its fields, a private name as a quoted key', async () => {
     const f = face(HIDDEN);
     expect(f.view).toContain(
       'export declare function peek(h: { readonly "#x": f32; readonly y: f32 }): f32;',
     );
     expect(f.view).toContain('export declare function make(): { "#x": f32; y: f32 };');
+    // One program: what `make()` returns goes back to `peek`, and an object built by hand lacks
+    // the key (a literal would be an excess property, TS2353).
     expect(
       await hostErrors(
         HIDDEN,
-        `import { make, peek } from './terrain.shade.ts';\nexport const a: number = peek(make());\n`,
-      ),
-    ).toEqual([]);
-    // An object built by hand lacks the key (a literal would be an excess property, TS2353).
-    expect(
-      await hostErrors(
-        HIDDEN,
-        `import { peek } from './terrain.shade.ts';\nconst plain = { x: 0, y: 1 };\nexport const a = peek(plain);\n`,
+        `import { make, peek } from './terrain.shade.ts';
+export const a: number = peek(make());
+const plain = { x: 0, y: 1 };
+export const b = peek(plain);
+`,
       ),
     ).toEqual(['app.ts TS2345']);
     // The module holds the key too: what `make()` returns is a plain object of the fields, since

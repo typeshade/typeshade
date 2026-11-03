@@ -52,8 +52,9 @@ export type Layout =
   | { readonly k: 'm'; readonly c: number; readonly r: number; readonly cs: number }
   /** `n` is null for a runtime-sized array; `st` is the element stride in bytes. */
   | { readonly k: 'a'; readonly n: number | null; readonly st: number; readonly e: Layout }
-  /** A struct: each field's name, byte offset and layout, and the struct's size. A name is the key
-   *  the field's host value is held under, `#x` for the field `x` that a private name declares
+  /** A struct: each field's name, byte offset and layout, and the struct's size. A layout that takes
+   *  a host value names a field by the key its host value is held under, `#x` for the field `x` that
+   *  a private name declares; one that takes a value of the CPU tier names it as the module does
    *  (Rule 8.21, change 0109, Amendment 2). */
   | {
       readonly k: 'o';
