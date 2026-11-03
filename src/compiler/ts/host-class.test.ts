@@ -24,6 +24,8 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 import { tscDiagnostics } from '../../core/testing/tsc-diagnostics.js';
 import type { KernelFace } from '../../core/host-kernel.js';
 import { residentState } from '../../core/resident.js';
+import { pack, packed, projectInputLayout } from '../../core/host-entry.js';
+import { toShader } from '../../core/host-values.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const dirs: string[] = [];
@@ -1225,6 +1227,88 @@ describe('a private name is the key "#n" of an instance (Rule 8.21, Amendment 2,
       'level({ n: 1, step: 1 });: TS2345',
       'await run(out, [{ n: 1, step: 1 }]);: TS2769',
       'console.log(a, hidden);: ',
+    ]);
+  });
+
+  /** A read-only array of structs of which a kernel function reads two fields of three: the call
+   *  uploads the live fields alone (change 0082), at the offset of each field of the logical
+   *  layout in the physical one. */
+  const CELLS = `"use typeshade";
+
+export class Cell {
+  #hp: u32;
+  armor: u32 = 3;
+  unused: u32 = 9;
+  constructor(hp: u32) {
+    this.#hp = hp;
+  }
+  get hp(): u32 {
+    return this.#hp;
+  }
+}
+
+export function hits(out: array<u32>, cells: array<Cell>) {
+  for (let i: u32 = 0; i < cells.length; i++) {
+    out[i] = cells[i].hp + cells[i].armor;
+  }
+}
+`;
+
+  it('uploads a private field a kernel function reads with the live fields, by the projection of change 0082', async () => {
+    const kernel = face(CELLS).exports.find((e) => e.name === 'hits');
+    expect(kernel?.kind).toBe('kernel');
+    if (kernel?.kind !== 'kernel') return;
+    const param = kernel.face.params.find((p) => p.name === 'cells');
+    const projected = kernel.face.gpu?.projected?.arrays.find((a) => a.name === 'cells');
+    // The instrument: the kernel reads two of the three fields, so its GPU variant is projected.
+    expect(projected).toBeDefined();
+    if (param?.k !== 'array' || projected === undefined) return;
+    // The logical layout names the field by its host key, and the physical one is made of the
+    // IR's struct, which names it `hp`: the projection matches them as one field.
+    expect(JSON.stringify(param.layout)).toContain('"#hp"');
+    projectInputLayout(param.layout, projected.layout);
+    const m = await load(CELLS);
+    const Cell = m.Cell as new (hp: number) => object;
+    const words = new Uint32Array(packed(projected, [new Cell(7), new Cell(8)]));
+    // A word for `#hp` and one for `armor` of each element, and none for `unused`.
+    expect([...words]).toEqual([7, 3, 8, 3]);
+  });
+
+  it('packs a struct a kernel function takes by value from the CPU tier value, which names the field as the module does', async () => {
+    const source = `"use typeshade";
+
+export class Gain {
+  #g: f32 = 1.;
+  get g(): f32 {
+    return this.#g;
+  }
+  k: f32 = 2.;
+}
+
+export function scale(out: array<f32>, xs: array<f32>, gain: Gain) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out[i] = xs[i] * gain.g * gain.k;
+  }
+}
+`;
+    const kernel = face(source).exports.find((e) => e.name === 'scale');
+    expect(kernel?.kind).toBe('kernel');
+    if (kernel?.kind !== 'kernel') return;
+    const param = kernel.face.params.find((p) => p.name === 'gain');
+    const args = kernel.face.gpu?.args.layout;
+    expect(args).toBeDefined();
+    if (param?.k !== 'value' || args === undefined) return;
+    // The call converts the host value, then packs the converted value into the arguments of the
+    // GPU variant: a host key goes in, and a value that names the field as the module does comes
+    // out and is packed. A layout of the arguments with the host key would refuse it.
+    const m = await load(source);
+    const Gain = m.Gain as new () => object;
+    const converted = toShader('scale', 'gain', param.type, new Gain());
+    expect(converted).toEqual({ g: 1, k: 2 });
+    const dv = new DataView(new ArrayBuffer(args.k === 'o' ? args.sz : 0));
+    pack(dv, 0, args, { gain: converted, _start: 0, _n: 3, _in: 0, _out: 0 }, '');
+    expect([dv.getFloat32(0, true), dv.getFloat32(4, true), dv.getUint32(20, true)]).toEqual([
+      1, 2, 3,
     ]);
   });
 });

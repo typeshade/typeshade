@@ -11,15 +11,8 @@
 // holds the same behavior through a compiled module.
 
 import { describe, expect, it } from 'vitest';
-import {
-  constantOf,
-  fromShader,
-  fromShaderIn,
-  missingField,
-  shaderField,
-  toShader,
-  type HostType,
-} from './host-values.js';
+import { constantOf, fromShader, fromShaderIn, toShader, type HostType } from './host-values.js';
+import { missingField, shaderField } from './host-key.js';
 import { fromCpu, Misfit, pack, readInto, toCpu, type Layout } from './host-entry.js';
 import type { CpuValue } from './cpu-runtime.js';
 

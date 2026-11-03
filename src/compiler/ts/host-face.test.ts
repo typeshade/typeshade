@@ -2842,9 +2842,10 @@ export const scaled = compute([64], function scaled(gid: builtin<"global_invocat
     const gain = entry.entry.bindings.find((b) => b.name === 'gain');
     expect(gain && 'layout' in gain ? names(gain.layout) : []).toEqual(['#g', 'scale']);
     // The pass program the WebGL2 tier runs packs its uniform from the same host value.
-    expect('gl' in entry.entry).toBe(true);
-    if (!('gl' in entry.entry)) return;
-    const uniform = entry.entry.gl.uniforms.find((u) => u.name === 'gain')!;
+    const program = entry.entry.gl;
+    expect(program).toBeDefined();
+    if (program === undefined) return;
+    const uniform = program.uniforms.find((u) => u.name === 'gain')!;
     expect(JSON.stringify(uniform.layout)).toContain('"name":"#g"');
     // The key is the only difference from the layout the module's own structs give: offsets, sizes
     // and strides are the same.
@@ -2864,10 +2865,10 @@ export const scaled = compute([64], function scaled(gid: builtin<"global_invocat
     expect(() => packBytes(bytes, 0, layout, { g: 1, scale: 2 }, 'gain')).toThrow(Misfit);
     // The manifest is built from the IR alone, with no TypeScript (Rule 11.10): it is the one the
     // module's own structs give, a private field named without its `#`.
-    const program = m.default as typeof plain;
-    expect(JSON.stringify(program.bindings.map((b) => b.layout))).toBe(
+    const manifest = m.default as typeof plain;
+    expect(JSON.stringify(manifest.bindings.map((b) => b.layout))).toBe(
       JSON.stringify(plain.bindings.map((b) => b.layout)),
     );
-    expect(JSON.stringify(program.bindings)).not.toContain('"#g"');
+    expect(JSON.stringify(manifest.bindings)).not.toContain('"#g"');
   });
 });

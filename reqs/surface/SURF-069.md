@@ -4,7 +4,7 @@ derived: false
 level: 69
 links:
 - RULE-0608: ACzJof4XG1J3td1gWZabFg6SznMgvkW7eareHD7el_Q=
-- RULE-0821: yJBnA6-cHdQGUSr5b4JS1M2csJ5ohEBU8erBE5FViEo=
+- RULE-0821: W3_wGoIXknjOwbOhNydVbEh43gSDYLRlnjsAqKDof9M=
 - RULE-1108: MisR3nY29rsiKwQdc1p7511lFOg4kMjozIFwC5l6-Rg=
 - RULE-1110: 6n50gvRAqatLpixdrwAN1qDST450zh5As5GXpuBgO9Y=
 - RULE-1111: 6H0GdVttOnAchqQQQAZ2wh8l3Y-H7VjH8YqkW_jbtHQ=

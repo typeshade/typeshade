@@ -33,7 +33,7 @@ import type { PackOverride } from './manifest-types.js';
 import { copyLimits, isMinimumLimit } from './device-limits.js';
 import { retainAdapter } from './device-info.js';
 import { printConsole, printDropped } from './console-print.js';
-import { missingField, shaderField } from './host-values.js';
+import { missingField, shaderField } from './host-key.js';
 
 // ─── what the generated module carries ───────────────────────────────────────────────────────
 
@@ -1424,9 +1424,12 @@ const inputProjections = new WeakMap<Layout, { logical: Layout & { k: 'a' }; off
 /** Register a private scalar-field projection. Authored and resident layouts never register. */
 export function projectInputLayout(logical: Layout & { k: 'a' }, physical: Layout): void {
   if (logical.e.k !== 'o' || physical.k !== 'a' || physical.e.k !== 'o') return;
-  const fields = new Map(physical.e.f.map(([name, offset]) => [name, offset]));
+  // A field is the same field under its host key and under its name: a private name `#x` is the
+  // field `x` (Rule 8.21, change 0109, Amendment 2), and the physical struct is made of the IR's.
+  const fields = new Map(physical.e.f.map(([name, offset]) => [shaderField(name), offset]));
   const offsets = new Array<number>(logical.st / 4).fill(-1);
-  for (const [name, offset] of logical.e.f) offsets[offset / 4] = fields.get(name) ?? -1;
+  for (const [name, offset] of logical.e.f)
+    offsets[offset / 4] = fields.get(shaderField(name)) ?? -1;
   inputProjections.set(physical, { logical, offsets });
 }
 

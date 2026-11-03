@@ -34,7 +34,8 @@ import { fnReads, fnWrites } from '../../core/passes/effects.js';
 import { GPU_STUBS, type CpuValue } from '../../core/cpu-runtime.js';
 import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../core/intrinsics.js';
 import { generateModuleJs } from '../../core/cpu-codegen.js';
-import { shaderField, type HostNumber, type HostType } from '../../core/host-values.js';
+import type { HostNumber, HostType } from '../../core/host-values.js';
+import { shaderField } from '../../core/host-key.js';
 import { zeroOf } from '../../core/cpu-runtime.js';
 import { optionalInner } from './optional.js';
 import { typeLayout } from '../../core/reflect.js';
@@ -1590,7 +1591,11 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ranges: [],
     };
   }
-  const structs = keyedStructs(new Map(plan.module.structs.map((x) => [x.name, x])), c.privates);
+  // The layouts below are applied to the CPU tier's values, which name a field a private name
+  // declares as the module does (the arguments by value, the records of a Map or a Set), or to
+  // words. They are built from the module's own structs. A kernel function's arrays are host
+  // values: their layouts are built above, from the structs that name the field by its host key.
+  const structs = new Map(plan.module.structs.map((x) => [x.name, x]));
   const argsLayout = layoutOf(
     { kind: 'struct', name: plan.argsStruct },
     'std140',
@@ -1774,7 +1779,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
               const layout = layoutOf(
                 binding.type,
                 'std430',
-                keyedStructs(new Map(projectedModule.structs.map((s) => [s.name, s])), c.privates),
+                new Map(projectedModule.structs.map((s) => [s.name, s])),
                 authorTypeText,
               );
               if ('none' in layout) throw new Error(layout.none);

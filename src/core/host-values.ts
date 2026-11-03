@@ -16,9 +16,10 @@
 //
 // It is runtime code: a module the Vite plugin generates imports it through `typeshade/runtime`,
 // with the type of every parameter written into that module as a `HostType` literal. It imports
-// nothing, so what an application ships for it is this file.
+// one leaf, `host-key.ts`, so what an application ships for it is these two files.
 
 import type { CpuValue } from './cpu-runtime.js';
+import { missingField, shaderField } from './host-key.js';
 
 /** A scalar a host value carries as a `number`. */
 export type HostNumber = 'f32' | 'f64' | 'i32' | 'u32';
@@ -62,18 +63,6 @@ export type HostType =
       readonly f: readonly (readonly [string, HostType])[];
       readonly s: string;
     };
-
-/** The name of the field of a shader's struct that the host key `key` stands for: the key `#x` of
- *  a private name is the field `x` (Rule 8.12), and any other key is the field of its name. */
-export const shaderField = (key: string): string => (key.charCodeAt(0) === 35 ? key.slice(1) : key);
-
-/** Why a host object has no field under `key`. A private name is held by an instance built with
- *  `new` and by no plain object a host writes, so its sentence says to build one (change 0109,
- *  Amendment 2, as surface section 26 says of an object literal). */
-export const missingField = (key: string): string =>
-  key.charCodeAt(0) === 35
-    ? `the field is missing. ${JSON.stringify(key)} is a private name, which an instance holds and a plain object does not. Build the value with new`
-    : 'the field is missing';
 
 const RANGE: Record<'i32' | 'u32', readonly [number, number]> = {
   i32: [-0x80000000, 0x7fffffff],
