@@ -299,10 +299,23 @@ export function lowerSourceFunctions(
       stmt.name !== undefined
     ) {
       const base = irName ?? stmt.name.text;
-      if (
-        fnAt.size > 0 &&
-        (decoratorsOf(stmt).length > 0 || stageCallOfDeclaration(stmt) !== undefined)
-      ) {
+      const isEntry = decoratorsOf(stmt).length > 0 || stageCallOfDeclaration(stmt) !== undefined;
+      // An entry is compiled once, as the pipeline calls it, with no type arguments, so a generic
+      // one has no instance to compile, and nothing would say so (Rule 8.9).
+      if (isEntry && (stmt.typeParameters?.length ?? 0) > 0) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          stmt.typeParameters![0]!,
+          `"${stmt.name.text}" is an entry, which the pipeline calls with no type arguments, so ` +
+            `a generic entry has no instance to compile: write its types out, or move the ` +
+            `generic code into a helper the entry calls (Rule 8.9).`,
+          TS_CODES.FUNCTION_SHAPE,
+        );
+        refused.add(base);
+        continue;
+      }
+      if (fnAt.size > 0 && isEntry) {
         // An entry's parameters come from the pipeline, and no call hands it anything. A stage
         // call's function is an entry as a decorated one is (change 0111).
         pushDiag(

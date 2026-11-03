@@ -10,12 +10,13 @@
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
 import { compileModule } from '../oracle.js';
-import { compileModuleJs } from '../cpu-codegen.js';
+import { compileModuleJs, generateModuleJs } from '../cpu-codegen.js';
 import { emitModule } from '../backends/wgsl.js';
 import { emitGlslModule } from '../backends/glsl.js';
 import { TypeShadeError } from '../diagnostics/error.js';
 import { grad } from './grad.js';
 import { gradCheck } from './grad-check.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import type { Expr, FuncDecl, ModuleDecl } from '../ir/nodes.js';
 
 function moduleOf(src: string): ModuleDecl {
@@ -917,6 +918,160 @@ describe('grad reverse: loops under the checkpoint schedule (change 0056, items 
     const withEntry = { ...d.module, funcs: [...d.module.funcs, fs] };
     expect(emitModule(withEntry)).toContain('array<f32, 8>');
     expect(emitGlslModule(withEntry, 'fragment')).toMatch(/float\[8\] \w+/);
+  });
+});
+
+describe('grad reverse: the CPU tier generates the derivative of a loop (issue #1017)', () => {
+  // The derivative writes each of its loops over a counter it declared ahead of the loop
+  // (`iter`, `segment`, `replay`, `pass`), so the first statement of a loop is an assignment,
+  // not a declaration: the count sweep reads `iter` after its loop has ended. The code
+  // generator took only a `let` or a `var` there and gave the whole function to the
+  // interpreter. `compileModuleJs` still returns the interpreter's answer for such a function,
+  // so a differential of the values cannot see it. These rows read `fallbacks`.
+  interface LoopCase {
+    readonly name: string;
+    readonly source: string;
+    readonly wrt: readonly string[];
+    readonly points: readonly (readonly number[])[];
+    readonly checkpoints?: number;
+  }
+  const LOOPS: readonly LoopCase[] = [
+    {
+      name: 'a frame loop of a constant bound (the loss of issue #1017)',
+      source: `export function f(k: f32): f32 {
+  let s: f32 = 0.;
+  for (let i: i32 = 0; i < 1024; i++) {
+    s += sin(k * f32(i));
+  }
+  return s;
+}`,
+      wrt: ['k'],
+      points: [[0.01], [0.37]],
+    },
+    {
+      name: 'a counted loop of a run-time bound on 4 slots, so a segment is reached again',
+      source: `export function f(x: f32, k: f32, n: i32): f32 {
+  let s: f32 = x;
+  let v = vec2(x, k);
+  for (let i: i32 = 0; i < n; i++) {
+    const w = sin(s * k + 0.01 * f32(i));
+    s = s * 0.9 + w * 0.2;
+    v = vec2(v.y * 0.5, v.x + w * k * 0.1);
+  }
+  return s + v.x * v.y;
+}`,
+      wrt: ['x', 'k'],
+      points: [
+        [0.3, 0.8, 17],
+        [-0.6, 1.2, 0],
+      ],
+      checkpoints: 4,
+    },
+    {
+      name: 'a while loop, whose count the count sweep measures',
+      source: `export function f(k: f32, n: i32): f32 {
+  let x = k;
+  let i: i32 = 0;
+  while (i < n) {
+    x = x * k;
+    i++;
+  }
+  return x;
+}`,
+      wrt: ['k'],
+      points: [
+        [1.5, 3],
+        [0.9, 30],
+      ],
+      checkpoints: 4,
+    },
+    {
+      name: 'front-to-back compositing that breaks early',
+      source: `export function f(a0: f32, k: f32, n: i32): f32 {
+  let t: f32 = 1.;
+  let c: f32 = 0.;
+  for (let i: i32 = 0; i < n; i++) {
+    const a = a0 * exp(-k * f32(i) * 0.1);
+    c += t * a * (0.5 + 0.1 * f32(i));
+    t *= 1. - a;
+    if (t < 0.02) {
+      break;
+    }
+  }
+  return c + t * k;
+}`,
+      wrt: ['a0', 'k'],
+      points: [
+        [0.3, 0.2, 6],
+        [0.05, 0.2, 200],
+      ],
+      checkpoints: 3,
+    },
+    {
+      name: 'a continue, a return from inside a loop and nested loops',
+      source: `export function f(x: f32, k: f32, n: i32): f32 {
+  let acc: f32 = 0.;
+  for (let i: i32 = 0; i < n; i++) {
+    if (i % 3 == 1) {
+      continue;
+    }
+    let row: f32 = 0.;
+    for (let j: i32 = 0; j < i; j++) {
+      row += sin(x * f32(j) + k) * 0.3;
+    }
+    acc = acc * 0.8 + row * k;
+    if (acc > 4.) {
+      return acc * x;
+    }
+  }
+  return acc + x;
+}`,
+      wrt: ['x', 'k'],
+      points: [
+        [0.4, 0.7, 9],
+        [1.3, 2.1, 12],
+      ],
+      checkpoints: 2,
+    },
+  ];
+
+  /** Every number a value holds, in order: an adjoints struct reads as its fields. */
+  const numbers = (v: unknown): number[] =>
+    Array.isArray(v)
+      ? v.flatMap(numbers)
+      : typeof v === 'object' && v !== null
+        ? Object.values(v).flatMap(numbers)
+        : [v as number];
+
+  const editor = createTypeshadeLanguageService();
+  let documents = 0;
+
+  it.each(LOOPS)('$name: no function falls back, and each gives the interpreter bits', (c) => {
+    // The loss is a program both halves accept (Rule 12.7).
+    const uri = `loop-${String(documents++)}.shade.ts`;
+    editor.openDocument(uri, `"use typeshade"\n${c.source}`);
+    expect(editor.getDiagnostics(uri).filter((x) => x.severity === 'error')).toEqual([]);
+    const m = moduleOf(c.source);
+    const d = grad(m, 'f', c.wrt, {
+      mode: 'reverse',
+      ...(c.checkpoints !== undefined ? { checkpoints: c.checkpoints } : {}),
+    });
+    for (const precision of ['f32', 'f64'] as const) {
+      expect(generateModuleJs(d.module, { precision }).fallbacks, `${precision} fallbacks`).toEqual(
+        [],
+      );
+      const js = compileModuleJs(d.module, { precision }).fns[d.name] as Fn;
+      const interp = compileModule(d.module, { precision }).fns[d.name] as Fn;
+      for (const pt of c.points) {
+        const got = numbers(js(...pt, 1));
+        const want = numbers(interp(...pt, 1));
+        expect(got.length, `${precision} ${JSON.stringify(pt)}`).toBeGreaterThan(0);
+        expect(
+          got.every((x, i) => Object.is(x, want[i])) && got.length === want.length,
+          `${precision} ${JSON.stringify(pt)}: generated ${JSON.stringify(got)}, interpreter ${JSON.stringify(want)}`,
+        ).toBe(true);
+      }
+    }
   });
 });
 

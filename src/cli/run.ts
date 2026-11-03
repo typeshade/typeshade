@@ -8,6 +8,7 @@
 import { checkDocuments, type CheckDocument } from '../language-service/check.js';
 import { CHECK_FORMATS, formatCheckReport, type CheckFormat } from './format.js';
 import { resolvePath, relativeTo } from './paths.js';
+import { inheritedRules, isIgnored, parseIgnoreFile, type IgnoreRule } from './ignore.js';
 import { initializeProject } from './init.js';
 import { migrateSource } from './migrate.js';
 import {
@@ -50,8 +51,14 @@ export const USAGE = `Usage: tshc check [options] [paths...]
 
 Checks "use typeshade" files the way the editor does, and runs the WGSL and GLSL
 backends the way compile() does. A directory is searched for *.shade.ts files
-(node_modules, dist and .git are skipped); a file is checked whatever its name.
-With no path, the working directory is searched.
+(node_modules, dist and .git are skipped, and so is a path a .gitignore excludes);
+a file is checked whatever its name. With no path, the working directory is searched.
+
+The .gitignore files are read as Git reads them: from the root of the repository (the
+nearest directory with a .git) down to each directory searched. A path named on the
+command line is searched even when a .gitignore excludes it. .git/info/exclude and the
+global ignore file are not read. A symbolic link to a directory that no .gitignore
+excludes is followed.
 
 sync writes the host view of each *.shade.ts beside it, name.shade.typeshade.ts,
 which a host tsconfig with moduleSuffixes [".typeshade", ""] reads for an import of
@@ -85,13 +92,28 @@ Exit status: 0 when no error was found, 1 when at least one was, 2 when the
 command itself could not run (a bad option, a missing path, no files to check).
 `;
 
-function walk(host: CliHost, dir: string, out: string[]): void {
+/**
+ * Collects the `*.shade.ts` files below `dir` into `out`. `inherited` holds the rules of the
+ * `.gitignore` files above `dir`; the one in `dir` and in each directory below it is read as the
+ * walk enters it, and an entry a rule ignores is left out, a directory with all that is inside
+ * (#1001). A path a command names is where the walk starts, and no rule ignores that.
+ */
+function walk(
+  host: CliHost,
+  dir: string,
+  out: string[],
+  inherited: readonly IgnoreRule[] = inheritedRules(host, dir),
+): void {
+  const own = host.readFile(`${dir}/.gitignore`);
+  const rules = own === undefined ? inherited : [...inherited, ...parseIgnoreFile(own, dir)];
   for (const name of [...host.list(dir)].sort()) {
     const path = `${dir}/${name}`;
     const kind = host.kind(path);
     if (kind === 'directory') {
-      if (!SKIPPED_DIRECTORIES.has(name)) walk(host, path, out);
-    } else if (kind === 'file' && name.endsWith(SHADE_SUFFIX)) out.push(path);
+      if (!SKIPPED_DIRECTORIES.has(name) && !isIgnored(rules, path, true))
+        walk(host, path, out, rules);
+    } else if (kind === 'file' && name.endsWith(SHADE_SUFFIX) && !isIgnored(rules, path, false))
+      out.push(path);
   }
 }
 
