@@ -676,8 +676,23 @@ direction. Its commits say `Change: 0109`:
 - `b92ac181`: the view, the generated class, the conversions, Rule 8.21, surface §26 and §64,
   `src/AGENTS.md` and `reqs/`.
 - `5d51d606`: the merge of `main` at `75bd8cc8` (#1022 and #1025), with no conflict.
-- The commit that holds the shared leaf `src/core/host-key.ts`, the bundle budgets, the changelog
-  entry and this record.
+- `e5a21e4c`: the shared leaf `src/core/host-key.ts`, the match of the projected layout by field,
+  the layouts that take a value of the CPU tier, the tests that found both, the bundle budgets and
+  the changelog entry.
+- `b4f324f4`: this record, the wording of Rule 8.21 (the call layer), and the budgets at the bytes
+  CI measured on `e5a21e4c`.
+- `8110b12b`: the merge of `main` at `043f8cad` (changes 0119 and 0120), with conflicts in the
+  budgets, `src/AGENTS.md` and `host-face.ts`, each resolved by keeping both sides.
+- `35f5fa4e`: the budgets at the bytes measured on that merge.
+- `c666ad9a`: the merge of `main` at `ad0a3865` (change 0119, stage 3), whose one conflict was the
+  derived item `reqs/surface/SURF-065.md`.
+- The commit that holds this list.
+
+The two merges `8110b12b` and `c666ad9a` were committed with `--no-verify` (issue #901), as the
+merges of #890 were: the commit-msg policy reads a merge against its first parent and counts what
+`main` changed as changes of this branch. `bun run precommit` passed on each merged index, and
+`bun scripts/changes.ts --base origin/main` passed on each merge ("This change touches Rule 8.21;
+surface §26, surface §64").
 
 **Delivered configuration.**
 
@@ -721,14 +736,22 @@ direction. Its commits say `Change: 0109`:
   key, `pack` refused the value of the CPU tier at `.gain.#g`. Both pass with the code.
 - `env -u NODE_OPTIONS bun run test` on the tree of `e5a21e4c`, from 2026-11-03T02:25:45Z to
   02:39:55Z (847.62 s): 522 files and 12,419 tests passed, 4 skipped and 1 todo.
-- `bun run build`, `bun run lint` and `bun run format:check`: exit 0 on that tree.
-- `bun run gate:boundary`: exit 0 after the caps moved. Measured on that tree in gzip bytes, against
-  `75bd8cc8` measured in a clean worktree by the same script: `typeshade/runtime` 151,578 (+135;
-  split initial 37,304, +115; aggregate 153,541, +145), `typeshade/fuse` 112,593 (+139; split initial
-  14,578, +136; aggregate 113,150, +261), `typeshade/algorithms` 48,235 (+131), `typeshade/random`
-  32,034 (+116), `typeshade/emit` 117,301 (+0). The import of `host-values.ts` from `host-entry.ts`
-  had cost 962 bytes of the runtime's split initial download; the leaf `host-key.ts` took it to 115.
-  CI measured the same bytes as this container on that tree.
+- `env -u NODE_OPTIONS bun run test` on the tree of `35f5fa4e`, from 2026-11-03T02:52:33Z to
+  03:03:40Z (664.51 s): 523 files and 12,432 tests passed, 4 skipped and 1 todo.
+- On the tree of `c666ad9a`, which merges `main` at `ad0a3865`: `bun run build`, `bun run lint` and
+  `bun run format:check` exit 0, and 12 files of tests passed (489 tests): the four files of the
+  amendment, `src/core/subgroup-probe.test.ts`, `src/runtime/device.test.ts`,
+  `src/compiler/ts/host-kernel.test.ts`, `src/reqs.test.ts`, `src/doc-references.test.ts`,
+  `src/changes.test.ts`, `src/api-surface.test.ts` and `src/commit-policy.test.ts`.
+- `bun run gate:boundary`: exit 0 on the tree of `c666ad9a`, after the caps moved. Measured in gzip
+  bytes against the caps of `main` at `043f8cad`, which are its own measurements: `typeshade/runtime`
+  153,148 (+116; split initial 38,701, +112; aggregate 155,069, +139), `typeshade/fuse` 113,972
+  (+140; split initial 15,803, +133; aggregate 114,533, +251), `typeshade/algorithms` 50,133 (+130),
+  `typeshade/random` 33,373 (+130) and `typeshade/emit` 117,301 (+0); `ad0a3865` moves no bundle.
+  The first measurement of this branch preceded its last edit of `host-entry.ts`, and CI measured
+  more bytes (`typeshade/runtime` 151,578 against 151,566 on `e5a21e4c`); a measurement here on that
+  tree gave CI's bytes. The import of `host-values.ts` from `host-entry.ts` had cost 962 bytes of
+  the runtime's split initial download, and the leaf `host-key.ts` removed it.
 - Not run in this container: `bun run gate:compile`, `bun run gate:differential`,
   `bun run gate:render` and `bun run gate:perf` (the change emits no shader text and changes no
   lowering; CI runs them), and the TypeScript 5.9 and 6.0 legs, which CI runs.
@@ -740,7 +763,10 @@ left to write; `python3 scripts/doorstop-check.py -C -e -F`, Doorstop 3.2, with 
 after `RULE-0821` and `SURF-026` were reviewed and the links of `SURF-026`, `SURF-064`, `SURF-065`,
 `SURF-067`, `SURF-069`, `SURF-075` and `SURF-076` were cleared after reading each section against
 Rule 8.21 (the rule's wording changed three times, and each change was followed by a new review of
-`RULE-0821` and a new clearing); `bun scripts/changes.ts --base origin/main`, exit 0 ("This change
+`RULE-0821` and a new clearing; after the merge of `ad0a3865` the link of `SURF-065` was cleared
+once more, after reading section 65 with the paragraphs `main` added to it, which speak of the
+subgroup variant and say nothing of a struct's host value); `bun scripts/changes.ts --base
+origin/main`, exit 0 ("This change
 touches Rule 8.21; surface §26, surface §64"; still to do: Rule 8.20, Rule 11.8, surface §65);
 `bun scripts/ifchange.ts --base origin/main`, exit 0; `bun run precommit --message-file` on each
 commit's message, exit 0; `bun scripts/semicolons.ts --check`, exit 0.
@@ -769,6 +795,9 @@ commit's message, exit 0; `bun scripts/semicolons.ts --check`, exit 0.
    prototype (Rule 8.21). `tsc` refuses such an object where the class is the type, because the
    private name gives the class a brand. Open: an amendment may say it in Rule 8.21 if the owner
    wants it refused at run time too.
+6. Two merge commits, `8110b12b` and `c666ad9a`, were committed with `--no-verify`. Closed: the
+   Implementation paragraph gives the reason (issue #901), and the checks of the hook passed on each
+   merged index.
 
 **Pending work.** The program runtime reads a binding by the manifest's layout, which names the
 field `x` (Rule 11.10). On the merged tree an instance of a class with a private field `#x` that is
