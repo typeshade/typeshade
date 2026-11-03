@@ -148,3 +148,86 @@ describe('a helper parameter named like a constant its function reads is respell
     expect(m.funcs[0]).toBe(reads);
   });
 });
+
+describe('a helper parameter named like a function its function calls is respelled (Rule 3.2, #1010)', () => {
+  // A module built from IR literals, as an engine builds one. A call prints the name of its
+  // function, and a parameter prints its own name, so a parameter of the function's name would be
+  // called in its function. The module emits a class function as `Voice_shift`, which a program
+  // calls as `Voice.shift(1)` while a parameter has the emitted name. A function that does not call
+  // the function keeps its parameter's name.
+  const param = (name: string): Expr => ({ op: 'param', type: f32T, name });
+  const sum = (a: Expr, b: Expr): Expr => ({ op: 'binop', bop: '+', type: f32T, a, b });
+  const shift: FuncDecl = {
+    name: 'shift',
+    params: [{ name: 'k', type: f32T }],
+    ret: f32T,
+    body: [{ s: 'return', expr: param('k') }],
+  };
+  const callShift: Expr = {
+    op: 'call',
+    type: f32T,
+    fn: 'shift',
+    args: [{ op: 'lit', type: f32T, value: 1 }],
+    declRef: shift,
+  };
+  const calls: FuncDecl = {
+    name: 'calls',
+    params: [{ name: 'shift', type: f32T }],
+    ret: f32T,
+    body: [{ s: 'return', expr: sum(callShift, param('shift')) }],
+  };
+  const ignores: FuncDecl = {
+    name: 'ignores',
+    params: [{ name: 'shift', type: f32T }],
+    ret: f32T,
+    body: [{ s: 'return', expr: param('shift') }],
+  };
+  const call = (f: FuncDecl): Expr => ({
+    op: 'call',
+    type: f32T,
+    fn: f.name,
+    args: [{ op: 'lit', type: f32T, value: 7 }],
+    declRef: f,
+  });
+  const fragment: FuncDecl = {
+    name: 'fs',
+    params: [],
+    ret: vec4fT,
+    retAttr: '@location(0)',
+    attrs: ['@fragment'],
+    stage: 'fragment',
+    body: [
+      {
+        s: 'return',
+        expr: {
+          op: 'construct',
+          type: vec4fT,
+          args: [call(calls), call(ignores), { op: 'lit', type: f32T, value: 0 }, callShift],
+        },
+      },
+    ],
+  };
+  const m: ModuleDecl = {
+    consts: [],
+    structs: [],
+    bindings: [],
+    funcs: [shift, calls, ignores, fragment],
+  };
+
+  it('respells the parameter where its function calls the function, and only there', () => {
+    const wgsl = emitModule(m);
+    expect(wgsl).toContain('fn shift(k: f32) -> f32 {');
+    expect(wgsl).toContain('fn calls(shift_: f32) -> f32 {\n  return (shift(1.0) + shift_);\n}');
+    expect(wgsl).toContain('fn ignores(shift: f32) -> f32 {\n  return shift;\n}');
+    const glsl = emitGlslModule(m, 'fragment');
+    expect(glsl).toContain('float shift(float k) {');
+    expect(glsl).toContain('float calls(float shift_) {\n  return (shift(1.0) + shift_);\n}');
+    expect(glsl).toContain('float ignores(float shift) {\n  return shift;\n}');
+  });
+
+  it('leaves the authored module as it was', () => {
+    emitModule(m);
+    expect(calls.params[0]!.name).toBe('shift');
+    expect(m.funcs[1]).toBe(calls);
+  });
+});

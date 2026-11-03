@@ -286,3 +286,44 @@ describe('inheritSpellings: a derived module takes the parent plan', () => {
     expect(spellingsOf(child).glsl.bindings.get('shared')).toBe('shared_');
   });
 });
+
+describe('an entry parameter named like a helper function (#1010)', () => {
+  // The parameter of an entry is a member of the plan. In WGSL it hides a function of its name in
+  // the entry, and in GLSL it is a global `in`, which a function of its name defines a second time.
+  // The varying a vertex entry returns under that name is spelled the same (one table, Q3).
+  const entry = (name: string, params: string[]): FuncDecl => ({
+    ...helper(name, params),
+    attrs: ['@fragment'],
+    stage: 'fragment',
+  });
+
+  it('gives the parameter a fresh spelling on both targets', () => {
+    const plan = planSpellings(
+      moduleOf({ funcs: [helper('shift'), entry('fs', ['shift', 'uv'])] }),
+    );
+    for (const t of [plan.wgsl, plan.glsl]) {
+      expect(t.members.get('shift')).toBe('shift_');
+      expect(t.members.has('uv')).toBe(false);
+      expect(t.funcs.has('shift')).toBe(false);
+    }
+  });
+
+  it('keeps the name when no helper function has it', () => {
+    const plan = planSpellings(moduleOf({ funcs: [helper('other'), entry('fs', ['shift'])] }));
+    expect(plan.wgsl.members.size).toBe(0);
+    expect(plan.glsl.members.size).toBe(0);
+  });
+
+  it('keeps the name of a helper parameter, which the pass of the locals spells', () => {
+    const plan = planSpellings(moduleOf({ funcs: [helper('shift'), helper('g', ['shift'])] }));
+    expect(plan.wgsl.members.size).toBe(0);
+    expect(plan.glsl.members.size).toBe(0);
+  });
+
+  it('spells the parameter past the names of the module', () => {
+    const plan = planSpellings(
+      moduleOf({ funcs: [helper('shift'), helper('shift_'), entry('fs', ['shift'])] }),
+    );
+    expect(plan.wgsl.members.get('shift')).toBe('shift_1');
+  });
+});

@@ -233,10 +233,16 @@ function planTarget(m: ModuleDecl, t: SpellTarget): TargetSpellings {
     ...nonHostStructs.flatMap((s) => s.fields.map((f) => f.name)),
     ...entryParams,
   ];
+  // An entry parameter named like a helper function hides it in WGSL where the entry calls it, and
+  // is a second definition of it in GLSL, where the parameter is a global `in` (#1010). It takes a
+  // fresh spelling whether the entry calls the function or not.
+  const helperNames = new Set(helpers);
   const members = allocate(
     memberNames,
     (name) =>
-      unspell(name) || (t === 'wgsl' && entryParams.has(name) && WGSL_PREDECLARED.has(name)),
+      unspell(name) ||
+      (t === 'wgsl' && entryParams.has(name) && WGSL_PREDECLARED.has(name)) ||
+      (entryParams.has(name) && helperNames.has(name)),
     unspell,
   );
 
