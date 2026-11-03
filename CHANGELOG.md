@@ -1570,6 +1570,24 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **`resident()`, `write()` and `device.array()` refuse a value they cannot copy, and name the place
+  (#1002).** A handle holds a copy of the host value it is given, made level by level (`copyOf` in
+  `src/core/resident.ts`). A level that no prototype and no own property can make again got a copy
+  with no word. A nested `Date` or `ArrayBuffer` came back as an object without its slots. A
+  `DataView` threw from inside the copy. A value that held itself overflowed the stack. An own
+  `"__proto__"` key, as `JSON.parse` makes one, set the prototype of the copy. Each is now a
+  `TypeError` that names the place and the kind:
+  `resident(): takes a host value, and particles[2].born is a Date, which no binding holds.` A
+  `write()` says `write()` first. A cycle says what it refers back to, as in
+  `me refers back to the value, a cycle`. The refusal covers every built-in that keeps its data in
+  internal slots, a `RegExp`, an `Error`, a `Promise`, a `WeakMap` and a boxed number among them. A
+  refused `write()` leaves the handle with what it held. An own `"__proto__"` key is copied as the
+  data property it is, and the copy keeps its prototype. A value that two places hold is no cycle,
+  and each place copies it. The copy of a plain value is not slower: the first walk keeps no place,
+  and a second walk that does runs only where a level is refused or the value is deeper than 100
+  levels. Surface §65 names no list of host values, only Rule 8.21, which none of these values
+  meets, so it needs no sentence.
+
 - **A parameter or a local named like a function its function calls is respelled in the emitted
   text (#1010).** The module emits `Voice.shift(3)` as the call `Voice_shift(3u)`, a namespace's
   `Ns.f` as `Ns_f`, the instance `pick<u32>` as `pick_u32`, a local function `bump` of `g` as
@@ -1626,6 +1644,20 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   (`a mat2x2<f64> cannot be kept in state`), since the emulation reads no column of one. The
   compile gate's compute case `across` keeps an `f64` and a `vec2f64` across a barrier: both WebGL2
   tiers must run it, with the `_fp64` guard bound as #966 binds it, and match WebGPU.
+
+- **A static field, an enum member or a namespace constant read in an entry whose parameter has the
+  name the module emits for it is read as the constant (#1009).** `Voice.OFFSET` is emitted as the
+  constant `Voice_OFFSET`, and `fragment(function fs(Voice_OFFSET: location<0, f32>) { … })` may name
+  a parameter so. Since #999 a helper's parameter is respelled in that case, but an entry's was not,
+  and the read drew `TS8022 "Voice" has no static field "OFFSET"` in `compile()` and in the editor,
+  for `E.A` beside a parameter `E_A` and `Ns.K` beside `Ns_K` as well. The spelling plan
+  (`planSpellings`) now gives the constant a fresh spelling, `Voice_OFFSET_`, where an entry, or a
+  function it calls, reads it under the name of one of the entry's parameters. The parameter keeps
+  its name, which the host sees. WGSL would print the parameter for the constant, and GLSL ES 3.00
+  would declare the entry's input and the constant under one name. A static field the file writes, a
+  module variable, read beside a parameter of that name stays refused, in a function and in an
+  entry, as in #999: the IR holds a name once in a function, and the oracle, the code generator and
+  the debugger read the parameter for the variable.
 
 - **The CPU tier generates the reverse-mode derivative of a function with a loop, and no longer gives
   it to the interpreter (#1017).** `grad(m, 'f', ['k'], { mode: 'reverse' })` writes each loop of the
