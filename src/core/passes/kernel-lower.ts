@@ -114,6 +114,11 @@ export interface KernelLoopPlan {
     readonly a: number;
     readonly c: number;
     readonly read?: true;
+    /** For a read that stands under comparisons of the counter with a bound (#997): each
+     *  comparison and the CPU-tier function that gives its bound. The call checks the read over
+     *  the iterations where every comparison holds. Absent when the read stands under none, or
+     *  under none whose bound the host can compute. */
+    readonly guards?: readonly { readonly cop: '<' | '<=' | '>' | '>='; readonly fn: string }[];
   }[];
   /** The textures the loop stores into at `vec2(i % W, i / W)` (change 0077), each with the
    *  CPU-tier function that returns its `W`, which the call checks against the texture's size
@@ -541,10 +546,6 @@ export function lowerKernel(
       for (const w of v.writes)
         if (w.kind === 'affine' && arrays.some((p) => p.name === w.name))
           for (const c of w.c) checks.push({ param: w.name, a: w.a, c });
-    if (v.ok && !onDevice)
-      for (const r of v.reads)
-        if (arrays.some((p) => p.name === r.name))
-          for (const f of r.forms) checks.push({ param: r.name, a: f.a, c: f.c, read: true });
     // Each texture the loop stores into, with the function that gives its row width `W`.
     const texels: NonNullable<KernelLoopPlan['texels']>[number][] = [];
     if (v.ok)
@@ -596,6 +597,41 @@ export function lowerKernel(
           rows.push({ param: w.name, width: rangeFn('row', w.width).name });
         }
       }
+    // The reads of an array the loop does not write, checked at the call over the iterations where
+    // the comparisons of the counter they stand under hold (#997). A bound the host cannot compute,
+    // one that reads an element of an array or a texture, is left out: the read is then checked
+    // over the iterations the other comparisons keep, or over the whole loop.
+    if (v.ok && !onDevice) {
+      const arrayNames = new Set(arrays.map((p) => p.name));
+      let guardCount = 0;
+      for (const r of v.reads) {
+        if (!arrayNames.has(r.name)) continue;
+        for (const form of r.forms) {
+          const guards: NonNullable<KernelLoopPlan['checks'][number]['guards']>[number][] = [];
+          for (const g of form.guards ?? []) {
+            const asStmt = [{ s: 'call', expr: g.bound } as Stmt];
+            if (readsElements(asStmt, arrayNames) || firstName(asStmt, textureNames) !== undefined)
+              continue;
+            const fn: FuncDecl = {
+              name: `${f.name}__guard${j}_${guardCount++}`,
+              params: f.params,
+              ret: g.bound.type,
+              body: [...prelude, { s: 'return', expr: g.bound }],
+              kernel: true,
+            };
+            ranges.push(fn);
+            guards.push({ cop: g.cop, fn: fn.name });
+          }
+          checks.push({
+            param: r.name,
+            a: form.a,
+            c: form.c,
+            read: true,
+            ...(guards.length > 0 ? { guards } : {}),
+          });
+        }
+      }
+    }
     const reductions = v.ok ? v.reductions : [];
     for (const r of reductions) reduced.add(r.name);
     const loopCtx: LoopCtx = {

@@ -154,6 +154,13 @@ export interface LoopAccess {
   readonly at?: SourceSpan;
 }
 
+/** A comparison of the counter with a loop-invariant bound that holds where a read is: `i < bound`
+ *  for `if (i < bound) { … xs[i] … }` (#997). */
+export interface LoopGuard {
+  readonly cop: '<' | '<=' | '>' | '>=';
+  readonly bound: Expr;
+}
+
 /** How an accepted loop reads one outer array parameter it does not write (change 0058, F3). */
 export interface LoopRead {
   readonly name: string;
@@ -162,8 +169,15 @@ export interface LoopRead {
   /** The first read that is not at `i`; absent when `atI`. */
   readonly first?: LoopAccess;
   /** Each read at `a*i + c` with constants, which the call checks against the array's length
-   *  as it checks a write (#655). A read of another form is not among them. */
-  readonly forms: readonly { readonly a: number; readonly c: number }[];
+   *  as it checks a write (#655). A read of another form is not among them. A read that stands
+   *  under comparisons of the counter with a bound carries them as `guards`, and the call checks
+   *  it over the iterations those keep (#997). The same form read under other guards, or under
+   *  none, is another entry. */
+  readonly forms: readonly {
+    readonly a: number;
+    readonly c: number;
+    readonly guards?: readonly LoopGuard[];
+  }[];
 }
 
 /** How an accepted loop writes one outer array parameter, beside the form {@link LoopWrite} gives
@@ -522,8 +536,14 @@ function proveLoop(
   );
   const readAt = new Map<
     string,
-    { atI: boolean; first?: LoopAccess; forms: { a: number; c: number }[] }
+    {
+      atI: boolean;
+      first?: LoopAccess;
+      forms: { a: number; c: number; guards?: readonly LoopGuard[] }[];
+    }
   >();
+  // The comparisons of the counter with a bound that each statement of the body stands under (#997).
+  const guardsAt = guardsByStatement(loop.body, i, lets, local);
   const readBack = new Set<string>();
   let bad: LoopRefusal | undefined;
   walk(loop.body, (st) => {
@@ -602,8 +622,14 @@ function proveLoop(
           seen.atI &&= here;
           const idx = elementIndex(read);
           const form = idx === undefined ? undefined : affine(idx, i, lets);
-          if (form !== undefined && !seen.forms.some((f) => f.a === form.a && f.c === form.c))
-            seen.forms.push(form);
+          const guards = guardsAt.get(st) ?? [];
+          if (
+            form !== undefined &&
+            !seen.forms.some(
+              (f) => f.a === form.a && f.c === form.c && sameGuards(f.guards ?? [], guards),
+            )
+          )
+            seen.forms.push(guards.length > 0 ? { ...form, guards } : form);
           readAt.set(root, seen);
         }
         continue;
@@ -893,6 +919,80 @@ function rootName(e: Expr): string | undefined {
   let b: Expr = e;
   while (b.op === 'index' || b.op === 'member') b = b.base;
   return isName(b) ? b.name : undefined;
+}
+
+// ─── the guards a read stands under (#997) ───────────────────────────────────────────────────
+
+const FLIPPED = { '<': '>', '<=': '>=', '>': '<', '>=': '<=' } as const;
+const NEGATED = { '<': '>=', '<=': '>', '>': '<=', '>=': '<' } as const;
+
+/** The comparisons of the counter `i` with a loop-invariant bound that hold where `cond` holds
+ *  (or where it does not, with `negate`): `i < n`, `4 > i`, and the conjunction of such. The
+ *  negation of a conjunction is an or and says nothing, nor does a test of `i` by anything but
+ *  `<`, `<=`, `>` or `>=`. A bound that names the counter or a name the body declares is not
+ *  invariant: the call computes it before the loop runs. */
+function guardsOf(
+  cond: Expr,
+  i: string,
+  lets: ReadonlyMap<string, Expr>,
+  local: ReadonlySet<string>,
+  negate = false,
+): LoopGuard[] {
+  if (cond.op === 'logical' && cond.lop === '&&' && !negate)
+    return [
+      ...guardsOf(cond.a, i, lets, local, negate),
+      ...guardsOf(cond.b, i, lets, local, negate),
+    ];
+  if (cond.op !== 'compare') return [];
+  const cop = cond.cop;
+  if (cop !== '<' && cop !== '<=' && cop !== '>' && cop !== '>=') return [];
+  const invariant = (x: Expr): boolean => !reads(x, i) && !readsAny(x, local);
+  const make = (c: keyof typeof NEGATED, bound: Expr): LoopGuard[] => [
+    { cop: negate ? NEGATED[c] : c, bound },
+  ];
+  if (isCounter(cond.a, i, lets) && invariant(cond.b)) return make(cop, cond.b);
+  if (isCounter(cond.b, i, lets) && invariant(cond.a)) return make(FLIPPED[cop], cond.a);
+  return [];
+}
+
+/** The guards each statement of `body` stands under, nested statements included: the conditions
+ *  of the `if` arms around it, and the negation of the earlier arms of its `else` chain when
+ *  each of those is one comparison. A statement under none has no entry. */
+function guardsByStatement(
+  body: readonly Stmt[],
+  i: string,
+  lets: ReadonlyMap<string, Expr>,
+  local: ReadonlySet<string>,
+): Map<Stmt, readonly LoopGuard[]> {
+  const out = new Map<Stmt, readonly LoopGuard[]>();
+  const visit = (stmts: readonly Stmt[], inherited: readonly LoopGuard[]): void => {
+    for (const st of stmts) {
+      if (inherited.length > 0) out.set(st, inherited);
+      if (st.s === 'if') {
+        // What the arms before the current one leave true: the negation of each condition.
+        let earlier: LoopGuard[] = [];
+        for (const arm of st.arms) {
+          visit(arm.body, [...inherited, ...earlier, ...guardsOf(arm.cond, i, lets, local)]);
+          earlier = [...earlier, ...guardsOf(arm.cond, i, lets, local, true)];
+        }
+        if (st.elseBody !== undefined) visit(st.elseBody, [...inherited, ...earlier]);
+      } else if (st.s === 'for') visit(st.body, inherited);
+      else if (st.s === 'switch') {
+        for (const c of st.cases) visit(c.body, inherited);
+        if (st.defaultBody !== undefined) visit(st.defaultBody, inherited);
+      }
+    }
+  };
+  visit(body, []);
+  return out;
+}
+
+/** Whether two lists hold the same comparisons, in the same order. */
+function sameGuards(a: readonly LoopGuard[], b: readonly LoopGuard[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((g, k) => g.cop === b[k]!.cop && sameExpr(g.bound, b[k]!.bound))
+  );
 }
 
 // ─── the index forms of R3 ───────────────────────────────────────────────────────────────────

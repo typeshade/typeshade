@@ -1600,6 +1600,21 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **The call checks a read under a guard on the counter over the iterations the guard keeps (#997).**
+  A kernel function's call checks each array a loop reads at `a*i + c` against its length before it
+  dispatches (#655). It took the whole range of the counter for the range of the read. A loop that
+  reads `xs` only under `if (i < 4)`, over `i < 8`, was refused for a `xs` of 4 elements with
+  `padTo(): parameter "xs" holds 4 elements, and loop 1 reads it at indices 0 to 7.`, though no
+  iteration reads past the end, and `compile()` and the editor said nothing. The proof now notes the
+  comparisons of the counter with a loop-invariant bound that a read stands under: `i < 4`, `4 > i`,
+  `i <= n`, `i < xs.length`, a conjunction of such, a guard inside a guard, and the `else` of one
+  comparison. The plan carries each bound as a function of the host (`padTo__guard0_0`), and the
+  call checks the read over the iterations where every comparison holds. A read under no guard keeps
+  the whole range, and so does one under a test of anything but the counter against a bound
+  (`i % 2 == 0`, an or). A guard that keeps the read outside the array is refused as before:
+  `i < 6` over 4 elements, with the same sentence. A bound that reads an element of an array has no
+  value before the loop runs, and is left out. A read in an arm of `?:` is not narrowed.
+
 - **`resident()`, `write()` and `device.array()` refuse a value they cannot copy, and name the place
   (#1002).** A handle holds a copy of the host value it is given, made level by level (`copyOf` in
   `src/core/resident.ts`). A level that no prototype and no own property can make again got a copy

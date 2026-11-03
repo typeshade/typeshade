@@ -203,6 +203,70 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
     expect([...out]).toEqual([2, 4, 6, 8, 10, 12, 14, 16]);
   });
 
+  it('checks a read under a guard on the counter over the iterations the guard keeps, and a read with none over them all (#997)', async () => {
+    // The loop reads `xs` at `i` for `i` from 0 to 7, but only where `guard` holds. The call took
+    // the counter's whole range for the range of the read and refused a 4-element `xs`.
+    const loop = (inside: string, extra = ''): string =>
+      `"use typeshade";\nexport function padTo(out: array<f32>, xs: array<f32>${extra}): void {\n  for (let i: u32 = 0; i < 8; i++) {\n    let v = 0.;\n    ${inside}\n    out[i] = v;\n  }\n}\n`;
+    const guarded = (guard: string, extra = ''): string =>
+      loop(`if (${guard}) {\n      v = xs[i];\n    }`, extra);
+    const run = async (source: string, xs: number[], n?: number): Promise<number[]> => {
+      const padTo = (await load(source)).padTo as (...a: unknown[]) => Promise<void>;
+      const out = new Float32Array(8).fill(9);
+      await (n === undefined
+        ? padTo(out, Float32Array.from(xs))
+        : padTo(out, Float32Array.from(xs), n));
+      return [...out];
+    };
+    /** What the loop does as a plain loop: the read where the guard holds, 0 elsewhere. */
+    const plain = (holds: (i: number) => boolean, xs: number[], at = (i: number) => i): number[] =>
+      Array.from({ length: 8 }, (_, i) => (holds(i) ? xs[at(i)]! : 0));
+    const refused = (xs: number, top: number, bottom = 0): TypeError =>
+      new TypeError(
+        `padTo(): parameter "xs" holds ${String(xs)} elements, and loop 1 reads it at indices ${String(bottom)} to ${String(top)}.`,
+      );
+    const four = [1, 2, 3, 4];
+    // The loop of the issue.
+    expect(await run(guarded('i < 4'), four)).toEqual(plain((i) => i < 4, four));
+    // The same read with no guard is still refused for every index it reaches.
+    await expect(run(loop('v = xs[i];'), four)).rejects.toThrow(refused(4, 7));
+    // A guard that does not keep the read inside the array.
+    await expect(run(guarded('i < 6'), four)).rejects.toThrow(refused(4, 5));
+    await expect(run(guarded('i < 4'), [1, 2, 3])).rejects.toThrow(refused(3, 3));
+    // Each form of the comparison the proof reads, and the bound on either side.
+    expect(await run(guarded('i <= 3'), four)).toEqual(plain((i) => i <= 3, four));
+    expect(await run(guarded('4 > i'), four)).toEqual(plain((i) => i < 4, four));
+    await expect(run(guarded('i <= 4'), four)).rejects.toThrow(refused(4, 4));
+    expect(await run(guarded('i >= 4'), [0, 0, 0, 0, 5, 6, 7, 8])).toEqual(
+      plain((i) => i >= 4, [0, 0, 0, 0, 5, 6, 7, 8]),
+    );
+    await expect(run(guarded('i >= 4'), [1, 2, 3, 4])).rejects.toThrow(refused(4, 7, 4));
+    // A bound the call holds: a parameter, and the length of the array itself.
+    expect(await run(guarded('i < n', ', n: u32'), four, 4)).toEqual(plain((i) => i < 4, four));
+    await expect(run(guarded('i < n', ', n: u32'), four, 6)).rejects.toThrow(refused(4, 5));
+    expect(await run(guarded('i < xs.length'), four)).toEqual(plain((i) => i < 4, four));
+    // Two comparisons, one inside the other, and the else of a comparison.
+    expect(await run(guarded('i >= 2 && i < 6'), [0, 0, 3, 4, 5, 6, 0, 0])).toEqual(
+      plain((i) => i >= 2 && i < 6, [0, 0, 3, 4, 5, 6, 0, 0]),
+    );
+    await expect(run(guarded('i >= 2 && i < 6'), four)).rejects.toThrow(refused(4, 5, 2));
+    expect(
+      await run(loop('if (i >= 4) {\n      v = 1.;\n    } else {\n      v = xs[i];\n    }'), four),
+    ).toEqual(plain((i) => i < 4, four).map((x, i) => (i >= 4 ? 1 : x)));
+    // A guard that is not a comparison of the counter with a bound says nothing: the whole range.
+    await expect(run(guarded('i % 2 == 0'), four)).rejects.toThrow(refused(4, 7));
+    await expect(run(guarded('i < 2 || i > 5'), four)).rejects.toThrow(refused(4, 7));
+    await expect(run(guarded('n > 0', ', n: u32'), four, 1)).rejects.toThrow(refused(4, 7));
+    // A read under a guard beside the same read with none: the second sets the range.
+    await expect(
+      run(loop('if (i < 4) {\n      v = xs[i];\n    }\n    v += xs[i];'), four),
+    ).rejects.toThrow(refused(4, 7));
+    // The read under the guard at a shifted index is held to the shifted range.
+    await expect(run(loop('if (i < 4) {\n      v = xs[i + 1];\n    }'), four)).rejects.toThrow(
+      refused(4, 4, 1),
+    );
+  });
+
   it('checks a store at i*s + b and at i*W + x against the array before anything runs (#775)', async () => {
     const m = await load(
       `"use typeshade";\nexport function spread(out: array<f32>, s: u32, n: u32): void {\n  for (let i: u32 = 0; i < n; i++) {\n    out[i * s + 1] = f32(i);\n  }\n}\n`,
