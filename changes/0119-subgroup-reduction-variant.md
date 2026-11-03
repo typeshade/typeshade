@@ -13,6 +13,7 @@ surface:
 exports:
   - DeviceInfo
   - DeviceOptions
+  - DeviceStatistics
   - EmitIdentityInput
   - EmitOptions
   - HostExport
@@ -284,9 +285,9 @@ nothing from 0117 unless someone rewrites each of them by hand, with the device'
 - `AUTHORING.md`: one paragraph under the kernel function section and one under running.
 - Exports, reshaped: `EmitOptions` and `EmitIdentityInput` (`subgroupFolds`), `Pack` (`emit`),
   `HostExport` (the compute entry's `wgslSubgroup`), `DeviceOptions` (`subgroups`), `DeviceInfo`
-  (`subgroups`), `Reflection` (`variants`), `ReflectOptions` (`variant`). None removed. The
-  implementing pull request amends this list in a proposal-only pull request if its diff
-  reshapes another, as 0117's #917 did.
+  (`subgroups`), `DeviceStatistics` (`variants`, amendment 1), `Reflection` (`variants`),
+  `ReflectOptions` (`variant`). None removed. The implementing pull request amends this list in
+  a proposal-only pull request if its diff reshapes another, as 0117's #917 did.
 - Code: `kernel-lower.ts` (the variant of `reductionEntries` and of the scatter), `fuse-group.ts`
   (the variant of a fused group), `emit.ts`, `emit-identity.ts`, `reflect.ts`,
   `manifest-types.ts`, `pack.ts`, `host-face.ts` and the host module writer, `host-entry.ts`
@@ -351,6 +352,12 @@ nothing from 0117 unless someone rewrites each of them by hand, with the device'
 - Required validation at implementation: the functional and document lists under Draft impact
   estimate, and the Configuration and validation record below. No duration or cost estimate is
   established.
+- Amendment 1 (2026-11-03, before the runtime stage is merged): `DeviceStatistics` joins the
+  reshaped exports. Section 4 says the device report names the variant each entry runs; the
+  runtime has no `device.report()`, and its per-call record is `Device.statistics`, so the
+  statistics gain `variants`, the text the last call of each kernel function dispatched. The
+  draft listed `DeviceInfo` for the probe's observation and no export for the per-call record.
+  Recorded in the pull request that carries this amendment; Git records the revision.
 
 ### Configuration and validation record
 
