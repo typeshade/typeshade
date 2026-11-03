@@ -1612,10 +1612,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   emitted WGSL and GLSL do not change. TypeScript reads `#n` in a view for a `target` of ES2015 or
   later. The manifest is built from the IR alone (Rule 11.10) and still names the field `n`, so
   the program runtime packs a binding by that name; the record of change 0109 lists what that
-  means for an instance as a binding value of the program runtime. The runtime bundle grew by 135
-  gzip bytes (split initial +115, aggregate +145), `typeshade/fuse` by 139 (split initial +136,
-  aggregate +261), `typeshade/algorithms` by 131 and `typeshade/random` by 116, measured with Bun
-  1.4.4 against `75bd8cc8`; the budgets moved by those bytes.
+  means for an instance as a binding value of the program runtime. The runtime bundle grew by 116
+  gzip bytes (split initial +112, aggregate +139), `typeshade/fuse` by 140 (split initial +133,
+  aggregate +251), `typeshade/algorithms` by 130 and `typeshade/random` by 130, measured with Bun
+  1.4.4 against `043f8cad`; the budgets moved by those bytes.
 
 - **`resident()`, `write()` and `device.array()` refuse a value they cannot copy, and name the place
   (#1002).** A handle holds a copy of the host value it is given, made level by level (`copyOf` in
