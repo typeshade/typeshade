@@ -1594,6 +1594,39 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A parameter or a local named like a function its function calls is respelled in the emitted
+  text (#1010).** The module emits `Voice.shift(3)` as the call `Voice_shift(3u)`, a namespace's
+  `Ns.f` as `Ns_f`, the instance `pick<u32>` as `pick_u32`, a local function `bump` of `g` as
+  `g_bump` and the copy of `apply` made for `inc` as `apply_inc`. A parameter or a local may have
+  that name (Rule 3.2, change 0039), and `compile()` and the language service accepted the program.
+  WGSL and GLSL print a call by the bare name of its function, so in
+  `function g(Voice_shift: u32): u32 { return Voice.shift(3) + Voice_shift; }` the text called the
+  parameter. Tint said `cannot use parameter 'Voice_shift' as call target`, and WebGL2 said
+  `'Voice_shift' : function name expected`. A local that the optimizer cannot fold, and the
+  parameter of an entry, were refused the same way. `sanitizeVariableNames` respells a helper's
+  parameter or local that hides a builtin its function calls (Proposal 0070, D-C10-1) or a constant
+  it reads (#999). It now respells one that hides a function its function calls, and only there:
+
+  ```text
+  fn Voice_shift(k: u32) -> u32 { … }
+  fn g(Voice_shift_: u32) -> u32 { return (Voice_shift(3u) + Voice_shift_); }
+  ```
+
+  The parameter of an entry is the spelling plan's, not the pass's. It takes a fresh spelling when
+  a helper function has its name, whether the entry calls the function or not: in GLSL the
+  parameter is a global `in`, and WebGL2 said `'Voice_shift' : redefinition` where a helper, not
+  the entry, made the call. The oracle, the CPU codegen and the debugger keep the authored names.
+  The kernel function of the issue needed nothing: its scalar parameter is a field of the uniform of
+  the call (`f_args.Voice_shift`), and it compiled before.
+
+  The respelling adds code to the writers, so three caps of `scripts/bundle-budget.json` take the
+  measured gzip sizes, single file: `typeshade/runtime` 150,666 to 150,700 (+34),
+  `typeshade/emit` 116,857 to 116,947 (+90) and `typeshade/fuse` 111,631 to 111,679 (+48). The
+  split totals of the runtime and fuse move from 152,539 to 152,556 and from 112,066 to 112,106,
+  and the emit's initial chunk and total from 116,857 to 116,947. The initial chunks of the runtime
+  and fuse hold (36,511 and 13,826; measured 36,508 and 13,824). Bun 1.4.4 measured them, as
+  `.bun-version` pins it. These are bundle-size measurements, not GPU performance measurements.
+
 - **A function a namespace declares as a constant is worded as the author wrote it (#1004).**
   `namespace Ns { export const bump = (x: u32): u32 => x + 1; }` is a function of the module under
   the namespace's name, `Ns_bump`, as its `function` declaration is. The `TS8070` sentence still

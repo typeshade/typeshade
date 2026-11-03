@@ -44,7 +44,13 @@ export function freshSpelling(
  *  constant's own name, which the parameter hides in TypeScript as well; it spells it `Voice.OFFSET`
  *  and the module emits the constant as `Voice_OFFSET`, as it does an enum member (`E_A`) and a
  *  namespace constant (`Ns_K`). Neither a parameter of an entry, which is the plan's, nor a module
- *  variable, whose `varref` the late rename cannot tell from a parameter's own, is looked at here. */
+ *  variable, whose `varref` the late rename cannot tell from a parameter's own, is looked at here.
+ *
+ *  So is one named like a module function its function calls (#1010). A call prints the name of its
+ *  function, and the source never spells it with the emitted name either: it calls `Voice.shift(3)`,
+ *  the module emits `Voice_shift`, and a parameter of that name would be the thing called. The
+ *  same holds for a namespace's function (`Ns_f`), an instance of a generic function (`pick_u32`),
+ *  a local function (`g_bump`) and the copy of a function that takes a function (`apply_inc`). */
 export function sanitizeVariableNames(
   module: ModuleDecl,
   reserved: (name: string) => boolean,
@@ -113,30 +119,42 @@ export function sanitizeVariableNames(
     collect(func.body, names);
     return names;
   };
-  // Whether `name`, declared in `func`, hides a module constant that `func` reads. The body is
-  // walked for the constants it reads only when `name` is the name of one.
-  const constantNames = new Set(module.consts.map((c) => c.name));
-  const constantsRead = new Map<FuncDecl, ReadonlySet<string>>();
-  const hidesConstant = (func: FuncDecl, name: string): boolean => {
-    if (!constantNames.has(name)) return false;
-    let read = constantsRead.get(func);
-    if (read === undefined) {
-      const found = new Set<string>();
+  // Whether `name`, declared in `func`, hides a module constant that `func` reads (Rule 3.2), or a
+  // module function that `func` calls (#1010). The body is walked for what it reads, or calls, only
+  // when `name` is the name of a constant, or of a function.
+  const mentions = (
+    cache: Map<FuncDecl, ReadonlySet<string>>,
+    func: FuncDecl,
+    pick: (e: Expr) => string | undefined,
+  ): ReadonlySet<string> => {
+    let found = cache.get(func);
+    if (found === undefined) {
+      const names = new Set<string>();
       const visit = (e: Expr): Expr => {
-        if (e.op === 'constref') found.add(e.name);
+        const picked = pick(e);
+        if (picked !== undefined) names.add(picked);
         return mapChildren(e, visit);
       };
       const walk = (stmt: Stmt): Stmt => mapStmtExpr(stmt, visit, walk);
       func.body.forEach(walk);
-      constantsRead.set(func, (read = found));
+      cache.set(func, (found = names));
     }
-    return read.has(name);
+    return found;
   };
+  const constantNames = new Set(module.consts.map((c) => c.name));
+  const functionNames = new Set(module.funcs.map((f) => f.name));
+  const constantsRead = new Map<FuncDecl, ReadonlySet<string>>();
+  const functionsCalled = new Map<FuncDecl, ReadonlySet<string>>();
+  const hidesModuleName = (func: FuncDecl, name: string): boolean =>
+    (constantNames.has(name) &&
+      mentions(constantsRead, func, (e) => (e.op === 'constref' ? e.name : undefined)).has(name)) ||
+    (functionNames.has(name) &&
+      mentions(functionsCalled, func, (e) => (e.op === 'call' ? e.fn : undefined)).has(name));
   if (
     ![...variableNames].some(
       (name) => reserved(name) || [...called.values()].some((c) => hides(name, c)),
     ) &&
-    !module.funcs.some((func) => [...namesOf(func)].some((name) => hidesConstant(func, name)))
+    !module.funcs.some((func) => [...namesOf(func)].some((name) => hidesModuleName(func, name)))
   )
     return module;
   const fresh = (name: string, used = taken): string => {
@@ -158,7 +176,7 @@ export function sanitizeVariableNames(
     const used = new Set(taken);
     const calls = called.get(func)!;
     for (const name of names)
-      if (hides(name, calls) || hidesConstant(func, name)) locals.set(name, fresh(name, used));
+      if (hides(name, calls) || hidesModuleName(func, name)) locals.set(name, fresh(name, used));
     const rewrite = (stmt: Stmt): Stmt => {
       const renamed =
         (stmt.s === 'let' || stmt.s === 'var') && locals.has(stmt.name)
