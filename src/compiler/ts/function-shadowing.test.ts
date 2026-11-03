@@ -328,11 +328,12 @@ export const fs = fragment(function fs(): vec4 {
     expect(r.eval('g')).toBe(6);
   });
 
-  describe('where the text cannot tell the parameter from the field, the read stays refused as it was', () => {
-    // A module variable is read as a `varref`, which the late rename takes for the parameter's own
-    // when the function has one of that name, and an entry's parameter is the plan's, not the
-    // helper pass's. Reading the field there would give text that reads the parameter, so these
-    // keep the refusal they had, until the writers can tell the two apart.
+  describe('where the oracle cannot tell the parameter from the variable, the read stays refused as it was', () => {
+    // A module variable is a `varref`, and the IR holds a name once in a function: the oracle, the
+    // code generator and the debugger look a `param` and a `varref` up by name in one environment,
+    // and the optimizer's inliner substitutes by name. Beside a parameter `Voice_count`, a read of
+    // the variable reads the parameter (7 + 7 = 14 for `g(7)` where the field holds 1), whatever the
+    // writers print. So these keep the refusal they had, until the IR names the two apart.
     const refused = `TS8022 "Voice" has no static field`;
     const messages = (source: string): string[] =>
       compile(source, { fileName: 'm.shade.ts' })
@@ -367,18 +368,201 @@ export const fs = fragment(function fs(): vec4 {
       expect(edited(source)).toEqual(said);
     });
 
-    it('a static field that nothing writes, in an entry with a parameter of that name', () => {
+    it('a static field the file writes, in an entry with a parameter of that name', () => {
       const source = `"use typeshade";
+class Voice {
+  static count: f32 = 0.;
+  static bump(): void {
+    Voice.count += 1.;
+  }
+}
+export const fs = fragment(function fs(Voice_count: location<0, f32>): vec4 {
+  Voice.bump();
+  return vec4(Voice_count + Voice.count, 0., 0., 1.);
+});
+`;
+      const said = [`${refused} "count".`];
+      expect(messages(source)).toEqual(said);
+      expect(edited(source)).toEqual(said);
+    });
+  });
+});
+
+describe('a read of a static field, an enum member or a namespace constant in an entry that has a parameter named like the name the module emits for it (#1009)', () => {
+  // An entry's parameters are the spelling plan's: `sanitizeVariableNames` leaves them, and the
+  // host sees them. So the plan gives the constant a fresh spelling where an entry reads it under
+  // the name of one of its own parameters, and the parameter keeps its name. WGSL would print the
+  // parameter for the constant, and GLSL ES 3.00 declares an entry's inputs at module scope,
+  // beside the constant, which it declares twice. The oracle keeps the authored names, and its
+  // `constref` is no parameter (Rule 3.2).
+  const CASES: readonly {
+    name: string;
+    source: string;
+    args: unknown[];
+    value: number[];
+    wgsl: readonly string[];
+    glsl: readonly string[];
+  }[] = [
+    {
+      name: 'a static field',
+      source: `"use typeshade";
 class Voice {
   static OFFSET: f32 = 1.;
 }
 export const fs = fragment(function fs(Voice_OFFSET: location<0, f32>): vec4 {
   return vec4(Voice_OFFSET + Voice.OFFSET, 0., 0., 1.);
 });
+`,
+      args: [3],
+      value: [4, 0, 0, 1],
+      wgsl: [
+        'const Voice_OFFSET_: f32 = 1.0;',
+        'fn fs(@location(0) Voice_OFFSET: f32)',
+        'vec4<f32>((Voice_OFFSET + Voice_OFFSET_), 0.0, 0.0, 1.0)',
+      ],
+      glsl: [
+        'const float Voice_OFFSET_ = 1.0;',
+        'in float Voice_OFFSET;',
+        'vec4((Voice_OFFSET + Voice_OFFSET_), 0.0, 0.0, 1.0)',
+      ],
+    },
+    {
+      name: 'a static field that is a vector',
+      source: `"use typeshade";
+class Voice {
+  static ORIGIN: vec2 = vec2(1., 2.);
+}
+export const fs = fragment(function fs(Voice_ORIGIN: location<0, vec2>): vec4 {
+  return vec4(Voice_ORIGIN + Voice.ORIGIN, 0., 1.);
+});
+`,
+      args: [[10, 20]],
+      value: [11, 22, 0, 1],
+      wgsl: [
+        'const Voice_ORIGIN_: vec2<f32> = vec2<f32>(1.0, 2.0);',
+        'fn fs(@location(0) Voice_ORIGIN: vec2<f32>)',
+        '(Voice_ORIGIN + Voice_ORIGIN_)',
+      ],
+      glsl: [
+        'const vec2 Voice_ORIGIN_ = vec2(1.0, 2.0);',
+        'in vec2 Voice_ORIGIN;',
+        '(Voice_ORIGIN + Voice_ORIGIN_)',
+      ],
+    },
+    {
+      name: 'an enum member',
+      source: `"use typeshade";
+enum E {
+  A = 3,
+}
+export const fs = fragment(function fs(E_A: location<0, f32>): vec4 {
+  return vec4(E_A + f32(E.A), 0., 0., 1.);
+});
+`,
+      args: [10],
+      value: [13, 0, 0, 1],
+      wgsl: [
+        'const E_A_: i32 = 3;',
+        'fn fs(@location(0) E_A: f32)',
+        'vec4<f32>((E_A + f32(E_A_)), 0.0, 0.0, 1.0)',
+      ],
+      glsl: ['const int E_A_ = 3;', 'in float E_A;', 'vec4((E_A + float(E_A_)), 0.0, 0.0, 1.0)'],
+    },
+    {
+      name: 'a namespace constant',
+      source: `"use typeshade";
+namespace Ns {
+  export const K: f32 = 3.;
+}
+export const fs = fragment(function fs(Ns_K: location<0, f32>): vec4 {
+  return vec4(Ns_K + Ns.K, 0., 0., 1.);
+});
+`,
+      args: [10],
+      value: [13, 0, 0, 1],
+      wgsl: [
+        'const Ns_K_: f32 = 3.0;',
+        'fn fs(@location(0) Ns_K: f32)',
+        'vec4<f32>((Ns_K + Ns_K_), 0.0, 0.0, 1.0)',
+      ],
+      glsl: ['const float Ns_K_ = 3.0;', 'in float Ns_K;', 'vec4((Ns_K + Ns_K_), 0.0, 0.0, 1.0)'],
+    },
+    {
+      name: 'a static field read by the entry and by a helper whose parameter has the name',
+      source: `"use typeshade";
+class Voice {
+  static OFFSET: f32 = 1.;
+}
+function g(Voice_OFFSET: f32): f32 {
+  return Voice_OFFSET + Voice.OFFSET;
+}
+export const fs = fragment(function fs(Voice_OFFSET: location<0, f32>): vec4 {
+  return vec4(g(Voice_OFFSET) + Voice.OFFSET, 0., 0., 1.);
+});
+`,
+      args: [3],
+      value: [5, 0, 0, 1],
+      wgsl: [
+        'const Voice_OFFSET_: f32 = 1.0;',
+        'fn fs(@location(0) Voice_OFFSET: f32)',
+        '(g(Voice_OFFSET) + Voice_OFFSET_)',
+      ],
+      glsl: [
+        'const float Voice_OFFSET_ = 1.0;',
+        'in float Voice_OFFSET;',
+        '(g(Voice_OFFSET) + Voice_OFFSET_)',
+      ],
+    },
+  ];
+
+  it.each(CASES)('$name: legal in both halves, and read as the constant on every target', (c) => {
+    const r = compile(c.source, { fileName: 'm.shade.ts' });
+    expect(r.diagnostics).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.shade.ts', c.source);
+    expect(service.getDiagnostics('m.shade.ts')).toEqual([]);
+    for (const text of c.wgsl) expect(r.wgsl).toContain(text);
+    for (const text of c.glsl) expect(r.glsl!.fragment).toContain(text);
+    // The oracle reads the parameter once and the constant once, and the CPU codegen and the
+    // debugger read the IR as it does.
+    const args = c.args as never[];
+    expect(r.eval('fs', args)).toEqual(c.value);
+    expect(compileModuleJs(r.module).fns.fs!(...args)).toEqual(c.value);
+    const stepped = startDebugSession(r.module, 'fs', args);
+    stepped.continue();
+    expect(stepped.done).toBe(true);
+    expect(stepped.result).toEqual(c.value);
+  });
+
+  it('a compute entry and a vertex entry get the same spelling, and one entry that does not read the constant keeps it', () => {
+    const source = `"use typeshade";
+class Voice {
+  static OFFSET: u32 = 1;
+}
+declare const data: storage<array<u32>, "read_write">;
+export const fill = compute([4], function fill(Voice_OFFSET: builtin<"global_invocation_id", vec3u>) {
+  data[Voice_OFFSET.x] = Voice_OFFSET.x + Voice.OFFSET;
+});
+export const vs = vertex(function vs(Voice_OFFSET: location<0, vec2>): vec4 {
+  return vec4(Voice_OFFSET + vec2(f32(Voice.OFFSET)), 0., 1.);
+});
+export const idle = compute([4], function idle(Voice_OFFSET: builtin<"global_invocation_id", vec3u>) {
+  data[Voice_OFFSET.x] = 0;
+});
 `;
-      const said = [`${refused} "OFFSET".`];
-      expect(messages(source)).toEqual(said);
-      expect(edited(source)).toEqual(said);
-    });
+    const r = compile(source, { fileName: 'm.shade.ts' });
+    expect(r.diagnostics).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.shade.ts', source);
+    expect(service.getDiagnostics('m.shade.ts')).toEqual([]);
+    // One constant, one spelling, whichever entry reads it; every entry keeps its own parameter.
+    expect(r.wgsl).toContain('const Voice_OFFSET_: u32 = 1u;');
+    expect(r.wgsl).not.toContain('const Voice_OFFSET:');
+    expect(r.wgsl).toContain('fn fill(@builtin(global_invocation_id) Voice_OFFSET: vec3<u32>)');
+    expect(r.wgsl).toContain('data[Voice_OFFSET.x] = (Voice_OFFSET.x + Voice_OFFSET_);');
+    expect(r.wgsl).toContain('fn vs(@location(0) Voice_OFFSET: vec2<f32>)');
+    expect(r.wgsl).toContain('fn idle(@builtin(global_invocation_id) Voice_OFFSET: vec3<u32>)');
+    expect(r.glsl!.vertex).toContain('const uint Voice_OFFSET_ = 1u;');
+    expect(r.glsl!.vertex).toContain('in vec2 Voice_OFFSET;');
   });
 });
