@@ -563,6 +563,7 @@ export const idle = compute([4], function idle(Voice_OFFSET: builtin<"global_inv
     expect(r.wgsl).toContain('fn vs(@location(0) Voice_OFFSET: vec2<f32>)');
     expect(r.wgsl).toContain('fn idle(@builtin(global_invocation_id) Voice_OFFSET: vec3<u32>)');
     expect(r.glsl!.vertex).toContain('const uint Voice_OFFSET_ = 1u;');
-    expect(r.glsl!.vertex).toContain('in vec2 Voice_OFFSET;');
+    expect(r.glsl!.vertex).toContain('vec2 Voice_OFFSET = a_Voice_OFFSET;');
+    expect(r.glsl!.vertex).toContain('(Voice_OFFSET + vec2(float(Voice_OFFSET_)))');
   });
 });

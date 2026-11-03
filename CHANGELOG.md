@@ -1570,6 +1570,20 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A static field, an enum member or a namespace constant read in an entry whose parameter has the
+  name the module emits for it is read as the constant (#1009).** `Voice.OFFSET` is emitted as the
+  constant `Voice_OFFSET`, and `fragment(function fs(Voice_OFFSET: location<0, f32>) { … })` may name
+  a parameter so. Since #999 a helper's parameter is respelled in that case, but an entry's was not,
+  and the read drew `TS8022 "Voice" has no static field "OFFSET"` in `compile()` and in the editor,
+  for `E.A` beside a parameter `E_A` and `Ns.K` beside `Ns_K` as well. The spelling plan
+  (`planSpellings`) now gives the constant a fresh spelling, `Voice_OFFSET_`, where an entry, or a
+  function it calls, reads it under the name of one of the entry's parameters. The parameter keeps
+  its name, which the host sees. WGSL would print the parameter for the constant, and GLSL ES 3.00
+  would declare the entry's input and the constant under one name. A static field the file writes, a
+  module variable, read beside a parameter of that name stays refused, in a function and in an
+  entry, as in #999: the IR holds a name once in a function, and the oracle, the code generator and
+  the debugger read the parameter for the variable.
+
 - **`tshc check`, `tshc sync` and `tshc migrate` leave out the paths a `.gitignore` excludes when they
   search a directory (#1001).** The search skipped `node_modules`, `dist` and `.git` and nothing
   else, and it followed a symbolic link to a directory. A link to a checkout of another project, put
