@@ -457,6 +457,36 @@ ${FS('7')}`,
       ],
     },
     {
+      name: 'a method, called on an instance',
+      source: `"use typeshade";
+class Voice {
+  constructor(public phase: u32) {}
+  shift(k: u32): u32 {
+    this.phase = this.phase + k;
+    return this.phase;
+  }
+}
+function g(Voice_shift: u32): u32 {
+  const v = new Voice(1);
+  return v.shift(3) + v.shift(Voice_shift) + Voice_shift;
+}
+${FS('7')}`,
+      args: [7],
+      value: 22,
+      wgsl: [
+        'fn Voice_shift(self_: ptr<function, Voice>, k: u32) -> u32 {',
+        'fn g(Voice_shift_: u32) -> u32 {',
+        'let _seq0 = Voice_shift(&v, 3u);',
+        'let _seq1 = Voice_shift(&v, Voice_shift_);',
+      ],
+      glsl: [
+        'uint Voice_shift(inout Voice self_, uint k) {',
+        'uint g(uint Voice_shift_) {',
+        'uint _seq0 = Voice_shift(v, 3u);',
+        'uint _seq1 = Voice_shift(v, Voice_shift_);',
+      ],
+    },
+    {
       name: 'a function of a namespace',
       source: `"use typeshade";
 namespace Ns {
