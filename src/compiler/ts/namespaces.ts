@@ -281,11 +281,13 @@ export function namespaceMember(
   return undefined;
 }
 
-/** A class's or a function's name written in full from the top of the file, its namespaces first:
- *  `[N, P]`. The module emits it joined by `_` (`N_P`), and a message writes it joined by `.`
- *  (`N.P`). */
-export function qualifiedParts(decl: ts.ClassDeclaration | ts.FunctionDeclaration): string[] {
-  const parts = [decl.name?.text ?? ''];
+/** A class's, a function's or a function-valued constant's name written in full from the top of the
+ *  file, its namespaces first: `[N, P]`. The module emits it joined by `_` (`N_P`), and a message
+ *  writes it joined by `.` (`N.P`). */
+export function qualifiedParts(
+  decl: ts.ClassDeclaration | ts.FunctionDeclaration | ts.VariableDeclaration,
+): string[] {
+  const parts = [decl.name !== undefined && ts.isIdentifier(decl.name) ? decl.name.text : ''];
   for (let at: ts.Node | undefined = decl.parent; at !== undefined; at = at.parent) {
     if (ts.isModuleDeclaration(at) && ts.isIdentifier(at.name)) parts.unshift(at.name.text);
   }
@@ -294,13 +296,19 @@ export function qualifiedParts(decl: ts.ClassDeclaration | ts.FunctionDeclaratio
 
 /** What the source calls each function the module emits under another name, by the function the
  *  module emits for it: `Gate.open` for the namespace function `Gate_open`, `A.B.f` for `A_B_f`,
- *  the name of its template for an instance or a copy of one (`pick` for `pick_u32`), and the name
- *  a local function is declared with, also for a copy of it (`bump` for `count_bump`). */
+ *  also for a namespace function written as a constant (`Ns.bump` for `Ns_bump`), the name of its
+ *  template for an instance or a copy of one (`pick` for `pick_u32`), and the name a local function
+ *  is declared with, also for a copy of it (`bump` for `count_bump`). */
 const writtenFunctions = new WeakMap<FuncDecl, string>();
 
-/** Records the name `decl`, a function written inside a namespace, has in the source. `stub` is the
- *  function the module emits for it. A function outside a namespace has nothing to record. */
-export function recordNamespaceFunction(stub: FuncDecl, decl: ts.FunctionDeclaration): void {
+/** Records the name `decl`, a function written inside a namespace, has in the source: a `function`
+ *  declaration, or a `const` that holds an arrow function or a function expression (#1004). `stub`
+ *  is the function the module emits for it. A function outside a namespace has nothing to record,
+ *  and a `const` inside the body of a function is a local function, which is not this one. */
+export function recordNamespaceFunction(
+  stub: FuncDecl,
+  decl: ts.FunctionDeclaration | ts.VariableDeclaration,
+): void {
   if (decl.name === undefined) return;
   const parts = qualifiedParts(decl);
   if (parts.length > 1) writtenFunctions.set(stub, parts.join('.'));
@@ -326,8 +334,9 @@ export function recordLocalFunction(stub: FuncDecl, written: string): void {
 }
 
 /** How a message names a function the module emits under another name than the author's:
- *  `Gate.open` for the `Gate_open` of a namespace, `pick` for the `pick_u32` of an instance and
- *  `bump` for the `count_bump` of a local function. Undefined for any other function. */
+ *  `Gate.open` for the `Gate_open` of a namespace, `Ns.bump` for the `Ns_bump` of a namespace's
+ *  constant, `pick` for the `pick_u32` of an instance and `bump` for the `count_bump` of a local
+ *  function. Undefined for any other function. */
 export const writtenFunctionOf = (stub: FuncDecl): string | undefined => writtenFunctions.get(stub);
 
 /** The class a short type name written at `node` names inside the namespaces around it, as the

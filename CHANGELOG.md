@@ -1600,6 +1600,62 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A function a namespace declares as a constant is worded as the author wrote it (#1004).**
+  `namespace Ns { export const bump = (x: u32): u32 => x + 1; }` is a function of the module under
+  the namespace's name, `Ns_bump`, as its `function` declaration is. The `TS8070` sentence still
+  named it `Ns_bump`, and `describeRead` printed `t[Ns_bump(i)]`, because the registry of the names a
+  message uses (`namespaces.ts`) had a row for the `function` declaration (#908), the instance and
+  the copy (#955, #972) and a local function (#987), and none for this one. The registry now
+  records the constant when the namespace's members are lowered, so the sentence says `Ns.bump`,
+  the same constant in a nested namespace `A.B.bump`, and the copy of one that takes a function
+  `Ns.apply` for `Ns_apply_inc`. A function expression held by the constant reads the same. The
+  reason of a `fuse` report, which is `describeRead`'s text, says it too. A function of the top
+  level declared as a constant is emitted as written and keeps its name. `compile()` and the
+  language service said the same before and say the same now.
+
+- **An `f64` local kept across a barrier runs on WebGL2 (#970).** The pass program of change 0054
+  keeps each local of a split entry in its record between passes, in 32-bit words, and refused
+  every scalar but `u32`, `i32`, `f32` and `bool`:
+  `fftSmallDouble(): no tier it may use can run it (webgl2: a f64 cannot be kept in state)`. An
+  emulated double is now kept as the two `f32` words the GPU holds it as, `hi` and `lo`, and a
+  `vecN<f64>` as a pair for each lane; the next pass reads back their sum, which is the same pair.
+  A matrix of doubles is still refused, now with its own reason
+  (`a mat2x2<f64> cannot be kept in state`), since the emulation reads no column of one. The
+  compile gate's compute case `across` keeps an `f64` and a `vec2f64` across a barrier: both WebGL2
+  tiers must run it, with the `_fp64` guard bound as #966 binds it, and match WebGPU.
+
+- **The CPU tier generates the reverse-mode derivative of a function with a loop, and no longer gives
+  it to the interpreter (#1017).** `grad(m, 'f', ['k'], { mode: 'reverse' })` writes each loop of the
+  derivative over a counter it declares ahead of the loop, so the first statement of the loop is an
+  assignment. `emitForInit` in `src/core/cpu-codegen.ts` took a `let` or a `var` there and nothing
+  else, so `generateModuleJs(...).fallbacks` named the derivative (`["f_vjp"]`) and
+  `compileModuleJs` ran it on the interpreter. The call of a loss with a 1024-trip frame loop took
+  7.39 ms against 0.298 ms once generated, with the same bits (Bun 1.4.4); the host face's CPU
+  tier, which runs through `compileModuleJs`, inherited the fallback. `emitForInit` now takes an
+  assignment and a compound assignment as the first statement of a loop, the two forms beside a
+  declaration that the shared walk's `forHeader` writes on WGSL and GLSL ES 3.00 and that the
+  interpreter runs, and `emitForUpdate` shares the code that writes them. Reverse mode keeps its
+  assignment: its count sweep reads the counter after the loop, and a declaration in the header ends
+  with the loop. A loop whose first statement is a call, which `forHeader` refuses on both targets,
+  still falls back.
+
+- **`tshc check`, `tshc sync` and `tshc migrate` leave out the paths a `.gitignore` excludes when they
+  search a directory (#1001).** The search skipped `node_modules`, `dist` and `.git` and nothing
+  else, and it followed a symbolic link to a directory. A link to a checkout of another project, put
+  under the ignored `.cache/` of a project, made the checkout's `*.shade.ts` files the project's:
+  `tshc sync --check` listed each one as `missing; run tshc sync`, and `tshc sync` wrote a host view
+  into the checkout through the link. The search now reads the `.gitignore` files as Git reads them,
+  from the root of the repository (the nearest directory with a `.git`) down to each directory it
+  enters, and leaves out an entry they ignore, a directory with everything inside it. A
+  `.gitignore` in a directory below the one the search starts in applies from there, and a `!`
+  includes again what an earlier line ignored. A path named on the command line is searched even
+  when a `.gitignore` excludes it. The reader is `src/cli/ignore.ts`, and a test puts the pattern
+  forms it reads to `git check-ignore`. `.git/info/exclude` and the global ignore file are not read.
+
+  A symbolic link to a directory that no `.gitignore` excludes is still followed: a project may link
+  a shared directory of shaders into its tree, and the link is its own source. `tshc --help` and the
+  README say what the search skips.
+
 - **A function handed over that reads a local whose declaration was refused says nothing more
   (#967).** `const TAU_DOUBLE: f64 = 6.283185307179586;` is refused with `TS8003`, as a module
   constant of the emulated double is not here yet. A local initialized from it,

@@ -1471,12 +1471,18 @@ export function gather(out: array<f32>, t: array<f32>, Voice_OFFSET: u32) {
       '  function shift(i: u32): u32 {\n    return i ^ 1;\n  }\n',
       't[shift(i)]',
     ],
+    [
+      'a function a namespace declares as a constant (#1004)',
+      'namespace Ns {\n  export const shift = (i: u32): u32 => i ^ 1;\n}\n',
+      '',
+      't[Ns.shift(i)]',
+    ],
   ])(
     'words a read of %s in the names of the source (#987)',
     async (_what, declaration, local, read) => {
-      // The module emits a namespace constant as `Ns_K`, an enum member as `Mode_B` and a local
-      // function as `gather_shift`. The reason is written at build time from the loop's IR, and
-      // says what the source says.
+      // The module emits a namespace constant as `Ns_K`, an enum member as `Mode_B`, a local
+      // function as `gather_shift` and a function a namespace declares as a constant as `Ns_shift`.
+      // The reason is written at build time from the loop's IR, and says what the source says.
       const NAMED = `"use typeshade";
 ${declaration}export function add(out: array<f32>, a: array<f32>, b: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
