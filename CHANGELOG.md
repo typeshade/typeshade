@@ -1618,10 +1618,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   emitted WGSL and GLSL do not change. TypeScript reads `#n` in a view for a `target` of ES2015 or
   later. The manifest is built from the IR alone (Rule 11.10) and still names the field `n`, so
   the program runtime packs a binding by that name; the record of change 0109 lists what that
-  means for an instance as a binding value of the program runtime. The runtime bundle grew by 116
-  gzip bytes (split initial +112, aggregate +139), `typeshade/fuse` by 140 (split initial +133,
-  aggregate +251), `typeshade/algorithms` by 130 and `typeshade/random` by 130, measured with Bun
-  1.4.4 against `043f8cad`; the budgets moved by those bytes.
+  means for an instance as a binding value of the program runtime. The runtime bundle grew by 114
+  gzip bytes (split initial +113, aggregate +147), `typeshade/fuse` by 138 (split initial +132,
+  aggregate +246), `typeshade/algorithms` by 131 and `typeshade/random` by 127, measured with Bun
+  1.4.4 against `0cc16399`; the budgets moved by those bytes.
 
 - **The call checks a read under a guard on the counter over the iterations the guard keeps (#997).**
   A kernel function's call checks each array a loop reads at `a*i + c` against its length before it

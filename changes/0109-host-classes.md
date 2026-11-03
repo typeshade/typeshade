@@ -686,9 +686,13 @@ direction. Its commits say `Change: 0109`:
 - `35f5fa4e`: the budgets at the bytes measured on that merge.
 - `c666ad9a`: the merge of `main` at `ad0a3865` (change 0119, stage 3), whose one conflict was the
   derived item `reqs/surface/SURF-065.md`.
-- The commit that holds this list.
+- `437ffcff`: the commits and the validation of this record, up to that merge.
+- `5edb5ef7`: the merge of `main` at `0cc16399` (issue #997), whose conflicts were the changelog and
+  the budgets.
+- The commit that holds the budgets at the bytes measured on that merge, the changelog numbers and
+  the last lines of this record.
 
-The two merges `8110b12b` and `c666ad9a` were committed with `--no-verify` (issue #901), as the
+The three merges `8110b12b`, `c666ad9a` and `5edb5ef7` were committed with `--no-verify` (issue #901), as the
 merges of #890 were: the commit-msg policy reads a merge against its first parent and counts what
 `main` changed as changes of this branch. `bun run precommit` passed on each merged index, and
 `bun scripts/changes.ts --base origin/main` passed on each merge ("This change touches Rule 8.21;
@@ -743,15 +747,19 @@ surface §26, surface §64").
   amendment, `src/core/subgroup-probe.test.ts`, `src/runtime/device.test.ts`,
   `src/compiler/ts/host-kernel.test.ts`, `src/reqs.test.ts`, `src/doc-references.test.ts`,
   `src/changes.test.ts`, `src/api-surface.test.ts` and `src/commit-policy.test.ts`.
-- `bun run gate:boundary`: exit 0 on the tree of `c666ad9a`, after the caps moved. Measured in gzip
-  bytes against the caps of `main` at `043f8cad`, which are its own measurements: `typeshade/runtime`
-  153,148 (+116; split initial 38,701, +112; aggregate 155,069, +139), `typeshade/fuse` 113,972
-  (+140; split initial 15,803, +133; aggregate 114,533, +251), `typeshade/algorithms` 50,133 (+130),
-  `typeshade/random` 33,373 (+130) and `typeshade/emit` 117,301 (+0); `ad0a3865` moves no bundle.
-  The first measurement of this branch preceded its last edit of `host-entry.ts`, and CI measured
+- `bun run gate:boundary`: exit 0 after the caps moved, on the tree that merges `main` at `0cc16399`.
+  Measured in gzip bytes against the caps of that `main`, which are its own measurements:
+  `typeshade/runtime` 153,243 (+114; split initial 38,702, +113; aggregate 155,173, +147),
+  `typeshade/fuse` 114,064 (+138; split initial 15,802, +132; aggregate 114,629, +246),
+  `typeshade/algorithms` 50,216 (+131), `typeshade/random` 33,478 (+127) and `typeshade/emit`
+  117,301 (+0). Against `043f8cad` the merged tree had measured +116, +140, +130 and +130 for the
+  four, and `ad0a3865` moved no bundle. The first measurement of this branch preceded its last edit of `host-entry.ts`, and CI measured
   more bytes (`typeshade/runtime` 151,578 against 151,566 on `e5a21e4c`); a measurement here on that
   tree gave CI's bytes. The import of `host-values.ts` from `host-entry.ts` had cost 962 bytes of
   the runtime's split initial download, and the leaf `host-key.ts` removed it.
+- `TYPESHADE_CHROMIUM=… bun run gate:journeys` (headless Chromium 1243, SwiftShader) on the tree of
+  `437ffcff`, from 2026-11-03T03:10:07Z to 03:12:19Z: exit 0, "35 journeys, 126 runs: every check
+  passed", 259 checks `ok` and none failed. No journey has a private name.
 - Not run in this container: `bun run gate:compile`, `bun run gate:differential`,
   `bun run gate:render` and `bun run gate:perf` (the change emits no shader text and changes no
   lowering; CI runs them), and the TypeScript 5.9 and 6.0 legs, which CI runs.
@@ -795,7 +803,7 @@ commit's message, exit 0; `bun scripts/semicolons.ts --check`, exit 0.
    prototype (Rule 8.21). `tsc` refuses such an object where the class is the type, because the
    private name gives the class a brand. Open: an amendment may say it in Rule 8.21 if the owner
    wants it refused at run time too.
-6. Two merge commits, `8110b12b` and `c666ad9a`, were committed with `--no-verify`. Closed: the
+6. Three merge commits, `8110b12b`, `c666ad9a` and `5edb5ef7`, were committed with `--no-verify`. Closed: the
    Implementation paragraph gives the reason (issue #901), and the checks of the hook passed on each
    merged index.
 
