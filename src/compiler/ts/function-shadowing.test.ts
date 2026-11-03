@@ -654,6 +654,39 @@ export const fs = fragment(function fs(Voice_shift: location<0, f32>): vec4 {
     expect(r.eval('fs', [2])).toEqual([6, 0, 0, 1]);
   });
 
+  it('spells the varying of that name alike in the vertex stage and the fragment stage', () => {
+    // GLSL links the two stages by the name of the varying, so the field the vertex entry returns
+    // and the parameter the fragment entry takes must take the one fresh spelling (one table, Q3).
+    const source = `"use typeshade";
+class Voice {
+  static shift(k: f32): f32 {
+    return k + 1.;
+  }
+}
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  Voice_shift: location<0, f32>;
+}
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+  const x = f32(i) * 0.5;
+  return { pos: vec4(x, x, 0., 1.), Voice_shift: x };
+});
+export const fs = fragment(function fs(Voice_shift: location<0, f32>): vec4 {
+  return vec4(Voice.shift(3.) + Voice_shift, 0., 0., 1.);
+});
+`;
+    const r = compile(source, { fileName: 'm.shade.ts' });
+    expect(r.diagnostics).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.shade.ts', source);
+    expect(service.getDiagnostics('m.shade.ts')).toEqual([]);
+    expect(r.wgsl).toContain('@location(0) Voice_shift_: f32,');
+    expect(r.wgsl).toContain('fn fs(@location(0) Voice_shift_: f32)');
+    expect(r.glsl!.vertex).toContain('out float Voice_shift_;');
+    expect(r.glsl!.vertex).toContain('Voice_shift_ = x;');
+    expect(r.glsl!.fragment).toContain('in float Voice_shift_;');
+  });
+
   it('keeps the name of a parameter of a kernel function, which the entry reads from its uniform', () => {
     // The program of the issue. `f` is a kernel function, and its scalar parameter is a field of
     // the uniform of the call, so the call of the function and the field do not meet.
