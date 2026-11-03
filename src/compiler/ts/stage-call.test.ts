@@ -213,6 +213,32 @@ export const fs = fragment(function fs(f: (x: f32) => f32): vec4 {
   });
 });
 
+describe('a generic entry is refused in both forms', () => {
+  // A generic entry has no instance: nothing calls it with type arguments. It was dropped from
+  // the WGSL with no word, in the decorated form and in the stage call (Rule 8.9).
+  const refusal =
+    'TS8020 "fs" is an entry, which the pipeline calls with no type arguments, so a generic entry has no instance to compile: write its types out, or move the generic code into a helper the entry calls (Rule 8.9).';
+  const forms = {
+    'stage call': `"use typeshade";
+export const fs = fragment(function fs<T>(p: builtin<"position", vec4>): vec4 {
+  return p;
+});
+`,
+    decorated: `"use typeshade";
+@fragment
+export function fs<T>(@builtin("position") p: vec4): vec4 {
+  return p;
+}
+`,
+  };
+  for (const [form, source] of Object.entries(forms)) {
+    it(`${form}: the compiler and the editor refuse it`, () => {
+      expect(errors(source)).toEqual([refusal]);
+      expect(editor(source)).toContainEqual(refusal);
+    });
+  }
+});
+
 describe('the editor reads a stage call as the compiler does', () => {
   it('reports nothing on an entry the compiler accepts', () => {
     const source = `"use typeshade";
