@@ -22,9 +22,10 @@
 // checkout before `tsc` runs.
 //
 // Like `src/cli/bin.ts`, this runs on Node, and the library build has no host types
-// (`types: []`), so its one file-system call is imported dynamically and typed below.
+// (`types: []`), so Node filesystem and path access use dynamically imported, local types.
 
 import { isTypeshadeSource } from './compiler/ts/source-file.js';
+import { portableOrigin } from './vite-origin.js';
 import {
   formatBuildErrors,
   hostFace,
@@ -45,6 +46,12 @@ const nodeFs = (): Promise<NodeFs> => {
 
 /** The options of {@link typeshade}. */
 export interface TypeshadeViteOptions {
+  /** Opt into portable fusion identities as JSON tuples of this namespace and the module's
+   *  path relative to Vite's root (change 0122). Use a distinct nonempty namespace for each
+   *  independently built package that can share a fusion scope. Paths must be absolute and
+   *  on the same drive or UNC share; outside-root paths retain `../`. Omitting this option
+   *  preserves the file-name origin. Other source metadata can still contain absolute paths. */
+  readonly originNamespace?: string;
   /**
    * When a GPU entry's WGSL records its `console.*` calls, which the runtime prints after the
    * dispatch or draw (surface §66): `'dev'` in `vite dev` and not in `vite build`, the default;
@@ -82,9 +89,9 @@ export interface TypeshadeVitePlugin {
    *  not a source Vite's startup scan reads, so the op library would otherwise be found late and
    *  the page reloaded. */
   config(): { optimizeDeps: { include: string[] } };
-  /** Reads whether this is `vite dev` (`command: 'serve'`), which decides with the `console`
-   *  option whether the WGSL records the `console.*` calls a GPU entry reaches. */
-  configResolved(config: { readonly command: string }): void;
+  /** Reads whether this is `vite dev` (`command: 'serve'`) and the project root. The root is
+   *  required only with `originNamespace`; the command controls GPU console recording. */
+  configResolved(config: { readonly command: string; readonly root?: string }): void;
   /** Says in one line, when a production build starts, that it records the console. */
   buildStart(): void;
   /** The module the bundle reads for `id`: the generated host module for a `*.shade.ts`,
@@ -121,12 +128,16 @@ const isProjectTs = (path: string): boolean =>
  * ```
  */
 export function typeshade(options: TypeshadeViteOptions = {}): TypeshadeVitePlugin {
+  const namespace = options.originNamespace;
+  if (namespace !== undefined && (typeof namespace !== 'string' || namespace.length === 0))
+    throw new TypeError('typeshade(): originNamespace must be a nonempty string.');
   const when = options.console ?? 'dev';
   if (when !== 'dev' && when !== 'always' && when !== 'never')
     throw new TypeError(
       `typeshade(): console takes 'dev', 'always' or 'never', not ${JSON.stringify(when)}.`,
     );
   let dev = false;
+  let root: string | undefined;
   /** Whether this build's WGSL records the console. */
   const records = (): boolean => when === 'always' || (when === 'dev' && dev);
   return {
@@ -141,6 +152,7 @@ export function typeshade(options: TypeshadeViteOptions = {}): TypeshadeVitePlug
     },
     configResolved(config) {
       dev = config.command === 'serve';
+      root = config.root;
     },
     buildStart() {
       if (!dev && when === 'always')
@@ -161,6 +173,8 @@ export function typeshade(options: TypeshadeViteOptions = {}): TypeshadeVitePlug
         }
         return null;
       }
+      const origin =
+        namespace === undefined ? undefined : await portableOrigin(namespace, root, path);
       const fs = await nodeFs();
       const readDocument = (fileName: string): string | undefined => {
         try {
@@ -171,6 +185,7 @@ export function typeshade(options: TypeshadeViteOptions = {}): TypeshadeVitePlug
       };
       const face = hostFace(code, {
         fileName: path,
+        ...(origin !== undefined ? { origin } : {}),
         readDocument,
         ...(records() ? { console: 'gpu' as const } : {}),
         ...(options.ir === true ? { ir: true } : {}),

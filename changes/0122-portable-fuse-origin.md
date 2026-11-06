@@ -1,7 +1,7 @@
 ---
 id: '0122'
 title: Host faces can identify fusion modules independently of their source paths
-status: accepted
+status: implemented
 rules: []
 surface:
   - 64
@@ -32,7 +32,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                          |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0122, accepted for merge under the owner's standing authorization. Front matter controls its lifecycle.                                                |
+| Identity and status           | Proposal 0122, implemented in PR #1047. Compiler merge and downstream adoption remain separate.                                                                 |
 | Date and attribution          | Authored 2026-11-06 UTC by Codex while progressing the owner's remaining-issue request. This date records authorship.                                           |
 | Request source                | Issue [#805](https://github.com/typeshade/typeshade/issues/805), observed in TypeCV and reproduced by inspection of the current plugin and host-face generator. |
 | Applicability / Effectivity   | Host-face generation and Vite integration. GPU arithmetic and the runtime fusion algorithm are unchanged. Release version unassigned.                           |
@@ -130,8 +130,8 @@ compiler artifact.
 On 2026-11-06 UTC, the owner repeated the instruction to progress remaining work, with the
 standing instruction to merge this session's PRs. Codex used that delegated authority to select
 the opt-in namespace design after an independent review found the automatic-relative-key
-collision in draft `63498c6a`. The revised scope is recorded in PR #1044; the accepted merge,
-not this pre-merge status alone, authorizes implementation.
+collision in draft `63498c6a`. PR #1044 merged the revised scope as accepted at
+`dba2aa161368dbf004617229e7aa99e7671e8c86`, the implementation baseline.
 
 Codex owns compiler implementation and validation in this session. Milestones are the accepted
 proposal merge, a separate implementing PR with the functional and document checks above, and
@@ -141,9 +141,36 @@ for this scope. No implementation is included in the proposal PR.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery must identify the accepted revision, implementation PR,
-actual test results and documentation checks. Compiler completion does not establish downstream
-adoption. No implementation is included in this proposal PR.
+Implementation PR: [#1047](https://github.com/typeshade/typeshade/pull/1047), branch
+`feat/805-portable-fuse-origin`. The first code commit is
+`b4d69b649758acbb510b2325ac4e583e0d3d7120`, based on the accepted merge above.
+
+Functional validation on 2026-11-06 UTC:
+
+- Eight test files passed all 273 tests. They cover explicit, omitted and empty host origins,
+  filesystem flavors and refusals, namespaces, source paths and two real Vite builds.
+  The generated faces' different private helpers match unfused calls on the CPU oracle.
+- The type build, lint, format and bundle boundary passed. Runtime bundle budgets did not change.
+- The compile gate passed: 203 examples on Tint, 139 GLSL programs, 130 render pipelines,
+  and generated host entry calls, with no failures.
+- The packed-package journey gate passed: 35 journeys and 126 runs, plus project initialization,
+  host imports, WebGPU/WebGL2 calls and offline automatic fusion. Final-head CI remains required.
+
+Document validation: `docs:refs` found no dead references. The `docs:impact` review covered
+API, architecture and enforcement references; the current optional settings are documented.
+Proposal scope names only surface sections 64 and 71 and the three declared exports.
+`reqs:sync` changed no requirement items, and Doorstop `-C -e -F` passed.
+The `IfChange` check passed. Graph indexing, contract traces and change analysis were run;
+the analysis identified 125 inbound impact symbols, including Vite, CLI sync and host imports.
+
+Configuration: Bun 1.4.4, Node 24.22.1, TypeScript 5.6.3, Vitest 5.0.5 and Doorstop 3.2.
+Node differs from the repository's 24.19.0 pin; pinned CI remains required.
+The local checks did not run the full unit suite, newer TypeScript matrices, native GPU,
+performance, render or generated GPU differential gates. Runtime fusion and shader lowering did not change.
+
+No design deviations are open. Source spans and other metadata can still retain absolute paths.
+Hosts remain responsible for distinct namespaces or opaque identities across modules that can fuse.
+Compiler delivery does not establish downstream adoption; every downstream obligation below remains pending.
 
 ## What it owes downstream
 

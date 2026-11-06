@@ -7482,6 +7482,15 @@ import { typeshade } from 'typeshade/vite';
 export default defineConfig({ plugins: [typeshade()] });
 ```
 
+Fusion origins use source file names by default. To make those identities independent of the
+checkout directory, opt in with `typeshade({ originNamespace: '@acme/effects' })` (change 0122).
+Use a distinct nonempty namespace for each independently built package that can share a fusion scope.
+The plugin combines that exact namespace with each module's path relative to Vite's root as a JSON tuple.
+Nested paths and `../` remain part of the identity. External modules need a stable relative workspace layout.
+The root and shader path must be absolute and on the same drive or UNC share; invalid configuration throws a plugin error.
+Direct hook callers must supply `root` to `configResolved` when using this option. Calls without the option retain their existing behavior.
+This makes fusion identities portable; source spans and other metadata can still contain absolute paths (§71).
+
 ```jsonc
 // tsconfig.json, the host project's own: two lines
 "moduleSuffixes": [".typeshade", ""],
@@ -9773,6 +9782,12 @@ const y = await out.read(); // relu((a + b) * c)
 
 **The facts.** `typeshade()` and `hostFace()` include fusion facts and portable loop IR by default (change 0085).
 The default holds in `vite dev` and `vite build`. `fuse: true` keeps it; `fuse: false` is an optional size override.
+Each record's origin identifies its module. The runtime shares helpers by origin and function name.
+`hostFace(source, { fileName, origin })` accepts an exact opaque origin, including an empty string (change 0122).
+Omitting `origin` preserves `fileName`. The override leaves imports, diagnostics, watched files and generated views at their source paths.
+Distinct modules that can share a fusion scope need distinct origins. The compiler does not allocate globally unique identities.
+Vite's optional `originNamespace` encodes the namespace and relative module path together (§64).
+With `fuse: false`, neither option adds fusion metadata. Other source metadata retains its existing paths.
 For the five functions of `journeys/loop-fuse/ops.shade.ts`, the default module measures 4,289 bytes against 2,575 with `fuse: false`.
 These are Bun 1.4.3 minified modules with external imports, gzipped at level 9, measured on 2026-10-23 UTC.
 Facts retain the full layout, while an eligible ordinary call can use its private input layout (§65).
