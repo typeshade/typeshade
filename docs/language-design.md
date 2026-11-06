@@ -462,11 +462,12 @@ A write to a read-only resource must be refused, by the compiler and by the edit
     and a mutating method on a class-typed read binding are refused by the compiler alone.
 
 **Rule 6.3.** A top-level `const` is a module constant: a scalar must fold to one value carried at double precision for the oracle and at the target's precision for emit, and a vector, array, or struct must carry a constant-foldable expression every backend evaluates.
+A scalar `f64` initializer folds its permitted operations and builtin calls at compile time. Its final double and both words of its GPU literal pair must be finite. Within this initializer, explicit `f32` conversions and `f32` arithmetic or builtin calls round their operands and results to `f32` at each operation or call; widening preserves the rounded value. An earlier scalar constant contributes its recorded compile-time value, rounded to `f32` when its type is `f32`, without re-evaluating its GPU expression. Literal-only `f64` expressions keep double precision. CPU negative zero is preserved; GPU zero sign and underflow follow the existing split and emit behavior (change 0123).
 A top-level `const` whose initializer is `Math` with an object pattern, or a `Math` member, binds each name to that member (Rule 9.4) and declares no module constant of its own.
 
 - Rationale: a module constant must be one value on every backend, and the dual-precision scalar is how the oracle stays exact where the target rounds.
 - Derives from: [Value Declarations](https://gpuweb.github.io/gpuweb/wgsl/#value-decls) (`const`); `AGENTS.md` ("module constants are scalar dual-precision by default"); surface §12.
-- Enforced by: `src/compiler/ts/module-const.ts` and `module-const.test.ts`; `src/compiler/ts/math-binding.ts` and `math-binding.test.ts` for the `Math` binding (change 0113); a `bool` constant is `true`, `false`, `1`, or `0` (`TS8003`, `Module const "K" is bool, but 2 is neither true nor false. Write true, false, 1 or 0.`, pinned by `rejects a bool module const that is neither true nor false`).
+- Enforced by: `src/compiler/ts/module-const.ts`, `module-const.test.ts` and `module-const-f64.test.ts` (scalar double folding, precision boundaries and finite pair range, change 0123); `src/compiler/ts/math-binding.ts` and `math-binding.test.ts` for the `Math` binding (change 0113); a `bool` constant is `true`, `false`, `1`, or `0` (`TS8003`, `Module const "K" is bool, but 2 is neither true nor false. Write true, false, 1 or 0.`, pinned by `rejects a bool module const that is neither true nor false`).
 
 **Rule 6.4.** A pipeline-overridable constant must be written `const x: override<T> = default` or `declare const x: override<T>`.
 

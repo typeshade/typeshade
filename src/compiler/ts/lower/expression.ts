@@ -25,6 +25,7 @@ import {
   retargetLit,
 } from '../numeric.js';
 import { foldNumericLit, retargetIntLitCtx, shiftAmountMessage } from '../lit-coerce.js';
+import { foldF64ModuleConst } from '../module-const-f64.js';
 import { libraryNameSentence, mapTsTypeToShaderType, writesRefusedType } from '../type-map.js';
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js';
 import { lowerArrayLiteral, refuseListSpread } from './expression-array.js';
@@ -722,6 +723,7 @@ function pair(left: Expr, right: Expr, lNode: ts.Expression, rNode: ts.Expressio
 
 /** Whether `e` is a divisor the constant folder proves is zero in at least one component. */
 export function divisorIsZero(e: Expr, scope: LoweringScope): boolean {
+  if (scope.preservesConstantF32()) return foldF64ModuleConst(e, scope) === 0;
   const parts = foldConstComponents(e, scope);
   return parts !== undefined && parts.some((v) => v === 0);
 }
@@ -822,7 +824,16 @@ function lowerBinary(
   const equality = lowerOptionalEquality(node, left, right, sourceFile, scope, diagnostics);
   if (equality !== 'not-optional') return equality;
   if (refuseKeyOperands(node, left.type, right.type, sourceFile, diagnostics)) return undefined;
-  [left, right] = pair(left, right, node.left, node.right);
+  // The f64 module folder must see every operation of a concrete f32 subtree. Folding
+  // only a nested literal operand here would erase a rounding step, depending on grouping.
+  // A literal-only f64 position still folds the whole tree when it is retargeted or cast.
+  if (
+    !scope.preservesConstantF32() ||
+    typeKey(left.type) !== 'f32' ||
+    typeKey(right.type) !== 'f32'
+  ) {
+    [left, right] = pair(left, right, node.left, node.right);
+  }
   const arith = ARITH[node.operatorToken.kind];
   if (arith !== undefined) {
     if (arith === '*') {

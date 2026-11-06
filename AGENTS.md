@@ -351,7 +351,9 @@ true is a set of steps with tools, each an industry practice, not a memory:
   the CPU oracle and the GLSL writer drift.
 - The auto-var pass relies on Expr object identity and runs on all three backends.
 - Module constants are scalar dual-precision by default (`ConstDecl.wgslValue` truncated,
-  `cpuValue` full precision, for example `PI`). A non-scalar constant (vec, array, struct)
+  `cpuValue` full precision, for example `PI`). A scalar `f64` module constant folds through
+  its typed compile-time precision boundaries and the fp64 pass splits its `cpuValue` into
+  a literal pair (change 0123); no module-scope emulation call remains. A non-scalar constant (vec, array, struct)
   sets `ConstDecl.valueExpr` instead: a constant-foldable literal Expr that every backend
   uses. Author one with `constExpr(name, type, valueNode)`.
 

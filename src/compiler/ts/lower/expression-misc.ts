@@ -12,6 +12,7 @@ import { expandMath } from '../math-expand.js';
 import { lowerRandomHash } from '../random-hash.js';
 import { lowerScalarCast } from '../numeric.js';
 import { foldConstNumber } from '../loop-bound.js';
+import { foldF64ModuleConst } from '../module-const-f64.js';
 import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { readonlyClassUpcast } from '../class-upcasts.js';
 import { lowerExpression } from './expression.js';
@@ -70,7 +71,14 @@ export function lowerScalarCastCall(
   }
   const arg = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
   if (!arg) return undefined;
-  const out = lowerScalarCast(name, arg, (e) => foldConstNumber(e, scope), node.arguments[0]!);
+  const out = lowerScalarCast(
+    name,
+    arg,
+    (e) =>
+      scope.preservesConstantF32() ? foldF64ModuleConst(e, scope) : foldConstNumber(e, scope),
+    node.arguments[0]!,
+    scope.preservesConstantF32(),
+  );
   if (typeof out === 'string') {
     pushDiag(diagnostics, sourceFile, node, out, TS_CODES.TYPE_MISMATCH);
     return undefined;

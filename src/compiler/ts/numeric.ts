@@ -244,6 +244,7 @@ export function lowerScalarCast(
   arg: Expr,
   constOf?: (e: Expr) => number | undefined,
   argNode?: ts.Expression,
+  preserveF32Conversion = false,
 ): Expr | string {
   const type = SCALAR_CAST[name];
   if (!type) return `Unknown scalar cast "${name}".`;
@@ -326,7 +327,7 @@ export function lowerScalarCast(
   // A NEGATED literal is a unop, not a lit, so `u32(-1)` used to reach the backend as
   // `u32(-1.0)`. Folded first, which is also what makes the range rule below see the number
   // the author wrote.
-  const lit = foldNumericLit(arg);
+  const lit = preserveF32Conversion ? arg : foldNumericLit(arg);
   const litValue = lit.op === 'lit' && typeof lit.value === 'number' ? lit.value : undefined;
   // A reference to a `const` is a compile-time value too, and by the time the backend sees it
   // the const-propagation pass has substituted it: `const k: i32 = -1; u32(k)` EMITS `u32(-1)`,
@@ -376,7 +377,7 @@ export function lowerScalarCast(
         );
       }
       if (litValue !== undefined) return { op: 'lit', type, value: truncated };
-    } else if (litValue !== undefined) {
+    } else if (litValue !== undefined && !preserveF32Conversion) {
       return { op: 'lit', type: f32T, value: v };
     }
   }

@@ -678,7 +678,9 @@ const mathMethods = [
 
 const mathConstants = Object.keys(MATH_CONST_ALIAS)
   .map((name) => {
-    const line = `  readonly ${name}: number`;
+    // The compiler gives a Math constant an f32 literal type, while retaining its double
+    // value for contextual f64 literals. The optional scalar brand preserves that conversion.
+    const line = `  readonly ${name}: f32`;
     const doc = MATH_MEMBER_DOCS[name];
     if (!doc) return line;
     return `  ${renderJSDoc(doc).split('\n').join('\n  ')}\n${line}`;

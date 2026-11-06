@@ -571,6 +571,13 @@ constructor over those, arithmetic over those, or a math builtin over those
 (`const K: f32 = sin(1.)`). A constant read in a function is a name the editor resolves, so
 a renamed or misspelt constant is an error at every use site.
 
+A scalar `f64` constant is also allowed: `const TAU: f64 = 2 * Math.PI` folds to a double for
+the CPU and a literal pair for the GPU. Its permitted builtin calls fold at compile time too.
+Written `f32` conversions and `f32` operations retain their rounding boundaries; an earlier
+`f32` constant supplies its recorded compile-time value rounded to `f32`, which need not be
+the value of its retained GPU builtin expression. Section 12 of
+`docs/use-typeshade-surface.md` gives the precision rules and the finite-pair range limit.
+
 ## Functions and entry points
 
 After this page you can declare a helper, call it from another function, write an entry
@@ -2560,7 +2567,9 @@ hardware practice; §39 of `docs/use-typeshade-surface.md` has the detail.
 
 ### Declaring an f64 value
 
-Write `f64` where you would write `f32`: in a uniform field, in a parameter, in a local. The
+Write `f64` where you would write `f32`: in a uniform field, in a parameter, in a local or in a
+scalar module constant. A module initializer folds before emit; its final double and both
+`f32` words must be finite. The [module constant rules](#module-constants) describe its precision boundaries. The
 operators, the comparisons and the builtins keep their spelling, so a body converted from f32
 usually changes only in its signature.
 

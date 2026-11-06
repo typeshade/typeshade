@@ -850,9 +850,9 @@ describe('a function handed over that reads a variable whose declaration was ref
   /** `body` with an entry that calls `run(2.)`, written as a stage call. */
   const STAGED = (body: string): string =>
     `"use typeshade";\n${body}\nexport const fs = fragment(function fs(): vec4 {\n  return vec4(run(2.), 0., 0., 1.);\n});\n`;
-  /** The module constant of #967, which the front end refuses (part 2 of the issue asks for it). */
-  const DOUBLE = `const TAU_DOUBLE: f64 = 6.283185307179586;\n`;
-  const REFUSED = `${TS_CODES.TYPE_MISMATCH} Module const "TAU_DOUBLE" must be f32, i32, u32, or bool for now.`;
+  /** The shape of #967, now refused for an actual range error: 0123 permits its original value. */
+  const DOUBLE = `const TAU_DOUBLE: f64 = f64(1e38) * 4;\n`;
+  const REFUSED = `${TS_CODES.TYPE_MISMATCH} Module const "TAU_DOUBLE" is f64, but its value cannot be represented by two finite f32 words. Use a finite value within the emulated double's f32 range.`;
   const NOT_YET = (name: string): string =>
     `${TS_CODES.UNKNOWN_NAME} The function written here reads "${name}", which is not declared yet where it runs: a let or a const is not there before its declaration, and TypeScript throws. Declare "${name}" above this call.`;
   /** What each half says of `src`: `compile()`'s errors, and every diagnostic of the editor. */
@@ -869,6 +869,18 @@ describe('a function handed over that reads a variable whose declaration was ref
   const once = (diagnostic: string) => ({
     compiler: [diagnostic],
     editor: [`typeshade ${diagnostic}`],
+  });
+
+  it('accepts the original f64 constant through the captured local (#967)', () => {
+    expect(
+      halves(
+        STAGED(`${APPLY}const TAU_DOUBLE: f64 = 6.283185307179586;
+export function run(k: f32): f32 {
+  const step = TAU_DOUBLE / 8.;
+  return apply((x) => x * f32(step), k);
+}`),
+      ),
+    ).toEqual({ compiler: [], editor: [] });
   });
 
   it('says only the refusal of the module constant, read through a local by an arrow function handed to a call', () => {
