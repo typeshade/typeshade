@@ -4033,8 +4033,8 @@ function decoratorsOf(node: ts.Node): readonly ts.Decorator[] {
  *  and the compiler otherwise emits that struct's WGSL text with a member neither backend nor
  *  Tint accepts, silently. Every diagnostic anchors at `node` (the parameter or the return type
  *  annotation) since a `StructField` carries no source position of its own — see `structs.ts`'s
- *  `collectStructs`, which already validated each field's builtin *name* independently of how
- *  the struct ends up used. */
+ *  `collectStructs`, which already validated each field's builtin name and type independently
+ *  of how the struct ends up used. */
 function checkStructBuiltinFields(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
@@ -4098,7 +4098,6 @@ function checkStructBuiltinFields(
     }
     if (!field.builtin) continue;
     checkBuiltinStage(diagnostics, sourceFile, node, field.builtin, stage, direction);
-    checkBuiltinType(diagnostics, sourceFile, node, field.builtin, field.type);
   }
 }
 

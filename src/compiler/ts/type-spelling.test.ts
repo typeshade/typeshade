@@ -480,7 +480,7 @@ describe('a class named while the structs are collected, and a sentence about a 
       'TS8003 "VO.c" is at a location and is "Slot<f32>"; a value passed between stages is a ' +
         'numeric scalar or a numeric vector. Send its components as separate locations.',
     ]);
-    // Said twice, at the field and at the entry, and now in one spelling.
+    // Said once at the field, in the spelling the author wrote (#321, types#10).
     expect(
       saidOf(
         [
@@ -488,10 +488,7 @@ describe('a class named while the structs are collected, and a sentence about a 
           'export const vs = vertex(function vs(): VO { return new VO(); });',
         ].join('\n'),
       ),
-    ).toEqual([
-      'TS8003 Builtin "position" is "vec4"; this declares it "N.In".',
-      'TS8003 Builtin "position" is "vec4"; this declares it "N.In".',
-    ]);
+    ).toEqual(['TS8003 Builtin "position" is "vec4"; this declares it "N.In".']);
   });
 
   it('an object literal, a vertex entry and a method call of a class in a namespace', () => {
