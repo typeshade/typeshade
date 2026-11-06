@@ -1,7 +1,7 @@
 ---
 id: '0126'
 title: A pure shader alias preserves its target's declarations and binding slots
-status: draft
+status: accepted
 rules:
   - '3.9'
 surface:
@@ -23,12 +23,12 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                        |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0126, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                     |
+| Identity and status           | Proposal 0126, `status: accepted`. The front matter is the identity and lifecycle authority.                                                                                  |
 | Date and attribution          | Authored 2026-11-06 UTC by Codex while progressing the owner's remaining-issue request. This date records authorship, not approval.                                           |
 | Request source                | Issue [#780](https://github.com/typeshade/typeshade/issues/780), including its unused-binding counterexample and the factual correction in PR #1057.                          |
 | Applicability / Effectivity   | Shader linking through the public compiler, host-face generator, Vite, CLI and shader language service. WGSL, GLSL and CPU targets share the retained IR. Release unassigned. |
 | Review baseline               | `main` at `8a3189924118f25d9edc2f4032071a171d5e01ab`.                                                                                                                         |
-| Review and revision authority | No PR assigned yet. Git records revisions; PR review and an accepted merge will record the decision. No implementation is authorized by this draft alone.                     |
+| Review and revision authority | [PR #1058](https://github.com/typeshade/typeshade/pull/1058). Git records revisions; the decision below takes effect when this proposal merges as accepted.                   |
 
 ## What changes
 
@@ -180,9 +180,9 @@ Alternatives considered:
 - Reuse the target's identity for every artifact. This changes paths, watcher behavior and
   fusion-origin policy beyond declaration retention, and is not required to preserve slots.
 
-The recommended decisions are root-only recognition, complete target inventory, unchanged
+The accepted decisions are root-only recognition, complete target inventory, unchanged
 host export visibility and path identity, and ordinary linking for an alias-only cycle.
-These decisions require review before acceptance. The downstream file evidence uses the
+The Approval and plan record identifies their review and authorization. Downstream evidence uses the
 snapshots recorded below; adopting repositories have delivered no work under this proposal.
 
 ## What it touches
@@ -260,17 +260,32 @@ and ordinary imported-file retention stay the reference behavior. Existing valid
 keep their named exports and reached-binding arguments.
 
 Implementation time, downstream adoption time and resource costs have not been estimated.
-The acceptance review must confirm the recognition boundary, cycle fallback, identity policy,
+The acceptance review confirmed the recognition boundary, cycle fallback, identity policy,
 declared documentation scope and downstream obligations. No milestone date is assigned.
 
 ### Approval and plan record
 
-This record does not yet apply. The owner authorized continued issue work and merging the
-agents' own PRs; that standing authorization is not acceptance of this specific language change.
-Acceptance requires review of this contract, declared impacts and required validation, followed
-by a proposal-only merge with `status: accepted`. The approval record must identify the reviewed
-revision, actual decision, responsible implementation/review roles and any agreed milestones.
-No compiler implementation starts before that merge.
+The owner authorized continued issue work and merging the agents' own PRs in the current
+session. That standing authorization is not a quoted owner decision about this alias contract.
+
+On 2026-11-06 UTC, the orchestrating Codex agent independently reviewed the complete draft
+at `cfc11c6d23034223098bd61f5f0c34eccc98da17` in
+[PR #1058](https://github.com/typeshade/typeshade/pull/1058). It approved acceptance under the
+owner's standing authorization and directed this status and approval-record update.
+
+The approved scope is Rule 3.9 and surface §68: pure-root terminal declaration inventory,
+existing direct validation and module directives, and preserved binding layout. Existing
+private package prefixes, version deduplication, requested-path and fusion identity remain.
+Ordinary imports stay selective; alias-only cycles use bounded ordinary linking. No authored
+default-export support or general refusal redesign is approved. The downstream obligations
+and finite compiler/editor, host-view, native-compiler and packed runtime validation above
+are part of the approved plan. No design decision remains unresolved.
+
+The Codex agent `f64_scope` owns shared-linker implementation. `remaining_audit` owns integration
+tests; `f64_semantics` provides independent review. The orchestrating agent coordinates validation
+and merge. Downstream repositories own their adoption and compiler-pin work. No time, resource
+estimate or milestone date is assigned. The accepted merge of PR #1058 establishes the approved
+baseline; no compiler implementation starts before that merge.
 
 ### Configuration and validation record
 
@@ -280,7 +295,10 @@ Keep deviations and remaining downstream work explicit. Compiler delivery does n
 downstream adoption.
 
 The preliminary compiler evidence above is from the 2026-11-06 audit at `00c8d0eb`; it is not
-validation of the proposed behavior. This draft's document checks will be recorded on its PR.
+validation of the proposed behavior. At draft revision `cfc11c6d`, 36 proposal/reference tests,
+documentation references and impact, formatting, proposal scope and installed commit hooks
+passed. The PR records the commands and tested configuration. Acceptance-record checks are
+recorded there separately; no implementation result is claimed.
 
 ## What it owes downstream
 
