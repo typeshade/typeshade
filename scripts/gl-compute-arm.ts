@@ -207,22 +207,27 @@ export async function computeArm(page: Page): Promise<number> {
     };
   }
 
-  // The instruments first: a broken pass program, and a job with an input word changed.
-  const first = prepared[0]!;
+  // Use a known input-dependent program, independently of corpus order: a write-only case
+  // can replace a corrupted word before the comparison reads it (#1021).
+  const control = prepared.find((p) => p.id === 'a write at gid.x');
+  if (control === undefined) throw new Error('the compute instrument needs the input-copy case');
+  const xs = control.job.memory.xs;
+  const out = control.want.out;
+  if (xs === undefined || xs.length === 0 || out === undefined || out.length === 0)
+    throw new Error('the compute instrument needs a nonempty xs input and out result');
   const broken: ComputeJob = {
-    ...first.job,
+    ...control.job,
     id: 'broken',
-    program: { ...first.program, vertex: '#version 300 es\nvoid main( {' },
+    program: { ...control.program, vertex: '#version 300 es\nvoid main( {' },
   };
   const changed: ComputeJob = {
-    ...first.job,
+    ...control.job,
     id: 'changed',
-    memory: Object.fromEntries(
-      Object.entries(first.job.memory).map(([k, v], i) => [
-        k,
-        i === 0 ? v.map((x, j) => (j === 0 ? x ^ 1 : x)) : v,
-      ]),
-    ),
+    memory: {
+      ...control.job.memory,
+      // Change zero to 1.0, so the computed output changes too, not only the retained input.
+      xs: xs.map((x, j) => (j === 0 ? x ^ 0x3f800000 : x)),
+    },
   };
   const probe = await runOnPage([broken, changed]);
   console.log(`compute differential: WebGL2 renderer ${probe.renderer}`);
@@ -236,8 +241,8 @@ export async function computeArm(page: Page): Promise<number> {
     failures++;
   }
   const ch = probe.results.find((r) => r.id === 'changed')!;
-  const chDiff = difference(first.want, ch.memory, first.floats, false, { compared: 0 });
-  if (chDiff !== undefined)
+  const chDiff = difference({ out }, ch.memory, control.floats, false, { compared: 0 });
+  if (ch.error === undefined && ch.memory !== undefined && chDiff !== undefined)
     console.log(`instrument: an input word changed on purpose was REPORTED (${chDiff})`);
   else {
     console.error('FAIL  instrument: an input word changed on purpose matched the model');

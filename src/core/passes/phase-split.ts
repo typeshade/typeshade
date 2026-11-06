@@ -27,7 +27,7 @@
 // change) reads the same plan.
 
 import type { Expr, FuncDecl, ModuleDecl, ModuleVarDecl, Stmt, StructDecl } from '../ir/nodes.js';
-import { boolT, i32T, u32T, type ShaderType } from '../ir/types.js';
+import { boolT, f64T, i32T, u32T, type ShaderType } from '../ir/types.js';
 import { stageOf } from '../ir/index.js';
 import { mapChildren } from '../ir/visit.js';
 import { isAtomicIntrinsic, isBarrierIntrinsic } from '../intrinsics.js';
@@ -80,9 +80,10 @@ export class PhaseSplitError extends Error {}
 
 const PC = '_phx_pc';
 
-/** The four lanes of one write log entry hold a scalar, a vector or a matrix column. */
+/** The four lanes of one write log entry hold a scalar, a vector or a matrix column.
+ *  An emulated double uses two of those lanes. */
 const isLaneSized = (t: ShaderType): boolean =>
-  t.kind === 'scalar' || t.kind === 'vec' || t.kind === 'atomic';
+  t.kind === 'scalar' || t.kind === 'vec' || t.kind === 'atomic' || t.kind === 'f64';
 
 /** Split the `@compute` entry `entry` of `m` into phases. `m` is a module the CPU oracle runs:
  *  validated, with `autoVars` applied. `logEntries` is the write log's size (change 0054,
@@ -483,6 +484,8 @@ class Builder {
   /** How many log entries a write of a value of type `t` takes. */
   entriesOf(t: ShaderType): number {
     switch (t.kind) {
+      case 'vec64':
+        return t.n;
       case 'mat':
         return t.cols;
       case 'struct': {
@@ -524,11 +527,17 @@ class Builder {
         const value = this.hoist(s.expr, t);
         const target = this.hoistPlace(s.target, t);
         if (
-          s.s === 'assign' &&
           this.writesMemory(s.target, t.names) &&
-          !isLaneSized(s.target.type)
+          !isLaneSized(s.target.type) &&
+          (s.s === 'assign' || s.target.type.kind === 'vec64')
         ) {
-          this.writePieces(target, value, s.target.type);
+          this.writePieces(
+            target,
+            s.s === 'assign'
+              ? value
+              : { op: 'binop', type: target.type, bop: s.bop, a: target, b: value },
+            s.target.type,
+          );
         } else this.emitStmt({ ...s, target, expr: value });
         return;
       }
@@ -685,6 +694,18 @@ class Builder {
       const tmp = this.temp(type);
       this.emitStmt({ s: 'assign', target: varref(tmp, type), expr: value });
       src = varref(tmp, type);
+    }
+    if (type.kind === 'vec64') {
+      // A vector is stored as hi and lo planes. Each scalar write is one pair; the memory
+      // pass maps its two words to those planes before fp64 lowering sees these places.
+      for (const field of 'xyzw'.slice(0, type.n)) {
+        this.writePieces(
+          { op: 'member', type: f64T, base: target, field },
+          { op: 'member', type: f64T, base: src, field },
+          f64T,
+        );
+      }
+      return;
     }
     if (type.kind === 'struct') {
       const decl = this.structs.get(type.name);
