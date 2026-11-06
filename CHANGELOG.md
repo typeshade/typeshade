@@ -1602,6 +1602,8 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- A local function that takes a function argument no longer reports a captured variable as undeclared when its initializer was already refused (#967). Compiler and editor retain the original error and still diagnose calls before a captured declaration.
+
 - Calls through refused function-value aliases no longer add an unknown-function error. Array-length generics are refused once at their declaration with a usable alternative, and ECMAScript number predicates name valid f32 bit tests instead of suggesting the enclosing helper. Compiler and editor agree (#794).
 
 - A missing field in an abstract class's inherited body is reported once with the affected class names (#975). Compiler and editor keep different source positions and different remedies separate.

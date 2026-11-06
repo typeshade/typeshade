@@ -3,6 +3,7 @@
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
 import { attributeDecoratorsOf } from '../attribute-types.js';
+import { variableRefused } from '../refused-names.js';
 import { stageCallOf, stageCallOfDeclaration, stageDeclarationOf } from '../stage-call.js';
 import { numericsOf } from '../numerics.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
@@ -1225,6 +1226,15 @@ export function lowerSourceFunctions(
           ? (scope.bindingOfDeclaration(k) ?? scope.resolve('this'))
           : scope.bindingOfDeclaration(k);
       if (held === undefined) {
+        // A captured local declared above the call may be absent because its initializer was
+        // refused. Keep that cause, rather than claiming the declaration is below this call.
+        if (
+          k !== THIS_CAPTURE &&
+          k.getSourceFile() === sf &&
+          k.end <= node.pos &&
+          variableRefused(k, sf, [...diagnostics, ...diags])
+        )
+          return undefined;
         // Read before its declaration, where TypeScript throws: the call runs the function now.
         pushDiag(
           diags,
