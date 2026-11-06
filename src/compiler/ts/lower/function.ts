@@ -1963,7 +1963,8 @@ function stageRestrictedOpsOf(body: readonly Stmt[]): Set<string> {
  *  with it, so no call is left without its function. A copy of an `abstract` class's method is
  *  the only lowering its body gets, so what it says is said whether or not anything calls it;
  *  so is a copy of its static that builds its value with `new this()` (0020), which the abstract
- *  class itself has no lowering of. */
+ *  class itself has no lowering of. Identical missing-field reports in those copies name
+ *  the affected classes together; different source spans or remedies stay separate. */
 function sayInherited(
   inherited: readonly { cf: ClassFunction; said: readonly TsCompilerDiagnostic[] }[],
   funcs: FuncDecl[],
@@ -2005,14 +2006,40 @@ function sayInherited(
     }
   }
   for (let i = funcs.length - 1; i >= 0; i--) if (dropped.has(funcs[i]!.name)) funcs.splice(i, 1);
-  const key = (d: TsCompilerDiagnostic): string =>
-    `${d.start}:${d.length}:${d.code ?? ''}:${d.message}`;
-  const said = new Set(diagnostics.map(key));
+  const key = (d: TsCompilerDiagnostic, message = d.message): string =>
+    JSON.stringify([d.fileName, d.start, d.length, d.category, d.code, message]);
+  const said = new Set(diagnostics.map((d) => key(d)));
+  const fields = new Map<string, { index: number; classes: string[] }>();
   for (const { cf, said: own } of inherited) {
     if (dropped.has(cf.stub.name)) continue;
     for (const d of own) {
       if (said.has(key(d))) continue;
       said.add(key(d));
+      // Only the receiver's name varies in this sentence. Do not erase other type names or
+      // a different suggested field: those can identify a failure specific to one class.
+      const prefix = d.message.match(/^Unknown field "[^"]+" on /)?.[0];
+      const name = authorTypeText(structT(cf.struct.decl.name));
+      if (
+        onlyLowering(cf) &&
+        d.code === TS_CODES.UNKNOWN_NAME &&
+        prefix !== undefined &&
+        d.message.startsWith(`${prefix}${name}.`)
+      ) {
+        const suffix = d.message.slice(prefix.length + name.length);
+        const id = key(d, `${prefix}${suffix}`);
+        const group = fields.get(id);
+        if (group !== undefined) {
+          if (!group.classes.includes(name)) group.classes.push(name);
+          const names = group.classes;
+          const together =
+            names.length === 1
+              ? names[0]!
+              : `${names.slice(0, -1).join(', ')} and ${names.at(-1)!}`;
+          diagnostics[group.index] = { ...d, message: `${prefix}${together}${suffix}` };
+          continue;
+        }
+        fields.set(id, { index: diagnostics.length, classes: [name] });
+      }
       diagnostics.push(d);
     }
   }

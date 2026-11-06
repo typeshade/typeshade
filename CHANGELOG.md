@@ -1600,6 +1600,8 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- A missing field in an abstract class's inherited body is reported once with the affected class names (#975). Compiler and editor keep different source positions and different remedies separate.
+
 - A call of a declared method on an abstract receiver now explains that the class has no instance and names the concrete-class remedy, instead of claiming the method does not exist. Compiler and editor retain TS8035 (#1008).
 
 - Resolve a namespace class's short base name in its enclosing namespaces before the file scope. Sibling and enclosing bases now contribute their inherited fields and methods (#976).

@@ -1091,20 +1091,16 @@ export function run(): f32 {
     ]);
   });
 
-  it('an error in the body of such a static is said for each class that extends the abstract one, called or not (#944)', () => {
+  it('one error in such a static names the affected classes together, called or not (#975)', () => {
     // The abstract class has no lowering of the body, so a class that extends it is the only one
-    // there is, as with an abstract class's method (Rule 12.4 counts one mistake per class there).
+    // there is, as with an abstract class's method. Rule 12.4 still counts one source mistake.
     const src = `${OSCILLATORS.replace('o.inc = f / sr;', 'o.incc = f / sr;')}${TAIL}`;
     const said = (cls: string): string => `Unknown field "incc" on ${cls}. Did you mean "inc"?`;
     expect(compile(src).diagnostics.map((d) => [d.code, d.message])).toEqual([
-      ['TS8022', said('Saw')],
-      ['TS8022', said('Square')],
+      ['TS8022', said('Saw and Square')],
     ]);
     // The editor shows the compiler's sentences, TypeScript's TS2551 of the same mistake merged.
-    expect(editorErrors(src)).toEqual([
-      `typeshade TS8022: ${said('Saw')}`,
-      `typeshade TS8022: ${said('Square')}`,
-    ]);
+    expect(editorErrors(src)).toEqual([`typeshade TS8022: ${said('Saw and Square')}`]);
     const unmerged = editorErrors(src, true);
     expect(unmerged).toContain(
       "typescript 2551: Property 'incc' does not exist on type 'C'. Did you mean 'inc'?",
