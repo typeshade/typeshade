@@ -20,7 +20,7 @@
 // executor (`core/testing/gl-model.ts`) runs them, and the GLSL writer spells them.
 
 import type { Expr, FuncDecl, Stmt, StructDecl } from '../ir/nodes.js';
-import { u32T, type ShaderType } from '../ir/types.js';
+import { f32T, f64T, u32T, type ShaderType } from '../ir/types.js';
 import { mapChildren } from '../ir/visit.js';
 import { collectLocals } from './opt/expr-utils.js';
 import { typeLayout, wgslLayout } from '../reflect.js';
@@ -209,7 +209,7 @@ class Words {
   /** The root and word of a memory place, or undefined when `e` is not one. The word holds the
    *  place's indices, lowered by `lowerExpr`, so `lengths` takes the root of each length they
    *  read. */
-  place(e: Expr, lengths: Set<string>): { root: number; word: Expr } | undefined {
+  place(e: Expr, lengths: Set<string>): { root: number; word: Expr; loStep?: number } | undefined {
     if (e.op === 'varref' || e.op === 'param') {
       const root = this.shadowed.has(e.name) ? undefined : this.roots.get(e.name);
       return root === undefined ? undefined : { root, word: lit(0) };
@@ -221,7 +221,13 @@ class Words {
       const t = e.base.type;
       if (t.kind === 'struct')
         return { root: base.root, word: add(base.word, lit(this.fieldWord(t, e.field))) };
-      return { root: base.root, word: add(base.word, lit(FIELD.indexOf(e.field))) };
+      return {
+        root: base.root,
+        word: add(base.word, lit(FIELD.indexOf(e.field))),
+        ...(t.kind === 'vec64'
+          ? { loStep: this.stride({ kind: 'vec', n: t.n, elem: 'f32' }) }
+          : {}),
+      };
     }
     if (e.op === 'index') {
       const base = this.place(e.base, lengths);
@@ -234,13 +240,19 @@ class Words {
             ? this.stride({ kind: 'vec', n: t.rows, elem: 'f32' })
             : 1;
       const idx = asU32(this.lowerExpr(e.idx, lengths));
-      return { root: base.root, word: add(base.word, mul(idx, step)) };
+      return {
+        root: base.root,
+        word: add(base.word, mul(idx, step)),
+        ...(t.kind === 'vec64'
+          ? { loStep: this.stride({ kind: 'vec', n: t.n, elem: 'f32' }) }
+          : {}),
+      };
     }
     return undefined;
   }
 
   /** The value of type `t` at `word` of `root`, from its lanes. */
-  private load(t: ShaderType, root: number, word: Expr): Expr {
+  private load(t: ShaderType, root: number, word: Expr, loStep = 1): Expr {
     const lane = (w: Expr): Expr => ({
       op: 'call',
       type: u32T,
@@ -248,6 +260,31 @@ class Words {
       args: [lit(root), w],
     });
     switch (t.kind) {
+      case 'f64': {
+        const widen = (w: Expr): Expr => ({
+          op: 'call',
+          type: f64T,
+          fn: 'f64',
+          args: [{ op: 'call', type: f32T, fn: 'bitcastF32', args: [lane(w)] }],
+        });
+        return {
+          op: 'binop',
+          type: f64T,
+          bop: '+',
+          a: widen(word),
+          b: widen(add(word, lit(loStep))),
+        };
+      }
+      case 'vec64': {
+        const plane = this.stride({ kind: 'vec', n: t.n, elem: 'f32' });
+        return {
+          op: 'construct',
+          type: t,
+          args: Array.from({ length: t.n }, (_, k) =>
+            this.load(f64T, root, add(word, lit(k)), plane),
+          ),
+        };
+      }
       case 'scalar':
       case 'atomic': {
         const s = t.kind === 'scalar' ? t.scalar : t.elem;
@@ -315,21 +352,27 @@ class Words {
       }
     }
     // A swizzle of a memory vector reads each lane it names.
-    if (e.op === 'member' && e.field.length > 1 && e.base.type.kind === 'vec') {
+    if (
+      e.op === 'member' &&
+      e.field.length > 1 &&
+      (e.base.type.kind === 'vec' || e.base.type.kind === 'vec64')
+    ) {
       const base = this.place(e.base, lengths);
       if (base !== undefined) {
-        const s: ShaderType = { kind: 'scalar', scalar: e.base.type.elem };
+        const t = e.base.type;
+        const s: ShaderType = t.kind === 'vec64' ? f64T : { kind: 'scalar', scalar: t.elem };
+        const step = t.kind === 'vec64' ? this.stride({ kind: 'vec', n: t.n, elem: 'f32' }) : 1;
         return {
           op: 'construct',
           type: e.type,
           args: [...e.field].map((c) =>
-            this.load(s, base.root, add(base.word, lit(FIELD.indexOf(c)))),
+            this.load(s, base.root, add(base.word, lit(FIELD.indexOf(c))), step),
           ),
         };
       }
     }
     const p = this.place(e, lengths);
-    if (p !== undefined) return this.load(e.type, p.root, p.word);
+    if (p !== undefined) return this.load(e.type, p.root, p.word, p.loStep);
     return mapChildren(e, (c) => this.lowerExpr(c, lengths));
   }
 
@@ -339,17 +382,17 @@ class Words {
     if (p === undefined)
       throw new MemoryWordsError('a write to memory through a place with no word');
     const t = target.type;
-    if (value.op === 'varref') return this.storeValue(p.root, p.word, t, value);
+    if (value.op === 'varref') return this.storeValue(p.root, p.word, t, value, p.loStep);
     const name = `_phx_w${this.temps++}`;
     return [
       { s: 'let', name, expr: value },
-      ...this.storeValue(p.root, p.word, t, { op: 'varref', type: t, name }),
+      ...this.storeValue(p.root, p.word, t, { op: 'varref', type: t, name }, p.loStep),
     ];
   }
 
   /** The `_phStore` statements that write the value `v` of type `t` at `word` of `root`, one per
    *  lane: a struct field by field, an array element by element, a matrix column by column. */
-  private storeValue(root: number, word: Expr, t: ShaderType, v: Expr): Stmt[] {
+  private storeValue(root: number, word: Expr, t: ShaderType, v: Expr, loStep = 1): Stmt[] {
     const bits = (x: Expr, s: string): Expr =>
       s === 'u32'
         ? x
@@ -361,6 +404,40 @@ class Words {
       expr: { op: 'call', type: { kind: 'void' }, fn: '_phStore', args: [lit(root), w, b] },
     });
     switch (t.kind) {
+      case 'f64': {
+        // The normalized pair used by the emulation: the nearest f32 and its residual.
+        const hi: Expr = { op: 'call', type: f32T, fn: 'f32', args: [v] };
+        const hiBits = bits(hi, 'f32');
+        // Re-read the stored bits before subtracting, including on the f64 CPU oracle.
+        const roundedHi: Expr = { op: 'call', type: f32T, fn: 'bitcastF32', args: [hiBits] };
+        const lo: Expr = {
+          op: 'call',
+          type: f32T,
+          fn: 'f32',
+          args: [
+            {
+              op: 'binop',
+              type: f64T,
+              bop: '-',
+              a: v,
+              b: { op: 'call', type: f64T, fn: 'f64', args: [roundedHi] },
+            },
+          ],
+        };
+        return [store(word, hiBits), store(add(word, lit(loStep)), bits(lo, 'f32'))];
+      }
+      case 'vec64': {
+        const plane = this.stride({ kind: 'vec', n: t.n, elem: 'f32' });
+        return Array.from({ length: t.n }, (_, k) =>
+          this.storeValue(
+            root,
+            add(word, lit(k)),
+            f64T,
+            { op: 'member', type: f64T, base: v, field: FIELD[k]! },
+            plane,
+          ),
+        ).flat();
+      }
       case 'scalar':
       case 'atomic':
         return [store(word, bits(v, t.kind === 'scalar' ? t.scalar : t.elem))];

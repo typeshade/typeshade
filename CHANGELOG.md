@@ -1602,6 +1602,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **WebGL2 compute writes emulated-double storage values** (#1021). Scalar doubles retain
+  their hi/lo words, and vectors retain their separate hi/lo planes, including vec3 padding.
+  Writes split at log boundaries and subsequent loads preserve the low words.
+
 - A local function that takes a function argument no longer reports a captured variable as undeclared when its initializer was already refused (#967). Compiler and editor retain the original error and still diagnose calls before a captured declaration.
 
 - A mutable static field remains readable beside a parameter with its flattened name (#1009). The module variable has a distinct internal name, while authored parameter names stay intact across CPU execution, optimization and WGSL/GLSL emission.
