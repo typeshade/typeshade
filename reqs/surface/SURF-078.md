@@ -8,7 +8,7 @@ links:
 - RULE-0607: ywpSk48Qq9BaoWOMcXVLl0UjESjKQMxGadrGB9I_I38=
 - RULE-1120: xToEY27JoFqnUJixM5F0Crd92ru3ELEhuwsS0iYlwMw=
 - RULE-1122: hMdSjlEto3ACAQDZA-GnebnpinNaAbOEESXKSdNNX8Y=
-- RULE-1207: Mvr2vY3Krl66Bglu9ejs51aqLb_3vraF1hO4FLdrK48=
+- RULE-1207: 36QllRIgpX0_IkPYPSbRoYzm0b-D3nM8UC5xey89iEY=
 normative: true
 ref: ''
 reviewed: b8xeGrMEwLdzSdJ9P-z9SoaR6SrNAYzPqOOcr_8iGzU=
