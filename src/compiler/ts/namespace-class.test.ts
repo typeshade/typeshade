@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
 import { emitGlslModule } from '../../core/backends/glsl.js';
 import { stageOf } from '../../core/ir/index.js';
@@ -215,5 +216,56 @@ export const fs = fragment(function fs(): vec4 {
     ).toContain(
       'A namespace holds functions, constants, classes and namespaces; an enum inside "A" has no flattened form.',
     );
+  });
+});
+
+describe('namespace inheritance (#976)', () => {
+  it.each(['', 'abstract '])('resolves a %sbase in the nearest namespace', (modifier) => {
+    const source = `"use typeshade";
+class Base { wrong: f32 = 99.; }
+namespace Outer {
+  export ${modifier}class Base { protected value: f32 = 7.; }
+  export namespace Inner {
+    export class Derived extends Base {
+      read(): f32 { return this.value; }
+    }
+  }
+}
+export const fs = fragment(function fs(): vec4 {
+  const item = new Outer.Inner.Derived();
+  return vec4(item.read(), 0., 0., 1.);
+});
+`;
+    const service = createTypeshadeLanguageService();
+    service.openDocument('namespace-inheritance.ts', source);
+    expect(
+      service.getDiagnostics('namespace-inheritance.ts').filter((d) => d.severity === 'error'),
+    ).toEqual([]);
+    const r = compile(source);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('struct Outer_Inner_Derived');
+    agree(r, [7, 0, 0, 1]);
+  });
+
+  it('inherits a sibling class instead of a same-named class in another namespace', () => {
+    const source = `"use typeshade";
+namespace Other { export class Base { wrong: f32 = 99.; } }
+namespace Osc {
+  export class Base { value: f32 = 4.; }
+  export class Derived extends Base { read(): f32 { return this.value; } }
+}
+export const fs = fragment(function fs(): vec4 {
+  const item = new Osc.Derived();
+  return vec4(item.read(), 0., 0., 1.);
+});
+`;
+    const service = createTypeshadeLanguageService();
+    service.openDocument('namespace-inheritance.ts', source);
+    expect(
+      service.getDiagnostics('namespace-inheritance.ts').filter((d) => d.severity === 'error'),
+    ).toEqual([]);
+    const r = compile(source);
+    expect(r.diagnostics).toEqual([]);
+    agree(r, [4, 0, 0, 1]);
   });
 });
