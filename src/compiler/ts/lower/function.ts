@@ -341,6 +341,20 @@ export function lowerSourceFunctions(
           continue;
         }
       }
+      const lengths = arrayLengthParameters(stmt);
+      if (lengths.length > 0) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          lengths[0]!,
+          `"${stmt.name.text}" uses ${lengths.map((p) => `"${p.name.text}"`).join(' and ')} ` +
+            `as an array length, but generic parameters name types, not lengths (Rule 8.9). ` +
+            `Write a helper for each fixed length, or export a kernel taking an unsized array and a separate size argument.`,
+          TS_CODES.UNKNOWN_TYPE,
+        );
+        refused.add(base);
+        continue;
+      }
       generics.set(base, { node: stmt, prefix });
       fns.generics.add(base);
       if (fnAt.size > 0) fns.fnParams.set(base, fnAt);
@@ -4145,6 +4159,30 @@ function pushDiag(
   code: TsCode,
 ): void {
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
+}
+
+/** A type parameter used as an array length cannot be supplied by a type argument. */
+function arrayLengthParameters(decl: ts.FunctionDeclaration): ts.TypeParameterDeclaration[] {
+  const used = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isTypeReferenceNode(node) &&
+      ts.isIdentifier(node.typeName) &&
+      node.typeName.text === 'array'
+    ) {
+      const length = node.typeArguments?.[1];
+      if (
+        length !== undefined &&
+        ts.isTypeReferenceNode(length) &&
+        ts.isIdentifier(length.typeName)
+      )
+        used.add(length.typeName.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  for (const parameter of decl.parameters) if (parameter.type !== undefined) visit(parameter.type);
+  if (decl.type !== undefined) visit(decl.type);
+  return decl.typeParameters?.filter((parameter) => used.has(parameter.name.text)) ?? [];
 }
 
 /** The type arguments one call settles: the ones it writes, or the ones its arguments show.
