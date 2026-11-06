@@ -1032,7 +1032,10 @@ export function copiedParams(
  *
  *  One slot for the process, shared by the interpreter and the generated code (a compiled
  *  function may call one that fell back to the interpreter): the callee writes it as it returns
- *  and the caller reads it before anything else runs. The stepper, which may yield to another
+ *  and the caller reads it before anything else runs. Generated code publishes a fixed-width
+ *  buffer reused by its function; the interpreter may publish a fresh array. No caller retains
+ *  a snapshot.
+ *  The stepper, which may yield to another
  *  invocation between the two, hands the values back through the call instead. */
 export const inoutReturn: { values: readonly CpuValue[] } = { values: [] };
 

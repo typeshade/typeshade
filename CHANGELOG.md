@@ -1600,6 +1600,8 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- Generated CPU functions reuse a fixed-width buffer for their `inout` return values instead of allocating an array on each call (#961). Nested calls and interpreter fallbacks retain their existing results.
+
 - **The call checks a read under a guard on the counter over the iterations the guard keeps (#997).**
   A kernel function's call checks each array a loop reads at `a*i + c` against its length before it
   dispatches (#655). It took the whole range of the counter for the range of the read. A loop that
