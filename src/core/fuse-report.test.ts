@@ -16,8 +16,8 @@ const gl: FuseReport = {
   dispatches: 2,
   submissions: 0,
   groups: [
-    { calls: ['add'], fused: false, tier: 'webgl2' },
-    { calls: ['mul'], fused: false, tier: 'webgl2', why: 'webgl2' },
+    { calls: ['add'], fused: false, tier: 'webgl2', dispatches: 1 },
+    { calls: ['mul'], fused: false, tier: 'webgl2', dispatches: 1, why: 'webgl2' },
   ],
 };
 const gpu: FuseReport = {
@@ -29,6 +29,7 @@ const gpu: FuseReport = {
       calls: ['add', 'mul', 'relu'],
       fused: true,
       tier: 'webgpu',
+      dispatches: 1,
       workgroupShapes: [[64, 1, 1]],
       gpuTime: 1200,
     },
@@ -36,6 +37,7 @@ const gpu: FuseReport = {
       calls: ['total'],
       fused: false,
       tier: 'webgpu',
+      dispatches: 2,
       why: 'total reduces',
       workgroupShapes: [[256, 1, 1]],
     },
@@ -48,11 +50,12 @@ const glWithCpu: FuseReport = {
   dispatches: 1,
   submissions: 0,
   groups: [
-    { calls: ['gain'], fused: false, tier: 'webgl2' },
+    { calls: ['gain'], fused: false, tier: 'webgl2', dispatches: 1 },
     {
       calls: ['peak'],
       fused: false,
       tier: 'cpu',
+      dispatches: 0,
       why: 'peak runs on the CPU, it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for',
     },
   ],
@@ -63,6 +66,8 @@ describe('mergeReports (change 0071, Amendment 2)', () => {
     const merged = mergeReports([gpu, cpu, gl]);
     expect(merged.dispatches).toBe(5);
     expect(merged.submissions).toBe(1);
+    expect(merged.groups.map((g) => g.dispatches)).toEqual([1, 2, 1, 1]);
+    expect(merged.groups.reduce((n, g) => n + g.dispatches, 0)).toBe(merged.dispatches);
     expect(merged.groups.map((g) => g.calls)).toEqual([
       ['add', 'mul', 'relu'],
       ['total'],
@@ -85,6 +90,8 @@ describe('mergeReports (change 0071, Amendment 2)', () => {
     // Each group is the one its report held, with the tier it ran on: a merged report joins no
     // group to another and asks no planner about them.
     expect(merged.groups.map((g) => g.tier)).toEqual(['webgl2', 'cpu', 'webgpu', 'webgpu']);
+    expect(merged.groups.map((g) => g.dispatches)).toEqual([1, 0, 1, 2]);
+    expect(merged.groups.reduce((n, g) => n + g.dispatches, 0)).toBe(merged.dispatches);
     expect(merged.groups[1]).toBe(glWithCpu.groups[1]);
     expect(merged.groups[1]?.why).toBe(glWithCpu.groups[1]?.why);
     // The merged tier stays the best tier of the reports, and so the best tier of the groups.

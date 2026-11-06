@@ -34,6 +34,7 @@ import {
   onGpu,
   packed,
   readInto,
+  recordDispatches,
   residentable,
   workgroupsOf,
   type Checked,
@@ -390,7 +391,7 @@ export async function runEntry(
       if (grid === undefined) return;
       await hostCopies(states, checked.values, run);
       const passes = await onGl(gl, e, e.gl!, checked, grid);
-      if (run !== undefined) run.counts.dispatches += passes;
+      if (run !== undefined) recordDispatches(run.counts, run.group, passes);
       return;
     }
     await run?.flush();

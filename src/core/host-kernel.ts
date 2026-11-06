@@ -68,6 +68,7 @@ import {
   projectInputLayout,
   storageBuffer,
   readInto,
+  recordDispatches,
   runtimeCount,
   toCpu,
   zeroedBuffer,
@@ -1079,7 +1080,7 @@ export async function runChecked(
       // The stores after the loops run on the CPU tier over the host copies the draws wrote
       // (change 0094, Rule 11.8).
       if (k.gpu!.finish !== undefined) finishOnHost(cpu, k, live, values);
-      if (run !== undefined) run.counts.dispatches += drawn;
+      if (run !== undefined) recordDispatches(run.counts, run.group, drawn);
       const out = tailResult(cpu, k, values, []);
       return result(async () => out);
     }

@@ -117,7 +117,8 @@ On 2026-11-06 UTC, the owner replied "승인" (approved) in the task conversatio
 the link to proposal [PR #1036](https://github.com/typeshade/typeshade/pull/1036).
 The reviewed proposal revision was `aed075dbd7c678948699dcac28c8e7edfdedd35e`.
 This revision records that decision and the existing release policy; it adds no implementation scope.
-The PR's accepted merge will establish the approved implementation baseline. That merge is still pending.
+PR #1036 merged as accepted at `07639439021f00143c3fa31f01e14ed289d26a98`,
+the implementation baseline.
 
 Codex handles the compiler implementation and its validation under the owner's task request.
 The sequence is accepted-proposal merge, implementation PR with the required evidence, then
@@ -127,8 +128,14 @@ and pin schedules remain unassigned. Neither approval nor compiler delivery esta
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires implementation commits, the accepted revision,
-tool versions, check dates and retained results. Planned checks are not passing results.
+Implementation is in progress on `feat/985-group-dispatches` from the accepted merge above.
+On 2026-11-06 UTC, the affected four test files passed all 329 tests; build and bundle
+boundary, lint, format, compile gate (203 examples; no failures), and journeys
+(35 journeys, 126 runs) passed. Documentation references have no dead links,
+and Doorstop passes after reviewing RULE-1113 and clearing SURF-038 and SURF-071.
+Cost measurements and the final implementation record are pending.
+Configuration: Bun 1.4.4, Node 24.22.1, TypeScript 5.6.3, Vitest 5.0.5, Doorstop 3.2.
+Node differs from the repository's 24.19.0 pin; pinned CI remains required.
 
 Required functional evidence:
 
