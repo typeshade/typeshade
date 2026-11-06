@@ -1607,6 +1607,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Inherited static reads keep their written class names (#987).** `TS8070` and fusion reports
+  distinguish `Base.OFFSET` from `Derived.OFFSET`, including imported aliases. Both names still
+  read the same field; shader text and shared storage stay unchanged.
+
 - **Switch validation** (#321, control#10 and control#11). A case outside its `i32` or `u32`
   selector's range now reports `TS8017` before emitting invalid WGSL. A second `default` reports
   `TS8017` instead of replacing the first body. The compiler and editor show the same refusal once.
