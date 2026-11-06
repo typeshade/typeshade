@@ -3,6 +3,7 @@
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
 import { attributeDecoratorsOf } from '../attribute-types.js';
+import { moduleVarSourceName } from '../module-var-names.js';
 import { stageCallOf, stageCallOfDeclaration, stageDeclarationOf } from '../stage-call.js';
 import { numericsOf } from '../numerics.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
@@ -174,7 +175,8 @@ function writtenModuleNames(
     if (holdsFunction(decl)) continue;
     const dot = field.indexOf('.');
     const member = emittedMemberName(field.slice(dot + 1));
-    values.set(staticConstName(field.slice(0, dot), member), field);
+    const name = staticConstName(field.slice(0, dot), member);
+    values.set(scope.resolveModuleValue(name)?.irName ?? name, field);
   }
   for (const [emitted, written] of writtenConstNames(sourceFile)) values.set(emitted, written);
   return { values, functions };
@@ -3119,7 +3121,14 @@ export function functionScope(
   // A module variable (§24) reads and writes as a `varref`, like a binding; its space decides
   // what may hold an atomic and which stage may reach it.
   for (const v of vars) {
-    defineOnce({ kind: 'modvar', name: v.name, type: v.type, mutable: true, space: v.space });
+    defineOnce({
+      kind: 'modvar',
+      name: moduleVarSourceName(v),
+      irName: v.name,
+      type: v.type,
+      mutable: true,
+      space: v.space,
+    });
   }
   // Module values live outside the parameters and body locals, as in TypeScript (#429).
   scope.push();
