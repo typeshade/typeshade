@@ -80,6 +80,9 @@ describes it.
   noEmit pass over tests, examples and scripts. A successful build records its source revision
   and emitted-tree fingerprint for packaging (`scripts/build-info.ts`, change 0083). Forced
   emission prevents modified incremental output from acquiring a clean source revision.
+- `bun scripts/changelog-check.ts --base origin/main`: a change to a shipped source file under
+  `src/` changes `CHANGELOG.md` or says `Changelog: none, <reason>`; CI's source and policy job
+  runs it on a pull request.
 - `bun run lint` (ESLint) and `bun run format:check` (Prettier, then the shader-source `;`).
 - `bun run test`: the full Vitest suite over `src/**` and `examples/**`. Vitest can record runtime
   module dependencies; CI caches only those records, separated by Node, installed dependencies,
@@ -270,6 +273,10 @@ true is a set of steps with tools, each an industry practice, not a memory:
 
 <!-- LINT.IfChange(docs-follow-the-code) -->
 
+- **Say what a user sees.** A change to a shipped source file (`src/`, not a test) adds an entry
+  under `## [Unreleased]` in `CHANGELOG.md`, or its message says why it needs none with
+  `Changelog: none, <reason>`. `scripts/changelog-check.ts` checks it at commit and in CI;
+  between 0.1.0 and #866, 90 merged pull requests had left their entry out.
 - **Agree the change before writing it.** A change that alters a design rule, a public export
   or what the site and the editor show (a surface section, a diagnostic code, the set of
   examples) starts as a proposal in `changes/`, merged with `status: accepted` before the
