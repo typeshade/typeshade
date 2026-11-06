@@ -1,7 +1,7 @@
 ---
 id: '0125'
 title: A fragment entry with no host bindings draws with only its target
-status: draft
+status: accepted
 rules:
   - '8.24'
 surface:
@@ -21,12 +21,12 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                       |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0125, draft. The front matter is the lifecycle authority.                                                                                                           |
+| Identity and status           | Proposal 0125, accepted on merge of PR #1054. The front matter is the lifecycle authority.                                                                                   |
 | Date and attribution          | Authored 2026-11-06 UTC by Codex while progressing the owner's remaining-issue request. This date records authorship, not approval.                                          |
 | Request source                | Issue [#454](https://github.com/typeshade/typeshade/issues/454), including its 2026-11-06 recheck: a fragment entry with no reached binding still requires `fs(canvas, {})`. |
 | Applicability / Effectivity   | Generated host views and imported full-screen fragment calls under Rule 8.24, on WebGPU, WebGL2 and the CPU tier. Release version unassigned.                                |
 | Review baseline               | `main` at `3ca2eaf628313dcea28f8a72fe0f7145fd2ad126`.                                                                                                                        |
-| Review and revision authority | No pull request is assigned yet. Git records revisions; review and an accepted proposal merge will record the decision.                                                      |
+| Review and revision authority | Proposal [PR #1054](https://github.com/typeshade/typeshade/pull/1054). Git records revisions; its accepted merge makes the decision effective.                               |
 
 ## What changes
 
@@ -62,7 +62,7 @@ export declare function fs(
 ): Promise<void>;
 ```
 
-The proposed contract is:
+The accepted contract is:
 
 - **Eligibility is per entry.** Use the existing transitive read/write reachability used to
   form the entry's host bindings. An unused declaration, or a binding reached only by another
@@ -129,9 +129,9 @@ Alternatives considered:
 - Introduce a stricter empty-object host type. That changes existing host typing beyond
   omission. Runtime validation already rejects an unknown binding; its behavior is preserved.
 
-The proposed decisions are fragment-only scope, omission/`undefined`/`{}` equivalence for an
-eligible entry, and reuse of existing reachability and runtime-resource ownership. Acceptance
-must confirm them. No other design choice is unresolved in this draft.
+The accepted decisions are fragment-only scope, omission/`undefined`/`{}` equivalence for an
+eligible entry, and reuse of existing reachability and runtime-resource ownership. The Approval
+and plan record identifies the review and authorization. No other design choice is unresolved.
 
 ## What it touches
 
@@ -200,13 +200,33 @@ No dependency or serialized metadata change is planned. Consumers must regenerat
 when adopting the compiler. Pair generated views with their compiler/runtime version; this
 proposal introduces no guarantee for mixed versions. The site can simplify its Quick Start
 and host starter, while the editor gains a host fixture for omission. Duration and cost are
-unknown; no estimate is established. Acceptance must confirm the scope and validation above.
+unknown; no estimate is established. Acceptance confirms the scope and validation above.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the actual review decision, proposal PR,
-approved revision and scope, and assigned implementation responsibilities. Milestone dates
-and resource estimates are unassigned. Implementation starts only after an accepted merge.
+The owner authorized continued work on remaining issues and merging the agents' own pull
+requests in the current session. This is standing task authorization, not a quoted decision
+about fragment-call argument syntax.
+
+On 2026-11-06 UTC, the orchestrating Codex agent independently reviewed the complete proposal.
+It approved fragment-only scope, the three equivalent empty-binding forms and preservation of
+existing invalid-call checks. It required explicit ownership metadata and regressions for
+user-authored `_fp64` and `_console` bindings, plus a console-only entry. Draft commit
+`474bb216a535a5a63416aad2b7f3f8123319305d`, published in
+[PR #1054](https://github.com/typeshade/typeshade/pull/1054), contains those clarifications.
+The agent directed acceptance under the owner's standing authorization once they were included.
+A separate Codex source audit confirmed existing transitive reachability, guard ownership,
+console metadata and the distinct compute signature. No implementation was written during
+proposal review.
+
+The approved scope is Rule 8.24's fragment call, surface §67, the declared host view/runtime
+change, required validation and downstream obligations. Compute argument positions, the
+program runtime and the RHI remain outside it. A Codex agent in `typeshade/typeshade` is assigned
+implementation within that scope. The orchestrating agent coordinates independent review and
+merge after required checks pass. No milestone date or resource estimate is established.
+Downstream adoption belongs to each adopting repository's compiler-pin work and remains pending.
+The merge of PR #1054 with `status: accepted` establishes the approved baseline; implementation
+starts only after that merge.
 
 ### Configuration and validation record
 
@@ -236,5 +256,5 @@ downstream adoption.
   whose `frame` uniform is required. Check omission and required-binding errors through the
   tsserver integration. Record 0125 in `compiler-changes.md` when the compiler pin moves.
 
-These are expected obligations. Responsibilities are assigned at acceptance. Actual downstream
-changes, pins and validation remain separately tracked and pending until delivered.
+These are accepted obligations for downstream compiler-pin work. Actual downstream changes,
+pins and validation remain separately tracked and pending until delivered.
