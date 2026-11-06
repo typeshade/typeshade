@@ -60,6 +60,7 @@ import {
 import {
   eachNamespaceStatement,
   namespaceMemberName,
+  namespaceClassAround,
   qualifiedParts,
   refuseNamespaceStatement,
 } from './namespaces.js';
@@ -1722,7 +1723,7 @@ function basesOf(
     // A base nothing declares is an unknown type, said where it is written (semantic.ts), and
     // the class keeps its own fields.
     if (undeclaredTypeName(type, sourceFile) !== undefined) continue;
-    out.push(type.expression.text);
+    out.push(namespaceClassAround(type, type.expression.text) ?? type.expression.text);
   }
   return { bases: out, bodies };
 }
