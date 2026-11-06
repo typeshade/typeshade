@@ -1607,6 +1607,12 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Integer `min` and `max` scatters run on WebGPU (#761).** The proof treated the target read
+  in `best[k] = min(best[k], value)` as an independent read across iterations and kept the loop
+  on the CPU. It now recognizes that read as part of the atomic combine, in either operand
+  order. Reads used to compute the key, other operands and separate reads still undergo the
+  existing independence checks. The signed and unsigned forms keep the caller's initial values.
+
 - **WebGL2 compute writes emulated-double storage values** (#1021). Scalar doubles retain
   their hi/lo words, and vectors retain their separate hi/lo planes, including vec3 padding.
   Writes split at log boundaries and subsequent loads preserve the low words. The load-time

@@ -191,6 +191,22 @@ function doubleLoops() {
 
 /** What `loops()` in `src/gpu.ts` should read back, in f32 as the GPU computes it. */
 export function loopReference() {
+  const scatter = {};
+  const scatterKeys = Array.from({ length: 1031 }, (_, i) => (Math.floor(i / 4) * 7) % 31);
+  const unsigned = scatterKeys.map((_, i) => (Math.imul(i + 1, 2654435761) + 19) >>> 0);
+  for (const [name, values, op, initial] of [
+    ['unsignedMin', unsigned, Math.min, 0xffffff00],
+    ['unsignedMax', unsigned, Math.max, 17],
+    ['signedMin', unsigned.map((x) => x | 0), Math.min, 2147483600],
+    ['signedMax', unsigned.map((x) => x | 0), Math.max, -2147483600],
+  ]) {
+    const best = new Array(32).fill(initial);
+    for (let i = 0; i < scatterKeys.length; i++) {
+      const key = scatterKeys[i];
+      best[key] = op(best[key], values[i]);
+    }
+    for (const mode of ['off', 'auto']) scatter[`scatter_${name}_${mode}`] = best;
+  }
   const f = Math.fround;
   const k = [1, 0.5, 2, 0.25];
   const render = [];
@@ -243,6 +259,8 @@ export function loopReference() {
   for (const x of xs) histogram[Math.min(Math.trunc(Math.max(f(f(x - lo) * scale), 0)), 63)]++;
   return {
     render,
+    ...scatter,
+    scatterVariantChecks: [8],
     layout: Array.from({ length: 1024 }, (_, i) => (i % 16) / 8 + 3),
     layoutMapped: Array.from({ length: 1024 }, (_, i) => (i % 16) / 8 + 3),
     layoutResident: Array.from({ length: 1024 }, (_, i) => (i % 16) / 8 + 3),

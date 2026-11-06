@@ -234,10 +234,11 @@ async function hostImport(
 ): Promise<number> {
   const app = join(work, 'host-import');
   cpSync(join(REPO, 'journeys', '_host-import'), app, { recursive: true });
-  // The particles and plasma journeys' shaders, which `src/gpu.ts` runs through the import.
+  // Journey shaders that `src/gpu.ts` runs through the import on WebGPU.
   for (const [id, file] of [
     ['particles', 'particles.shade.ts'],
     ['plasma', 'plasma.shade.ts'],
+    ['scatter-extremes', 'extremes.shade.ts'],
   ] as const)
     cpSync(join(REPO, 'journeys', id, file), join(app, 'src', file));
   writeFileSync(

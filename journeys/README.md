@@ -35,6 +35,12 @@ It also distinguishes null and undefined through nullable classes, fields, array
 arguments and optional chains, and checks short-circuit conversion effects against an
 independent JavaScript reference (change 0098).
 
+`scatter-extremes/` checks `min` and `max` scatters into signed and unsigned integer arrays
+against a plain-JavaScript reference. Several workgroups write the same cells; both operand
+orders preserve the initial storage and the cell no iteration writes (#761).
+Its shader is also copied into `_host-import/`, whose host requires WebGPU and checks both
+`subgroups: 'off'` and `'auto'` against the same reference and the device's selected variant.
+
 ## A journey
 
 The import journey also checks private kernel input projection (change 0082): helper reads
