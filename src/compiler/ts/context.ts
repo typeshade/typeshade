@@ -695,6 +695,7 @@ export class LoweringScope {
   /** The class whose static member's body is being lowered, which is what `this` names there
    *  (Rule 8.13); undefined everywhere else. */
   private staticOwner: string | undefined;
+  private constantF32Conversions = false;
   private privates: PrivateFieldTable = new Map();
   private withheldMembers: WithheldTable = new Map();
   private readonlyMembers: ReadonlyFieldTable = new Map();
@@ -1078,6 +1079,22 @@ export class LoweringScope {
 
   staticClass(): string | undefined {
     return this.staticOwner;
+  }
+
+  /** Preserve written f32 conversions while lowering one f64 module initializer (0123).
+   *  Other declarations and function bodies retain their ordinary literal folding. */
+  withF64ConstPrecision<T>(lower: () => T): T {
+    const previous = this.constantF32Conversions;
+    this.constantF32Conversions = true;
+    try {
+      return lower();
+    } finally {
+      this.constantF32Conversions = previous;
+    }
+  }
+
+  preservesConstantF32(): boolean {
+    return this.constantF32Conversions;
   }
 
   /** The collected struct with this name, or undefined. The lookup a CONTEXTUAL type needs:

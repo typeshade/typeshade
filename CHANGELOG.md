@@ -17,6 +17,14 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **Scalar `f64` module constants** (change 0123, #967). Literal expressions, earlier constants
+  and permitted builtin calls fold to a double for the CPU and a literal pair for both GPU
+  targets. Explicit `f32` boundaries are preserved, and nonfinite or unrepresentable results
+  are diagnosed at the declaration. Namespace constants and unwritten static fields share
+  the same behavior. An earlier `f32` constant contributes its recorded compile-time value,
+  which need not reproduce its GPU builtin expression. The editor now gives `Math` constants
+  the compiler's `f32` type, while literal `f64` contexts retain their double values.
+
 - **Portable fusion identities** (change 0122, #805). `hostFace` accepts an exact `origin`
   independent of its source `fileName`. Vite's opt-in `originNamespace` combines a package
   namespace with each module's path relative to the project root. Distinct packages need

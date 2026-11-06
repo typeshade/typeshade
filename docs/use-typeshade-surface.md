@@ -833,7 +833,7 @@ export function pick(i: i32): vec4 {
 The value must be **constant**: a literal, a **whole** constant declared earlier in the file,
 a constructor over those, arithmetic over those with a divisor that is not zero, or a **math
 builtin** over those (`const K: f32 = sin(1.)`, `const UP: vec3 = normalize(vec3(1., 1., 0.))`,
-`const N: i32 = max(i32(4), 8)`). A constant that calls a builtin is emitted as the call, since
+`const N: i32 = max(i32(4), 8)`). Except for a scalar `f64` constant described below, a constant that calls a builtin is emitted as the call, since
 a builtin over constants is a constant expression in WGSL and in GLSL ES 3.00, so the GPU
 computes its own `sin(1.0)`; the front end still knows the value, so an integer one can bound
 a loop, and the CPU oracle computes the same call. The annotation has to agree with the call's
@@ -871,6 +871,51 @@ apart at module scope, where the field names alone cannot answer:
 ```ts
 const ORIGIN: P = { x: 0., y: 1. }; // → const ORIGIN: P = P(0.0, 1.0);
 ```
+
+### Scalar `f64` constants
+
+A scalar `f64` module constant folds to a JavaScript double for the CPU and a literal pair of
+`f32` words for both GPU targets (Rule 6.3, change 0123). A builtin in this initializer is
+evaluated at compile time through the oracle's definition; an emulation helper cannot be
+called at module scope. The existing ten scalar `f64` builtins in §39 and their refusals apply.
+This does not add a new vector, matrix or aggregate constant form.
+
+```ts
+"use typeshade";
+
+const TAU: f64 = 2 * Math.PI;
+const HALF: f64 = TAU / 2;
+const ROOT: f64 = sqrt(f64(2));
+const NARROW: f32 = 0.1;
+const WIDE = f64(NARROW);
+
+export function phase(x: f64): f64 {
+  return x / TAU + HALF + ROOT + WIDE;
+}
+```
+
+Numeric literals and `Math` constants in a literal-only `f64` expression keep the double:
+`f64(1 / 3)` is the JavaScript value of `1 / 3`. A written `f32(...)` establishes a rounding
+boundary, even inside parentheses or unary minus. Within this initializer, `f32` arithmetic
+and builtin calls round their operands and results to `f32` at each operation or call.
+`f64(f32(0.1))` therefore stores `Math.fround(0.1)`. With `const A: f32 = 16777216`,
+`f64((A + 1) - A)` stores zero. Widening preserves that rounded value, and subsequent `f64`
+arithmetic uses double precision. These rules apply to the new module-constant calculation;
+they do not change function-body evaluation or the existing scalar constant paths.
+
+An earlier scalar constant supplies its **recorded compile-time value**, rounded to `f32`
+when its type is `f32`. This does not re-evaluate its retained builtin expression as the GPU
+does. For example, with `A` above and `const B: f32 = abs((A + 1) - A)`, the existing collector
+records `B` as 1 for the oracle, while a GPU may compute its typed `f32` expression as zero.
+The new `const C = f64(B)` folds the recorded value to 1. If the runtime GPU evaluation is
+required, perform the conversion inside the function instead of declaring a new module constant.
+
+The final double and both words produced by the existing split must be finite; an out-of-range
+or nonfinite result is `TS8003` at the declaration. This gives the significand of the emulation,
+not binary64's exponent range. Tiny values follow the existing split's underflow behavior.
+The CPU preserves negative zero; the GPU zero sign is not guaranteed. Division by zero,
+declared-function calls, resources, field or element reads and nonconstant operands retain
+their refusals. Namespace constants and unwritten static fields (§26) use the same rules.
 
 ### A `Math` member bound to a name
 
@@ -4980,6 +5025,14 @@ lowers to, and the only way to write an f64 constant was the explicit cast.
 Neither the retype nor the cast takes a call for a literal. `f32(0.1)` says which precision it
 means, so `f64(f32(0.1))` widens that `f32` exactly, to the pair `(0.10000000149011612, 0.0)`,
 as `s * f32(0.1)` widens it beside an `f64`.
+
+**Module constants.** Scalar `f64` constants can also stand outside a function (Rule 6.3,
+change 0123). `const TAU: f64 = 2 * Math.PI` keeps the double for the CPU and emits a literal
+pair on the GPU. Arithmetic and permitted builtin calls fold at compile time; no `df64_*`
+call remains in a module initializer. Section 12 specifies the explicit `f32` boundaries,
+the recorded value used for an earlier constant, and the finite-pair range check. Namespace
+constants and unwritten static fields use that same scalar rule. Aggregate forms and the
+operation table below are unchanged.
 
 **Vectors.** `vec2f64`, `vec3f64` and `vec4f64` are vectors of doubles. They swizzle and index
 like any other vector — a lane is a swizzle of the hi and lo planes the pass lowers the vector

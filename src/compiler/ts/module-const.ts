@@ -7,7 +7,7 @@ import ts from 'typescript';
 import { isStageCall } from './stage-call.js';
 import type { ConstDecl, Expr, StructDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
-import { i32T } from '../../core/ir/types.js';
+import { f64T, i32T } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import {
   LoweringScope,
@@ -19,9 +19,13 @@ import {
   writtenText,
 } from './context.js';
 import type { DeclaredSymbolSink } from './symbols.js';
+import { captureExpressionRecords } from './symbols.js';
+import { captureValueTypes } from './lower/optional-values.js';
 import { mapTsTypeToShaderType } from './type-map.js';
 import { refuseOptionalAt } from './optional.js';
 import { foldConstComponents, foldConstValue } from './loop-bound.js';
+import { foldF64ModuleConst } from './module-const-f64.js';
+import { retargetIntLitCtx } from './lit-coerce.js';
 import { refuseListSpread } from './lower/expression-array.js';
 import { isConstEvaluableMathFn } from './math-alias.js';
 import { lowerExpression } from './lower/expression.js';
@@ -381,16 +385,21 @@ export function collectModuleConsts(
           continue;
         }
         // `this` in a static initializer is the class (Rule 8.13): `static B = this.A * 2.`.
+        const previousClass = scope.staticClass();
         scope.setStaticClass(stmt.name.text);
-        const c = lowerOne(
-          member,
-          sourceFile,
-          scope,
-          diagnostics,
-          valueExprs,
-          staticConstName(stmt.name.text, emittedMemberName(name)),
-        );
-        scope.setStaticClass(undefined);
+        let c: ConstDecl | undefined;
+        try {
+          c = lowerOne(
+            member,
+            sourceFile,
+            scope,
+            diagnostics,
+            valueExprs,
+            staticConstName(stmt.name.text, emittedMemberName(name)),
+          );
+        } finally {
+          scope.setStaticClass(previousClass);
+        }
         if (!c) continue;
         out.push(c);
         if (c.valueExpr) valueExprs.set(c.name, c.valueExpr);
@@ -731,7 +740,6 @@ function lowerOne(
   // generic "a list is only an initializer" refusal and then a second `Unknown identifier` for
   // a name that never got defined, neither of which says what to write.
   let init: Expr | undefined;
-  const before = diagnostics.length;
   if (ts.isArrayLiteralExpression(decl.initializer)) {
     // A spread is the list's one sentence, said before the annotation it would otherwise be
     // asked for; the name's uses then say nothing more (refused-names.ts, Rule 12.4).
@@ -753,16 +761,103 @@ function lowerOne(
     // already knows which struct the object literal builds (§16). Before this a module const
     // of a struct type was "Object literal { x, y } does not match a known struct" whenever
     // the field names alone did not name one (roadmap 0.3 item T7, #92).
-    init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics, annotated);
+    const initializer = decl.initializer;
+    const lower = (into = diagnostics): Expr | undefined =>
+      lowerExpression(initializer, sourceFile, scope, into, annotated);
+    if (annotated !== undefined) {
+      init = annotated.kind === 'f64' ? scope.withF64ConstPrecision(() => lower()) : lower();
+    } else {
+      const trial = (typed: boolean) => {
+        const messages: TsCompilerDiagnostic[] = [];
+        const records = captureExpressionRecords(sourceFile, () =>
+          captureValueTypes(() =>
+            typed ? scope.withF64ConstPrecision(() => lower(messages)) : lower(messages),
+          ),
+        );
+        return {
+          value: records.value.value,
+          commit: () => {
+            records.commit();
+            records.value.commit();
+            diagnostics.push(...messages);
+          },
+          messages,
+        };
+      };
+      const ordinary = trial(false);
+      if (ordinary.value?.type.kind === 'f64') {
+        // The first pass discovers an inferred double; only its preserved tree is published.
+        init = scope.withF64ConstPrecision(() => lower());
+      } else if (ordinary.value === undefined && ordinary.messages.length > 0) {
+        // An unrounded proof can refuse an inferred double before its type is known: the
+        // divisor in f64(1 / ((A + .5) - A - .5)), A:f32=16777216, is -.5, not zero.
+        const typed = trial(true);
+        const selected = typed.value?.type.kind === 'f64' ? typed : ordinary;
+        selected.commit();
+        init = selected.value;
+      } else {
+        ordinary.commit();
+        init = ordinary.value;
+      }
+    }
   }
   if (!init) {
-    // An initializer that failed without a word read a constant already refused, and this one
-    // is refused with it rather than left to be an unknown name at each use (Rule 12.4).
-    if (diagnostics.length === before && diagnostics.some((d) => d.category === 'error')) {
+    // The initializer's own refusal, or a silent read of an already refused declaration, is
+    // the cause. A later constant must not add an unknown-name error for this one (Rule 12.4).
+    if (diagnostics.some((d) => d.category === 'error')) {
       refusedDeclarationsOf(scope.calleeTable()).add(name);
       refuseModuleName(sourceFile, name);
     }
     return undefined;
+  }
+  if ((annotated ?? init.type).kind === 'f64') {
+    const refuse = (message: string): undefined => {
+      diagnostics.push(makeDiagnostic(sourceFile, decl, message, TS_CODES.TYPE_MISMATCH));
+      refusedDeclarationsOf(scope.calleeTable()).add(name);
+      refuseModuleName(sourceFile, name);
+      return undefined;
+    };
+    if (
+      init.type.kind !== 'f64' &&
+      (containsCall(init) || (init.type.kind === 'scalar' && init.type.scalar !== 'f32'))
+    ) {
+      const conversion =
+        init.type.kind === 'scalar' && (init.type.scalar === 'i32' || init.type.scalar === 'u32')
+          ? 'f64(f32(...))'
+          : 'f64(...)';
+      return refuse(
+        `Module const "${name}" is f64, but its initializer is ${authorTypeText(init.type)}. ` +
+          (init.type.kind === 'scalar' && init.type.scalar !== 'bool'
+            ? `Cast it, e.g. ${conversion}, or change the annotation.`
+            : `Change the annotation to ${authorTypeText(init.type)}.`),
+      );
+    }
+    // A literal-only expression in a declared f64 position keeps the double. Written f32
+    // conversions are still calls here, so neither this retype nor a literal fold crosses one.
+    init = retargetIntLitCtx(init, decl.initializer, f64T);
+    const value = foldF64ModuleConst(init, scope);
+    if (value === undefined) {
+      return refuse(
+        `Module const "${name}" must be constant: a scalar literal, a whole earlier module ` +
+          `const, or supported scalar arithmetic and math builtins over those with a non-zero ` +
+          `divisor. It cannot call a declared function or read a resource, component, field or element.`,
+      );
+    }
+    // These are splitF64's two words. Keep the front end independent of the helper library,
+    // which builds GPU functions at import time. Underflow retains the existing split behavior.
+    const hi = Math.fround(value);
+    const lo = Math.fround(value - hi);
+    if (!Number.isFinite(value) || !Number.isFinite(hi) || !Number.isFinite(lo)) {
+      return refuse(
+        `Module const "${name}" is f64, but its value cannot be represented by two finite f32 words. ` +
+          `Use a finite value within the emulated double's f32 range.`,
+      );
+    }
+    scope.define({ kind: 'module', name, type: f64T, mutable: false, constValue: value });
+    scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'const', type: f64T });
+    // In particular, never retain a builtin valueExpr: it would lower to a module-scope
+    // df64 helper call, which is not a shader constant expression.
+    return { name, type: f64T, wgslValue: value, cpuValue: value };
   }
   const folded = foldConstValue(init, scope);
   if (typeof folded !== 'number' && typeof folded !== 'boolean') {
@@ -789,8 +884,9 @@ function lowerOne(
           `${authorTypeText(init.type)}. ` +
           // A conversion of the call is a module const, and so is a splat of it into a vector of
           // its own element when it folds as a vector's component does (`vec3i(countOneBits(5))`,
-          // `vec3(f32(floor(2.)))`). Any other call around it is not one (`A(...)`, `bool(...)`,
-          // `f64(...)`, and `vec3u(u32(floor(2.)))`, whose conversion no vector const takes),
+          // `vec3(f32(floor(2.)))`). Other calls here have no such form (`A(...)`, `bool(...)`
+          // and `vec3u(u32(floor(2.)))`, whose conversion no vector const takes); scalar f64
+          // initializers were already handled by their own typed evaluator above,
           // so the annotation is what changes (Rule 12.1).
           ((type.kind === 'scalar' && type.scalar !== 'bool') ||
           (type.kind === 'vec' &&

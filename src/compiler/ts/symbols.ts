@@ -166,6 +166,36 @@ export interface LoweredExpression {
  *  for a span lowered to two types. */
 const loweredExpressions = new WeakMap<ts.SourceFile, Map<string, ShaderType | null>>();
 
+/** Record an initializer trial separately; only the selected lowering supplies editor types.
+ *  The ordinary scalar paths commit their original records unchanged (change 0123). */
+export function captureExpressionRecords<T>(
+  sourceFile: ts.SourceFile,
+  lower: () => T,
+): { value: T; commit: () => void } {
+  const previous = loweredExpressions.get(sourceFile);
+  if (previous === undefined) return { value: lower(), commit: () => {} };
+  const trial = new Map<string, ShaderType | null>();
+  loweredExpressions.set(sourceFile, trial);
+  let value: T;
+  try {
+    value = lower();
+  } finally {
+    loweredExpressions.set(sourceFile, previous);
+  }
+  return {
+    value,
+    commit: () => {
+      for (const [key, type] of trial) {
+        const seen = previous.get(key);
+        previous.set(
+          key,
+          seen === undefined || JSON.stringify(seen) === JSON.stringify(type) ? type : null,
+        );
+      }
+    },
+  };
+}
+
 /** Start recording the expressions lowered in `sourceFile`, dropping any earlier table. */
 export function openExpressionTable(sourceFile: ts.SourceFile): void {
   loweredExpressions.set(sourceFile, new Map());

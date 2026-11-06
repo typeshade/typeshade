@@ -73,9 +73,38 @@ const skipParens = (e: ts.Expression): ts.Expression => {
  *  wrapped it as a present `f32 | undefined`. The flow walk records that `v = e` ran last, and
  *  what `e` gave says whether `v` is present (a `T`) or unknown (an optional). */
 const valueTypes = new WeakMap<ts.Node, ShaderType>();
+const valueTypeTrials: Map<ts.Node, ShaderType>[] = [];
+
+/** Keep an initializer trial from publishing narrowing facts until it is selected (0123). */
+export function captureValueTypes<T>(lower: () => T): { value: T; commit: () => void } {
+  const trial = new Map<ts.Node, ShaderType>();
+  valueTypeTrials.push(trial);
+  let value: T;
+  try {
+    value = lower();
+  } finally {
+    valueTypeTrials.pop();
+  }
+  return {
+    value,
+    commit: () => {
+      for (const [node, type] of trial) noteValueType(node, type);
+    },
+  };
+}
 
 export function noteValueType(node: ts.Node, type: ShaderType): void {
-  valueTypes.set(node, type);
+  const trial = valueTypeTrials.at(-1);
+  if (trial === undefined) valueTypes.set(node, type);
+  else trial.set(node, type);
+}
+
+function recordedValueType(node: ts.Node): ShaderType | undefined {
+  for (let i = valueTypeTrials.length - 1; i >= 0; i--) {
+    const type = valueTypeTrials[i]!.get(node);
+    if (type !== undefined) return type;
+  }
+  return valueTypes.get(node);
 }
 
 /** The binding `node` reads when it is a bare name bound to an optional local or parameter. */
@@ -131,7 +160,7 @@ export function narrowedStateOf(
   }
   for (const source of n.sources) {
     if (source === null) continue;
-    const from = valueTypes.get(source);
+    const from = recordedValueType(source);
     if (from === undefined || isOptional(from)) return undefined;
   }
   return 'present';
