@@ -171,7 +171,7 @@ Second commit (the WebGL2 run and checked `tiers`), with Chromium's `headless_sh
 
 **Open items:**
 
-- `scripts/changes.ts` counts an example as touched only at `examples/<id>.shade.ts`. It does not see `examples/hosts/<id>/<id>.shade.ts`, so it reports this change as needing no proposal. Reason: the check's pattern predates the directory. Next action: a `scripts/changes.ts` fix in its own pull request.
+- At implementation, `scripts/changes.ts` counted an example as touched only at `examples/<id>.shade.ts`. It did not see `examples/hosts/<id>/<id>.shade.ts`, so it reported this change as needing no proposal. Reason: the check's pattern predated the directory. Follow-up #584 adds that path to the check and tests undeclared additions, deletions and renames.
 
 ## What it owes downstream
 
