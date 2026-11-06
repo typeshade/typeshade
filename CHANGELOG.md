@@ -1600,6 +1600,8 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- A missing field in an abstract class's inherited body is reported once with the affected class names (#975). Compiler and editor keep different source positions and different remedies separate.
+
 - Generated CPU functions reuse a fixed-width buffer for their `inout` return values instead of allocating an array on each call (#961). Nested calls and interpreter fallbacks retain their existing results.
 
 - A call of a declared method on an abstract receiver now explains that the class has no instance and names the concrete-class remedy, instead of claiming the method does not exist. Compiler and editor retain TS8035 (#1008).
