@@ -93,7 +93,7 @@ describe('the retention boundary', () => {
       'import * as ns from "./k.shade.ts"; export function get(): f32 { return ns.answer(); }',
     ],
   ])('%s remains selective', (_name, body) => {
-    const files = {
+    const files: Files = {
       ...aliases(SIMPLE),
       '/project/other.shade.ts': D + 'export const extra: f32 = 1.;',
     };
@@ -141,12 +141,12 @@ describe('the retention boundary', () => {
   });
 
   it.each(['self', 'pair'] as const)('finishes a %s alias-only cycle without a target', (kind) => {
-    const files = {
+    const files: Files = {
       [ALIAS]: D + `export * from "./${kind === 'self' ? 'k' : 'chain'}.shade.ts";`,
       [CHAIN]: D + 'export * from "./k.shade.ts";',
     };
     const reads: string[] = [];
-    const linked = linkProgram([{ fileName: ALIAS, text: files[ALIAS] }], {
+    const linked = linkProgram([{ fileName: ALIAS, text: files[ALIAS]! }], {
       readDocument: (name) => {
         reads.push(name);
         return files[name];
