@@ -192,6 +192,43 @@ describe('the retention boundary', () => {
 });
 
 describe('complete target inventory and validation', () => {
+  it.each(['missing', 'non-shader', 'unreadable'] as const)(
+    'keeps a %s target refusal on the failed edge through a chain',
+    (kind) => {
+      const files = aliases('export const value = 1;');
+      if (kind !== 'non-shader') delete files[TARGET];
+      const options = {
+        readDocument: (name: string) => files[name],
+        ...(kind === 'unreadable'
+          ? {
+              resolveImport: (_from: string, specifier: string) =>
+                specifier === './k.shade.ts' ? ALIAS : TARGET,
+            }
+          : {}),
+      };
+      const direct = compile(files[ALIAS]!, { ...options, fileName: ALIAS });
+      const message =
+        kind === 'non-shader'
+          ? '"./new/k.shade.ts" is not a shader module: it does not begin with "use typeshade". A shader module imports only another shader module.'
+          : 'Cannot find the shader module "./new/k.shade.ts" (looked for "/project/new/k.shade.ts").';
+      expect(
+        direct.diagnostics.map((d) => [d.code, d.fileName, d.message, d.line, d.character]),
+      ).toEqual([['TS8072', ALIAS, message, 2, 15]]);
+      const chained = compile(files[CHAIN]!, { ...options, fileName: CHAIN });
+      expect(chained.diagnostics).toEqual(direct.diagnostics);
+      const service = createTypeshadeLanguageService(options);
+      for (const file of [ALIAS, CHAIN]) service.openDocument(file, files[file]!);
+      try {
+        expect(service.getDiagnostics(CHAIN)).toEqual([]);
+        expect(
+          service.getDiagnostics(ALIAS).map((d) => [d.code, d.uri, d.message, d.range.start]),
+        ).toEqual([['TS8072', ALIAS, message, { line: 1, character: 14 }]]);
+      } finally {
+        for (const file of [ALIAS, CHAIN]) service.closeDocument(file);
+      }
+    },
+  );
+
   it('preserves every declaration kind, private entries, dependency collisions and explicit slots', () => {
     const files = aliases(
       D +
@@ -294,6 +331,12 @@ export function answer(x: f32): f32 { return min(x) + helper(x); }`,
         expect(result.diagnostics).toEqual(direct.diagnostics);
         expect(result.wgsl).toBeUndefined();
         expect(service.getDiagnostics(file)).toEqual([]);
+        // Invalid authored defaults still do not enter the alias's named export map.
+        expect(
+          linkProgram([{ fileName: file, text: files[file]! }], options).exports.map(
+            (entry) => entry.name,
+          ),
+        ).toEqual(['ok']);
       }
       const editor = service.getDiagnostics(TARGET);
       expect(editor.map((d) => [d.code, d.message])).toEqual(
