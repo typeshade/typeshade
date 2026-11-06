@@ -35,7 +35,7 @@ downstream:
 | Request source                | Issue [#985](https://github.com/typeshade/typeshade/issues/985), reporting TypeAudio experiment 6 at compiler pin `14566606`.               |
 | Applicability / Effectivity   | Fuse execution and reporting on WebGPU, WebGL2 and CPU. Release version unassigned.                                                         |
 | Review baseline               | Compiler `main` at `324251dfe7755f78041eb44a1bfe85e4294e12dd`, inspected on 2026-11-06 UTC.                                                 |
-| Review and revision authority | No PR assigned at authorship. Git records revisions; the eventual proposal PR's review and accepted merge record approval.                  |
+| Review and revision authority | Proposal [PR #1036](https://github.com/typeshade/typeshade/pull/1036). Git records revisions; the reviewed accepted merge records approval. |
 
 ## What changes
 
