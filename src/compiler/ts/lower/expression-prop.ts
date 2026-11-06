@@ -4,7 +4,7 @@ import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, i32T, structT } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import { authorTypeText, type LoweringScope } from '../context.js';
+import { authorTypeText, irNameOf, type LoweringScope } from '../context.js';
 import {
   MATH_MEMBER_NAMES,
   resolveMathConst,
@@ -221,7 +221,7 @@ function lowerPropertyAccessOf(
         return undefined;
       }
       return binding.kind === 'modvar'
-        ? { op: 'varref', type: binding.type, name: binding.name }
+        ? { op: 'varref', type: binding.type, name: irNameOf(binding) }
         : { op: 'constref', type: binding.type, name: binding.name };
     }
     // A static accessor, `Vec.zero` for `static get zero()` (Rule 8.11).

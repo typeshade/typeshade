@@ -1602,6 +1602,8 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- A mutable static field remains readable beside a parameter with its flattened name (#1009). The module variable has a distinct internal name, while authored parameter names stay intact across CPU execution, optimization and WGSL/GLSL emission.
+
 - Calls through refused function-value aliases no longer add an unknown-function error. Array-length generics are refused once at their declaration with a usable alternative, and ECMAScript number predicates name valid f32 bit tests instead of suggesting the enclosing helper. Compiler and editor agree (#794).
 
 - A missing field in an abstract class's inherited body is reported once with the affected class names (#975). Compiler and editor keep different source positions and different remedies separate.
