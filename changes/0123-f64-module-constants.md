@@ -170,6 +170,9 @@ The accepted baseline is PR #1048's merge above. Compiler implementation is comm
 `feat/967-f64-module-constants`; integration commit `0d42dda9` includes main's switch validation
 from PR #1049. Codex implemented and validated this configuration on 2026-11-06 UTC. The
 separate implementation PR and required current-head CI provide its merge evidence.
+PR #1051 also integrates main `093f6c609dacf91a783c0b8b9d96981bcea16cf7`, including PR #1050's
+inherited static-read wording fix. The merge was automatic and added no implementation changes
+beyond PR #1050.
 
 Delivered behavior includes typed scalar folding, explicit and nested precision boundaries,
 finite-pair refusals, inferred declarations, namespace/static/import/export paths and the
@@ -190,6 +193,8 @@ Observed functional validation:
   expression-parity checks were run; the Math parity discrepancy above was corrected. The
   final Math, builtin-signature and API-surface run passed 210 tests, and the final integrated
   f64/switch run passed 53 tests. These runs overlap and their counts are not additive.
+- After integrating PR #1050, the f64 constant, static-read wording and switch-validation
+  suites passed all 61 tests together. Requirement synchronization and Doorstop also passed.
 - Build, lint, format and bundle-boundary checks passed. Runtime bundle budgets did not change.
 - The compile gate passed 203 WGSL programs on Tint, 139 GLSL programs and 130 render pipelines,
   plus 15 compute and 10 fragment entry calls, with no failures.
