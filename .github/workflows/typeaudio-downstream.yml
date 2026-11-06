@@ -49,7 +49,7 @@ jobs:
         with:
           repository: typeshade/typeaudio
           # Fixed consumer corpus. Advance deliberately after the engine PR is merged.
-          ref: d8e972add31f788f8caaeac2c483136b4ae23f85
+          ref: 058f138cf3861473e1b04801875c4488f5e9557c
           path: .downstream/typeaudio
           persist-credentials: false
       - name: Install the downstream baseline
