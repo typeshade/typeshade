@@ -9,7 +9,8 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as impact from '../scripts/doc-impact.js';
 import { hostExamples } from '../examples/hosts/index.js';
 import { ROOT } from '../scripts/doc-refs.js';
 import { definedRules } from '../scripts/doc-refs.js';
@@ -24,6 +25,7 @@ import {
   parseProposal,
   proposals,
   sectionsAt,
+  touchedBy,
   type Proposal,
   type Touched,
 } from '../scripts/changes.js';
@@ -33,7 +35,7 @@ const sections = new Set([...surfaceDoc.matchAll(/^## (\d+)\. /gm)].map((m) => N
 
 /** Whether an example id a proposal declares names an example that exists: a module,
  *  `examples/<id>.shade.ts`, or a host example (change 0061), which the registry of
- *  `examples/hosts/` lists and `scripts/changes.ts` does not scan. */
+ *  `examples/hosts/` lists. */
 const hostIds = new Set(hostExamples.map((h) => h.id));
 const exampleExists = (id: string): boolean =>
   existsSync(join(ROOT, 'examples', `${id}.shade.ts`)) || hostIds.has(id);
@@ -229,5 +231,97 @@ describe('what a pin owes downstream', () => {
 
   it('owes nothing for a proposal the pinned compiler has not implemented yet', () => {
     expect(owedDownstream([accepted], 'typeshade.github.io', new Set())).toEqual([]);
+  });
+});
+
+describe('proposal scope from a diff (#584)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const diff = (changes: Partial<impact.Diff> = {}): impact.Diff => ({
+    base: 'fixture',
+    staged: false,
+    added: [],
+    deleted: [],
+    renamed: [],
+    modified: [],
+    touched: new Map(),
+    removedLines: new Map(),
+    removedAt: new Map(),
+    ...changes,
+  });
+  function texts(before = '', after = '') {
+    vi.spyOn(impact, 'atBase').mockImplementation((_diff, file) =>
+      file === 'src/__api__/surface.md' ? before : '',
+    );
+    vi.spyOn(impact, 'atHead').mockImplementation((_diff, file) =>
+      file === 'src/__api__/surface.md' ? after : '',
+    );
+  }
+  const bake = (root: string[], ir: string[]) =>
+    [
+      '## `.` — exports',
+      '```',
+      ...root,
+      '```',
+      '## `./core/ir` — exports',
+      '```',
+      ...ir,
+      '```',
+    ].join('\n');
+
+  it('requires a declared host example for both an addition and a deletion', () => {
+    texts();
+    for (const kind of ['added', 'deleted'] as const) {
+      const touched = touchedBy(diff({ [kind]: ['examples/hosts/new-host/new-host.shade.ts'] }));
+      expect([...touched.examples]).toEqual(['new-host']);
+      expect(judge(touched, 'Change: 0012', [accepted]).problems).toContainEqual(
+        expect.stringContaining('example `new-host` is changed here but not declared'),
+      );
+      expect(
+        judge(touched, 'Change: 0012', [{ ...accepted, examples: ['new-host'] }]).problems,
+      ).toEqual([]);
+    }
+  });
+
+  it('counts both ids on a host rename, but not a move preserving the id', () => {
+    texts();
+    expect([
+      ...touchedBy(
+        diff({ renamed: [['examples/hosts/old/old.shade.ts', 'examples/hosts/new/new.shade.ts']] }),
+      ).examples,
+    ]).toEqual(['old', 'new']);
+    expect([
+      ...touchedBy(
+        diff({ renamed: [['examples/kept.shade.ts', 'examples/hosts/kept/kept.shade.ts']] }),
+      ).examples,
+    ]).toEqual([]);
+  });
+
+  it('does not count helper shaders or host TypeScript files as new examples', () => {
+    texts();
+    expect([
+      ...touchedBy(
+        diff({ added: ['examples/hosts/kept/helper.shade.ts', 'examples/hosts/kept/main.ts'] }),
+      ).examples,
+    ]).toEqual([]);
+  });
+
+  it('sees an export moved between subpaths as a removal and an addition', () => {
+    texts(bake(['oldName'], []), bake([], ['oldName']));
+    const touched = touchedBy(diff());
+    expect([...touched.exportsRemoved]).toEqual(['oldName']);
+    expect([...touched.exports]).toEqual(['oldName']);
+    expect(
+      judge(touched, 'Change: 0012', [{ ...accepted, exportsRemoved: [] }]).problems,
+    ).toContainEqual(expect.stringContaining('removed export `oldName`'));
+    const verdict = judge(touched, 'Change: 0012', [accepted]);
+    expect(verdict.problems).toEqual([]);
+    expect(verdict.pending).not.toContain('removed export `oldName`');
+  });
+
+  it('sees removal from one subpath even when another already exports the name', () => {
+    texts(bake(['oldName'], ['oldName']), bake([], ['oldName']));
+    expect([...touchedBy(diff()).exportsRemoved]).toEqual(['oldName']);
+    expect([...touchedBy(diff()).exports]).toEqual([]);
   });
 });

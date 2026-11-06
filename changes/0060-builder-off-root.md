@@ -304,7 +304,7 @@ The builder still has users that need it: the compiler's tests compare IR built 
 
 ### Assumptions
 
-- `scripts/changes.ts` compares export names across all subpaths together. A name that moves from the root to `typeshade/core/ir` may not show as removed in its diff. The front matter declares the 209 names anyway, because `scripts/downstream-impact.ts` reads `exports-removed` to find downstream code that still imports them from the root. Whether `scripts/changes.ts` needs to compare per subpath is confirmed at step 1.
+- At implementation, `scripts/changes.ts` compared export names across all subpaths together. A name that moved from the root to `typeshade/core/ir` did not show as removed in its diff. The front matter declares the 209 names anyway, because `scripts/downstream-impact.ts` reads `exports-removed` to find downstream code that still imports them from the root. Follow-up #584 compares names per subpath before checking the declared names; it tests a move and a removal from one of two subpaths.
 - No downstream repository imports a builder value from the root: the site's `src/` and `scripts/` import none (its Korean guide Markdown shows them in code blocks), the editor imports `stageOf` and `typeKey`, Radiance imports none, X-GIS vendors its own copy. TypeNN pins tarball `946b0ea` and composes IR by hand (typenn PR #6); it is not a declared downstream repository, and its owner is told separately.
 
 ### Decisions
