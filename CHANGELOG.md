@@ -92,6 +92,22 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **The program runtime records through a render hardware interface on WebGPU** (change 0120,
+  milestone M1). `src/rhi/rhi.ts` declares the interface, internal and in no subpath, and
+  `src/rhi/webgpu.ts` is its WebGPU backend, into which `src/runtime/gpu.ts` is folded.
+  `createRuntime()`'s WebGPU tier makes its pipelines, bind groups, buffers, textures, samplers,
+  frames and passes through it and calls no `GPUDevice`, `GPUQueue` or `GPUCommandEncoder`
+  function itself; a `Resident` it binds still makes its buffer on the native device, in the call
+  layer (milestone M4). The native calls, their descriptors and the frames are the ones it made
+  before, and its API does not change. Two arguments that are not GPU objects now refuse with a
+  `TypeError` before WebGPU sees them: `rt.submit()` given something that is not a
+  `GPUCommandEncoder` (with the sentence an empty call has), and a geometry's `vertices` or
+  `indices.buffer` given an object that is not a `GPUBuffer`. The WebGL2 tier is unchanged
+  (milestone M2). The interface and its backend add code to the runtime, so the caps of
+  `typeshade/runtime` in `scripts/bundle-budget.json` take the measured gzip sizes: single file
+  153,129 to 154,587 (+1,458), split initial 38,589 to 40,000 (+1,411) and split total 155,026 to
+  156,496 (+1,470). The floors and the other subpaths do not change.
+
 - **A constant argument reaches a function under a numerical contract** (#850 N5; Rule 11.22).
   At `-O2`, a call that passes a scalar literal to a function opted in with `numerics(...)` calls
   a copy of it with the literal in place, so `finite-math` folds what the literal decides:
