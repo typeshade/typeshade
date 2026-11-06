@@ -45,31 +45,36 @@ jobs:
       - name: Archive this compiler candidate
         run: |
           git archive --prefix=package/ --format=tar.gz --output="$RUNNER_TEMP/typeshade-candidate.tar.gz" HEAD
-          echo "TYPESHADE_CANDIDATE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           repository: typeshade/typeaudio
           # Fixed consumer corpus. Advance deliberately after the engine PR is merged.
-          ref: 2d42a2b1164b63813246e1d2bfd427e7245ca940
+          ref: d8e972add31f788f8caaeac2c483136b4ae23f85
           path: .downstream/typeaudio
           persist-credentials: false
       - name: Install the downstream baseline
         working-directory: .downstream/typeaudio
-        run: bun install --frozen-lockfile
+        run: |
+          bun install --frozen-lockfile
+          bun run feedback --out .feedback/pinned.json
       - name: Install and verify the compiler candidate
         working-directory: .downstream/typeaudio
         run: |
           bun add --dev --exact "$RUNNER_TEMP/typeshade-candidate.tar.gz" --ignore-scripts
           bun scripts/verify-compiler.ts ../..
           bun run prepare
+          echo "TYPESHADE_CANDIDATE_SHA=$(git -C ../.. rev-parse HEAD)" >> "$GITHUB_ENV"
       - name: Check the engine and replay the shared Web scenarios
         working-directory: .downstream/typeaudio
         run: |
           bun run check
           bun run test
           bun run feedback --out .feedback/report.json
+          node --test scripts/compare-feedback.test.mjs
+          node scripts/compare-feedback.mjs .feedback/pinned.json .feedback/report.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: typeaudio-compiler-feedback
+          include-hidden-files: true
           path: .downstream/typeaudio/.feedback/
