@@ -397,7 +397,14 @@ async function hostImport(
       ],
       { cwd: app, encoding: 'utf8' },
     ).stdout,
-  ) as { plasma: number[]; tiled: number[]; ramped: number[]; deep: number[] };
+  ) as {
+    plasma: number[];
+    tiled: number[];
+    ramped: number[];
+    deep: number[];
+    unbound: number[];
+    guarded: number[];
+  };
   const drawn = web.draws ?? {};
   const compare = (key: string, want: number[], steps: number): void => {
     const got = drawn[key];
@@ -412,6 +419,31 @@ async function hostImport(
     );
   };
   // f32 against the f64 reference, rounded to 8 bits: two steps of 1/255.
+  for (const name of ['unbound', 'guarded'] as const) {
+    const tiers =
+      name === 'guarded'
+        ? ['webgpu float', 'webgpu integer', 'webgl2', 'cpu']
+        : ['webgpu float', 'webgl2', 'cpu'];
+    for (const tier of tiers) {
+      for (const form of ['object', 'omitted', 'undefined'])
+        compare(`${name} ${tier} ${form}`, drawRef[name], 2);
+      const explicit = drawn[`${name} ${tier} object`];
+      for (const form of ['omitted', 'undefined']) {
+        const got = drawn[`${name} ${tier} ${form}`];
+        check(
+          Array.isArray(explicit) &&
+            Array.isArray(got) &&
+            got.length === explicit.length &&
+            got.every((value, i) => value === explicit[i]),
+          `${name} ${tier} ${form} is byte-identical to explicit empty bindings`,
+        );
+      }
+    }
+  }
+  check(
+    JSON.stringify(drawn['guarded flavors']) === '[1]',
+    `guard-only draw submits distinct float/integer WGSL with the correct guard (${JSON.stringify(drawn['guarded flavors'])})`,
+  );
   for (const tier of ['webgpu', 'webgl2', '2d']) compare(`plasma ${tier}`, drawRef.plasma, 2);
   // Nearest filtering at texel centres: the image's bytes, exactly.
   for (const tier of ['webgpu', 'webgl2']) compare(`tiled ${tier}`, drawRef.tiled, 0);

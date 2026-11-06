@@ -23,11 +23,13 @@ import { createTypeshadeLanguageService } from '../src/language-service/index.js
 import type { Pack } from '../src/runtime.js';
 import { SOURCES, type Programs } from './render-case.js';
 import { COMPUTE_CASES, PROGRAM_CASES } from './compute-case.js';
+import { isGuard } from '../src/core/host-entry.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const RUNTIME = join(ROOT, 'src/core/host-runtime.ts');
 const PAGE = join(ROOT, 'scripts/entry-calls-page.ts');
 const RENDER_CASE = join(ROOT, 'scripts/render-case.ts');
+const EMPTY_BINDING_FILES = ['empty-bindings', 'empty-bindings-guard'] as const;
 
 /** The part of Bun's bundler this uses. The gate runs under Bun (`bun scripts/compile-gate.ts`),
  *  and the repository's type check has no Bun types, so it is named structurally. */
@@ -118,18 +120,52 @@ export async function entryBundle(): Promise<EntryBundle> {
           );
         return { path, id: `case:${name}`, source };
       }),
+      // Existing packed-journey fixtures, not registered examples (change 0125). Their
+      // independent pixel reference and invocation matrix run only for these two cases.
+      ...EMPTY_BINDING_FILES.map((name) => {
+        const path = join(ROOT, 'journeys/_host-import/src', `${name}.shade.ts`);
+        const source = readFileSync(path, 'utf8');
+        const compiled = compile(source, { fileName: path });
+        service.openDocument(path, source);
+        const diagnostics = [...compiled.diagnostics, ...service.getDiagnostics(path)];
+        if (diagnostics.length > 0 || compiled.module.bindings.length !== 0)
+          throw new Error(
+            `the empty-binding fixture ${name} is not binding-free and clean: ` +
+              diagnostics.map((d) => d.message).join('; '),
+          );
+        return { path, id: `case:${name}`, source };
+      }),
     ];
     sources.forEach(({ path, id, source }, i) => {
       const face = hostFace(source, { fileName: path, runtime: RUNTIME });
+      const emptyBindings =
+        id === 'case:empty-bindings'
+          ? 'plain'
+          : id === 'case:empty-bindings-guard'
+            ? 'guard'
+            : undefined;
+      if (emptyBindings !== undefined && (face.code === undefined || face.exports?.length !== 1))
+        throw new Error(`${id}: expected one callable fragment fixture`);
       if (face.code === undefined) return;
       const entries = (face.exports ?? []).filter(
         (e): e is Extract<HostExport, { kind: 'compute' | 'fragment' }> =>
           e.kind === 'compute' || e.kind === 'fragment',
       );
+      if (emptyBindings !== undefined && entries.length !== 1)
+        throw new Error(`${id}: the fragment fixture was not callable`);
       if (entries.length === 0) return;
       writeFileSync(join(dir, `m${i}.mjs`), face.code);
       imports.push(`import * as m${i} from './m${i}.mjs';`);
       for (const e of entries) {
+        if (
+          emptyBindings !== undefined &&
+          (e.kind !== 'fragment' ||
+            e.entry.bindings.some((b) => !isGuard(b)) ||
+            e.entry.bindings.length !== (emptyBindings === 'guard' ? 1 : 0) ||
+            e.entry.noGl !== undefined ||
+            e.entry.noCpu !== undefined)
+        )
+          throw new Error(`${id}: expected only the declared runtime guard and all draw tiers`);
         if (e.kind === 'compute') compute++;
         else fragment++;
         const noCpu =
@@ -140,6 +176,9 @@ export async function entryBundle(): Promise<EntryBundle> {
         cases.push(
           `{ id: ${JSON.stringify(id)}, kind: ${JSON.stringify(e.kind)}, name: ${JSON.stringify(e.name)}, ` +
             `bindings: ${JSON.stringify(e.entry.bindings)}, ` +
+            (emptyBindings !== undefined
+              ? `emptyBindings: ${JSON.stringify(emptyBindings)}, `
+              : '') +
             (noCpu !== undefined ? `noCpu: ${JSON.stringify(noCpu)}, ` : '') +
             (noGl !== undefined ? `noGl: ${JSON.stringify(noGl)}, ` : '') +
             `call: m${i}[${JSON.stringify(e.name)}], manifest: m${i}.default }`,

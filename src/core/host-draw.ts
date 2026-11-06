@@ -6,6 +6,7 @@
 // Vite plugin writes everything the draw needs into the generated module at build time, as a
 // `FragmentEntry` literal: the module's WGSL, the GLSL ES 3.00 fragment program where the WebGL2
 // tier can draw it, and each binding the entry reaches, with its layout.
+// With no host-supplied binding, `entry(target)` supplies the empty object (change 0125).
 //
 // Three tiers, and a canvas keeps the first one that draws into it, since a canvas keeps the
 // first kind of context it hands out:
@@ -219,13 +220,18 @@ export function callDraw(
 ): Promise<void> {
   fuseSlot.active?.refuse(`${e.name}()`, 'a draw');
   try {
-    if (argc !== 2)
-      throw new TypeError(`${e.name}() takes 2 arguments, (target, bindings); got ${argc}.`);
+    const empty = e.bindings.every(isGuard);
+    if (argc !== 2 && !(empty && argc === 1))
+      throw new TypeError(
+        empty
+          ? `${e.name}() takes 1 or 2 arguments, (target, bindings?); got ${argc}.`
+          : `${e.name}() takes 2 arguments, (target, bindings); got ${argc}.`,
+      );
     if (!isCanvas(target))
       throw new TypeError(
         `${e.name}(): "target" is an HTMLCanvasElement or an OffscreenCanvas; got ${describe(target)}.`,
       );
-    const frame = frameOf(e, bindings);
+    const frame = frameOf(e, empty && bindings === undefined ? {} : bindings);
     let state = canvases.get(target);
     if (state === undefined) canvases.set(target, (state = { chain: Promise.resolve() }));
     const s = state;

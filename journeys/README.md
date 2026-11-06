@@ -151,6 +151,14 @@ select WebGPU or CPU without global configuration. Owned texture calls match the
 and a foreign device's scope refuses them. Two WebGPU owners alternate on one canvas; a queued
 array fill precedes its draw, and a texture-only draw waits for its queued writer.
 
+The binding-free fragments in `src/empty-bindings.shade.ts` and
+`src/empty-bindings-guard.shade.ts` draw with omitted bindings, `undefined` and `{}`
+(change 0125). Every form matches an independent JavaScript pixel reference, and the three
+forms match byte for byte. Both fragments run on WebGPU, WebGL2 and the CPU tier. The
+guard-only fragment also runs with both WebGPU fp64 flavors. Captured shader text proves
+that the flavors differ and only the float flavor uses the runtime guard. The compile gate's
+entry-call leg checks the same fixtures and verifies their host-binding metadata.
+
 In the same project, from the same tarball, the script then builds `examples/hosts/` (change 0061) with Vite: the host examples, each a module and the `host.ts` an application would write. It calls each host's `run()` through `examples/hosts/_drive.ts` in two pages. The first has WebGPU and sets `configure({ prefer: ['webgpu'] })`, so a kernel or entry call cannot fall back to another tier. The second hides `navigator.gpu`, sets `configure({ prefer: ['webgl2'] })` and makes each canvas's `webgl2` context first, so every call, draw and `runtime()` runs on WebGL2. Each result is compared with `examples/hosts/_reference.ts`, the reference `examples/host-examples.test.ts` holds the CPU tier to, and a host must pass on a tier exactly when `examples/hosts/_order.ts` lists that tier for it.
 
 `journeys/local-use-inference/` (change 0036, #429) lets direct declared calls establish the
