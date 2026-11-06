@@ -1602,6 +1602,8 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 - Generated CPU functions reuse a fixed-width buffer for their `inout` return values instead of allocating an array on each call (#961). Nested calls and interpreter fallbacks retain their existing results.
 
+- A call of a declared method on an abstract receiver now explains that the class has no instance and names the concrete-class remedy, instead of claiming the method does not exist. Compiler and editor retain TS8035 (#1008).
+
 - Resolve a namespace class's short base name in its enclosing namespaces before the file scope. Sibling and enclosing bases now contribute their inherited fields and methods (#976).
 
 - **The call checks a read under a guard on the counter over the iterations the guard keeps (#997).**
