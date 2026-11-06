@@ -1,0 +1,75 @@
+name: TypeAudio downstream
+on:
+  pull_request:
+    paths:
+      [
+        'src/**',
+        'package.json',
+        'bun.lock',
+        '.node-version',
+        '.bun-version',
+        '.github/workflows/typeaudio-downstream.yml',
+      ]
+  push:
+    branches: [main]
+    paths:
+      [
+        'src/**',
+        'package.json',
+        'bun.lock',
+        '.node-version',
+        '.bun-version',
+        '.github/workflows/typeaudio-downstream.yml',
+      ]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: typeaudio-downstream-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  typeaudio:
+    name: TypeAudio candidate (graph + CPU)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Archive this compiler candidate
+        run: |
+          git archive --prefix=package/ --format=tar.gz --output="$RUNNER_TEMP/typeshade-candidate.tar.gz" HEAD
+          echo "TYPESHADE_CANDIDATE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          repository: typeshade/typeaudio
+          # Fixed consumer corpus. Advance deliberately after the engine PR is merged.
+          ref: 2d42a2b1164b63813246e1d2bfd427e7245ca940
+          path: .downstream/typeaudio
+          persist-credentials: false
+      - name: Install the downstream baseline
+        working-directory: .downstream/typeaudio
+        run: bun install --frozen-lockfile
+      - name: Install and verify the compiler candidate
+        working-directory: .downstream/typeaudio
+        run: |
+          bun add --dev --exact "$RUNNER_TEMP/typeshade-candidate.tar.gz" --ignore-scripts
+          bun scripts/verify-compiler.ts ../..
+          bun run prepare
+      - name: Check the engine and replay the shared Web scenarios
+        working-directory: .downstream/typeaudio
+        run: |
+          bun run check
+          bun run test
+          bun run feedback --out .feedback/report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: typeaudio-compiler-feedback
+          path: .downstream/typeaudio/.feedback/
