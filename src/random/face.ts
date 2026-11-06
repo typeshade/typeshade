@@ -7,6 +7,10 @@ const __ts_m = /*#__PURE__*/ (function ($) {
 const $h0 = $.B["f32"];
 const $fr = Math.fround;
 const $h2 = $.B["arrayLength"];
+const $io0 = Array(2);
+const $io1 = Array(2);
+const $io2 = Array(2);
+const $io3 = Array(2);
 $.F = {
 "xorshift32": function($a0) {
 let $v0;
@@ -33,24 +37,24 @@ let $v0;
 for ($v0 = 0; ($v0 < ($h2($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr($.F["uniform"]($.F["hash32"]((($a1 ^ $v0) >>> 0))));
 }
-$.inout.values = [$a0, $a1];
+$io0[0] = $a0, $io0[1] = $a1, $.inout.values = $io0;
 },
 "fillWords": function($a0, $a1) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h2($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $.F["hash32"]((($a1 ^ $v0) >>> 0));
 }
-$.inout.values = [$a0, $a1];
+$io1[0] = $a0, $io1[1] = $a1, $.inout.values = $io1;
 },
 "fillUniform__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h2($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h2($a0) >>> 0)], $io2[0] = $a0, $io2[1] = $a1, $.inout.values = $io2, $t0);
+$io2[0] = $a0, $io2[1] = $a1, $.inout.values = $io2;
 },
 "fillWords__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h2($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h2($a0) >>> 0)], $io3[0] = $a0, $io3[1] = $a1, $.inout.values = $io3, $t0);
+$io3[0] = $a0, $io3[1] = $a1, $.inout.values = $io3;
 }
 };
 return { F: $.F, C: {  }, $: $ };

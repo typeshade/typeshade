@@ -26,13 +26,100 @@ const $h18 = $.L["min"].lane;
 const $h19 = $.intDiv;
 const $h20 = $.intRem;
 const $h21 = $.u32Sat;
+const $io0 = Array(2);
+const $io1 = Array(2);
+const $io2 = Array(3);
+const $io3 = Array(3);
+const $io4 = Array(3);
+const $io5 = Array(3);
+const $io6 = Array(3);
+const $io7 = Array(3);
+const $io8 = Array(2);
+const $io9 = Array(2);
+const $io10 = Array(2);
+const $io11 = Array(2);
+const $io12 = Array(2);
+const $io13 = Array(2);
+const $io14 = Array(2);
+const $io15 = Array(2);
+const $io16 = Array(2);
+const $io17 = Array(2);
+const $io18 = Array(2);
+const $io19 = Array(2);
+const $io20 = Array(2);
+const $io21 = Array(2);
+const $io22 = Array(2);
+const $io23 = Array(2);
+const $io24 = Array(2);
+const $io25 = Array(2);
+const $io26 = Array(4);
+const $io27 = Array(1);
+const $io28 = Array(1);
+const $io29 = Array(1);
+const $io30 = Array(4);
+const $io31 = Array(4);
+const $io32 = Array(4);
+const $io33 = Array(4);
+const $io34 = Array(4);
+const $io35 = Array(4);
+const $io36 = Array(4);
+const $io37 = Array(3);
+const $io38 = Array(3);
+const $io39 = Array(4);
+const $io40 = Array(4);
+const $io41 = Array(2);
+const $io42 = Array(2);
+const $io43 = Array(3);
+const $io44 = Array(3);
+const $io45 = Array(3);
+const $io46 = Array(3);
+const $io47 = Array(3);
+const $io48 = Array(3);
+const $io49 = Array(2);
+const $io50 = Array(2);
+const $io51 = Array(2);
+const $io52 = Array(2);
+const $io53 = Array(2);
+const $io54 = Array(2);
+const $io55 = Array(2);
+const $io56 = Array(2);
+const $io57 = Array(2);
+const $io58 = Array(2);
+const $io59 = Array(2);
+const $io60 = Array(2);
+const $io61 = Array(2);
+const $io62 = Array(2);
+const $io63 = Array(2);
+const $io64 = Array(2);
+const $io65 = Array(2);
+const $io66 = Array(2);
+const $io67 = Array(4);
+const $io68 = Array(1);
+const $io69 = Array(2);
+const $io70 = Array(1);
+const $io71 = Array(2);
+const $io72 = Array(1);
+const $io73 = Array(2);
+const $io74 = Array(4);
+const $io75 = Array(4);
+const $io76 = Array(4);
+const $io77 = Array(4);
+const $io78 = Array(4);
+const $io79 = Array(4);
+const $io80 = Array(4);
+const $io81 = Array(3);
+const $io82 = Array(3);
+const $io83 = Array(3);
+const $io84 = Array(3);
+const $io85 = Array(4);
+const $io86 = Array(4);
 $.F = {
 "copy": function($a0, $a1) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $a1[$v0];
 }
-$.inout.values = [$a0, $a1];
+$io0[0] = $a0, $io0[1] = $a1, $.inout.values = $io0;
 },
 "fill": function($a0, $a1) {
 let $p1, $v0;
@@ -40,7 +127,7 @@ $p1 = $fr($a1);
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $p1;
 }
-$.inout.values = [$a0, $a1];
+$io1[0] = $a0, $io1[1] = $a1, $.inout.values = $io1;
 },
 "sequence": function($a0, $a1, $a2) {
 let $p1, $p2, $v0;
@@ -49,35 +136,35 @@ $p2 = $fr($a2);
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr(($p1 + $fr(($fr($h2($v0)) * $p2))));
 }
-$.inout.values = [$a0, $a1, $a2];
+$io2[0] = $a0, $io2[1] = $a1, $io2[2] = $a2, $.inout.values = $io2;
 },
 "add": function($a0, $a1, $a2) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr(($a1[$v0] + $a2[$v0]));
 }
-$.inout.values = [$a0, $a1, $a2];
+$io3[0] = $a0, $io3[1] = $a1, $io3[2] = $a2, $.inout.values = $io3;
 },
 "sub": function($a0, $a1, $a2) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr(($a1[$v0] - $a2[$v0]));
 }
-$.inout.values = [$a0, $a1, $a2];
+$io4[0] = $a0, $io4[1] = $a1, $io4[2] = $a2, $.inout.values = $io4;
 },
 "mul": function($a0, $a1, $a2) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr(($a1[$v0] * $a2[$v0]));
 }
-$.inout.values = [$a0, $a1, $a2];
+$io5[0] = $a0, $io5[1] = $a1, $io5[2] = $a2, $.inout.values = $io5;
 },
 "div": function($a0, $a1, $a2) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr(($a1[$v0] / $a2[$v0]));
 }
-$.inout.values = [$a0, $a1, $a2];
+$io6[0] = $a0, $io6[1] = $a1, $io6[2] = $a2, $.inout.values = $io6;
 },
 "scale": function($a0, $a1, $a2) {
 let $p2, $v0;
@@ -85,49 +172,49 @@ $p2 = $fr($a2);
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr(($a1[$v0] * $p2));
 }
-$.inout.values = [$a0, $a1, $a2];
+$io7[0] = $a0, $io7[1] = $a1, $io7[2] = $a2, $.inout.values = $io7;
 },
 "absMap": function($a0, $a1) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr($h3($a1[$v0]));
 }
-$.inout.values = [$a0, $a1];
+$io8[0] = $a0, $io8[1] = $a1, $.inout.values = $io8;
 },
 "negMap": function($a0, $a1) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr((-$a1[$v0]));
 }
-$.inout.values = [$a0, $a1];
+$io9[0] = $a0, $io9[1] = $a1, $.inout.values = $io9;
 },
 "sqrtMap": function($a0, $a1) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr($h4($a1[$v0]));
 }
-$.inout.values = [$a0, $a1];
+$io10[0] = $a0, $io10[1] = $a1, $.inout.values = $io10;
 },
 "rsqrtMap": function($a0, $a1) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr($h5($a1[$v0]));
 }
-$.inout.values = [$a0, $a1];
+$io11[0] = $a0, $io11[1] = $a1, $.inout.values = $io11;
 },
 "expMap": function($a0, $a1) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr($h6($a1[$v0]));
 }
-$.inout.values = [$a0, $a1];
+$io12[0] = $a0, $io12[1] = $a1, $.inout.values = $io12;
 },
 "logMap": function($a0, $a1) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr($h7($a1[$v0]));
 }
-$.inout.values = [$a0, $a1];
+$io13[0] = $a0, $io13[1] = $a1, $.inout.values = $io13;
 },
 "expm1Map": function($a0, $a1) {
 let $v0, $v1, $v2, $v3;
@@ -142,7 +229,7 @@ $v2 = $fr(($fr($h6($v1)) - 1));
 }
 ($a0)[$v0] = $v2;
 }
-$.inout.values = [$a0, $a1];
+$io14[0] = $a0, $io14[1] = $a1, $.inout.values = $io14;
 },
 "log1pMap": function($a0, $a1) {
 let $v0, $v1, $v2, $v3;
@@ -157,63 +244,63 @@ $v2 = $fr($h7($fr((1 + $v1))));
 }
 ($a0)[$v0] = $v2;
 }
-$.inout.values = [$a0, $a1];
+$io15[0] = $a0, $io15[1] = $a1, $.inout.values = $io15;
 },
 "floorMap": function($a0, $a1) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr($h8($a1[$v0]));
 }
-$.inout.values = [$a0, $a1];
+$io16[0] = $a0, $io16[1] = $a1, $.inout.values = $io16;
 },
 "ceilMap": function($a0, $a1) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr($h9($a1[$v0]));
 }
-$.inout.values = [$a0, $a1];
+$io17[0] = $a0, $io17[1] = $a1, $.inout.values = $io17;
 },
 "roundMap": function($a0, $a1) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr($h10($a1[$v0]));
 }
-$.inout.values = [$a0, $a1];
+$io18[0] = $a0, $io18[1] = $a1, $.inout.values = $io18;
 },
 "signMap": function($a0, $a1) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr($h11($a1[$v0]));
 }
-$.inout.values = [$a0, $a1];
+$io19[0] = $a0, $io19[1] = $a1, $.inout.values = $io19;
 },
 "sinMap": function($a0, $a1) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr($h12($a1[$v0]));
 }
-$.inout.values = [$a0, $a1];
+$io20[0] = $a0, $io20[1] = $a1, $.inout.values = $io20;
 },
 "cosMap": function($a0, $a1) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr($h13($a1[$v0]));
 }
-$.inout.values = [$a0, $a1];
+$io21[0] = $a0, $io21[1] = $a1, $.inout.values = $io21;
 },
 "tanMap": function($a0, $a1) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr($h14($a1[$v0]));
 }
-$.inout.values = [$a0, $a1];
+$io22[0] = $a0, $io22[1] = $a1, $.inout.values = $io22;
 },
 "tanhMap": function($a0, $a1) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr($h15($a1[$v0]));
 }
-$.inout.values = [$a0, $a1];
+$io23[0] = $a0, $io23[1] = $a1, $.inout.values = $io23;
 },
 "sigmoidMap": function($a0, $a1) {
 let $v0, $v1, $v2, $v3;
@@ -228,14 +315,14 @@ $v2 = $fr(($v3 / $fr((1 + $v3))));
 }
 ($a0)[$v0] = $v2;
 }
-$.inout.values = [$a0, $a1];
+$io24[0] = $a0, $io24[1] = $a1, $.inout.values = $io24;
 },
 "reluMap": function($a0, $a1) {
 let $v0;
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr($h16($a1[$v0], 0));
 }
-$.inout.values = [$a0, $a1];
+$io25[0] = $a0, $io25[1] = $a1, $.inout.values = $io25;
 },
 "clipMap": function($a0, $a1, $a2, $a3) {
 let $p2, $p3, $v0;
@@ -244,7 +331,7 @@ $p3 = $fr($a3);
 for ($v0 = 0; ($v0 < ($h0($a0) >>> 0)); $v0 = (($v0 + 1) >>> 0)) {
 ($a0)[$v0] = $fr($h17($a1[$v0], $p2, $p3));
 }
-$.inout.values = [$a0, $a1, $a2, $a3];
+$io26[0] = $a0, $io26[1] = $a1, $io26[2] = $a2, $io26[3] = $a3, $.inout.values = $io26;
 },
 "sum": function($a0) {
 let $v0, $v1, $t2, $t3, $t4;
@@ -258,8 +345,8 @@ $v0 = $fr(($v0 + $a0[$v1]));
 }
 $v0 = $t2;
 { const $tr = $.tree($t3, (($ta, $tb) => $fr(($ta + $tb))), () => -0); if ($tr !== undefined) $v0 = (($ta, $tb) => $fr(($ta + $tb)))($v0, $tr); }
-return ($t4 = $v0, $.inout.values = [$a0], $t4);
-$.inout.values = [$a0];
+return ($t4 = $v0, $io27[0] = $a0, $.inout.values = $io27, $t4);
+$io27[0] = $a0, $.inout.values = $io27;
 },
 "maxAll": function($a0) {
 let $v0, $v1, $t2, $t3, $t4;
@@ -273,8 +360,8 @@ $v0 = $fr($h16($v0, $a0[$v1]));
 }
 $v0 = $t2;
 { const $tr = $.tree($t3, (($ta, $tb) => $fr($h16($ta, $tb))), () => -3.4028234663852886e+38); if ($tr !== undefined) $v0 = (($ta, $tb) => $fr($h16($ta, $tb)))($v0, $tr); }
-return ($t4 = $v0, $.inout.values = [$a0], $t4);
-$.inout.values = [$a0];
+return ($t4 = $v0, $io28[0] = $a0, $.inout.values = $io28, $t4);
+$io28[0] = $a0, $.inout.values = $io28;
 },
 "minAll": function($a0) {
 let $v0, $v1, $t2, $t3, $t4;
@@ -288,8 +375,8 @@ $v0 = $fr($h18($v0, $a0[$v1]));
 }
 $v0 = $t2;
 { const $tr = $.tree($t3, (($ta, $tb) => $fr($h18($ta, $tb))), () => 3.4028234663852886e+38); if ($tr !== undefined) $v0 = (($ta, $tb) => $fr($h18($ta, $tb)))($v0, $tr); }
-return ($t4 = $v0, $.inout.values = [$a0], $t4);
-$.inout.values = [$a0];
+return ($t4 = $v0, $io29[0] = $a0, $.inout.values = $io29, $t4);
+$io29[0] = $a0, $.inout.values = $io29;
 },
 "sumAxis": function($a0, $a1, $a2, $a3) {
 let $v0, $v1, $v2, $v3, $v4;
@@ -302,7 +389,7 @@ $v3 = $fr(($v3 + $a1[(((Math.imul((((Math.imul($v1, $a2) >>> 0) + $v4) >>> 0), $
 }
 ($a0)[$v0] = $v3;
 }
-$.inout.values = [$a0, $a1, $a2, $a3];
+$io30[0] = $a0, $io30[1] = $a1, $io30[2] = $a2, $io30[3] = $a3, $.inout.values = $io30;
 },
 "meanAxis": function($a0, $a1, $a2, $a3) {
 let $v0, $v1, $v2, $v3, $v4;
@@ -315,7 +402,7 @@ $v3 = $fr(($v3 + $a1[(((Math.imul((((Math.imul($v1, $a2) >>> 0) + $v4) >>> 0), $
 }
 ($a0)[$v0] = $fr(($v3 / $fr($h2($a2))));
 }
-$.inout.values = [$a0, $a1, $a2, $a3];
+$io31[0] = $a0, $io31[1] = $a1, $io31[2] = $a2, $io31[3] = $a3, $.inout.values = $io31;
 },
 "prodAxis": function($a0, $a1, $a2, $a3) {
 let $v0, $v1, $v2, $v3, $v4;
@@ -328,7 +415,7 @@ $v3 = $fr(($v3 * $a1[(((Math.imul((((Math.imul($v1, $a2) >>> 0) + $v4) >>> 0), $
 }
 ($a0)[$v0] = $v3;
 }
-$.inout.values = [$a0, $a1, $a2, $a3];
+$io32[0] = $a0, $io32[1] = $a1, $io32[2] = $a2, $io32[3] = $a3, $.inout.values = $io32;
 },
 "maxAxis": function($a0, $a1, $a2, $a3) {
 let $v0, $v1, $v2, $v3, $v4;
@@ -341,7 +428,7 @@ $v3 = $fr($h16($v3, $a1[(((Math.imul((((Math.imul($v1, $a2) >>> 0) + $v4) >>> 0)
 }
 ($a0)[$v0] = $v3;
 }
-$.inout.values = [$a0, $a1, $a2, $a3];
+$io33[0] = $a0, $io33[1] = $a1, $io33[2] = $a2, $io33[3] = $a3, $.inout.values = $io33;
 },
 "minAxis": function($a0, $a1, $a2, $a3) {
 let $v0, $v1, $v2, $v3, $v4;
@@ -354,7 +441,7 @@ $v3 = $fr($h18($v3, $a1[(((Math.imul((((Math.imul($v1, $a2) >>> 0) + $v4) >>> 0)
 }
 ($a0)[$v0] = $v3;
 }
-$.inout.values = [$a0, $a1, $a2, $a3];
+$io34[0] = $a0, $io34[1] = $a1, $io34[2] = $a2, $io34[3] = $a3, $.inout.values = $io34;
 },
 "argMaxAxis": function($a0, $a1, $a2, $a3) {
 let $v0, $v1, $v2, $v3, $v4, $v5, $v6;
@@ -372,7 +459,7 @@ $v4 = $v5;
 }
 ($a0)[$v0] = $fr($h2($v4));
 }
-$.inout.values = [$a0, $a1, $a2, $a3];
+$io35[0] = $a0, $io35[1] = $a1, $io35[2] = $a2, $io35[3] = $a3, $.inout.values = $io35;
 },
 "argMinAxis": function($a0, $a1, $a2, $a3) {
 let $v0, $v1, $v2, $v3, $v4, $v5, $v6;
@@ -390,7 +477,7 @@ $v4 = $v5;
 }
 ($a0)[$v0] = $fr($h2($v4));
 }
-$.inout.values = [$a0, $a1, $a2, $a3];
+$io36[0] = $a0, $io36[1] = $a1, $io36[2] = $a2, $io36[3] = $a3, $.inout.values = $io36;
 },
 "exclusiveScan": function($a0, $a1, $a2) {
 let $v0, $v1, $v2, $v3, $v4, $v5, $v6, $v7, $v8, $v9, $v10, $v11;
@@ -418,7 +505,7 @@ $v9 = (($v9 + $a1[$v11]) >>> 0);
 }
 ($a0)[$v7] = $v9;
 }
-$.inout.values = [$a0, $a1, $a2];
+$io37[0] = $a0, $io37[1] = $a1, $io37[2] = $a2, $.inout.values = $io37;
 },
 "inclusiveScan": function($a0, $a1, $a2) {
 let $v0, $v1, $v2, $v3, $v4, $v5, $v6, $v7, $v8, $v9, $v10, $v11;
@@ -446,7 +533,7 @@ $v9 = (($v9 + $a1[$v11]) >>> 0);
 }
 ($a0)[$v7] = $v9;
 }
-$.inout.values = [$a0, $a1, $a2];
+$io38[0] = $a0, $io38[1] = $a1, $io38[2] = $a2, $.inout.values = $io38;
 },
 "compact": function($a0, $a1, $a2, $a3) {
 let $v0, $v1, $v2, $v3, $v4, $v5;
@@ -464,7 +551,7 @@ $v2 = (($v5 + 1) >>> 0);
 }
 ($a0)[$v1] = $fr((($v2 < $v0) ? $a1[$v2] : 0));
 }
-$.inout.values = [$a0, $a1, $a2, $a3];
+$io39[0] = $a0, $io39[1] = $a1, $io39[2] = $a2, $io39[3] = $a3, $.inout.values = $io39;
 },
 "histogram": function($a0, $a1, $a2, $a3) {
 let $p2, $p3, $v0, $v1, $v2, $v3;
@@ -476,253 +563,253 @@ for ($v2 = 0; ($v2 < ($h0($a1) >>> 0)); $v2 = (($v2 + 1) >>> 0)) {
 $v3 = ($h18($h21($fr($h16($fr(($fr(($a1[$v2] - $p2)) * $v1)), 0))), $v0) >>> 0);
 ($a0)[$v3] = (($a0[$v3] + 1) >>> 0);
 }
-$.inout.values = [$a0, $a1, $a2, $a3];
+$io40[0] = $a0, $io40[1] = $a1, $io40[2] = $a2, $io40[3] = $a3, $.inout.values = $io40;
 },
 "copy__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io41[0] = $a0, $io41[1] = $a1, $.inout.values = $io41, $t0);
+$io41[0] = $a0, $io41[1] = $a1, $.inout.values = $io41;
 },
 "fill__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io42[0] = $a0, $io42[1] = $a1, $.inout.values = $io42, $t0);
+$io42[0] = $a0, $io42[1] = $a1, $.inout.values = $io42;
 },
 "sequence__range0": function($a0, $a1, $a2) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1, $a2], $t0);
-$.inout.values = [$a0, $a1, $a2];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io43[0] = $a0, $io43[1] = $a1, $io43[2] = $a2, $.inout.values = $io43, $t0);
+$io43[0] = $a0, $io43[1] = $a1, $io43[2] = $a2, $.inout.values = $io43;
 },
 "add__range0": function($a0, $a1, $a2) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1, $a2], $t0);
-$.inout.values = [$a0, $a1, $a2];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io44[0] = $a0, $io44[1] = $a1, $io44[2] = $a2, $.inout.values = $io44, $t0);
+$io44[0] = $a0, $io44[1] = $a1, $io44[2] = $a2, $.inout.values = $io44;
 },
 "sub__range0": function($a0, $a1, $a2) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1, $a2], $t0);
-$.inout.values = [$a0, $a1, $a2];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io45[0] = $a0, $io45[1] = $a1, $io45[2] = $a2, $.inout.values = $io45, $t0);
+$io45[0] = $a0, $io45[1] = $a1, $io45[2] = $a2, $.inout.values = $io45;
 },
 "mul__range0": function($a0, $a1, $a2) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1, $a2], $t0);
-$.inout.values = [$a0, $a1, $a2];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io46[0] = $a0, $io46[1] = $a1, $io46[2] = $a2, $.inout.values = $io46, $t0);
+$io46[0] = $a0, $io46[1] = $a1, $io46[2] = $a2, $.inout.values = $io46;
 },
 "div__range0": function($a0, $a1, $a2) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1, $a2], $t0);
-$.inout.values = [$a0, $a1, $a2];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io47[0] = $a0, $io47[1] = $a1, $io47[2] = $a2, $.inout.values = $io47, $t0);
+$io47[0] = $a0, $io47[1] = $a1, $io47[2] = $a2, $.inout.values = $io47;
 },
 "scale__range0": function($a0, $a1, $a2) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1, $a2], $t0);
-$.inout.values = [$a0, $a1, $a2];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io48[0] = $a0, $io48[1] = $a1, $io48[2] = $a2, $.inout.values = $io48, $t0);
+$io48[0] = $a0, $io48[1] = $a1, $io48[2] = $a2, $.inout.values = $io48;
 },
 "absMap__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io49[0] = $a0, $io49[1] = $a1, $.inout.values = $io49, $t0);
+$io49[0] = $a0, $io49[1] = $a1, $.inout.values = $io49;
 },
 "negMap__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io50[0] = $a0, $io50[1] = $a1, $.inout.values = $io50, $t0);
+$io50[0] = $a0, $io50[1] = $a1, $.inout.values = $io50;
 },
 "sqrtMap__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io51[0] = $a0, $io51[1] = $a1, $.inout.values = $io51, $t0);
+$io51[0] = $a0, $io51[1] = $a1, $.inout.values = $io51;
 },
 "rsqrtMap__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io52[0] = $a0, $io52[1] = $a1, $.inout.values = $io52, $t0);
+$io52[0] = $a0, $io52[1] = $a1, $.inout.values = $io52;
 },
 "expMap__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io53[0] = $a0, $io53[1] = $a1, $.inout.values = $io53, $t0);
+$io53[0] = $a0, $io53[1] = $a1, $.inout.values = $io53;
 },
 "logMap__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io54[0] = $a0, $io54[1] = $a1, $.inout.values = $io54, $t0);
+$io54[0] = $a0, $io54[1] = $a1, $.inout.values = $io54;
 },
 "expm1Map__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io55[0] = $a0, $io55[1] = $a1, $.inout.values = $io55, $t0);
+$io55[0] = $a0, $io55[1] = $a1, $.inout.values = $io55;
 },
 "log1pMap__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io56[0] = $a0, $io56[1] = $a1, $.inout.values = $io56, $t0);
+$io56[0] = $a0, $io56[1] = $a1, $.inout.values = $io56;
 },
 "floorMap__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io57[0] = $a0, $io57[1] = $a1, $.inout.values = $io57, $t0);
+$io57[0] = $a0, $io57[1] = $a1, $.inout.values = $io57;
 },
 "ceilMap__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io58[0] = $a0, $io58[1] = $a1, $.inout.values = $io58, $t0);
+$io58[0] = $a0, $io58[1] = $a1, $.inout.values = $io58;
 },
 "roundMap__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io59[0] = $a0, $io59[1] = $a1, $.inout.values = $io59, $t0);
+$io59[0] = $a0, $io59[1] = $a1, $.inout.values = $io59;
 },
 "signMap__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io60[0] = $a0, $io60[1] = $a1, $.inout.values = $io60, $t0);
+$io60[0] = $a0, $io60[1] = $a1, $.inout.values = $io60;
 },
 "sinMap__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io61[0] = $a0, $io61[1] = $a1, $.inout.values = $io61, $t0);
+$io61[0] = $a0, $io61[1] = $a1, $.inout.values = $io61;
 },
 "cosMap__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io62[0] = $a0, $io62[1] = $a1, $.inout.values = $io62, $t0);
+$io62[0] = $a0, $io62[1] = $a1, $.inout.values = $io62;
 },
 "tanMap__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io63[0] = $a0, $io63[1] = $a1, $.inout.values = $io63, $t0);
+$io63[0] = $a0, $io63[1] = $a1, $.inout.values = $io63;
 },
 "tanhMap__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io64[0] = $a0, $io64[1] = $a1, $.inout.values = $io64, $t0);
+$io64[0] = $a0, $io64[1] = $a1, $.inout.values = $io64;
 },
 "sigmoidMap__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io65[0] = $a0, $io65[1] = $a1, $.inout.values = $io65, $t0);
+$io65[0] = $a0, $io65[1] = $a1, $.inout.values = $io65;
 },
 "reluMap__range0": function($a0, $a1) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1], $t0);
-$.inout.values = [$a0, $a1];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io66[0] = $a0, $io66[1] = $a1, $.inout.values = $io66, $t0);
+$io66[0] = $a0, $io66[1] = $a1, $.inout.values = $io66;
 },
 "clipMap__range0": function($a0, $a1, $a2, $a3) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1, $a2, $a3], $t0);
-$.inout.values = [$a0, $a1, $a2, $a3];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io67[0] = $a0, $io67[1] = $a1, $io67[2] = $a2, $io67[3] = $a3, $.inout.values = $io67, $t0);
+$io67[0] = $a0, $io67[1] = $a1, $io67[2] = $a2, $io67[3] = $a3, $.inout.values = $io67;
 },
 "sum__range0": function($a0) {
 let $v0, $t1;
 $v0 = 0;
-return ($t1 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0], $t1);
-$.inout.values = [$a0];
+return ($t1 = [0, ($h0($a0) >>> 0)], $io68[0] = $a0, $.inout.values = $io68, $t1);
+$io68[0] = $a0, $.inout.values = $io68;
 },
 "sum__tail": function($a0, $a1) {
 let $p1, $v0, $t1;
 $p1 = $fr($a1);
 $v0 = 0;
 $v0 = $fr(($v0 + $p1));
-return ($t1 = $v0, $.inout.values = [$a0, $a1], $t1);
-$.inout.values = [$a0, $a1];
+return ($t1 = $v0, $io69[0] = $a0, $io69[1] = $a1, $.inout.values = $io69, $t1);
+$io69[0] = $a0, $io69[1] = $a1, $.inout.values = $io69;
 },
 "maxAll__range0": function($a0) {
 let $v0, $t1;
 $v0 = $fr((-3.4028234663852886e+38));
-return ($t1 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0], $t1);
-$.inout.values = [$a0];
+return ($t1 = [0, ($h0($a0) >>> 0)], $io70[0] = $a0, $.inout.values = $io70, $t1);
+$io70[0] = $a0, $.inout.values = $io70;
 },
 "maxAll__tail": function($a0, $a1) {
 let $p1, $v0, $t1;
 $p1 = $fr($a1);
 $v0 = $fr((-3.4028234663852886e+38));
 $v0 = $fr($h16($v0, $p1));
-return ($t1 = $v0, $.inout.values = [$a0, $a1], $t1);
-$.inout.values = [$a0, $a1];
+return ($t1 = $v0, $io71[0] = $a0, $io71[1] = $a1, $.inout.values = $io71, $t1);
+$io71[0] = $a0, $io71[1] = $a1, $.inout.values = $io71;
 },
 "minAll__range0": function($a0) {
 let $v0, $t1;
 $v0 = 3.4028234663852886e+38;
-return ($t1 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0], $t1);
-$.inout.values = [$a0];
+return ($t1 = [0, ($h0($a0) >>> 0)], $io72[0] = $a0, $.inout.values = $io72, $t1);
+$io72[0] = $a0, $.inout.values = $io72;
 },
 "minAll__tail": function($a0, $a1) {
 let $p1, $v0, $t1;
 $p1 = $fr($a1);
 $v0 = 3.4028234663852886e+38;
 $v0 = $fr($h18($v0, $p1));
-return ($t1 = $v0, $.inout.values = [$a0, $a1], $t1);
-$.inout.values = [$a0, $a1];
+return ($t1 = $v0, $io73[0] = $a0, $io73[1] = $a1, $.inout.values = $io73, $t1);
+$io73[0] = $a0, $io73[1] = $a1, $.inout.values = $io73;
 },
 "sumAxis__range0": function($a0, $a1, $a2, $a3) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1, $a2, $a3], $t0);
-$.inout.values = [$a0, $a1, $a2, $a3];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io74[0] = $a0, $io74[1] = $a1, $io74[2] = $a2, $io74[3] = $a3, $.inout.values = $io74, $t0);
+$io74[0] = $a0, $io74[1] = $a1, $io74[2] = $a2, $io74[3] = $a3, $.inout.values = $io74;
 },
 "meanAxis__range0": function($a0, $a1, $a2, $a3) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1, $a2, $a3], $t0);
-$.inout.values = [$a0, $a1, $a2, $a3];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io75[0] = $a0, $io75[1] = $a1, $io75[2] = $a2, $io75[3] = $a3, $.inout.values = $io75, $t0);
+$io75[0] = $a0, $io75[1] = $a1, $io75[2] = $a2, $io75[3] = $a3, $.inout.values = $io75;
 },
 "prodAxis__range0": function($a0, $a1, $a2, $a3) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1, $a2, $a3], $t0);
-$.inout.values = [$a0, $a1, $a2, $a3];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io76[0] = $a0, $io76[1] = $a1, $io76[2] = $a2, $io76[3] = $a3, $.inout.values = $io76, $t0);
+$io76[0] = $a0, $io76[1] = $a1, $io76[2] = $a2, $io76[3] = $a3, $.inout.values = $io76;
 },
 "maxAxis__range0": function($a0, $a1, $a2, $a3) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1, $a2, $a3], $t0);
-$.inout.values = [$a0, $a1, $a2, $a3];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io77[0] = $a0, $io77[1] = $a1, $io77[2] = $a2, $io77[3] = $a3, $.inout.values = $io77, $t0);
+$io77[0] = $a0, $io77[1] = $a1, $io77[2] = $a2, $io77[3] = $a3, $.inout.values = $io77;
 },
 "minAxis__range0": function($a0, $a1, $a2, $a3) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1, $a2, $a3], $t0);
-$.inout.values = [$a0, $a1, $a2, $a3];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io78[0] = $a0, $io78[1] = $a1, $io78[2] = $a2, $io78[3] = $a3, $.inout.values = $io78, $t0);
+$io78[0] = $a0, $io78[1] = $a1, $io78[2] = $a2, $io78[3] = $a3, $.inout.values = $io78;
 },
 "argMaxAxis__range0": function($a0, $a1, $a2, $a3) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1, $a2, $a3], $t0);
-$.inout.values = [$a0, $a1, $a2, $a3];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io79[0] = $a0, $io79[1] = $a1, $io79[2] = $a2, $io79[3] = $a3, $.inout.values = $io79, $t0);
+$io79[0] = $a0, $io79[1] = $a1, $io79[2] = $a2, $io79[3] = $a3, $.inout.values = $io79;
 },
 "argMinAxis__range0": function($a0, $a1, $a2, $a3) {
 let $t0;
-return ($t0 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1, $a2, $a3], $t0);
-$.inout.values = [$a0, $a1, $a2, $a3];
+return ($t0 = [0, ($h0($a0) >>> 0)], $io80[0] = $a0, $io80[1] = $a1, $io80[2] = $a2, $io80[3] = $a3, $.inout.values = $io80, $t0);
+$io80[0] = $a0, $io80[1] = $a1, $io80[2] = $a2, $io80[3] = $a3, $.inout.values = $io80;
 },
 "exclusiveScan__range0": function($a0, $a1, $a2) {
 let $v0, $v1, $t2;
 $v0 = ($h0($a1) >>> 0);
 $v1 = $h19((((($v0 + ($h0($a2) >>> 0)) >>> 0) - 1) >>> 0), ($h0($a2) >>> 0), "u32");
-return ($t2 = [0, ($h0($a2) >>> 0)], $.inout.values = [$a0, $a1, $a2], $t2);
-$.inout.values = [$a0, $a1, $a2];
+return ($t2 = [0, ($h0($a2) >>> 0)], $io81[0] = $a0, $io81[1] = $a1, $io81[2] = $a2, $.inout.values = $io81, $t2);
+$io81[0] = $a0, $io81[1] = $a1, $io81[2] = $a2, $.inout.values = $io81;
 },
 "exclusiveScan__range1": function($a0, $a1, $a2) {
 let $v0, $v1, $t2;
 $v0 = ($h0($a1) >>> 0);
 $v1 = $h19((((($v0 + ($h0($a2) >>> 0)) >>> 0) - 1) >>> 0), ($h0($a2) >>> 0), "u32");
-return ($t2 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1, $a2], $t2);
-$.inout.values = [$a0, $a1, $a2];
+return ($t2 = [0, ($h0($a0) >>> 0)], $io82[0] = $a0, $io82[1] = $a1, $io82[2] = $a2, $.inout.values = $io82, $t2);
+$io82[0] = $a0, $io82[1] = $a1, $io82[2] = $a2, $.inout.values = $io82;
 },
 "inclusiveScan__range0": function($a0, $a1, $a2) {
 let $v0, $v1, $t2;
 $v0 = ($h0($a1) >>> 0);
 $v1 = $h19((((($v0 + ($h0($a2) >>> 0)) >>> 0) - 1) >>> 0), ($h0($a2) >>> 0), "u32");
-return ($t2 = [0, ($h0($a2) >>> 0)], $.inout.values = [$a0, $a1, $a2], $t2);
-$.inout.values = [$a0, $a1, $a2];
+return ($t2 = [0, ($h0($a2) >>> 0)], $io83[0] = $a0, $io83[1] = $a1, $io83[2] = $a2, $.inout.values = $io83, $t2);
+$io83[0] = $a0, $io83[1] = $a1, $io83[2] = $a2, $.inout.values = $io83;
 },
 "inclusiveScan__range1": function($a0, $a1, $a2) {
 let $v0, $v1, $t2;
 $v0 = ($h0($a1) >>> 0);
 $v1 = $h19((((($v0 + ($h0($a2) >>> 0)) >>> 0) - 1) >>> 0), ($h0($a2) >>> 0), "u32");
-return ($t2 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1, $a2], $t2);
-$.inout.values = [$a0, $a1, $a2];
+return ($t2 = [0, ($h0($a0) >>> 0)], $io84[0] = $a0, $io84[1] = $a1, $io84[2] = $a2, $.inout.values = $io84, $t2);
+$io84[0] = $a0, $io84[1] = $a1, $io84[2] = $a2, $.inout.values = $io84;
 },
 "compact__range0": function($a0, $a1, $a2, $a3) {
 let $v0, $t1;
 $v0 = ($h0($a1) >>> 0);
-return ($t1 = [0, ($h0($a0) >>> 0)], $.inout.values = [$a0, $a1, $a2, $a3], $t1);
-$.inout.values = [$a0, $a1, $a2, $a3];
+return ($t1 = [0, ($h0($a0) >>> 0)], $io85[0] = $a0, $io85[1] = $a1, $io85[2] = $a2, $io85[3] = $a3, $.inout.values = $io85, $t1);
+$io85[0] = $a0, $io85[1] = $a1, $io85[2] = $a2, $io85[3] = $a3, $.inout.values = $io85;
 },
 "histogram__range0": function($a0, $a1, $a2, $a3) {
 let $p2, $p3, $v0, $v1, $t2;
@@ -730,8 +817,8 @@ $p2 = $fr($a2);
 $p3 = $fr($a3);
 $v0 = ((($h0($a0) >>> 0) - 1) >>> 0);
 $v1 = $fr(($fr($h2(($h0($a0) >>> 0))) / $fr(($p3 - $p2))));
-return ($t2 = [0, ($h0($a1) >>> 0)], $.inout.values = [$a0, $a1, $a2, $a3], $t2);
-$.inout.values = [$a0, $a1, $a2, $a3];
+return ($t2 = [0, ($h0($a1) >>> 0)], $io86[0] = $a0, $io86[1] = $a1, $io86[2] = $a2, $io86[3] = $a3, $.inout.values = $io86, $t2);
+$io86[0] = $a0, $io86[1] = $a1, $io86[2] = $a2, $io86[3] = $a3, $.inout.values = $io86;
 }
 };
 return { F: $.F, C: {  }, $: $ };
