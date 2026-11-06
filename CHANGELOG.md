@@ -1607,6 +1607,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Inherited static reads keep their written class names (#987).** `TS8070` and fusion reports
+  distinguish `Base.OFFSET` from `Derived.OFFSET`, including imported aliases. Both names still
+  read the same field; shader text and shared storage stay unchanged.
+
 - **Integer `min` and `max` scatters run on WebGPU (#761).** The proof treated the target read
   in `best[k] = min(best[k], value)` as an independent read across iterations and kept the loop
   on the CPU. It now recognizes that read as part of the atomic combine, in either operand

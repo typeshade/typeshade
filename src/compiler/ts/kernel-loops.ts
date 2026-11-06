@@ -48,6 +48,12 @@ export interface KernelNames {
 
 export const kernelSourceNames = new WeakMap<FuncDecl, KernelNames>();
 
+/** A static field has one binding but can be read through several classes (#987). Keep each
+ *  written receiver on the authored reference, before they share the binding's IR name.
+ *  Front-end kernel rewrites preserve these module-reference leaves; wording reads the
+ *  authored proof, before backend rewrites or portable serialization copy its nodes. */
+export const kernelStaticReadNames = new WeakMap<Expr, string>();
+
 const NO_NAMES: KernelNames = { locals: new Map(), values: new Map(), functions: new Map() };
 
 /** The `TS8070` warnings for the kernel functions of `m`; `sourceFileOf` is the file each was
@@ -249,13 +255,13 @@ class Wording {
       case 'lit':
         return typeof e.value === 'number' ? String(e.value) : String(e.value);
       case 'varref':
-        return this.value(e.name);
+        return kernelStaticReadNames.get(e) ?? this.value(e.name);
       case 'param':
         return this.local(e.name);
       case 'constref':
         // A static field that nothing writes is a module constant, which the module emits as
         // `Voice_OFFSET` where the author wrote `Voice.OFFSET`.
-        return this.value(e.name);
+        return kernelStaticReadNames.get(e) ?? this.value(e.name);
       case 'overrideref':
       case 'externref':
         return e.name;
