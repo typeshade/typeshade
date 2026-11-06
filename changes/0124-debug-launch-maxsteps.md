@@ -1,7 +1,7 @@
 ---
 id: '0124'
 title: A debug launch configuration can bound its statement events
-status: draft
+status: accepted
 rules: []
 surface: []
 exports:
@@ -20,12 +20,12 @@ downstream:
 
 | Field                         | Record                                                                                                                                           |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0124, draft. The front matter is the lifecycle authority.                                                                               |
+| Identity and status           | Proposal 0124, accepted on merge of PR #1052. The front matter is the lifecycle authority.                                                       |
 | Date and attribution          | Authored 2026-11-06 UTC by Codex while progressing the owner's remaining-issue request. This date records authorship, not approval.              |
 | Request source                | Issue [#215](https://github.com/typeshade/typeshade/issues/215): the launch configuration cannot carry the debugger's existing statement budget. |
 | Applicability / Effectivity   | The `typeshade/debug` host API, launch schema and resolver. The stepping engine's budget semantics stay unchanged. Release version unassigned.   |
 | Review baseline               | `main` at `093f6c609dacf91a783c0b8b9d96981bcea16cf7`.                                                                                            |
-| Review and revision authority | No pull request is assigned yet. Git records revisions; review and an accepted proposal merge will record the decision.                          |
+| Review and revision authority | Proposal [PR #1052](https://github.com/typeshade/typeshade/pull/1052). Git records revisions; its accepted merge makes the decision effective.   |
 
 ## What changes
 
@@ -40,7 +40,7 @@ const session = startDebugSessionFromConfig(module, {
 session.continue();
 ```
 
-The proposed contract is:
+The accepted contract is:
 
 - A supplied value must satisfy `Number.isInteger(value) && value > 0`. Zero, negatives,
   fractions, `NaN`, infinities and non-number values are invalid. There is no coercion or
@@ -90,9 +90,9 @@ Alternatives considered:
 - Add a separate options argument for the budget. The existing third argument carries
   non-JSON hooks. A positive integer belongs in the serializable configuration and its schema.
 
-The proposed decisions are a positive integer, no default, and reuse of existing engine
-semantics. No additional design choice is unresolved in this draft; acceptance must confirm
-these decisions and the declared scope.
+The accepted decisions are a positive integer, no default, and reuse of existing engine
+semantics. The Approval and plan record identifies the review and authorization. No additional
+design choice is unresolved.
 
 ## What it touches
 
@@ -115,7 +115,8 @@ Required functional validation:
 
 - `src/core/debug/config.test.ts` runs a finite shader through the public launch API.
   A tiny budget raises the existing budget error; a sufficient budget returns the expected
-  result. Omission and explicit `undefined` preserve the unbounded default.
+  result. With `stopOnEntry: false`, exhaustion can occur in the launch call itself; test that
+  existing behavior. Omission and explicit `undefined` preserve the unbounded default.
 - A paused run retains its budget across resume and stepping. The test uses a finite shader,
   so a missing budget fails an assertion instead of hanging the test runner.
 - Zero, a negative integer, a fraction, `NaN`, both infinities, a string, a boolean and `null`
@@ -144,14 +145,29 @@ The direct `startDebugSession` API keeps its existing behavior.
 No dependency is added. Existing TypeScript, Vitest and documentation tools provide the checks.
 Downstream work includes adopting the field, checking adapter-specific defaults and removing
 duplicate resolver calls only where the launch path supplies the same behavior. No duration
-or cost estimate is established. Acceptance must confirm the contract and validation scope.
+or cost estimate is established. Acceptance confirms the contract and validation scope above.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the actual review decision and proposal
-PR reference, the approved revision and scope, and assigned implementation responsibilities.
-Milestone dates and resource estimates are unassigned. The proposal must merge as `accepted`
-before implementation begins.
+The owner authorized continued work on remaining issues and merging the agents' own pull
+requests in the current session. This is standing task authorization, not a quoted decision
+about the wording of `maxSteps`.
+
+On 2026-11-06 UTC, the orchestrating Codex agent independently reviewed the contract and scope
+recorded in draft commit `b0ecdb836d10ca24ae7bbad0f0d9485762fe63e6`, published in
+[PR #1052](https://github.com/typeshade/typeshade/pull/1052). It approved the draft without
+contract changes and directed acceptance under that authorization. A separate Codex source
+review confirmed the engine semantics and downstream evidence without a blocker. The accepted
+text adds an explicit test of existing `stopOnEntry: false` exhaustion during the launch call.
+The approved scope is the positive-integer field, no default, existing cumulative engine
+budget, declared host API/document impacts and required validation above.
+
+A Codex agent in `typeshade/typeshade` is assigned the compiler repository implementation
+within this scope. The orchestrating agent coordinates independent review and merge after
+required checks pass. No milestone date or resource estimate is established. Downstream
+adoption is assigned to each adopting repository's compiler-pin work; its completion remains
+pending. The merge of PR #1052 with `status: accepted` establishes the approved baseline.
+Implementation starts only after that merge.
 
 ### Configuration and validation record
 
@@ -177,5 +193,5 @@ Compiler implementation will not establish downstream completion.
   existing default budget as its own policy. Verify small-budget refusal, a successful bounded
   run and adapter defaults. Record 0124 in `compiler-changes.md` when the compiler pin moves.
 
-These are expected obligations. Responsibilities are assigned at acceptance. Actual downstream
-changes, compiler pins and validation remain separately tracked and pending until delivered.
+These are accepted obligations for downstream compiler-pin work. Actual downstream changes,
+compiler pins and validation remain separately tracked and pending until delivered.
