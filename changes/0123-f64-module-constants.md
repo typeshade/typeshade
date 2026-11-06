@@ -1,7 +1,7 @@
 ---
 id: '0123'
 title: Scalar f64 module constants retain their precision when folded
-status: accepted
+status: implemented
 rules:
   - '6.3'
 surface:
@@ -24,7 +24,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                         |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0123, accepted on merge of PR #1048.                                                                                                                                  |
+| Identity and status           | Proposal 0123, implemented in the compiler; downstream adoption remains pending.                                                                                               |
 | Date and attribution          | Authored 2026-11-06 UTC by Codex while progressing the owner's remaining-issue request. This date records authorship.                                                          |
 | Request source                | Part 2 of issue [#967](https://github.com/typeshade/typeshade/issues/967). Part 1, refusal cascades, was delivered in PR #1043.                                                |
 | Applicability / Effectivity   | The TypeScript front end's scalar module constants, including namespace constants and unwritten static fields. CPU, WGSL and GLSL ES 3.00 outputs. Release version unassigned. |
@@ -154,8 +154,8 @@ standing instruction to merge this session's PRs. Codex used that delegated auth
 select the scope in PR #1048 after independent precision and normative-scope reviews of draft
 `3207ba0c`. The reviewed revision is that draft plus this PR's explicit builtin call-boundary
 rounding, normal-range validation limit and correction that GPU zero sign is not guaranteed.
-Acceptance takes effect when this proposal-only PR merges as accepted. No implementation is
-included in it.
+PR #1048 merged this scope as accepted at `1dc24a566910ff6a4e7bfc1cf8ec1755a9668cd4`.
+No implementation was included in that proposal-only PR.
 
 Codex owns compiler implementation and validation in this session. Milestones are the accepted
 proposal merge, a separate implementing PR with the functional and document evidence above,
@@ -165,9 +165,55 @@ unconfirmed and those obligations remain pending.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires the accepted revision, separate implementation
-PR, tested configuration and actual functional and document results. Proposal review is not an
-implementation result. Record remaining work and downstream adoption separately.
+The accepted baseline is PR #1048's merge above. Compiler implementation is commit
+`c50cac710166211b2958bb350e06170a82ff4c05` on branch
+`feat/967-f64-module-constants`; integration commit `0d42dda9` includes main's switch validation
+from PR #1049. Codex implemented and validated this configuration on 2026-11-06 UTC. The
+separate implementation PR and required current-head CI provide its merge evidence.
+
+Delivered behavior includes typed scalar folding, explicit and nested precision boundaries,
+finite-pair refusals, inferred declarations, namespace/static/import/export paths and the
+original issue's captured local. Speculative lowering publishes only the selected expression
+and narrowing records. Existing scalar calculation paths remain unchanged.
+
+Independent review found float-to-integer range checks using unrounded values, inference that
+could fail before discovering an f64, partial literal folding that depended on grouping, and
+refusal cascades. Each was corrected and covered by regressions. The shipped-program parity
+gate also exposed the existing Math constant properties as `number` in the ambient library
+while the compiler records `f32`; the eight properties now match. Contextual f64 literal values
+remain full precision. No new name, operation or API export was added, and the parity gate's
+shrink-only exception table was not enlarged.
+
+Observed functional validation:
+
+- Six focused compiler suites passed 232 tests. Broader numeric, optional-value, hover and
+  expression-parity checks were run; the Math parity discrepancy above was corrected. The
+  final Math, builtin-signature and API-surface run passed 210 tests, and the final integrated
+  f64/switch run passed 53 tests. These runs overlap and their counts are not additive.
+- Build, lint, format and bundle-boundary checks passed. Runtime bundle budgets did not change.
+- The compile gate passed 203 WGSL programs on Tint, 139 GLSL programs and 130 render pipelines,
+  plus 15 compute and 10 fragment entry calls, with no failures.
+- The packed-package gate passed 37 journeys and 132 runs, plus project initialization, host
+  imports, host examples and offline automatic fusion. The new journey checks 192 outputs,
+  including 41 untouched tail values; both WebGPU flavors and WebGL2 agree with its independent
+  reference within `2.64e-15`, below the `1e-12` limit. CPU results match exactly.
+- A separate GPU probe also exercised WebGL2 pass layouts of 2048 by 2048 and 16 by 2 words.
+  The small layout spans 10 input and 12 output layers. Both ordinary fragment GLSL flavors
+  compiled and linked, and a deliberately invalid shader was refused. The WebGL2 compute
+  pass uses the existing common flavor; selecting an integer WGSL flavor does not select a
+  different GL compute program. No two-flavor GL compute claim is made.
+
+The implementation PR retains the check commands and results; the regression tests and journey
+retain the reproducible source. Local configuration: Bun 1.4.4, Node 24.22.1, TypeScript 5.6.3,
+Vitest 5.0.5, Doorstop 3.2, Playwright 1.64.1 and Chromium 156.0.8078.4 with SwiftShader. Node
+is newer than the repository's 24.19.0 pin, so pinned CI remains required. The full unit,
+TypeScript-version, render, performance and GPU differential gates were not rerun locally;
+required current-head CI must pass before merge. Native GPU hardware was not measured.
+
+Document validation: impact references were read, no dead references remain, requirements were
+synchronized, Rule 6.3 was reviewed and the linked surface items were checked and cleared.
+Doorstop passed. Graph indexing, caller traces and change analysis covered 136 impacted symbols.
+No design deviation is open. All downstream obligations below remain pending.
 
 ## What it owes downstream
 
