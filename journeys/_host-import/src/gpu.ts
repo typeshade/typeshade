@@ -1,5 +1,6 @@
 import { entryOverrides } from './entry-overrides.ts';
 import { checkInstanceCapabilities } from './device-capabilities.ts';
+import { scatterExtremes } from './scatter-extremes.ts';
 // The browser half of the journey: ordinary TypeScript that calls compute entries, with plain
 // typed arrays and then with arrays resident on the device, one of them over a workgroup count an
 // earlier entry wrote (change 0075), and draws fragment entries through the import, with no WebGPU
@@ -336,6 +337,7 @@ export async function journeys(input: {
  *  iteration, what they write comes back into these arrays in place, and what they reduce is
  *  folded in the tree order into what they return. */
 export async function loops(): Promise<Record<string, number[] | string>> {
+  const scatter = await scatterExtremes();
   const layoutRows = Array.from({ length: 1024 }, (_, i) => ({
     f0: (i % 16) / 8,
     f1: 1,
@@ -508,6 +510,7 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   }
   return {
     glRender: [...glImg],
+    ...scatter,
     layout: [...layoutOut],
     layoutMapped: [...layoutMapped],
     layoutResident: [...layoutResident],

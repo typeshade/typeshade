@@ -1,7 +1,7 @@
-// Several workgroups collide in the same cells. The final untouched cell and nonidentity
+// Four adjacent invocations and several workgroups collide in the same cells. The final untouched cell and nonidentity
 // initial values also check that the scatter preserves the caller's existing storage.
 const N = 1031;
-const keys = Array.from({ length: N }, (_, i) => (i * 7) % 31);
+const keys = Array.from({ length: N }, (_, i) => (Math.floor(i / 4) * 7) % 31);
 const unsigned = Array.from({ length: N }, (_, i) => (Math.imul(i + 1, 2654435761) + 19) >>> 0);
 const signed = unsigned.map((x) => x | 0);
 
