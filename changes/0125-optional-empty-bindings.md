@@ -5,6 +5,7 @@ status: accepted
 rules:
   - '8.24'
 surface:
+  - 64
   - 67
 exports: []
 exports-removed: []
@@ -32,7 +33,7 @@ downstream:
 
 Permit omission of the trailing `bindings` argument of a callable full-screen fragment entry
 exactly when the entry reaches no binding that the host supplies. This amends Rule 8.24's
-fragment-call paragraph and surface §67. The entry remains subject to the rule's existing
+fragment-call paragraph and surfaces §64 and §67. The entry remains subject to the rule's existing
 eligibility conditions.
 
 ```ts
@@ -138,10 +139,12 @@ and plan record identifies the review and authorization. No other design choice 
 - **Rule 8.24:** the fragment-call paragraph permits omission exactly for the empty reached
   host-binding set. It names the runtime-owned guard exception and preserves compute's shape.
   Review and synchronize `reqs/rules/RULE-0824.md` after the normative edit.
+- **Surface 64:** its "In the host view" table must show the conditional optionality of the
+  fragment's bindings argument, or state that distinction beside the table and link to §67.
+  Review `reqs/surface/SURF-064.md` after the table changes.
 - **Surface 67:** the introductory fragment call and "Drawing a fragment entry" explain the
   optional argument, its eligibility and its invalid values. Review `reqs/surface/SURF-067.md`
-  and any suspect links after synchronization. Section 64's general host-import contract stays
-  true; no change to that section is planned.
+  and any suspect links after synchronization.
 - **Exports:** none added, removed or reshaped in `src/__api__/surface.md`. The generated
   fragment declaration changes; `hostFace`, `HostExport` and runtime entry metadata retain
   their exported shapes. API-surface verification must confirm this.
@@ -219,7 +222,12 @@ A separate Codex source audit confirmed existing transitive reachability, guard 
 console metadata and the distinct compute signature. No implementation was written during
 proposal review.
 
-The approved scope is Rule 8.24's fragment call, surface §67, the declared host view/runtime
+The orchestrating agent's subsequent document audit found that §64's host-view table also
+unconditionally spells the fragment signature with two required arguments. It approved adding
+surface §64 to the declaration and updating that table to describe the same optionality before
+the accepted merge. This corrects the documentation scope and adds no behavior.
+
+The approved scope is Rule 8.24's fragment call, surfaces §64 and §67, the declared host view/runtime
 change, required validation and downstream obligations. Compute argument positions, the
 program runtime and the RHI remain outside it. A Codex agent in `typeshade/typeshade` is assigned
 implementation within that scope. The orchestrating agent coordinates independent review and
