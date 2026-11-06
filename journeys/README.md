@@ -65,7 +65,8 @@ selected override and dispatch shape, and the 256-wide run checks the documented
 `workgroup-override-f64/` repeats the specialization through nested workgroup arrays of
 emulated doubles. Sizes 32, 64 and 128 run with both fp64 flavors against the CPU oracle and
 an independent integer-valued reference. A tail workgroup checks lanes beyond the authored
-default extent (#740).
+default extent (#740). With emulated-double storage available on WebGL2 (#1021), both fp64
+flavors run the default size 64 there and assert the documented refusal for sizes 32 and 128.
 
 A journey is a directory holding one or more `*.shade.ts` sources and a `journey.mjs` host.
 

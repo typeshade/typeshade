@@ -1613,6 +1613,12 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   order. Reads used to compute the key, other operands and separate reads still undergo the
   existing independence checks. The signed and unsigned forms keep the caller's initial values.
 
+- **WebGL2 compute writes emulated-double storage values** (#1021). Scalar doubles retain
+  their hi/lo words, and vectors retain their separate hi/lo planes, including vec3 padding.
+  Writes split at log boundaries and subsequent loads preserve the low words. The load-time
+  emitter grows from 117,301 to 117,598 gzip bytes (+297) with Bun 1.4.4; its single-file and
+  split initial/total budgets record those measurements. Other budgets and floors are unchanged.
+
 - A local function that takes a function argument no longer reports a captured variable as undeclared when its initializer was already refused (#967). Compiler and editor retain the original error and still diagnose calls before a captured declaration.
 
 - A mutable static field remains readable beside a parameter with its flattened name (#1009). The module variable has a distinct internal name, while authored parameter names stay intact across CPU execution, optimization and WGSL/GLSL emission.

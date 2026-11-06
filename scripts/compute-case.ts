@@ -23,6 +23,10 @@
 // `across` keeps its angle, an `f64`, and its twiddle, a `vec2f64`, in locals across the barrier,
 // so the pass program carries each double in its record as two `f32` words, `hi` and `lo` (#970).
 //
+// `doubleStorage` writes scalar and vec2/3/4 doubles with nonzero low words, then reads
+// them across a storage barrier. Its f32 check magnifies the low word, so losing it cannot
+// hide within a relative comparison tolerance. Both GL tiers must run it (#1021).
+//
 // `PROGRAM_CASES` are entries the call layer cannot call at all: they reach a texture that has
 // no host value there (#204), so the page dispatches each through the program runtime alone, on
 // WebGPU and on its WebGL2 tier, from the manifest `packModule` writes, and holds WebGL2 to
@@ -36,6 +40,27 @@
 
 /** Each case as an author writes it, by its id. */
 export const COMPUTE_CASES = {
+  doubleStorage: `"use typeshade";
+declare const scalar: storage<array<f64>, "read_write">;
+declare const pairs: storage<array<vec2f64>, "read_write">;
+declare const triples: storage<array<vec3f64>, "read_write">;
+declare const quads: storage<array<vec4f64>, "read_write">;
+declare const checks: storage<array<f32>, "read_write">;
+export const main = compute([4], function main(gid: builtin<"global_invocation_id", vec3u>): void {
+  const i = gid.x;
+  const x = f64(1.) + f64(0.000000007450580596923828125) * f64(f32(i + 1));
+  scalar[i] = x;
+  pairs[i] = vec2f64(x, -x);
+  triples[i] = vec3f64(x, x + f64(1.), -x);
+  quads[i] = vec4f64(x, -x, x + f64(2.), x - f64(2.));
+  quads[i] += vec4f64(f64(0.5));
+  checks[i * 2] = f32(quads[i][2] - quads[i].x);
+  storageBarrier();
+  const v = triples[i].zyx;
+  pairs[i] = vec2f64(v.x, v.z);
+  checks[i * 2 + 1] = f32((scalar[i] - f64(1.)) * f64(134217728.));
+});
+`,
   textured: `"use typeshade";
 
 declare const photo: texture_2d<f32>;
@@ -122,6 +147,7 @@ export const ON_WEBGL2: readonly (keyof typeof COMPUTE_CASES)[] = [
   'twiddle',
   'butterfly',
   'across',
+  'doubleStorage',
 ];
 
 /** A texture a program case binds, as the page makes it on each tier. */
