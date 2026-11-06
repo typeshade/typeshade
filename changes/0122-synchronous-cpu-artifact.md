@@ -34,7 +34,7 @@ downstream:
 | Date and attribution          | Authored 2026-11-06 UTC by Codex at the owner's direction to connect Web, TypeAudio and TypeShade feedback. This date records authorship, not acceptance.            |
 | Applicability                 | Source compilation, CPU code generation and generated-module loading. No release version is assigned.                                                                |
 | Review baseline               | TypeShade `324251dfe7755f78041eb44a1bfe85e4294e12dd`; TypeAudio baseline `575b42baa13ee666cc050b25da1e63720dfbf6e4`; Web `769f3e7818329e1cc936048afb56e8724f34a9d3`. |
-| Review and revision authority | No PR is assigned yet. Git records revisions; PR review and merge evidence record acceptance.                                                                        |
+| Review and revision authority | [PR #1037](https://github.com/typeshade/typeshade/pull/1037) carries this draft. Git records revisions; PR review and merge evidence record acceptance.              |
 
 ## What changes
 
