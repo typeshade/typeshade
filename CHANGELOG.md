@@ -1607,6 +1607,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Switch validation** (#321, control#10 and control#11). A case outside its `i32` or `u32`
+  selector's range now reports `TS8017` before emitting invalid WGSL. A second `default` reports
+  `TS8017` instead of replacing the first body. The compiler and editor show the same refusal once.
+
 - **Integer `min` and `max` scatters run on WebGPU (#761).** The proof treated the target read
   in `best[k] = min(best[k], value)` as an independent read across iterations and kept the loop
   on the CPU. It now recognizes that read as part of the atomic combine, in either operand

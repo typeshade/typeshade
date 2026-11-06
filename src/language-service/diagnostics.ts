@@ -1477,6 +1477,11 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     reason: 'A `return` at the top level of the file.',
   },
   {
+    typescript: 1113,
+    typeshade: new Set(['TS8017']),
+    reason: 'A second default clause in one switch, reported at that clause.',
+  },
+  {
     typescript: 1105,
     typeshade: new Set(['TS8014']),
     reason: 'A `break` at the top level.',
