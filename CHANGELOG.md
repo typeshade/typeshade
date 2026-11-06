@@ -1602,6 +1602,12 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Integer `min` and `max` scatters run on WebGPU (#761).** The proof treated the target read
+  in `best[k] = min(best[k], value)` as an independent read across iterations and kept the loop
+  on the CPU. It now recognizes that read as part of the atomic combine, in either operand
+  order. Reads used to compute the key, other operands and separate reads still undergo the
+  existing independence checks. The signed and unsigned forms keep the caller's initial values.
+
 - A local function that takes a function argument no longer reports a captured variable as undeclared when its initializer was already refused (#967). Compiler and editor retain the original error and still diagnose calls before a captured declaration.
 
 - A mutable static field remains readable beside a parameter with its flattened name (#1009). The module variable has a distinct internal name, while authored parameter names stay intact across CPU execution, optimization and WGSL/GLSL emission.

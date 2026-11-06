@@ -5,7 +5,7 @@ level: 72
 links:
 - RULE-0702: aMOE9178T8VwoRmUdH2Du74apGdNk0pkL7kvkijCD1I=
 - RULE-0806: qW_RUaBjL-O-OIZTeHrwOCT5o9siV0waqA7BNLo7WfU=
-- RULE-0822: fezcgpY4wDrzJXALSBEPwI_q645htFUorbublsTcvlw=
+- RULE-0822: DdyAM14dANfbIXKfvsvbtsTqda196zm1V57GWihIMn0=
 - RULE-0823: rd9egEBCRq_4jn3xbllibl4tG8DEnreHrY1xSSrcTg8=
 - RULE-1108: MisR3nY29rsiKwQdc1p7511lFOg4kMjozIFwC5l6-Rg=
 - RULE-1120: xToEY27JoFqnUJixM5F0Crd92ru3ELEhuwsS0iYlwMw=
