@@ -19,6 +19,9 @@ import { hostFace, type HostExport } from './host-face.js';
 import { tscDiagnostics } from '../../core/testing/tsc-diagnostics.js';
 import { compile } from './compile.js';
 import { compileModule } from '../../core/oracle.js';
+import { buildManifest } from '../../core/manifest.js';
+import { layoutFromPack } from '../../core/manifest-types.js';
+import { Misfit, pack as packBytes } from '../../core/host-entry.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
@@ -1459,19 +1462,20 @@ export class Counter {
 }
 `;
     // Both readers of the shader take the program (Rule 12.7), and it is the compiler that writes
-    // the view. `#n` is the field `n` of the struct (Rule 8.12), which the view declares `private
-    // n` (§26): its line carries the author's blocks, with their tags, as the line of a field
-    // written `private` or public does. A static field is a constant of the module and has no line.
+    // the view. `#n` is the field `n` of the struct (Rule 8.12), which the view declares as `#n`
+    // (§26, change 0109, Amendment 2): its line carries the author's blocks, with their tags, as
+    // the line of a field written `private` or public does. A static field is a constant of the
+    // module and has no line.
     const f = faceOf(source);
     expect(f.view).toContain(`export declare class Counter {
   constructor();
   /** The count so far. */
-  private n: u32;
+  #n: u32;
   /**
    * The step of each tick.
    * @defaultValue 1
    */
-  private step: u32;
+  #step: u32;
   /** The tag, written with the keyword. */
   private tag: u32;
   /** The total, public. */
@@ -1481,17 +1485,28 @@ export class Counter {
 }
 `);
     expect(f.view).not.toMatch(/ticks/);
-    // The editor's hover over the member in a host program shows the comment too, and the line is
-    // private to `tsc`, which refuses the access.
-    const host = `import { Counter } from './m.shade.ts';
+    // The editor's hover over a member in a host program shows the comment too. A field written
+    // with the keyword is private to `tsc`, which refuses the access but hovers the member. A field
+    // with a private name is no member a host can name, so there is nothing to hover and the
+    // access is "does not exist" (TS2339), where the line keeps the comment for a reader of the
+    // view.
+    const keyword = `import { Counter } from './m.shade.ts';
+const c = new Counter();
+const v = c.tag;
+export { v };
+`;
+    const read = hover(f.view!, keyword, 'tag;');
+    expect(read.documentation).toBe('The tag, written with the keyword.');
+    expect(read.errors).toEqual([
+      "Property 'tag' is private and only accessible within class 'Counter'.",
+    ]);
+    const named = `import { Counter } from './m.shade.ts';
 const c = new Counter();
 const v = c.n;
 export { v };
 `;
-    const read = hover(f.view!, host, 'n;');
-    expect(read.documentation).toBe('The count so far.');
-    expect(read.errors).toEqual([
-      "Property 'n' is private and only accessible within class 'Counter'.",
+    expect(hover(f.view!, named, 'n;').errors).toEqual([
+      "Property 'n' does not exist on type 'Counter'.",
     ]);
   });
 
@@ -1529,13 +1544,14 @@ export class Derived extends Base {
 `);
     // `Hidden` is no export, so `Shown` is declared whole, and the private field it takes carries
     // the comment of the base's `#level`. `Derived` stands below an exported base, which keeps the
-    // line and the comment of `#count`, and declares its own.
+    // line and the comment of `#count`, and declares its own. Each line is the private name as
+    // itself (change 0109, Amendment 2).
     expect(f.view).toContain(`export declare class Shown {
   constructor();
   /** The level of the hidden class. */
-  private level: f32;
+  #level: f32;
   /** Its own field. */
-  private own: f32;
+  #own: f32;
   s: f32;
   /** Reads the level. */
   peek(): f32;
@@ -1543,14 +1559,14 @@ export class Derived extends Base {
 export declare class Base {
   constructor();
   /** The base's count. */
-  private count: f32;
+  #count: f32;
   /** Reads the count. */
   total(): f32;
 }
 export declare class Derived extends Base {
   constructor();
   /** Its own, private. */
-  private mine: f32;
+  #mine: f32;
 }
 `);
   });
@@ -2604,5 +2620,279 @@ export const fs = fragment(function fs(): vec4 { return vec4(dpdx(1.)); });
 `);
     expect(f.code).toContain('"helper": function');
     expect(f.code).not.toContain('"fs": function');
+  });
+});
+
+// ═══ A private name beside a public member of its name (change 0109, Amendment 2, issue #971) ═══
+//
+// A class that pairs a private name with an accessor or a method of one name is the ordinary
+// pairing (surface §26): `#n` is the struct member `n`, and `get n()` is the function `Counter_get_n`.
+// The view declared the field `private n` and the accessor `get n`, which `tsc` reads as TS2300, and
+// the generated class made the field the own property `n`, which an accessor of that name on the
+// prototype answers for. The view declares a private name as itself, `#n`, and an instance holds the
+// field under the key "#n" (decision D6). The program is taken by both halves of the shader
+// (Rule 12.7), and the view by its two readers: `tsc` and the editor's hover.
+describe('a private name beside a public member of its name (change 0109, Amendment 2, #971)', () => {
+  /** The program of issue #971: a private field and the accessor of its name. */
+  const COUNTER = `"use typeshade";
+
+export class Counter {
+  /** The count so far. */
+  #n: u32 = 0;
+  /** The count, read through the accessor. */
+  get n(): u32 {
+    return this.#n;
+  }
+  /** Counts once. */
+  tick(): u32 {
+    this.#n = this.#n + 1;
+    return this.#n;
+  }
+}
+
+export function level(c: Counter): u32 {
+  return c.n;
+}
+`;
+
+  /** A private field and a method of its name, and a field no private name stands beside. */
+  const GAUGE = `"use typeshade";
+
+export class Gauge {
+  /** The level. */
+  #level: f32 = 0.;
+  /** Reads the level. */
+  level(): f32 {
+    return this.#level;
+  }
+  /** The id, which nothing changes. */
+  readonly #id: u32 = 7;
+  /** The scale, public. */
+  scale: f32 = 1.;
+  /** Sets the level. */
+  set(v: f32): void {
+    this.#level = v;
+  }
+}
+`;
+
+  /** A class no export declares as a value, which a signature names: the view spells it by its
+   *  fields, and a private name is a key that is not an identifier. */
+  const HIDDEN = `"use typeshade";
+
+class Hidden {
+  #x: f32 = 0.;
+  y: f32 = 1.;
+  get x(): f32 {
+    return this.#x;
+  }
+}
+
+export function peek(h: Hidden): f32 {
+  return h.x;
+}
+
+export function make(): Hidden {
+  return new Hidden();
+}
+`;
+
+  it('is taken by both halves of the shader, the compiler and the editor (Rule 12.7)', () => {
+    for (const [name, source] of Object.entries({ COUNTER, GAUGE, HIDDEN })) {
+      expect([name, compile(source, { fileName: 'm.shade.ts' }).diagnostics]).toEqual([name, []]);
+      const service = createTypeshadeLanguageService();
+      service.openDocument('m.shade.ts', source);
+      expect([name, service.getDiagnostics('m.shade.ts')]).toEqual([name, []]);
+    }
+  });
+
+  it('declares the private name as itself beside the accessor of its name, with its comment', () => {
+    const v = face(COUNTER).view;
+    expect(v).toContain(`export declare class Counter {
+  constructor();
+  /** The count so far. */
+  #n: u32;
+  /** The count, read through the accessor. */
+  get n(): u32;
+  /** Counts once. */
+  tick(): u32;
+}
+`);
+    // `private n` and `get n` were one name twice.
+    expect(v).not.toMatch(/\bprivate n\b/);
+  });
+
+  it('declares the private name as itself beside a method of its name, and keeps each comment on its line', () => {
+    const v = face(GAUGE).view;
+    expect(v).toContain(`export declare class Gauge {
+  constructor();
+  /** The level. */
+  #level: f32;
+  /** The id, which nothing changes. */
+  readonly #id: u32;
+  /** The scale, public. */
+  scale: f32;
+  /** Reads the level. */
+  level(): f32;
+  /** Sets the level. */
+  set(v: f32): void;
+}
+`);
+  });
+
+  it('is type-checked by tsc: a host reads the accessor and cannot name the field', async () => {
+    // One program: the lines that read the accessor have no error, which includes the view's own
+    // (before the change it was TS2300, twice, and a host file did not type-check at all). The
+    // field is the class's own, since `#n` is TypeScript's private name (TS18013), and a plain
+    // object is no `Counter`: it lacks the brand the private name gives the class (TS2345).
+    expect(
+      await hostErrors(
+        COUNTER,
+        `import { Counter, level } from './terrain.shade.ts';
+const c = new Counter();
+export const n: number = c.n;
+export const t: number = c.tick();
+export const l: number = level(c);
+export const a = c.#n;
+export const b = level({ n: 1 });
+`,
+      ),
+    ).toEqual(['app.ts TS18013', 'app.ts TS2345']);
+  });
+
+  it('is type-checked by tsc beside a method of the name of a private field', async () => {
+    expect(
+      await hostErrors(
+        GAUGE,
+        `import { Gauge } from './terrain.shade.ts';\nconst g = new Gauge();\nexport const v: number = g.level() + g.scale;\ng.set(2);\n`,
+      ),
+    ).toEqual([]);
+  });
+
+  it('shows the accessor on hover over the read of a name the field shares, in the editor', () => {
+    const f = face(COUNTER);
+    const host = `import { Counter } from './m.shade.ts';
+const c = new Counter();
+export const v = c.n;
+`;
+    const read = hover(f.view, host, 'n;');
+    expect(read.errors).toEqual([]);
+    expect(read.documentation).toBe('The count, read through the accessor.');
+  });
+
+  it('reads c.n in the shader as the accessor, in both halves (Rule 12.7)', () => {
+    // The editor resolves `c.n` to the accessor and not to the field, whose comment is another.
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.shade.ts', COUNTER);
+    const at = COUNTER.indexOf('c.n;') + 2;
+    const shown =
+      service.getHover('m.shade.ts', service.positionAt('m.shade.ts', at))?.contents ?? '';
+    expect(shown).toContain('u32');
+    expect(shown).toContain('The count, read through the accessor.');
+    expect(shown).not.toContain('The count so far.');
+    // The compiler lowers the same read to the accessor's function, of the same type.
+    const level = compile(COUNTER, { fileName: 'm.shade.ts' }).module.funcs.find(
+      (f) => f.name === 'level',
+    );
+    const body = level?.body[0];
+    expect(body).toMatchObject({
+      s: 'return',
+      expr: { op: 'call', fn: 'Counter_get_n', type: { kind: 'scalar', scalar: 'u32' } },
+    });
+  });
+
+  it('spells a class no export declares by its fields, a private name as a quoted key', async () => {
+    const f = face(HIDDEN);
+    expect(f.view).toContain(
+      'export declare function peek(h: { readonly "#x": f32; readonly y: f32 }): f32;',
+    );
+    expect(f.view).toContain('export declare function make(): { "#x": f32; y: f32 };');
+    // One program: what `make()` returns goes back to `peek`, and an object built by hand lacks
+    // the key (a literal would be an excess property, TS2353).
+    expect(
+      await hostErrors(
+        HIDDEN,
+        `import { make, peek } from './terrain.shade.ts';
+export const a: number = peek(make());
+const plain = { x: 0, y: 1 };
+export const b = peek(plain);
+`,
+      ),
+    ).toEqual(['app.ts TS2345']);
+    // The module holds the key too: what `make()` returns is a plain object of the fields, since
+    // no export makes it a class, and `peek` takes it back; one without the key is refused.
+    const m = await load(HIDDEN);
+    const made = (m.make as () => object)();
+    expect(Object.keys(made)).toEqual(['#x', 'y']);
+    expect((m.peek as (h: object) => number)(made)).toBe(0);
+    expect(() => (m.peek as (h: object) => number)({ x: 0, y: 1 })).toThrow(
+      new TypeError(
+        'peek(): parameter "h" (Hidden): at .#x, the field is missing. "#x" is a private name, which an instance holds and a plain object does not. Build the value with new.',
+      ),
+    );
+  });
+
+  /** A private name in a struct that an entry reaches as a uniform and as a storage array. */
+  const BINDINGS = `"use typeshade";
+
+export class Gain {
+  #g: f32 = 1.;
+  get g(): f32 {
+    return this.#g;
+  }
+  scale: f32 = 2.;
+}
+
+declare const gain: uniform<Gain>;
+declare const bank: storage<array<Gain>, "read_write">;
+declare const buf: storage<array<f32>, "read_write">;
+
+export const scaled = compute([64], function scaled(gid: builtin<"global_invocation_id", vec3u>) {
+  if (gid.x >= buf.length) {
+    return;
+  }
+  buf[gid.x] = buf[gid.x] * gain.g * bank[0].scale;
+});
+`;
+
+  it('names the private field by its host key in the layouts of the call layer, the WebGL2 pass program among them, and moves no byte', async () => {
+    const f = face(BINDINGS);
+    const entry = f.exports.find((e) => e.name === 'scaled');
+    expect(entry?.kind).toBe('compute');
+    if (entry?.kind !== 'compute') return;
+    // The entry's bindings, which the call packs and reads back by.
+    const names = (l: unknown): string[] =>
+      [...JSON.stringify(l).matchAll(/\["(#?[a-z]+)",\d+,/g)].map((x) => x[1]!);
+    const gain = entry.entry.bindings.find((b) => b.name === 'gain');
+    expect(gain && 'layout' in gain ? names(gain.layout) : []).toEqual(['#g', 'scale']);
+    // The pass program the WebGL2 tier runs packs its uniform from the same host value.
+    const program = entry.entry.gl;
+    expect(program).toBeDefined();
+    if (program === undefined) return;
+    const uniform = program.uniforms.find((u) => u.name === 'gain')!;
+    expect(JSON.stringify(uniform.layout)).toContain('"name":"#g"');
+    // The key is the only difference from the layout the module's own structs give: offsets, sizes
+    // and strides are the same.
+    const own = compile(BINDINGS).module;
+    const plain = buildManifest(own, {}, compile(BINDINGS).wgsl);
+    const was = plain.gl?.computes?.scaled;
+    expect(was && !('none' in was) ? JSON.stringify(was.uniforms[0]!.layout) : '').toBe(
+      JSON.stringify(uniform.layout).replaceAll('"#g"', '"g"'),
+    );
+    // The call packs an instance by that layout, and refuses a plain object of the fields.
+    const m = await load(BINDINGS);
+    const Gain = m.Gain as new () => object;
+    const layout = layoutFromPack(uniform.layout);
+    const bytes = new DataView(new ArrayBuffer(16));
+    packBytes(bytes, 0, layout, new Gain(), 'gain');
+    expect([bytes.getFloat32(0, true), bytes.getFloat32(4, true)]).toEqual([1, 2]);
+    expect(() => packBytes(bytes, 0, layout, { g: 1, scale: 2 }, 'gain')).toThrow(Misfit);
+    // The manifest is built from the IR alone, with no TypeScript (Rule 11.10): it is the one the
+    // module's own structs give, a private field named without its `#`.
+    const manifest = m.default as typeof plain;
+    expect(JSON.stringify(manifest.bindings.map((b) => b.layout))).toBe(
+      JSON.stringify(plain.bindings.map((b) => b.layout)),
+    );
+    expect(JSON.stringify(manifest.bindings)).not.toContain('"#g"');
   });
 });

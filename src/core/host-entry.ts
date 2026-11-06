@@ -34,6 +34,7 @@ import { copyLimits, isMinimumLimit } from './device-limits.js';
 import { probeSubgroups } from './subgroup-probe.js';
 import { retainAdapter } from './device-info.js';
 import { printConsole, printDropped } from './console-print.js';
+import { missingField, shaderField } from './host-key.js';
 
 // ─── what the generated module carries ───────────────────────────────────────────────────────
 
@@ -52,7 +53,10 @@ export type Layout =
   | { readonly k: 'm'; readonly c: number; readonly r: number; readonly cs: number }
   /** `n` is null for a runtime-sized array; `st` is the element stride in bytes. */
   | { readonly k: 'a'; readonly n: number | null; readonly st: number; readonly e: Layout }
-  /** A struct: each field's name, byte offset and layout, and the struct's size. */
+  /** A struct: each field's name, byte offset and layout, and the struct's size. A layout that takes
+   *  a host value names a field by the key its host value is held under, `#x` for the field `x` that
+   *  a private name declares; one that takes a value of the CPU tier names it as the module does
+   *  (Rule 8.21, change 0109, Amendment 2). */
   | {
       readonly k: 'o';
       readonly f: readonly (readonly [string, number, Layout])[];
@@ -415,7 +419,7 @@ export function pack(
         throw new Misfit(path, `got ${describe(v)}`);
       const o = v as Record<string, unknown>;
       for (const [name, off, fl] of l.f) {
-        if (!(name in o)) throw new Misfit(`${path}.${name}`, 'the field is missing');
+        if (!(name in o)) throw new Misfit(`${path}.${name}`, missingField(name));
         pack(dv, at + off, fl, o[name], `${path}.${name}`);
       }
       return;
@@ -592,7 +596,7 @@ export function toCpu(l: Layout, v: unknown, box: boolean): CpuValue {
     case 'o': {
       const o = v as Record<string, unknown>;
       const out: Record<string, CpuValue> = {};
-      for (const [name, , fl] of l.f) out[name] = toCpu(fl, o[name], false);
+      for (const [name, , fl] of l.f) out[shaderField(name)] = toCpu(fl, o[name], false);
       return out as unknown as CpuValue;
     }
   }
@@ -634,7 +638,8 @@ export function fromCpu(l: Layout, c: CpuValue, target: unknown, box: boolean): 
     case 'o': {
       const o = target as Record<string, unknown>;
       const src = c as unknown as Record<string, CpuValue>;
-      for (const [name, , fl] of l.f) o[name] = fromCpu(fl, src[name]!, o[name], false);
+      for (const [name, , fl] of l.f)
+        o[name] = fromCpu(fl, src[shaderField(name)]!, o[name], false);
       return o;
     }
   }
@@ -1431,9 +1436,12 @@ const inputProjections = new WeakMap<Layout, { logical: Layout & { k: 'a' }; off
 /** Register a private scalar-field projection. Authored and resident layouts never register. */
 export function projectInputLayout(logical: Layout & { k: 'a' }, physical: Layout): void {
   if (logical.e.k !== 'o' || physical.k !== 'a' || physical.e.k !== 'o') return;
-  const fields = new Map(physical.e.f.map(([name, offset]) => [name, offset]));
+  // A field is the same field under its host key and under its name: a private name `#x` is the
+  // field `x` (Rule 8.21, change 0109, Amendment 2), and the physical struct is made of the IR's.
+  const fields = new Map(physical.e.f.map(([name, offset]) => [shaderField(name), offset]));
   const offsets = new Array<number>(logical.st / 4).fill(-1);
-  for (const [name, offset] of logical.e.f) offsets[offset / 4] = fields.get(name) ?? -1;
+  for (const [name, offset] of logical.e.f)
+    offsets[offset / 4] = fields.get(shaderField(name)) ?? -1;
   inputProjections.set(physical, { logical, offsets });
 }
 
