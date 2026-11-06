@@ -654,6 +654,7 @@ or from the engine.
   "program": "${workspaceFolder}/examples/hello.shade.ts",
   "entry": "fs",
   "stopOnEntry": true,
+  "maxSteps": 10000,
   "precision": "f32",
   "derivatives": "zero",
   "invocation": {
@@ -672,10 +673,21 @@ or from the engine.
 and the engine ignores: the engine is handed a module that is already compiled, so it has no
 use for a path. An adapter should still set it, and should hand the same string to the compiler
 as `fileName`, because that is what makes the module's spans name the file a breakpoint's
-`file` is matched against. Everything else has a default, and the default is the zero of the
-type, which is what the Playground's "Run on the CPU" does today and what `zeroOf`
-(`src/core/cpu-runtime.ts`) already computes from a `ShaderType`. Two builtins are the
-exception, for the reason §4.2 gives.
+`file` is matched against. Omitted invocation and binding values use their type's zero where
+one exists, as `zeroOf` (`src/core/cpu-runtime.ts`) computes from a `ShaderType`. Section 4.2
+gives the builtin exceptions; §4.3 describes binding defaults. Launch options have their own
+defaults, such as `stopOnEntry: true` and `precision: 'f32'`.
+
+`maxSteps` is an optional positive integer. It bounds statement events reached during the
+whole session, including work between pauses. Stepping and `continue()` share the same
+budget; post-call events do not consume it. Omission or JavaScript `undefined` leaves the
+run unbounded. Zero, negatives, fractions, non-finite values and non-number values, including
+`null`, are configuration errors before the shader runs.
+
+Exhaustion throws the existing error naming `maxSteps` and leaves the session finished.
+With `stopOnEntry: false`, this can happen during `startDebugSessionFromConfig` itself.
+The budget is not a time limit or a count of loop iterations. An adapter can choose its own
+default budget; the shared launch configuration supplies none.
 
 ### 4.2 The invocation
 

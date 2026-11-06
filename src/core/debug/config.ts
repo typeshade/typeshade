@@ -77,8 +77,9 @@ export interface DebugInputs {
 
 /** A debug run, as an IDE's `launch.json` entry, a Playground form, or a test's argument.
  *
- *  `entry` is the only required field. Everything else has a default, and the default is the
- *  zero of its type.
+ *  `entry` is the only required field. Omitted invocation and binding values use their type's
+ *  zero where one exists, with the builtin exceptions {@link DebugInvocation} names. Launch
+ *  options have their own defaults; an omitted `maxSteps` leaves the run unbounded.
  *
  *  The first four fields are the launch envelope an IDE fills in and the engine ignores; they
  *  are declared so that one schema describes the whole file a user edits, rather than the
@@ -108,6 +109,10 @@ export interface DebugLaunchConfig {
   /** Stop before the entry's first statement. Default `true`; `false` runs to the first
    *  breakpoint instead. */
   readonly stopOnEntry?: boolean;
+  /** A positive integer budget of statement events for the whole session. Omitted or
+   *  `undefined`, the run is unbounded. The count is cumulative across pauses and stepping;
+   *  exhaustion throws the existing {@link DebugSessionOptions.maxSteps} error. */
+  readonly maxSteps?: number;
   /** What the arithmetic means. Default `'f32'`; see {@link DebugSessionOptions.precision}. */
   readonly precision?: CpuPrecision;
   /** What a screen-space derivative reads as. `'zero'` accepts the stub value and marks it
@@ -153,6 +158,7 @@ const CONFIG_KEYS: ReadonlySet<string> = new Set([
   'program',
   'entry',
   'stopOnEntry',
+  'maxSteps',
   'precision',
   'derivatives',
   'invocation',
@@ -233,6 +239,12 @@ export function startDebugSessionFromConfig(
         "quad evaluation, so 'zero' is the only mode that exists today",
     );
   }
+  if (
+    config.maxSteps !== undefined &&
+    (!Number.isInteger(config.maxSteps) || config.maxSteps <= 0)
+  ) {
+    problems.push('maxSteps must be a positive integer');
+  }
 
   const args = resolveInvocation(decl, config.invocation ?? {}, structs, problems);
   const bindings = resolveBindings(m, config.bindings ?? {}, structs, problems, decl);
@@ -244,6 +256,7 @@ export function startDebugSessionFromConfig(
     bindings,
     breakpoints: config.breakpoints,
     stopOnEntry: config.stopOnEntry,
+    maxSteps: config.maxSteps,
     consoleSink: hooks?.consoleSink,
   });
 }
@@ -688,6 +701,11 @@ export const DEBUG_LAUNCH_SCHEMA: Readonly<Record<string, unknown>> = Object.fre
       type: 'boolean',
       default: true,
       description: 'Stop before the first statement instead of running to a breakpoint.',
+    },
+    maxSteps: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Statement events allowed for the whole session. Omitted, the run is unbounded.',
     },
     precision: {
       type: 'string',
