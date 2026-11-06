@@ -2081,9 +2081,9 @@ function memberNameDiag(
 }
 
 /** The fields of a `type X = { … }` or an `interface X { … }`. The member list is the field
- *  list: no decorator can reach a type-literal or interface member, so there is no
- *  `@location` / `@builtin` / `@align` handling here and a struct that needs per-field
- *  metadata (entry I/O in particular) stays a class. The shapes that would otherwise lose
+ *  list: no decorator can reach a type-literal or interface member, but its field types can
+ *  carry entry-IO attributes (change 0111), checked by `setEntryAttributes` as a class's are.
+ *  The shapes that would otherwise lose
  *  meaning on the way to a WGSL struct — a method, a call or index signature, an optional
  *  member, a quoted name — are named rather than dropped. */
 function signatureFields(
@@ -2192,8 +2192,8 @@ function setEntryAttributes(
     builtinArg && checkBuiltinName(diagnostics, sourceFile, builtinArg.argNode, builtinArg.name)
       ? builtinArg.name
       : undefined;
-  // The TYPE rule is checked here, at the declaration, and not only where the struct
-  // is used as entry IO (`lower/function.ts`): the capability a `@builtin(...)` id
+  // The TYPE rule is checked once here, at the declaration; entry uses check only its stage
+  // (`lower/function.ts`). The capability a `@builtin(...)` id
   // derives is read off `m.structs` whatever the struct is used for, so a struct that
   // declares `@builtin("clip_distances")` and is never an entry parameter emitted the
   // directive and the field with no diagnostic at all.

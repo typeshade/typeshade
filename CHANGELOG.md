@@ -1620,6 +1620,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Builtin field type errors are reported once** (#321, types#10). The compiler and editor
+  report the error at the field declaration, even when several entries use its struct.
+  Entry-specific stage checks and direct parameter type checks remain in place.
+
 - **Inherited static reads keep their written class names (#987).** `TS8070` and fusion reports
   distinguish `Base.OFFSET` from `Derived.OFFSET`, including imported aliases. Both names still
   read the same field; shader text and shared storage stay unchanged.
