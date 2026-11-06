@@ -2152,6 +2152,24 @@ export function lowerClassCall(
       pushDiag(diagnostics, sourceFile, callee, staticOnValue(name, member));
       return undefined;
     }
+    const declaredMethods = [name, ...scope.ancestorsOf(name)].flatMap((c) =>
+      methodNames(classOfStruct(c).base, sourceFile),
+    );
+    if (
+      !field &&
+      accessor === undefined &&
+      scope.isAbstractStruct(name) &&
+      declaredMethods.includes(member)
+    ) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        callee.name,
+        `"${written}" is abstract, so there is no instance of it on which "${member}" could run. ` +
+          `Construct a concrete class that extends it and call "${member}" on that value.`,
+      );
+      return undefined;
+    }
     pushDiag(
       diagnostics,
       sourceFile,
@@ -2163,7 +2181,7 @@ export function lowerClassCall(
           ? `"${member}" is a field of ${written}, not a method.`
           : // On the member, as TypeScript's TS2339 is, with the method it is spelled like.
             unknownNameSentence(`"${written}" has no method "${member}".`, member, [
-              [name, ...scope.ancestorsOf(name)].flatMap((c) => methodNames(c, sourceFile)),
+              declaredMethods,
             ]),
     );
     return undefined;

@@ -1600,6 +1600,8 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- A call of a declared method on an abstract receiver now explains that the class has no instance and names the concrete-class remedy, instead of claiming the method does not exist. Compiler and editor retain TS8035 (#1008).
+
 - **The call checks a read under a guard on the counter over the iterations the guard keeps (#997).**
   A kernel function's call checks each array a loop reads at `a*i + c` against its length before it
   dispatches (#655). It took the whole range of the counter for the range of the read. A loop that
