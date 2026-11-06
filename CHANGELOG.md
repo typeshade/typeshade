@@ -17,6 +17,11 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **Portable fusion identities** (change 0122, #805). `hostFace` accepts an exact `origin`
+  independent of its source `fileName`. Vite's opt-in `originNamespace` combines a package
+  namespace with each module's path relative to the project root. Distinct packages need
+  distinct namespaces. Defaults, source paths and shader behavior remain unchanged.
+
 - **The subgroup variant of a kernel function's WGSL** (change 0119, stage 1). A kernel function
   whose loop reduces a `u32` or an `i32` with any operator, or an `f32` with `min` or `max`, or
   scatters into an integer array with a write a lane makes at most once, gets a second text

@@ -320,8 +320,13 @@ interface Loaded {
   readonly plans: ReadonlyMap<string, { readonly m: ModuleDecl; readonly plan: KernelPlan }>;
 }
 
-function load(source: string, fileName: string): Loaded {
-  const g = hostFace(source, { fileName, runtime: RUNTIME, fuse: true });
+function load(source: string, fileName: string, origin?: string): Loaded {
+  const g = hostFace(source, {
+    fileName,
+    runtime: RUNTIME,
+    fuse: true,
+    ...(origin !== undefined ? { origin } : {}),
+  });
   expect(g.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
   const faces = new Map<string, KernelFace>();
   for (const e of g.exports ?? []) if (e.kind === 'kernel') faces.set(e.name, e.face);
@@ -367,8 +372,18 @@ export function collideShift(out: array<f32>, filter_: array<f32>, mean: array<f
 }
 `;
 
-const A = load(OPS, '/app/ops.shade.ts');
-const B = load(POST, '/app/post.shade.ts');
+// Independently built packages can have the same relative file and helper names (0122).
+// The existing fused/unfused oracle chains must retain both helpers' different bodies.
+const A = load(
+  OPS,
+  '/checkout-a/src/ops.shade.ts',
+  JSON.stringify(['@acme/maps', 'src/ops.shade.ts']),
+);
+const B = load(
+  POST,
+  '/checkout-b/src/ops.shade.ts',
+  JSON.stringify(['@acme/post', 'src/ops.shade.ts']),
+);
 const C = load(RESERVED, '/app/reserved.shade.ts');
 const D = load(COLLIDE, '/app/collide.shade.ts');
 const lib = (fn: string): { file: Loaded; face: KernelFace } => {
@@ -1491,6 +1506,8 @@ describe('the entry', () => {
   });
 
   it('includes a helper once for each (origin, name), and renames the other file`s', () => {
+    expect(A.faces.get('square')!.fuse!.origin).toBe('["@acme/maps","src/ops.shade.ts"]');
+    expect(B.faces.get('bias')!.fuse!.origin).toBe('["@acme/post","src/ops.shade.ts"]');
     const h = FUSED[4]!;
     const { fused } = together(h.steps, h.init);
     const names = fused.module.funcs.map((f) => f.name);
