@@ -12,6 +12,10 @@ function run(size, fp64Flavor) {
     read: 'dst',
     expected: () => values.map((v) => 2 * v),
     tolerance: 0,
+    // #1021 enables the GL program. Like the f32 journey, only the authored shape is available.
+    ...(size === 64
+      ? {}
+      : { webgl2Unsupported: 'WebGL2 supports only the declared default [64, 1, 1].' }),
   };
 }
 
