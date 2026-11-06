@@ -12,9 +12,10 @@ export function observeDrawShaders(entry: string) {
   const original = prototype.createShaderModule;
   const seen: Record<Flavor, Set<string>> = { float: new Set(), integer: new Set() };
   let selected: Flavor = 'float';
-  prototype.createShaderModule = function (this: unknown, descriptor: Descriptor): unknown {
+  prototype.createShaderModule = function (this: unknown, ...args: Parameters<Factory>): unknown {
+    const [descriptor] = args;
     if (descriptor.code.includes(`fn ${entry}(`)) seen[selected].add(descriptor.code);
-    return Reflect.apply(original, this, arguments);
+    return Reflect.apply(original, this, args);
   };
   return {
     select(flavor: Flavor): void {

@@ -318,8 +318,11 @@ async function emptyBindingsVerdict(c: EntryCase): Promise<EntryVerdict> {
           if (got.length !== expected.length)
             throw new Error('the draw returned the wrong pixel count');
           if (form === 'object') reference = got;
-          else if (reference === undefined || got.some((v, i) => v !== reference[i]))
-            throw new Error(`${form} differs from the explicit empty bindings object`);
+          else {
+            const explicit = reference;
+            if (explicit === undefined || got.some((v, i) => v !== explicit[i]))
+              throw new Error(`${form} differs from the explicit empty bindings object`);
+          }
           if (tier === 'webgpu float' && form === 'object') {
             const colours = new Set<number>();
             for (let i = 0; i < got.length; i += 4)
