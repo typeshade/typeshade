@@ -1048,7 +1048,7 @@ src/core/debug/config.ts#DEBUG_LAUNCH_SCHEMA  const  Readonly<Record<string, unk
 src/core/debug/config.ts#DebugConfigError  class  { cause?: unknown; message: string; name: string; problems: readonly string[]; stack?: string }
 src/core/debug/config.ts#DebugInputs  interface  DebugInputs
 src/core/debug/config.ts#DebugInvocation  interface  { dispatch?: readonly [number, number, number]; inputs?: DebugInputs }
-src/core/debug/config.ts#DebugLaunchConfig  interface  { bindings?: Readonly<Record<string, CpuValue>>; breakpoints?: readonly DebugBreakpoint[]; derivatives?: "quad" | "zero"; entry: string; invocation?: DebugInvocation; name?: string; precision?: CpuPrecision; program?: string; request?: "launch"; stopOnEntry?: boolean; type?: "typeshade" }
+src/core/debug/config.ts#DebugLaunchConfig  interface  { bindings?: Readonly<Record<string, CpuValue>>; breakpoints?: readonly DebugBreakpoint[]; derivatives?: "quad" | "zero"; entry: string; invocation?: DebugInvocation; maxSteps?: number; name?: string; precision?: CpuPrecision; program?: string; request?: "launch"; stopOnEntry?: boolean; type?: "typeshade" }
 src/core/debug/config.ts#resolveBindings  function  (m: ModuleDecl, given: Readonly<Record<string, CpuValue>>, structs: ReadonlyMap<string, StructDecl>, problems: string[], entry?: FuncDecl) => Record<string, CpuValue>
 src/core/debug/config.ts#resolveInvocation  function  (decl: FuncDecl, invocation: DebugInvocation, structs: ReadonlyMap<string, StructDecl>, problems: string[]) => CpuValue[]
 src/core/debug/config.ts#startDebugSessionFromConfig  function  (m: ModuleDecl, config: DebugLaunchConfig, hooks?: { readonly consoleSink?: ConsoleSink; }) => DebugSession

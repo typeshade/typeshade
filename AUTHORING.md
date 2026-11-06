@@ -104,8 +104,9 @@ you never write costs nothing in your bundle:
   frame's locals, and resolves breakpoints by line. It also carries the launch configuration
   that describes such a run as data, keyed by what the entry declares rather than by argument
   position, with a baked JSON Schema for a `launch.json` and a formatter that renders a value
-  in the shader type its author wrote. It is what an editor's debug adapter and the
-  Playground's step panel are both built on. See `docs/debugging.md`.
+  in the shader type its author wrote. The optional positive-integer `maxSteps` bounds the
+  session's statement events; omission leaves the run unbounded. It is what an editor's debug
+  adapter and the Playground's step panel are both built on. See `docs/debugging.md`.
 - `typeshade/core/ir` is the IR builder, for an engine or a tool that assembles a module in
   code instead of compiling a source. It has no stability promise before 1.0, and this guide
   does not use it: [`docs/ir-builder.md`](docs/ir-builder.md) does.

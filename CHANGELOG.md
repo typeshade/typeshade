@@ -17,6 +17,11 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **A statement budget in debug launch configurations** (change 0124, #215).
+  `DebugLaunchConfig.maxSteps` accepts a positive integer and forwards it to the debugger's
+  existing session budget. The resolver and JSON Schema reject invalid values. Omission
+  remains unbounded; stepping and resume share the same budget.
+
 - **Scalar `f64` module constants** (change 0123, #967). Literal expressions, earlier constants
   and permitted builtin calls fold to a double for the CPU and a literal pair for both GPU
   targets. Explicit `f32` boundaries are preserved, and nonfinite or unrepresentable results

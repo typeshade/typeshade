@@ -1,7 +1,7 @@
 ---
 id: '0124'
 title: A debug launch configuration can bound its statement events
-status: accepted
+status: implemented
 rules: []
 surface: []
 exports:
@@ -18,14 +18,14 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                           |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0124, accepted on merge of PR #1052. The front matter is the lifecycle authority.                                                       |
-| Date and attribution          | Authored 2026-11-06 UTC by Codex while progressing the owner's remaining-issue request. This date records authorship, not approval.              |
-| Request source                | Issue [#215](https://github.com/typeshade/typeshade/issues/215): the launch configuration cannot carry the debugger's existing statement budget. |
-| Applicability / Effectivity   | The `typeshade/debug` host API, launch schema and resolver. The stepping engine's budget semantics stay unchanged. Release version unassigned.   |
-| Review baseline               | `main` at `093f6c609dacf91a783c0b8b9d96981bcea16cf7`.                                                                                            |
-| Review and revision authority | Proposal [PR #1052](https://github.com/typeshade/typeshade/pull/1052). Git records revisions; its accepted merge makes the decision effective.   |
+| Field                         | Record                                                                                                                                                                                              |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0124, implemented in PR #1053. Acceptance was merged by PR #1052.                                                                                                                          |
+| Date and attribution          | Authored 2026-11-06 UTC by Codex while progressing the owner's remaining-issue request. This date records authorship, not approval.                                                                 |
+| Request source                | Issue [#215](https://github.com/typeshade/typeshade/issues/215): the launch configuration cannot carry the debugger's existing statement budget.                                                    |
+| Applicability / Effectivity   | The `typeshade/debug` host API, launch schema and resolver. The stepping engine's budget semantics stay unchanged. Release version unassigned.                                                      |
+| Review baseline               | `main` at `093f6c609dacf91a783c0b8b9d96981bcea16cf7`.                                                                                                                                               |
+| Review and revision authority | Proposal [PR #1052](https://github.com/typeshade/typeshade/pull/1052); implementation [PR #1053](https://github.com/typeshade/typeshade/pull/1053). Git records revisions and their merge evidence. |
 
 ## What changes
 
@@ -171,10 +171,68 @@ Implementation starts only after that merge.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires the accepted proposal revision, actual
-implementation PR and commits, the delivered configuration, responsible actors and observed
-functional and document validation results. Deviations and pending work must be recorded.
-Compiler implementation will not establish downstream completion.
+**Accepted baseline.** Proposal PR #1052 merged as `accepted` at
+`ffcb650d1b0b3d203d6204deca4be67436db0282`. Implementation branch
+`feat/215-debug-launch-maxsteps` starts at that commit.
+
+**Implementation.** [PR #1053](https://github.com/typeshade/typeshade/pull/1053), by Codex under
+the owner's continuing-work authorization. Commit
+`14498e8a64a3c1e1e77d6fec59763bea43a27c60` implements the code, tests, API snapshot and guide
+changes. This subsequent documentation revision records delivery and marks the proposal
+implemented. No release version is assigned.
+
+**Delivered configuration.** `src/core/debug/config.ts` adds the optional field, allowed key,
+positive-integer validation, pass-through and JSON Schema property. Validation precedes session
+creation and joins the existing configuration problems. The engine in
+`src/core/debug/session.ts` is unchanged. `src/__api__/surface.md` reshapes only
+`DebugLaunchConfig`.
+
+`src/core/debug/config.test.ts` adds finite public launch tests for paused and immediate
+exhaustion, sufficient budgets, omission, explicit `undefined`, cumulative stepping and
+breakpoints, invalid JavaScript values, problem collection and schema agreement. The small-budget
+tests first establish a valid session or assert the engine's exact error. An unknown-key
+`DebugConfigError` cannot satisfy them.
+
+`AUTHORING.md`, `docs/debugging.md` §4.1 and the interface JSDoc describe the optional budget
+and distinguish invocation/binding defaults from launch options. The document audit found the
+same broad defaults sentence in `docs/use-typeshade.md`; it now states the same accepted
+contract. `CHANGELOG.md` records the addition. No rule or numbered surface section changes.
+
+**Functional validation.** The implementing Codex agent ran these checks on 2026-11-06 UTC,
+on Linux with Node 24.22.1, Bun 1.4.4, TypeScript 5.6.3 and Vitest 5.0.5. The tested implementation
+is the source tree committed as `14498e8a`; later changes only add this record.
+
+- Before implementation, `src/core/debug/config.test.ts` with the 16 new tests selected by
+  `-t 'change 0124'` failed all 16 against the accepted baseline. The programs are finite.
+- `env -u NODE_OPTIONS node node_modules/vitest/vitest.mjs run src/core/debug src/api-surface.test.ts src/changes.test.ts --reporter dot`:
+  12 files, 338 passed, 2 skipped. This includes 576 stepping/oracle differential comparisons.
+- A separate Codex agent reviewed the frozen source and ran configuration, stepping and API
+  tests independently: 3 files, 131 passed. It reported no blocker. The orchestrating agent
+  independently approved the source and documentation within the declared scope.
+- `bun run build`: passed. This checks the public optional field through TypeScript, including
+  the tests. The API bake also passed its 15 snapshot tests and changed only the declared field.
+- `bun run lint` and `bun run format:check`: passed. The semicolon formatter changed no line.
+
+Session-local evidence is retained in the task workspace logs: `typeshade-215-before.log`,
+`typeshade-215-focused.log`, `215-independent-review-tests.log`, `typeshade-215-build.log`,
+`typeshade-215-lint.log` and `typeshade-215-format.log`. PR #1053 records the tested commit,
+commands and results. The full unit suite and GPU gates were not run locally for this host-only
+addition. Required CI checks still govern merge; their results are not presumed here.
+
+**Document validation.** On the implementation tree, `bun scripts/doc-refs.ts` found zero dead
+references in 1,475 files. `bun scripts/changes.ts --base origin/main` passed with
+`Change: 0124` and identified only export `DebugLaunchConfig`. Staged precommit and diff checks
+passed. The graph's inbound impact named the configuration and console tests; both ran above.
+
+The implementing agent reviewed every `docs:impact` item. The proposal's problem description
+refers to its recorded review baseline. Its declared implementation and export now match the
+change. The binding-error description in `docs/debugging.md` remains true. The additional
+`docs/use-typeshade.md` correction describes the same host contract and was approved during
+review. There is no unresolved scope deviation.
+
+**Pending work.** Website and editor adoption, compiler pins and their 0124 records remain
+pending in the downstream repositories. This compiler implementation does not establish their
+completion.
 
 ## What it owes downstream
 

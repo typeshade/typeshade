@@ -6,7 +6,7 @@
 // uniform of the wrong shape is a sentence before the run starts rather than a silent zero
 // that answers a question about a different program.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { compileTsSource } from '../../compiler/ts/source-file.js';
 import type { FuncDecl, ModuleDecl, StructDecl } from '../ir/index.js';
 import { f32T, samplerT, texture2dfT, u32T, vec2fT, vec4fT } from '../ir/types.js';
@@ -336,6 +336,101 @@ export function f(a: f32): f32 {
   });
 });
 
+describe('a launch statement budget (change 0124)', () => {
+  // Finite even when the budget is lost: a regression fails an assertion, never hangs.
+  const m = compiled(`"use typeshade";
+export function sum(): f32 {
+  let result: f32 = 0.;
+  for (let i: i32 = 0; i < 4; i++) {
+    result += f32(i);
+  }
+  return result;
+}`);
+  const exhausted = (limit: number): string =>
+    `typeshade/debug: the run reached ${limit} statements without finishing ` +
+    '(maxSteps); it is either an unbounded loop or a budget set too low';
+
+  it('starts a paused session and enforces its budget when continued', () => {
+    const s = publicStart(m, { entry: 'sum', maxSteps: 1 });
+    expect(s.pause?.reason).toBe('entry');
+    expect(s.done).toBe(false);
+    expect(() => s.continue()).toThrow(new Error(exhausted(1)));
+    expect(s.done).toBe(true);
+    expect(s.pause).toBeUndefined();
+  });
+
+  it('can exhaust the budget in the launch call when stopOnEntry is false', () => {
+    expect(() => publicStart(m, { entry: 'sum', maxSteps: 1, stopOnEntry: false })).toThrow(
+      new Error(exhausted(1)),
+    );
+  });
+
+  it('finishes with a sufficient budget and with the omitted or undefined default', () => {
+    const configs: DebugLaunchConfig[] = [
+      { entry: 'sum', maxSteps: 100 },
+      { entry: 'sum' },
+      { entry: 'sum', maxSteps: undefined },
+    ];
+    for (const config of configs) {
+      const s = publicStart(m, { ...config, stopOnEntry: false });
+      expect(s.done).toBe(true);
+      expect(s.result).toBe(6);
+    }
+  });
+
+  it('keeps one budget across stepping, a breakpoint and continue', () => {
+    const source = `"use typeshade";
+export function sum(): f32 {
+  let result: f32 = 0.;
+  result += 1.;
+  result += 2.;
+  result += 3.;
+  return result;
+}`;
+    const line = source.split('\n').findIndex((s) => s.includes('result += 2.'));
+    const s = publicStart(compiled(source), {
+      entry: 'sum',
+      maxSteps: 3,
+      breakpoints: [{ line }],
+    });
+    expect(s.pause?.reason).toBe('entry');
+    s.stepOver();
+    expect(s.pause?.reason).toBe('step');
+    s.continue();
+    expect(s.pause?.reason).toBe('breakpoint');
+    expect(s.pause?.span.line).toBe(line);
+    expect(() => s.stepOver()).toThrow(new Error(exhausted(3)));
+    expect(s.done).toBe(true);
+  });
+
+  it.each([0, -1, 1.5, NaN, Infinity, -Infinity, '100', true, null, {}])(
+    'rejects the JavaScript budget %j before a statement or hook runs',
+    (maxSteps) => {
+      const consoleSink = vi.fn();
+      const logged = compiled(`"use typeshade";
+export function run(): f32 {
+  console.log("started");
+  return 1.;
+}`);
+      expect(() =>
+        publicStart(
+          logged,
+          { entry: 'run', maxSteps: maxSteps as number, stopOnEntry: false },
+          { consoleSink },
+        ),
+      ).toThrow(new DebugConfigError(['maxSteps must be a positive integer']));
+      expect(consoleSink).not.toHaveBeenCalled();
+    },
+  );
+
+  it('collects an invalid budget with another configuration problem', () => {
+    const errors = problems(m, { entry: 'sum', maxSteps: 0, derivatives: 'quad' });
+    expect(errors).toHaveLength(2);
+    expect(errors).toContain('maxSteps must be a positive integer');
+    expect(errors.some((p) => p.startsWith("derivatives: 'quad' is not implemented"))).toBe(true);
+  });
+});
+
 describe('the JSON Schema and the interface describe the same object', () => {
   it('names every field of DebugLaunchConfig and nothing else', () => {
     // The anti-drift arm: an extension contributes DEBUG_LAUNCH_SCHEMA as its launch.json
@@ -353,6 +448,7 @@ describe('the JSON Schema and the interface describe the same object', () => {
         'derivatives',
         'entry',
         'invocation',
+        'maxSteps',
         'name',
         'precision',
         'program',
@@ -365,6 +461,13 @@ describe('the JSON Schema and the interface describe the same object', () => {
 
   it('requires the one field that has no default', () => {
     expect((DEBUG_LAUNCH_SCHEMA as { required: string[] }).required).toEqual(['entry']);
+  });
+
+  it('offers an optional positive integer launch statement budget with no default (change 0124)', () => {
+    const props = DEBUG_LAUNCH_SCHEMA.properties as Record<string, Record<string, unknown>>;
+    expect(props.maxSteps).toMatchObject({ type: 'integer', minimum: 1 });
+    expect(props.maxSteps).not.toHaveProperty('default');
+    expect(DEBUG_LAUNCH_SCHEMA.required).not.toContain('maxSteps');
   });
 
   it("offers only the derivative mode that exists, so an IDE cannot suggest 'quad'", () => {
