@@ -397,7 +397,7 @@ export async function runPlan(
   owner: CallOwner,
 ): Promise<FuseReport> {
   let plan: SettledPlan;
-  const counts: GpuCounts = { dispatches: 0, submissions: 0 };
+  const counts: GpuCounts = { dispatches: 0, submissions: 0, groupDispatches: [] };
   const tiers = new Set<Tier>();
   let batch: DispatchBatch | undefined;
   const gpuTimes = new Map<number, number | null>();
@@ -476,6 +476,7 @@ export async function runPlan(
         calls: g.calls.map((i) => plan.calls[i]!.name),
         fused: g.fused,
         tier: g.tier,
+        dispatches: counts.groupDispatches![gi] ?? 0,
         ...(g.why !== undefined ? { why: g.why } : {}),
         ...(g.workgroupShapes !== undefined ? { workgroupShapes: g.workgroupShapes } : {}),
         ...(typeof ns === 'number' ? { gpuTime: ns } : {}),

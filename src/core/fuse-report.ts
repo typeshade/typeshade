@@ -29,7 +29,8 @@ export interface FuseReport {
    *  that the call needs is a submission too. */
   readonly submissions: number;
   /** The groups of calls, in order, each by the names of its kernel functions. A group that is
-   *  `fused` is one dispatch. `why` says, in the author's words, why a group stands apart from
+   *  `fused` shares a loop dispatch, with additional dispatches for reduction folds. `why`
+   *  says, in the author's words, why a group stands apart from
    *  the one before it, or why it ran on a later tier than the plan's (see the group's `tier`);
    *  a group with nothing to say leaves it out. */
   readonly groups: readonly {
@@ -43,6 +44,10 @@ export interface FuseReport {
      *  the one the `Error` of a call that no tier can run gives that tier, without the
      *  `webgpu: `, `webgl2: ` or `cpu: ` before it. */
     readonly tier: 'webgpu' | 'webgl2' | 'cpu';
+    /** Device commands this group made: direct/indirect dispatches on WebGPU, draws on WebGL2,
+     *  zero on the CPU. Includes push stages, reduction folds and store-only entries. These
+     *  counts sum to the report's `dispatches`; workgroup shapes do not determine them. */
+    readonly dispatches: number;
     readonly why?: string;
     /** The workgroup of each dispatch the group made on WebGPU, as `[n, 1, 1]`, in dispatch
      *  order. A fused group or a single-loop call has one entry. A lone call of a function with

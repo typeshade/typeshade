@@ -669,9 +669,11 @@ async function runLimits(job) {
 async function runFuse(job) {
   const submit = GPUQueue.prototype.submit;
   const dispatch = GPUComputePassEncoder.prototype.dispatchWorkgroups;
+  const indirect = GPUComputePassEncoder.prototype.dispatchWorkgroupsIndirect;
+  const draw = WebGL2RenderingContext.prototype.drawArrays;
   const createBuffer = GPUDevice.prototype.createBuffer;
   const createShaderModule = GPUDevice.prototype.createShaderModule;
-  const seen = { submits: 0, dispatches: 0, sizes: [], probes: 0 };
+  const seen = { submits: 0, dispatches: 0, draws: 0, sizes: [], probes: 0 };
   // The subgroup probe the runtime runs once when a device that has the feature opens (change
   // 0119): one module, one dispatch and one submission that no plan made. Counted by its module,
   // so the device's count can be held to the plan's.
@@ -693,6 +695,14 @@ async function runFuse(job) {
     seen.dispatches++;
     return dispatch.apply(this, a);
   };
+  GPUComputePassEncoder.prototype.dispatchWorkgroupsIndirect = function (...a) {
+    seen.dispatches++;
+    return indirect.apply(this, a);
+  };
+  WebGL2RenderingContext.prototype.drawArrays = function (...a) {
+    seen.draws++;
+    return draw.apply(this, a);
+  };
   GPUDevice.prototype.createBuffer = function (...a) {
     seen.sizes.push(a[0].size);
     return createBuffer.apply(this, a);
@@ -706,6 +716,8 @@ async function runFuse(job) {
   } finally {
     GPUQueue.prototype.submit = submit;
     GPUComputePassEncoder.prototype.dispatchWorkgroups = dispatch;
+    GPUComputePassEncoder.prototype.dispatchWorkgroupsIndirect = indirect;
+    WebGL2RenderingContext.prototype.drawArrays = draw;
     GPUDevice.prototype.createBuffer = createBuffer;
     GPUDevice.prototype.createShaderModule = createShaderModule;
   }
@@ -1202,6 +1214,7 @@ const FUSE_TIERS = {
     why: run.webgpu.why ?? [],
     tiers: run.webgpu.groups.map(() => 'webgpu'),
     dispatches: run.webgpu.dispatches,
+    groupDispatches: run.webgpu.groupDispatches,
     submissions: run.webgpu.submissions,
     buffers: run.webgpu.buffers,
     seen: true,
@@ -1215,6 +1228,7 @@ const FUSE_TIERS = {
       run.calls.map((_, i) => (i === 0 ? undefined : 'WebGL2 runs the calls apart')),
     tiers: run.webgl2.tiers ?? run.calls.map(() => 'webgl2'),
     dispatches: run.webgl2.dispatches,
+    groupDispatches: run.webgl2.groupDispatches,
     submissions: 0,
     buffers: run.webgpu.buffers === undefined ? undefined : 0,
     seen: false,
@@ -1224,6 +1238,7 @@ const FUSE_TIERS = {
     why: [],
     tiers: run.calls.map(() => 'cpu'),
     dispatches: 0,
+    groupDispatches: run.calls.map(() => 0),
     submissions: 0,
     buffers: run.webgpu.buffers === undefined ? undefined : 0,
     seen: false,
@@ -1293,6 +1308,21 @@ for (const job of fuses) {
     const w = worst(got.values, expected, run.tolerance);
     if (!w.ok) fail(at, `result off by ${w.text} (tolerance ${run.tolerance})`);
     const r = got.report;
+    const groupCounts = r.groups.map((g) => g.dispatches);
+    const countsAgree = (counts) =>
+      counts.every((n) => Number.isInteger(n) && n >= 0) &&
+      counts.reduce((sum, n) => sum + n, 0) === r.dispatches &&
+      JSON.stringify(counts) === JSON.stringify(n.groupDispatches);
+    if (!countsAgree(groupCounts))
+      fail(
+        at,
+        `group dispatch counts ${JSON.stringify(groupCounts)} differ from ${JSON.stringify(n.groupDispatches)}`,
+      );
+    // Prove this check sees a wrong group count, not merely a plausible plan total.
+    if (groupCounts.length > 0 && countsAgree(groupCounts.map((n, i) => n + (i === 0 ? 1 : 0))))
+      fail(at, 'the group-count check accepted a deliberately corrupted count');
+    if (tier === 'webgl2' && got.seen.draws !== r.dispatches)
+      fail(at, `WebGL2 observed ${got.seen.draws} draws, report counted ${r.dispatches}`);
     if (r.tier !== tier) fail(at, `the report says it ran on ${r.tier}`);
     if (r.dispatches !== n.dispatches || r.submissions !== n.submissions)
       fail(
