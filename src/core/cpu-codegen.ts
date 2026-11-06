@@ -213,7 +213,7 @@ interface FnCtx {
   hoisted: string[];
   n: number;
   /** For a function with an `inout` parameter, the statement that publishes what its
-   *  parameters hold as it returns (`$.inout.values = [...]`), run at every return. */
+   *  parameters hold as it returns, reusing its factory-local buffer, run at every return. */
   inoutPublish?: string;
   /** The parameters rounded to `f32` once, as the function is entered (`$p<i>`, one name per
    *  component of a vector), by name. The precision pass's rounding of a read of one
@@ -1769,7 +1769,8 @@ export interface GeneratedModuleJs {
   readonly module: ModuleDecl;
   /** The factory's declarations: one `const` per runtime function the code calls through a
    *  binding (`Math.fround` as `$fr`, a builtin or a helper as `$h<k>`), then one
-   *  `const $C_i = …;` or `const $O_i = …;` statement per module constant and override. */
+   *  `const $C_i = …;` or `const $O_i = …;` statement per module constant and override,
+   *  then a fixed-width return buffer for each function with inout parameters. */
   readonly decls: readonly string[];
   /** The JavaScript id each module constant has among {@link decls}, by the constant's name. */
   readonly constIds: ReadonlyMap<string, string>;
@@ -1870,6 +1871,7 @@ export function generateModuleJs(
     const hoist = varEnv.hoisted.length ? `let ${varEnv.hoisted.join(', ')};\n` : '';
     fnSrcs.push(`"$initPrivates": function() {\n${hoist}${lines.join('\n')}\n}`);
   }
+  const inoutBuffers: string[] = [];
   const writes = fnWrites(mv);
   for (const f of mv.funcs) {
     try {
@@ -1920,7 +1922,14 @@ export function generateModuleJs(
         ids.forEach((r, k) => entry.push(`${r} = ${fr}(${w === undefined ? id : `${id}[${k}]`});`));
       });
       if (f.params.some((p) => p.mode === 'inout')) {
-        S.inoutPublish = `$.inout.values = [${params.join(', ')}]`;
+        // Parameter locals are published only after the return expression (and its nested
+        // calls) finishes. Each function keeps a fixed-width buffer outside its call frame.
+        const buffer = `$io${inoutBuffers.length}`;
+        inoutBuffers.push(`const ${buffer} = Array(${params.length});`);
+        S.inoutPublish = [
+          ...params.map((id, i) => `${buffer}[${i}] = ${id}`),
+          `$.inout.values = ${buffer}`,
+        ].join(', ');
       }
       const bodySrc = emitBody(f.body, S);
       const exit = S.inoutPublish !== undefined ? `\n${S.inoutPublish};` : '';
@@ -1942,6 +1951,7 @@ export function generateModuleJs(
     ...[...mod.bound].map(([rhs, id]) => `const ${id} = ${rhs};`),
     ...(constEnv.hoisted.length > 0 ? [`let ${constEnv.hoisted.join(', ')};`] : []),
     ...constDecls,
+    ...inoutBuffers,
   ];
   return {
     module: mv,

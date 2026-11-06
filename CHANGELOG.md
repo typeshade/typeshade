@@ -92,7 +92,7 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
-- **Each fuse report group counts its device commands (§71, change 0121).** Required `group.dispatches` includes WebGPU push stages, reduction folds and store-only entries, WebGL2 draws, and zero on the CPU. Group counts sum to the plan total. Hand-built `FuseReport` groups must add the actual count; CPU groups add `dispatches: 0`. This source-breaking type change requires a new minor release before 1.0.
+- **Each fuse report group counts its device commands (§71, change 0121).** Required `group.dispatches` includes WebGPU push stages, reduction folds and store-only entries, WebGL2 draws, and zero on the CPU. Group counts sum to the plan total. Hand-built `FuseReport` groups must add the actual count; CPU groups add `dispatches: 0`. This source-breaking type change requires a new minor release before 1.0. Bundle measurements add 23 bytes gzip to runtime, 76 to fuse, 75 to algorithms and 48 to random; split aggregate grows by 100 bytes for runtime and 127 for fuse, with floors unchanged.
 
 - **A constant argument reaches a function under a numerical contract** (#850 N5; Rule 11.22).
   At `-O2`, a call that passes a scalar literal to a function opted in with `numerics(...)` calls
@@ -1601,6 +1601,8 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `docs/ir-builder.md` describes the builder for engines and tools.
 
 ### Fixed
+
+- Generated CPU functions reuse a fixed-width buffer for their `inout` return values instead of allocating an array on each call (#961). Nested calls and interpreter fallbacks retain their existing results.
 
 - A call of a declared method on an abstract receiver now explains that the class has no instance and names the concrete-class remedy, instead of claiming the method does not exist. Compiler and editor retain TS8035 (#1008).
 
