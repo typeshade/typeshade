@@ -160,6 +160,7 @@ export function drawReference(size = 32) {
   const tiled = [];
   const ramped = [];
   const deep = [];
+  const unbound = [];
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
       const u = (x + 0.5) * scale;
@@ -178,8 +179,9 @@ export function drawReference(size = 32) {
       ramped.push((x / size) * 255, (y / size) * 255, 0, 255);
       const band = (12345.678 + (x + 0.5) * 1e-6) * 1000;
       deep.push((band - Math.floor(band)) * 255, ((y + 0.5) / 32) * 255, 0, 255);
+      unbound.push(((x + 0.5) / 32) * 255, ((y + 0.5) / 32) * 255, 0.25 * 255, 255);
     }
-  return { plasma, tiled, ramped, deep };
+  return { plasma, tiled, ramped, deep, unbound, guarded: [...deep] };
 }
 
 /** The kernel function over doubles, in f64 as JavaScript computes it: the emulation and the

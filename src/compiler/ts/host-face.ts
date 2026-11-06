@@ -43,12 +43,13 @@ import { callArgAccess } from '../../core/passes/access.js';
 import { toPortable } from '../../core/ir/portable.js';
 import { VERSION } from '../../core/version.js';
 import { workgroupShapeOf } from '../../core/ir/nodes.js';
-import type {
-  ComputeEntry,
-  DrawBinding,
-  EntryBinding,
-  HandleBinding,
-  Layout,
+import {
+  isGuard,
+  type ComputeEntry,
+  type DrawBinding,
+  type EntryBinding,
+  type HandleBinding,
+  type Layout,
 } from '../../core/host-entry.js';
 import { buildGlCompute, type GlComputeProgram } from '../../core/passes/gl-compute.js';
 import type { FragmentEntry } from '../../core/host-draw.js';
@@ -2803,7 +2804,7 @@ function viewText(
           ...above(
             `A full-screen \`fragment(f)\` entry: draws one frame into \`target\`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24).`,
           ),
-          `export declare function ${e.name}(target: HTMLCanvasElement | OffscreenCanvas, bindings: ${e.bindingsType}): Promise<void>;`,
+          `export declare function ${e.name}(target: HTMLCanvasElement | OffscreenCanvas, bindings${e.entry.bindings.every(isGuard) ? '?' : ''}: ${e.bindingsType}): Promise<void>;`,
         );
         break;
       case 'never': {

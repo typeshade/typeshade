@@ -17,6 +17,11 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **Optional empty fragment bindings** (change 0125, #454). A full-screen fragment entry
+  that reaches no host-supplied binding accepts `fs(canvas)`, `fs(canvas, undefined)` or
+  `fs(canvas, {})`. Runtime-owned guards do not require an argument; reached authored bindings
+  remain required. Compute argument positions and existing invalid-value checks are unchanged.
+
 - **A statement budget in debug launch configurations** (change 0124, #215).
   `DebugLaunchConfig.maxSteps` accepts a positive integer and forwards it to the debugger's
   existing session budget. The resolver and JSON Schema reject invalid values. Omission

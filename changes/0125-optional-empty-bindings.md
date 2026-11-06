@@ -1,7 +1,7 @@
 ---
 id: '0125'
 title: A fragment entry with no host bindings draws with only its target
-status: accepted
+status: implemented
 rules:
   - '8.24'
 surface:
@@ -22,7 +22,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                       |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0125, accepted on merge of PR #1054. The front matter is the lifecycle authority.                                                                                   |
+| Identity and status           | Proposal 0125, implemented by PR #1056 after acceptance in PR #1054. The front matter is the lifecycle authority.                                                            |
 | Date and attribution          | Authored 2026-11-06 UTC by Codex while progressing the owner's remaining-issue request. This date records authorship, not approval.                                          |
 | Request source                | Issue [#454](https://github.com/typeshade/typeshade/issues/454), including its 2026-11-06 recheck: a fragment entry with no reached binding still requires `fs(canvas, {})`. |
 | Applicability / Effectivity   | Generated host views and imported full-screen fragment calls under Rule 8.24, on WebGPU, WebGL2 and the CPU tier. Release version unassigned.                                |
@@ -238,10 +238,70 @@ starts only after that merge.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires the accepted baseline, actual implementation
-PR and commits, responsible actors, delivered configuration, observed functional and document
-validation, and the disposition of any deviations. Compiler completion does not establish
-downstream adoption.
+Implementation is in [PR #1056](https://github.com/typeshade/typeshade/pull/1056), following
+the accepted merge `cadf1f07b733cdf6e307a1d56fc0c5ea9f3595f9` of PR #1054.
+The first implementation commit is `aac6af9392d69037985830764c05fc31799204cb`.
+Merge commit `9d7bd524472ff0daeba59d1965bc1726abd9002f` integrates `main` at
+`00c8d0eb2bcf9684c91a1b585ef991f1cf631d89`. Git and the pull request identify later
+validation-record revisions and the eventual delivered merge. No release version is assigned.
+The final source-fix commit is `5f6db03d53f68dd6d3c963fd445dee37ab055312`.
+The integrated build and GPU gates ran on that clean commit. Its build receipt records the
+same revision and fingerprint `855b84fc93a83d64ede0a7da8131231418ff727531722af02fa371faafb754af`.
+
+A Codex implementation agent changed the generated fragment signature and `callDraw`.
+Both use the existing `isGuard` metadata predicate over the entry's existing binding set.
+Only eligible calls normalize omitted or `undefined` bindings to `{}`. Compute calls,
+metadata shapes, public exports, owner selection and existing invalid-value checks stay unchanged.
+A second agent supplied compile-gate and packed-journey coverage. An independent agent and
+the orchestrating agent reviewed the core implementation, tests and documents without findings.
+
+Functional observations on 2026-11-06 UTC, with Node 24.22.1 and Bun 1.4.4:
+
+- The focused host/compiler/API/policy run passed 173 tests in seven files.
+  Independent review passed 75 tests in four files. The API snapshot did not change.
+- The new tests check shader compiler/language-service agreement and generated host
+  tsc/TypeScript-language-service agreement. CPU draws match independent pixel values.
+  They cover empty, unused, other-entry, guard-only, console-only and decorator cases;
+  direct, helper and authored `_fp64`/`_console` bindings remain required.
+- On the accepted baseline, the first 13 regression tests produced eight failures and
+  five passing controls. All 14 final tests pass with the implementation, including fuse refusal.
+- The bundle-boundary gate passed for all five checked public subpaths. The new compiler
+  import uses an existing authority and performs no GPU/device work at module import time.
+  An independent same-path browser build of `hostFace` measured 4,959,328 to 4,959,732
+  minified bytes and 1,393,901 to 1,394,068 gzip bytes: increases of 404 and 167 bytes.
+  No dependency or bundle budget changed.
+- On the integrated source-fix commit, `bun run build`, `bun run lint` and
+  `bun run format:check` passed. A further focused run passed 115 tests in seven files,
+  including the merged builtin-type diagnostic regressions and language-service host export.
+- `bun run gate:compile` passed: 203 examples, 203 Tint compilations, 139 WebGL2 programs,
+  130 render pipelines and entry calls covering 15 compute and 12 fragment entries.
+  The empty-binding fixtures made nine ordinary and twelve guard-only draws, each reading
+  4,096 channel values. Their maximum errors were 0.484375 and 0.49750012159347534
+  channel units, below the limit of two. Omission and `undefined` matched `{}` byte for byte.
+- `bun run gate:journeys` passed: 37 journeys, 132 runs, seven project-init checks and
+  171 host-import checks. The new matrix passed 21 pixel-reference checks and 14 exact
+  comparisons between the empty argument forms. Actual shader capture verified distinct
+  float/integer WebGPU text and the correct runtime-guard presence. WebGL2 and CPU passed too.
+  Both gates used Google Chrome for Testing 156.0.8078.4 with the Google SwiftShader adapter.
+  Their existing failure instruments passed, and no child process or server remained.
+
+The document audit updated Rule 8.24, surfaces §64 and §67, `AUTHORING.md`, the changelog,
+roadmap, journey description and generated requirement records. The documentation-reference
+check and strict Doorstop validation passed, as did the proposal-policy and requirement tests.
+Existing bound examples, compute contracts and
+architecture references remain accurate. Historical proposals retain their baseline descriptions.
+
+One existing-contract correction changes Rule 8.24's unsupported-value example from
+"an emulated f64" to "a matrix of f64". PR #344, merged at
+`787dbaec2445774ab5e12912cb241d652b8255e8`, already delivered scalar/vector/array f64
+host values under changes 0013 and 0016. Current scalar uniform/storage probes are callable;
+matrix probes still produce `never`. The orchestrating agent approved this documentation
+correction within the declared rule. It adds no runtime behavior. Disposition: closed.
+
+No implementation deviation remains open. Website and editor changes, compiler pins and
+their validation remain pending under the downstream obligations below. Compiler completion
+does not establish downstream adoption. The final record changes documentation only;
+required CI checks and merge approval still follow the pull request's current head.
 
 ## What it owes downstream
 

@@ -8,6 +8,9 @@ import { scatterExtremes } from './scatter-extremes.ts';
 import { blockSum, markGroups, planGroups, report, scale } from './kernels.shade.ts';
 import { axpy, dscale, dstats, dsum } from './doubles.shade.ts';
 import { deep } from './deep.shade.ts';
+import { unbound } from './empty-bindings.shade.ts';
+import { guarded } from './empty-bindings-guard.shade.ts';
+import { observeDrawShaders } from './draw-shader-observer.ts';
 import { fillRamp, plasma, ramped, tiled } from './draw.shade.ts';
 import { buildInfo, configure, createDevice, createRuntime, resident } from 'typeshade/runtime';
 import 'typeshade/fuse';
@@ -236,7 +239,7 @@ function pixels(c: HTMLCanvasElement): number[] {
 /** Draw the fragment entries on each tier and read each frame back, in the task that
  *  submitted it. */
 export async function draws(): Promise<Record<string, number[] | string>> {
-  const out: Record<string, number[] | string> = {};
+  const out = await emptyBindingsDraws();
   const wave = { time: 1.25, scale: 0.09 };
   for (const kind of [undefined, 'webgl2', '2d'] as const) {
     const c = canvas(kind);
@@ -294,6 +297,56 @@ export async function draws(): Promise<Record<string, number[] | string>> {
   } finally {
     await a.dispose();
     await b.dispose();
+  }
+  return out;
+}
+
+/** The packed host views must accept all three spellings. The canvas and strict tier policy
+ *  prove where each frame ran; actual shader creation proves both guarded WGSL flavors. */
+async function emptyBindingsDraws(): Promise<Record<string, number[] | string>> {
+  const out: Record<string, number[] | string> = {};
+  for (const [name, draw] of [
+    ['unbound', unbound],
+    ['guarded', guarded],
+  ] as const) {
+    const observed = name === 'guarded' ? observeDrawShaders(name) : undefined;
+    const modes = [
+      { tier: 'webgpu float', kind: undefined, flavor: 'float' },
+      ...(name === 'guarded'
+        ? ([{ tier: 'webgpu integer', kind: undefined, flavor: 'integer' }] as const)
+        : []),
+      { tier: 'webgl2', kind: 'webgl2', flavor: 'float' },
+      { tier: 'cpu', kind: '2d', flavor: 'float' },
+    ] as const;
+    try {
+      for (const { tier, kind, flavor } of modes) {
+        observed?.select(flavor);
+        configure({ prefer: [kind === '2d' ? 'cpu' : (kind ?? 'webgpu')], fp64Flavor: flavor });
+        try {
+          for (const form of ['object', 'omitted', 'undefined'] as const) {
+            const c = canvas(kind);
+            try {
+              if (form === 'omitted') await draw(c);
+              else if (form === 'undefined') await draw(c, undefined);
+              else await draw(c, {});
+              if (c.getContext(kind ?? 'webgpu') === null)
+                throw new Error(`the draw did not run on ${tier}`);
+              out[`${name} ${tier} ${form}`] = pixels(c);
+            } catch (e) {
+              out[`${name} ${tier} ${form}`] = String(e);
+            }
+          }
+        } finally {
+          configure({});
+        }
+      }
+      observed?.verify();
+      if (observed !== undefined) out['guarded flavors'] = [1];
+    } catch (e) {
+      out['guarded flavors'] = String(e);
+    } finally {
+      observed?.close();
+    }
   }
   return out;
 }

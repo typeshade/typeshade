@@ -37,6 +37,7 @@
 // the scene does not want, which the gate must see differ (AGENTS.md#gate-discipline).
 
 import { configure } from '../src/core/host-runtime.js';
+import { observeDrawShaders } from '../journeys/_host-import/src/draw-shader-observer.js';
 import {
   byteSize,
   pack,
@@ -83,6 +84,8 @@ export interface EntryCase {
   readonly call: (...args: unknown[]) => Promise<void>;
   /** The module's manifest, its default export, which the program runtime loads. */
   readonly manifest: Pack;
+  /** The two binding-free fixtures of change 0125 alone run the argument/flavor matrix. */
+  readonly emptyBindings?: 'plain' | 'guard';
 }
 
 /** What one tier did against the reference tier: its worst difference, or why it did not run. */
@@ -260,14 +263,86 @@ function pixels(el: HTMLCanvasElement): number[] {
   return [...ctx.getImageData(0, 0, SIZE, SIZE).data];
 }
 
-async function drawOn(c: EntryCase, kind?: 'webgl2' | '2d'): Promise<number[]> {
+type EmptyDraw = { form: 'omitted' | 'undefined' | 'object'; flavor: 'float' | 'integer' };
+
+async function drawOn(c: EntryCase, kind?: 'webgl2' | '2d', empty?: EmptyDraw): Promise<number[]> {
   const el = canvas(kind);
-  await c.call(el, bindingsOf(c));
-  // A canvas hands out only the kind of context it gave first: WebGPU drew this one, or the
-  // reference is some other tier and the comparison would be with itself.
-  if (kind === undefined && el.getContext('webgpu') === null)
-    throw new Error('the draw did not run on WebGPU');
-  return pixels(el);
+  if (empty !== undefined)
+    configure({ prefer: [kind === '2d' ? 'cpu' : (kind ?? 'webgpu')], fp64Flavor: empty.flavor });
+  try {
+    if (empty?.form === 'omitted') await c.call(el);
+    else if (empty?.form === 'undefined') await c.call(el, undefined);
+    else await c.call(el, bindingsOf(c));
+    // A canvas hands out only the kind of context it gave first: WebGPU drew this one, or the
+    // reference is some other tier and the comparison would be with itself.
+    if ((kind === undefined || empty !== undefined) && el.getContext(kind ?? 'webgpu') === null)
+      throw new Error(`the draw did not run on ${kind ?? 'webgpu'}`);
+    return pixels(el);
+  } finally {
+    if (empty !== undefined) configure({});
+  }
+}
+
+/** Three argument forms, each held to plain JavaScript pixels and to the explicit object.
+ *  Actual shader creation proves both WebGPU flavors ran, including the float guard. */
+async function emptyBindingsVerdict(c: EntryCase): Promise<EntryVerdict> {
+  const tiers: TierVerdict[] = [];
+  let changed = 0;
+  const expected: number[] = [];
+  for (let y = 0; y < SIZE; y++)
+    for (let x = 0; x < SIZE; x++) {
+      const band = (12345.678 + (x + 0.5) * 0.000001) * 1000;
+      expected.push(
+        ...(c.emptyBindings === 'guard'
+          ? [band - Math.floor(band), (y + 0.5) / 32, 0, 1]
+          : [(x + 0.5) / 32, (y + 0.5) / 32, 0.25, 1]
+        ).map((v) => v * 255),
+      );
+    }
+  const observed = c.emptyBindings === 'guard' ? observeDrawShaders(c.name) : undefined;
+  const modes = [
+    { tier: 'webgpu float', kind: undefined, flavor: 'float' },
+    ...(c.emptyBindings === 'guard'
+      ? ([{ tier: 'webgpu integer', kind: undefined, flavor: 'integer' }] as const)
+      : []),
+    { tier: 'webgl2', kind: 'webgl2', flavor: 'float' },
+    { tier: 'cpu', kind: '2d', flavor: 'float' },
+  ] as const;
+  try {
+    for (const { tier, kind, flavor } of modes) {
+      observed?.select(flavor);
+      let reference: number[] | undefined;
+      for (const form of ['object', 'omitted', 'undefined'] as const) {
+        try {
+          const got = await drawOn(c, kind, { form, flavor });
+          if (got.length !== expected.length)
+            throw new Error('the draw returned the wrong pixel count');
+          if (form === 'object') reference = got;
+          else {
+            const explicit = reference;
+            if (explicit === undefined || got.some((v, i) => v !== explicit[i]))
+              throw new Error(`${form} differs from the explicit empty bindings object`);
+          }
+          if (tier === 'webgpu float' && form === 'object') {
+            const colours = new Set<number>();
+            for (let i = 0; i < got.length; i += 4)
+              colours.add((got[i]! << 16) | (got[i + 1]! << 8) | got[i + 2]!);
+            changed = colours.size;
+          }
+          const worst = Math.max(...got.map((v, i) => Math.abs(v - expected[i]!)));
+          tiers.push({ tier: `${tier} ${form}`, worst, values: got.length });
+        } catch (e) {
+          tiers.push({ tier: `${tier} ${form}`, error: message(e) });
+        }
+      }
+    }
+    observed?.verify();
+  } catch (e) {
+    tiers.push({ tier: 'fp64 flavor instrument', error: message(e) });
+  } finally {
+    observed?.close();
+  }
+  return { id: c.id, kind: c.kind, name: c.name, changed, tiers };
 }
 
 let programRuntime: Promise<Runtime> | undefined;
@@ -762,6 +837,7 @@ async function programCaseVerdict(run: ProgramCaseRun): Promise<EntryVerdict> {
 }
 
 async function verdictOf(c: EntryCase): Promise<EntryVerdict> {
+  if (c.emptyBindings !== undefined) return emptyBindingsVerdict(c);
   const base = { id: c.id, kind: c.kind, name: c.name };
   if (c.kind === 'compute') {
     let want: number[];

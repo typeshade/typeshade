@@ -1715,7 +1715,10 @@ with the same validation as `program.compute`. A plan keeps its existing submiss
 the selected workgroup shape. CPU calls use generated closures with the same constants;
 WebGL2 supports the declared default workgroup shape and array lengths. An imported fragment
 entry called as `entry(canvas, bindings)` draws a full-screen fragment entry into a canvas
-(`docs/use-typeshade-surface.md` §67):
+(`docs/use-typeshade-surface.md` §67). If it reaches no host-supplied binding, including through
+its helpers, call `entry(canvas)`; explicit `undefined` or `{}` has the same meaning. Unused
+declarations and runtime-owned resources do not require a bindings argument. Compute calls
+keep their leading bindings object:
 
 ```ts
 // app.ts, ordinary TypeScript: terrain.shade.ts exports `height(p: vec2, k: vec4): f32`

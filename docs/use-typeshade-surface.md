@@ -7710,7 +7710,7 @@ is a type error at the host's own line.
 | a `class` (§26)                              | `export declare class C { constructor(…); … }`, a value      |
 | an `interface` or a `type`; a `class` with a field that has no host value | `export interface S { … }`      |
 | a compute entry                              | `export declare function e(bindings, workgroups): Promise<void>` (§67) |
-| a full-screen fragment entry                 | `export declare function e(target, bindings): Promise<void>` (§67) |
+| a full-screen fragment entry                 | `export declare function e(target, bindings?): Promise<void>` when no host binding is reached; otherwise `bindings` is required (Rule 8.24; §67) |
 | a kernel function (§65)                      | `export declare function k(…): Promise<R>`                   |
 | a vertex entry, a generic function, a binding, anything else | `never`, with the reason and the work that adds it |
 
@@ -8512,7 +8512,7 @@ on the GPU. `entry(bindings, workgroups)` dispatches it as written over `workgro
 on WebGPU, and reads every storage binding it writes back into the caller's value, or leaves it
 on the device in a `Resident` (Rules 8.24 and 11.8).
 A full-screen fragment entry draws into a canvas the same way, as `entry(target, bindings)`
-(below).
+(below). When it reaches no host-supplied binding, `entry(target)` is sufficient.
 
 Inside the body of a `fuse` scope (§71) an entry call is recorded and runs in the scope's plan. It
 forms a group of its own: no kernel call joins it, and it joins none. Its storage arrays with no
@@ -8752,7 +8752,16 @@ requestAnimationFrame(frame);
 - **`target`** is an `HTMLCanvasElement` or an `OffscreenCanvas`, and the frame fills its
   `width` by `height`. `position` is the pixel's centre, `(x + 0.5, y + 0.5)`, with row 0 at the
   top, on every tier.
-- **`bindings`** is the object above, typed exactly in the view.
+- **`bindings`** is the object above. Under Rule 8.24, it is optional exactly when this entry reaches no
+  host-supplied binding, including through its helpers. In that case `entry(target)`,
+  `entry(target, undefined)` and `entry(target, {})` draw the same frame; the view uses
+  `bindings?: {}`. An unused declaration does not make the argument required. The runtime's
+  `_fp64` guard does not count, by its ownership metadata; an authored binding named `_fp64`
+  or `_console` still counts. Console recording alone adds no host binding. Otherwise the
+  existing required object type remains. Sampler-property defaults do not make the whole
+  argument optional. Explicit objects retain validation; null, arrays, primitives and unknown
+  keys remain errors, even where TypeScript's existing `{}` type accepts a value. Compute's
+  leading bindings argument remains required, including `entry({}, workgroups)`.
 - **The owner** is the unique owner of the bindings' resident arrays and device-created textures
   (§65). A call with no owned resource uses the default owner. Mixing owners is refused before drawing.
 - **The result** is a promise that resolves when the frame is submitted, not when the GPU has
