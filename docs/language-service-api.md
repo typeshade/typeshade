@@ -1054,3 +1054,17 @@ dist/src/compiler/ts/source-file.js`. npm installs a required peer automatically
   half does, and lists what is located in the document.
 - Bundle strategy for the browser: worker only, or also a lexical tier without `typescript`
   for the first paint.
+
+## 12. Generating a host face
+
+`hostFace` and `HostFaceOptions` are exported from `typeshade/language-service`.
+`hostFace(source, { fileName, origin })` accepts an optional fusion identity (change 0122).
+The exact `origin` string identifies the module's fusion records; an empty string is explicit.
+When omitted, the origin remains `fileName`. Distinct modules that can share a fusion scope need distinct identities.
+With `fuse: false`, the override adds no fusion record.
+
+`fileName` still resolves imports and names diagnostics, source spans, read files and generated views.
+Changing `origin` does not change those paths, host types or fusion eligibility.
+This option does not remove every absolute path from emitted artifacts.
+The Vite plugin offers an opt-in `originNamespace` for JSON tuple identities made from a namespace and relative module path.
+Its filesystem constraints and setup are in `docs/use-typeshade-surface.md` §64 and §71.

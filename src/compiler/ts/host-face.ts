@@ -126,6 +126,11 @@ import {
 export interface HostFaceOptions {
   /** The shader module's path, carried into the diagnostics and named in the generated files. */
   readonly fileName: string;
+  /** The exact identity of this module's fusion records (change 0122). Defaults to `fileName`;
+   *  an empty string is an explicit identity. Distinct modules that can share a fusion scope
+   *  need distinct identities. This does not change source paths, imports, diagnostics or
+   *  views, and has no effect with `fuse: false`. */
+  readonly origin?: string;
   /** The specifier the generated module imports its runtime from. Defaults to
    *  `typeshade/runtime/internal`; a test points it at the source file. A tool that runs the
    *  generated module without a bundler (change 0062) maps `typeshade/runtime/internal` to the
@@ -906,7 +911,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
         overrideNames,
         privateNames,
         reachProblem,
-        ...(options.fuse !== false ? { fuse: { origin: options.fileName } } : {}),
+        ...(options.fuse !== false ? { fuse: { origin: options.origin ?? options.fileName } } : {}),
         entry: {
           module: m,
           bindings: m.bindings,
