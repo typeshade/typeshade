@@ -107,6 +107,10 @@ describes it.
   pinned TypeNN checkout and runs its build and CPU tests. It verifies the installed compiler
   source before running. Source changes, manual dispatches and a weekly schedule run this gate;
   GPU coverage remains in the compiler gates and TypeNN's own GPU workflow.
+- `.github/workflows/typeaudio-downstream.yml` installs the compiler candidate in a pinned
+  TypeAudio checkout. It verifies the installed compiler source, checks the engine, runs CPU
+  tests and compares shared Web graph fixtures with the pinned compiler. Artifacts separate compilation and cold/warm
+  DSP timing. These CPU checks do not measure browser scheduling or hardware audio underruns.
 - `.github/workflows/package-smoke.yml` builds one tarball and installs it in fresh consumers
   on Linux (Node 20, 22 and 24), Windows and macOS (Node 24). `scripts/package-smoke.mjs`
   imports every runtime export, checks compile/eval and CLI acceptance/refusal, and builds and
