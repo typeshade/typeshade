@@ -14,8 +14,8 @@
 //      import.
 //   2. Resolve every name each file writes with TypeScript's own checker over those files, so a
 //      local, a parameter or a member that shadows a top-level name is never taken for it.
-//   3. Keep the entry's declarations and what they reach in the other files, and leave the rest
-//      out, an imported file's own entry points among them.
+//   3. Keep the entry's declarations and what they reach in the other files. A pure root alias
+//      keeps its terminal target whole (0126); other imported files remain selective.
 //   4. Give each kept declaration the name the module emits: the written one, unless another
 //      declaration already emits it or another file calls a builtin by it; then `stem_name`. An
 //      entry point and a binding are never renamed: the host knows them by name.
@@ -210,6 +210,25 @@ function beginsWithDirective(fileName: string, text: string): boolean {
     ts.ScriptKind.TS,
   );
   return findUseTypeshadeDirective(probe) !== undefined;
+}
+
+/** Only this requested-root form preserves a whole target (0126). Comments are not statements;
+ *  an extra empty statement, type-only star, namespace export or attributes makes it ordinary. */
+function pureAliasSpecifier(sf: ts.SourceFile): string | undefined {
+  const [directive, star] = sf.statements;
+  return sf.statements.length === 2 &&
+    directive !== undefined &&
+    isUseTypeshadeDirective(directive) &&
+    star !== undefined &&
+    ts.isExportDeclaration(star) &&
+    !star.isTypeOnly &&
+    star.exportClause === undefined &&
+    star.attributes === undefined &&
+    star.assertClause === undefined &&
+    star.moduleSpecifier !== undefined &&
+    ts.isStringLiteral(star.moduleSpecifier)
+    ? star.moduleSpecifier.text
+    : undefined;
 }
 
 /** A package's file as a sentence names it: from the first `node_modules/` of its path, which is
@@ -626,6 +645,28 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
   for (const file of [...order]) if (file.root) visit(file);
 
   const entry = order[0]!;
+  // Follow only the requested root's alias chain, using identities already resolved by the
+  // loader. Do not replace the entry, promote ordinary imports, or change package provenance.
+  const whole = new Set(order.filter((f) => f.root));
+  let aliasTarget: ProgramFile | undefined;
+  let alias = entry;
+  const aliases = new Set<ProgramFile>();
+  while (!aliases.has(alias)) {
+    aliases.add(alias);
+    const specifier = pureAliasSpecifier(alias.sf);
+    if (specifier === undefined) {
+      if (alias !== entry) {
+        aliasTarget = alias;
+        whole.add(alias);
+      }
+      break;
+    }
+    const name = resolved.get(`${alias.name}\0${specifier}`);
+    const target = name === undefined ? undefined : files.get(name);
+    if (target === undefined) break; // The loader already reported the failed edge.
+    alias = target;
+  }
+  // An alias-only cycle has no terminal target and keeps ordinary linking.
   const linkedFileName = `${entry.name}.linked.ts`;
   const linkedFiles = (kept: ReadonlySet<ProgramFile>): LinkedFile[] =>
     order.map((f) => ({ name: f.name, sourceFile: f.sf, kept: kept.has(f) }));
@@ -968,12 +1009,13 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     kept.add(u);
     work.push(u);
   };
-  for (const u of units) if (u.file.root) keep(u);
+  for (const u of units) if (whole.has(u.file)) keep(u);
   for (const e of entryExports) keep(e.unit);
   while (work.length > 0) for (const r of work.pop()!.refs) keep(r);
   const keptFiles = new Set<ProgramFile>();
   for (const u of kept) keptFiles.add(u.file);
-  for (const f of order) if (f.root) keptFiles.add(f);
+  // A target with only directives or invalid unnamed statements still needs direct validation.
+  for (const f of whole) keptFiles.add(f);
   /** Per kept file, the names its kept code uses and TypeScript resolves to nothing. */
   const globals = new Map<ProgramFile, Map<string, ts.Identifier[]>>();
   for (const f of keptFiles) {
@@ -1115,7 +1157,7 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
       ts.isImportDeclaration(stmt) ||
       ts.isImportEqualsDeclaration(stmt) ||
       (ts.isExportDeclaration(stmt) && (stmt.moduleSpecifier !== undefined || f !== entry)) ||
-      (ts.isExportAssignment(stmt) && f !== entry)
+      (ts.isExportAssignment(stmt) && f !== entry && f !== aliasTarget)
     ) {
       return false;
     }

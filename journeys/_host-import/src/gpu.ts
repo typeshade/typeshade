@@ -11,6 +11,7 @@ import { deep } from './deep.shade.ts';
 import { unbound } from './empty-bindings.shade.ts';
 import { guarded } from './empty-bindings-guard.shade.ts';
 import { observeDrawShaders } from './draw-shader-observer.ts';
+import { pureAliasDraws } from './pure-alias.ts';
 import { fillRamp, plasma, ramped, tiled } from './draw.shade.ts';
 import { buildInfo, configure, createDevice, createRuntime, resident } from 'typeshade/runtime';
 import 'typeshade/fuse';
@@ -240,6 +241,7 @@ function pixels(c: HTMLCanvasElement): number[] {
  *  submitted it. */
 export async function draws(): Promise<Record<string, number[] | string>> {
   const out = await emptyBindingsDraws();
+  Object.assign(out, await pureAliasDraws());
   const wave = { time: 1.25, scale: 0.09 };
   for (const kind of [undefined, 'webgl2', '2d'] as const) {
     const c = canvas(kind);

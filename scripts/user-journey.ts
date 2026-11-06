@@ -444,6 +444,52 @@ async function hostImport(
     JSON.stringify(drawn['guarded flavors']) === '[1]',
     `guard-only draw submits distinct float/integer WGSL with the correct guard (${JSON.stringify(drawn['guarded flavors'])})`,
   );
+  const aliasRef = JSON.parse(
+    spawnSync(
+      'node',
+      [
+        '--input-type=module',
+        '-e',
+        "console.log(JSON.stringify((await import('./reference.mjs')).aliasReference()))",
+      ],
+      { cwd: app, encoding: 'utf8' },
+    ).stdout,
+  ) as Record<'compute' | 'render' | 'empty', number[]>;
+  check(
+    JSON.stringify(drawn['alias artifacts']) === '[1]',
+    `pure aliases preserve binding slots, private entry inventory and actual WGSL/render GLSL (${JSON.stringify(drawn['alias artifacts'])})`,
+  );
+  for (const name of ['direct', 'alias', 'chain']) {
+    for (const tier of ['webgpu', 'webgl2', 'cpu']) {
+      for (const kind of ['compute', 'render', 'empty'] as const) {
+        for (const suffix of kind === 'empty' ? [' object', ' omitted', ' undefined'] : ['']) {
+          const key = `alias ${name} ${kind} ${tier}${suffix}`;
+          compare(key, aliasRef[kind], kind === 'compute' ? 0 : 2);
+          const got = drawn[key];
+          if (name !== 'direct') {
+            const direct = drawn[`alias direct ${kind} ${tier}${suffix}`];
+            check(
+              Array.isArray(got) &&
+                Array.isArray(direct) &&
+                got.length === direct.length &&
+                got.every((value, i) => value === direct[i]),
+              `${key} equals its direct target exactly`,
+            );
+          }
+          if (kind === 'empty' && suffix !== ' object') {
+            const explicit = drawn[`alias ${name} empty ${tier} object`];
+            check(
+              Array.isArray(got) &&
+                Array.isArray(explicit) &&
+                got.length === explicit.length &&
+                got.every((value, i) => value === explicit[i]),
+              `${key} equals explicit empty bindings exactly`,
+            );
+          }
+        }
+      }
+    }
+  }
   for (const tier of ['webgpu', 'webgl2', '2d']) compare(`plasma ${tier}`, drawRef.plasma, 2);
   // Nearest filtering at texel centres: the image's bytes, exactly.
   for (const tier of ['webgpu', 'webgl2']) compare(`tiled ${tier}`, drawRef.tiled, 0);

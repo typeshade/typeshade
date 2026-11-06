@@ -39,6 +39,11 @@
 import { configure } from '../src/core/host-runtime.js';
 import { observeDrawShaders } from '../journeys/_host-import/src/draw-shader-observer.js';
 import {
+  runAliasFixture,
+  verifyAliasArtifacts,
+  type AliasFixture,
+} from '../journeys/_host-import/src/pure-alias-checks.js';
+import {
   byteSize,
   pack,
   readInto,
@@ -346,6 +351,84 @@ async function emptyBindingsVerdict(c: EntryCase): Promise<EntryVerdict> {
 }
 
 let programRuntime: Promise<Runtime> | undefined;
+
+/** Direct/alias/chain results must match independent arithmetic and each other. */
+async function aliasVerdicts(fixtures: readonly AliasFixture[]): Promise<EntryVerdict[]> {
+  verifyAliasArtifacts(fixtures);
+  const verdicts: EntryVerdict[] = [];
+  let direct: Record<string, number[] | string> | undefined;
+  for (const fixture of fixtures) {
+    const results = await runAliasFixture(fixture);
+    direct ??= results;
+    if (Object.keys(results).length !== 15)
+      throw new Error(`${fixture.name}: the alias fixture did not exercise all fifteen calls`);
+    for (const kind of ['compute', 'render', 'empty'] as const) {
+      const expected: number[] = [];
+      if (kind === 'compute') {
+        for (let i = 0; i < 32; i++) expected.push(i * 0.375 + 1);
+      } else {
+        for (let y = 0; y < 32; y++)
+          for (let x = 0; x < 32; x++)
+            expected.push(
+              ...[(x + 0.5) / 32, (y + 0.5) / 32, kind === 'empty' ? 0.25 : 0.375, 1].map(
+                (v) => v * 255,
+              ),
+            );
+      }
+      const tiers: TierVerdict[] = [];
+      let changed = 0;
+      for (const [key, got] of Object.entries(results).filter(([key]) =>
+        key.startsWith(`${kind} `),
+      )) {
+        const tier = key.slice(kind.length + 1);
+        if (typeof got === 'string') {
+          tiers.push({ tier, error: got });
+          continue;
+        }
+        const baseline = direct[key];
+        const explicit = results[`empty ${tier.split(' ')[0]} object`];
+        if (
+          !Array.isArray(baseline) ||
+          got.length !== expected.length ||
+          got.some((value, i) => value !== baseline[i]) ||
+          (kind === 'empty' &&
+            (!Array.isArray(explicit) || got.some((value, i) => value !== explicit[i])))
+        ) {
+          tiers.push({
+            tier,
+            error: 'alias pixels/values differ from the direct or explicit-object call',
+          });
+          continue;
+        }
+        if (tier === 'webgpu' || tier === 'webgpu object') {
+          if (kind === 'compute') changed = got.filter((v) => v !== 0).length;
+          else {
+            const colours = new Set<number>();
+            for (let i = 0; i < got.length; i += 4)
+              colours.add((got[i]! << 16) | (got[i + 1]! << 8) | got[i + 2]!);
+            changed = colours.size;
+          }
+        }
+        tiers.push({
+          tier,
+          values: got.length,
+          worst:
+            kind === 'compute'
+              ? worstOf(expected, got)
+              : Math.max(...got.map((v, i) => Math.abs(v - expected[i]!))),
+        });
+      }
+      verdicts.push({
+        id: `case:shader-alias-${fixture.name}`,
+        name: kind,
+        kind: kind === 'compute' ? 'compute' : 'fragment',
+        changed,
+        tiers,
+      });
+    }
+  }
+  return verdicts;
+}
 
 /** The storage bindings the entry writes, flattened, after one dispatch by the program runtime
  *  from the manifest: the written bindings are GPU buffers the page makes, filled with the same
@@ -923,6 +1006,7 @@ export async function runEntries(
   cases: readonly EntryCase[],
   programs: Programs,
   programCases: readonly ProgramCaseRun[] = [],
+  aliases: readonly AliasFixture[] = [],
 ): Promise<EntryReport> {
   // The instrument, FIRST: a comparison that cannot see one changed value is blind.
   const probe = [0.5, -1, 2, 3];
@@ -930,6 +1014,7 @@ export async function runEntries(
   const verdicts: EntryVerdict[] = [];
   for (const c of cases) verdicts.push(await verdictOf(c));
   for (const c of programCases) verdicts.push(await programCaseVerdict(c));
+  verdicts.push(...(await aliasVerdicts(aliases)));
   // The render case: right, and with a depth test the scene does not want ('less' where a
   // reversed projection needs 'greater'), which the gate must see differ.
   const render = {

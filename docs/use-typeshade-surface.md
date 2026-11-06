@@ -8954,6 +8954,39 @@ checks.
   (Rule 8.9), and a static field is a constant when nothing in the program writes it (Rule 8.13).
 - Two files may import each other. A call cycle through them is still refused (Rule 8.4).
 
+**A pure root alias (Rule 3.9, change 0126).** A requested file containing only the directive
+and one value export-star preserves its terminal target as a whole module:
+
+```ts
+"use typeshade";
+export * from "./new/k.shade.ts";
+```
+
+Comments, whitespace and optional statement terminators do not change this form. Another
+statement, even an empty `;`, makes it ordinary. Named, namespace and type-only re-exports,
+multiple stars and exports with attributes remain outside this exception.
+
+Follow further pure aliases through the existing resolver. The first ordinary target keeps
+the declarations and module statements that direct compilation keeps, in the same order.
+This includes unused bindings, private helpers, private entry points, types, constants,
+module variables, overrides and existing directives. Dependencies of those declarations still
+follow ordinary reachability. An alias cycle with no terminal target uses ordinary linking
+and terminates without a new cycle diagnostic.
+
+Bindings retain their names, groups and slots, including unused bindings before reached ones.
+Package identity, version deduplication and private-name prefixes stay unchanged. A private
+name stays private; each host entry call still takes only its reached bindings (§67).
+A pure-looking dependency reached by an ordinary import or re-export remains selective.
+Invalid retained declarations report the same error at the target's source span. This does
+not add authored default exports or change their existing validation policy.
+
+The requested alias path still names the generated module, header and host view (§64).
+Its fusion origin defaults to that path; an explicit origin, including `""`, stays exact (§71).
+Vite's `originNamespace` still identifies the requested path. Declaration spans remain in their
+authored files, and watchers include every alias and loaded dependency. These identity fields
+and existing private package prefixes can differ from a direct target's, so artifact byte
+identity is not guaranteed. Compare declarations, binding layout and behavior under equal options.
+
 **How each path reads the files.** `compile(source, { fileName, readDocument })` reads each import
 through `readDocument`, which returns a file's text or `undefined`, and a package's
 `package.json` through it too, so a host that reads from disk follows a package with no change;

@@ -31,6 +31,56 @@ const PAGE = join(ROOT, 'scripts/entry-calls-page.ts');
 const RENDER_CASE = join(ROOT, 'scripts/render-case.ts');
 const EMPTY_BINDING_FILES = ['empty-bindings', 'empty-bindings-guard'] as const;
 
+/** The six finite host-import fixtures of change 0126. Both halves read every requested path;
+ *  actual render GLSL must exist, rather than an absent compute-only result counting as equal. */
+function aliasFixtures(dir: string): { imports: string[]; fixtures: string[] } {
+  const readDocument = (path: string): string | undefined => {
+    try {
+      return readFileSync(path, 'utf8');
+    } catch {
+      return undefined;
+    }
+  };
+  const service = createTypeshadeLanguageService({ readDocument });
+  const imports: string[] = [];
+  const fixtures: string[] = [];
+  const reference = new Map<string, { wgsl: string; glsl: { vertex: string; fragment: string } }>();
+  for (const [name, suffix] of [
+    ['direct', 'target'],
+    ['alias', 'one'],
+    ['chain', 'chain'],
+  ] as const) {
+    for (const prefix of ['alias', 'alias-empty']) {
+      const stem = `${prefix}-${suffix}`;
+      const path = join(ROOT, 'journeys/_host-import/src', `${stem}.shade.ts`);
+      const source = readDocument(path)!;
+      const compiled = compile(source, { fileName: path, readDocument });
+      service.openDocument(path, source);
+      const diagnostics = [...compiled.diagnostics, ...service.getDiagnostics(path)];
+      if (diagnostics.length || !compiled.wgsl || !compiled.glsl?.vertex || !compiled.glsl.fragment)
+        throw new Error(
+          `${stem}: both halves and actual WGSL/render GLSL must be clean: ` +
+            diagnostics.map((d) => d.message).join('; '),
+        );
+      const direct = reference.get(prefix);
+      if (direct === undefined) reference.set(prefix, { wgsl: compiled.wgsl, glsl: compiled.glsl });
+      else if (
+        compiled.wgsl !== direct.wgsl ||
+        JSON.stringify(compiled.glsl) !== JSON.stringify(direct.glsl)
+      )
+        throw new Error(`${stem}: actual WGSL/render GLSL differs from the direct target`);
+      const face = hostFace(source, { fileName: path, readDocument, runtime: RUNTIME });
+      if (face.diagnostics.length || face.code === undefined)
+        throw new Error(`${stem}: the generated host module is not clean`);
+      const local = `${prefix === 'alias' ? 'a' : 'e'}_${name}`;
+      writeFileSync(join(dir, `${stem}.mjs`), face.code);
+      imports.push(`import * as ${local} from './${stem}.mjs';`);
+    }
+    fixtures.push(`{ name: '${name}', module: a_${name}, empty: e_${name} }`);
+  }
+  return { imports, fixtures };
+}
+
 /** The part of Bun's bundler this uses. The gate runs under Bun (`bun scripts/compile-gate.ts`),
  *  and the repository's type check has no Bun types, so it is named structurally. */
 interface Bundler {
@@ -186,16 +236,21 @@ export async function entryBundle(): Promise<EntryBundle> {
       }
     });
     const main = join(dir, 'main.ts');
+    const aliases = aliasFixtures(dir);
+    compute += 3;
+    fragment += 6;
     writeFileSync(
       main,
       [
         `import { runEntries } from ${JSON.stringify(PAGE)};`,
         `import type { Programs } from ${JSON.stringify(RENDER_CASE)};`,
         ...imports,
+        ...aliases.imports,
         `const cases = [\n  ${cases.join(',\n  ')},\n];`,
         `const programs = ${JSON.stringify(renderPrograms())} as Programs;`,
         `const programCases = ${JSON.stringify(programCases())};`,
-        `(globalThis as Record<string, unknown>)['__runEntries'] = () => runEntries(cases, programs, programCases);`,
+        `const aliases = [${aliases.fixtures.join(', ')}];`,
+        `(globalThis as Record<string, unknown>)['__runEntries'] = () => runEntries(cases, programs, programCases, aliases);`,
         '',
       ].join('\n'),
     );
