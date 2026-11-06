@@ -1,7 +1,7 @@
 ---
 id: '0123'
 title: Scalar f64 module constants retain their precision when folded
-status: draft
+status: accepted
 rules:
   - '6.3'
 surface:
@@ -24,20 +24,20 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                         |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0123, draft.                                                                                                                                                          |
+| Identity and status           | Proposal 0123, accepted on merge of PR #1048.                                                                                                                                  |
 | Date and attribution          | Authored 2026-11-06 UTC by Codex while progressing the owner's remaining-issue request. This date records authorship.                                                          |
 | Request source                | Part 2 of issue [#967](https://github.com/typeshade/typeshade/issues/967). Part 1, refusal cascades, was delivered in PR #1043.                                                |
 | Applicability / Effectivity   | The TypeScript front end's scalar module constants, including namespace constants and unwritten static fields. CPU, WGSL and GLSL ES 3.00 outputs. Release version unassigned. |
 | Review baseline               | `main` at `bb838514a842acfe3e257396182f0f82a60abbc4`.                                                                                                                          |
-| Review and revision authority | No PR is assigned yet. Git records revisions; the proposal PR's accepted merge makes the decision effective.                                                                   |
+| Review and revision authority | Proposal [PR #1048](https://github.com/typeshade/typeshade/pull/1048). Git records revisions; its accepted merge makes the decision effective.                                 |
 
 ## What changes
 
 Permit a scalar `f64` module constant under Rule 6.3. Its initializer must fold to a finite
 JavaScript double, with both words of the existing GPU `f32` pair finite. The CPU oracle
 keeps that double. Both GPU targets receive the existing split literal pair, not a call to an
-emulation helper at module scope. CPU negative zero and the split pair's high-word sign are
-retained; the sum of the pair need not retain negative zero. Underflow follows the existing split.
+emulation helper at module scope. The CPU preserves negative zero; the GPU zero sign follows
+the existing split and emit behavior and is not guaranteed. Underflow follows the existing split.
 
 ```ts
 "use typeshade";
@@ -64,8 +64,9 @@ precision boundary. Read an earlier scalar constant's existing known value round
 do not change how that earlier declaration is compiled. This is the recorded compile-time
 scalar value, not a promise to reproduce an earlier builtin expression's GPU evaluation.
 Existing `f32` builtin constants can retain an expression for the GPU and a different
-double-precision value for the oracle; the new path rounds the latter. Within the new initializer, arithmetic
-performed as `f32` rounds its operands and result to `f32` at each operation. Widening keeps
+double-precision value for the oracle; the new path rounds the latter. Within the new initializer,
+arithmetic and builtin calls performed as `f32` round their operands and result to `f32` at
+each operation or call. This specifies call boundaries, not a builtin's internal implementation. Widening keeps
 that rounded value exactly; subsequent `f64` arithmetic uses JavaScript double precision.
 Thus `f64(f32(0.1))` is `Math.fround(0.1)`, and with `const A: f32 = 16777216`,
 `f64((A + 1) - A)` is zero. Parentheses and unary minus cannot erase a written narrow.
@@ -127,7 +128,8 @@ moves its compiler pin and consumes this proposal. No performance improvement is
 Required functional evidence:
 
 1. Literal, arithmetic, prior constant, `Math` constant and all ten eligible `f64` builtin
-   initializers; namespace, unwritten static, import/export and host-face paths.
+   initializers; existing qualified namespace resolution, unwritten static, import/export and
+   host-face paths. Integer builtin subexpressions retain their signed or unsigned semantics.
 2. Explicit and nested `f32` boundaries, earlier `f32` references, cancellation across `f32`
    arithmetic, negative zero, finite pair endpoints and overflow. Existing four scalar paths
    retain their behavior.
@@ -136,8 +138,9 @@ Required functional evidence:
    accepted `f64` declarations have an `f64` hover.
 4. CPU values and pair values agree with their specified precision; both fp64 flavors emit
    valid WGSL and GLSL, with no module-scope helper calls. Actual Tint and GLSL compilation,
-   GPU/CPU comparisons within the existing emulation accuracy, and a packed-package journey
-   exercise constants in an exported function.
+   GPU/CPU comparisons within the existing emulation accuracy for normal-range samples, and a
+   packed-package journey exercise constants in an exported function. Underflow and signed
+   zero tests assert the documented split/emit behavior, not relative-error or zero-sign guarantees.
 5. Focused regressions, build, lint, format, applicable GPU gates and required current-head CI.
 
 Required document evidence: `docs:impact`, `docs:refs`, proposal scope and traceability checks.
@@ -146,9 +149,19 @@ only those actually checked. Review authoring and enforcement references named b
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires independent review of the typed precision
-boundaries, range and unchanged scope, plus the functional and document validation plan above.
-The proposal must merge as accepted before implementation starts.
+On 2026-11-06 UTC, the owner repeated the instruction to continue remaining work, with the
+standing instruction to merge this session's PRs. Codex used that delegated authority to
+select the scope in PR #1048 after independent precision and normative-scope reviews of draft
+`3207ba0c`. The reviewed revision is that draft plus this PR's explicit builtin call-boundary
+rounding, normal-range validation limit and correction that GPU zero sign is not guaranteed.
+Acceptance takes effect when this proposal-only PR merges as accepted. No implementation is
+included in it.
+
+Codex owns compiler implementation and validation in this session. Milestones are the accepted
+proposal merge, a separate implementing PR with the functional and document evidence above,
+and its merge after required current-head CI passes. The declared impacts and checks are final
+for this scope. No delivery date or resource estimate is promised. Downstream assignments are
+unconfirmed and those obligations remain pending.
 
 ### Configuration and validation record
 
