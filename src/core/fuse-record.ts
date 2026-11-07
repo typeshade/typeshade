@@ -20,12 +20,14 @@ import {
   type Layout,
 } from './host-entry.js';
 import type {
+  entryInputs,
   checkEntryCall,
   entryTierFit,
   indirectOf,
   residentsOf,
   runEntry,
 } from './host-compute.js';
+import type { IncomingReads } from './host-failure.js';
 import { arityError, heldArgument } from './host-arity.js';
 import type { KernelFace } from './host-kernel.js';
 import { defaultOwner, foreignOwner, type CallOwner } from './owner.js';
@@ -99,6 +101,7 @@ export interface Plan {
 /** What the call layer lends the plan for an entry call (`entryHost` in `core/host-compute.ts`).
  *  Imported as types only: the planner holds none of the tiers an entry runs on. */
 interface EntryHost {
+  readonly entryInputs: typeof entryInputs;
   readonly residentsOf: typeof residentsOf;
   readonly indirectOf: typeof indirectOf;
   readonly checkEntryCall: typeof checkEntryCall;
@@ -320,6 +323,8 @@ export interface RecordedKernel {
   readonly k: KernelFace;
   readonly argc: number;
   readonly args: readonly unknown[];
+  /** Private content reads, independent of the plan's read-without-write scheduling facts. */
+  readonly incoming?: IncomingReads;
   /** The promise the call returned to the body. */
   readonly promise: Promise<unknown>;
   readonly settle: { resolve(value: unknown): void; reject(error: unknown): void };
@@ -334,6 +339,7 @@ export interface RecordedEntry {
   readonly argc: number;
   readonly bindings: unknown;
   readonly workgroups: unknown;
+  readonly incoming?: IncomingReads;
   /** The `Resident` each binding stands for, checked when the call was recorded. */
   readonly states: ReadonlyMap<EntryBinding, ResidentArrayState>;
   /** The `Resident` that holds the workgroup count of the call, if any (change 0075). */
@@ -416,6 +422,7 @@ class Scope implements FuseRecorder {
     k: KernelFace,
     argc: number,
     args: readonly unknown[],
+    incoming?: IncomingReads,
   ): Promise<unknown> {
     const bad = arityError(k, argc);
     if (bad !== undefined) throw bad;
@@ -452,7 +459,7 @@ class Scope implements FuseRecorder {
     });
     // A call nobody awaits keeps its error on what it writes, for `read()` to throw.
     promise.catch(() => undefined);
-    this.#calls.push({ kind: 'kernel', cpu, k, argc, args, promise, settle });
+    this.#calls.push({ kind: 'kernel', cpu, k, argc, args, incoming, promise, settle });
     return promise;
   }
 
@@ -463,6 +470,7 @@ class Scope implements FuseRecorder {
     bindings: unknown,
     workgroups: unknown,
     lent: unknown,
+    incoming?: IncomingReads,
   ): Promise<void> {
     const host = lent as EntryHost;
     // The refusals that need no value: the arguments, a `Resident` for a binding it may not
@@ -508,6 +516,7 @@ class Scope implements FuseRecorder {
       argc,
       bindings,
       workgroups,
+      incoming,
       states,
       indirect,
       host,

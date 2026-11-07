@@ -206,6 +206,8 @@ export interface Device {
    *  a `TypeError` naming both owners. No registration import is needed (change 0085).
    *  The body runs synchronously; the queued plan automatically loads its local executor.
    *  Deploy every emitted chunk. A loading failure reaches each recorded call and written Resident.
+   *  A failed content dependency rejects the whole plan with the same error (0129).
+   *  An earlier write-only call in the plan can recover a handle before a later call reads it.
    *
    *  With `{ chunk: { key, units } }` the plan is one chunk of a long kernel (change 0074): `key`
    *  names the kernel loop and `units` is the work the chunk holds. The plan runs alone, at the

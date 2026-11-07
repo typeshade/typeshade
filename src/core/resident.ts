@@ -61,6 +61,9 @@ type ResidentValue = unknown;
  * binding of a program runtime's draw or dispatch (surface §69): the first use on WebGPU uploads
  * it, the uses after bind it as it is, and nothing is read back until {@link Resident.read}. A
  * call whose written arrays are all resident, and that returns nothing, only queues.
+ * Generated host calls reject failed content inputs with the same error before execution (0129).
+ * Successful calls proved to be write-only clear destination errors, even for partial or zero-trip work.
+ * Independent calls continue. Manually encoded program-runtime Frames retain their separate contract.
  *
  * Exported from `typeshade` and `typeshade/runtime`.
  */
@@ -78,7 +81,7 @@ export interface Resident<T = ResidentValue> {
   /**
    * Replace what the handle holds with a copy of `value`, after every call made before this one;
    * with none waiting, at once. The copy keeps the class of each object in `value`. The next use
-   * uploads it.
+   * uploads it. A whole write retains any previous call error; it is not a reset.
    *
    * @throws `TypeError` inside the body of `fuse()`, as `read()` does, and for a value that holds
    *   what no binding holds, as `resident()` does; the handle keeps what it held.

@@ -1701,7 +1701,7 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
     expect(gpu.commands.filter((c) => c === 'push' || c === 'pop')).toEqual(['push', 'pop']);
     expect(gpu.submits).toBe(0);
     // A call outside a scope closes its scope the same way.
-    await expect(m.bump(x)).rejects.toThrow('no bind group');
+    await expect(m.bump(live(1, 2))).rejects.toThrow('no bind group');
     expect(gpu.commands.filter((c) => c === 'push' || c === 'pop')).toEqual([
       'push',
       'pop',
@@ -5149,11 +5149,18 @@ describe('an entry call in a fuse scope (proposal 0069)', () => {
     await expect(c.read()).rejects.toThrow(/tiled\(\) needs WebGPU/);
     // The kernel call's array holds the error too: a failed plan trusts none of its arrays.
     await expect(x.read()).rejects.toThrow(/tiled\(\) needs WebGPU/);
-    // A later scope over the same Residents runs: a successful call clears what it writes.
+    // A read/write call cannot recover failed contents (0129).
+    await expect(
+      fuse(() => {
+        void m.bump(x);
+      }),
+    ).rejects.toThrow(/tiled\(\) needs WebGPU/);
+    // A later write-only entry recovers the handle; a subsequent reader can run.
     await fuse(() => {
+      void m.fill({ sink: x }, 1);
       void m.bump(x);
     });
-    expect(await x.read()).toEqual(floats(3, 4));
+    expect(await x.read()).toEqual(floats(2, 2));
   });
 
   it('throws from the body for a bad entry call and leaves the scope with nothing to run', async () => {
@@ -5968,7 +5975,9 @@ describe('what an indirect workgroup count refuses (change 0075, item 9)', () =>
       ),
     );
     const out = marks();
-    await c.mark({ marks: out, words: counts }, { indirect: counts });
+    // The refused writer left counts failed. Use a fresh handle for the independent valid case.
+    const healthy = resident(words(1, 1, 1, 0));
+    await c.mark({ marks: out, words: healthy }, { indirect: healthy });
     expect(await out.read()).toEqual(words(2, 2, 0, 0));
   });
 

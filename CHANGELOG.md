@@ -1638,6 +1638,18 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   constructor inherited through an abstract intermediate class. Defaults, required arguments
   and field-initializer order follow the same path as concrete inheritance.
 
+- **Failed Resident inputs reach dependent outputs** (change 0129, #998). Generated kernel,
+  compute and fragment calls reject failed content inputs with the same error at their queue
+  position. Independent work continues; successful write-only calls recover destinations,
+  including partial and zero-trip work. Fuse keeps one failure boundary and admits an earlier
+  recovery before a later reader. Rejected draws preserve their image. Public metadata and
+  shaders remain unchanged; manually encoded runtime Frames retain their separate contract.
+  Paired gzip measurements against `4c7da1a9`: runtime 154,059 → 154,203 bytes
+  (split initial 39,148 → 39,144; aggregate 156,022 → 156,144), fuse 114,318 → 114,475
+  (initial 15,892 → 15,903; aggregate 114,834 → 114,987), algorithms 51,757 → 52,189,
+  and random 33,446 → 33,557. Emit remains 118,605 bytes. Budgets cover the measured private
+  facts and admission code; compiler imports, dynamic-code checks and floors remain unchanged.
+
 - **Class field initializer range diagnostics** (#321 types#12). An integer-written value
   outside its declared `i32` or `u32` range now uses the existing range sentence and points
   to the offending expression. Other mismatches use assignment diagnostics with cast remedies.

@@ -52,6 +52,7 @@ import {
   type Sampling,
 } from './host-entry.js';
 import { fuseSlot } from './fuse-scope.js';
+import { checkIncoming, type IncomingReads } from './host-failure.js';
 import { defaultOwner, inferOwner, ownerOf, resourceOwner, type CallOwner } from './owner.js';
 import { TIERS, type Tier } from './tiers.js';
 import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
@@ -218,6 +219,7 @@ export function callDraw(
   argc: number,
   target: unknown,
   bindings: unknown,
+  reads?: IncomingReads,
 ): Promise<void> {
   fuseSlot.active?.refuse(`${e.name}()`, 'a draw');
   try {
@@ -239,6 +241,14 @@ export function callDraw(
     const before = s.chain;
     const draw = (): Promise<void> =>
       before.then(async () => {
+        checkIncoming(
+          e.bindings.flatMap((b) => {
+            const state = frame.residents.get(b.name);
+            return state !== undefined && (reads === undefined || reads.includes(b.name))
+              ? [state]
+              : [];
+          }),
+        );
         // A context can be configured for another GPU. Do not reuse the previous owner's painter.
         if (s.painter === undefined || s.owner !== frame.owner) {
           s.owner = frame.owner;
