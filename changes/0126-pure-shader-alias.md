@@ -293,8 +293,8 @@ Implementation is in [PR #1059](https://github.com/typeshade/typeshade/pull/1059
 the accepted merge `42fe4fd77bffbfec6d25be35ea14110ab9f2b54a` of PR #1058.
 The first implementation commit is `8727a383f847aa279016271d737c5d479fe69446`.
 Commit `36c21e8116226a4bed9bb2dfe8812819741a742d` completes the paired import-failure
-and named-export assertions without changing production code. The integrated build and GPU
-gates use final source/test commit `86a7f2621e84007515228286392e2ff8d5f55c58`,
+and named-export assertions without changing production code. The first complete build and GPU
+gates ran on source/test commit `86a7f2621e84007515228286392e2ff8d5f55c58`,
 which adds explicit types to the fixture path maps after the canonical build exposed their
 TypeScript inference errors; it changes no executable behavior. Its build receipt records the
 same revision and fingerprint `1b513104260c234e1d285e87f28088a51e6c61873609b0cde3ea9cd6b4e10ee1`.
@@ -357,6 +357,22 @@ The packed host TypeScript check and Vite development console probe passed. Both
 Google Chrome for Testing 156.0.8078.4 and the Google SwiftShader adapter across WebGPU,
 WebGL2 and CPU. All gate processes, browsers and servers stopped after completion.
 
+Subsequent CI at `805a8481b14956715982314f96c0174c1419653c` exposed two validation gaps:
+both new alias documentation fences omitted the target file, so their compiler/editor checks
+failed; TypeScript 6 additionally reports diagnostic 2880 for the legacy assertion syntax.
+The examples now supply a concrete target before the alias using the existing multi-file
+fence format, with no skip or harness relaxation. The assertion control preserves the exact
+2318 diagnostic and expects the additional exact 2880 only on TypeScript 6; ordinary retention
+and the `with` control remain checked. On 2026-11-07 UTC, the complete documentation-snippet
+suite and both alias suites passed 292 tests in three files on each of TypeScript 5.6.3 and
+6.0.3. The latter used an isolated actual 6.0.3 package, with a setup assertion and recorded
+executing-library path proving the loaded version. Independent focused review passed the
+28 alias cases and four new multi-file documentation checks on each version, with no findings.
+The corrective checkout also passes the
+canonical build, changed-file lint/format, document references, requirements and installed
+commit checks. No production code, integration fixture or snippet harness changed, so the
+recorded native and packed GPU evidence remains applicable. Disposition: closed.
+
 The document audit updated Rule 3.9, surface §68, `AUTHORING.md`, the changelog, the journey
 description and generated requirement records. Linker/CLI/Vite/language-service and ordinary
 import references remain accurate; the historical proposals retain their baseline descriptions.
@@ -367,8 +383,8 @@ formatting and installed commit hooks are checked on the delivered revision.
 
 No implementation deviation remains open. TypeCV, website and editor adoption, compiler pins
 and their validation remain pending under the obligations below. Compiler completion does not
-establish downstream adoption. The final record changes documentation only; required CI checks
-and merge approval still follow the pull request's current head.
+establish downstream adoption. Required CI checks and merge approval still follow the pull
+request's current head, including the documented CI corrections.
 
 ## What it owes downstream
 

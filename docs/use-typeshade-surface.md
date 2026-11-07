@@ -8955,9 +8955,18 @@ checks.
 - Two files may import each other. A call cycle through them is still refused (Rule 8.4).
 
 **A pure root alias (Rule 3.9, change 0126).** A requested file containing only the directive
-and one value export-star preserves its terminal target as a whole module:
+and one value export-star preserves its terminal target as a whole module.
+Here `k.shade.ts` is the alias; the first file supplies its target:
 
 ```ts
+// new/k.shade.ts
+"use typeshade";
+declare const unused: uniform<f32>;
+declare const gain: uniform<f32>;
+function privateHelper(x: f32): f32 { return x * 2.; }
+export function scale(x: f32): f32 { return x * gain; }
+
+// k.shade.ts
 "use typeshade";
 export * from "./new/k.shade.ts";
 ```

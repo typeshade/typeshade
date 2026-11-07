@@ -1886,9 +1886,18 @@ import brings the declarations your file reaches: helpers, structs, constants an
 Unrelated entry points stay out. Each file keeps its own scope, so two files can each have
 a private `hash`; the module emits the second one under a name of its own.
 
-A file kept as a pure alias contains only the shader directive and one value export-star:
+A file kept as a pure alias contains only the shader directive and one value export-star.
+Here `k.shade.ts` is the alias; the first file supplies its target:
 
 ```ts
+// new/k.shade.ts
+"use typeshade";
+declare const unused: uniform<f32>;
+declare const gain: uniform<f32>;
+function privateHelper(x: f32): f32 { return x * 2.; }
+export function scale(x: f32): f32 { return x * gain; }
+
+// k.shade.ts
 "use typeshade";
 export * from "./new/k.shade.ts";
 ```

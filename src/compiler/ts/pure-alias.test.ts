@@ -1,6 +1,7 @@
 // Verifies: Rule 3.9 (docs/language-design.md; traced in reqs/).
 // Change 0126: only a requested pure root retains its terminal target whole.
 import { describe, expect, it } from 'vitest';
+import ts from 'typescript';
 import { compile } from './compile.js';
 import { linkProgram } from './link.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
@@ -116,9 +117,14 @@ describe('the retention boundary', () => {
       service.openDocument(file, files[file]!);
       expect(result.diagnostics).toEqual([]);
       // Existing editor limitation; the alias change grants no attribute support.
-      expect(service.getDiagnostics(file).map((d) => [d.code, d.message])).toEqual([
-        [2318, "Cannot find global type 'ImportAttributes'."],
-      ]);
+      const expected: [number, string][] = [[2318, "Cannot find global type 'ImportAttributes'."]];
+      // TypeScript 6 additionally refuses legacy `assert`; `with` keeps the same diagnostics.
+      if (_name === 'assertions' && ts.versionMajorMinor.startsWith('6.'))
+        expected.push([
+          2880,
+          "Import assertions have been replaced by import attributes. Use 'with' instead of 'assert'.",
+        ]);
+      expect(service.getDiagnostics(file).map((d) => [d.code, d.message])).toEqual(expected);
       service.closeDocument(file);
     } else checked(files, file);
   });
