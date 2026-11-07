@@ -372,7 +372,7 @@ export const fs = fragment(function fs(): location<0, vec4> { return vec4(U, V, 
     (e) => e.kind === 'fragment',
   );
   if (exported?.kind !== 'fragment') throw new Error('Missing fragment host entry');
-  const entry = exported.entry;
+  const entry: FragmentEntry = { ...exported.entry, wgsl: pack.wgsl };
   const uploads = (calls: [string, unknown[]][]) =>
     calls
       .filter(([name]) => name === 'bufferData')

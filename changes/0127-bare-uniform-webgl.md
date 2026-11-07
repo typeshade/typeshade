@@ -294,9 +294,11 @@ Preserve historical measurements when updating current support statements.
 
 The accepted proposal merged as PR #1072 at `4fe5237b3b643929e5e8b481b371924d99031106`.
 The implementation branch `fix/452-bare-uniform-webgl` is based on main
-`89a05342e7699ba40bbfeea75eb9a7547286e8ef`. Its PR and clean build receipt will be
-recorded after the first implementation commit. This record is pre-merge evidence;
-full compile, differential and packed-journey gates remain pending at this revision.
+`89a05342e7699ba40bbfeea75eb9a7547286e8ef`. Implementation
+[PR #1075](https://github.com/typeshade/typeshade/pull/1075) starts at
+`982fdd6e51c2a4d7b2f74e438d5d58f918df9420`. This record is pre-merge evidence;
+the clean build receipt and full compile, differential and packed-journey gates remain
+pending at this revision.
 
 The implementation adds private GLSL spellings and a lowered single-member struct only
 inside the GLSL writer. Both WebGL consumers query the linked block size and copy existing
