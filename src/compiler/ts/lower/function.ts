@@ -46,7 +46,7 @@ import {
   restrictedFieldTableOf,
   withheldTableOf,
 } from '../context.js';
-import { hasMalformedIoAttribute, type CollectedStruct } from '../structs.js';
+import { hasRefusedIoAttribute, type CollectedStruct } from '../structs.js';
 import { recordDeclaration, recordInferredReturn, type DeclaredSymbolSink } from '../symbols.js';
 import { mapTsTypeToShaderType, withCollections } from '../type-map.js';
 import {
@@ -3018,8 +3018,7 @@ function refuseVertexWithoutPosition(
     const decl = structs.find((s) => s.decl.name === ret.name);
     // An unknown struct was reported where it was named; do not pile on.
     if (decl === undefined) return;
-    if (decl.decl.fields.some((f) => f.builtin === 'position' || hasMalformedIoAttribute(f)))
-      return;
+    if (decl.decl.fields.some((f) => f.builtin === 'position' || hasRefusedIoAttribute(f))) return;
     pushDiag(
       diagnostics,
       sourceFile,
@@ -4064,7 +4063,7 @@ function checkStructBuiltinFields(
   // vertex output and a fragment input are the SAME struct. What is left below reads the
   // stage, which is genuinely different between the two uses.
   for (const field of collected.decl.fields) {
-    if (hasMalformedIoAttribute(field)) continue;
+    if (hasRefusedIoAttribute(field)) continue;
     // A `@location` on a COMPUTE entry, reached through a struct parameter. The bare-parameter
     // spelling was refused where it is parsed, and this one walked past it: Tint answers
     // `'@location' cannot be used by compute shaders`. Stage-dependent, so it belongs here

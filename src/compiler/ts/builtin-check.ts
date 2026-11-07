@@ -555,21 +555,24 @@ export function checkBuiltinStage(
  * decorator that is not a name at all (`@N.k`, `@(fragment)`), were dropped the same way, and
  * are refused too (Rule 6.7). `@std140` and `@align` on a class, `@align` on a field, and a
  * stage on a class are left alone: `structs.ts` says those are not applied, and a second
- * sentence here would contradict it.
+ * sentence here would contradict it. Returns whether the name is unknown, so a struct field
+ * can distinguish its already-refused IO spelling from an absent attribute.
  */
 export function checkAttributeName(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
   decorator: ts.Decorator,
   site: AttributeSite,
-): void {
-  const message = attributeRefusal(decorator, sourceFile, site);
-  if (message === undefined) return;
+): boolean {
+  const refusal = attributeRefusal(decorator, sourceFile, site);
+  if (refusal === undefined) return false;
+  const { message } = refusal;
   // A generic function, and one that takes a function, is lowered once per instance, and each
   // pass reads its decorators again: one decorator is one refusal (Rule 12.4).
   const start = decorator.getStart(sourceFile);
-  if (diagnostics.some((d) => d.start === start && d.message === message)) return;
-  diagnostics.push(makeDiagnostic(sourceFile, decorator, message, TS_CODES.ATTRIBUTE_NAME));
+  if (!diagnostics.some((d) => d.start === start && d.message === message))
+    diagnostics.push(makeDiagnostic(sourceFile, decorator, message, TS_CODES.ATTRIBUTE_NAME));
+  return refusal.unknownName === true;
 }
 
 /** The sentence {@link checkAttributeName} refuses `decorator`, written at `site`, with, or
@@ -578,18 +581,19 @@ function attributeRefusal(
   decorator: ts.Decorator,
   sourceFile: ts.SourceFile,
   site: AttributeSite,
-): string | undefined {
+): { message: string; unknownName?: true } | undefined {
   const name = attributeNameOf(decorator);
   if (name === undefined) {
-    return (
-      `"${decorator.getText(sourceFile)}" is not applied: an attribute is written "@name" or ` +
-      `"@name(...)". Remove it.`
-    );
+    return {
+      message:
+        `"${decorator.getText(sourceFile)}" is not applied: an attribute is written "@name" or ` +
+        `"@name(...)". Remove it.`,
+    };
   }
   if (ATTRIBUTE_NAMES.includes(name)) {
     if (SITE_ATTRIBUTES[site]?.includes(name) === true) return undefined;
     if (site === 'a class' && STAGE_ATTRIBUTES.includes(name)) return undefined;
-    return misplacedAttribute(name, site);
+    return { message: misplacedAttribute(name, site) };
   }
   if (
     RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES.includes(name) &&
@@ -597,9 +601,11 @@ function attributeRefusal(
   ) {
     return undefined;
   }
-  return name === 'std140'
-    ? STD140_NOT_APPLIED
-    : (wgslAttributeSentence(name, site) ?? unknownAttribute(name));
+  if (name === 'std140') return { message: STD140_NOT_APPLIED };
+  const elsewhere = wgslAttributeSentence(name, site);
+  return elsewhere === undefined
+    ? { message: unknownAttribute(name), unknownName: true }
+    : { message: elsewhere };
 }
 
 /** The sentence for `name`, one of {@link ATTRIBUTE_NAMES}, written at `site`, which does not
