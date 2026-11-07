@@ -1630,6 +1630,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Integer-literal deprecation warnings** (#321, misc#6 and misc#7). Counted-loop initializers
+  that already take an integer type no longer claim to be `f32`. Hexadecimal, octal and binary
+  literals suggest an `f32` annotation instead of an invalid decimal-point suffix.
+  Compiler and editor checks keep the same spans, and the option changes no emitted code.
+
 - **Refused base constructor diagnostics** (#321, names#19). `super()` no longer adds an
   unknown generated-function diagnostic after the base constructor's signature was refused.
   The original declaration diagnostic and independent call or body errors remain.
