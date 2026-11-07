@@ -601,6 +601,10 @@ async function hostImport(
     `a production build records no console call (got ${JSON.stringify(web.logs)})`,
   );
   const dev = await inDevServer(app);
+  check(
+    dev.reloads === 0,
+    `vite dev keeps the page when the shader host imports fuse after the runtime (reloads ${dev.reloads})`,
+  );
   const printed4 = [1.5, 2.5, 3.5, 4.5].map(
     (x, i) => `GPU  kernels.shade.ts:38  [${i}, 0, 0]  x ${i} ${x}`,
   );
@@ -923,7 +927,9 @@ function viteEntry(app: string): string {
  *  `npx vite` put `npx` and a shell between the gate and vite, and `kill()` ended those two and
  *  left vite running (#923). The server is stopped and waited for, then its port is checked: a
  *  server that is still listening fails the run. */
-async function inDevServer(app: string): Promise<{ logs: string[]; error?: string }> {
+async function inDevServer(
+  app: string,
+): Promise<{ logs: string[]; reloads: number; error?: string }> {
   const port = 5170 + Math.floor(Math.random() * 500);
   const server = startChild(
     'node',
@@ -949,7 +955,7 @@ async function inDevServer(app: string): Promise<{ logs: string[]; error?: strin
         await fetch(url);
         break;
       } catch {
-        if (i === 100) return { logs: [], error: 'the dev server did not start' };
+        if (i === 100) return { logs: [], reloads: 0, error: 'the dev server did not start' };
         await new Promise((done) => setTimeout(done, 200));
       }
     }
@@ -963,37 +969,28 @@ async function inDevServer(app: string): Promise<{ logs: string[]; error?: strin
         );
     });
     await page.goto(url);
-    const call = (): Promise<string | undefined> =>
-      page.evaluate(async () => {
-        try {
-          const m = (await import('/src/gpu.ts' as string)) as { logged(): Promise<void> };
-          await m.logged();
-          return undefined;
-        } catch (e) {
-          return String(e);
-        }
-      });
-    let error: string | undefined;
-    for (let attempt = 0; ; attempt++) {
+    let reloads = 0;
+    page.on('framenavigated', (frame) => {
+      if (frame === page.mainFrame()) reloads++;
+    });
+    // Finish the runtime's initial optimization before discovering the host's fuse import.
+    // Otherwise both can enter the first optimizer batch and conceal a missing pre-bundle.
+    await page.evaluate(async () => {
+      await import('/src/dev-runtime.ts' as string);
+    });
+    const error = await page.evaluate(async () => {
       try {
-        error = await call();
-        break;
+        const m = (await import('/src/gpu.ts' as string)) as { logged(): Promise<void> };
+        await m.logged();
+        return undefined;
       } catch (e) {
-        // The import brings the dev server a dependency it has not optimized yet (`typeshade/fuse`,
-        // change 0073), and Vite reloads the page once it has: the call is made again on the
-        // reloaded page, which has every dependency, and prints nothing of the first attempt.
-        if (attempt < 3 && /Execution context was destroyed/.test(String(e))) {
-          await page.waitForLoadState('load');
-          printed.length = 0;
-          continue;
-        }
-        throw e;
+        return String(e);
       }
-    }
+    });
     // The console events are page messages, delivered after the call resolves.
     await page.waitForTimeout(200);
     const logs = await Promise.all(printed);
-    return { logs, ...(error !== undefined ? { error } : {}) };
+    return { logs, reloads, ...(error !== undefined ? { error } : {}) };
   };
   return withGateBrowser(browser, stopServer, run);
 }

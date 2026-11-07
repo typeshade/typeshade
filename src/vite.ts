@@ -84,10 +84,9 @@ export interface TypeshadeVitePlugin {
   /** Before Vite's own TypeScript transform, which would otherwise strip the source's types
    *  and hand the bundle the shader source as host code. */
   readonly enforce: 'pre';
-  /** Asks Vite to pre-bundle `typeshade/runtime` and `typeshade/runtime/internal`, the op
-   *  library a generated module imports, together when `vite dev` starts: a generated module is
-   *  not a source Vite's startup scan reads, so the op library would otherwise be found late and
-   *  the page reloaded. */
+  /** Asks Vite to pre-bundle `typeshade/runtime`, `typeshade/runtime/internal` and
+   *  `typeshade/fuse` together when `vite dev` starts. Generated modules and a late host import
+   *  can otherwise reveal a shared dependency after optimization and reload the page. */
   config(): { optimizeDeps: { include: string[] } };
   /** Reads whether this is `vite dev` (`command: 'serve'`) and the project root. The root is
    *  required only with `originNamespace`; the command controls GPU console recording. */
@@ -143,12 +142,16 @@ export function typeshade(options: TypeshadeViteOptions = {}): TypeshadeVitePlug
   return {
     name: 'typeshade',
     enforce: 'pre',
-    // A generated module imports the op library, which Vite's scan of the project's sources at
-    // startup never sees, and it shares modules with the program runtime a host file imports:
-    // pre-bundled apart, one found after the other re-bundled both and reloaded the page in
-    // `vite dev` (change 0025). Both are pre-bundled together from the start.
+    // The op library and fuse share modules with the program runtime. Generated code or a late
+    // host import can reveal either after startup (changes 0025 and 0073). A second optimization
+    // then invalidates the first chunks while the page is importing them. Prepare all three
+    // together so their imports keep one dependency graph.
     config() {
-      return { optimizeDeps: { include: ['typeshade/runtime', 'typeshade/runtime/internal'] } };
+      return {
+        optimizeDeps: {
+          include: ['typeshade/runtime', 'typeshade/runtime/internal', 'typeshade/fuse'],
+        },
+      };
     },
     configResolved(config) {
       dev = config.command === 'serve';
