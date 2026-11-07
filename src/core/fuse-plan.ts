@@ -466,10 +466,18 @@ export async function runPlan(
     if (c.kind === 'kernel') c.settle.resolve(results[i]);
     else c.settle.resolve();
   });
+  const webgpuScratch = { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 };
+  for (const s of scratch) {
+    webgpuScratch.allocations += s.webgpuScratch.allocations;
+    webgpuScratch.allocatedBytes += s.webgpuScratch.allocatedBytes;
+    webgpuScratch.reuses += s.webgpuScratch.reuses;
+    webgpuScratch.reusedBytes += s.webgpuScratch.reusedBytes;
+  }
   return {
     tier: TIERS.find((t) => tiers.has(t)) ?? 'cpu',
     dispatches: counts.dispatches,
     submissions: counts.submissions,
+    webgpuScratch,
     groups: plan.groups.map((g, gi) => {
       const ns = gpuTimes.get(gi);
       return {

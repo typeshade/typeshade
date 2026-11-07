@@ -210,6 +210,9 @@ export class ScratchState extends ZeroedState {
    *  its zeroed state holds `4 × length` numbers of `f32` (change 0068). */
   readonly spelled: ScratchElement;
 
+  /** Actual storage acquisitions, retained after release for the successful plan's report. */
+  readonly webgpuScratch = { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 };
+
   constructor(
     length: number,
     element: ScratchElement,
@@ -275,8 +278,20 @@ export class ScratchState extends ZeroedState {
     writes: boolean,
   ): GpuBuffer {
     this.#use('This array');
-    if (this.gpu === undefined) this.ownedBy?.scratchBuffer?.(this, d, layout);
-    return super.bufferFor(d, layout, bytes, writes);
+    const unbound = this.gpu === undefined;
+    if (unbound) this.ownedBy?.scratchBuffer?.(this, d, layout);
+    const borrowed = this.gpu;
+    if (unbound && borrowed !== undefined) {
+      this.webgpuScratch.reuses++;
+      this.webgpuScratch.reusedBytes += borrowed.size;
+    }
+    const before = this.gpu?.buffer;
+    const buffer = super.bufferFor(d, layout, bytes, writes);
+    if (buffer !== before) {
+      this.webgpuScratch.allocations++;
+      this.webgpuScratch.allocatedBytes += this.gpu!.size;
+    }
+    return buffer;
   }
 
   /** The plan has run, or will not: free the device buffer and the host array, and refuse every

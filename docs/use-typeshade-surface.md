@@ -9997,6 +9997,12 @@ interface FuseReport {
   readonly tier: 'webgpu' | 'webgl2' | 'cpu';
   readonly dispatches: number;
   readonly submissions: number;
+  readonly webgpuScratch?: {
+    readonly allocations: number;
+    readonly allocatedBytes: number;
+    readonly reuses: number;
+    readonly reusedBytes: number;
+  };
   readonly groups: readonly {
     readonly calls: readonly string[];
     readonly fused: boolean;
@@ -10011,20 +10017,49 @@ interface FuseReport {
 }
 ```
 
-`tier` is the best tier that any call of the plan ran on, which is the best `tier` of its groups: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, including each reduction fold after a fused loop. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Resident` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, the `tier` its calls ran on (change 0118), and its `why`. Every group has `tier`: a fused group ran on WebGPU, and any other group is one call, on the tier that call ran on. `workgroupShapes` lists, in dispatch order, the triple `[x, y, z]` of each dispatch the group made on WebGPU. A compute-entry group has one triple, the resolved shape of its call (§67), which may have more than one non-unit dimension. Kernel-loop dispatches have the form `[n, 1, 1]`. The entry that stores after a function's loops (§65, change 0094) adds no triple, so a function with no loop has none. A fused group or a single-loop call has one entry: the size its calls declare (F7), 64 when none does, or 256 for a group that reduces. A lone call of a function with more than one loop has one entry for each loop, so a map loop then a reducing loop gives `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the size of their reducing loop. The field is absent exactly when the group does not run on WebGPU. `indirect` is `true` for the group of an entry call with an indirect count (change 0075), and absent otherwise. On WebGPU `dispatches` counts its dispatch once, whatever the counts hold, since the plan does not read them. On the CPU tier and WebGL2 the call reads the counts from the host copy when it runs, and a read of the device that this needs is a submission. The host example reports these three scopes on WebGPU:
+`tier` is the best tier that any call of the plan ran on, which is the best `tier` of its groups: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, including each reduction fold after a fused loop. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Resident` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, the `tier` its calls ran on (change 0118), and its `why`. Every group has `tier`: a fused group ran on WebGPU, and any other group is one call, on the tier that call ran on. `workgroupShapes` lists, in dispatch order, the triple `[x, y, z]` of each dispatch the group made on WebGPU. A compute-entry group has one triple, the resolved shape of its call (§67), which may have more than one non-unit dimension. Kernel-loop dispatches have the form `[n, 1, 1]`. The entry that stores after a function's loops (§65, change 0094) adds no triple, so a function with no loop has none. A fused group or a single-loop call has one entry: the size its calls declare (F7), 64 when none does, or 256 for a group that reduces. A lone call of a function with more than one loop has one entry for each loop, so a map loop then a reducing loop gives `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the size of their reducing loop. The field is absent exactly when the group does not run on WebGPU. `indirect` is `true` for the group of an entry call with an indirect count (change 0075), and absent otherwise. On WebGPU `dispatches` counts its dispatch once, whatever the counts hold, since the plan does not read them. On the CPU tier and WebGL2 the call reads the counts from the host copy when it runs, and a read of the device that this needs is a submission. The host example reports these three scopes on WebGPU for 1,000 elements:
 
 ```json
-{"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true,"tier":"webgpu","workgroupShapes":[[64,1,1]],"dispatches":1}]}
-{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul"],"fused":true,"tier":"webgpu","workgroupShapes":[[64,1,1]],"dispatches":1},{"calls":["pairsum","relu"],"fused":true,"tier":"webgpu","why":"mul and pairsum run as two dispatches because pairsum reads `t[i ^ 1]` (line 38)","workgroupShapes":[[64,1,1]],"dispatches":1}]}
-{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul","total"],"fused":true,"tier":"webgpu","workgroupShapes":[[256,1,1]],"dispatches":2}]}
+{"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true,"tier":"webgpu","workgroupShapes":[[64,1,1]],"dispatches":1}],"webgpuScratch":{"allocations":0,"allocatedBytes":0,"reuses":0,"reusedBytes":0}}
+{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul"],"fused":true,"tier":"webgpu","workgroupShapes":[[64,1,1]],"dispatches":1},{"calls":["pairsum","relu"],"fused":true,"tier":"webgpu","why":"mul and pairsum run as two dispatches because pairsum reads `t[i ^ 1]` (line 38)","workgroupShapes":[[64,1,1]],"dispatches":1}],"webgpuScratch":{"allocations":1,"allocatedBytes":4000,"reuses":0,"reusedBytes":0}}
+{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul","total"],"fused":true,"tier":"webgpu","workgroupShapes":[[256,1,1]],"dispatches":2}],"webgpuScratch":{"allocations":0,"allocatedBytes":0,"reuses":0,"reusedBytes":0}}
 ```
 
-**Several plans as one.** The report's type, `FuseReport`, is exported from `typeshade/fuse`, from `typeshade/runtime` and from the package root (change 0071, Amendment 2), so a host that holds a report types it without importing the planner. `mergeReports(reports)`, from `typeshade/runtime` and the root, is the report of several plans as one, as a plan of several groups reports its own: `dispatches` and `submissions` summed, `groups` in the order given, each the group its report held, with its `tier`, `dispatches` and `why`, and `tier` the most capable tier any report ran on, WebGPU before WebGL2 before the CPU tier. A group keeps the `why` its own plan gave it, so a group that ran below the merged `tier`, and on the `tier` of its own plan, says nothing of it. With no report it is `{ tier: 'cpu', dispatches: 0, submissions: 0, groups: [] }`. A merged report has no `chunk` row (below), since it is no one chunk. It is arithmetic over the records and adds no planner dependency of its own (§69).
+**WebGPU scratch storage.** Every new runtime report includes `webgpuScratch` (change 0128).
+Its four counters describe the plan's actual scratch buffer acquisitions:
+
+| Counter          | Meaning                                                                    |
+| ---------------- | -------------------------------------------------------------------------- |
+| `allocations`    | New WebGPU storage buffers acquired for scratch arrays.                     |
+| `allocatedBytes` | The sum of those new buffers' descriptor sizes.                             |
+| `reuses`         | Existing storage buffers borrowed from the owner's pool for scratch arrays. |
+| `reusedBytes`    | The sum of those borrowed buffers' descriptor sizes.                        |
+
+A compatible ordinary `Resident` buffer can supply a reuse. A pooled slot with no GPU buffer
+supplies none; creating its buffer counts as an allocation. Incompatible size, type or device
+prevents reuse. Rebinding, clearing, uploading and returning a buffer add no acquisition.
+A replacement buffer adds an allocation. Bytes include layout padding, not driver heap usage.
+These counts add no GPU query, fence or readback and make no timing claim.
+
+Empty scopes, unused scratch, fused locals and CPU-only or WebGL2-only scopes report four zeros.
+Mixed-tier groups count each actual acquisition; nested scopes share their outer plan's report.
+A chunk retains the same counters. Failed scopes reject without a partial report, and their
+acquisitions do not enter the next successful report. The snapshot stays unchanged by later plans.
+Ordinary residents, reduction partials, staging, uniforms, guards and WebGL2 or host storage
+are excluded. `DeviceStatistics.allocations` and `reuses` still count `array()` calls (§69).
+
+The optional member preserves older report literals and serialized reports. Omission means
+unrecorded, not zero; a present object must supply all four counters. For example, a first plan
+that acquires one 40,960,000-byte buffer reports one allocation and that many allocated bytes.
+If its next plan borrows that buffer, it reports one reuse and 40,960,000 reused bytes, with zero
+allocations. This is an illustrative count, not a memory-usage or performance measurement.
+
+**Several plans as one.** The report's type, `FuseReport`, is exported from `typeshade/fuse`, from `typeshade/runtime` and from the package root (change 0071, Amendment 2), so a host that holds a report types it without importing the planner. `mergeReports(reports)`, from `typeshade/runtime` and the root, is the report of several plans as one, as a plan of several groups reports its own: `dispatches` and `submissions` summed, `groups` in the order given, each the group its report held, with its `tier`, `dispatches` and `why`, and `tier` the most capable tier any report ran on, WebGPU before WebGL2 before the CPU tier. A group keeps the `why` its own plan gave it, so a group that ran below the merged `tier`, and on the `tier` of its own plan, says nothing of it. With no report it has tier `'cpu'`, zero dispatches and submissions, no groups and four known-zero scratch counters. The four scratch counters are summed into a new object only when every input records them. Any omitted input leaves the merged `webgpuScratch` absent and unknown. A merged report has no `chunk` row (below), since it is no one chunk. It is arithmetic over the records and adds no planner dependency of its own (§69).
 
 **The GPU time.** When the device has the `timestamp-query` feature, each group that ran on WebGPU has `gpuTime`: the GPU time of its compute passes, in nanoseconds, as the device measured it. The feature is requested when the adapter reports it, and a device without it runs the same plan with no `gpuTime` on any group, which is not 0. A group on WebGL2 or on the CPU tier has none, and neither has a group whose timestamps could not be read, or whose submission held more than 2,048 passes. The time of a group is the sum of its passes; gaps between passes are in no group's time, and the browser may round each timestamp to a coarser step. The report of a scope that runs one fused group on such a device reads:
 
 ```json
-{"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true,"tier":"webgpu","workgroupShapes":[[64,1,1]],"gpuTime":412800,"dispatches":1}]}
+{"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true,"tier":"webgpu","workgroupShapes":[[64,1,1]],"gpuTime":412800,"dispatches":1}],"webgpuScratch":{"allocations":0,"allocatedBytes":0,"reuses":0,"reusedBytes":0}}
 ```
 
 **Scratch arrays.** `scope.scratch(length)` makes a handle for an intermediate that you never read. A kernel call takes it where it takes an `array<f32>`. `scope.scratch(n, 'i32')` and `scope.scratch(n, 'u32')` make an `array<i32>` and an `array<u32>`. `scope.scratch(n, 'vec4f')` makes an `array<vec4f>` of `n` vectors, which is `4 × n` numbers of the `Float32Array` the handle holds. It holds zeros when the plan starts, as a new buffer does.

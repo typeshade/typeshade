@@ -244,10 +244,34 @@ remain unassigned. Compiler delivery will not establish downstream completion or
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires the accepted proposal revision, implementation
-PR and commits, functional and document evidence, and dispositions for any deviation.
-The read-only source audit and issue evidence support this record; they do not validate an
-implementation of the new fields. Downstream adoption remains separate from compiler delivery.
+Implementation is in progress on branch `fix/992-scratch-report`, based on compiler main
+`d298453748be4484b6c9a528ff0ce5401df596b4`. Accepted proposal PR #1082 and pool PR #1074
+were merged before this implementation began. Codex implements and verifies the compiler work;
+a separate collaborating agent reviews the product diff and native results.
+
+Observed on 2026-11-07 UTC with Bun 1.4.4, TypeScript 5.6.3 and Node 24.22.1:
+
+- Baseline regression controls: three expected failures and one legacy-omission pass.
+- Focused report, fuse and device suites: 325 tests pass. Canonical build passes.
+- API bake: 15 tests pass; only `FuseReport` changes shape.
+- Independent Chromium 156 / SwiftShader run: nine GPU/CPU rows and six acquisition controls
+  pass. Actual buffer IDs and descriptor sizes verify first allocation, later reuse, compatible
+  ordinary-buffer reuse, host-only allocation and repeated no-pool allocation. Wrong counters
+  and suppressed clears are detected; broken WGSL is refused. No uncaptured error was observed.
+- Paired bundle measurement against the implementation base: runtime mono 154059 → 154240 gzip
+  bytes, split initial 39148 → 39339, split total 156022 → 156276. Fuse mono 114318 → 114448,
+  split initial 15892 → 15992, split total 114834 → 114985. Only those exceeded caps change.
+  Emit, algorithms and random sizes stay equal. The boundary gate passes with the measured caps.
+- Rule 11.13, surface §71, JSDoc, API snapshot, CHANGELOG and requirements are updated together.
+  The agent read the requirement evidence, reviewed RULE-1113 and cleared SURF-038 and SURF-071
+  with Doorstop. The strict Doorstop check passes. Documentation references have no dead target.
+
+Product review and the bounded native run cover the three-file product diff with SHA-256
+`722047cc1d54aaac6921ac30a1e3e651d93c6ec32892dfa73080c14f815fca06` against the implementation base.
+This digest identifies a diff, not a commit. The implementation PR and final revision will record
+full compile, differential and packed-journey results and current-head CI before compiler delivery.
+Those broad gates and CI remain pending. No design deviation is identified. Downstream adoption,
+publication and release remain separate and pending.
 
 ## What it owes downstream
 
