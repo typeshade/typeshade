@@ -1,7 +1,7 @@
 ---
 id: '0127'
 title: A scalar, vector or supported matrix uniform keeps its host value on WebGL2
-status: draft
+status: accepted
 rules: []
 surface:
   - 67
@@ -20,7 +20,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                 |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0127, status draft. The front matter is the identity and lifecycle authority.                                                                                 |
+| Identity and status           | Proposal 0127, status accepted. The front matter is the identity and lifecycle authority.                                                                              |
 | Date and attribution          | Authored 2026-11-07 UTC by Codex while progressing the owner's remaining-issue request. This date records authorship, not acceptance.                                  |
 | Request source                | Issue [#452](https://github.com/typeshade/typeshade/issues/452), its recorded direction from #198, and roadmap B4.                                                     |
 | Applicability / Effectivity   | GLSL uniform emission, shader host draws, manifest render stages and the WebGL2 program runtime. Public source and host values retain their forms. Release unassigned. |
@@ -87,7 +87,7 @@ the six `f32` matrix shapes with three or four rows. A square alias denotes the 
 Existing `f64` lowering and host values are preserved. A bare `f64` lowered to a two-word
 vector uses the new block path. An existing lowered struct, such as a `vec64` representation,
 continues through the struct path. Both `f64` flavors require validation; the float flavor's
-runtime guard must remain real. This draft's native measurement does not establish `f64`
+runtime guard must remain real. The recorded native measurement does not establish `f64`
 execution; those checks remain delivery requirements.
 
 Keep these boundaries:
@@ -238,26 +238,36 @@ The JavaScript reference calculated those sums independently of emitted GLSL.
   paths. Add bounded cases to existing real-driver gates and packed host journeys.
 - The two declared downstream repositories owe the adoption work below.
 
-### Draft impact estimate
+### Implementation impact estimate
 
 The known implementation areas are the GLSL writer, manifest block extraction, host draw
 upload and program-runtime upload. No dependency or public schema addition is proposed.
 Compiler WGSL, CPU results and public binding layouts must compare unchanged.
 
 The technical estimate is a bounded backend/runtime change with cross-path validation.
-Time, cost and implementation ownership are unassigned. Native measurement resolves the
-block-versus-loose choice for this draft; physical GPU coverage remains unmeasured.
+Time and cost estimates are unassigned. Codex owns the compiler implementation.
+Native measurement supports the block choice; physical GPU coverage remains unmeasured.
 
-Before acceptance, review the proposed block naming, existing `f64` lowering boundary and
+The acceptance review checked block naming, the existing `f64` lowering boundary and
 allocation-only padding against Rule 6.8. Resolve any request to support two-row matrices
 or bare arrays separately. Those requests cannot be implemented under this record.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires review of this revision and its
-declared scope. Record the actual decision, reviewed revision, responsibilities and
-milestones when agreed. No approver, delivery date or resource estimate is assigned.
-The proposal must merge as accepted before product implementation.
+The owner instructed Codex to continue unstarted issues and merge its own pull requests
+in this conversation. That standing authorization covers this work; it is not evidence
+that the owner separately reviewed this technical revision.
+
+On 2026-11-07 UTC, the coordinating Codex agent independently reviewed revision
+`05d92cc5f42b76e1733316cec2120bac8ada4d7b`, the normative rules and the recorded measurements.
+The review accepted the private block representation, unchanged value layout and
+allocation-only padding under that authorization. No new public API or normative
+paragraph is approved by this record. Two-row matrices and bare arrays remain excluded.
+
+Merge this accepted proposal before changing product code. Codex owns implementation
+and functional/document validation, then prepares the two declared downstream adoptions.
+No delivery date or cost estimate is assigned. Each delivery must record its actual
+revision and checks; this acceptance does not claim implementation or downstream completion.
 
 Required functional evidence for delivery:
 
