@@ -478,14 +478,8 @@ export function lowerCall(
     if (local !== undefined) {
       const leading = captureArguments(local, name, node, sourceFile, scope, diagnostics);
       if (leading === undefined) return undefined;
-      return lowerUserCall(
-        node,
-        local,
-        sourceFile,
-        scope,
-        diagnostics,
-        leading.length > 0 ? { leading, shown: name } : {},
-      );
+      // A lifted function keeps its written diagnostic name even when it captures nothing.
+      return lowerUserCall(node, local, sourceFile, scope, diagnostics, { leading, shown: name });
     }
     if (name === 'array') return lowerArrayCtor(node, sourceFile, scope, diagnostics);
     // A function the file declares or imports wins over every builtin function of its name: a
@@ -504,14 +498,7 @@ export function lowerCall(
         // its own parameters, as this body holds it (Rule 8.17).
         const leading = captureArguments(decl, name, node, sourceFile, scope, diagnostics);
         if (leading === undefined) return undefined;
-        return lowerUserCall(
-          node,
-          decl,
-          sourceFile,
-          scope,
-          diagnostics,
-          leading.length > 0 ? { leading, shown: name } : {},
-        );
+        return lowerUserCall(node, decl, sourceFile, scope, diagnostics, { leading, shown: name });
       }
       // A generic function is compiled once per set of argument types the file calls it with
       // (roadmap 0.3 item T9, #92). The instance does not exist until a call asks for it, so the
@@ -607,14 +594,10 @@ export function lowerCall(
           // ahead of its own parameters, as this body holds it (Rule 8.17).
           const leading = captureArguments(decl, name, node, sourceFile, scope, diagnostics);
           if (leading === undefined) return undefined;
-          return lowerUserCall(
-            node,
-            decl,
-            sourceFile,
-            scope,
-            diagnostics,
-            leading.length > 0 ? { leading, shown: name } : {},
-          );
+          return lowerUserCall(node, decl, sourceFile, scope, diagnostics, {
+            leading,
+            shown: name,
+          });
         }
         // A generic function is compiled once per set of argument types the file calls it
         // with (roadmap 0.3 item T9, #92). The instance does not exist until a call asks for
