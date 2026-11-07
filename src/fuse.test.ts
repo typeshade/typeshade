@@ -959,6 +959,509 @@ function fakeGpu(options: FakeOptions = {}) {
   };
 }
 
+describe('device-owned scratch returns to the bounded array pool (#992)', () => {
+  function recording(options: FakeOptions = {}) {
+    const gpu = fakeGpu(options);
+    const destroyCounts = new Map<object, number>();
+    const create = gpu.device.createBuffer.bind(gpu.device);
+    gpu.device.createBuffer = (descriptor) => {
+      const buffer = create(descriptor);
+      const destroy = buffer.destroy.bind(buffer);
+      buffer.destroy = () => {
+        destroyCounts.set(buffer, (destroyCounts.get(buffer) ?? 0) + 1);
+        destroy();
+      };
+      return buffer;
+    };
+    const make = gpu.device.createCommandEncoder.bind(gpu.device);
+    gpu.device.createCommandEncoder = () => ({
+      ...make(),
+      clearBuffer: () => gpu.commands.push('clear'),
+    });
+    return Object.assign(gpu, { destroyCounts });
+  }
+
+  it('reuses one scratch buffer, clears before dispatch, and keeps array() counters and expired handles', async () => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device, poolBytes: 16 });
+    const m = await loadFused();
+    const out = dev.array(4, 'f32');
+    let first: Resident<unknown> | undefined;
+    const run = () =>
+      dev.fuse((scope) => {
+        const t = scope.scratch(4);
+        first ??= t;
+        void m.fillTo(t, 2);
+        void m.pairsum(out, t);
+      });
+    try {
+      const before = await run();
+      const buffers = gpu.made.filter((b) => b.usage === RESIDENT_BUFFER);
+      expect(buffers).toHaveLength(2);
+      expect(buffers.every((b) => !b.destroyed)).toBe(true);
+      expect(dev.statistics).toMatchObject({ allocations: 1, reuses: 0, live: 2, pooledBytes: 16 });
+      gpu.commands.length = 0;
+      const after = await run();
+      expect(after).toEqual(before);
+      expect(gpu.made.filter((b) => b.usage === RESIDENT_BUFFER)).toEqual(buffers);
+      expect(
+        gpu.commands.filter((c) => c === 'clear' || c.startsWith('dispatch') || c === 'submit'),
+      ).toEqual(['clear', 'dispatch 1 1 1', 'dispatch 1 1 1', 'submit']);
+      expect(buffers[0]!.writes).toEqual([]);
+      expect(dev.statistics).toMatchObject({ allocations: 1, reuses: 0, pooledBytes: 16 });
+      await expect(first!.read()).rejects.toThrow('scratch array');
+      expect(() => first!.write(floats(9, 9, 9, 9))).toThrow('scratch array');
+      await expect(
+        dev.fuse(() => {
+          void m.bump(first);
+        }),
+      ).rejects.toThrow('whose plan has run');
+    } finally {
+      await dev.dispose();
+    }
+    expect(gpu.made.filter((b) => b.usage === RESIDENT_BUFFER).every((b) => b.destroyed)).toBe(
+      true,
+    );
+  });
+
+  it.each([0, 15])('destroys scratch that cannot fit poolBytes %i', async (poolBytes) => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device, poolBytes });
+    const m = await loadFused();
+    const out = dev.array(4, 'f32');
+    try {
+      for (let i = 0; i < 2; i++)
+        await dev.fuse((scope) => {
+          void m.pairsum(out, scope.scratch(4));
+        });
+      await kernelQueue.idle();
+      const buffers = gpu.made.filter((b) => b.usage === RESIDENT_BUFFER);
+      expect(buffers).toHaveLength(3);
+      expect(buffers.filter((b) => b.destroyed)).toHaveLength(2);
+      expect(dev.statistics).toMatchObject({ allocations: 1, reuses: 0, pooledBytes: 0, live: 1 });
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it('shares the pool with array(), in both directions, and zeroes an ordinary reused handle', async () => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device, poolBytes: 64 });
+    const m = await loadFused();
+    const ordinary = dev.array(floats(9, 9, 9, 9));
+    const out = dev.array(4, 'f32');
+    try {
+      await dev.fuse(() => {
+        void m.pairsum(out, ordinary);
+      });
+      const buffer = residentState(ordinary)!.gpu!.buffer;
+      dev.release(ordinary);
+      const count = gpu.made.length;
+      await dev.fuse((scope) => {
+        void m.pairsum(out, scope.scratch(4));
+      });
+      expect(gpu.made).toHaveLength(count);
+      const again = dev.array(4, 'f32');
+      expect(residentState(again)!.gpu!.buffer).toBe(buffer);
+      expect(await again.read()).toEqual(floats(0, 0, 0, 0));
+      expect(dev.statistics).toMatchObject({ allocations: 2, reuses: 1, pooledBytes: 0 });
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it('evicts the oldest scratch buffer within the shared byte bound', async () => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device, poolBytes: 32 });
+    const m = await loadFused();
+    const out = dev.array(4, 'f32');
+    const run = (length: number) =>
+      dev.fuse((scope) => {
+        void m.lenscale(out, scope.scratch(length));
+      });
+    try {
+      await run(4);
+      const outBuffer = residentState(out)!.gpu!.buffer as unknown as { record: MadeBuffer };
+      const oldest = gpu.zeroed.find((b) => b !== outBuffer.record)!;
+      await run(8);
+      await kernelQueue.idle();
+      expect(oldest.destroyed).toBe(true);
+      expect(dev.statistics.pooledBytes).toBe(32);
+      await run(4);
+      await kernelQueue.idle();
+      expect(dev.statistics.pooledBytes).toBe(16);
+      expect(gpu.made.filter((b) => b.usage === RESIDENT_BUFFER)).toHaveLength(4);
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it('returns a lease after a failed plan, removes its waiting clear, and reuses it safely', async () => {
+    const options: { bindGroup?: string } = {};
+    const gpu = recording(options);
+    const dev = await runtime.createDevice({ device: gpu.device, poolBytes: 64 });
+    const m = await loadFused();
+    const out = dev.array(4, 'f32');
+    const failedOut = dev.array(4, 'f32');
+    const run = (sink: Resident<unknown>) =>
+      dev.fuse((scope) => {
+        void m.pairsum(sink, scope.scratch(4));
+      });
+    try {
+      await run(out);
+      const held = dev.array(4, 'f32');
+      const buffer = residentState(held)!.gpu!.buffer;
+      dev.release(held);
+      options.bindGroup = 'planted bind failure';
+      await expect(run(failedOut)).rejects.toThrow('planted bind failure');
+      expect(pendingClears.has(buffer)).toBe(false);
+      expect(dev.statistics.pooledBytes).toBe(16);
+      delete options.bindGroup;
+      gpu.commands.length = 0;
+      await run(out);
+      expect(
+        gpu.commands.filter((c) => c === 'clear' || c.startsWith('dispatch') || c === 'submit'),
+      ).toEqual(['clear', 'dispatch 1 1 1', 'submit']);
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it('finishes captured plans while dispose waits, then destroys their pooled buffer', async () => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device });
+    const m = await loadFused();
+    const out = dev.array(4, 'f32');
+    const plan = dev.fuse((scope) => {
+      void m.pairsum(out, scope.scratch(4));
+    });
+    const closed = dev.dispose();
+    await expect(plan).resolves.toMatchObject({ dispatches: 1 });
+    await closed;
+    await kernelQueue.idle();
+    expect(dev.statistics).toMatchObject({ live: 0, pooledBytes: 0 });
+    const buffers = gpu.made.filter((b) => b.usage === RESIDENT_BUFFER);
+    expect(buffers).toHaveLength(2);
+    expect(buffers.every((b) => b.destroyed)).toBe(true);
+    expect([...gpu.destroyCounts.values()]).toEqual([1, 1]);
+  });
+
+  it('keeps unused, contracted and body-failure scratch out of the pool', async () => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device });
+    const m = await loadFused();
+    const a = dev.array(floats(1, 2, 3, 4));
+    const b = dev.array(floats(2, 3, 4, 5));
+    const out = dev.array(4, 'f32');
+    try {
+      await dev.fuse((scope) => {
+        scope.scratch(4);
+      });
+      await expect(
+        dev.fuse((scope) => {
+          scope.scratch(4);
+          throw new Error('body failed');
+        }),
+      ).rejects.toThrow('body failed');
+      expect(gpu.made).toEqual([]);
+      const report = await dev.fuse((scope) => {
+        const t = scope.scratch(4);
+        void m.add(t, a, b);
+        void m.relu(out, t);
+      });
+      expect(report.groups[0]!.fused).toBe(true);
+      expect(gpu.made.filter((b) => b.usage === RESIDENT_BUFFER)).toHaveLength(3);
+      expect(dev.statistics).toMatchObject({ allocations: 3, reuses: 0, live: 3, pooledBytes: 0 });
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it("does not lend one owner's scratch to another owner on the same native device", async () => {
+    const gpu = recording();
+    const a = await runtime.createDevice({ device: gpu.device });
+    const b = await runtime.createDevice({ device: gpu.device });
+    const m = await loadFused();
+    const outA = a.array(4, 'f32');
+    const outB = b.array(4, 'f32');
+    try {
+      await a.fuse((scope) => {
+        void m.pairsum(outA, scope.scratch(4));
+      });
+      const first = gpu.made.filter((x) => x.usage === RESIDENT_BUFFER);
+      await b.fuse((scope) => {
+        void m.pairsum(outB, scope.scratch(4));
+      });
+      const all = gpu.made.filter((x) => x.usage === RESIDENT_BUFFER);
+      expect(first).toHaveLength(2);
+      expect(all).toHaveLength(4);
+      expect(a.statistics.pooledBytes).toBe(16);
+      expect(b.statistics.pooledBytes).toBe(16);
+      await a.dispose();
+      await kernelQueue.idle();
+      expect(first.every((x) => x.destroyed)).toBe(true);
+      expect(all.filter((x) => !first.includes(x)).every((x) => !x.destroyed)).toBe(true);
+    } finally {
+      await a.dispose();
+      await b.dispose();
+    }
+  });
+
+  it('keeps i32 and u32 scratch in distinct pools even when byte lengths match', async () => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device });
+    const m = await loadFused();
+    const ia = dev.array(new Int32Array(4));
+    const ua = dev.array(new Uint32Array(4));
+    const io = dev.array(4, 'i32');
+    const uo = dev.array(4, 'u32');
+    try {
+      for (let i = 0; i < 2; i++) {
+        await dev.fuse((scope) => {
+          void m.iadd(io, scope.scratch(4, 'i32'), ia);
+        });
+        await dev.fuse((scope) => {
+          void m.uadd(uo, scope.scratch(4, 'u32'), ua);
+        });
+      }
+      expect(gpu.made.filter((x) => x.usage === RESIDENT_BUFFER)).toHaveLength(6);
+      expect(gpu.commands.filter((x) => x === 'clear')).toHaveLength(2);
+      expect(dev.statistics).toMatchObject({ allocations: 4, reuses: 0, pooledBytes: 32 });
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it('reuses vec4f storage at sixteen bytes per vector without reviving its scratch handle', async () => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device });
+    const m = await loadVec4(generatedVec4Fused.code!);
+    const out = dev.array(8, 'f32');
+    try {
+      for (let i = 0; i < 2; i++)
+        await dev.fuse((scope) => {
+          void m.vcount(out, scope.scratch(2, 'vec4f'));
+        });
+      const buffers = gpu.made.filter((x) => x.usage === RESIDENT_BUFFER);
+      expect(buffers.map((x) => x.size)).toEqual([32, 32]);
+      expect(gpu.commands.filter((x) => x === 'clear')).toHaveLength(1);
+      expect(dev.statistics.pooledBytes).toBe(32);
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it('skips a padded vec3 buffer with the same flattened pool key', async () => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device, poolBytes: 128 });
+    const v = await loadVec4(generatedVec4.code!);
+    const m = await loadFused();
+    const source = dev.array(new Float32Array(12));
+    const vectors = dev.array(12, 'f32');
+    const scalars = dev.array(4, 'f32');
+    try {
+      await dev.fuse(() => {
+        void v.v3(vectors, source);
+      });
+      const padded = residentState(source)!.gpu!;
+      expect(padded.size).toBe(64);
+      dev.release(source);
+      await dev.fuse((scope) => {
+        void m.lenscale(scalars, scope.scratch(12));
+      });
+      const buffers = gpu.made.filter((x) => x.usage === RESIDENT_BUFFER);
+      expect(buffers.map((x) => x.size)).toEqual([64, 64, 16, 48]);
+      expect(buffers.every((x) => !x.destroyed)).toBe(true);
+      expect(dev.statistics.pooledBytes).toBe(96);
+      const ordinary = dev.array(12, 'f32');
+      expect(residentState(ordinary)!.gpu!.buffer).toBe(padded.buffer);
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it('resizes a zeroed ordinary lease when vec3 needs more bytes than the prior scratch', async () => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device });
+    const v = await loadVec4(generatedVec4.code!);
+    const m = await loadFused();
+    const scalars = dev.array(4, 'f32');
+    const vectors = dev.array(12, 'f32');
+    try {
+      await dev.fuse((scope) => {
+        void m.lenscale(scalars, scope.scratch(12));
+      });
+      const ordinary = dev.array(12, 'f32');
+      const before = residentState(ordinary)!.gpu!;
+      expect(before.size).toBe(48);
+      await dev.fuse(() => {
+        void v.v3(vectors, ordinary);
+      });
+      const after = residentState(ordinary)!.gpu!;
+      expect(after.size).toBe(64);
+      expect(after.buffer).not.toBe(before.buffer);
+      expect((before.buffer as unknown as { record: MadeBuffer }).record.destroyed).toBe(true);
+      expect((after.buffer as unknown as { record: MadeBuffer }).record.writes).toEqual([]);
+      expect(pendingClears.has(before.buffer)).toBe(false);
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it.each([
+    ['scalar', false],
+    ['scalar', true],
+    ['vector', false],
+    ['vector', true],
+  ] as const)(
+    'keeps a bound zeroed buffer when %s comes first (writes: %s)',
+    async (first, writes) => {
+      const gpu = recording();
+      const dev = await runtime.createDevice({ device: gpu.device });
+      const v = await loadVec4(generatedVec4.code!);
+      const m = await loadFused();
+      const scalars = dev.array(4, 'f32');
+      const vectors = dev.array(12, 'f32');
+      try {
+        await dev.fuse((scope) => {
+          void m.lenscale(scalars, scope.scratch(12));
+        });
+        let ordinary = dev.array(12, 'f32');
+        if (first === 'vector') {
+          await dev.fuse(() => {
+            void v.v3(vectors, ordinary);
+          });
+          dev.release(ordinary);
+          ordinary = dev.array(12, 'f32');
+        }
+        const before = residentState(ordinary)!.gpu!;
+        expect(before.size).toBe(first === 'scalar' ? 48 : 64);
+        gpu.commands.length = 0;
+        await dev.fuse(() => {
+          if (first === 'scalar') {
+            if (writes) void m.fillTo(ordinary, 9);
+            else void m.pairsum(scalars, ordinary);
+            void v.v3(vectors, ordinary);
+          } else {
+            if (writes) void v.v3(ordinary, vectors);
+            else void v.v3(vectors, ordinary);
+            void m.pairsum(scalars, ordinary);
+          }
+        });
+        expect(residentState(ordinary)!.gpu!.buffer).toBe(before.buffer);
+        expect(gpu.destroyCounts.get(before.buffer) ?? 0).toBe(0);
+        expect(pendingClears.has(before.buffer)).toBe(false);
+        expect(
+          gpu.commands.filter((c) => c === 'clear' || c.startsWith('dispatch') || c === 'submit'),
+        ).toEqual(['clear', 'dispatch 1 1 1', 'dispatch 1 1 1', 'submit']);
+        dev.release(ordinary);
+        ordinary = dev.array(12, 'f32');
+        // A new lease prepares its first layout again, including the reverse 64-to-48 transition.
+        await dev.fuse(() => {
+          if (first === 'scalar') void v.v3(vectors, ordinary);
+          else void m.pairsum(scalars, ordinary);
+        });
+        expect(residentState(ordinary)!.gpu!.size).toBe(first === 'scalar' ? 64 : 48);
+        expect(gpu.destroyCounts.get(before.buffer)).toBe(1);
+      } finally {
+        await dev.dispose();
+      }
+    },
+  );
+
+  it('retries a zeroed first binding after its replacement allocation fails', async () => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device });
+    const v = await loadVec4(generatedVec4.code!);
+    const m = await loadFused();
+    const scalars = dev.array(4, 'f32');
+    const vectors = dev.array(12, 'f32');
+    try {
+      await dev.fuse((scope) => {
+        void m.lenscale(scalars, scope.scratch(12));
+      });
+      const ordinary = dev.array(12, 'f32');
+      const before = residentState(ordinary)!.gpu!;
+      // Allocate the output before refusing the input's replacement.
+      const source = dev.array(new Float32Array(12));
+      await dev.fuse(() => {
+        void v.v3(vectors, source);
+      });
+      const create = gpu.device.createBuffer.bind(gpu.device);
+      gpu.device.createBuffer = () => {
+        throw new Error('replacement allocation failed');
+      };
+      const run = () =>
+        dev.fuse(() => {
+          void v.v3(vectors, ordinary);
+        });
+      await expect(run()).rejects.toThrow('replacement allocation failed');
+      expect(residentState(ordinary)!.gpu).toBe(before);
+      expect(pendingClears.has(before.buffer)).toBe(true);
+      expect(gpu.destroyCounts.get(before.buffer) ?? 0).toBe(0);
+      gpu.device.createBuffer = create;
+      await run();
+      expect(residentState(ordinary)!.gpu!.size).toBe(64);
+      expect(gpu.destroyCounts.get(before.buffer)).toBe(1);
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it('keeps a CPU write after GPU use when a reused scratch returns to the GPU', async () => {
+    // This instrument supplies the download, not shader arithmetic. prefix() then computes
+    // [1, 3, 6, 10] on the real CPU path, which the next GPU call must receive as an upload.
+    const gpu = recording({
+      mapped: (size) =>
+        size === 16 ? new Float32Array([1, 2, 3, 4]).buffer : new ArrayBuffer(size),
+    });
+    const dev = await runtime.createDevice({ device: gpu.device });
+    const m = await loadFused();
+    const out = dev.array(4, 'f32');
+    try {
+      await dev.fuse((scope) => {
+        void m.pairsum(out, scope.scratch(4));
+      });
+      const held = dev.array(4, 'f32');
+      const buffer = residentState(held)!.gpu!.buffer as unknown as { record: MadeBuffer };
+      dev.release(held);
+      const report = await dev.fuse((scope) => {
+        const t = scope.scratch(4);
+        void m.fillTo(t, 4);
+        void m.prefix(t);
+        void m.pairsum(out, t);
+      });
+      expect(report.groups.map((g) => g.tier)).toEqual(['webgpu', 'cpu', 'webgpu']);
+      expect(new Float32Array(buffer.record.contents!)).toEqual(floats(1, 3, 6, 10));
+      expect(buffer.record.writes).toHaveLength(1);
+      expect(dev.statistics.pooledBytes).toBe(16);
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it('keeps a zero-length scratch unallocated and retains its binding refusal', async () => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device });
+    const m = await loadFused();
+    const out = dev.array(4, 'f32');
+    try {
+      await dev.fuse((scope) => {
+        scope.scratch(0);
+      });
+      await expect(
+        dev.fuse((scope) => {
+          void m.pairsum(out, scope.scratch(0));
+        }),
+      ).rejects.toThrow('empty array');
+      expect(gpu.made).toEqual([]);
+      expect(dev.statistics).toMatchObject({ live: 1, allocations: 1, reuses: 0, pooledBytes: 0 });
+    } finally {
+      await dev.dispose();
+    }
+  });
+});
+
 describe('a fuse scope on WebGPU, on a recording device', () => {
   const dispatch = 'dispatch 1 1 1';
 

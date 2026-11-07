@@ -120,7 +120,15 @@ export class ResidentArrayState {
   /** Whether the device buffer holds stale contents that are zeros by contract, which the next
    *  flush that binds it clears (`pendingClears` in `core/host-entry.ts`, change 0071). The host
    *  copy holds the zeros meanwhile. */
-  clearPending = false;
+  #clearPending = false;
+  #clearBound = false;
+  get clearPending(): boolean {
+    return this.#clearPending;
+  }
+  set clearPending(value: boolean) {
+    this.#clearPending = value;
+    this.#clearBound = false;
+  }
   /** The device that made the handle (`device.array()`, change 0071), which a call of another
    *  owner may not take; undefined for a handle of the default owner (`resident()`). */
   ownedBy: CallOwner | undefined;
@@ -213,6 +221,24 @@ export class ResidentArrayState {
   bufferFor(d: GpuDevice, layout: Layout, bytes: () => ArrayBuffer, writes: boolean): GpuBuffer {
     if (this.destroyed)
       throw new TypeError('This Resident was destroyed; make a new one with resident().');
+    if (this.clearPending && !this.#clearBound && this.gpu?.d === d) {
+      // A pooled zeroed array has 32-bit host elements. Its next binding can need different
+      // padding: twelve scalar scratch words occupy 48 bytes, four vec3 values occupy 64.
+      // Count that layout without packing a potentially large array of zeros.
+      const flat = layout.k === 'a' ? flatWidth(layout.e) : undefined;
+      const size =
+        layout.k === 'a' && flat !== undefined && ArrayBuffer.isView(this.host)
+          ? (this.host.byteLength / 4 / flat.n) * layout.st
+          : bytes().byteLength;
+      if (size !== this.gpu.size) {
+        const buffer = keepBuffer(zeroedBuffer(d, size));
+        this.dropClear();
+        forgetBuffer(d, this.gpu.buffer);
+        this.gpu.buffer.destroy();
+        this.gpu = { d, buffer, size, layout };
+        this.fresh = 'both';
+      }
+    }
     if (this.gpu === undefined || this.gpu.d !== d) {
       const b = bytes();
       if (this.gpu !== undefined) forgetBuffer(this.gpu.d, this.gpu.buffer);
@@ -231,6 +257,9 @@ export class ResidentArrayState {
     // newer copy where it was: the device's when a call wrote it, both alike after an upload.
     if (writes) this.fresh = 'device';
     else if (this.fresh === 'host') this.fresh = 'both';
+    // A later binding in this batch must keep the earlier binding's buffer and pending clear.
+    // Only a new zeroed lease may prepare the layout again; a failed allocation never gets here.
+    this.#clearBound = this.clearPending;
     return this.gpu.buffer;
   }
 }
@@ -604,7 +633,7 @@ function zeroedState(length: unknown, element: unknown): ZeroedState {
 const MOST_ZEROED = 0xffffffff;
 
 /** The handle of `state`: the methods of a `Resident`, over the state's queue and buffer. */
-function handleOf(state: ResidentArrayState): Resident<unknown> {
+export function handleOf(state: ResidentArrayState): Resident<unknown> {
   const live = (): void => {
     if (state.destroyed)
       throw new TypeError('This Resident was destroyed; make a new one with resident().');

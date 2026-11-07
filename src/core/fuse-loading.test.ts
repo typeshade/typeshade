@@ -64,6 +64,7 @@ it('propagates a cached load failure after synchronous recording, releases scrat
       gpu: undefined,
       host: undefined,
     });
+    expect(owner.statistics).toMatchObject({ live: 2, allocations: 2, reuses: 0, pooledBytes: 0 });
     expect(execute).not.toHaveBeenCalled();
     expect(bodies).toBe(1);
     await expect(owner.fuse(() => undefined)).rejects.toBe(error);

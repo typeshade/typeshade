@@ -18,13 +18,14 @@
 //
 // Like the rest of `typeshade/runtime` it imports no compiler.
 
-import { gpuDevice, type GpuDevice } from './host-entry.js';
+import { gpuDevice, type GpuDevice, type Layout } from './host-entry.js';
 import type { Fp64Flavor } from './passes/fp64-lower.js';
 import {
   configuredFp64Flavor,
   preferredTiers,
   residentState,
   type ResidentArrayState,
+  type ZeroedState,
 } from './resident.js';
 import type { Tier } from './tiers.js';
 import { subgroupObservationOf } from './subgroup-probe.js';
@@ -50,6 +51,11 @@ export interface CallOwner {
   dispatched?(kernel: string, variant: 'tree' | 'subgroup'): void;
   /** Refuse a new ordinary call after disposal starts. Captured calls already in the queue remain valid. */
   assertCall?(): void;
+  /** Lend a compatible pooled buffer to a scratch array at its first device use. This runs
+   *  inside the captured plan, not as another item of the call queue. */
+  scratchBuffer?(state: ZeroedState, device: GpuDevice, layout: Layout): void;
+  /** Return a scratch lease after its plan. False means the owner holds no such lease. */
+  releaseScratch?(state: ZeroedState): boolean;
 }
 
 /** The process-global configuration as an owner: `configure({ prefer })`'s tiers, the device
