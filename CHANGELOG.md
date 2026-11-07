@@ -1630,6 +1630,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Array min/max element types** (#321, types#19). Arrays of structs, matrices, arrays or
+  booleans now receive one `TS8003` diagnostic in the compiler and editor, including arrays
+  with one element. Numeric scalar and vector lowering remains unchanged.
+
 - **Compute-only operations through helpers** (#321, control#14 and control#15). Vertex and
   fragment entries now refuse workgroup memory and barriers reached through helpers or
   accessors, including direct workgroup writes. Existing diagnostic text is preserved.
