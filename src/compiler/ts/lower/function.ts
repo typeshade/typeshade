@@ -8,6 +8,7 @@ import { moduleVarSourceName } from '../module-var-names.js';
 import { stageCallOf, stageCallOfDeclaration, stageDeclarationOf } from '../stage-call.js';
 import { numericsOf } from '../numerics.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
+import { moduleIndexConst } from '../index-bound.js';
 import { countPushedLengths, pushedParams } from './kernel-push.js';
 import { guardKernelBody } from '../../../core/passes/kernel-stores.js';
 import { inlineKernelMethods, type KernelInlineGap } from './kernel-methods.js';
@@ -3034,13 +3035,13 @@ function refuseVertexWithoutPosition(
   );
 }
 
-/** What a function's scope needs of a module const: its name and type, its CPU value when it
- *  is a scalar, and its initializer when it is not. A `ConstDecl` is one; the fields it does
- *  not have here (`wgslValue`) are the emitter's. */
+/** What a function's scope needs of a module const. `wgslValue` and `valueExpr` also supply
+ *  conservative integer index proofs; a CPU value alone does not prove the emitted value. */
 export interface ScopedConst {
   readonly name: string;
   readonly type: ShaderType;
   readonly cpuValue?: number | boolean;
+  readonly wgslValue?: number;
   readonly valueExpr?: Expr;
 }
 
@@ -3111,6 +3112,7 @@ export function functionScope(
       // its `valueExpr`, not a value; taking it as one made `v / Z` for any vector const `Z`
       // a division by zero to the constant folder (#68). The initializer rides along instead.
       constValue: c.type.kind === 'scalar' ? c.cpuValue : undefined,
+      indexConstValue: moduleIndexConst(c, scope),
       ...(c.type.kind !== 'scalar' && c.valueExpr !== undefined ? { valueExpr: c.valueExpr } : {}),
     });
   }

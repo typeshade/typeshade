@@ -605,6 +605,9 @@ export interface Binding {
   readonly type: ShaderType;
   readonly mutable: boolean;
   readonly constValue?: number | boolean;
+  /** Integer-only proof for bounds checks, derived from the emitted initializer. Unlike
+   * constValue, this never approximates an f32 subtree with the CPU's double precision. */
+  readonly indexConstValue?: number;
   /** The address space, for `kind: 'binding'` only. Carried because a diagnostic about a
    *  runtime-sized array has to say something different for `storage` than for `uniform`:
    *  `arrayLength(&x)` is spelled `ptr<storage, array<E>, AM>` and exists for nothing else,
