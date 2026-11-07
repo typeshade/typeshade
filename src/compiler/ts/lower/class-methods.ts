@@ -60,7 +60,8 @@ import {
 } from '../unknown-names.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { spanOf, withSpan } from '../span.js';
-import { retargetIntLitCtx } from '../lit-coerce.js';
+import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
+import { numericMismatch } from '../numeric.js';
 import { lowerExpression } from './expression.js';
 import { lowerGenericCall, lowerUserCall } from './expression-misc.js';
 import { lowerLValue } from './statement.js';
@@ -1682,13 +1683,15 @@ function initAssigns(
   for (const f of inits) {
     const lowered = lowerExpression(f.init, sourceFile, scope, diagnostics, f.type);
     if (!lowered) continue;
-    const init = retargetIntLitCtx(lowered, f.init, f.type);
+    const retargeted = retargetIntLitCtx(lowered, f.init, f.type);
+    const init =
+      reportIntLitRange(retargeted, f.init, f.type, sourceFile, diagnostics) ?? retargeted;
     if (typeKey(init.type) !== typeKey(f.type)) {
       pushDiag(
         diagnostics,
         sourceFile,
         f.init,
-        `Field "${f.name}" is ${authorTypeText(f.type)} but its initializer is ${authorTypeText(init.type)}.`,
+        numericMismatch('assign', f.type, init.type),
         TS_CODES.TYPE_MISMATCH,
       );
       continue;
