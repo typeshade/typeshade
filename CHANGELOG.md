@@ -1630,6 +1630,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Integer constant index bounds** (#321, control#9). Module, local, namespace and static
+  integer constants now receive the existing `TS8016` diagnostic when their proven index is
+  outside a fixed array, vector or matrix. Float-derived and runtime values remain outside
+  this conservative proof; the compiler and editor report the same authored access span.
+
 - **Builtin field type errors are reported once** (#321, types#10). The compiler and editor
   report the error at the field declaration, even when several entries use its struct.
   Entry-specific stage checks and direct parameter type checks remain in place.

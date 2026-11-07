@@ -19,6 +19,7 @@
 // parser alone accepts it, which is why that name survived to a measurement.
 
 import { logicalTypeKey as typeKey } from './optional.js';
+import { moduleIndexConst } from './index-bound.js';
 import ts from 'typescript';
 import type { Expr, ModuleVarDecl, OverrideDecl, StructDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
@@ -215,6 +216,7 @@ export function collectModuleVars(
       type: c.type,
       mutable: false,
       constValue: c.type.kind === 'scalar' ? c.cpuValue : undefined,
+      indexConstValue: moduleIndexConst(c, scope),
       ...(c.type.kind !== 'scalar' && c.valueExpr !== undefined ? { valueExpr: c.valueExpr } : {}),
     });
   }
