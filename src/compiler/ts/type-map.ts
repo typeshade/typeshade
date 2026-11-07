@@ -434,7 +434,7 @@ function isTypeParameterAround(node: ts.Node, name: string): boolean {
 /** Whether the file gives the type name `name` written at `node`: a class, an interface, a type
  *  alias, an enum or a namespace it declares anywhere, a name it imports, or a type parameter of a
  *  declaration around it. */
-function fileDeclaresType(node: ts.Node, name: string, sourceFile: ts.SourceFile): boolean {
+export function fileDeclaresType(node: ts.Node, name: string, sourceFile: ts.SourceFile): boolean {
   return declaredTypeNamesOf(sourceFile).has(name) || isTypeParameterAround(node, name);
 }
 

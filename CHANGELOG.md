@@ -1641,6 +1641,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   The emitter's single and split gzip size rises from 117,598 to 117,931 bytes.
   Floors and the other three subpath budgets stay unchanged.
 
+- **Entry IO name diagnostics** (#321, misc#10). An unknown builtin or IO attribute name
+  no longer produces missing-attribute and missing-position follow-ups. The editor keeps the
+  compiler's unknown-builtin sentence at the written name. Independent field and option errors
+  remain visible.
+
 - **Malformed IO attribute arguments** (#321 misc#16). `builtin` and `location` now reject
   missing, extra, or wrongly shaped arguments in the compiler and editor. Location literals
   must be non-negative integers. A malformed field attribute no longer causes missing-IO or
