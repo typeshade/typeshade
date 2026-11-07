@@ -1641,6 +1641,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   emitter budgets remain unchanged. The algorithms increase includes the three restored
   GLSL artifacts.
 
+- **Refused base constructor diagnostics** (#321, names#19). `super()` no longer adds an
+  unknown generated-function diagnostic after the base constructor's signature was refused.
+  The original declaration diagnostic and independent call or body errors remain.
+
 - **Misplaced loop-control diagnostics** (#321, control#21 and control#28). The editor reports
   the compiler's existing `TS8009` once for a `break` or `continue` without a target in its
   function. Matching TypeScript diagnostics are merged only at the same statement; unrelated
