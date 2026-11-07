@@ -235,49 +235,67 @@ describe('generated calls admit healthy content dependencies (0129)', () => {
       await other.dispose();
     }
   });
-  it('admits an earlier recovery in a plan without clearing real errors early', async () => {
-    const m = await load(SOURCE);
-    const d = await createDevice({ prefer: ['cpu'] });
-    try {
-      const a = d.array(new Float32Array(4));
-      const b = d.array(new Float32Array(4));
-      const e = await failed(m, a);
-      const calls: Promise<unknown>[] = [];
-      const plan = d.fuse(() => {
-        calls.push(m.fill!(a, 4, 3));
-        calls.push(m.twice!(b, a));
-        expect(residentState(a)?.error).toBe(e);
-      });
-      await plan;
-      await Promise.all(calls);
-      expect([...(await b.read())]).toEqual([6, 6, 6, 6]);
-    } finally {
-      await d.dispose();
-    }
-  });
-  it('rejects the whole plan before independent writes when a content input is failed', async () => {
-    const m = await load(SOURCE);
-    const d = await createDevice({ prefer: ['cpu'] });
-    try {
-      const a = d.array(new Float32Array(4));
-      const b = d.array(new Float32Array(4).fill(11));
-      const c = d.array(new Float32Array(4).fill(13));
-      const e = await failed(m, a);
-      const calls: Promise<unknown>[] = [];
-      const plan = d.fuse(() => {
-        calls.push(capture(m.fill!(c, 4, 3)));
-        calls.push(capture(m.twice!(b, a)));
-        calls.push(capture(m.fill!(a, 4, 2)));
-      });
-      expect(await capture(plan)).toBe(e);
-      expect(await Promise.all(calls)).toEqual([e, e, e]);
-      expect(await capture(b.read())).toBe(e);
-      expect(await capture(c.read())).toBe(e);
-      expect(residentState(c)?.host).toEqual(new Float32Array(4).fill(13));
-    } finally {
-      await d.dispose();
-    }
-  });
+  it.each([false, true])(
+    'admits an earlier recovery without clearing real errors early (nested=%s)',
+    async (nested) => {
+      const m = await load(SOURCE);
+      const d = await createDevice({ prefer: ['cpu'] });
+      try {
+        const a = d.array(new Float32Array(4));
+        const b = d.array(new Float32Array(4));
+        const e = await failed(m, a);
+        const calls: Promise<unknown>[] = [];
+        let inner: Promise<unknown> | undefined;
+        const plan = d.fuse(() => {
+          calls.push(m.fill!(a, 4, 3));
+          const consume = () => {
+            calls.push(m.twice!(b, a));
+          };
+          if (nested) inner = d.fuse(consume);
+          else consume();
+          expect(residentState(a)?.error).toBe(e);
+        });
+        const report = await plan;
+        if (nested) expect(await inner).toBe(report);
+        await Promise.all(calls);
+        expect([...(await b.read())]).toEqual([6, 6, 6, 6]);
+      } finally {
+        await d.dispose();
+      }
+    },
+  );
+  it.each([false, true])(
+    'rejects the whole plan before independent writes (nested=%s)',
+    async (nested) => {
+      const m = await load(SOURCE);
+      const d = await createDevice({ prefer: ['cpu'] });
+      try {
+        const a = d.array(new Float32Array(4));
+        const b = d.array(new Float32Array(4).fill(11));
+        const c = d.array(new Float32Array(4).fill(13));
+        const e = await failed(m, a);
+        const calls: Promise<unknown>[] = [];
+        let inner: Promise<unknown> | undefined;
+        const plan = d.fuse(() => {
+          calls.push(capture(m.fill!(c, 4, 3)));
+          const consume = () => {
+            calls.push(capture(m.twice!(b, a)));
+          };
+          if (nested) inner = capture(d.fuse(consume));
+          else consume();
+          calls.push(capture(m.fill!(a, 4, 2)));
+        });
+        expect(await capture(plan)).toBe(e);
+        if (nested) expect(await inner).toBe(e);
+        expect(await Promise.all(calls)).toEqual([e, e, e]);
+        expect(await capture(b.read())).toBe(e);
+        expect(await capture(c.read())).toBe(e);
+        expect(residentState(c)?.host).toEqual(new Float32Array(4).fill(13));
+      } finally {
+        await d.dispose();
+      }
+    },
+  );
 });
 
 const ENTRIES = `"use typeshade";
@@ -372,7 +390,7 @@ describe('generated compute and draw dependencies (0129)', () => {
       width = 1;
       height = 1;
       contexts = 0;
-      pixels = new Uint8ClampedArray(4);
+      pixels: Uint8ClampedArray = new Uint8ClampedArray(4);
       getContext(kind: string) {
         this.contexts++;
         if (kind !== '2d') return null;
@@ -392,6 +410,7 @@ describe('generated compute and draw dependencies (0129)', () => {
       await m.color!(canvas, { xs });
       expect([...canvas.pixels]).toEqual([128, 0, 0, 255]);
       const e = await failed(m, xs);
+      await xs.write(new Float32Array(4).fill(0.25));
       const contexts = canvas.contexts;
       expect(await capture(m.color!(canvas, { xs }))).toBe(e);
       expect([...canvas.pixels]).toEqual([128, 0, 0, 255]);
