@@ -1630,6 +1630,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Bun host typings diagnostics in shaders** (#321 names#15). An unknown Bun value, function,
+  constructor or type now keeps the compiler's one refusal instead of also suggesting host
+  type packages. Only matching names in the same document are merged; independent errors remain.
+
 - **Inherited abstract constructors** (#321, names#19). A derived `super(...)` now reaches a
   constructor inherited through an abstract intermediate class. Defaults, required arguments
   and field-initializer order follow the same path as concrete inheritance.
@@ -1661,6 +1665,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   (split total 114,512 to 114,667). Runtime/fuse initial downloads, algorithms and random
   are unchanged. Only the exceeded caps move to those measurements; floors and the
   compiler/CSP boundary checks remain in force.
+
+- **Output-pane backend diagnostics** (#321, misc#5). GLSL shortfalls now use the compiler's
+  warning text for render modules and stay quiet without a render entry. WGSL failures remain
+  errors on every output target. A render+compute module's GLSL uses the compiler's render
+  selection. Output requests leave cached document diagnostics unchanged.
 
 - **Module-variable editor diagnostics** (#321, control#18). A retired `perInvocation` type,
   a `workgroup` variable declared `const`, or a `workgroup` type with no argument now shows
@@ -1702,6 +1711,19 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   and its split total from 155,126 to 155,226; initial download falls from 38,637 to 38,635.
   The emitter's single and split gzip size rises from 117,598 to 117,931 bytes.
   Floors and the other three subpath budgets stay unchanged.
+
+- **Scratch buffer reuse** (#992, pool portion). A device-owned fuse plan now returns its
+  scratch buffers to the owner's bounded pool. A later plan reuses compatible storage and
+  clears it before the first dispatch. Expired scratch handles stay unusable, failed plans
+  release their leases, and disposal frees the pooled buffers. `FuseReport` is unchanged.
+  A zeroed ordinary array that reuses scratch storage gets a new buffer when its first
+  binding needs different padding, including scalar storage first bound as `vec3` values.
+  Later bindings keep that buffer, its pending clear and earlier writes until submission.
+  Mixed-layout interpretation retains the existing first-binding behavior.
+  Paired Bun 1.4.4 gzip measurements against `1492dbda` change runtime from 153,596 to
+  154,059 bytes (split initial 38,637 to 39,148; total 155,528 to 156,022), and fuse from
+  114,160 to 114,318 (split initial 15,724 to 15,892; total 114,667 to 114,834).
+  Only exceeded caps change; floors, emitter, algorithms and random budgets remain unchanged.
 
 - **Entry IO name diagnostics** (#321, misc#10). An unknown builtin or IO attribute name
   no longer produces missing-attribute and missing-position follow-ups. The editor keeps the
