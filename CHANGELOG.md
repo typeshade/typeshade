@@ -1695,6 +1695,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   unknown generated-function diagnostic after the base constructor's signature was refused.
   The original declaration diagnostic and independent call or body errors remain.
 
+- **Class-member diagnostic contracts** (#321, classes#24). A decorated constructor parameter
+  property keeps its `TS8035` field-declaration message without a second `TS8028` at the same
+  decorator. Ordinary parameters still report invalid decorators. Three existing class-member
+  messages now have exact compiler and editor tests.
+
 - **Misplaced loop-control diagnostics** (#321, control#21 and control#28). The editor reports
   the compiler's existing `TS8009` once for a `break` or `continue` without a target in its
   function. Matching TypeScript diagnostics are merged only at the same statement; unrelated

@@ -567,9 +567,29 @@ export function checkAttributeName(
   const refusal = attributeRefusal(decorator, sourceFile, site);
   if (refusal === undefined) return false;
   const { message } = refusal;
+  const start = decorator.getStart(sourceFile);
+  const on = decorator.parent;
+  // The struct collector already refuses a decorated parameter property as a field. Keep
+  // that sentence only when it actually covers this decorator (Rule 12.4, #321 classes#24).
+  if (
+    on !== undefined &&
+    ts.isParameter(on) &&
+    on.parent !== undefined &&
+    ts.isConstructorDeclaration(on.parent) &&
+    ts.isParameterPropertyDeclaration(on, on.parent) &&
+    diagnostics.some(
+      (d) =>
+        d.code === TS_CODES.CLASS_MEMBER &&
+        d.category === 'error' &&
+        d.fileName === sourceFile.fileName &&
+        d.start === start &&
+        d.length === decorator.getEnd() - start,
+    )
+  ) {
+    return false;
+  }
   // A generic function, and one that takes a function, is lowered once per instance, and each
   // pass reads its decorators again: one decorator is one refusal (Rule 12.4).
-  const start = decorator.getStart(sourceFile);
   if (!diagnostics.some((d) => d.start === start && d.message === message))
     diagnostics.push(makeDiagnostic(sourceFile, decorator, message, TS_CODES.ATTRIBUTE_NAME));
   return refusal.unknownName === true;
