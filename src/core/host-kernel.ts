@@ -42,6 +42,7 @@ import type { CpuValue } from './cpu-runtime.js';
 import { pushedLength, startPushesAt } from './push-count.js';
 import { CpuTexture, isCpuTexture } from './cpu-texture.js';
 import { fuseSlot } from './fuse-scope.js';
+import { checkIncoming, type IncomingReads } from './host-failure.js';
 import { inferOwner, ownerOf, resourceOwner, type CallOwner } from './owner.js';
 import type { PortableIr } from './ir/portable.js';
 import { KERNEL_TREE, treeIdentity, type TreeOp } from './kernel-tree.js';
@@ -621,9 +622,10 @@ export function callKernel(
   k: KernelFace,
   argc: number,
   args: readonly unknown[],
+  reads?: IncomingReads,
 ): Promise<unknown> {
   const scope = fuseSlot.active;
-  if (scope !== undefined) return scope.kernel(cpu, k, argc, args);
+  if (scope !== undefined) return scope.kernel(cpu, k, argc, args, reads);
   let owner: CallOwner;
   try {
     owner = inferOwner(
@@ -656,7 +658,7 @@ export function callKernel(
       held !== undefined ? residentState(held.length) : undefined,
     ].filter((s) => s !== undefined);
   }) as ResidentArrayState[];
-  const call = kernelQueue.run(() => runKernel(cpu, k, argc, args, owner));
+  const call = kernelQueue.run(() => runKernel(cpu, k, argc, args, owner, reads));
   // A call nobody awaits keeps its error on what it writes, for `read()` to throw.
   call.then(
     () => written.forEach((s) => (s.error = undefined)),
@@ -671,12 +673,31 @@ function runKernel(
   argc: number,
   args: readonly unknown[],
   owner: CallOwner,
+  reads: IncomingReads,
 ): Promise<unknown> {
   try {
-    return runChecked(cpu, k, { ...checkCall(cpu, k, argc, args), owner });
+    const checked = { ...checkCall(cpu, k, argc, args), owner };
+    checkIncoming(kernelInputs(k, checked, reads));
+    return runChecked(cpu, k, checked);
   } catch (e) {
     return Promise.reject(e);
   }
+}
+
+/** Incoming contents in parameter order. A held length is data even for a write-only array. */
+export function kernelInputs(
+  k: KernelFace,
+  c: CheckedCall,
+  reads: IncomingReads,
+): ResidentArrayState[] {
+  return k.params.flatMap((p, i) => {
+    const state = c.states[i];
+    const held = c.held[i];
+    return [
+      ...(state !== undefined && (reads === undefined || reads.includes(p.name)) ? [state] : []),
+      ...(held === undefined ? [] : [held.state]),
+    ];
+  });
 }
 
 /** The refusal of a call that passes the wrong number of arguments, or undefined. */
