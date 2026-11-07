@@ -1630,6 +1630,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Bun host typings diagnostics in shaders** (#321 names#15). An unknown Bun value, function,
+  constructor or type now keeps the compiler's one refusal instead of also suggesting host
+  type packages. Only matching names in the same document are merged; independent errors remain.
+
 - **Class field initializer range diagnostics** (#321 types#12). An integer-written value
   outside its declared `i32` or `u32` range now uses the existing range sentence and points
   to the offending expression. Other mismatches use assignment diagnostics with cast remedies.

@@ -1392,6 +1392,16 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     reason: 'The same for a name of Node, where TypeScript offers its types to install.',
   },
   {
+    typescript: 2867,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'An unknown Bun name, where TypeScript offers host types a shader cannot use.',
+  },
+  {
+    typescript: 2868,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'The same Bun name when TypeScript also suggests changing tsconfig types.',
+  },
+  {
     typescript: 2552,
     typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
     reason:
@@ -1965,7 +1975,27 @@ function sameMistakeSpans(
   diagnostic: TypeshadeDiagnostic,
   error: TypeshadeDiagnostic,
 ): boolean {
-  if (ruleCodeOf(diagnostic.code) === 2558) {
+  const code = ruleCodeOf(diagnostic.code);
+  if (code === 2867 || code === 2868) {
+    if (diagnostic.uri !== error.uri) return false;
+    if (diagnostic.span.start === error.span.start && diagnostic.span.length === error.span.length)
+      return true;
+    // The compiler refuses an unknown constructor over the whole new expression. Only
+    // its root name repeats the host-typings error; a computed key or argument is separate.
+    const built = error.code === 'TS8022' ? newCovering(context, error.span) : undefined;
+    if (built === undefined) return false;
+    let target = unparenthesized(built.expression);
+    while (ts.isPropertyAccessExpression(target)) {
+      target = unparenthesized(target.expression);
+    }
+    const name = spanOfNode(target, context.sourceFile);
+    return (
+      ts.isIdentifier(target) &&
+      name.start === diagnostic.span.start &&
+      name.length === diagnostic.span.length
+    );
+  }
+  if (code === 2558) {
     return sameTypeArgumentMistake(context, diagnostic, error);
   }
   if (error.code === TS_CODES.MODULE_VAR) {
