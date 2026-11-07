@@ -3179,6 +3179,9 @@ A class that inherits its constructor runs its own initializers when that body r
 this, every initializer ran before the constructor's body, and a derived class's one for an
 inherited field was dropped, so that `B`'s `limit` was `A`'s.
 
+An abstract intermediate class forwards its inherited constructor when a derived `super(...)`
+calls it. Arguments, defaults and field initializers follow the same order as concrete inheritance.
+
 ### A chain of calls on one object
 
 A method whose every `return` is `return this` hands back its own object, so TypeScript runs the

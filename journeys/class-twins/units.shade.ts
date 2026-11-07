@@ -46,6 +46,28 @@ export class GainPole extends OnePole {
   }
 }
 
+class GainSeed {
+  level: f32;
+  constructor(seed: f32) {
+    this.level = seed;
+  }
+}
+
+abstract class InheritedGain extends GainSeed {
+  bias: f32 = this.level + 1.;
+}
+
+/** A constructor forwarded through an abstract base, with each field initialized in order. */
+export class ForwardedGain extends InheritedGain {
+  gain: f32 = this.bias + 2.;
+  constructor(seed: f32) {
+    super(seed);
+  }
+  apply(sample: f32): f32 {
+    return sample * this.gain + this.level;
+  }
+}
+
 /** A phase accumulator in [0, 1) that advances by `inc` each sample. */
 export class Phasor {
   phase: f32 = 0.;
