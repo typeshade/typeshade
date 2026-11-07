@@ -604,7 +604,7 @@ function zeroedState(length: unknown, element: unknown): ZeroedState {
 const MOST_ZEROED = 0xffffffff;
 
 /** The handle of `state`: the methods of a `Resident`, over the state's queue and buffer. */
-function handleOf(state: ResidentArrayState): Resident<unknown> {
+export function handleOf(state: ResidentArrayState): Resident<unknown> {
   const live = (): void => {
     if (state.destroyed)
       throw new TypeError('This Resident was destroyed; make a new one with resident().');
