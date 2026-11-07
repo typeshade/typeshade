@@ -25,7 +25,7 @@ downstream:
 | Request source                | Issue [#452](https://github.com/typeshade/typeshade/issues/452), its recorded direction from #198, and roadmap B4.                                                     |
 | Applicability / Effectivity   | GLSL uniform emission, shader host draws, manifest render stages and the WebGL2 program runtime. Public source and host values retain their forms. Release unassigned. |
 | Review baseline               | main at c0afa047a53c3a83825973144a1b0372aed91f62. The baseline measurements below use that revision's source.                                                          |
-| Review and revision authority | No PR is assigned yet. Git records revisions; PR review and merge records establish decisions.                                                                         |
+| Review and revision authority | [PR #1072](https://github.com/typeshade/typeshade/pull/1072). Git records revisions; PR review and merge records establish decisions.                                  |
 
 ## What changes
 
