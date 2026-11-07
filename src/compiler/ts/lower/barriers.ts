@@ -31,6 +31,7 @@ import type { LoweringScope } from '../context.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
+import { barrierStageMessage } from '../stage-restrictions.js';
 import { rootedIn } from './expression-prop.js';
 
 function pushDiag(
@@ -68,8 +69,7 @@ export function lowerBarrierStatement(
       diagnostics,
       sourceFile,
       node,
-      `${name}() belongs in a compute entry or a function it calls; a ${stage} entry has ` +
-        `${name === 'textureBarrier' ? 'no workgroup whose texture writes it could order' : 'no workgroup to wait for'}.`,
+      barrierStageMessage(name, stage),
       TS_CODES.BARRIER_PLACEMENT,
     );
     return undefined;
