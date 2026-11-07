@@ -37,6 +37,7 @@ import { notAValueSentence } from './new-target.js';
 import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
+import { workgroupStageMessage } from '../stage-restrictions.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { refuseIdentityKind, refuseNegationKind, refuseOperatorKind } from './operator-kinds.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
@@ -548,20 +549,21 @@ function lowerIdentifier(
     case 'modvar': {
       // Workgroup memory is a compute entry's alone (§24): a vertex or fragment entry that
       // names it is refused here, on the read, with the reason. A helper function has no
-      // stage and passes; Tint decides for it from the entry that calls it.
+      // stage and passes; the final call-graph check inherits its callers' stages.
       const stage = scope.currentStage();
       if (binding.space === 'workgroup' && (stage === 'vertex' || stage === 'fragment')) {
         pushDiag(
           diagnostics,
           sourceFile,
           node,
-          `"${node.text}" is workgroup memory, which only a compute entry has; a ${stage} entry cannot read or write it.`,
+          workgroupStageMessage(node.text, stage),
           TS_CODES.MODULE_VAR,
         );
         return undefined;
       }
       if (refuseBareAtomic(binding.type, node, sourceFile, scope, diagnostics)) return undefined;
-      return { op: 'varref', type: binding.type, name: irNameOf(binding) };
+      const ref: Expr = { op: 'varref', type: binding.type, name: irNameOf(binding) };
+      return binding.space === 'workgroup' ? withSpan(ref, sourceFile, node) : ref;
     }
     case 'binding':
     case 'local':

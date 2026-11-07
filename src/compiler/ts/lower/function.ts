@@ -111,6 +111,7 @@ import {
   SUBGROUP_INTRINSICS,
 } from '../../../core/intrinsics.js';
 import { diagnosticAtSpan, makeDiagnostic } from '../diagnostic.js';
+import { checkComputeOnlyUses } from '../stage-restrictions.js';
 import { spanOf, withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { isAsyncOrGenerator, isVarStatement, refusalWithin } from '../semantic.js';
@@ -1837,6 +1838,7 @@ export function lowerSourceFunctions(
     diagnostics,
   );
   checkFragmentOnlyOps(funcs, nodeByName, sourceFile, diagnostics);
+  checkComputeOnlyUses(funcs, vars, nodeByName, sourceFile, diagnostics);
   // A read before an assignment, and an `@out` parameter's definite writes, on the source
   // (Rules 7.6 and 8.25).
   checkDefiniteAssignment(sourceFile, diagnostics);

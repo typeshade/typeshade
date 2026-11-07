@@ -1630,6 +1630,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Compute-only operations through helpers** (#321, control#14 and control#15). Vertex and
+  fragment entries now refuse workgroup memory and barriers reached through helpers or
+  accessors, including direct workgroup writes. Existing diagnostic text is preserved.
+  A use in another shader file is reported at the excluded entry so the editor shows it.
+
 - **Nested atomic module variables** (#321, control#16). A private module variable containing
   an atomic through structs or arrays now receives the existing `TS8033` diagnostic in the
   compiler and editor. Workgroup and storage declarations remain accepted. The workgroup

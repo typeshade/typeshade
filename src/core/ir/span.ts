@@ -30,7 +30,8 @@ import type { Expr, FuncDecl, Stmt } from './nodes.js';
  *
  *  The `"use typeshade"` source compiler fills one for every {@link Stmt} and {@link FuncDecl}
  *  it lowers, for the outermost call node lowered from each `ts.CallExpression`, and for an
- *  assignment's target. A call the front end SYNTHESISES while expanding one carries none:
+ *  assignment's target. A workgroup-variable read also carries its span for stage diagnostics,
+ *  without adding a debugger step. A call the front end SYNTHESISES while expanding one carries none:
  *  `random(seed)` becomes a `fract(sin(dot(…)))` tree, the array higher-order functions expand
  *  into per-element calls, and `Math.hypot` becomes `length(vec2(…))`. None of those were
  *  written anywhere. A numeric cast is NOT in that list: `f32(n)` is a call node lowered from a
