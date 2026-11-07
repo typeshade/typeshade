@@ -1,7 +1,7 @@
 ---
 id: '0128'
 title: A fuse report counts WebGPU scratch buffer allocations and pool reuses
-status: draft
+status: accepted
 rules:
   - '11.13'
 surface:
@@ -31,7 +31,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                 |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0128, draft. The front matter controls its lifecycle.                                                                                                                         |
+| Identity and status           | Proposal 0128, accepted. The front matter controls its lifecycle.                                                                                                                      |
 | Date and attribution          | Authored 2026-11-07 UTC by Codex under the owner's request to continue remaining issues. This date records authorship, not approval.                                                   |
 | Request source                | Issue [#992](https://github.com/typeshade/typeshade/issues/992), from TypeAudio experiment 4 at compiler pin `14566606`.                                                               |
 | Applicability / Effectivity   | Reports returned by `fuse()` and `device.fuse()`, their aggregation and documentation. Release version unassigned.                                                                     |
@@ -45,7 +45,7 @@ whether a scratch array caused a WebGPU storage buffer allocation or borrowed a 
 `DeviceStatistics.allocations` and `reuses` count `array()` calls, so they cannot supply this information.
 PR [#1074](https://github.com/typeshade/typeshade/pull/1074) fixes scratch pooling separately and leaves those public counters unchanged.
 
-**Proposed behavior.** Add one optional, readonly member to `FuseReport`:
+**Approved behavior.** Add one optional, readonly member to `FuseReport`:
 
 ```ts
 readonly webgpuScratch?: {
@@ -127,7 +127,7 @@ produces a merged report without the new member.
 ### D5. Show the reported cost without a timing claim
 
 Issue #992 describes 10,000 lanes of 1,024 `f32` frames: 40,960,000 bytes per scratch buffer.
-The following is a proposed report fragment for two successful plans of that shape:
+The following is a report fragment of the approved behavior for two successful plans of that shape:
 
 ```json
 {"webgpuScratch":{"allocations":1,"allocatedBytes":40960000,"reuses":0,"reusedBytes":0}}
@@ -138,7 +138,7 @@ Their merged metrics report one allocation and one reuse, each of 40,960,000 byt
 disabled or insufficient capacity, both plans instead report one allocation and no reuse.
 Before this proposal, neither plan exposes that difference in its `FuseReport`.
 
-This example illustrates the proposed counters. It is not a new allocation, GPU or performance
+This example illustrates the approved counters. It is not a new allocation, GPU or performance
 measurement. The issue's experiment could not separate allocation cost from container load.
 
 ## Why
@@ -173,7 +173,7 @@ and are outside this proposal.
 - Tests, journeys and examples: update full-report expectations where necessary. The set of
   examples, shader source vocabulary and diagnostic codes do not change.
 
-### Draft impact estimate
+### Impact estimate
 
 The implementation depends on the pool fix in #1074 merging first. It does not change that
 fix's pool policy, physical layout matching, zeroing, owner isolation or scratch handle lifetime.
@@ -189,8 +189,8 @@ Expected work is private event accounting, report aggregation, tests and documen
 No new dependency is proposed. Bundle growth, CPU overhead and delivery time are unestimated;
 measure the bundle before delivery and make no performance claim without a separate measurement.
 
-Decisions D1 to D5 are proposed for acceptance together. Review must settle the exact member
-name, complete optional object, descriptor-size unit and unknown-input aggregation before acceptance.
+Decisions D1 to D5 are accepted together. The exact member name, complete optional object,
+descriptor-size unit and unknown-input aggregation are the reviewed scope below.
 
 ### Required functional evidence
 
@@ -220,16 +220,33 @@ Record exact tested revisions and distinguish local checks from CI and downstrea
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the reviewed decisions D1 to D5, finalized
-impacts, actual review and merge references, and assigned implementation responsibilities.
-No technical revision has been individually approved by the owner in this record.
-The owner's standing task authorization is not a fabricated technical review or validation result.
+On 2026-11-07 UTC, Codex recorded acceptance under the owner's standing instructions to
+continue remaining issues and merge the pull requests it authors. The owner did not separately
+review or approve this technical revision. This record distinguishes that delegation from the
+technical review performed by the collaborating Codex agent.
+
+The agent reviewed decisions D1 to D5 and required two refinements: count compatible ordinary
+`Resident` buffers borrowed for scratch, and require the differential gate. Both are present in
+reviewed draft revision `9015934fc22147eb61243bff482b9636bd99cacf` of
+[PR #1082](https://github.com/typeshade/typeshade/pull/1082). This acceptance changes the record's
+status and records authority; it adds no public implementation or new technical scope.
+
+The approved scope is the complete optional object, descriptor-size units, actual acquisitions,
+unknown-preserving aggregation, dependencies, validation and downstream obligations described above.
+Codex is responsible for compiler implementation and its functional and document checks.
+The pool fix and this proposal's accepted revision must merge before implementation starts.
+Codex then opens an implementation PR with the required evidence. Every required check must
+pass on its current head before merge.
+This file authorizes no implementation until the accepted proposal is merged.
+
+No delivery dates, duration or cost estimates were agreed. Downstream assignees and pin schedules
+remain unassigned. Compiler delivery will not establish downstream completion or authorize a release.
 
 ### Configuration and validation record
 
 This record does not yet apply. Delivery requires the accepted proposal revision, implementation
 PR and commits, functional and document evidence, and dispositions for any deviation.
-The read-only source audit and issue evidence support this draft; they do not validate an
+The read-only source audit and issue evidence support this record; they do not validate an
 implementation of the new fields. Downstream adoption remains separate from compiler delivery.
 
 ## What it owes downstream
