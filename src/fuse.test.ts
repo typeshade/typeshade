@@ -962,12 +962,23 @@ function fakeGpu(options: FakeOptions = {}) {
 describe('device-owned scratch returns to the bounded array pool (#992)', () => {
   function recording(options: FakeOptions = {}) {
     const gpu = fakeGpu(options);
+    const destroyCounts = new Map<object, number>();
+    const create = gpu.device.createBuffer.bind(gpu.device);
+    gpu.device.createBuffer = (descriptor) => {
+      const buffer = create(descriptor);
+      const destroy = buffer.destroy.bind(buffer);
+      buffer.destroy = () => {
+        destroyCounts.set(buffer, (destroyCounts.get(buffer) ?? 0) + 1);
+        destroy();
+      };
+      return buffer;
+    };
     const make = gpu.device.createCommandEncoder.bind(gpu.device);
     gpu.device.createCommandEncoder = () => ({
       ...make(),
       clearBuffer: () => gpu.commands.push('clear'),
     });
-    return gpu;
+    return Object.assign(gpu, { destroyCounts });
   }
 
   it('reuses one scratch buffer, clears before dispatch, and keeps array() counters and expired handles', async () => {
@@ -1132,6 +1143,7 @@ describe('device-owned scratch returns to the bounded array pool (#992)', () => 
     const buffers = gpu.made.filter((b) => b.usage === RESIDENT_BUFFER);
     expect(buffers).toHaveLength(2);
     expect(buffers.every((b) => b.destroyed)).toBe(true);
+    expect([...gpu.destroyCounts.values()]).toEqual([1, 1]);
   });
 
   it('keeps unused, contracted and body-failure scratch out of the pool', async () => {
