@@ -103,10 +103,6 @@ for (const ex of corpus) {
  *  that silently stopped emitting) and a VANISHED one (a refusal that became a silent bad
  *  emit) both fail here rather than shrinking the sweep unnoticed. */
 const EXPECTED_REFUSALS: readonly { id: string; stage: string; match: RegExp }[] = [
-  // One entry, not two: `hello-uniform` declares only a fragment stage, so the vertex stage
-  // is never swept. Calling `emitGlslModule(m, 'vertex')` on it directly does throw the same
-  // way — but a stage the module does not have is not a stage this gate examines.
-  { id: 'hello-uniform', stage: 'fragment', match: /must be a struct \(a std140 UBO block\)/ },
   // The WGSL-only textures (roadmap 0.4 item 12, §36): a 1d texture, a cube array and a gather
   // each derive a capability GLSL ES 3.00 has no row for, so BOTH stages are refused by the
   // capability gate before any emit. The other WGSL-only examples are compute-only and have no

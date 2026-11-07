@@ -85,6 +85,11 @@ import {
   type KernelLengthModule,
   type KernelLengthReport,
 } from './kernel-length-cases.js';
+import {
+  runBareUniforms,
+  type BareUniformRun,
+  type BareUniformReport,
+} from './bare-uniform-cases.js';
 
 /** One callable entry of one example, as `scripts/entry-calls.ts` lists it. */
 export interface EntryCase {
@@ -142,6 +147,8 @@ export interface EntryReport {
   readonly samplers: SamplerPairReport;
   /** #689: checked element lengths and independent outputs on all three kernel tiers. */
   readonly kernelLengths: KernelLengthReport;
+  /** Change 0127: bare host values on both draw paths, with live block/guard instruments. */
+  readonly bareUniforms: BareUniformReport;
 }
 
 /** A runtime-sized array's element count, and a canvas's side. */
@@ -1023,6 +1030,7 @@ export async function runEntries(
   aliases: readonly AliasFixture[] = [],
   samplerCases: readonly SamplerPairRun[] = [],
   kernelModule?: KernelLengthModule,
+  bareUniformRuns: readonly BareUniformRun[] = [],
 ): Promise<EntryReport> {
   // The instrument, FIRST: a comparison that cannot see one changed value is blind.
   const probe = [0.5, -1, 2, 3];
@@ -1062,5 +1070,15 @@ export async function runEntries(
   const samplers = await runSamplerPairs(samplerCases);
   if (kernelModule === undefined) throw new Error('the kernel-length gate module is missing');
   const kernelLengths = await runKernelLengths(kernelModule);
-  return { perturbedReported, verdicts, render, glRender, glCanvas, samplers, kernelLengths };
+  const bareUniforms = await runBareUniforms(bareUniformRuns);
+  return {
+    perturbedReported,
+    verdicts,
+    render,
+    glRender,
+    glCanvas,
+    samplers,
+    kernelLengths,
+    bareUniforms,
+  };
 }

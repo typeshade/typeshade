@@ -184,6 +184,22 @@ and reads of the original module values to the CPU oracle and WebGPU.
 
 A journey belongs with the change that makes it work. A pull request that improves what a user can write adds the journey that shows it, and the gate keeps it working from then on.
 
+`journeys/bare-uniforms/` (change 0127, #452) passes scalar, vector and six three/four-row
+matrix values without a struct wrapper. Weighted components expose lane and column swaps.
+Every original and changed input runs on WebGPU, required WebGL2 and the CPU oracle, against
+plain JavaScript. Scalar and vector `f64` cases exercise both emitted flavors with values
+whose low word affects the pixel. Two zero-multiplied reads retain the same output when the
+input changes, whether the native driver keeps their block active or removes it.
+
+The compile gate calls the same fixtures through generated host modules and manifest render
+pipelines (`scripts/bare-uniform-cases.ts`). A changed value reuses the same canvas and owner,
+or the same runtime and pipeline, so a cached upload must take the new value.
+Host WebGPU and both manifest tiers exercise both
+`f64` flavors; generated host WebGL2 retains its existing float flavor. Actual shader creation
+distinguishes the WebGPU flavors. Native GLSL probes reject a broken shader and buffers one
+byte below each active block's queried size, then restore the packed bytes and read the pixel.
+Changing the float flavor's real guard texture to zero must change its readback.
+
 `journeys/class-upcasts/` (change 0038, #429) passes a read-only derived material into a
 base-typed constructor. Its independent JavaScript classes verify the material response,
 one evaluation of a side-effecting factory and argument order on the CPU and WebGPU.
