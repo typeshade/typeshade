@@ -17,6 +17,11 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **Pure shader root aliases** (change 0126, #780). A file containing only the shader directive
+  and one value export-star retains its terminal target's private declarations, module
+  directives and binding slots through alias chains. Ordinary imports remain selective.
+  Named host exports, requested-path identity and existing package naming remain unchanged.
+
 - **Optional empty fragment bindings** (change 0125, #454). A full-screen fragment entry
   that reaches no host-supplied binding accepts `fs(canvas)`, `fs(canvas, undefined)` or
   `fs(canvas, {})`. Runtime-owned guards do not require an argument; reached authored bindings

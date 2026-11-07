@@ -159,6 +159,13 @@ guard-only fragment also runs with both WebGPU fp64 flavors. Captured shader tex
 that the flavors differ and only the float flavor uses the runtime guard. The compile gate's
 entry-call leg checks the same fixtures and verifies their host-binding metadata.
 
+The pure-alias fixtures compare two terminal modules with their direct, aliased and chained
+imports (change 0126). An unused first binding retains its slot, and a private entry stays
+in the manifest without becoming a named host export. Forty-five compute, fragment and
+empty-binding calls run across their supported WebGPU, WebGL2 and CPU tiers. Outputs match
+independent JavaScript references and the direct calls; omitted bindings match `{}` exactly.
+The compile gate checks the same fixtures, including actual WGSL and render GLSL output.
+
 In the same project, from the same tarball, the script then builds `examples/hosts/` (change 0061) with Vite: the host examples, each a module and the `host.ts` an application would write. It calls each host's `run()` through `examples/hosts/_drive.ts` in two pages. The first has WebGPU and sets `configure({ prefer: ['webgpu'] })`, so a kernel or entry call cannot fall back to another tier. The second hides `navigator.gpu`, sets `configure({ prefer: ['webgl2'] })` and makes each canvas's `webgl2` context first, so every call, draw and `runtime()` runs on WebGL2. Each result is compared with `examples/hosts/_reference.ts`, the reference `examples/host-examples.test.ts` holds the CPU tier to, and a host must pass on a tier exactly when `examples/hosts/_order.ts` lists that tier for it.
 
 `journeys/local-use-inference/` (change 0036, #429) lets direct declared calls establish the

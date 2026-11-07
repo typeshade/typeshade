@@ -756,9 +756,10 @@ requires.
 
 A file imports what another shader file exports, as any TypeScript module does. The file
 you compile and the shader files it imports, directly or through another, are one program,
-and the program becomes one module. What your file reaches in an imported file comes with
-it, its helpers, structs, constants and bindings; the imported file's own entry points do
-not.
+and the program becomes one module. An ordinary import brings the declarations your file
+reaches, including helpers, structs, constants and bindings; unrelated entries stay out.
+A pure root alias instead preserves its terminal target (see
+[A shader module that imports another](#a-shader-module-that-imports-another)).
 
 ```ts
 // noise.shade.ts
@@ -1880,10 +1881,34 @@ scratch arrays and the tiers: `docs/use-typeshade-surface.md` §71.
 
 A `"use typeshade"` file imports what another one exports, as any TypeScript module does:
 `import { fbm } from './noise.shade.ts'`. The file you compile and the shader files it imports,
-directly or through another, are one program, and the program becomes one module. What your file
-reaches in an imported file comes with it, its helpers, structs, constants and bindings, and the
-imported file's own entry points do not. Each file keeps its own scope, so two files can each have
+directly or through another, are one program, and the program becomes one module. An ordinary
+import brings the declarations your file reaches: helpers, structs, constants and bindings.
+Unrelated entry points stay out. Each file keeps its own scope, so two files can each have
 a private `hash`; the module emits the second one under a name of its own.
+
+A file kept as a pure alias contains only the shader directive and one value export-star.
+Here `k.shade.ts` is the alias; the first file supplies its target:
+
+```ts
+// new/k.shade.ts
+"use typeshade";
+declare const unused: uniform<f32>;
+declare const gain: uniform<f32>;
+function privateHelper(x: f32): f32 { return x * 2.; }
+export function scale(x: f32): f32 { return x * gain; }
+
+// k.shade.ts
+"use typeshade";
+export * from "./new/k.shade.ts";
+```
+
+Compiling that alias preserves its terminal target's declarations and binding slots, including
+unused bindings and private helpers. Further pure aliases form a chain. This exception starts
+only at the requested root; ordinary imports remain selective. Extra statements, named or
+type-only re-exports, multiple stars and import attributes do not form a pure alias.
+Private declarations stay private, and target errors retain their original file and span.
+The alias keeps its requested path and default fusion identity, so generated artifacts need
+not be byte-identical to the target's. See surface §68 for the complete contract (change 0126).
 
 `compile()` reads what a source imports through a `readDocument` you pass it, which returns a
 file's text by its path, or `undefined` when there is none. The Vite plugin, `tshc check`,

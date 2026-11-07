@@ -353,3 +353,19 @@ function pushReference() {
     pushApart: fused,
   };
 }
+
+// Independent plain JavaScript for the direct/pure-alias/chain host calls (change 0126).
+export function aliasReference() {
+  const frame = (blue) => {
+    const out = [];
+    for (let y = 0; y < 32; y++)
+      for (let x = 0; x < 32; x++)
+        out.push(...[(x + 0.5) / 32, (y + 0.5) / 32, blue, 1].map((v) => v * 255));
+    return out;
+  };
+  return {
+    compute: Array.from({ length: 32 }, (_, i) => i * 0.375 + 1),
+    render: frame(0.375),
+    empty: frame(0.25),
+  };
+}
