@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
 import { analyzeSourceFile, createTypeshadeLanguageServiceWith } from './service.js';
-import { getTypeScriptDiagnostics } from './diagnostics.js';
+import { getTypeScriptDiagnostics, mergeDiagnostics } from './diagnostics.js';
 import { compile } from '../compiler/ts/compile.js';
 import { TypeshadeHost } from './host.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
@@ -12,6 +12,158 @@ import { compileTsSource } from '../compiler/ts/source-file.js';
 import type { TypeshadeDiagnostic } from './types.js';
 
 const URI = 'a.ts';
+
+// #321 names#15: a host typings suggestion cannot repair a shader's unknown name.
+describe('Bun names share the compiler refusal across both halves', () => {
+  const source = (body: string): string =>
+    `"use typeshade"; export function run(): f32 { ${body} }`;
+  it.each([
+    ['value', 'return Bun;', 'TS8022', 'Unknown identifier "Bun".'],
+    ['member', 'return Bun.version;', 'TS8022', 'Unknown identifier "Bun".'],
+    [
+      'call',
+      'return Bun();',
+      'TS8004',
+      'Unknown function "Bun". Declare it in this file, or import it from another shader module.',
+    ],
+    [
+      'type',
+      'const x: Bun = 1.; return 1.;',
+      'TS8002',
+      'Unknown type "Bun". Declare it in this file, or import it from another shader module.',
+    ],
+  ])('%s keeps one compiler sentence at the authored name', (_name, body, code, message) => {
+    const text = source(body!);
+    const expected = { code, message, start: text.indexOf('Bun'), length: 3 };
+    expect(
+      compile(text).diagnostics.map(({ code, message, start, length }) => ({
+        code,
+        message,
+        start,
+        length,
+      })),
+    ).toEqual([expected]);
+    expect(
+      diagnosticsOf(text).map(({ code, message, span }) => ({ code, message, ...span })),
+    ).toEqual([expected]);
+    expect(typeScriptHalfOf(text).map((d) => d.code)).toEqual([2868]);
+  });
+
+  it('keeps a separate unknown name', () => {
+    const text = source('return Bun + missing;');
+    const expected = [
+      ['TS8022', 'Unknown identifier "Bun".'],
+      ['TS8022', 'Unknown identifier "missing".'],
+    ];
+    expect(compile(text).diagnostics.map((d) => [d.code, d.message])).toEqual(expected);
+    expect(diagnosticsOf(text).map((d) => [d.code, d.message])).toEqual(expected);
+  });
+
+  it('accepts an authored local called Bun in both halves', () => {
+    const text = source('const Bun: f32 = 2.; return Bun;');
+    const compiled = compile(text);
+    expect(compiled.diagnostics).toEqual([]);
+    expect(diagnosticsOf(text)).toEqual([]);
+    expect(compiled.eval('run', [])).toBe(2);
+  });
+
+  it.each([
+    'new Bun()',
+    'new Bun.member()',
+    'new (Bun)()',
+    'new Unknown<Bun>()',
+    'new Unknown(Bun)',
+    'new Unknown<Bun>(Bun)',
+    'new Bun(Bun)',
+    'new Bun.member(Bun)',
+  ])('%s merges the target and keeps independent argument errors', (expression) => {
+    const text = source(`const x = ${expression}; return 1.;`);
+    const name = expression.includes('Unknown') ? 'Unknown' : 'Bun';
+    const expected = [
+      {
+        code: 'TS8022',
+        message: `Unknown identifier "${name}".`,
+        start: text.indexOf(expression),
+        length: expression.length,
+      },
+    ];
+    if (expression.includes('<Bun>'))
+      expected.push({
+        code: 'TS8002',
+        message:
+          'Unknown type "Bun". Declare it in this file, or import it from another shader module.',
+        start: text.indexOf('<Bun>') + 1,
+        length: 3,
+      });
+    expect(
+      compile(text).diagnostics.map(({ code, message, start, length }) => ({
+        code,
+        message,
+        start,
+        length,
+      })),
+    ).toEqual(expected);
+    const editor = diagnosticsOf(text);
+    expect(
+      editor
+        .filter((d) => d.source === 'typeshade')
+        .map(({ code, message, span }) => ({ code, message, ...span })),
+    ).toEqual(expected);
+    const retained = editor.filter((d) => d.source === 'typescript');
+    const argument = expression.endsWith('(Bun)');
+    const unmerged = typeScriptHalfOf(text);
+    expect(retained).toEqual(
+      argument ? unmerged.filter((d) => d.span.start === text.lastIndexOf('Bun')) : [],
+    );
+    if (argument)
+      expect(retained).toMatchObject([
+        { code: 2868, span: { start: text.lastIndexOf('Bun'), length: 3 } },
+      ]);
+  });
+
+  for (const code of [2867, 2868]) {
+    const text = source('return Bun;');
+    const analysis = compileTsSource(text, { emit: false });
+    const start = text.indexOf('Bun');
+    const diagnostic: TypeshadeDiagnostic = {
+      uri: URI,
+      source: 'typescript',
+      code,
+      severity: 'error',
+      message: 'Bun needs host typings.',
+      span: { start, length: 3 },
+      range: { start: { line: 0, character: start }, end: { line: 0, character: start + 3 } },
+    };
+    const compiler: TypeshadeDiagnostic = {
+      ...diagnostic,
+      source: 'typeshade',
+      code: 'TS8022',
+      message: 'Unknown identifier "Bun".',
+    };
+    const merged = (t = diagnostic, c = compiler) =>
+      mergeDiagnostics(analysis.sourceFile, [t], [c], analysis, undefined);
+    it(`merges TS${code} only at the same name`, () => {
+      expect(merged()).toEqual([compiler]);
+    });
+    it.each([
+      ['different start', { span: { start: start - 1, length: 4 } }],
+      ['longer span', { span: { start, length: 4 } }],
+      ['other document', { uri: 'other.ts' }],
+      ['warning', { severity: 'warning' as const }],
+      ['other refusal', { code: 'TS8003' }],
+    ] as const)(`keeps TS${code} beside a %s`, (_name, patch) => {
+      expect(merged(diagnostic, { ...compiler, ...patch })).toHaveLength(2);
+    });
+    it(`keeps TS${code} without a compiler refusal`, () => {
+      expect(mergeDiagnostics(analysis.sourceFile, [diagnostic], [], analysis, undefined)).toEqual([
+        diagnostic,
+      ]);
+    });
+    it(`keeps a TS${code} warning`, () => {
+      expect(merged({ ...diagnostic, severity: 'warning' })).toHaveLength(2);
+    });
+  }
+});
 
 /** What the editor shows: both halves, merged to one diagnostic per mistake. With `merge`
  * false, the two halves as they are before that merge (`mergeDiagnostics`). */

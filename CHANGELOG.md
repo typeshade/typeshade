@@ -1630,18 +1630,18 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
-- **Scratch buffer reuse** (#992, pool portion). A device-owned fuse plan now returns its
-  scratch buffers to the owner's bounded pool. A later plan reuses compatible storage and
-  clears it before the first dispatch. Expired scratch handles stay unusable, failed plans
-  release their leases, and disposal frees the pooled buffers. `FuseReport` is unchanged.
-  A zeroed ordinary array that reuses scratch storage gets a new buffer when its first
-  binding needs different padding, including scalar storage first bound as `vec3` values.
-  Later bindings keep that buffer, its pending clear and earlier writes until submission.
-  Mixed-layout interpretation retains the existing first-binding behavior.
-  Paired Bun 1.4.4 gzip measurements against `1492dbda` change runtime from 153,596 to
-  154,059 bytes (split initial 38,637 to 39,148; total 155,528 to 156,022), and fuse from
-  114,160 to 114,318 (split initial 15,724 to 15,892; total 114,667 to 114,834).
-  Only exceeded caps change; floors, emitter, algorithms and random budgets remain unchanged.
+- **Bun host typings diagnostics in shaders** (#321 names#15). An unknown Bun value, function,
+  constructor or type now keeps the compiler's one refusal instead of also suggesting host
+  type packages. Only matching names in the same document are merged; independent errors remain.
+
+- **Class field initializer range diagnostics** (#321 types#12). An integer-written value
+  outside its declared `i32` or `u32` range now uses the existing range sentence and points
+  to the offending expression. Other mismatches use assignment diagnostics with cast remedies.
+  Compiler and editor agree; accepted initializers and emitted programs keep their meaning.
+
+- **Generic call diagnostic merging** (#321, classes#14). A wrong type-argument count now
+  keeps the compiler's single diagnostic in the editor and `tshc check`. Independent
+  TypeScript errors and value-argument count errors retain their diagnostics.
 
 - **Local call diagnostic names** (#321, classes#14). A refused call names its written
   identifier instead of the lifted function name, including locals inside methods,
@@ -1702,6 +1702,19 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   and its split total from 155,126 to 155,226; initial download falls from 38,637 to 38,635.
   The emitter's single and split gzip size rises from 117,598 to 117,931 bytes.
   Floors and the other three subpath budgets stay unchanged.
+
+- **Scratch buffer reuse** (#992, pool portion). A device-owned fuse plan now returns its
+  scratch buffers to the owner's bounded pool. A later plan reuses compatible storage and
+  clears it before the first dispatch. Expired scratch handles stay unusable, failed plans
+  release their leases, and disposal frees the pooled buffers. `FuseReport` is unchanged.
+  A zeroed ordinary array that reuses scratch storage gets a new buffer when its first
+  binding needs different padding, including scalar storage first bound as `vec3` values.
+  Later bindings keep that buffer, its pending clear and earlier writes until submission.
+  Mixed-layout interpretation retains the existing first-binding behavior.
+  Paired Bun 1.4.4 gzip measurements against `1492dbda` change runtime from 153,596 to
+  154,059 bytes (split initial 38,637 to 39,148; total 155,528 to 156,022), and fuse from
+  114,160 to 114,318 (split initial 15,724 to 15,892; total 114,667 to 114,834).
+  Only exceeded caps change; floors, emitter, algorithms and random budgets remain unchanged.
 
 - **Entry IO name diagnostics** (#321, misc#10). An unknown builtin or IO attribute name
   no longer produces missing-attribute and missing-position follow-ups. The editor keeps the

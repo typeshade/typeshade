@@ -1392,6 +1392,16 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     reason: 'The same for a name of Node, where TypeScript offers its types to install.',
   },
   {
+    typescript: 2867,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'An unknown Bun name, where TypeScript offers host types a shader cannot use.',
+  },
+  {
+    typescript: 2868,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'The same Bun name when TypeScript also suggests changing tsconfig types.',
+  },
+  {
     typescript: 2552,
     typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
     reason:
@@ -1629,6 +1639,11 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     reason:
       'The wrong number of arguments. For a `Math` member the compiler expands it says so as ' +
       'TS8003 (`Math.hypot(x)`: `hypot expects 2 or 3 arguments.`).',
+  },
+  {
+    typescript: 2558,
+    typeshade: new Set(['TS8019']),
+    reason: 'The wrong number of type arguments on the same call or construction.',
   },
   {
     typescript: 2322,
@@ -1960,6 +1975,29 @@ function sameMistakeSpans(
   diagnostic: TypeshadeDiagnostic,
   error: TypeshadeDiagnostic,
 ): boolean {
+  const code = ruleCodeOf(diagnostic.code);
+  if (code === 2867 || code === 2868) {
+    if (diagnostic.uri !== error.uri) return false;
+    if (diagnostic.span.start === error.span.start && diagnostic.span.length === error.span.length)
+      return true;
+    // The compiler refuses an unknown constructor over the whole new expression. Only
+    // its root name repeats the host-typings error; a computed key or argument is separate.
+    const built = error.code === 'TS8022' ? newCovering(context, error.span) : undefined;
+    if (built === undefined) return false;
+    let target = unparenthesized(built.expression);
+    while (ts.isPropertyAccessExpression(target)) {
+      target = unparenthesized(target.expression);
+    }
+    const name = spanOfNode(target, context.sourceFile);
+    return (
+      ts.isIdentifier(target) &&
+      name.start === diagnostic.span.start &&
+      name.length === diagnostic.span.length
+    );
+  }
+  if (code === 2558) {
+    return sameTypeArgumentMistake(context, diagnostic, error);
+  }
   if (error.code === TS_CODES.MODULE_VAR) {
     return sameModuleVariableMistake(context, diagnostic, error);
   }
@@ -1981,6 +2019,38 @@ function sameMistakeSpans(
     within(diagnostic.span, error.span) &&
     (diagnostic.span.start === error.span.start || spanEnd(diagnostic.span) === spanEnd(error.span))
   );
+}
+
+/** TS8019 also reports value-argument counts. Its stable type-count sentence and exact call
+ *  span must both match before TS2558 on that call's type-argument list can be dropped. */
+function sameTypeArgumentMistake(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  error: TypeshadeDiagnostic,
+): boolean {
+  if (
+    diagnostic.uri !== error.uri ||
+    !/ takes \d+(?: to \d+)? type argument\(s\), got \d+\.$/.test(error.message)
+  )
+    return false;
+  const { sourceFile } = context;
+  for (
+    let node: ts.Node | undefined = nodeAtPosition(sourceFile, diagnostic.span.start);
+    node !== undefined;
+    node = node.parent
+  ) {
+    if (!ts.isCallExpression(node) && !ts.isNewExpression(node)) continue;
+    const types = node.typeArguments;
+    if (types === undefined || types.length === 0) continue;
+    if (
+      types[0]!.getStart(sourceFile) === diagnostic.span.start &&
+      types[types.length - 1]!.getEnd() === spanEnd(diagnostic.span)
+    ) {
+      const call = spanOfNode(node, sourceFile);
+      return call.start === error.span.start && call.length === error.span.length;
+    }
+  }
+  return false;
 }
 
 /** TS8033 covers many module-variable refusals. Only the wrapper name, or the name of a
