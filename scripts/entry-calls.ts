@@ -26,12 +26,72 @@ import { COMPUTE_CASES, PROGRAM_CASES } from './compute-case.js';
 import { isGuard } from '../src/core/host-entry.js';
 import { SAMPLER_CASES, SAMPLER_REFUSALS, type SamplerPairRun } from './sampler-pair-cases.js';
 import { KERNEL_LENGTH_SOURCE } from './kernel-length-cases.js';
+import { uniforms } from '../journeys/bare-uniforms/values.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const RUNTIME = join(ROOT, 'src/core/host-runtime.ts');
 const PAGE = join(ROOT, 'scripts/entry-calls-page.ts');
 const RENDER_CASE = join(ROOT, 'scripts/render-case.ts');
 const EMPTY_BINDING_FILES = ['empty-bindings', 'empty-bindings-guard'] as const;
+
+/** Each packed-journey source is also called through its real generated host module here. */
+export function bareUniformFixtures(dir: string): { imports: string[]; runs: string[] } {
+  const imports: string[] = [];
+  const runs: string[] = [];
+  const service = createTypeshadeLanguageService();
+  for (const [i, spec] of uniforms.entries()) {
+    const path = join(ROOT, 'journeys/bare-uniforms', `${spec.name}.shade.ts`);
+    const source = readFileSync(path, 'utf8');
+    const compiled = compile(source, { fileName: path });
+    const face = hostFace(source, { fileName: path, runtime: RUNTIME });
+    service.openDocument(path, source);
+    const diagnostics = [
+      ...compiled.diagnostics,
+      ...face.diagnostics,
+      ...service.getDiagnostics(path),
+    ];
+    service.closeDocument(path);
+    const fragment = face.exports?.find(
+      (entry) => entry.kind === 'fragment' && entry.name === 'fs',
+    );
+    if (
+      diagnostics.length ||
+      !compiled.wgsl ||
+      !compiled.glsl?.vertex ||
+      !compiled.glsl.fragment ||
+      !face.code ||
+      fragment?.kind !== 'fragment' ||
+      fragment.entry.noGl ||
+      fragment.entry.noCpu
+    )
+      throw new Error(
+        `bare uniform ${spec.name}: compiler/editor and all host tiers must be present: ${JSON.stringify(diagnostics)}`,
+      );
+    writeFileSync(join(dir, `uniform-${i}.mjs`), face.code);
+    imports.push(`import * as uniform${i} from './uniform-${i}.mjs';`);
+    for (const flavor of spec.kind === 'double'
+      ? (['float', 'integer'] as const)
+      : (['float'] as const)) {
+      const manifest = packModule(compiled.module, { emit: { fp64Flavor: flavor } });
+      const vertex = manifest.gl?.vertices?.vs;
+      const draw = manifest.gl?.draws?.fs;
+      if (
+        !vertex ||
+        'none' in vertex ||
+        !draw ||
+        'none' in draw ||
+        !draw.blocks[spec.name + 'Value']
+      )
+        throw new Error(
+          `bare uniform ${spec.name} ${flavor}: emitted stages or block mapping are absent`,
+        );
+      runs.push(
+        `{ name: ${JSON.stringify(spec.name)}, flavor: ${JSON.stringify(flavor)}, manifest: ${JSON.stringify(manifest)}, call: uniform${i}.fs }`,
+      );
+    }
+  }
+  return { imports, runs };
+}
 
 /** The six finite host-import fixtures of change 0126. Both halves read every requested path;
  *  actual render GLSL must exist, rather than an absent compute-only result counting as equal. */
@@ -282,6 +342,7 @@ export async function entryBundle(): Promise<EntryBundle> {
     });
     const main = join(dir, 'main.ts');
     const aliases = aliasFixtures(dir);
+    const bareUniforms = bareUniformFixtures(dir);
     const lengthFile = '/kernel-lengths.shade.ts';
     const lengthHost = hostFace(KERNEL_LENGTH_SOURCE, { fileName: lengthFile, runtime: RUNTIME });
     const lengthService = createTypeshadeLanguageService();
@@ -310,13 +371,15 @@ export async function entryBundle(): Promise<EntryBundle> {
         `import type { Programs } from ${JSON.stringify(RENDER_CASE)};`,
         ...imports,
         ...aliases.imports,
+        ...bareUniforms.imports,
         `import * as kernelLengths from './kernel-lengths.mjs';`,
         `const cases = [\n  ${cases.join(',\n  ')},\n];`,
         `const programs = ${JSON.stringify(renderPrograms())} as Programs;`,
         `const programCases = ${JSON.stringify(programCases())};`,
         `const aliases = [${aliases.fixtures.join(', ')}];`,
         `const samplerCases = ${JSON.stringify(samplerCases())};`,
-        `(globalThis as Record<string, unknown>)['__runEntries'] = () => runEntries(cases, programs, programCases, aliases, samplerCases, kernelLengths);`,
+        `const bareUniforms = [${bareUniforms.runs.join(', ')}];`,
+        `(globalThis as Record<string, unknown>)['__runEntries'] = () => runEntries(cases, programs, programCases, aliases, samplerCases, kernelLengths, bareUniforms);`,
         '',
       ].join('\n'),
     );

@@ -36,6 +36,7 @@ const emptySpellings = (): TargetSpellings => ({
   structs: new Map(),
   members: new Map(),
   hostStructs: new Set(),
+  uniformBlocks: new Map(),
 });
 
 /** Every reference of `m` by its kind: the op and the name it carries. */

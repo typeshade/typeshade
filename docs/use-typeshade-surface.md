@@ -8788,8 +8788,10 @@ requestAnimationFrame(frame);
   A later owner must allow that tier. Switching owners on a WebGPU canvas reconfigures its context
   and rebuilds device-specific drawing resources.
 - **When a tier cannot draw it.** WebGL2 has no storage buffer, so an entry that reads one draws
-  on WebGPU or the CPU; a non-struct uniform and anything else the GLSL backend refuses leave the
-  WebGL2 tier out too. A texture has no CPU tier. When the canvas's tier cannot draw the entry,
+  on WebGPU or the CPU. A scalar, vector or supported matrix uniform uses a private WebGL2 block;
+  the host still supplies the same number or tuple. Two-row uniform matrices remain refused,
+  and bare arrays or other GLSL backend shortfalls leave the WebGL2 tier out. A texture has no CPU tier.
+  When the canvas's tier cannot draw the entry,
   the draw is refused with a `TypeError` that names why.
 
 ### `console.*` from an entry
