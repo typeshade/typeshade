@@ -18,7 +18,8 @@
 //
 // SCOPE: a DECLARATION with no type annotation whose initialiser is written as an integer —
 // `let i = 0`, `const K = 5`, `const n = 2 + 3`, excluding a local that already takes an
-// integer type from its declared uses (changes 0036 and 0037). That is the shape the flip moves and the shape
+// integer type from its declared uses (changes 0036 and 0037), or a counted loop's initializer
+// (Rule 7.5). That is the shape the flip moves and the shape
 // an author can act on: writing `0.` keeps `f32`, writing `let i: f32 = 0` does too. A literal
 // in any other position is already decided by something — an annotated declaration, an
 // argument, an index, a peer in an arithmetic expression — and `lit-coerce.ts` and
@@ -46,7 +47,8 @@ export function reportIntegerLiteralDeprecations(
     if (
       ts.isVariableDeclaration(node) &&
       node.type === undefined &&
-      node.initializer !== undefined
+      node.initializer !== undefined &&
+      !isForCounterDeclaration(node)
     ) {
       if (
         ts.isIdentifier(node.name) &&
@@ -54,13 +56,16 @@ export function reportIntegerLiteralDeprecations(
         localNumericInference(node, sourceFile)?.type === undefined
       ) {
         const name = node.name.text;
-        // A BARE literal has a one-character fix, so the message writes it out. A TREE of them
+        // A bare DECIMAL literal has a one-character fix. A radix literal needs an annotation:
+        // `0x10.` is not a number literal. A TREE of literals
         // (`2 + 3`) does not — a decimal point on one leaf is enough, which reads as a typo —
         // so that one is told to annotate, which says the same thing and keeps the arithmetic
         // legible.
-        const fix = ts.isNumericLiteral(node.initializer)
-          ? `Write "${name} = ${node.initializer.getText(sourceFile)}." to keep f32`
-          : `Annotate it — "${name}: f32 = ${node.initializer.getText(sourceFile)}" — to keep f32`;
+        const fix =
+          ts.isNumericLiteral(node.initializer) &&
+          !/^0[xob]/i.test(node.initializer.getText(sourceFile))
+            ? `Write "${name} = ${node.initializer.getText(sourceFile)}." to keep f32`
+            : `Annotate it — "${name}: f32 = ${node.initializer.getText(sourceFile)}" — to keep f32`;
         diagnostics.push(
           makeDiagnostic(
             sourceFile,
@@ -76,4 +81,21 @@ export function reportIntegerLiteralDeprecations(
     ts.forEachChild(node, visit);
   };
   ts.forEachChild(sourceFile, visit);
+}
+
+/** The initializer lowerForInit types as i32 or u32 even without a declared integer use.
+ *  Keep incomplete or multi-declaration headers and ordinary body locals on their existing path. */
+function isForCounterDeclaration(node: ts.VariableDeclaration): boolean {
+  const list = node.parent;
+  if (!list || !ts.isVariableDeclarationList(list)) return false;
+  const loop = list.parent;
+  return (
+    loop !== undefined &&
+    ts.isForStatement(loop) &&
+    loop.initializer === list &&
+    list.declarations.length === 1 &&
+    (list.flags & ts.NodeFlags.Let) !== 0 &&
+    loop.condition !== undefined &&
+    loop.incrementor !== undefined
+  );
 }
