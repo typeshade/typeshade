@@ -381,11 +381,9 @@ describe('getCompiledOutput', () => {
     expect(service.getCompiledOutput('nope.ts', 'wgsl')).toBeUndefined();
   });
 
-  // Regression: an emit exception was swallowed into `text: ''` with no diagnostic, so an
-  // output pane showed an empty shader and nothing to say why. A compute-only module asked for
-  // a GLSL stage is the natural case: emitGlslModule refuses it (glsl-es300 has no compute)
-  // with an UnsupportedFeatureError naming the missing capability.
-  it('reports an emit exception as a BACKEND diagnostic on the first statement, with empty text', () => {
+  // GLSL ES 3.00 has no compute stage. Its refusal is not news for a module without a render
+  // entry (Rule 12.3); the WGSL output and cached document diagnostics remain available.
+  it('leaves a compute-only GLSL pane empty without a backend diagnostic', () => {
     const service = createTypeshadeLanguageService();
     const text =
       '"use typeshade";\n' +
@@ -400,16 +398,7 @@ describe('getCompiledOutput', () => {
       const output = service.getCompiledOutput('compute.ts', target);
       expect(output).toBeDefined();
       expect(output!.text).toBe('');
-      expect(output!.diagnostics).toHaveLength(1);
-      const d = output!.diagnostics[0]!;
-      expect(d.source).toBe('typeshade');
-      expect(d.code).toBe('TS8015');
-      expect(d.severity).toBe('error');
-      expect(d.message).toContain(target);
-      expect(d.message).toContain('compute');
-      // The range covers the first statement: the directive on line 0.
-      expect(d.range.start.line).toBe(0);
-      expect(text.slice(d.span.start, d.span.start + d.span.length)).toBe('"use typeshade";');
+      expect(output!.diagnostics).toEqual([]);
     }
     // The emit failure is a fact about that target only: getDiagnostics stays clean.
     expect(service.getDiagnostics('compute.ts')).toEqual([]);

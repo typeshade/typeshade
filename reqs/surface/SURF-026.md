@@ -22,7 +22,7 @@ links:
 - RULE-0819: 2D92Uur_1PtJq4PAX_vx-kOcr0i4SbSGiaNJkCSbJ_g=
 - RULE-0828: V8ipeRbiwYGOQTgzqHmfFLsSBod7WJW41jqlpKUUxJE=
 - RULE-0829: gLh3JC7_BHLfF3wRgTIbyg7QbEEW7nSgKZoXM0-eKZk=
-- RULE-1207: pHp4P7wxxWkhvlbZkdFsba7XPAuHJB-E1xLYY0pHuU4=
+- RULE-1207: IAaqsrySEDJquSmZNks3p4MScVGEpZLU6BpbcBT1x-E=
 normative: true
 ref: ''
 reviewed: 0YBp5UtgE5UC7oub6F_PKXhxj-a8xAjQ4V3kthEYusc=

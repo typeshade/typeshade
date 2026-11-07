@@ -1630,6 +1630,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Output-pane backend diagnostics** (#321, misc#5). GLSL shortfalls now use the compiler's
+  warning text for render modules and stay quiet without a render entry. WGSL failures remain
+  errors on every output target. A render+compute module's GLSL uses the compiler's render
+  selection. Output requests leave cached document diagnostics unchanged.
+
 - **Local call diagnostic names** (#321, classes#14). A refused call names its written
   identifier instead of the lifted function name, including locals inside methods,
   namespaces and generic functions. Diagnostic codes and source spans are unchanged.
