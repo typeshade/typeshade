@@ -1,7 +1,7 @@
 ---
 id: '0129'
 title: Queued host calls propagate failed Resident inputs without stopping independent work
-status: draft
+status: accepted
 rules:
   - '11.8'
   - '11.13'
@@ -35,7 +35,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0129, draft. The front matter controls its lifecycle.                                                                                        |
+| Identity and status           | Proposal 0129, accepted. The front matter controls its lifecycle.                                                                                     |
 | Date and attribution          | Authored 2026-11-07 UTC by Codex under the owner's continuing issue-work request. This is an authorship date, not approval.                           |
 | Request source                | Issue [#998](https://github.com/typeshade/typeshade/issues/998), reported by TypeAudio experiment 5.                                                  |
 | Applicability / Effectivity   | Generated host kernel calls, compute-entry calls, fragment-entry calls and `fuse` plans using `Resident` inputs. Release version unassigned.          |
@@ -195,9 +195,21 @@ Manual Frame behavior must not be presented as covered by these host-call tests.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires technical review of D1–D5 and the declared impact and validation scope.
-The owner's standing request authorizes preparing this proposal; it is not a claim of a separate review of this draft.
-Implementation must wait until this proposal is merged as accepted.
+On 2026-11-07 UTC, the primary Codex agent recorded acceptance of D1–D5 for PR #1087.
+The owner's standing instructions authorize continued issue work and merging the agent's own PRs after validation.
+This record applies that authorization; it does not claim that the owner separately reviewed this technical revision.
+
+Independent technical review approved revision `3eb4f15b23c54f761654cc53f48e9353eaea9b10`.
+It checked queue ordering, argument validation, error identity, existing change 0048 recovery and the manual Frame boundary against source.
+The reviewed revision includes private fact transport, public artifact parity, ordered fuse admission and partial/zero-trip recovery controls.
+The primary agent accepts those decisions, declared impacts and required functional/document evidence without a design deviation.
+The accepted merge of PR #1087 remains the implementation authorization baseline; no runtime implementation may precede it.
+
+Codex is assigned compiler implementation and verification under the continuing issue-work request.
+The milestones are the accepted merge, private dependency implementation, the listed functional/document checks, then a checked implementation PR.
+Implementation duration and milestone dates remain unestimated.
+Downstream assignees, adoption dates, release and publication remain unassigned.
+Technical approval of this proposal is not implementation validation or downstream completion.
 
 ### Configuration and validation record
 
