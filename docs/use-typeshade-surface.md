@@ -1127,7 +1127,8 @@ is an `int`, and a TypeScript reader expects `let i = 0` to index an array — s
 will change. It has NOT changed yet: this release carries the window, not the flip. A build
 that wants to see which of its lines the flip will move asks for the warning, which is off by
 default and moves no emitted byte. A local that already takes an integer type from its declared uses
-does not carry that warning:
+does not carry that warning. Unannotated class fields that take this default also carry it,
+including static and readonly fields:
 
 ```ts
 compile(source, { deprecations: true });

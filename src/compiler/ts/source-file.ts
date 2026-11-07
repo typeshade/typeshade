@@ -54,7 +54,10 @@ import {
   type LinkedProgram,
   type LinkRoot,
 } from './link.js';
-import { reportIntegerLiteralDeprecations } from './integer-literal-deprecation.js';
+import {
+  reportFieldLiteralDeprecations,
+  reportIntegerLiteralDeprecations,
+} from './integer-literal-deprecation.js';
 import {
   collectDiagnosticDirectives,
   derivativeUniformitySeverity,
@@ -459,6 +462,9 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   }
   // A name nothing declares in a body no call lowered, which the lowering never read (Rule 2.1).
   reportUndeclaredValues(sourceFile, diagnostics);
+  // Field warnings use the actual declared type and leave refused initializers alone.
+  if (options.deprecations === true)
+    reportFieldLiteralDeprecations(sourceFile, diagnostics, symbols);
   // The decorated form of the migration release, read as written and warned once each
   // (change 0111, milestone 4).
   warnDecoratedForm(sourceFile, diagnostics);
