@@ -1662,6 +1662,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   are unchanged. Only the exceeded caps move to those measurements; floors and the
   compiler/CSP boundary checks remain in force.
 
+- **Output-pane backend diagnostics** (#321, misc#5). GLSL shortfalls now use the compiler's
+  warning text for render modules and stay quiet without a render entry. WGSL failures remain
+  errors on every output target. A render+compute module's GLSL uses the compiler's render
+  selection. Output requests leave cached document diagnostics unchanged.
+
 - **Module-variable editor diagnostics** (#321, control#18). A retired `perInvocation` type,
   a `workgroup` variable declared `const`, or a `workgroup` type with no argument now shows
   the compiler's existing TS8033 once. Independent type and name errors remain visible.
