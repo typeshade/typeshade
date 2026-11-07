@@ -1630,6 +1630,12 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Misplaced loop-control diagnostics** (#321, control#21 and control#28). The editor reports
+  the compiler's existing `TS8009` once for a `break` or `continue` without a target in its
+  function. Matching TypeScript diagnostics are merged only at the same statement; unrelated
+  errors and the existing top-level refusals remain. Both refusal texts now have exact code
+  and message tests.
+
 - **GLSL sampler conflicts** (#448). GLSL emission refuses a texture sampled with different
   samplers, including across selected vertex and fragment entries; WGSL stays available.
   WebGL2 pipeline creation rejects the same conflict before compiling a GL program.

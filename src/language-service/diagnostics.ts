@@ -1484,13 +1484,18 @@ const SAME_MISTAKE: readonly SameMistake[] = [
   },
   {
     typescript: 1105,
-    typeshade: new Set(['TS8014']),
-    reason: 'A `break` at the top level.',
+    typeshade: new Set(['TS8014', 'TS8009']),
+    reason: 'A `break` at the top level or outside a loop or switch.',
   },
   {
     typescript: 1104,
-    typeshade: new Set(['TS8014']),
-    reason: 'A `continue` at the top level.',
+    typeshade: new Set(['TS8014', 'TS8009']),
+    reason: 'A `continue` at the top level or outside a loop.',
+  },
+  {
+    typescript: 1107,
+    typeshade: new Set(['TS8009']),
+    reason: 'A `break` or `continue` with no target inside its function.',
   },
   {
     typescript: 1101,
