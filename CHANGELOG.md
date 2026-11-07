@@ -1630,6 +1630,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Module-variable editor diagnostics** (#321, control#18). A retired `perInvocation` type,
+  a `workgroup` variable declared `const`, or a `workgroup` type with no argument now shows
+  the compiler's existing TS8033 once. Independent type and name errors remain visible.
+
 - **Array lengths in WebGL2 kernels** (#689). Eligible kernel loops read array parameter
   `.length` using checked element counts, including subviews and flat vector arrays. This
   restores WebGL2 execution for `inclusiveScan`, `exclusiveScan` and `compact`. An array read
