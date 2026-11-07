@@ -84,6 +84,20 @@ export function moduleVarSpace(type: ts.TypeNode | undefined): ModuleVarDecl['sp
 const diag = (sourceFile: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic =>
   makeDiagnostic(sourceFile, node, message, TS_CODES.MODULE_VAR);
 
+/** Atomic address-space restrictions reach through structs and arrays. Keep this walk
+ *  specific to atomics: the other module-variable refusals retain their existing scope. */
+function holdsAtomic(
+  type: ShaderType,
+  structs: StructLookup,
+  seen: Set<string> = new Set(),
+): boolean {
+  if (type.kind === 'atomic') return true;
+  if (type.kind === 'array') return holdsAtomic(type.elem, structs, seen);
+  if (type.kind !== 'struct' || seen.has(type.name)) return false;
+  seen.add(type.name);
+  return (structs(type.name)?.fields ?? []).some((field) => holdsAtomic(field.type, structs, seen));
+}
+
 /** What a module variable's type may hold: a scalar, a vector, a matrix, a sized array or a
  *  struct of those, and in workgroup memory an atomic. Textures, samplers and runtime-sized
  *  arrays have no place in either space; an atomic in a private variable is WGSL's own rule
@@ -111,7 +125,7 @@ function typeRefusal(t: ShaderType, space: ModuleVarDecl['space']): string | und
     return 'a runtime-sized array lives in a storage binding only; give this one a size, array<f32, 64>';
   }
   if (t.kind === 'array') return typeRefusal(t.elem, space);
-  if (t.kind === 'atomic' && space === 'private') {
+  if (space === 'private' && holdsAtomic(t, structsHere)) {
     return 'an atomic lives in storage or workgroup memory, not in a per-invocation variable';
   }
   return undefined;
@@ -623,6 +637,7 @@ function finish(
   const refusal = typeRefusal(type, space);
   if (refusal !== undefined) {
     diagnostics.push(diag(sourceFile, typeNode, `"${name}" cannot be ${shown}: ${refusal}.`));
+    refuse(name, sourceFile, scope);
     return undefined;
   }
   if (decl.initializer === undefined) return { name, space, type };
