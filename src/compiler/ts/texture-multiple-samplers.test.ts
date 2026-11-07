@@ -80,9 +80,23 @@ describe('GLSL refuses two samplers for one texture', () => {
         fileName: URI,
       },
     ]);
-    expect(pane?.diagnostics).toMatchObject([
-      { code: 'TS8015', message: `Backend emit failed for glsl-fragment: ${WHY}` },
-    ]);
+    expect(
+      pane?.diagnostics.map(({ code, message, severity, span }) => ({
+        code,
+        message,
+        category: severity,
+        start: span.start,
+        length: span.length,
+      })),
+    ).toEqual(
+      c.diagnostics.map(({ code, message, category, start, length }) => ({
+        code,
+        message,
+        category,
+        start,
+        length,
+      })),
+    );
     expect(() => emitGlslModule(c.module, 'fragment')).toThrow(WHY);
     expect(() => emitGlslStages(c.module)).toThrow(WHY);
     expect(() => emitGlslFragment(c.module, 'fragment', { entryPoints: true })).toThrow(WHY);
