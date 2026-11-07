@@ -6861,8 +6861,13 @@ One narrow shape has that proof: the entire helper body is one return, made only
 by-value parameters and pure operators, constructors, member reads, indices and selections.
 Every operand is checked, including an index and both selection arms. If every parameter that
 reaches the result is uniform, the call is uniform too: `edge(k)` for
-`function edge(x: f32): bool { return x > 0.5 }` now admits a barrier (#180).
-Calls, global reads, reference parameters and other statement bodies keep the `unknown` floor.
+`function edge(x: f32): bool { return x > 0.5 }` admits a barrier in a module without reference
+parameters (#180). The proof is disabled for the whole module if any lowered function has a
+reference parameter, including an unused function, `out`, a mutating method or a written capture.
+The walk does not propagate reference writes into caller locals, so their values and surrounding
+control flow can otherwise appear uniform after a varying write. Such modules keep the prior
+`unknown` floor even for a uniform setter. Calls, global reads and other statement bodies also
+keep that floor.
 
 - A dependency summary alone never proves `uniform`, because an unknown origin can have no
   parameter dependencies. The separate proof must account for the entire return expression.
@@ -6969,6 +6974,9 @@ What it does not reach is stated rather than implied, and kept true of the tree:
 EDSL-assembled module reaches Tint — which owns the complete rule — unchanged; a `raw`
 statement's text is opaque to it; an `inout` parameter is not modelled, since the walk answers
 a call's result; and return-dependency summaries remain flow-insensitive over locals.
+The module-wide reference guard bounds the positive helper proof; it does not repair the
+pre-existing inline caller-local limitation, tracked in
+[#1088](https://github.com/typeshade/typeshade/issues/1088).
 The remaining finding in [#180](https://github.com/typeshade/typeshade/issues/180) is that
 `gate(x, y) { let acc = x * 2.; acc = y; return acc }` keeps `x` where the same statements inline
 do not. Helpers outside the single-pure-return proof also retain their conservative floor.

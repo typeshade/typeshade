@@ -84,8 +84,9 @@
 //     refused where the same statements inline are accepted. Filed as #180 rather than fixed
 //     here, with its measurement.
 //   • A user call keeps an `unknown` floor unless its entire body is one pure return of
-//     literals and by-value parameters. That narrow proof accepts `edge(k)` when `edge` returns
-//     `x > 0.5` and `k` is uniform (#180); calls, globals and other bodies remain unproven.
+//     literals and by-value parameters, in a module with no reference parameters. That narrow
+//     proof accepts `edge(k)` when `edge` returns `x > 0.5` and `k` is uniform (#180); calls,
+//     globals and other bodies remain unproven.
 //     A barrier still needs proven uniform flow. A `break` or `continue` under an unknown
 //     condition narrows nothing, and a `workgroupUniformLoad` takes `unknown` as a refusal only
 //     inside an `if` or `switch`.
@@ -362,8 +363,8 @@ function fieldUniformity(
 interface Summary {
   /** Parameter positions the return value depends on. */
   readonly params: ReadonlySet<number>;
-  /** The whole body is one pure return of literals and by-value parameters. Only this
-   *  independently checked shape proves that no origin omitted by `params` remains. */
+  /** Whether one pure return may prove uniformity from its by-value parameters. The module
+   *  must also contain no references that could invalidate the caller's uniformity facts. */
   readonly uniformFromParams: boolean;
   /** Whether the return value is read out of an address space that is non-uniform on sight —
    *  `private`, `workgroup`, or a `read_write` storage buffer.
@@ -652,6 +653,15 @@ function returnDependencies(
   byName: ReadonlyMap<string, FuncDecl>,
   readsNonUniformSpace: (name: string) => boolean,
 ): ReturnDeps {
+  // Reference writes are not propagated into the caller's local environment (#1088).
+  // A pure callee can therefore receive a falsely uniform value, or run under falsely
+  // uniform caller control flow. Keep the old floor throughout a module with references,
+  // including mutating methods and captured writes lowered to inout parameters.
+  // Measured on Chromium 156.0.8078.4 / SwiftShader, 2026-11-07, broken-shader check first:
+  // after `set(a, f32(lid.x))`, Tint refuses a barrier under `edge(a)` with
+  // "'workgroupBarrier' must only be called from uniform control flow". `set(a, k)` is
+  // accepted by Tint; this guard conservatively retains the prior refusal for that module.
+  const canProveUniform = !m.funcs.some((f) => f.params.some((p) => p.mode !== undefined));
   const out = new Map<string, Summary>();
   for (const f of m.funcs) {
     out.set(f.name, { params: new Set(), nonUniform: false, uniformFromParams: false });
@@ -659,7 +669,8 @@ function returnDependencies(
   for (let round = 0; round <= m.funcs.length + 1; round++) {
     let changed = false;
     for (const f of m.funcs) {
-      const next = returnDepsOf(f, byName, out, readsNonUniformSpace);
+      const summary = returnDepsOf(f, byName, out, readsNonUniformSpace);
+      const next = canProveUniform ? summary : { ...summary, uniformFromParams: false };
       if (!sameSummary(next, out.get(f.name))) {
         out.set(f.name, next);
         changed = true;
