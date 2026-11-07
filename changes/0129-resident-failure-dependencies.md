@@ -33,14 +33,14 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                       |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0129, draft. The front matter controls its lifecycle.                                                                               |
-| Date and attribution          | Authored 2026-11-07 UTC by Codex under the owner's continuing issue-work request. This is an authorship date, not approval.                  |
-| Request source                | Issue [#998](https://github.com/typeshade/typeshade/issues/998), reported by TypeAudio experiment 5.                                         |
-| Applicability / Effectivity   | Generated host kernel calls, compute-entry calls, fragment-entry calls and `fuse` plans using `Resident` inputs. Release version unassigned. |
-| Review baseline               | Compiler main `8e7f29f646da4b7540c8ba5125c28218bbcf367d`, inspected on 2026-11-07 UTC.                                                       |
-| Review and revision authority | No proposal PR is assigned yet. Git records revisions; the PR review and accepted merge will record decisions.                               |
+| Field                         | Record                                                                                                                                                |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0129, draft. The front matter controls its lifecycle.                                                                                        |
+| Date and attribution          | Authored 2026-11-07 UTC by Codex under the owner's continuing issue-work request. This is an authorship date, not approval.                           |
+| Request source                | Issue [#998](https://github.com/typeshade/typeshade/issues/998), reported by TypeAudio experiment 5.                                                  |
+| Applicability / Effectivity   | Generated host kernel calls, compute-entry calls, fragment-entry calls and `fuse` plans using `Resident` inputs. Release version unassigned.          |
+| Review baseline               | Compiler main `8e7f29f646da4b7540c8ba5125c28218bbcf367d`, inspected on 2026-11-07 UTC.                                                                |
+| Review and revision authority | Proposal [PR #1087](https://github.com/typeshade/typeshade/pull/1087). Git records revisions; the PR review and accepted merge will record decisions. |
 
 ## What changes
 
@@ -89,6 +89,9 @@ The existing `writes` flag alone does not prove write-only access.
 Derive access facts from the compiler's shared operand-access analysis, including the whole function.
 Do not infer safety merely from one loop's output binding or an absent fusion hint.
 Carry any required private facts with the generated host artifact; do not add runtime compiler analysis.
+Use a separate private payload or registration, rather than adding fields to the publicly exposed `HostExport.face` or entry structures.
+The implementation must preserve the public shapes and serialized content of `HostFace.exports`, `Pack` and host-view declarations.
+Generated executable code may change to carry the private facts.
 Unknown access, including an older artifact without sufficient facts, counts as a read.
 Such older artifacts remain loadable; after an input failure they may conservatively refuse a recovery call.
 No public manifest schema or public export shape changes are proposed.
@@ -100,6 +103,7 @@ Success clears the errors of the `Resident` values it writes, as successful call
 Failure stores the new execution error instead. A read/write update cannot recover by reading failed contents.
 This preserves the existing successful-writer contract; it does not prove that every element was overwritten.
 Array bounds and the treatment of elements the program leaves unwritten stay unchanged.
+Successful zero-trip and partial write-only calls retain that existing error-clearing behavior too.
 
 Whole and partial `Resident.write()` keep their present error behavior from change 0048.
 They do not silently become reset operations. A new handle or a successful write-only call supplies recovery.
@@ -114,6 +118,8 @@ Walk its recorded calls in order with a temporary dependency state.
 A prior write-only call in this same plan can supply the value a later call reads.
 If that writer fails when executed, the existing whole-plan failure stops the dependent call.
 Do not clear the real handle's error early merely to approve the plan.
+Execution uses the plan's approved dependency state instead of rechecking a stale real error through the ordinary per-call admission path.
+An actual execution failure still aborts the plan immediately under its existing rules.
 
 A content dependency still failed at its read rejects the whole plan with that error.
 Every recorded promise rejects and every planned written `Resident` retains it, as Rule 11.13 already specifies.
@@ -172,7 +178,7 @@ Implementation duration and downstream delivery dates are unestimated, not zero.
 Required functional evidence before delivery:
 
 1. Reproduce the CPU and recording-device stale-consumer failure on the implementation baseline.
-2. Test same-error propagation through multiple consumers, independent owners and successful write-only recovery.
+2. Test same-error propagation through multiple consumers, independent owners, and full, partial and zero-trip write-only recovery.
 3. Test read/write destinations, unused parameters, length-only reads, helper reads, held lengths and indirect counts.
 4. Test error precedence, legacy artifacts without access facts and whole/partial host writes.
 5. Test fuse admission, ordered recovery within a plan, nested scopes and failed-plan output/report cleanup.
@@ -183,6 +189,7 @@ Required functional evidence before delivery:
 
 The negative instrument must fail if dependency admission is disabled.
 Healthy emitted shader artifacts and CPU results need an independent before/after comparison.
+Compare public host-export metadata, packed manifests and host-view declarations byte for byte on healthy controls.
 Document verification includes Rule 11.8/11.13, surfaces §65/67/71, API comments, CHANGELOG, proposal scope and strict Doorstop.
 Manual Frame behavior must not be presented as covered by these host-call tests.
 
