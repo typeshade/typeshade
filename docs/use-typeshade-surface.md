@@ -6856,12 +6856,16 @@ The seeds are the spec's (wgsl.txt:17870-17883): `workgroup_id`, `num_workgroups
 `subgroup_size` and `num_subgroups` are uniform, a `uniform` buffer is uniform, a module or
 `override` constant is uniform, and every other built-in value and user input varies by
 invocation. A call into a USER function is **at least `unknown`, and at most as uniform as the
-arguments its RESULT DEPENDS ON**. Both halves are load-bearing, and each was the wrong answer
-on its own:
+arguments its RESULT DEPENDS ON**, unless the compiler independently proves the entire result.
+One narrow shape has that proof: the entire helper body is one return, made only of literals,
+by-value parameters and pure operators, constructors, member reads, indices and selections.
+Every operand is checked, including an index and both selection arms. If every parameter that
+reaches the result is uniform, the call is uniform too: `edge(k)` for
+`function edge(x: f32): bool { return x > 0.5 }` now admits a barrier (#180).
+Calls, global reads, reference parameters and other statement bodies keep the `unknown` floor.
 
-- Never `uniform`, whatever the arguments say, because the body can read a module `var`, a
-  storage buffer or a built-in value the walk never sees — so reading the arguments alone would
-  PROVE uniform a call that is not one, and that proof is what the barrier rule rests on.
+- A dependency summary alone never proves `uniform`, because an unknown origin can have no
+  parameter dependencies. The separate proof must account for the entire return expression.
 - Never *more* uniform than the arguments that reach the result. A bare `unknown` laundered a
   definitely non-uniform value, so a one-line
   `function edge(x: f32): bool { return x > 0.5 }` put `if (edge(v.uv.x)) { textureSample(…) }`
@@ -6964,12 +6968,10 @@ What it does not reach is stated rather than implied, and kept true of the tree:
 `"use typeshade"` front end only, where a diagnostic can point at the authoring line, so an
 EDSL-assembled module reaches Tint — which owns the complete rule — unchanged; a `raw`
 statement's text is opaque to it; an `inout` parameter is not modelled, since the walk answers
-a call's result; and two refusals are deliberately conservative, filed as
-[#180](https://github.com/typeshade/typeshade/issues/180) with their measurements rather than
-fixed here — a barrier under `if (edge(k))` on a uniform `k`, which Tint accepts and the
-barrier threshold refuses because a user call's floor is `unknown`, and a summary that is
-flow-insensitive over locals, so `gate(x, y) { let acc = x * 2.; acc = y; return acc }` keeps
-`x` where the same statements inline do not. Both only ever refuse.
+a call's result; and return-dependency summaries remain flow-insensitive over locals.
+The remaining finding in [#180](https://github.com/typeshade/typeshade/issues/180) is that
+`gate(x, y) { let acc = x * 2.; acc = y; return acc }` keeps `x` where the same statements inline
+do not. Helpers outside the single-pure-return proof also retain their conservative floor.
 
 **The barrier rule is the spec's now, not a stricter one.** It used to refuse every `if` and
 `switch`, and `workgroupUniformLoad` kept that rule until proposal 0008. `if (k > 0.5)` on a
@@ -7508,10 +7510,19 @@ const h = height([0.5, 0.5], k); // an f32: a number
 const n = normal([0.5, 0.5], k); // a vec3: a readonly tuple of three numbers
 ```
 
-**The setup.** Run `npx tshc init` after installing TypeShade in an existing Vite project (change 0085).
+**The setup.** With the published or built package installed, run `npx tshc init` in an existing Vite project (change 0085).
 The command creates or merges the plugin configuration, host-view settings, shader project and synchronization scripts.
 It prints each changed file. Unrelated settings, script commands and JSONC comments are retained.
 A repeated successful invocation changes no file. Conflicts are refused before the first write.
+
+A GitHub source archive instead points the CLI and exports at TypeScript inside `node_modules`.
+Node refuses that installation with `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`.
+Run its CLI with `bun node_modules/typeshade/src/cli/bin.ts init`, or replace `init` with `check src` or `sync src`.
+The archive also lacks the generated `dist/shade.d.ts` that `typeshade/shade` names.
+Initialization supplies neither a compiler build nor that declaration, and its generated scripts do not change the runtime.
+Use a tarball with compiled JavaScript entry points and generated declarations for the Node/Vite setup below.
+Building `dist/` alone does not redirect the source package's manifest.
+For a source installation, check shaders through Bun's CLI; ordinary `tsc` cannot resolve its missing ambient declaration.
 
 The initializer accepts an ESM Vite configuration with a static default object or `defineConfig({ ... })` and a literal plugin array.
 CommonJS configurations retain manual setup. A new configuration uses an ESM file extension when the package is not a module.
