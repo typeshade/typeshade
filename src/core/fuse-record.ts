@@ -198,8 +198,9 @@ const MOST_ELEMENTS = 0xffffffff;
  * The state of a scratch array: a {@link ResidentArrayState} that holds no elements until a call
  * needs them, and that only the plan of the scope that made it may use. A call is checked by its
  * length (`measure`) and not by a host copy. The first call that runs on WebGPU gets a zeroed
- * device buffer, which a new buffer is, and the first that runs on the host gets a zeroed host
- * array (`sync`), so a group that holds the array as a local makes neither. `release` frees both.
+ * device buffer, new or cleared from its owner's pool, and the first that runs on the host gets
+ * a zeroed host array (`sync`), so a group that holds the array as a local makes neither.
+ * `release` returns a leased buffer to that pool and drops the host array.
  */
 export class ScratchState extends ZeroedState {
   /** Where the array is in its life. A call may take it only while the plan of its scope runs. */
@@ -266,7 +267,7 @@ export class ScratchState extends ZeroedState {
     return super.sync();
   }
 
-  // With no host copy yet, the buffer is the array: a new one, which holds zeros (`ZeroedState`).
+  // With no host copy yet, the buffer is the array: new or cleared before its first dispatch.
   override bufferFor(
     d: GpuDevice,
     layout: Layout,
@@ -274,15 +275,19 @@ export class ScratchState extends ZeroedState {
     writes: boolean,
   ): GpuBuffer {
     this.#use('This array');
+    if (this.gpu === undefined) this.ownedBy?.scratchBuffer?.(this, d, layout);
     return super.bufferFor(d, layout, bytes, writes);
   }
 
   /** The plan has run, or will not: free the device buffer and the host array, and refuse every
    *  use after. */
   release(): void {
+    if (this.phase === 'done') return;
     this.phase = 'done';
-    if (this.gpu !== undefined) forgetBuffer(this.gpu.d, this.gpu.buffer);
-    this.gpu?.buffer.destroy();
+    if (this.ownedBy?.releaseScratch?.(this) !== true) {
+      if (this.gpu !== undefined) forgetBuffer(this.gpu.d, this.gpu.buffer);
+      this.gpu?.buffer.destroy();
+    }
     this.gpu = undefined;
     this.host = undefined;
   }

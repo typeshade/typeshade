@@ -954,12 +954,15 @@ Document versions, for either adapter:
 - The front-end analysis is separable from emit: `compileTsSource` takes an `emit: false`
   option that still parses, analyzes, and lowers to IR but skips `packModule`/WGSL emission, and
   the cached analysis passes it, so diagnostics never produce shader text. `getCompiledOutput`
-  is the one method that emits; when the backend throws (a compute-only module asked for a GLSL
-  stage), the exception comes back as a `BACKEND` (`TS8015`) diagnostic on the file's first
-  statement with `text: ''`, and the document's cached diagnostics stay as they were, since the
-  failure is a fact about that target only. Its output diagnostics also include compiler errors
-  in imported shader files, with each file's own URI and range, and any error in the program
-  leaves `text: ''`. `getDiagnostics(uri)` remains the list located in that document.
+  is the one method that emits. It first checks WGSL, even when the requested target is GLSL.
+  A WGSL emit failure returns a `BACKEND` (`TS8015`) error on the file's first statement with
+  `text: ''`. Once WGSL succeeds, a GLSL emit failure is a warning when the module has a render
+  entry and no diagnostic otherwise (Rule 12.3). The message and span are the compiler's.
+  A render+compute module's GLSL uses the declarations its render and portable compute entries
+  reach, as `compile()` does. Output diagnostics also include compiler
+  errors in imported shader files, with each file's own URI and range. Any error in the
+  program leaves `text: ''`. The document's cached diagnostics stay unchanged;
+  `getDiagnostics(uri)` remains the list located in that document and does not emit.
 - Nothing in the service is asynchronous. Cancellation is the adapter's concern (drop results
   whose version is stale).
 

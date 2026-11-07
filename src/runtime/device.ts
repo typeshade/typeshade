@@ -36,6 +36,7 @@ import {
   requestCallDevice,
   type CallRequest,
   type GpuDevice,
+  type Layout,
 } from '../core/host-entry.js';
 import type { CallOwner } from '../core/owner.js';
 import type { Fp64Flavor } from '../core/passes/fp64-lower.js';
@@ -44,9 +45,11 @@ import {
   adopt,
   checkFp64Flavor,
   kernelQueue,
+  handleOf as residentHandle,
   resident,
   residentState,
   ZEROED_ELEMENTS,
+  ZeroedState,
   type Resident,
   type ResidentArrayState,
   type ZeroedArray,
@@ -296,6 +299,9 @@ class DeviceImpl implements Device {
   readonly #free = new Map<string, Slot[]>();
   /** The released arrays, oldest first, for eviction. */
   readonly #order = new Set<Slot>();
+  /** Scratch handles expire with their scope; the ordinary state of each lease can outlive it
+   *  in the same pool as array(). */
+  readonly #scratch = new WeakMap<ZeroedState, Slot>();
   #pooledBytes = 0;
   #liveBytes = 0;
   #allocations = 0;
@@ -355,6 +361,9 @@ class DeviceImpl implements Device {
         this.#variants.set(kernel, variant);
       },
       assertCall: () => this.#usable('call()'),
+      scratchBuffer: (state: ZeroedState, device: GpuDevice, layout: Layout) =>
+        this.#scratchBuffer(state, device, layout),
+      releaseScratch: (state: ZeroedState) => this.#releaseScratch(state),
     });
   }
 
@@ -455,6 +464,11 @@ class DeviceImpl implements Device {
   release(array: Resident<unknown>): void {
     this.#usable('release()');
     const slot = this.#slotOf(array, 'release()');
+    this.#release(slot);
+  }
+
+  /** Release an array or a scratch lease. Captured plans may finish while dispose() waits. */
+  #release(slot: Slot): void {
     if (slot.pooled) return;
     if (slot.key === undefined || slot.bytes > this.#poolBytes || slot.bytes === 0) {
       this.#drop(slot);
@@ -599,15 +613,75 @@ class DeviceImpl implements Device {
   }
 
   /** A released array of `key`, taken from the pool, or undefined. */
-  #take(key: string): Slot | undefined {
+  #take(key: string, fits: (slot: Slot) => boolean = () => true): Slot | undefined {
     const list = this.#free.get(key);
-    const slot = list?.shift();
-    if (slot === undefined) return undefined;
+    const at = list?.findIndex(fits) ?? -1;
+    if (at < 0) return undefined;
+    const slot = list!.splice(at, 1)[0]!;
     if (list!.length === 0) this.#free.delete(key);
     this.#order.delete(slot);
     this.#pooledBytes -= slot.bytes;
     slot.pooled = false;
     return slot;
+  }
+
+  /** Acquire only at first device use: unused and contracted scratch arrays still allocate
+   *  nothing. A scalar/vec4 scratch layout has four bytes per flattened component. A pooled
+   *  ordinary array may have a padded vec3 layout, so its key alone is not enough. */
+  #scratchBuffer(state: ZeroedState, d: GpuDevice, layout: Layout): void {
+    if (this.#scratch.has(state) || d !== this.#gpu) return;
+    const key = `${state.element}:${state.length}`;
+    const bytes = state.length * 4;
+    let slot = this.#take(
+      key,
+      (s) => s.state.gpu === undefined || (s.state.gpu.d === d && s.state.gpu.size === bytes),
+    );
+    if (slot === undefined) {
+      const held = new ZeroedState(state.length, state.element);
+      held.ownedBy = this.owner;
+      slot = {
+        state: held,
+        inner: residentHandle(held),
+        key,
+        element: state.element,
+        length: state.length,
+        bytes,
+        pooled: false,
+      };
+      this.#live.set(held, slot);
+      this.#liveBytes += bytes;
+    }
+    this.#scratch.set(state, slot);
+    const held = slot.state;
+    state.gpu = held.gpu;
+    held.gpu = undefined;
+    held.host = undefined;
+    held.error = undefined;
+    held.clearPending = false;
+    if (state.gpu !== undefined) {
+      state.gpu = { ...state.gpu, layout };
+      pendingClears.delete(state.gpu.buffer);
+      if (state.host === undefined) {
+        state.fresh = 'device';
+        state.clearPending = true;
+        // This plan owns its queue position already: do not defer the reset with whenIdle().
+        pendingClears.set(state.gpu.buffer, state);
+      }
+    }
+    // allocations/reuses describe array() calls. Scratch adds no entry to those counters.
+  }
+
+  #releaseScratch(state: ZeroedState): boolean {
+    const slot = this.#scratch.get(state);
+    if (slot === undefined) return false;
+    this.#scratch.delete(state);
+    if (state.gpu !== undefined) pendingClears.delete(state.gpu.buffer);
+    state.clearPending = false;
+    slot.state.gpu = state.gpu;
+    slot.state.fresh = state.gpu === undefined ? 'host' : 'device';
+    // A future array(value) replaces the contents; a zeroed array or scratch clears them.
+    this.#release(slot);
+    return true;
   }
 
   /** Zero a pooled array for `array(length, element)`: where its buffer exists, the next plan
