@@ -7505,10 +7505,19 @@ const h = height([0.5, 0.5], k); // an f32: a number
 const n = normal([0.5, 0.5], k); // a vec3: a readonly tuple of three numbers
 ```
 
-**The setup.** Run `npx tshc init` after installing TypeShade in an existing Vite project (change 0085).
+**The setup.** With the published or built package installed, run `npx tshc init` in an existing Vite project (change 0085).
 The command creates or merges the plugin configuration, host-view settings, shader project and synchronization scripts.
 It prints each changed file. Unrelated settings, script commands and JSONC comments are retained.
 A repeated successful invocation changes no file. Conflicts are refused before the first write.
+
+A GitHub source archive instead points the CLI and exports at TypeScript inside `node_modules`.
+Node refuses that installation with `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`.
+Run its CLI with `bun node_modules/typeshade/src/cli/bin.ts init`, or replace `init` with `check src` or `sync src`.
+The archive also lacks the generated `dist/shade.d.ts` that `typeshade/shade` names.
+Initialization supplies neither a compiler build nor that declaration, and its generated scripts do not change the runtime.
+Use a tarball with compiled JavaScript entry points and generated declarations for the Node/Vite setup below.
+Building `dist/` alone does not redirect the source package's manifest.
+For a source installation, check shaders through Bun's CLI; ordinary `tsc` cannot resolve its missing ambient declaration.
 
 The initializer accepts an ESM Vite configuration with a static default object or `defineConfig({ ... })` and a literal plugin array.
 CommonJS configurations retain manual setup. A new configuration uses an ESM file extension when the package is not a module.

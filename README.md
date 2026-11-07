@@ -54,6 +54,25 @@ npm install typeshade
 
 The tarball ships compiled ESM with type declarations, so `import { compile } from 'typeshade'` needs no TypeScript toolchain. Alongside them it ships the `.ts` sources the declaration maps point at, so "go to definition" lands on real source. The public subpaths are `typeshade`, `typeshade/dev`, `typeshade/debug`, `typeshade/compute`, `typeshade/emit-prod`, `typeshade/vite`, `typeshade/runtime` (the program runtime), `typeshade/emit` (its load-time emitter), `typeshade/fuse` (the scope that runs a chain of kernel calls as one plan), `typeshade/core/ir`, `typeshade/examples` and `typeshade/language-service`; `typeshade/runtime/internal` is what a module the Vite plugin generates imports, and is not API. `typescript` is a peer dependency (`>=5.0.0 <7`) and npm installs it for you: `compile()` is a TypeScript front end, so the main entry needs the parser at run time. TypeScript 7 is excluded deliberately, because its `ts.SyntaxKind` is not the one this compiler reads and the package throws on import against it.
 
+A GitHub source archive has different contents: its CLI and exports point at TypeScript sources,
+and it has no generated `dist/shade.d.ts`. Node refuses to strip types inside `node_modules`,
+so `npx tshc` and the Vite plugin do not run there under Node. Use the published package or a
+built tarball whose manifest points at compiled JavaScript and generated declarations.
+[The packed journeys](./journeys/README.md) validate that package layout. Building `dist/` alone
+does not redirect the source package's entry points.
+
+With a source archive installed, run CLI commands explicitly through Bun:
+
+```sh
+bun node_modules/typeshade/src/cli/bin.ts check src
+bun node_modules/typeshade/src/cli/bin.ts sync src
+bun node_modules/typeshade/src/cli/bin.ts init
+```
+
+`init` writes configuration; it does not build the installed compiler or supply the missing
+ambient declaration. Its generated scripts and the Vite plugin still need a compatible runtime.
+Use `tshc check` through Bun to validate shaders from this source installation.
+
 For repository development, or to pin a commit rather than a version, add TypeShade as a git submodule and compile it in place:
 
 ```bash
@@ -136,7 +155,7 @@ import { height } from './terrain.shade.ts';
 const h = height([0.5, 0.5], [1, 0.5, 2, 0.25]); // a number
 ```
 
-Initialize an existing Vite project after installing TypeShade:
+Initialize an existing Vite project after installing the published or built package:
 
 ```sh
 npx tshc init

@@ -186,6 +186,10 @@ It must not claim this type-only migration is invisible to all consumers.
 ### One project-setup command
 
 Add `tshc init` for the normal Vite and TypeScript host project.
+The Node setup uses the published package or a built tarball whose manifest points at compiled JavaScript and generated declarations.
+A GitHub source archive requires `bun node_modules/typeshade/src/cli/bin.ts init` for the command itself.
+Node cannot run its source CLI or Vite plugin inside `node_modules`; the archive also lacks `typeshade/shade`'s generated declaration.
+Initialization does not build that installed compiler. Source users run `check` and `sync` through the same Bun CLI path.
 It creates or merges the host-view resolution settings, shader-project configuration and synchronization hooks.
 It prints the files it changes.
 It preserves unrelated settings, scripts and JSONC comments, and does not overwrite a conflicting configuration silently.
@@ -591,6 +595,7 @@ Proposal 0082 remains accepted and proposal 0081 deviation D1 remains open.
 Each repository in the front matter adopts a validated implementation pin and records 0085 in `compiler-changes.md`.
 The site updates its setup, runtime, fusion, fp64 and console pages in English and Korean, including API translations.
 The editor updates host references and initializer guidance without inventing shader ambient names.
+Initializer guidance distinguishes the Node package from a Bun source installation; a source archive does not satisfy the Node setup by itself (#790).
 TypeCV and TypeNN verify their owned-array wrappers, explicit flavor policies and fused plans against the new defaults.
 Radiance reviews supplied-device and manifest-loading paths where applicable.
 All browser deployments include the executor's emitted assets.

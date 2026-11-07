@@ -1759,7 +1759,11 @@ what it returns is a fresh value. It is synchronous.
 What a host can call is an exported function that is not an entry point, not generic, takes no
 function, and reaches no binding and no GPU-only builtin. Everything else the module exports
 appears to the host as `never`, with the reason, so calling it is a type error where you wrote
-the call. Run `npx tshc init` in an existing Vite project to configure the plugin, host views and synchronization scripts (change 0085).
+the call. With the published or built package, run `npx tshc init` in an existing Vite project
+to configure the plugin, host views and synchronization scripts (change 0085).
+An installed GitHub source archive requires `bun node_modules/typeshade/src/cli/bin.ts init`.
+It has no generated `typeshade/shade` declaration, and its CLI and Vite plugin cannot run under Node.
+Initialization does not remove those limits; see [installation](./README.md#getting-started).
 The command preserves unrelated settings and JSONC comments and refuses conflicts before writing.
 Repeated initialization changes no file. Manual setup and `tshc sync` remain supported.
 Shader checks use the shared `tshc check` diagnostics; ordinary `tsc` accepts the entry forms (stage calls and attribute types), but not vector arithmetic, which TypeScript has no operator overloading for.
