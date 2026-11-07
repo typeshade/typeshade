@@ -205,7 +205,8 @@ base-typed constructor. Its independent JavaScript classes verify the material r
 one evaluation of a side-effecting factory and argument order on the CPU and WebGPU.
 
 `journeys/class-twins/` (change 0110) writes a bank of audio units as classes: a lowpass and
-a derived gain stage, a phasor with a getter, an envelope with no constructor, a counter that a
+a derived gain stage, a gain whose constructor crosses an abstract intermediate class,
+a phasor with a getter, an envelope with no constructor, a counter that a
 helper advances through `@inout`, a panner with a vector field and a wavetable voice that reads
 a binding. An entry and a kernel function step a bank of filters through a block, and an entry
 plays a bank of voices, each against plain JavaScript. Its classes are also the corpus of the

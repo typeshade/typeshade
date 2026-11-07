@@ -1630,6 +1630,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Inherited abstract constructors** (#321, names#19). A derived `super(...)` now reaches a
+  constructor inherited through an abstract intermediate class. Defaults, required arguments
+  and field-initializer order follow the same path as concrete inheritance.
+
 - **Local call diagnostic names** (#321, classes#14). A refused call names its written
   identifier instead of the lifted function name, including locals inside methods,
   namespaces and generic functions. Diagnostic codes and source spans are unchanged.
