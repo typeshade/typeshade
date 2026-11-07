@@ -1630,6 +1630,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Malformed IO attribute arguments** (#321 misc#16). `builtin` and `location` now reject
+  missing, extra, or wrongly shaped arguments in the compiler and editor. Location literals
+  must be non-negative integers. A malformed field attribute no longer causes missing-IO or
+  missing-position follow-up errors; independent option errors remain visible.
+
 - **Array min/max element types** (#321, types#19). Arrays of structs, matrices, arrays or
   booleans now receive one `TS8003` diagnostic in the compiler and editor, including arrays
   with one element. Numeric scalar and vector lowering remains unchanged.

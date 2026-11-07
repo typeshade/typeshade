@@ -28,8 +28,8 @@ export type BuiltinStage = 'vertex' | 'fragment' | 'compute';
 /**
  * Every attribute (decorator) name `"use typeshade"` actually parses and acts on:
  * `@vertex`/`@fragment`/`@compute` on a top-level function (`lower/function.ts`'s `parseStage`)
- * and `@builtin`/`@location` on that function's parameters or a struct field (`builtinDecoratorArg`/
- * `numberDecorator` here and in `structs.ts`). This is the one place this list is spelled out;
+ * and `@builtin`/`@location` on that function's parameters or a struct field
+ * (`readIoAttributes`). This is the one place this list is spelled out;
  * `language-service/ambient.ts`'s `ATTRIBUTE_NAMES` re-exports it rather than retyping it, the
  * same way it already re-exports {@link WGSL_BUILTIN_NAMES} from `core/sot.ts` — the language
  * service depends on the compiler, never the reverse, so the canonical list lives here.
@@ -265,23 +265,67 @@ function attributeNameOf(decorator: ts.Decorator): string | undefined {
  *  struct return type). */
 export type BuiltinDirection = 'input' | 'output';
 
-/** Finds a `@builtin("name")` decorator among `decorators` and returns its raw string and the
- *  string literal node itself, for a diagnostic span narrower than the whole declaration.
- *  Mirrors the decorator-call shape both `structs.ts` and `lower/function.ts` already parse. */
-export function builtinDecoratorArg(
+/** Reads the two IO attributes through one argument-shape check. A present malformed
+ *  attribute is reported here, rather than silently becoming an unattributed input. */
+export function readIoAttributes(
+  diagnostics: TsCompilerDiagnostic[],
+  sourceFile: ts.SourceFile,
   decorators: readonly ts.Decorator[],
-): { readonly name: string; readonly argNode: ts.StringLiteralLike } | undefined {
+): {
+  readonly builtin?: { readonly name: string; readonly argNode: ts.StringLiteralLike };
+  readonly location?: number;
+  readonly invalid: boolean;
+} {
+  let builtin: { name: string; argNode: ts.StringLiteralLike } | undefined;
+  let location: number | undefined;
+  let invalid = false;
   for (const d of decorators) {
-    if (!ts.isCallExpression(d.expression)) continue;
-    if (!ts.isIdentifier(d.expression.expression) || d.expression.expression.text !== 'builtin') {
-      continue;
+    const name = attributeNameOf(d);
+    if (name !== 'builtin' && name !== 'location') continue;
+    const args = ts.isCallExpression(d.expression) ? d.expression.arguments : [];
+    const arg = args[0];
+    if (args.length === 1 && arg !== undefined) {
+      if (
+        name === 'builtin' &&
+        (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg))
+      ) {
+        builtin ??= { name: arg.text, argNode: arg };
+        continue;
+      }
+      if (name === 'location' && ts.isNumericLiteral(arg)) {
+        const value = Number(arg.text);
+        if (Number.isInteger(value) && value >= 0) {
+          location ??= value;
+          continue;
+        }
+      }
     }
-    const arg = d.expression.arguments[0];
-    if (arg && (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg))) {
-      return { name: arg.text, argNode: arg };
+    invalid = true;
+    const message =
+      name === 'builtin'
+        ? '@builtin takes one name as a string: @builtin("position").'
+        : '@location takes one non-negative integer literal: @location(0).';
+    // A generic declaration can be read more than once, but one attribute is one mistake.
+    const diagnostic = makeDiagnostic(
+      sourceFile,
+      d,
+      message,
+      name === 'builtin' ? TS_CODES.BUILTIN_NAME : TS_CODES.ATTRIBUTE_NAME,
+    );
+    if (
+      !diagnostics.some(
+        (error) =>
+          error.fileName === diagnostic.fileName &&
+          error.start === diagnostic.start &&
+          error.length === diagnostic.length &&
+          error.code === diagnostic.code &&
+          error.message === diagnostic.message,
+      )
+    ) {
+      diagnostics.push(diagnostic);
     }
   }
-  return undefined;
+  return { builtin, location, invalid };
 }
 
 function isWgslBuiltinName(name: string): name is WgslBuiltinName {
