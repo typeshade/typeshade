@@ -32,10 +32,17 @@ function fakeGl(
   linked = true,
   viewportLimit = 8192,
   clampExtension = false,
-): { gl: WebGL2RenderingContext; attached: number[]; calls: string[]; requests: string[] } {
+): {
+  gl: WebGL2RenderingContext;
+  attached: number[];
+  calls: string[];
+  requests: string[];
+  samplerBindings: unknown[];
+} {
   let error = 0;
   const attached: number[] = [];
   const calls: string[] = [];
+  const samplerBindings: unknown[] = [];
   // Every extension a caller asks for by name, in the order asked (A1: requested once).
   const requests: string[] = [];
   const values: Record<string, number> = {
@@ -114,6 +121,7 @@ function fakeGl(
     },
     createFramebuffer: () => named(framebuffers++ === 0 ? 'fbo' : 'blitFbo'),
     createSampler: () => named('sampler'),
+    bindSampler: (_unit, sampler) => samplerBindings.push(sampler),
     createTexture: () => named('texture'),
     createShader: () => named('shader'),
     createProgram: () => named('program'),
@@ -163,7 +171,7 @@ function fakeGl(
       },
     },
   ) as unknown as WebGL2RenderingContext;
-  return { gl, attached, calls, requests };
+  return { gl, attached, calls, requests, samplerBindings };
 }
 
 /** The calls of the pass procedure's own list: the state and the draw calls, not the set-up. */
@@ -237,6 +245,88 @@ const manifest = (src: string) => {
     throw new Error('the source does not compile');
   return packModule(r.module, { console: false });
 };
+
+// Verifies: Rule 11.10, Rule 11.11.
+describe('a render pipeline keeps one sampler state per texture across its stages (#448)', () => {
+  const source = (vertex: string, fragment: string) => `"use typeshade";
+declare const photo: texture_2d<f32>;
+declare const nearest: sampler;
+declare const linear: sampler;
+export const vs = vertex(function vs(): vec4 { return ${vertex}; });
+export const fs = fragment(function fs(): vec4 { return ${fragment}; });
+`;
+  const sample = (sampler: string) => `textureSampleLevel(photo, ${sampler}, vec2(0.3), 0.)`;
+  const load = 'textureLoad(photo, vec2i(0), 0)';
+
+  it.each([
+    ['nearest', 'linear'],
+    ['linear', 'nearest'],
+  ])('refuses vertex %s and fragment %s before creating a GL program', async (a, b) => {
+    const { gl, calls } = fakeGl(4);
+    const rt = await createRuntime({ device: gl });
+    try {
+      const program = rt.load(manifest(source(sample(a), sample(b))));
+      calls.length = 0;
+      await expect(program.render({})).rejects.toThrow(
+        `it samples "photo" with "${a}" and "${b}", and GLSL ES 3.00 fuses a texture with one sampler`,
+      );
+      expect(
+        calls.some((c) => /^(createShader|createProgram|linkProgram|drawArrays)/.test(c)),
+      ).toBe(false);
+    } finally {
+      rt.destroy();
+    }
+  });
+
+  it('keeps the vertex sampler when the pipeline has no fragment', async () => {
+    const { gl, calls } = fakeGl(4);
+    const rt = await createRuntime({ device: gl });
+    try {
+      const m = manifest(source(sample('linear'), load));
+      const before = JSON.stringify(m.gl);
+      const program = rt.load(m);
+      await expect(program.render({ fragment: null })).resolves.toBeDefined();
+      expect(calls.some((c) => c.startsWith('linkProgram('))).toBe(true);
+      expect(JSON.stringify(m.gl)).toBe(before);
+    } finally {
+      rt.destroy();
+    }
+  });
+
+  it.each([
+    ['same sampler', sample('linear'), sample('linear'), 'linear'],
+    ['vertex sampler and fragment load', sample('linear'), load, 'linear'],
+    ['vertex load and fragment sampler', load, sample('linear'), 'linear'],
+    ['both load', load, load, null],
+  ] as const)(
+    'keeps %s and binds the required state',
+    async (_name, vertex, fragment, expected) => {
+      const { gl, samplerBindings } = fakeGl(4);
+      const rt = await createRuntime({ device: gl });
+      try {
+        const program = rt.load(manifest(source(vertex, fragment)));
+        const pipe = await program.render({});
+        const photo = rt.texture({ size: [1, 1], format: 'rgba8unorm' });
+        const target = rt.texture({ size: [1, 1], format: 'rgba8unorm' });
+        const nearest = rt.sampler({ minFilter: 'nearest', magFilter: 'nearest' });
+        const linear = rt.sampler({ minFilter: 'linear', magFilter: 'linear' });
+        const values = { photo, ...(expected === null ? {} : { [expected]: linear }) };
+        samplerBindings.length = 0;
+        const frame = rt.frame();
+        frame.pass({ color: [target] }, (pass) => pass.draw(pipe, values, { count: 3 }));
+        await frame.submit();
+        const bound = samplerBindings.filter((s) => s !== null);
+        expect(bound).toHaveLength(1);
+        if (expected === null) {
+          expect(bound).not.toContain(linear.sampler);
+          expect(bound).not.toContain(nearest.sampler);
+        } else expect(bound[0]).toBe(linear.sampler);
+      } finally {
+        rt.destroy();
+      }
+    },
+  );
+});
 
 describe('a WebGL2 pass and MAX_COLOR_ATTACHMENTS', () => {
   it('detaches only the attachments the context has, and leaves getError() clean', async () => {
