@@ -36,7 +36,7 @@ downstream:
 | Request source                | Issue [#992](https://github.com/typeshade/typeshade/issues/992), from TypeAudio experiment 4 at compiler pin `14566606`.                                                               |
 | Applicability / Effectivity   | Reports returned by `fuse()` and `device.fuse()`, their aggregation and documentation. Release version unassigned.                                                                     |
 | Review baseline               | Compiler main `463ed3a88c26b9a9328712d87569f8ec98a354a5`, read on 2026-11-07 UTC. Pool implementation reviewed separately at PR #1074 head `c7e03ac6fe010ce109c25b48eb177c6a0e0c469b`. |
-| Review and revision authority | No proposal PR is assigned yet. Git records revisions. The proposal PR and its accepted merge will record decisions.                                                                   |
+| Review and revision authority | Proposal [PR #1082](https://github.com/typeshade/typeshade/pull/1082). Git records revisions; PR review and the accepted merge record decisions.                                       |
 
 ## What changes
 
@@ -64,9 +64,10 @@ They are not a count of all GPU allocations, all temporary storage, or all devic
 
 - `allocations` counts new scratch storage buffers acquired while the plan runs.
 - `allocatedBytes` sums their WebGPU buffer descriptor sizes, in bytes.
-- `reuses` counts existing scratch storage buffers borrowed from the owner's pool by the plan.
+- `reuses` counts existing storage buffers borrowed from the owner's pool for the plan's scratch arrays.
 - `reusedBytes` sums the descriptor sizes of those borrowed buffers.
 
+The buffer may come from an ordinary `Resident` or an earlier scratch array; its provenance does not affect reuse.
 A pool slot with no GPU buffer is not a reuse. Its first device use can allocate a new buffer,
 which contributes to `allocations` and `allocatedBytes` instead. A buffer of another device,
 type or incompatible physical size cannot contribute a reuse.
@@ -196,7 +197,8 @@ name, complete optional object, descriptor-size unit and unknown-input aggregati
 - Two repeated bounded plans: the first records allocation, the second reuse, and recorded
   `createBuffer` calls and buffer identities independently verify the report.
 - Different sizes and scalar/vector layouts, wrong-device and incompatible pool entries,
-  a host-only pool slot, pool eviction and `poolBytes: 0` retain correct counts and bytes.
+  a compatible ordinary `Resident` buffer, a host-only pool slot, pool eviction and
+  `poolBytes: 0` retain correct counts and bytes.
 - Unused scratch, a fused local, empty plans, CPU-only and WebGL2-only plans report four zeros.
 - Mixed CPU/WebGPU plans and repeated bindings count each real acquisition once. Default-owner
   scopes count new allocations without inventing a device pool reuse. Nested scopes share counts.
@@ -207,8 +209,8 @@ name, complete optional object, descriptor-size unit and unknown-input aggregati
 - A bounded native WebGPU run verifies repeated-plan values against CPU and an independent
   reference while recording actual buffer creation. Its evidence distinguishes API calls from
   driver memory or timing. A negative counter instrument must make the counter assertions fail.
-- Canonical build, relevant unit and API tests, bundle boundary, compile and packed journey
-  gates pass. Changed shader fixtures also satisfy compiler/editor parity.
+- Canonical build, relevant unit and API tests, bundle boundary, compile, differential and
+  packed journey gates pass. Changed shader fixtures also satisfy compiler/editor parity.
 
 ### Required document evidence
 
