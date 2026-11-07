@@ -67,6 +67,60 @@ describe('Bun names share the compiler refusal across both halves', () => {
     expect(compiled.eval('run', [])).toBe(2);
   });
 
+  it.each([
+    'new Bun()',
+    'new Bun.member()',
+    'new (Bun)()',
+    'new Unknown<Bun>()',
+    'new Unknown(Bun)',
+    'new Unknown<Bun>(Bun)',
+    'new Bun(Bun)',
+    'new Bun.member(Bun)',
+  ])('%s merges the target and keeps independent argument errors', (expression) => {
+    const text = source(`const x = ${expression}; return 1.;`);
+    const name = expression.includes('Unknown') ? 'Unknown' : 'Bun';
+    const expected = [
+      {
+        code: 'TS8022',
+        message: `Unknown identifier "${name}".`,
+        start: text.indexOf(expression),
+        length: expression.length,
+      },
+    ];
+    if (expression.includes('<Bun>'))
+      expected.push({
+        code: 'TS8002',
+        message:
+          'Unknown type "Bun". Declare it in this file, or import it from another shader module.',
+        start: text.indexOf('<Bun>') + 1,
+        length: 3,
+      });
+    expect(
+      compile(text).diagnostics.map(({ code, message, start, length }) => ({
+        code,
+        message,
+        start,
+        length,
+      })),
+    ).toEqual(expected);
+    const editor = diagnosticsOf(text);
+    expect(
+      editor
+        .filter((d) => d.source === 'typeshade')
+        .map(({ code, message, span }) => ({ code, message, ...span })),
+    ).toEqual(expected);
+    const retained = editor.filter((d) => d.source === 'typescript');
+    const argument = expression.endsWith('(Bun)');
+    const unmerged = typeScriptHalfOf(text);
+    expect(retained).toEqual(
+      argument ? unmerged.filter((d) => d.span.start === text.lastIndexOf('Bun')) : [],
+    );
+    if (argument)
+      expect(retained).toMatchObject([
+        { code: 2868, span: { start: text.lastIndexOf('Bun'), length: 3 } },
+      ]);
+  });
+
   for (const code of [2867, 2868]) {
     const text = source('return Bun;');
     const analysis = compileTsSource(text, { emit: false });

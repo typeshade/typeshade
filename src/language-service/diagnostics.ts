@@ -1977,10 +1977,22 @@ function sameMistakeSpans(
 ): boolean {
   const code = ruleCodeOf(diagnostic.code);
   if (code === 2867 || code === 2868) {
+    if (diagnostic.uri !== error.uri) return false;
+    if (diagnostic.span.start === error.span.start && diagnostic.span.length === error.span.length)
+      return true;
+    // The compiler refuses an unknown constructor over the whole new expression. Only
+    // its root name repeats the host-typings error; a computed key or argument is separate.
+    const built = error.code === 'TS8022' ? newCovering(context, error.span) : undefined;
+    if (built === undefined) return false;
+    let target = unparenthesized(built.expression);
+    while (ts.isPropertyAccessExpression(target)) {
+      target = unparenthesized(target.expression);
+    }
+    const name = spanOfNode(target, context.sourceFile);
     return (
-      diagnostic.uri === error.uri &&
-      diagnostic.span.start === error.span.start &&
-      diagnostic.span.length === error.span.length
+      ts.isIdentifier(target) &&
+      name.start === diagnostic.span.start &&
+      name.length === diagnostic.span.length
     );
   }
   if (code === 2558) {

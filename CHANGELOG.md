@@ -1630,9 +1630,9 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
-- **Bun host typings diagnostics in shaders** (#321 names#15). An unknown Bun value, function
-  or type now keeps the compiler's one refusal instead of also suggesting host type packages.
-  Only matching names in the same document are merged; independent errors remain visible.
+- **Bun host typings diagnostics in shaders** (#321 names#15). An unknown Bun value, function,
+  constructor or type now keeps the compiler's one refusal instead of also suggesting host
+  type packages. Only matching names in the same document are merged; independent errors remain.
 
 - **Generic call diagnostic merging** (#321, classes#14). A wrong type-argument count now
   keeps the compiler's single diagnostic in the editor and `tshc check`. Independent
