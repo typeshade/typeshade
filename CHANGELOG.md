@@ -1634,6 +1634,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   or type now keeps the compiler's one refusal instead of also suggesting host type packages.
   Only matching names in the same document are merged; independent errors remain visible.
 
+- **Generic call diagnostic merging** (#321, classes#14). A wrong type-argument count now
+  keeps the compiler's single diagnostic in the editor and `tshc check`. Independent
+  TypeScript errors and value-argument count errors retain their diagnostics.
+
 - **Local call diagnostic names** (#321, classes#14). A refused call names its written
   identifier instead of the lifted function name, including locals inside methods,
   namespaces and generic functions. Diagnostic codes and source spans are unchanged.
