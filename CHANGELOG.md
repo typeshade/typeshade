@@ -1630,12 +1630,16 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
-- **Uniform helper proofs with reference writes** (#180, #1088). A module containing any
-  reference parameter now retains the previous `unknown` floor for user calls. This prevents
-  a barrier under a pure helper from being accepted after an `inout` setter changes a caller
-  local to a varying value. Lowered mutating methods and captured writes share the guard.
-  Modules without references retain their proven helper conditions. The pre-existing inline
-  analysis of reference writes remains open in #1088.
+- **Conservative uniformity for helper conditions** (#180, #1088). Restored the previous
+  `unknown` floor for every user call. The single-return helper proof could accept a barrier
+  after a reference write or compound assignment left the caller's value or control-flow facts
+  stale. The proof is deferred until those origins are sound; `edge(k)` again keeps its prior
+  conservative refusal. Existing inline reference, capture and compound-assignment limitations
+  remain open in #1088.
+
+- **Vite imports after the runtime is ready.** The plugin pre-bundles `typeshade/fuse`
+  with the runtime and generated op library. A later shader-host import no longer starts
+  dependency optimization that reloads the page or returns HTTP 504 for its previous chunks.
 
 - **Bun host typings diagnostics in shaders** (#321 names#15). An unknown Bun value, function,
   constructor or type now keeps the compiler's one refusal instead of also suggesting host

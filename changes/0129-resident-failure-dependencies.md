@@ -105,8 +105,9 @@ This preserves the existing successful-writer contract; it does not prove that e
 Array bounds and the treatment of elements the program leaves unwritten stay unchanged.
 Successful zero-trip and partial write-only calls retain that existing error-clearing behavior too.
 
-Whole and partial `Resident.write()` keep their present error behavior from change 0048.
-They do not silently become reset operations. A new handle or a successful write-only call supplies recovery.
+The existing whole-value `Resident.write(value)` retains the stored error; it does not become a reset operation.
+Change 0048 remains a draft: its proposed partial host write is not an existing API and is outside this record's scope.
+A new handle or a successful write-only call supplies recovery.
 Destroying, releasing and reusing owned handles retain their lifetime and pool rules.
 An independent call, including one on another owner, continues after a failed call.
 No rollback of earlier writes or transaction across separate calls is introduced.
@@ -180,7 +181,7 @@ Required functional evidence before delivery:
 1. Reproduce the CPU and recording-device stale-consumer failure on the implementation baseline.
 2. Test same-error propagation through multiple consumers, independent owners, and full, partial and zero-trip write-only recovery.
 3. Test read/write destinations, unused parameters, length-only reads, helper reads, held lengths and indirect counts.
-4. Test error precedence, legacy artifacts without access facts and whole/partial host writes.
+4. Test error precedence, legacy artifacts without access facts and the existing whole-value host write.
 5. Test fuse admission, ordered recovery within a plan, nested scopes and failed-plan output/report cleanup.
 6. Test generated compute and fragment entry dependencies on their supported tiers, including preservation of a rejected draw's canvas.
 7. Match compiler and language-service acceptance for every authored source control.
@@ -200,7 +201,10 @@ The owner's standing instructions authorize continued issue work and merging the
 This record applies that authorization; it does not claim that the owner separately reviewed this technical revision.
 
 Independent technical review approved revision `3eb4f15b23c54f761654cc53f48e9353eaea9b10`.
-It checked queue ordering, argument validation, error identity, existing change 0048 recovery and the manual Frame boundary against source.
+It checked queue ordering, argument validation, error identity and the manual Frame boundary against source.
+That review missed change 0048's draft status and incorrectly described its proposed partial host write as existing behavior.
+The correction against main `4c7da1a962da692c9a3b93de1b61fedb03816c36` limits D3 and validation item 4 to the implemented `Resident.write(value)`.
+Partial and zero-trip kernel writes remain existing recovery controls; they do not require a partial host-write API.
 The reviewed revision includes private fact transport, public artifact parity, ordered fuse admission and partial/zero-trip recovery controls.
 The primary agent accepts those decisions, declared impacts and required functional/document evidence without a design deviation.
 The accepted merge of PR #1087 remains the implementation authorization baseline; no runtime implementation may precede it.

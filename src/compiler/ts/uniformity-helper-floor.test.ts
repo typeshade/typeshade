@@ -1,4 +1,8 @@
-// A reference write can invalidate the caller's uniformity facts (#180, #1088).
+// A pure callee does not prove its caller's facts sound (#180, #1088).
+// Measured 2026-11-07, Chromium 156.0.8078.4 / Google SwiftShader, broken shader first:
+// Tint refuses varying reference writes and compound-assignment inputs/control flow with
+// "'workgroupBarrier' must only be called from uniform control flow". Uniform neighbors
+// compile, but retain the prior conservative floor until caller origins are sound.
 // Verifies: Rule 8.5 (docs/language-design.md).
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
@@ -16,19 +20,19 @@ ${body}
 const setter = 'function set(a: inout<f32>, x: f32): void { a = x; }';
 
 function readBoth(source: string) {
-  const result = compile(source, { fileName: 'reference-proof.shade.ts' });
+  const result = compile(source, { fileName: 'helper-floor.shade.ts' });
   const compiler = result.diagnostics.map((d) => `${d.code} ${d.message}`);
   const service = createTypeshadeLanguageService();
-  service.openDocument('reference-proof.shade.ts', source);
+  service.openDocument('helper-floor.shade.ts', source);
   const editor = service
-    .getDiagnostics('reference-proof.shade.ts')
+    .getDiagnostics('helper-floor.shade.ts')
     .map((d) => `${d.code} ${d.message}`);
-  service.closeDocument('reference-proof.shade.ts');
+  service.closeDocument('helper-floor.shade.ts');
   expect(editor).toEqual(compiler);
   return { result, compiler };
 }
 
-describe('a pure helper proof requires a module without reference parameters', () => {
+describe('helper conditions retain the unknown floor after caller writes', () => {
   it.each([
     [
       'a direct setter',
@@ -79,7 +83,32 @@ describe('a pure helper proof requires a module without reference parameters', (
     expect(result.wgsl).toBeUndefined();
   });
 
-  it.each(['edge(k)', 'edge(1.)'])('still accepts %s without reference parameters', (condition) => {
+  it.each([
+    [
+      'a varying compound argument',
+      'let a = f32(lid.x); a += 1.; if (edge(a)) { workgroupBarrier(); }',
+    ],
+    [
+      'compound-dependent caller control',
+      'let a = f32(lid.x); a += 1.; if (a > 0.5) { if (edge(k)) { workgroupBarrier(); } }',
+    ],
+    [
+      'a uniform compound argument, conservatively',
+      'let a = k; a += 1.; if (edge(a)) { workgroupBarrier(); }',
+    ],
+    ['a uniform helper argument, conservatively', 'if (edge(k)) { workgroupBarrier(); }'],
+    ['a literal helper argument, conservatively', 'if (edge(1.)) { workgroupBarrier(); }'],
+  ])('keeps the unknown floor for %s without references', (_name, body) => {
+    const { result, compiler } = readBoth(shader('', body));
+    expect(result.module.funcs.every((f) => f.params.every((p) => p.mode === undefined))).toBe(
+      true,
+    );
+    expect(compiler).toHaveLength(1);
+    expect(compiler[0]).toContain('TS8052 workgroupBarrier() is reached under');
+    expect(result.wgsl).toBeUndefined();
+  });
+
+  it.each(['k > 0.5', 'true'])('still accepts the inline uniform condition %s', (condition) => {
     const { result, compiler } = readBoth(shader('', `if (${condition}) { workgroupBarrier(); }`));
     expect(compiler).toEqual([]);
     expect(result.wgsl).toContain('workgroupBarrier()');

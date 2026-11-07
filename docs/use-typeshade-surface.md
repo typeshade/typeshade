@@ -6856,21 +6856,21 @@ The seeds are the spec's (wgsl.txt:17870-17883): `workgroup_id`, `num_workgroups
 `subgroup_size` and `num_subgroups` are uniform, a `uniform` buffer is uniform, a module or
 `override` constant is uniform, and every other built-in value and user input varies by
 invocation. A call into a USER function is **at least `unknown`, and at most as uniform as the
-arguments its RESULT DEPENDS ON**, unless the compiler independently proves the entire result.
-One narrow shape has that proof: the entire helper body is one return, made only of literals,
-by-value parameters and pure operators, constructors, member reads, indices and selections.
-Every operand is checked, including an index and both selection arms. If every parameter that
-reaches the result is uniform, the call is uniform too: `edge(k)` for
-`function edge(x: f32): bool { return x > 0.5 }` admits a barrier in a module without reference
-parameters (#180). The proof is disabled for the whole module if any lowered function has a
-reference parameter, including an unused function, `out`, a mutating method or a written capture.
-The walk does not propagate reference writes into caller locals, so their values and surrounding
-control flow can otherwise appear uniform after a varying write. Such modules keep the prior
-`unknown` floor even for a uniform setter. Calls, global reads and other statement bodies also
-keep that floor.
+arguments its RESULT DEPENDS ON**. A barrier under `edge(k)` therefore keeps the conservative
+refusal, even for `function edge(x: f32): bool { return x > 0.5 }` on a uniform `k` (#180).
+A single-pure-return proof was tried and withdrawn: the callee's pure expression did not prove
+that the caller's argument or surrounding control-flow facts were sound. Reference writes and
+compound assignments could leave those facts falsely uniform (#1088). A guard against reference
+parameters alone did not cover the compound-assignment case. Positive helper proofs remain
+deferred until caller origins are accounted for.
 
-- A dependency summary alone never proves `uniform`, because an unknown origin can have no
-  parameter dependencies. The separate proof must account for the entire return expression.
+Measured on Chromium 156.0.8078.4 / Google SwiftShader on 2026-11-07, with a broken-shader
+instrument first: Tint refuses a barrier under `edge(a)` after either `set(a, f32(lid.x))` or
+`let a = f32(lid.x); a += 1.`, and under `if (a > 0.5) { if (edge(k)) { … } }` after those writes,
+with `'workgroupBarrier' must only be called from uniform control flow`. The uniform-setter and
+uniform-compound neighbours compile. Restoring the old floor retains its conservative refusal
+for those valid helper conditions too; it does not change the inline analysis.
+
 - Never *more* uniform than the arguments that reach the result. A bare `unknown` laundered a
   definitely non-uniform value, so a one-line
   `function edge(x: f32): bool { return x > 0.5 }` put `if (edge(v.uv.x)) { textureSample(…) }`
@@ -6974,12 +6974,13 @@ What it does not reach is stated rather than implied, and kept true of the tree:
 EDSL-assembled module reaches Tint — which owns the complete rule — unchanged; a `raw`
 statement's text is opaque to it; an `inout` parameter is not modelled, since the walk answers
 a call's result; and return-dependency summaries remain flow-insensitive over locals.
-The module-wide reference guard bounds the positive helper proof; it does not repair the
-pre-existing inline caller-local limitation, tracked in
-[#1088](https://github.com/typeshade/typeshade/issues/1088).
-The remaining finding in [#180](https://github.com/typeshade/typeshade/issues/180) is that
-`gate(x, y) { let acc = x * 2.; acc = y; return acc }` keeps `x` where the same statements inline
-do not. Helpers outside the single-pure-return proof also retain their conservative floor.
+The caller-origin limitations include reference and captured writes, compound assignments, and
+reference reads that do not reach parameter dependencies; they remain tracked in
+[#1088](https://github.com/typeshade/typeshade/issues/1088). The rollback of the positive helper
+proof does not repair these pre-existing analysis limitations.
+Both findings in [#180](https://github.com/typeshade/typeshade/issues/180) remain open: `edge(k)`
+keeps the unknown floor, and `gate(x, y) { let acc = x * 2.; acc = y; return acc }` keeps `x`
+where the same statements inline do not.
 
 **The barrier rule is the spec's now, not a stricter one.** It used to refuse every `if` and
 `switch`, and `workgroupUniformLoad` kept that rule until proposal 0008. `if (k > 0.5)` on a
