@@ -24,6 +24,7 @@ import type { Pack } from '../src/runtime.js';
 import { SOURCES, type Programs } from './render-case.js';
 import { COMPUTE_CASES, PROGRAM_CASES } from './compute-case.js';
 import { isGuard } from '../src/core/host-entry.js';
+import { SAMPLER_CASES, SAMPLER_REFUSALS, type SamplerPairRun } from './sampler-pair-cases.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const RUNTIME = join(ROOT, 'src/core/host-runtime.ts');
@@ -134,6 +135,49 @@ function programCases(): { name: string; case: (typeof PROGRAM_CASES)[string]; m
           `${[...compiled.diagnostics, ...editor].map((d) => d.message).join('; ')}`,
       );
     return { name, case: c, manifest: packModule(compiled.module) };
+  });
+}
+
+/** #448: read both halves, require the public GLSL refusal, and pin each stage's sampler map. */
+export function samplerCases(): SamplerPairRun[] {
+  const service = createTypeshadeLanguageService();
+  return Object.entries(SAMPLER_CASES).map(([name, spec]) => {
+    const fileName = `sampler-case/${name}.shade.ts`;
+    const compiled = compile(spec.source, { fileName });
+    service.openDocument(fileName, spec.source);
+    const editor = service.getDiagnostics(fileName);
+    service.closeDocument(fileName);
+    const refused = spec.refusal !== undefined;
+    const diagnostics = compiled.diagnostics;
+    const expectedDiagnostic = refused
+      ? diagnostics.length === 1 &&
+        diagnostics[0]!.code === 'TS8015' &&
+        diagnostics[0]!.message === `Backend emit failed: glsl-es300: ${SAMPLER_REFUSALS[name]!}`
+      : diagnostics.length === 0;
+    if (
+      !expectedDiagnostic ||
+      editor.length !== 0 ||
+      !compiled.wgsl ||
+      (refused ? compiled.glsl !== undefined : !compiled.glsl?.fragment || !compiled.glsl.vertex)
+    )
+      throw new Error(
+        `sampler ${name}: unexpected compiler/editor result: ${JSON.stringify({ diagnostics, editor })}`,
+      );
+    const manifest = packModule(compiled.module);
+    const v = manifest.gl?.vertices?.vs;
+    const f = manifest.gl?.draws?.fs;
+    const sorted = (map: Readonly<Record<string, string | null>>): string =>
+      JSON.stringify(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)));
+    if (v === undefined || 'none' in v || sorted(v.samplers) !== sorted(spec.vertex))
+      throw new Error(`sampler ${name}: incorrect vertex sampler metadata`);
+    if (
+      f === undefined ||
+      (spec.refusal === 'stage'
+        ? !('none' in f)
+        : 'none' in f || sorted(f.samplers) !== sorted(spec.fragment))
+    )
+      throw new Error(`sampler ${name}: incorrect fragment sampler metadata`);
+    return { name, manifest };
   });
 }
 
@@ -250,7 +294,8 @@ export async function entryBundle(): Promise<EntryBundle> {
         `const programs = ${JSON.stringify(renderPrograms())} as Programs;`,
         `const programCases = ${JSON.stringify(programCases())};`,
         `const aliases = [${aliases.fixtures.join(', ')}];`,
-        `(globalThis as Record<string, unknown>)['__runEntries'] = () => runEntries(cases, programs, programCases, aliases);`,
+        `const samplerCases = ${JSON.stringify(samplerCases())};`,
+        `(globalThis as Record<string, unknown>)['__runEntries'] = () => runEntries(cases, programs, programCases, aliases, samplerCases);`,
         '',
       ].join('\n'),
     );

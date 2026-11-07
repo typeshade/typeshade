@@ -9189,7 +9189,11 @@ await frame.submit(); // console lines print here
   storage array the data texture its binding names (`dataTexture`), a texture a runtime texture or
   a `WebGLTexture`, read with the sampler its calls pass it, and vertices and indices a typed
   array, a `Resident`, uploaded again only when its host copy changes, or a `WebGLBuffer`. A
-  `TypeError` names what WebGL2 has no form of. It refuses a multisampled, layered or 3D texture.
+  `TypeError` names what WebGL2 has no form of. Before creating a GL program, it refuses two
+  selected stages that sample one texture binding with different samplers. A load-only stage
+  adds no sampler requirement and keeps the other stage's sampler. For different sampler
+  states, declare two texture bindings and bind the same host texture to both.
+  It refuses a multisampled, layered or 3D texture.
   It refuses targets that blend or mask apart, because WebGL2 has one blend state. It refuses a
   depth range other than 0 to 1 under a fragment that writes `frag_depth`. It refuses a depth bias
   on a format other than `depth24plus`, `depth32float` and `depth24plus-stencil8`. It refuses a

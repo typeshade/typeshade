@@ -1193,7 +1193,14 @@ error naming the entry. Read an explicit level with `textureSampleLevel(tex, smp
 which is legal in every stage. The derivative builtins `fwidth`, `dpdx` and `dpdy` are
 fragment-only for the same reason and have no vertex or compute form, so precompute the
 quantity there and pass it in. On GLSL ES 3.00 the texture and the sampler fuse into one
-`sampler2D`, and the sampler argument disappears from the call.
+`sampler2D`, and the sampler argument disappears from the call. One texture binding can
+therefore use one sampler across the selected stages. GLSL emission refuses different
+samplers for that binding; WGSL remains available. Declare the texture twice, once per
+sampler, and bind the same host texture to both declarations.
+
+The WebGL2 runtime checks the same condition when it combines a vertex and fragment
+entry. A stage that only loads a texture imposes no sampler state. It keeps the sampler
+used by the other stage. Depth comparisons keep their declared comparison sampler.
 
 ### Array and integer textures
 

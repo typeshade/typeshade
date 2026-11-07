@@ -438,7 +438,13 @@ function glStageOf(
   }
   // GLSL ES 3.00 fuses a texture with its sampler: each texture takes the one sampler its
   // calls pass it, so the WebGL2 tier can set that sampler's filter and address on it.
-  const pairs = texturePairs(closure, byName, declaredFns, new Set(m.bindings.map((b) => b.name)));
+  const pairs = texturePairs(
+    closure,
+    byName,
+    declaredFns,
+    new Set(m.bindings.map((b) => b.name)),
+    true,
+  );
   for (const b of bindings) {
     if (b.space !== 'texture' || !declared.has(gl(b.name))) continue;
     const with_ = [...(pairs.get(b.name) ?? [])];
