@@ -2513,8 +2513,10 @@ function isAboutRefusedOperation(
 }
 
 /** The codes the compiler refuses a whole decorator with: `TS8028` for a name nothing reads
- *  there, `TS8010` for `@align` or `@std140` it does not apply, `TS8035` for one on a method. */
+ *  there, `TS8024` for a malformed builtin argument, `TS8010` for `@align` or `@std140` it does
+ *  not apply, `TS8035` for one on a method. */
 const DECORATOR_REFUSALS: ReadonlySet<string> = new Set([
+  TS_CODES.BUILTIN_NAME,
   TS_CODES.ATTRIBUTE_NAME,
   TS_CODES.STRUCT_FIELD,
   TS_CODES.CLASS_MEMBER,
@@ -2567,9 +2569,50 @@ function isInRefusedDecorator(
   return siblings.some((d) => refused(d, METHOD_DECORATOR_REFUSAL));
 }
 
+/** A malformed attribute type's first argument is the compiler's IO-argument refusal.
+ *  Only TypeScript's constraint error on that argument repeats it: errors in the value type
+ *  or the options remain independent, even though the compiler spans the attribute type. */
+function isAboutRefusedIoArgument(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  if (diagnostic.code !== 2344) return false;
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.span.start);
+  while (node !== undefined) {
+    if (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)) {
+      const code =
+        node.typeName.text === 'builtin'
+          ? TS_CODES.BUILTIN_NAME
+          : node.typeName.text === 'location'
+            ? TS_CODES.ATTRIBUTE_NAME
+            : undefined;
+      const first = node.typeArguments?.[0];
+      if (
+        code !== undefined &&
+        first !== undefined &&
+        within(diagnostic.span, spanOfNode(first, context.sourceFile))
+      ) {
+        const span = spanOfNode(node, context.sourceFile);
+        if (
+          compilerErrors.some(
+            (error) =>
+              error.code === code &&
+              error.span.start === span.start &&
+              error.span.length === span.length,
+          )
+        )
+          return true;
+      }
+    }
+    node = node.parent;
+  }
+  return false;
+}
+
 /**
  * The merged list for one document: `typescript` (already filtered by
- * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). Eight
+ * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). These
  * rules drop a report, and each only ever drops an ERROR that another error already covers:
  *
  * - a TypeScript error that is TypeScript's own knock-on of a call it failed to resolve
@@ -2578,6 +2621,8 @@ function isInRefusedDecorator(
  *   about the value of one (`isAboutRefusedOperation`), goes;
  * - a TypeScript error inside a decorator the compiler refuses whole (`isInRefusedDecorator`)
  *   goes;
+ * - a TypeScript constraint error on the first argument of a malformed IO attribute type
+ *   repeats the compiler error spanning that type (`isAboutRefusedIoArgument`);
  * - a TypeScript error that `SAME_MISTAKE` pairs by code with a compiler error, and whose span
  *   sits where one mistake would put the two (`sameMistakeSpans`), goes: the compiler's stays;
  * - a TypeScript error about what the compiler refused whole, a `throw` and what it throws, an
@@ -2622,6 +2667,7 @@ export function mergeDiagnostics(
     if (isKnockOn(context, diagnostic, typescript)) return false;
     if (isAboutRefusedOperation(context, diagnostic, operatorRefusals)) return false;
     if (isInRefusedDecorator(context, diagnostic, compilerErrors)) return false;
+    if (isAboutRefusedIoArgument(context, diagnostic, compilerErrors)) return false;
     if (repeatsRefusal(context, diagnostic, refusals, compilerErrors)) return false;
     if (repeatsStrictModeRefusal(context, diagnostic, compilerErrors)) return false;
     if (readsDeclarationAsValue(context, diagnostic, compilerErrors)) return false;

@@ -1630,6 +1630,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Malformed IO attribute arguments** (#321 misc#16). `builtin` and `location` now reject
+  missing, extra, or wrongly shaped arguments in the compiler and editor. Location literals
+  must be non-negative integers. A malformed field attribute no longer causes missing-IO or
+  missing-position follow-up errors; independent option errors remain visible.
+
 - **Compute-only operations through helpers** (#321, control#14 and control#15). Vertex and
   fragment entries now refuse workgroup memory and barriers reached through helpers or
   accessors, including direct workgroup writes. Existing diagnostic text is preserved.

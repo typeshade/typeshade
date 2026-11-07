@@ -46,7 +46,7 @@ import {
   restrictedFieldTableOf,
   withheldTableOf,
 } from '../context.js';
-import type { CollectedStruct } from '../structs.js';
+import { hasMalformedIoAttribute, type CollectedStruct } from '../structs.js';
 import { recordDeclaration, recordInferredReturn, type DeclaredSymbolSink } from '../symbols.js';
 import { mapTsTypeToShaderType, withCollections } from '../type-map.js';
 import {
@@ -142,7 +142,7 @@ import {
 } from './class-methods.js';
 import { closureUse, declarationOf } from './closures.js';
 import {
-  builtinDecoratorArg,
+  readIoAttributes,
   checkAttributeName,
   checkBuiltinName,
   checkBuiltinStage,
@@ -2437,7 +2437,13 @@ export function parseParams(
       )
     )
       return undefined;
-    const builtinArg = stage ? builtinDecoratorArg(decoratorsOf(p)) : undefined;
+    const io = stage ? readIoAttributes(diagnostics, sourceFile, decoratorsOf(p)) : undefined;
+    // Validate independent option arguments even when the IO argument itself is malformed.
+    const interpolateAttr = stage
+      ? interpolateDecoratorArg(diagnostics, sourceFile, decoratorsOf(p))
+      : undefined;
+    if (io?.invalid) return undefined;
+    const builtinArg = io?.builtin;
     let builtin: string | undefined;
     if (builtinArg) {
       const validName = checkBuiltinName(
@@ -2464,7 +2470,7 @@ export function parseParams(
     if (stage && pType.kind === 'struct') {
       checkStructBuiltinFields(diagnostics, sourceFile, p, pType.name, structs, stage, 'input');
     }
-    const location = stage ? numberDecorator(p, sourceFile, 'location') : undefined;
+    const location = io?.location;
     // An emulated double on the entry's IO boundary (#151 F64-09). A FRAGMENT @location input
     // is interpolated; a VERTEX one is a buffer read, which carries a scalar f64's pair in one
     // slot but cannot carry a vec64's two.
@@ -2487,9 +2493,6 @@ export function parseParams(
     // attribute an author wrote here was dropped with no diagnostic and reached neither
     // target (§53). The whole argument list is kept, as the struct path keeps it: the GLSL
     // writer needs the sampling as well as the type.
-    const interpolateAttr = stage
-      ? interpolateDecoratorArg(diagnostics, sourceFile, decoratorsOf(p))
-      : undefined;
     if (interpolateAttr !== undefined && location === undefined) {
       pushDiag(
         diagnostics,
@@ -3015,7 +3018,8 @@ function refuseVertexWithoutPosition(
     const decl = structs.find((s) => s.decl.name === ret.name);
     // An unknown struct was reported where it was named; do not pile on.
     if (decl === undefined) return;
-    if (decl.decl.fields.some((f) => f.builtin === 'position')) return;
+    if (decl.decl.fields.some((f) => f.builtin === 'position' || hasMalformedIoAttribute(f)))
+      return;
     pushDiag(
       diagnostics,
       sourceFile,
@@ -4060,6 +4064,7 @@ function checkStructBuiltinFields(
   // vertex output and a fragment input are the SAME struct. What is left below reads the
   // stage, which is genuinely different between the two uses.
   for (const field of collected.decl.fields) {
+    if (hasMalformedIoAttribute(field)) continue;
     // A `@location` on a COMPUTE entry, reached through a struct parameter. The bare-parameter
     // spelling was refused where it is parsed, and this one walked past it: Tint answers
     // `'@location' cannot be used by compute shaders`. Stage-dependent, so it belongs here
@@ -4103,17 +4108,6 @@ function checkStructBuiltinFields(
     if (!field.builtin) continue;
     checkBuiltinStage(diagnostics, sourceFile, node, field.builtin, stage, direction);
   }
-}
-
-function numberDecorator(node: ts.Node, _sf: ts.SourceFile, name: string): number | undefined {
-  for (const d of decoratorsOf(node)) {
-    if (!ts.isCallExpression(d.expression)) continue;
-    if (!ts.isIdentifier(d.expression.expression) || d.expression.expression.text !== name)
-      continue;
-    const a = d.expression.arguments[0];
-    if (a && ts.isNumericLiteral(a)) return Number(a.text);
-  }
-  return undefined;
 }
 
 /** ASI keeps a newline after `return` from handing back the following expression. Explain

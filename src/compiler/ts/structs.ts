@@ -1,11 +1,17 @@
 import ts from 'typescript';
-import { attributeDecoratorsOf, typeDecoratorsOf } from './attribute-types.js';
+import {
+  ATTRIBUTE_TYPES,
+  attributeDecoratorsOf,
+  isAttributeType,
+  typeDecoratorsOf,
+} from './attribute-types.js';
 import type { StructDecl, StructField } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { boolT, f32T, structT, typeKey as typeKeyOf } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import {
   aliasTargetsOf,
+  declaredTypeNamesOf,
   lookupTypeName,
   mapTsTypeToShaderType,
   refuseTypeName,
@@ -31,7 +37,7 @@ import { TS_CODES } from './codes.js';
 import { newTargetOf } from './lower/new-target.js';
 import { makeDiagnostic } from './diagnostic.js';
 import {
-  builtinDecoratorArg,
+  readIoAttributes,
   checkAttributeName,
   checkBuiltinName,
   checkBuiltinType,
@@ -65,6 +71,14 @@ import {
   refuseNamespaceStatement,
 } from './namespaces.js';
 import { markOmittableField, optionalDeclaredType } from './optional.js';
+
+/** Malformed IO metadata is not an IR field and never reaches emit or portable payloads.
+ *  Inheritance keeps field identity, so the original declaration owns the one refusal. */
+const malformedIoFields = new WeakSet<StructField>();
+
+export function hasMalformedIoAttribute(field: StructField): boolean {
+  return malformedIoFields.has(field);
+}
 
 /** Which of the three spellings declared a struct. Only a `class` can carry a field
  *  decorator, so a diagnostic that asks for `@builtin` or `@location` has to know: on the
@@ -379,7 +393,12 @@ export function collectStructs(
         }
         continue;
       }
-      if (!reachable.has(candidate.name)) continue;
+      if (!reachable.has(candidate.name)) {
+        for (const member of candidate.members) {
+          if (ts.isPropertySignature(member)) checkUncollectedIo(member, sourceFile, diagnostics);
+        }
+        continue;
+      }
       const heritage = basesOf(candidate.name, candidate.heritage, sourceFile, diagnostics);
       if (heritage === undefined) continue;
       const before = diagnostics.length;
@@ -428,6 +447,14 @@ export function collectStructs(
     const cases: readonly StructInstance[] = genericParams.has(written)
       ? (instances.get(written) ?? [])
       : [{ name: written, binding: undefined }];
+    if (cases.length === 0) {
+      const parameters = new Set((stmt.typeParameters ?? []).map((p) => p.name.text));
+      for (const member of stmt.members) {
+        if (ts.isPropertyDeclaration(member) && !isStaticMember(member) && !holdsFunction(member)) {
+          checkUncollectedIo(member, sourceFile, diagnostics, parameters);
+        }
+      }
+    }
     for (const instance of cases) {
       const structName = instance.name;
       // The class as its author wrote it, `N.P` or `Slot<f32>`, for a sentence about the class
@@ -2176,6 +2203,59 @@ function signatureFields(
   return fields;
 }
 
+/** A malformed explicit IO argument belongs to its declaration even when this document
+ *  never instantiates the generic class or uses the interface/alias as a shader struct.
+ *  Do not collect host-shaped fields, and defer an IO argument that itself names a type
+ *  parameter: only the independent syntax is known here. */
+function checkUncollectedIo(
+  member: ts.PropertyDeclaration | ts.PropertySignature,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  parameters: ReadonlySet<string> = new Set(),
+): void {
+  let type = member.type;
+  while (isAttributeType(type)) {
+    const name = (type.typeName as ts.Identifier).text;
+    // Uncollected host declarations may use their own type named builtin/location.
+    // Follow the type mapper's declared-name authority rather than interpreting that name.
+    if (declaredTypeNamesOf(sourceFile).has(name) || parameters.has(name)) return;
+    const argument = type.typeArguments?.[0];
+    if ((name === 'builtin' || name === 'location') && argument !== undefined) {
+      let dependent = false;
+      eachTypeName(argument, (name) => {
+        if (parameters.has(name)) dependent = true;
+      });
+      if (dependent) return;
+    }
+    type = type.typeArguments?.[ATTRIBUTE_TYPES[name]!];
+  }
+  const decos = attributeDecoratorsOf(member);
+  if (readIoAttributes(diagnostics, sourceFile, decos).invalid) {
+    readFieldOptions(member, decos, sourceFile, diagnostics);
+  }
+}
+
+/** Independent option arguments remain errors beside a malformed IO argument. */
+function readFieldOptions(
+  member: ts.PropertyDeclaration | ts.PropertySignature,
+  decos: readonly ts.Decorator[],
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): { interpolate: string | undefined; blendSrc: number | undefined } {
+  const interpolate = interpolateDecoratorArg(diagnostics, sourceFile, decos);
+  const blendSrc = numberDecorator(member, 'blend_src');
+  if (blendSrc !== undefined && blendSrc !== 0 && blendSrc !== 1) {
+    diagnostics.push(
+      diag(
+        sourceFile,
+        member,
+        `blend_src takes 0 or 1 — the two sources a dual-source blend mixes — not ${String(blendSrc)}.`,
+      ),
+    );
+  }
+  return { interpolate, blendSrc };
+}
+
 /** Reads the entry-IO attributes a field carries, written or stood for by its type (change
  *  0111), into `field`: `@builtin`, `@location`, `@interpolate`, `@invariant`, `@blend_src`. */
 function setEntryAttributes(
@@ -2185,9 +2265,15 @@ function setEntryAttributes(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): void {
-  const loc = numberDecorator(member, 'location');
   const decos = attributeDecoratorsOf(member);
-  const builtinArg = builtinDecoratorArg(decos);
+  const io = readIoAttributes(diagnostics, sourceFile, decos);
+  const { interpolate, blendSrc } = readFieldOptions(member, decos, sourceFile, diagnostics);
+  if (io.invalid) {
+    malformedIoFields.add(field);
+    return;
+  }
+  const loc = io.location;
+  const builtinArg = io.builtin;
   const builtin =
     builtinArg && checkBuiltinName(diagnostics, sourceFile, builtinArg.argNode, builtinArg.name)
       ? builtinArg.name
@@ -2204,9 +2290,7 @@ function setEntryAttributes(
   // rides `@builtin("position")`, the one output WGSL lets it steady; `@blend_src`
   // rides a `@location(0)` fragment output and derives a capability. Each is checked
   // where it is written, so the message names the line rather than the emitted text.
-  const interpolate = interpolateDecoratorArg(diagnostics, sourceFile, decos);
   const invariant = hasInvariantDecorator(decos);
-  const blendSrc = numberDecorator(member, 'blend_src');
   if (interpolate !== undefined && loc === undefined) {
     diagnostics.push(
       diag(
@@ -2225,16 +2309,6 @@ function setEntryAttributes(
         `The invariant option belongs on builtin<"position", vec4>: it is WGSL's promise that this ` +
           `position is computed the same way in two pipelines, and no other output ` +
           `has that meaning.`,
-      ),
-    );
-  }
-  if (blendSrc !== undefined && blendSrc !== 0 && blendSrc !== 1) {
-    diagnostics.push(
-      diag(
-        sourceFile,
-        member,
-        `blend_src takes 0 or 1 — the two sources a dual-source blend mixes — ` +
-          `not ${String(blendSrc)}.`,
       ),
     );
   }

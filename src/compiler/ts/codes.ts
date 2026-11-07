@@ -60,7 +60,7 @@ export const TS_CODES = {
   UNKNOWN_NAME: 'TS8022',
   /** The same function, binding, module constant or struct name declared twice in one scope. A struct counts whichever of the three spellings each declaration used: a class, an interface and a type alias of one name are one struct, not declarations that merge. */
   DUPLICATE_SYMBOL: 'TS8023',
-  /** `@builtin("...")` names an id outside WGSL's builtin vocabulary (`WgslBuiltinName` in `core/sot.ts`). */
+  /** `@builtin("...")` has a malformed name argument or names an id outside WGSL's builtin vocabulary (`WgslBuiltinName` in `core/sot.ts`). */
   BUILTIN_NAME: 'TS8024',
   /** A `@builtin(...)` id used as the wrong stage's input or output, e.g. `frag_depth` on a vertex return, or `front_facing` on a vertex parameter. */
   BUILTIN_STAGE: 'TS8025',
@@ -69,6 +69,7 @@ export const TS_CODES = {
   /** A non-square `matCxR<f64>`: the fp64 pass carries one df64 body per DIMENSION (`DF64MatN`, matmul, matvec, transpose), so only a square matrix of doubles lowers. Every `matCxR<f32>` is a type (#149), so this no longer marks `mat2`/`mat3`. */
   MAT_UNSUPPORTED: 'TS8027',
   /** A decorator identifier outside the attribute vocabulary `"use typeshade"` defines (`@vertex`, `@fragment`, `@compute`, `@builtin`, `@location`), e.g. a misspelled `@vertx`: without this, the decorated function or field just silently stops being an entry point or an I/O field. A WGSL attribute the surface writes another way (`@workgroup_size`, `@size`, `@group`, `@binding`, `@id`, `@must_use`) is named as WGSL's, with where its intent goes; `@size` anywhere but a field and `@align` anywhere but a field or a class are named as a struct field's, and `@std140` anywhere but a class as not applied; and any decorator nothing reads is refused (Rule 6.7): on a declaration that takes none (a binding, an override, a `const` or `let` at any depth, an enum, an interface, a type alias, a namespace, a local function or class, a class expression or a `static` field), on a constructor, an overload signature, an abstract member, a mixin or an index signature, one that is not a name (`@N.k`), and one of the list where the place does not apply it (`@location` on a class, `@builtin` on a parameter of a function that is not an entry, which Tint refuses). */
+  // Also a malformed location argument: one non-negative integer literal is required.
   ATTRIBUTE_NAME: 'TS8028',
   /** A field of a struct used as an entry function's parameter or return type carries neither `@builtin(...)` nor `@location(...)`: WGSL rejects an entry-IO struct member with no attribute, so this is caught at the front end instead of reaching the backend as invalid emitted WGSL. */
   STRUCT_FIELD_MISSING_ATTR: 'TS8029',
