@@ -1630,6 +1630,12 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Misplaced loop-control diagnostics** (#321, control#21 and control#28). The editor reports
+  the compiler's existing `TS8009` once for a `break` or `continue` without a target in its
+  function. Matching TypeScript diagnostics are merged only at the same statement; unrelated
+  errors and the existing top-level refusals remain. Both refusal texts now have exact code
+  and message tests.
+
 - **Entry IO name diagnostics** (#321, misc#10). An unknown builtin or IO attribute name
   no longer produces missing-attribute and missing-position follow-ups. The editor keeps the
   compiler's unknown-builtin sentence at the written name. Independent field and option errors
