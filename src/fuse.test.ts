@@ -1412,7 +1412,8 @@ describe('device-owned scratch returns to the bounded array pool (#992)', () => 
     // This instrument supplies the download, not shader arithmetic. prefix() then computes
     // [1, 3, 6, 10] on the real CPU path, which the next GPU call must receive as an upload.
     const gpu = recording({
-      mapped: (size) => (size === 16 ? floats(1, 2, 3, 4).buffer : new ArrayBuffer(size)),
+      mapped: (size) =>
+        size === 16 ? new Float32Array([1, 2, 3, 4]).buffer : new ArrayBuffer(size),
     });
     const dev = await runtime.createDevice({ device: gpu.device });
     const m = await loadFused();
