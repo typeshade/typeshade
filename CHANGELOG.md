@@ -1630,6 +1630,17 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Array lengths in WebGL2 kernels** (#689). Eligible kernel loops read array parameter
+  `.length` using checked element counts, including subviews and flat vector arrays. This
+  restores WebGL2 execution for `inclusiveScan`, `exclusiveScan` and `compact`. An array read
+  only for its length needs no element upload.
+  Paired Bun 1.4.4 gzip measurements change runtime from 153,254 to 153,258 bytes
+  (split total 155,226 to 155,231), fuse from 114,002 to 114,008 (split total 114,510
+  to 114,512), algorithms from 51,458 to 51,757 and random from 33,441 to 33,446.
+  Algorithms and random have one split asset each. Floors, initial runtime/fuse caps and
+  emitter budgets remain unchanged. The algorithms increase includes the three restored
+  GLSL artifacts.
+
 - **Misplaced loop-control diagnostics** (#321, control#21 and control#28). The editor reports
   the compiler's existing `TS8009` once for a `break` or `continue` without a target in its
   function. Matching TypeScript diagnostics are merged only at the same statement; unrelated

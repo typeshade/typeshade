@@ -80,6 +80,11 @@ import {
   type SamplerPairReport,
   type SamplerPairRun,
 } from './sampler-pair-cases.js';
+import {
+  runKernelLengths,
+  type KernelLengthModule,
+  type KernelLengthReport,
+} from './kernel-length-cases.js';
 
 /** One callable entry of one example, as `scripts/entry-calls.ts` lists it. */
 export interface EntryCase {
@@ -135,6 +140,8 @@ export interface EntryReport {
   readonly glCanvas: Readback;
   /** #448: conflicting sampler refusals and valid single-pair render readbacks. */
   readonly samplers: SamplerPairReport;
+  /** #689: checked element lengths and independent outputs on all three kernel tiers. */
+  readonly kernelLengths: KernelLengthReport;
 }
 
 /** A runtime-sized array's element count, and a canvas's side. */
@@ -1015,6 +1022,7 @@ export async function runEntries(
   programCases: readonly ProgramCaseRun[] = [],
   aliases: readonly AliasFixture[] = [],
   samplerCases: readonly SamplerPairRun[] = [],
+  kernelModule?: KernelLengthModule,
 ): Promise<EntryReport> {
   // The instrument, FIRST: a comparison that cannot see one changed value is blind.
   const probe = [0.5, -1, 2, 3];
@@ -1052,5 +1060,7 @@ export async function runEntries(
     glCanvas = { error: message(e) };
   }
   const samplers = await runSamplerPairs(samplerCases);
-  return { perturbedReported, verdicts, render, glRender, glCanvas, samplers };
+  if (kernelModule === undefined) throw new Error('the kernel-length gate module is missing');
+  const kernelLengths = await runKernelLengths(kernelModule);
+  return { perturbedReported, verdicts, render, glRender, glCanvas, samplers, kernelLengths };
 }

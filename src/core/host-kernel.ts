@@ -1066,7 +1066,9 @@ export async function runChecked(
       const uniforms = new Map<string, unknown>();
       k.params.forEach((p, i) => {
         if (p.k === 'array') arrays.set(p.name, live[i]);
-        else uniforms.set(p.name, values[i]);
+        // Arrays already carry their checked element count here, including flat vectors and
+        // typed subarrays. A length uniform names that parameter, never its backing capacity.
+        uniforms.set(p.name, values[i]);
       });
       // A range the device holds is computed here, on the CPU tier over the host copies, once the
       // draws before it have written them (change 0094, Rule 11.8).

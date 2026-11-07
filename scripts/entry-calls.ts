@@ -25,6 +25,7 @@ import { SOURCES, type Programs } from './render-case.js';
 import { COMPUTE_CASES, PROGRAM_CASES } from './compute-case.js';
 import { isGuard } from '../src/core/host-entry.js';
 import { SAMPLER_CASES, SAMPLER_REFUSALS, type SamplerPairRun } from './sampler-pair-cases.js';
+import { KERNEL_LENGTH_SOURCE } from './kernel-length-cases.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const RUNTIME = join(ROOT, 'src/core/host-runtime.ts');
@@ -281,6 +282,25 @@ export async function entryBundle(): Promise<EntryBundle> {
     });
     const main = join(dir, 'main.ts');
     const aliases = aliasFixtures(dir);
+    const lengthFile = '/kernel-lengths.shade.ts';
+    const lengthHost = hostFace(KERNEL_LENGTH_SOURCE, { fileName: lengthFile, runtime: RUNTIME });
+    const lengthService = createTypeshadeLanguageService();
+    lengthService.openDocument(lengthFile, KERNEL_LENGTH_SOURCE);
+    const lengthDiagnostics = [
+      ...lengthHost.diagnostics,
+      ...lengthService.getDiagnostics(lengthFile),
+    ];
+    lengthService.closeDocument(lengthFile);
+    if (
+      lengthDiagnostics.length ||
+      lengthHost.code === undefined ||
+      lengthHost.exports?.length !== 5 ||
+      lengthHost.exports.some((entry) => entry.kind !== 'kernel' || !entry.face.gl)
+    )
+      throw new Error(
+        `kernel lengths: both halves and all five WebGL2 kernels must be present: ${JSON.stringify(lengthDiagnostics)}`,
+      );
+    writeFileSync(join(dir, 'kernel-lengths.mjs'), lengthHost.code);
     compute += 3;
     fragment += 6;
     writeFileSync(
@@ -290,12 +310,13 @@ export async function entryBundle(): Promise<EntryBundle> {
         `import type { Programs } from ${JSON.stringify(RENDER_CASE)};`,
         ...imports,
         ...aliases.imports,
+        `import * as kernelLengths from './kernel-lengths.mjs';`,
         `const cases = [\n  ${cases.join(',\n  ')},\n];`,
         `const programs = ${JSON.stringify(renderPrograms())} as Programs;`,
         `const programCases = ${JSON.stringify(programCases())};`,
         `const aliases = [${aliases.fixtures.join(', ')}];`,
         `const samplerCases = ${JSON.stringify(samplerCases())};`,
-        `(globalThis as Record<string, unknown>)['__runEntries'] = () => runEntries(cases, programs, programCases, aliases, samplerCases);`,
+        `(globalThis as Record<string, unknown>)['__runEntries'] = () => runEntries(cases, programs, programCases, aliases, samplerCases, kernelLengths);`,
         '',
       ].join('\n'),
     );
