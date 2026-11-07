@@ -892,6 +892,9 @@ function lowerSuperCall(
   }
   const decl = scope.resolveCallee(sup.fn);
   if (!decl) {
+    // The base constructor's signature already said why it was not emitted, as for `new B()`.
+    // Its generated function name is not another mistake at this `super()` (Rule 12.4).
+    if (scope.declarationRefused(sup.fn)) return undefined;
     pushDiag(
       diagnostics,
       sourceFile,
