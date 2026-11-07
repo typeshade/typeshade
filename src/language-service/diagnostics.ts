@@ -1392,6 +1392,16 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     reason: 'The same for a name of Node, where TypeScript offers its types to install.',
   },
   {
+    typescript: 2867,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'An unknown Bun name, where TypeScript offers host types a shader cannot use.',
+  },
+  {
+    typescript: 2868,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'The same Bun name when TypeScript also suggests changing tsconfig types.',
+  },
+  {
     typescript: 2552,
     typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
     reason:
@@ -1960,6 +1970,14 @@ function sameMistakeSpans(
   diagnostic: TypeshadeDiagnostic,
   error: TypeshadeDiagnostic,
 ): boolean {
+  const code = ruleCodeOf(diagnostic.code);
+  if (code === 2867 || code === 2868) {
+    return (
+      diagnostic.uri === error.uri &&
+      diagnostic.span.start === error.span.start &&
+      diagnostic.span.length === error.span.length
+    );
+  }
   if (error.code === TS_CODES.MODULE_VAR) {
     return sameModuleVariableMistake(context, diagnostic, error);
   }

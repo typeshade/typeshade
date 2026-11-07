@@ -1630,6 +1630,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Bun host typings diagnostics in shaders** (#321 names#15). An unknown Bun value, function
+  or type now keeps the compiler's one refusal instead of also suggesting host type packages.
+  Only matching names in the same document are merged; independent errors remain visible.
+
 - **Local call diagnostic names** (#321, classes#14). A refused call names its written
   identifier instead of the lifted function name, including locals inside methods,
   namespaces and generic functions. Diagnostic codes and source spans are unchanged.
