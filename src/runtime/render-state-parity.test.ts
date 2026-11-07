@@ -158,6 +158,8 @@ function glFake() {
     createBuffer: () => named('buffer'),
     getShaderParameter: () => true,
     getProgramParameter: () => true,
+    getUniformBlockIndex: () => 0,
+    getActiveUniformBlockParameter: () => 16,
     isProgram: () => true,
     getExtension: () => null,
   };

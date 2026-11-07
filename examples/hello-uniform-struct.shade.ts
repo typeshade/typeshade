@@ -3,14 +3,13 @@
 /* @example
 {
   "title": "Hello uniform block",
-  "blurb": "The uniform that DOES have a GLSL ES 3.00 form: a `Uniforms` class behind `uniform<T>` lays out as a std140 block on both targets, so unlike `hello-uniform` this one emits and links on WebGL2. The first source-compiled example with a binding and a renderable GLSL pair — the configuration whose absence let #14 hide.",
+  "blurb": "A `Uniforms` class behind `uniform<T>` groups several values in one std140 block on both targets. Both stages read the same binding. This was the first source-compiled example with a binding and a renderable GLSL pair, the configuration whose absence let #14 hide.",
   "renderable": true
 }
 */
 
-// The uniform that DOES have a GLSL ES 3.00 form, next to `hello-uniform`'s loose scalar
-// that does not. A struct behind `uniform<T>` lays out as a std140 block on both targets, so
-// this one emits and links on WebGL2 — and that is the point of it being here.
+// A struct behind `uniform<T>` groups several values in a std140 block on both targets.
+// `hello-uniform` shows a single bare value, which now also emits and links on WebGL2 (0127).
 //
 // It is also the configuration whose absence let #14 hide: a source-compiled example with a
 // binding AND a renderable GLSL pair. The three renderable `.shade.ts` examples had no

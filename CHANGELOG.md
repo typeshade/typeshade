@@ -1644,6 +1644,16 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   no warning, and remedies preserve private names and optional fields. Types and emitted code
   are unchanged.
 
+- **Bare uniforms on WebGL2** (#452, change 0127). Scalars, vectors and supported matrices
+  now use private std140 blocks while keeping their host values and layouts. Both draw paths
+  allocate the linked block size without changing packed bytes. Two-row matrices remain refused.
+  Paired Bun 1.4.4 measurements against main `89a05342` change runtime from 153,258 to
+  153,596 gzip bytes (split total 155,231 to 155,528), emit from 117,931 to 118,605
+  (one asset, also its split initial/total), and fuse from 114,008 to 114,160
+  (split total 114,512 to 114,667). Runtime/fuse initial downloads, algorithms and random
+  are unchanged. Only the exceeded caps move to those measurements; floors and the
+  compiler/CSP boundary checks remain in force.
+
 - **Module-variable editor diagnostics** (#321, control#18). A retired `perInvocation` type,
   a `workgroup` variable declared `const`, or a `workgroup` type with no argument now shows
   the compiler's existing TS8033 once. Independent type and name errors remain visible.

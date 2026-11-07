@@ -211,12 +211,12 @@ describe('compile() contract', () => {
   });
 
   it('keeps the wgsl of a render+compute module when only the GLSL backend cannot emit it', () => {
-    // The render pair reads a loose scalar uniform, which GLSL ES 3.00 has no std140 block for.
+    // A bare array keeps the existing GLSL refusal; change 0127 covers scalar/vector/matrix values.
     const s = compile(
       RENDER_PLUS_COMPUTE.replace(
         '"use typeshade";',
-        '"use typeshade";\ndeclare const k: uniform<f32>;',
-      ).replace('vec4(1., 0., 0., 1.)', 'vec4(k, 0., 0., 1.)'),
+        '"use typeshade";\ndeclare const k: uniform<array<vec4, 2>>;',
+      ).replace('vec4(1., 0., 0., 1.)', 'k[0]'),
     );
     expect(errorsOf(s)).toEqual([]);
     expect(s.wgsl).toMatch(/@compute/);

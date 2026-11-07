@@ -31,6 +31,7 @@
 
 import type { CpuValue } from './cpu-runtime.js';
 import type { ConsoleLog } from './console.js';
+import { glUniformBytes } from './gl-uniform-bytes.js';
 import {
   checkBindings,
   consoleFor,
@@ -464,6 +465,7 @@ interface Gl {
   getProgramInfoLog(p: object): string | null;
   useProgram(p: object | null): void;
   getUniformBlockIndex(p: object, name: string): number;
+  getActiveUniformBlockParameter(p: object, index: number, parameter: number): unknown;
   uniformBlockBinding(p: object, index: number, binding: number): void;
   getUniformLocation(p: object, name: string): object | null;
   uniform1i(l: object | null, v: number): void;
@@ -527,6 +529,8 @@ const GL = {
   COMPILE_STATUS: 0x8b81,
   LINK_STATUS: 0x8b82,
   UNIFORM_BUFFER: 0x8a11,
+  UNIFORM_BLOCK_DATA_SIZE: 0x8a40,
+  INVALID_INDEX: 0xffffffff,
   STREAM_DRAW: 0x88e0,
   TEXTURE_2D: 0x0de1,
   TEXTURE0: 0x84c0,
@@ -563,7 +567,7 @@ void main() {
 
 interface GlProgram {
   readonly program: object;
-  readonly blocks: readonly { name: string; index: number }[];
+  readonly blocks: readonly { name: string; index: number; minimum: number }[];
   readonly textures: readonly { name: string; location: object | null }[];
 }
 
@@ -582,11 +586,17 @@ function compileGl(gl: Gl, e: FragmentEntry): GlProgram {
   gl.linkProgram(program);
   if (gl.getProgramParameter(program, GL.LINK_STATUS) !== true)
     throw new Error(`${e.name}: WebGL2 refused the GLSL: ${gl.getProgramInfoLog(program) ?? ''}`);
-  const blocks = Object.entries(e.gl!.blocks).map(([name, block], i) => {
+  const blocks: { name: string; index: number; minimum: number }[] = [];
+  for (const [name, block] of Object.entries(e.gl!.blocks)) {
     const index = gl.getUniformBlockIndex(program, block);
-    gl.uniformBlockBinding(program, index, i);
-    return { name, index };
-  });
+    // A driver may remove a declared block whose reads do not affect any output.
+    if (index === GL.INVALID_INDEX) continue;
+    const minimum = gl.getActiveUniformBlockParameter(program, index, GL.UNIFORM_BLOCK_DATA_SIZE);
+    if (typeof minimum !== 'number' || !Number.isSafeInteger(minimum) || minimum < 1)
+      throw new Error(`${e.name}: WebGL2 reports an invalid uniform block size for "${name}".`);
+    gl.uniformBlockBinding(program, index, blocks.length);
+    blocks.push({ name, index, minimum });
+  }
   // The sampler is declared under the GLSL name its binding carries (Proposal 0070, C8).
   const textures = Object.keys(e.gl!.samplers).map((name) => ({
     name,
@@ -647,10 +657,14 @@ function webgl2Painter(gl: Gl, canvas: Canvas): Painter {
     gl.clear(GL.COLOR_BUFFER_BIT);
     gl.useProgram(p.program);
     const owned: object[] = [];
-    p.blocks.forEach(({ name }, i) => {
+    p.blocks.forEach(({ name, minimum }, i) => {
       const buffer = gl.createBuffer()!;
       gl.bindBuffer(GL.UNIFORM_BUFFER, buffer);
-      gl.bufferData(GL.UNIFORM_BUFFER, f.bytes.get(name)!, GL.STREAM_DRAW);
+      gl.bufferData(
+        GL.UNIFORM_BUFFER,
+        glUniformBytes(new Uint8Array(f.bytes.get(name)!), minimum),
+        GL.STREAM_DRAW,
+      );
       gl.bindBufferBase(GL.UNIFORM_BUFFER, i, buffer);
       owned.push(buffer);
     });

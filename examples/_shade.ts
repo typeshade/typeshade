@@ -14,7 +14,8 @@
 // (`src/lib/examples.ts`), and three of its gates fail on any entry added here —
 //
 //   1. `wgslOnlyExample()` throws unless EXACTLY ONE registered example refuses to emit
-//      GLSL. `compute-reduction` is that one; `hello-uniform` would be a second.
+//      GLSL. At the time, `compute-reduction` was that one and `hello-uniform` was a second.
+//      Change 0127 gives `hello-uniform` a GLSL block; the locale boundary below still applies.
 //   2. `checkedBlurbs()` throws unless every registered id has a hand-written description
 //      in EVERY locale (src/i18n/en.ts, ko.ts) — five new ids, ten new lines, in a
 //      repository this change does not touch.
@@ -253,8 +254,8 @@ const SHADE_ORDER: readonly ShadeSpec[] = [...SHADE_FILES.keys()]
  * registering whatever came back — is the failure this whole file exists to close: an
  * example that silently stops being a program, with every gate still green because the gate
  * is handed an empty module. A warning is not that: `compile()` reports a GLSL ES 3.00
- * refusal of a module whose WGSL exists as a `TS8015` warning (hello-uniform's loose scalar
- * uniform is one), and such an example is still a program, with `renderable: false` saying
+ * refusal of a module whose WGSL exists as a `TS8015` warning (a bare array uniform, for
+ * example), and such an example is still a program, with `renderable: false` saying
  * which target it lacks.
  *
  * @param spec - the hand-written half of the registration.
