@@ -83,18 +83,18 @@
 //     `gate(x, y) { let acc = x * 2.; acc = y; return acc }` keeps `x` in its summary and is
 //     refused where the same statements inline are accepted. Filed as #180 rather than fixed
 //     here, with its measurement.
-//   • A barrier under a condition this walk cannot PROVE uniform keeps the refusal the old
-//     rule had, so `if (edge(k)) { workgroupBarrier() }` on a uniform `k` is refused where
-//     Tint accepts it: a user call's floor is `unknown`, and the barrier threshold takes
-//     nothing less than `uniform`. Also #180 — the summary could answer it. Only where an old
-//     rule refused, though: a `break` or `continue` under such a condition narrows nothing, and
-//     a `workgroupUniformLoad` takes `unknown` as a refusal only inside an `if` or `switch`.
+//   • A user call keeps an `unknown` floor unless its entire body is one pure return of
+//     literals and by-value parameters. That narrow proof accepts `edge(k)` when `edge` returns
+//     `x > 0.5` and `k` is uniform (#180); calls, globals and other bodies remain unproven.
+//     A barrier still needs proven uniform flow. A `break` or `continue` under an unknown
+//     condition narrows nothing, and a `workgroupUniformLoad` takes `unknown` as a refusal only
+//     inside an `if` or `switch`.
 //   • An `inout` parameter is not modelled: `classify` answers a call's RESULT, so a value a
 //     callee writes back through one does not reach the caller's class for it.
 
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
 import { stageOf } from '../ir/nodes.js';
-import { eachStmtExpr, mapChildren } from '../ir/visit.js';
+import { eachExpr, eachStmtExpr, mapChildren } from '../ir/visit.js';
 import {
   BARRIER_INTRINSICS,
   DERIVATIVE_INTRINSICS,
@@ -362,10 +362,13 @@ function fieldUniformity(
 interface Summary {
   /** Parameter positions the return value depends on. */
   readonly params: ReadonlySet<number>;
+  /** The whole body is one pure return of literals and by-value parameters. Only this
+   *  independently checked shape proves that no origin omitted by `params` remains. */
+  readonly uniformFromParams: boolean;
   /** Whether the return value is read out of an address space that is non-uniform on sight —
    *  `private`, `workgroup`, or a `read_write` storage buffer.
    *
-   *  ONE BIT, and it has to be here: a call's class floors at `unknown` and never looks inside
+   *  ONE BIT, and it has to be here: an unproven call's class floors at `unknown`, without reading
    *  a body, so `function peek(): f32 { return stash }` with no parameters had an empty
    *  summary and `if (peek() > 0.25) { textureSample(…) }` went through. Tint refuses it, and
    *  refuses the same helper returning a `read_write` storage element, and ACCEPTS one
@@ -379,9 +382,56 @@ type ReturnDeps = ReadonlyMap<string, Summary>;
 
 const sameSummary = (a: Summary, b: Summary | undefined): boolean =>
   b !== undefined &&
+  a.uniformFromParams === b.uniformFromParams &&
   a.nonUniform === b.nonUniform &&
   a.params.size === b.params.size &&
   [...a.params].every((x) => b.params.has(x));
+
+/** A dependency summary alone cannot prove uniformity: unknown calls and host origins may
+ *  have no parameter dependencies. Account for EVERY node of one return independently.
+ *  All accepted operators read only their operands; `eachExpr` visits every operand, including
+ *  indices and both select arms. Calls, globals, references and statement control flow keep
+ *  the unknown floor. A new IR operation is unproven until it is explicitly admitted here.
+ *
+ *  Measured 2026-11-07 on Chromium 156.0.8078.4 / google SwiftShader, with the broken-shader
+ *  instrument reporting first: Tint accepts a barrier under `edge(k)` for `return x > 0.5`,
+ *  under a literal return with an unused varying argument, and under the pure expression
+ *  forms below. A varying argument or index, private/workgroup/read_write read, or varying
+ *  control-dependent return still reports "'workgroupBarrier' must only be called from
+ *  uniform control flow". Six complete compiler-emitted positive modules and a varying-argument
+ *  mutation agreed with those controls. No shader was dispatched. */
+function uniformFromParams(f: FuncDecl): boolean {
+  const only = f.body[0];
+  if (
+    stageOf(f) !== undefined ||
+    f.params.some((p) => p.mode !== undefined) ||
+    f.body.length !== 1 ||
+    only?.s !== 'return' ||
+    only.expr === undefined
+  )
+    return false;
+  let proven = true;
+  eachExpr(only.expr, (e) => {
+    switch (e.op) {
+      case 'param':
+        if (!f.params.some((p) => p.name === e.name)) proven = false;
+        break;
+      case 'lit':
+      case 'binop':
+      case 'compare':
+      case 'logical':
+      case 'unop':
+      case 'construct':
+      case 'member':
+      case 'index':
+      case 'select':
+        break;
+      default:
+        proven = false;
+    }
+  });
+  return proven;
+}
 
 /** Every parameter position `f`'s return value depends on, given the summaries known so far. */
 function returnDepsOf(
@@ -554,7 +604,7 @@ function returnDepsOf(
     walk(f.body, new Set());
     if (size() === before) break;
   }
-  return { params: result, nonUniform: resultNonUniform };
+  return { params: result, nonUniform: resultNonUniform, uniformFromParams: uniformFromParams(f) };
 }
 
 /** The jumps a loop takes back, and the one a `switch` does: a `continue` in a `switch`
@@ -603,7 +653,9 @@ function returnDependencies(
   readsNonUniformSpace: (name: string) => boolean,
 ): ReturnDeps {
   const out = new Map<string, Summary>();
-  for (const f of m.funcs) out.set(f.name, { params: new Set(), nonUniform: false });
+  for (const f of m.funcs) {
+    out.set(f.name, { params: new Set(), nonUniform: false, uniformFromParams: false });
+  }
   for (let round = 0; round <= m.funcs.length + 1; round++) {
     let changed = false;
     for (const f of m.funcs) {
@@ -790,7 +842,10 @@ function classify(cx: Cx, env: Env, e: Expr): Known {
       if (summary?.nonUniform === true) {
         return { at: 'non-uniform', why: `${callee}, which reads memory the invocations share` };
       }
-      // A call into a USER function is AT LEAST `unknown` and AT MOST as uniform as its
+      // Only a complete proof of a single pure return may lift the unknown floor (#180).
+      // The arguments its result uses must still be proven uniform at this call site.
+      if (summary?.uniformFromParams === true && fromArgs.at === 'uniform') return fromArgs;
+      // Every other USER call is AT LEAST `unknown` and AT MOST as uniform as its
       // arguments. Both halves are load-bearing and each was wrong on its own:
       //
       //   • Never `uniform`, whatever the arguments say, because the body can read a module
@@ -806,8 +861,8 @@ function classify(cx: Cx, env: Env, e: Expr): Known {
       //     (the sample inside the branch and after it, an identity helper, and `dpdx`), and
       //     accepts `edge(k)` on a uniform.
       //
-      // Joining `unknown` with the arguments is exactly those two rules: `edge(k)` stays
-      // `unknown` (allowed through, as Tint allows it), and `edge(v.uv.x)` is `non-uniform`.
+      // Joining `unknown` with the arguments retains both rules for an unproven body.
+      // A definitely non-uniform argument reaching the result is never hidden by that floor.
       return {
         at: join('unknown', fromArgs.at),
         why: fromArgs.at === 'non-uniform' ? fromArgs.why : callee,
