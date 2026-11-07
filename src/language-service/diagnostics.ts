@@ -3,6 +3,7 @@
 import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
+import { fileDeclaresType } from '../compiler/ts/type-map.js';
 import { isRemovedCall } from '../compiler/ts/removed-names.js';
 import { usesDecoratedForm } from '../compiler/ts/decorated-form.js';
 import {
@@ -2569,7 +2570,7 @@ function isInRefusedDecorator(
   return siblings.some((d) => refused(d, METHOD_DECORATOR_REFUSAL));
 }
 
-/** A malformed attribute type's first argument is the compiler's IO-argument refusal.
+/** An IO attribute type's malformed argument or unknown builtin name is the compiler's refusal.
  *  Only TypeScript's constraint error on that argument repeats it: errors in the value type
  *  or the options remain independent, even though the compiler spans the attribute type. */
 function isAboutRefusedIoArgument(
@@ -2594,12 +2595,17 @@ function isAboutRefusedIoArgument(
         within(diagnostic.span, spanOfNode(first, context.sourceFile))
       ) {
         const span = spanOfNode(node, context.sourceFile);
+        const nameSpan = spanOfNode(first, context.sourceFile);
+        const ownName = fileDeclaresType(node, node.typeName.text, context.sourceFile);
         if (
           compilerErrors.some(
             (error) =>
               error.code === code &&
-              error.span.start === span.start &&
-              error.span.length === span.length,
+              ((error.span.start === span.start && error.span.length === span.length) ||
+                (code === TS_CODES.BUILTIN_NAME &&
+                  !ownName &&
+                  error.span.start === nameSpan.start &&
+                  error.span.length === nameSpan.length)),
           )
         )
           return true;
@@ -2621,8 +2627,8 @@ function isAboutRefusedIoArgument(
  *   about the value of one (`isAboutRefusedOperation`), goes;
  * - a TypeScript error inside a decorator the compiler refuses whole (`isInRefusedDecorator`)
  *   goes;
- * - a TypeScript constraint error on the first argument of a malformed IO attribute type
- *   repeats the compiler error spanning that type (`isAboutRefusedIoArgument`);
+ * - a TypeScript constraint error on an IO attribute type's first argument repeats the
+ *   compiler error spanning that type or its unknown builtin name (`isAboutRefusedIoArgument`);
  * - a TypeScript error that `SAME_MISTAKE` pairs by code with a compiler error, and whose span
  *   sits where one mistake would put the two (`sameMistakeSpans`), goes: the compiler's stays;
  * - a TypeScript error about what the compiler refused whole, a `throw` and what it throws, an

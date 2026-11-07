@@ -72,12 +72,12 @@ import {
 } from './namespaces.js';
 import { markOmittableField, optionalDeclaredType } from './optional.js';
 
-/** Malformed IO metadata is not an IR field and never reaches emit or portable payloads.
+/** Refused IO metadata is not an IR field and never reaches emit or portable payloads.
  *  Inheritance keeps field identity, so the original declaration owns the one refusal. */
-const malformedIoFields = new WeakSet<StructField>();
+const refusedIoFields = new WeakSet<StructField>();
 
-export function hasMalformedIoAttribute(field: StructField): boolean {
-  return malformedIoFields.has(field);
+export function hasRefusedIoAttribute(field: StructField): boolean {
+  return refusedIoFields.has(field);
 }
 
 /** Which of the three spellings declared a struct. Only a `class` can carry a field
@@ -804,8 +804,10 @@ export function collectStructs(
             staticFields++;
             continue;
           }
+          let unknownAttribute = false;
           for (const d of attributeDecoratorsOf(member)) {
-            checkAttributeName(diagnostics, sourceFile, d, 'a struct field');
+            if (checkAttributeName(diagnostics, sourceFile, d, 'a struct field'))
+              unknownAttribute = true;
             const text = d.getText(sourceFile);
             if (/@align/.test(text)) {
               diagnostics.push(diag(sourceFile, d, `@align on a field is not applied.`));
@@ -872,7 +874,7 @@ export function collectStructs(
             restrictedFields.set(emittedMemberName(memberName), { access, owner: member.parent });
           }
           const field: StructField = { name: emittedMemberName(memberName), type };
-          setEntryAttributes(field, member, type, sourceFile, diagnostics);
+          setEntryAttributes(field, member, type, sourceFile, diagnostics, unknownAttribute);
           fields.push(field);
           if (member.initializer !== undefined) {
             fieldInits.push({ name: field.name, type: field.type, init: member.initializer });
@@ -2189,9 +2191,10 @@ function signatureFields(
     const field: StructField = { name: member.name.text, type };
     // An interface field carries an attribute only in its type, `pos: builtin<'position', vec4>`
     // (change 0111): TypeScript has no decorator on an interface member.
+    let unknownAttribute = false;
     for (const d of typeDecoratorsOf(member))
-      checkAttributeName(diagnostics, sourceFile, d, 'a struct field');
-    setEntryAttributes(field, member, type, sourceFile, diagnostics);
+      if (checkAttributeName(diagnostics, sourceFile, d, 'a struct field')) unknownAttribute = true;
+    setEntryAttributes(field, member, type, sourceFile, diagnostics, unknownAttribute);
     fields.push(field);
     recordDeclaration(symbols, sourceFile, member.name, {
       name: member.name.text,
@@ -2203,7 +2206,7 @@ function signatureFields(
   return fields;
 }
 
-/** A malformed explicit IO argument belongs to its declaration even when this document
+/** A refused explicit IO argument or builtin name belongs to its declaration even when this document
  *  never instantiates the generic class or uses the interface/alias as a shader struct.
  *  Do not collect host-shaped fields, and defer an IO argument that itself names a type
  *  parameter: only the independent syntax is known here. */
@@ -2230,7 +2233,12 @@ function checkUncollectedIo(
     type = type.typeArguments?.[ATTRIBUTE_TYPES[name]!];
   }
   const decos = attributeDecoratorsOf(member);
-  if (readIoAttributes(diagnostics, sourceFile, decos).invalid) {
+  const io = readIoAttributes(diagnostics, sourceFile, decos);
+  if (
+    io.invalid ||
+    (io.builtin !== undefined &&
+      !checkBuiltinName(diagnostics, sourceFile, io.builtin.argNode, io.builtin.name))
+  ) {
     readFieldOptions(member, decos, sourceFile, diagnostics);
   }
 }
@@ -2264,12 +2272,13 @@ function setEntryAttributes(
   type: ShaderType,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
+  unknownAttribute: boolean,
 ): void {
   const decos = attributeDecoratorsOf(member);
   const io = readIoAttributes(diagnostics, sourceFile, decos);
   const { interpolate, blendSrc } = readFieldOptions(member, decos, sourceFile, diagnostics);
   if (io.invalid) {
-    malformedIoFields.add(field);
+    refusedIoFields.add(field);
     return;
   }
   const loc = io.location;
@@ -2278,6 +2287,10 @@ function setEntryAttributes(
     builtinArg && checkBuiltinName(diagnostics, sourceFile, builtinArg.argNode, builtinArg.name)
       ? builtinArg.name
       : undefined;
+  // The absent IO is a consequence of this name's refusal, not a second mistake. An already
+  // located field still has its independent stage/type/position checks.
+  if (loc === undefined && !builtin && (builtinArg !== undefined || unknownAttribute))
+    refusedIoFields.add(field);
   // The TYPE rule is checked once here, at the declaration; entry uses check only its stage
   // (`lower/function.ts`). The capability a `@builtin(...)` id
   // derives is read off `m.structs` whatever the struct is used for, so a struct that
@@ -2291,7 +2304,7 @@ function setEntryAttributes(
   // rides a `@location(0)` fragment output and derives a capability. Each is checked
   // where it is written, so the message names the line rather than the emitted text.
   const invariant = hasInvariantDecorator(decos);
-  if (interpolate !== undefined && loc === undefined) {
+  if (interpolate !== undefined && loc === undefined && !hasRefusedIoAttribute(field)) {
     diagnostics.push(
       diag(
         sourceFile,
@@ -2301,7 +2314,7 @@ function setEntryAttributes(
       ),
     );
   }
-  if (invariant && builtin !== 'position') {
+  if (invariant && builtin !== 'position' && !hasRefusedIoAttribute(field)) {
     diagnostics.push(
       diag(
         sourceFile,

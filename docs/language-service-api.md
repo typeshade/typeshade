@@ -417,7 +417,9 @@ by an eighth (the last item):
   span. A malformed `builtin` argument is `TS8024` on the whole decorator; a malformed
   `location` argument is `TS8028` there. These refusals absorb TypeScript's reports inside
   that decorator too. In the attribute-type spelling, only TS2344 on the first type argument
-  merges into the compiler's argument-shape refusal. Independent value-type and option
+  merges into the compiler's argument-shape refusal, or its `TS8024` on the exact unknown
+  builtin-name span. That name-span merge applies only to the attribute type, so a user-defined
+  type named `builtin` retains its own constraint error. Independent value-type and option
   errors remain visible.
 - **What the compiler refused whole.** A TypeScript error about something the compiler refused
   together with what it holds (proposal 0008) goes: one inside a refused `throw`, `await`,
