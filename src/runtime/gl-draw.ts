@@ -899,6 +899,17 @@ export class GlRenderPrograms {
     // Before `compile`: a refused state leaves no GL program behind.
     if (plan.depth !== undefined)
       refuseBias(prefix, plan.depth, this.d.polygonOffsetClamp !== null);
+    // One combined texture uniform has one sampler state across both stages. A null
+    // stage entry is load-only and imposes no state; it must not erase the other stage's.
+    const samplers: Record<string, string | null> = { ...v.samplers };
+    for (const [texture, sampler] of Object.entries(f?.samplers ?? {})) {
+      const previous = samplers[texture];
+      if (previous != null && sampler !== null && previous !== sampler)
+        throw new TypeError(
+          `${prefix}: it samples "${texture}" with "${previous}" and "${sampler}", and GLSL ES 3.00 fuses a texture with one sampler. Declare the texture twice, one binding per sampler.`,
+        );
+      samplers[texture] = previous ?? sampler;
+    }
     const pin = (src: string): string =>
       plan.constants === undefined ? src : pinOverrides(src, plan.constants, glslOverrideNames(m));
     const vertex = toGlClip(pin((v as PackGlVertex).vertex));
@@ -912,17 +923,21 @@ export class GlRenderPrograms {
     );
     return {
       program,
-      slots: this.#slots(program, v as PackGlVertex, f),
+      slots: this.#slots(program, v as PackGlVertex, f, samplers),
       state: this.#state(plan, vs, fs),
     };
   }
 
   /** Each binding the two programs read, at its block binding point or texture unit, set on
    *  `program` once: the units are the same for every pipeline that links the same programs. */
-  #slots(program: WebGLProgram, v: PackGlVertex, f: PackGlDraw | undefined): Slot[] {
+  #slots(
+    program: WebGLProgram,
+    v: PackGlVertex,
+    f: PackGlDraw | undefined,
+    samplers: Readonly<Record<string, string | null>>,
+  ): Slot[] {
     const gl = this.d.gl;
     const blocks = { ...v.blocks, ...f?.blocks };
-    const samplers = { ...v.samplers, ...f?.samplers };
     const data = [...new Set([...(v.data ?? []), ...(f?.data ?? [])])];
     const slots: Slot[] = [];
     gl.useProgram(program);

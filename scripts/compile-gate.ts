@@ -160,6 +160,7 @@ import { entryBundle } from './entry-calls.js';
 import { ON_WEBGL2, PROGRAM_CASES } from './compute-case.js';
 import type { EntryReport } from './entry-calls-page.js';
 import { colours, differences, expectedFrame, FRAMES, type FrameName } from './render-case.js';
+import { samplerPairFailures } from './sampler-pair-cases.js';
 import {
   compile,
   compileModuleJs,
@@ -2508,6 +2509,12 @@ function entryVerdicts(r: EntryReport, b: { compute: number; fragment: number })
   }
   failures += renderVerdicts(r.render, 'webgpu');
   failures += renderVerdicts(r.glRender, 'webgl2');
+  const samplerFailures = samplerPairFailures(r.samplers);
+  for (const failure of samplerFailures) console.error(`FAIL sampler pairs: ${failure}`);
+  failures += samplerFailures.length;
+  console.log(
+    `sampler pairs: ${String(r.samplers.rows.length)} sources on WebGPU/WebGL2, independent pixels and wrong-sampler instruments · failures: ${String(samplerFailures.length)}`,
+  );
   // The canvas: the same picture as the `passes` frame, turned over onto the screen and back.
   {
     const got = r.glCanvas;

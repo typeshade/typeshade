@@ -75,6 +75,11 @@ import {
   type Programs,
   type Readback,
 } from './render-case.js';
+import {
+  runSamplerPairs,
+  type SamplerPairReport,
+  type SamplerPairRun,
+} from './sampler-pair-cases.js';
 
 /** One callable entry of one example, as `scripts/entry-calls.ts` lists it. */
 export interface EntryCase {
@@ -128,6 +133,8 @@ export interface EntryReport {
   readonly glRender: EntryReport['render'];
   /** The `passes` frame drawn into a canvas by a runtime on its WebGL2 context. */
   readonly glCanvas: Readback;
+  /** #448: conflicting sampler refusals and valid single-pair render readbacks. */
+  readonly samplers: SamplerPairReport;
 }
 
 /** A runtime-sized array's element count, and a canvas's side. */
@@ -1007,6 +1014,7 @@ export async function runEntries(
   programs: Programs,
   programCases: readonly ProgramCaseRun[] = [],
   aliases: readonly AliasFixture[] = [],
+  samplerCases: readonly SamplerPairRun[] = [],
 ): Promise<EntryReport> {
   // The instrument, FIRST: a comparison that cannot see one changed value is blind.
   const probe = [0.5, -1, 2, 3];
@@ -1043,5 +1051,6 @@ export async function runEntries(
   } catch (e) {
     glCanvas = { error: message(e) };
   }
-  return { perturbedReported, verdicts, render, glRender, glCanvas };
+  const samplers = await runSamplerPairs(samplerCases);
+  return { perturbedReported, verdicts, render, glRender, glCanvas, samplers };
 }

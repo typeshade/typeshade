@@ -1630,6 +1630,17 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **GLSL sampler conflicts** (#448). GLSL emission refuses a texture sampled with different
+  samplers, including across selected vertex and fragment entries; WGSL stays available.
+  WebGL2 pipeline creation rejects the same conflict before compiling a GL program.
+  A load-only stage preserves the other stage's sampler, and depth comparisons retain
+  their comparison sampler in render metadata. Bind the texture through two declarations
+  to use two sampler states on WebGL2.
+  Paired Bun 1.4.4 measurements raise the runtime gzip budget from 153,152 to 153,254 bytes
+  and its split total from 155,126 to 155,226; initial download falls from 38,637 to 38,635.
+  The emitter's single and split gzip size rises from 117,598 to 117,931 bytes.
+  Floors and the other three subpath budgets stay unchanged.
+
 - **Entry IO name diagnostics** (#321, misc#10). An unknown builtin or IO attribute name
   no longer produces missing-attribute and missing-position follow-ups. The editor keeps the
   compiler's unknown-builtin sentence at the written name. Independent field and option errors
