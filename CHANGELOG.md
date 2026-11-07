@@ -1630,6 +1630,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Class-field deprecation warnings** (#321, misc#8). Unannotated instance and static fields
+  that take the `f32` default now report the opt-in `TS8053` warning. Refused initializers add
+  no warning, and remedies preserve private names and optional fields. Types and emitted code
+  are unchanged.
+
 - **Module-variable editor diagnostics** (#321, control#18). A retired `perInvocation` type,
   a `workgroup` variable declared `const`, or a `workgroup` type with no argument now shows
   the compiler's existing TS8033 once. Independent type and name errors remain visible.

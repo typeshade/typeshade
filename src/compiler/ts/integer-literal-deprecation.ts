@@ -19,7 +19,8 @@
 // SCOPE: a DECLARATION with no type annotation whose initialiser is written as an integer —
 // `let i = 0`, `const K = 5`, `const n = 2 + 3`, excluding a local that already takes an
 // integer type from its declared uses (changes 0036 and 0037), or a counted loop's initializer
-// (Rule 7.5). That is the shape the flip moves and the shape
+// (Rule 7.5). An unannotated class field also warns when its collector gives the initializer
+// the f32 default (Rule 8.14). That is the shape the flip moves and the shape
 // an author can act on: writing `0.` keeps `f32`, writing `let i: f32 = 0` does too. A literal
 // in any other position is already decided by something — an annotated declaration, an
 // argument, an index, a peer in an arithmetic expression — and `lit-coerce.ts` and
@@ -32,6 +33,8 @@ import { localNumericInference } from './local-numeric-inference.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
+import type { DeclaredSymbol } from './symbols.js';
+import { optionalInner } from './optional.js';
 
 /** Every `let`/`const` declaration in `sourceFile`, at module scope or inside a function,
  *  whose initialiser is an integer-written literal tree and which declares no type or integer use.
@@ -55,32 +58,95 @@ export function reportIntegerLiteralDeprecations(
         isIntegerLiteralTree(node.initializer) &&
         localNumericInference(node, sourceFile)?.type === undefined
       ) {
-        const name = node.name.text;
-        // A bare DECIMAL literal has a one-character fix. A radix literal needs an annotation:
-        // `0x10.` is not a number literal. A TREE of literals
-        // (`2 + 3`) does not — a decimal point on one leaf is enough, which reads as a typo —
-        // so that one is told to annotate, which says the same thing and keeps the arithmetic
-        // legible.
-        const fix =
-          ts.isNumericLiteral(node.initializer) &&
-          !/^0[xob]/i.test(node.initializer.getText(sourceFile))
-            ? `Write "${name} = ${node.initializer.getText(sourceFile)}." to keep f32`
-            : `Annotate it — "${name}: f32 = ${node.initializer.getText(sourceFile)}" — to keep f32`;
-        diagnostics.push(
-          makeDiagnostic(
-            sourceFile,
-            node,
-            `"${name}" is written as an integer and types as f32 today; it will type as i32 ` +
-              `(§13, #148). ${fix}, or leave it and take i32.`,
-            TS_CODES.INT_LITERAL_DEPRECATION,
-            'warning',
-          ),
-        );
+        report(sourceFile, node, node.name.text, node.initializer, diagnostics);
       }
     }
     ts.forEachChild(node, visit);
   };
   ts.forEachChild(sourceFile, visit);
+}
+
+/** Read the field type its collector recorded, after lowering can refuse its initializer.
+ *  Instance fields and static constants/variables do not share an initializer grammar.
+ *  The symbol table keeps this warning from guessing a type or accepting a refused field. */
+export function reportFieldLiteralDeprecations(
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  symbols: readonly DeclaredSymbol[],
+): void {
+  const f32Names = new Set(
+    symbols.flatMap((symbol) => {
+      const type = optionalInner(symbol.type) ?? symbol.type;
+      return type.kind === 'scalar' && type.scalar === 'f32'
+        ? [`${symbol.start}:${symbol.length}`]
+        : [];
+    }),
+  );
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isPropertyDeclaration(node) &&
+      node.type === undefined &&
+      node.exclamationToken === undefined &&
+      node.initializer !== undefined &&
+      (ts.isIdentifier(node.name) || ts.isPrivateIdentifier(node.name)) &&
+      isIntegerLiteralTree(node.initializer) &&
+      f32Names.has(`${node.name.getStart(sourceFile)}:${node.name.getWidth(sourceFile)}`) &&
+      !isAmbient(node) &&
+      !diagnostics.some(
+        (d) => d.category === 'error' && d.start >= node.getStart(sourceFile) && d.start < node.end,
+      )
+    ) {
+      report(
+        sourceFile,
+        node,
+        node.name.text,
+        node.initializer,
+        diagnostics,
+        node.questionToken !== undefined,
+      );
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+}
+
+/** TypeScript refuses any initializer in an ambient declaration (TS1039). */
+function isAmbient(node: ts.Node): boolean {
+  for (let at: ts.Node | undefined = node; at !== undefined; at = at.parent) {
+    if (
+      ts.canHaveModifiers(at) &&
+      ts.getModifiers(at)?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)
+    )
+      return true;
+  }
+  return false;
+}
+
+function report(
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+  name: string,
+  initializer: ts.Expression,
+  diagnostics: TsCompilerDiagnostic[],
+  optional = false,
+): void {
+  const writtenName = `${name}${optional ? '?' : ''}`;
+  // A bare decimal literal has a one-character fix. A radix literal or a tree needs an
+  // annotation: `0x10.` is invalid, and changing one leaf of `2 + 3` reads as a typo.
+  const fix =
+    ts.isNumericLiteral(initializer) && !/^0[xob]/i.test(initializer.getText(sourceFile))
+      ? `Write "${writtenName} = ${initializer.getText(sourceFile)}." to keep f32`
+      : `Annotate it — "${writtenName}: f32 = ${initializer.getText(sourceFile)}" — to keep f32`;
+  diagnostics.push(
+    makeDiagnostic(
+      sourceFile,
+      node,
+      `"${name}" is written as an integer and types as f32 today; it will type as i32 ` +
+        `(§13, #148). ${fix}, or leave it and take i32.`,
+      TS_CODES.INT_LITERAL_DEPRECATION,
+      'warning',
+    ),
+  );
 }
 
 /** The initializer lowerForInit types as i32 or u32 even without a declared integer use.
