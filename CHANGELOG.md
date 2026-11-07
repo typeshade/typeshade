@@ -1630,6 +1630,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Local call diagnostic names** (#321, classes#14). A refused call names its written
+  identifier instead of the lifted function name, including locals inside methods,
+  namespaces and generic functions. Diagnostic codes and source spans are unchanged.
+
 - **Class-field deprecation warnings** (#321, misc#8). Unannotated instance and static fields
   that take the `f32` default now report the opt-in `TS8053` warning. Refused initializers add
   no warning, and remedies preserve private names and optional fields. Types and emitted code
