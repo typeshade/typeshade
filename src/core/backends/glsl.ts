@@ -105,6 +105,7 @@ import { spellingsOf } from '../spelling-plan.js';
 import { hoistDiscardingCtorArgs } from './glsl-legalize.js';
 import { lowerSwitchContinues } from './glsl-switch-continue.js';
 import { lowerUniformBlockValues } from './glsl-block-values.js';
+import { lowerBareUniforms } from './glsl-bare-uniforms.js';
 import { lowerGlobalPlaceArguments } from './glsl-global-places.js';
 import { readLocalsInPlace } from '../passes/local-places.js';
 import { fixpoint } from '../passes/opt/index.js';
@@ -2227,23 +2228,23 @@ function lowerForGlsl(authored: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl 
   // no later transformation exists that could reintroduce the fatal shape — not a
   // third-party `EmitPlugin.transformIR`, not the opt-in `inline()`. The guarantee is by
   // construction rather than by an argument about what each downstream pass happens to do.
-  const legalized = hoistDiscardingCtorArgs(
-    lowerUniformBlockValues(
-      applyIRPlugins(
-        lowerHostLooseBlocks(
-          sanitizeReservedIdents(
-            spellModule(
-              lowerForBackend(src, glslEs300Backend, undefined, opts?.fp64Flavor),
-              plan.glsl,
-              'glsl',
-            ),
-            plan.glsl,
-          ),
+  const plugged = applyIRPlugins(
+    lowerHostLooseBlocks(
+      sanitizeReservedIdents(
+        spellModule(
+          lowerForBackend(src, glslEs300Backend, undefined, opts?.fp64Flavor),
+          plan.glsl,
+          'glsl',
         ),
-        opts,
+        plan.glsl,
       ),
     ),
+    opts,
   );
+  // Compute emulation still binds its scalar values with glUniform*, as host-owned values do.
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- preserve the deprecated option's existing loose-uniform contract.
+  const blocks = opts?.emulateCompute ? plugged : lowerBareUniforms(plugged, plan.glsl);
+  const legalized = hoistDiscardingCtorArgs(lowerUniformBlockValues(blocks));
   // Final control-flow legalization only: no expression is hoisted/rebuilt, so the
   // discarding-ctor invariant above survives. ANGLE's HLSL forbids switch continues.
   return lowerSwitchContinues(legalized);

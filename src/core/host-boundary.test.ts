@@ -207,10 +207,10 @@ describe('hostUniform — we declare it, the host owns it', () => {
     ).toThrow(/hostUniform/);
   });
 
-  it('without owner: host, a bare vec uniform is still the unchanged hard error', () => {
-    // The loose lowering is a per-DECLARATION promotion, not a relaxation of the rule.
+  it('without owner: host, a bare vec uniform takes a block instead of a loose setter', () => {
+    // The loose setter is host-owned; shader-owned values use a private block (0127).
     const loose = resource('u_bare', vec2fT, { group: 0, binding: 3 });
-    const bad = module({
+    const shaderOwned = module({
       uses: [loose],
       funcs: [
         fn('fs_bare', {}, () => vec4(loose.node.x, 0.0, 0.0, 1.0), {
@@ -219,7 +219,7 @@ describe('hostUniform — we declare it, the host owns it', () => {
         }),
       ],
     });
-    expect(() => emitGlslModule(bad, 'fragment')).toThrow(/must be a struct/);
+    expect(emitGlslModule(shaderOwned, 'fragment')).toContain('layout(std140) uniform');
   });
 });
 

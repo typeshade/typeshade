@@ -124,11 +124,11 @@ At the review baseline, a bare scalar, vector or supported matrix produces WGSL 
 `TS8015` GLSL warning. Putting the same value inside a one-field struct removes the warning
 and enables GLSL. The missing tier is caused by the binding's outer form.
 
-[src/core/backends/glsl.ts](../src/core/backends/glsl.ts) rejects shader-owned non-struct
-uniforms after the existing host-owned loose-uniform branch.
-[src/core/manifest.ts](../src/core/manifest.ts) expects a named uniform block.
-[src/core/host-draw.ts](../src/core/host-draw.ts) uploads packed bytes directly.
-The program runtime's [src/runtime/gl-draw.ts](../src/runtime/gl-draw.ts) already adds
+At that baseline, [src/core/backends/glsl.ts](../src/core/backends/glsl.ts) rejected
+shader-owned non-struct uniforms after the existing host-owned loose-uniform branch.
+[src/core/manifest.ts](../src/core/manifest.ts) expected a named uniform block.
+[src/core/host-draw.ts](../src/core/host-draw.ts) uploaded packed bytes directly.
+The program runtime's [src/runtime/gl-draw.ts](../src/runtime/gl-draw.ts) already added
 16-byte tail padding in uploadBlock.
 
 The proposed block fits those existing interfaces. Loose uniforms also worked in the
@@ -292,11 +292,53 @@ Preserve historical measurements when updating current support statements.
 
 ### Configuration and validation record
 
-This delivery record does not yet apply. The measurements above characterize the baseline
-and candidate GLSL spelling. They are not evidence that TypeShade implements the proposal.
-Delivery must name the accepted proposal revision, implementation PR/commits, clean build
-receipt, actual tools and observed gate results. Record deviations and remaining obligations.
-Compiler implementation does not establish downstream adoption.
+The accepted proposal merged as PR #1072 at `4fe5237b3b643929e5e8b481b371924d99031106`.
+The implementation branch `fix/452-bare-uniform-webgl` is based on main
+`89a05342e7699ba40bbfeea75eb9a7547286e8ef`. Its PR and clean build receipt will be
+recorded after the first implementation commit. This record is pre-merge evidence;
+full compile, differential and packed-journey gates remain pending at this revision.
+
+The implementation adds private GLSL spellings and a lowered single-member struct only
+inside the GLSL writer. Both WebGL consumers query the linked block size and copy existing
+packed bytes into a zeroed allocation. A block optimized out by the driver is skipped
+before its size is queried, while authored missing-binding validation remains in place.
+
+The existing `hello-uniform` example gains an explicit full-screen vertex entry so its
+registered renderable form has both stages. This intentionally changes that example's
+WGSL golden and adds its two GLSL goldens; same-source WGSL invariance is a separate check.
+No example identity, public export, schema or normative rule is added.
+
+Observed on 2026-11-07 UTC with Bun 1.4.4, Node 24.22.1 and TypeScript 5.6.3:
+
+- The related compiler/layout/manifest/runtime suites pass all 932 tests in 16 suites,
+  including the 44 new compiler/host-upload tests. API/traceability/semicolon checks pass
+  134 tests in three suites; the example bake passes all 355 tests in its three suites.
+- Independent comparison with the review baseline checks 38 source forms and 76 packs,
+  covering both fp64 flavors. WGSL, serialized public IR, host views and every non-GLSL
+  manifest field are unchanged. Wrapped forms keep their GLSL, and all six bare/wrapped
+  two-row matrix forms retain their exact `TS8051` refusals.
+- An independent Chromium 156 SwiftShader run passes 72 WebGPU/WebGL2 draws covering
+  shared-stage bindings, unused bindings, generated-name collisions, reserved/unicode
+  binding names, local/loop shadowing, O0/O1/O2 and shipped/re-emitted manifests, with
+  two values checked against independent pixels.
+- Persistent native cases and packed journeys cover scalar/vector/matrix values and
+  the existing f64 representations. Generated host WebGL draws retain their existing
+  float-flavor contract; host WebGPU and manifest WebGPU/WebGL2 exercise both flavors.
+  The driver controls check broken shader text, an undersized UBO and incorrect values;
+  the float f64 guard control uses cancellation so a zero guard changes the pixels.
+  The final native run passes 264 calls and 28 block probes, reusing the same canvas and
+  owner or the same runtime and pipeline for changed values. All undersized allocations
+  produce GL_INVALID_OPERATION (1282), and all four float-f64 guard controls change pixels.
+- Lint, formatting, strict Doorstop, API surface, document references, IfChange and the
+  accepted-proposal scope check pass. Paired bundle measurements and the narrowly adjusted
+  caps are recorded in `CHANGELOG.md`; compiler/CSP scans pass.
+
+Compiler implementation does not establish downstream adoption. The two downstream
+repositories already have open compiler-pin work: site
+[PR #230](https://github.com/typeshade/typeshade.github.io/pull/230) and editor
+[PR #63](https://github.com/typeshade/vscode-typeshade/pull/63). Those existing changes do
+not yet adopt this implementation. Their owners retain that work; the obligations below
+remain pending rather than being claimed by a competing pin PR.
 
 ## What it owes downstream
 

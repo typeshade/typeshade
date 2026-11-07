@@ -53,6 +53,9 @@ export interface TargetSpellings {
   /** Structs whose fields the host names: the struct of a host-owned binding and each struct its
    *  fields reach. Their names and fields are never renamed. */
   readonly hostStructs: ReadonlySet<string>;
+  /** Private GLSL blocks for bare uniforms, keyed by authored binding name (change 0127).
+   *  Kept in the inherited plan so independently pruned stages link the same block. */
+  readonly uniformBlocks: ReadonlyMap<string, { readonly block: string; readonly member: string }>;
 }
 
 /** The plan of one module: a spelling per target. */
@@ -95,11 +98,19 @@ export const emittedName = (map: ReadonlyMap<string, string>, name: string): str
 /** Every emitted name of `t`: the names a local must not take, so the pass that spells locals
  *  never collides with the plan (Proposal 0070, section 2.4 point 5). */
 export function plannedNames(t: TargetSpellings): ReadonlySet<string> {
-  return new Set(
-    [t.funcs, t.entries, t.consts, t.vars, t.bindings, t.overrides, t.structs, t.members].flatMap(
-      (map) => [...map.values()],
-    ),
-  );
+  return new Set([
+    ...[
+      t.funcs,
+      t.entries,
+      t.consts,
+      t.vars,
+      t.bindings,
+      t.overrides,
+      t.structs,
+      t.members,
+    ].flatMap((map) => [...map.values()]),
+    ...[...t.uniformBlocks.values()].flatMap(({ block, member }) => [block, member]),
+  ]);
 }
 
 /** The struct names a type reaches: a struct, or the element of an array. */
@@ -286,6 +297,26 @@ function planTarget(m: ModuleDecl, t: SpellTarget): TargetSpellings {
   }
   for (const [name, fresh] of allocate(hidden, () => true, unspell)) consts.set(name, fresh);
 
+  // These declarations exist only in lowered GLSL. Allocate before entry pruning, from the
+  // same collision set as authored spellings; no WGSL name or public binding type changes.
+  const uniformBlocks = new Map<string, { block: string; member: string }>();
+  if (t === 'glsl') {
+    for (const b of m.bindings) {
+      if (
+        b.space !== 'uniform' ||
+        b.owner === 'host' ||
+        !['scalar', 'vec', 'mat', 'f64'].includes(b.type.kind)
+      )
+        continue;
+      const fresh = (stem: string): string => {
+        const name = freshSpelling(stem, (n) => taken.has(n), hidesPredeclared);
+        taken.add(name);
+        return name;
+      };
+      uniformBlocks.set(b.name, { block: fresh(`${b.name}_block`), member: fresh('_value') });
+    }
+  }
+
   return {
     funcs,
     entries: entryMap,
@@ -296,6 +327,7 @@ function planTarget(m: ModuleDecl, t: SpellTarget): TargetSpellings {
     structs,
     members,
     hostStructs,
+    uniformBlocks,
   };
 }
 

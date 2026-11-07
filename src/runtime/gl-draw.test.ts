@@ -129,6 +129,8 @@ function fakeGl(
     createBuffer: () => named('buffer'),
     getShaderParameter: () => true,
     getProgramParameter: () => true,
+    getUniformBlockIndex: () => 0,
+    getActiveUniformBlockParameter: () => 16,
     isProgram: () => linked,
     // `EXT_polygon_offset_clamp` is exposed only when the fake says so (A1).
     getExtension: (name) => {

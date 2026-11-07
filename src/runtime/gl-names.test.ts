@@ -17,7 +17,7 @@ import {
   type Stmt,
 } from '../core/ir/index.js';
 import { allKindsModule } from '../core/testing/all-kinds-module.js';
-import { GlDrawing, GlRenderPrograms, glslNameOf, pinOverrides } from './gl-draw.js';
+import { GlDrawing, GlPass, GlRenderPrograms, glslNameOf, pinOverrides } from './gl-draw.js';
 import { compile } from '../compiler/ts/compile.js';
 import { emitGlslStages } from '../core/backends/glsl.js';
 import { reflect, wgslLayout } from '../core/reflect.js';
@@ -26,13 +26,18 @@ import { onWebgl2, type KernelGlLoop } from '../core/host-kernel-gl.js';
 import { compileTsSource } from '../compiler/ts/source-file.js';
 import { emittedStructDecls } from '../compiler/ts/structs.js';
 import { emittedName, spellingsOf } from '../core/spelling-plan.js';
+import { hostFace } from '../compiler/ts/host-face.js';
 
 /** A stand-in for a WebGL2 constant: a number nothing reads, distinct per name. */
-const constant = (name: string): number => 0x1000 + name.length;
+const constant = (name: string): number =>
+  name === 'INVALID_INDEX' ? 0xffffffff : 0x1000 + name.length;
 
 /** A WebGL2 stand-in that keeps each call, with its arguments, and answers the queries the
  *  program and the draw make. Constants are numbers nothing reads. */
-function recordingGl(): { gl: WebGL2RenderingContext; calls: [string, unknown[]][] } {
+function recordingGl(options: { minimum?: number; inactive?: string } = {}): {
+  gl: WebGL2RenderingContext;
+  calls: [string, unknown[]][];
+} {
   const calls: [string, unknown[]][] = [];
   const answers: Record<string, (...a: unknown[]) => unknown> = {
     getShaderParameter: () => true,
@@ -40,12 +45,15 @@ function recordingGl(): { gl: WebGL2RenderingContext; calls: [string, unknown[]]
     getParameter: () => 8,
     getError: () => constant('NO_ERROR'),
     checkFramebufferStatus: () => constant('FRAMEBUFFER_COMPLETE'),
-    getUniformBlockIndex: () => 0,
+    getUniformBlockIndex: (_p, name) => (name === options.inactive ? 0xffffffff : 0),
+    getActiveUniformBlockParameter: () => options.minimum ?? 16,
     getUniformLocation: (_p, name) => ({ at: name }),
     createFramebuffer: () => ({}),
     createSampler: () => ({}),
     createProgram: () => ({}),
     createShader: () => ({}),
+    createBuffer: () => ({}),
+    createTexture: () => ({}),
     getExtension: () => null,
   };
   const gl = new Proxy(
@@ -348,4 +356,106 @@ describe('a binding whose GLSL and WGSL spellings agree binds by the GLSL name (
     expect(draw.blocks.class).toBeDefined();
     expect(calls).toContainEqual(['getUniformBlockIndex', [expect.anything(), draw.blocks.class]]);
   });
+});
+
+describe('bare-uniform allocation follows the linked block, not the logical value (0127)', () => {
+  const source = `"use typeshade";
+declare const U: uniform<f32>;
+declare const V: uniform<f32>;
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): builtin<"position", vec4> {
+  return vec4(f32(vi), 0., 0., 1.);
+});
+export const fs = fragment(function fs(): location<0, vec4> { return vec4(U, V, 0., 1.); });`;
+  const module = compile(source).module;
+  const pack = packModule(module);
+  const exported = hostFace(source, { fileName: '/bare-upload.shade.ts' }).exports!.find(
+    (e) => e.kind === 'fragment',
+  );
+  if (exported?.kind !== 'fragment') throw new Error('Missing fragment host entry');
+  const entry = exported.entry;
+  const uploads = (calls: [string, unknown[]][]) =>
+    calls
+      .filter(([name]) => name === 'bufferData')
+      .map(([, args]) => new Uint8Array(args[1] as ArrayBuffer));
+  const expectedBytes = (value: number, minimum: number): Uint8Array => {
+    const data = new Uint8Array(Math.max(16, minimum));
+    new DataView(data.buffer).setFloat32(0, value, true);
+    return data;
+  };
+  const programDraw = (gl: WebGL2RenderingContext, values: Record<string, number>) => {
+    const pipeline = new GlRenderPrograms(new GlDrawing(gl), pack).render({
+      vertex: 'vs',
+      fragment: 'fs',
+    });
+    const pass = new GlPass({
+      gl,
+      width: 1,
+      height: 1,
+      depthReadOnly: false,
+      stencilReadOnly: false,
+    });
+    pipeline.draw(pass, values, { count: 3 });
+    for (const step of pass.steps) step.run(gl);
+  };
+  class Canvas {
+    width = 1;
+    height = 1;
+    constructor(private readonly gl: WebGL2RenderingContext) {}
+    getContext(kind: string): unknown {
+      return kind === 'webgl2' ? this.gl : null;
+    }
+  }
+  const hostDraw = async (gl: WebGL2RenderingContext, values: Record<string, number>) => {
+    const g = globalThis as Record<string, unknown>;
+    const previous = g.OffscreenCanvas;
+    g.OffscreenCanvas = Canvas;
+    try {
+      await callDraw({} as never, entry, 2, new Canvas(gl), values);
+    } finally {
+      if (previous === undefined) delete g.OffscreenCanvas;
+      else g.OffscreenCanvas = previous;
+    }
+  };
+  for (const [consumer, draw] of [
+    ['program', programDraw],
+    ['host', hostDraw],
+  ] as const) {
+    it.each([4, 32, 65])(
+      `${consumer} keeps scalar bytes and zeroes allocation padding to %i bytes`,
+      async (minimum) => {
+        const { gl, calls } = recordingGl({ minimum });
+        await draw(gl, { U: 0.25, V: 0.5 });
+        expect(uploads(calls)).toEqual([expectedBytes(0.25, minimum), expectedBytes(0.5, minimum)]);
+        expect(calls.filter(([n]) => n === 'getActiveUniformBlockParameter')).toHaveLength(2);
+        expect(
+          calls.filter(([n]) => n === 'uniformBlockBinding').map(([, args]) => args[2]),
+        ).toEqual([0, 1]);
+        expect(pack.bindings.find((b) => b.name === 'U')!.layout).toEqual({
+          kind: 'scalar',
+          type: 'f32',
+        });
+      },
+    );
+    it(`${consumer} skips a driver-inactive block without querying its size or shifting the active unit`, async () => {
+      const { gl, calls } = recordingGl({ minimum: 32, inactive: entry.gl!.blocks.U });
+      await draw(gl, { U: 0.25, V: 0.5 });
+      expect(uploads(calls)).toEqual([expectedBytes(0.5, 32)]);
+      expect(calls.filter(([n]) => n === 'getActiveUniformBlockParameter')).toHaveLength(1);
+      expect(calls.filter(([n]) => n === 'uniformBlockBinding').map(([, args]) => args[2])).toEqual(
+        [0],
+      );
+      expect(calls.filter(([n]) => n === 'bindBufferBase').map(([, args]) => args[1])).toEqual([0]);
+    });
+    it(`${consumer} rejects an invalid queried size before a draw`, async () => {
+      const { gl, calls } = recordingGl({ minimum: 0 });
+      await expect(async () => draw(gl, { U: 0.25, V: 0.5 })).rejects.toThrow(
+        'invalid uniform block size',
+      );
+      expect(calls.some(([n]) => n === 'drawArrays')).toBe(false);
+    });
+    it(`${consumer} retains the missing-value error`, async () => {
+      const { gl } = recordingGl();
+      await expect(async () => draw(gl, { U: 0.25 })).rejects.toThrow(/V/);
+    });
+  }
 });
