@@ -1634,11 +1634,12 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   scratch buffers to the owner's bounded pool. A later plan reuses compatible storage and
   clears it before the first dispatch. Expired scratch handles stay unusable, failed plans
   release their leases, and disposal frees the pooled buffers. `FuseReport` is unchanged.
+  A zeroed ordinary array that reuses scratch storage gets a new buffer when its binding
+  needs different padding, including a scalar array later used as an array of `vec3` values.
   Paired Bun 1.4.4 gzip measurements against `56b30650` change runtime from 153,258 to
-  153,614 bytes (split initial 38,637 to 39,032; total 155,231 to 155,604), fuse from
-  114,008 to 114,053 (split initial 15,724 to 15,772; total 114,512 to 114,560), and
-  algorithms from 51,757 to 51,758. Only exceeded caps change; floors, emitter and random
-  budgets remain unchanged.
+  153,694 bytes (split initial 38,637 to 39,112; total 155,231 to 155,683), and fuse from
+  114,008 to 114,134 (split initial 15,724 to 15,847; total 114,512 to 114,635).
+  Only exceeded caps change; floors, emitter, algorithms and random budgets remain unchanged.
 
 - **Module-variable editor diagnostics** (#321, control#18). A retired `perInvocation` type,
   a `workgroup` variable declared `const`, or a `workgroup` type with no argument now shows

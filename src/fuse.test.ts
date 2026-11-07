@@ -1280,6 +1280,34 @@ describe('device-owned scratch returns to the bounded array pool (#992)', () => 
     }
   });
 
+  it('resizes a zeroed ordinary lease when vec3 needs more bytes than the prior scratch', async () => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device });
+    const v = await loadVec4(generatedVec4.code!);
+    const m = await loadFused();
+    const scalars = dev.array(4, 'f32');
+    const vectors = dev.array(12, 'f32');
+    try {
+      await dev.fuse((scope) => {
+        void m.lenscale(scalars, scope.scratch(12));
+      });
+      const ordinary = dev.array(12, 'f32');
+      const before = residentState(ordinary)!.gpu!;
+      expect(before.size).toBe(48);
+      await dev.fuse(() => {
+        void v.v3(vectors, ordinary);
+      });
+      const after = residentState(ordinary)!.gpu!;
+      expect(after.size).toBe(64);
+      expect(after.buffer).not.toBe(before.buffer);
+      expect((before.buffer as unknown as { record: MadeBuffer }).record.destroyed).toBe(true);
+      expect((after.buffer as unknown as { record: MadeBuffer }).record.writes).toEqual([]);
+      expect(pendingClears.has(before.buffer)).toBe(false);
+    } finally {
+      await dev.dispose();
+    }
+  });
+
   it('keeps a CPU write after GPU use when a reused scratch returns to the GPU', async () => {
     // This instrument supplies the download, not shader arithmetic. prefix() then computes
     // [1, 3, 6, 10] on the real CPU path, which the next GPU call must receive as an upload.

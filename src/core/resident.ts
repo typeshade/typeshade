@@ -213,6 +213,24 @@ export class ResidentArrayState {
   bufferFor(d: GpuDevice, layout: Layout, bytes: () => ArrayBuffer, writes: boolean): GpuBuffer {
     if (this.destroyed)
       throw new TypeError('This Resident was destroyed; make a new one with resident().');
+    if (this.clearPending && this.gpu?.d === d) {
+      // A pooled zeroed array has 32-bit host elements. Its next binding can need different
+      // padding: twelve scalar scratch words occupy 48 bytes, four vec3 values occupy 64.
+      // Count that layout without packing a potentially large array of zeros.
+      const flat = layout.k === 'a' ? flatWidth(layout.e) : undefined;
+      const size =
+        layout.k === 'a' && flat !== undefined && ArrayBuffer.isView(this.host)
+          ? (this.host.byteLength / 4 / flat.n) * layout.st
+          : bytes().byteLength;
+      if (size !== this.gpu.size) {
+        const buffer = keepBuffer(zeroedBuffer(d, size));
+        this.dropClear();
+        forgetBuffer(d, this.gpu.buffer);
+        this.gpu.buffer.destroy();
+        this.gpu = { d, buffer, size, layout };
+        this.fresh = 'both';
+      }
+    }
     if (this.gpu === undefined || this.gpu.d !== d) {
       const b = bytes();
       if (this.gpu !== undefined) forgetBuffer(this.gpu.d, this.gpu.buffer);
