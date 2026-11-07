@@ -2538,10 +2538,8 @@ export const main = compute([1], function main(gid: builtin<"global_invocation_i
     expect(vs !== undefined && 'vertex' in vs && vs.vertex.startsWith('#version 300 es')).toBe(
       true,
     );
-    // GLSL ES 3.00 takes a uniform block of a struct, and the writer refuses any other.
-    expect(drawn.gl?.draws?.['fs']).toEqual({
-      none: "the GLSL backend refuses it: glsl-es300: uniform binding 'tint' must be a struct (a std140 UBO block)",
-    });
+    // A bare vector keeps its host value and gains a private block (change 0127).
+    expect(drawn.gl?.draws?.['fs']).toMatchObject({ blocks: { tint: expect.any(String) } });
     // Each entry's program is its own: a compute entry that writes storage, in the same module,
     // leaves the vertex and fragment entries theirs.
     const tuned = manifest(TUNED);

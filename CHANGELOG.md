@@ -1638,15 +1638,29 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   binding needs different padding, including scalar storage first bound as `vec3` values.
   Later bindings keep that buffer, its pending clear and earlier writes until submission.
   Mixed-layout interpretation retains the existing first-binding behavior.
-  Paired Bun 1.4.4 gzip measurements against `56b30650` change runtime from 153,258 to
-  153,735 bytes (split initial 38,637 to 39,149; total 155,231 to 155,719), and fuse from
-  114,008 to 114,167 (split initial 15,724 to 15,887; total 114,512 to 114,675).
+  Paired Bun 1.4.4 gzip measurements against `1492dbda` change runtime from 153,596 to
+  154,059 bytes (split initial 38,637 to 39,148; total 155,528 to 156,022), and fuse from
+  114,160 to 114,318 (split initial 15,724 to 15,892; total 114,667 to 114,834).
   Only exceeded caps change; floors, emitter, algorithms and random budgets remain unchanged.
+
+- **Local call diagnostic names** (#321, classes#14). A refused call names its written
+  identifier instead of the lifted function name, including locals inside methods,
+  namespaces and generic functions. Diagnostic codes and source spans are unchanged.
 
 - **Class-field deprecation warnings** (#321, misc#8). Unannotated instance and static fields
   that take the `f32` default now report the opt-in `TS8053` warning. Refused initializers add
   no warning, and remedies preserve private names and optional fields. Types and emitted code
   are unchanged.
+
+- **Bare uniforms on WebGL2** (#452, change 0127). Scalars, vectors and supported matrices
+  now use private std140 blocks while keeping their host values and layouts. Both draw paths
+  allocate the linked block size without changing packed bytes. Two-row matrices remain refused.
+  Paired Bun 1.4.4 measurements against main `89a05342` change runtime from 153,258 to
+  153,596 gzip bytes (split total 155,231 to 155,528), emit from 117,931 to 118,605
+  (one asset, also its split initial/total), and fuse from 114,008 to 114,160
+  (split total 114,512 to 114,667). Runtime/fuse initial downloads, algorithms and random
+  are unchanged. Only the exceeded caps move to those measurements; floors and the
+  compiler/CSP boundary checks remain in force.
 
 - **Module-variable editor diagnostics** (#321, control#18). A retired `perInvocation` type,
   a `workgroup` variable declared `const`, or a `workgroup` type with no argument now shows
