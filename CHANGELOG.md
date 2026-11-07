@@ -1630,6 +1630,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Module-variable editor diagnostics** (#321, control#18). A retired `perInvocation` type,
+  a `workgroup` variable declared `const`, or a `workgroup` type with no argument now shows
+  the compiler's existing TS8033 once. Independent type and name errors remain visible.
+
 - **Integer-literal deprecation warnings** (#321, misc#6 and misc#7). Counted-loop initializers
   that already take an integer type no longer claim to be `f32`. Hexadecimal, octal and binary
   literals suggest an `f32` annotation instead of an invalid decimal-point suffix.

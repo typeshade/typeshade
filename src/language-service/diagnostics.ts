@@ -1344,8 +1344,20 @@ interface SameMistake {
 const SAME_MISTAKE: readonly SameMistake[] = [
   {
     typescript: 2304,
-    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
-    reason: 'An unknown name: a value, a function or a type, `Date` among them.',
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002', 'TS8033']),
+    reason:
+      'An unknown name: a value, a function or a type, `Date` among them; the retired ' +
+      '`perInvocation` wrapper has its own module-variable remedy.',
+  },
+  {
+    typescript: 1155,
+    typeshade: new Set(['TS8033']),
+    reason: 'A workgroup variable declared const without an initializer must instead use let.',
+  },
+  {
+    typescript: 2314,
+    typeshade: new Set(['TS8033']),
+    reason: 'A bare workgroup type is missing the type argument the compiler names.',
   },
   {
     typescript: 2583,
@@ -1948,6 +1960,9 @@ function sameMistakeSpans(
   diagnostic: TypeshadeDiagnostic,
   error: TypeshadeDiagnostic,
 ): boolean {
+  if (error.code === TS_CODES.MODULE_VAR) {
+    return sameModuleVariableMistake(context, diagnostic, error);
+  }
   const built = newCovering(context, error.span);
   if (
     built !== undefined &&
@@ -1965,6 +1980,44 @@ function sameMistakeSpans(
   return (
     within(diagnostic.span, error.span) &&
     (diagnostic.span.start === error.span.start || spanEnd(diagnostic.span) === spanEnd(error.span))
+  );
+}
+
+/** TS8033 covers many module-variable refusals. Only the wrapper name, or the name of a
+ *  const workgroup declaration, repeats these TypeScript errors. An unknown type inside
+ *  the wrapper and a generic elsewhere must keep their own diagnostics. */
+function sameModuleVariableMistake(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  error: TypeshadeDiagnostic,
+): boolean {
+  if (diagnostic.uri !== error.uri) return false;
+  const { sourceFile } = context;
+  const matches = (node: ts.Node, span: TypeshadeTextSpan): boolean => {
+    const actual = spanOfNode(node, sourceFile);
+    return actual.start === span.start && actual.length === span.length;
+  };
+  const name = nodeAtPosition(sourceFile, diagnostic.span.start);
+  if (!ts.isIdentifier(name) || !matches(name, diagnostic.span)) return false;
+  const code = ruleCodeOf(diagnostic.code);
+  const parent = name.parent;
+  if (ts.isTypeReferenceNode(parent) && parent.typeName === name) {
+    const wrapper =
+      (code === 2304 && name.text === 'perInvocation') ||
+      (code === 2314 && name.text === 'workgroup' && !parent.typeArguments?.length);
+    return wrapper && matches(parent, error.span);
+  }
+  if (code !== 1155 || !ts.isVariableDeclaration(parent) || parent.name !== name) return false;
+  const type = parent.type;
+  return (
+    ts.isVariableDeclarationList(parent.parent) &&
+    (parent.parent.flags & ts.NodeFlags.Const) !== 0 &&
+    parent.initializer === undefined &&
+    type !== undefined &&
+    ts.isTypeReferenceNode(type) &&
+    ts.isIdentifier(type.typeName) &&
+    type.typeName.text === 'workgroup' &&
+    matches(parent, error.span)
   );
 }
 
