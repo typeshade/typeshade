@@ -1630,6 +1630,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Nested atomic module variables** (#321, control#16). A private module variable containing
+  an atomic through structs or arrays now receives the existing `TS8033` diagnostic in the
+  compiler and editor. Workgroup and storage declarations remain accepted. The workgroup
+  initializer remedy no longer suggests moving an atomic-containing value to private memory.
+
 - **Integer constant index bounds** (#321, control#9). Module, local, namespace and static
   integer constants now receive the existing `TS8016` diagnostic when their proven index is
   outside a fixed array, vector or matrix. Float-derived and runtime values remain outside
