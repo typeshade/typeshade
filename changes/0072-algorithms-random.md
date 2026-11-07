@@ -507,6 +507,17 @@ lists the two subpaths and their exports.
      histogram to fall only on WebGL2. The scans and `compact` fall because of a compiler gap
      (#689), not a design choice. Disposition: closed under Rule 11.8 for this delivery; #689 is
      the open item, and its fix returns the three to WebGL2 with no change here.
+- **#689 follow-up, measured on 2026-11-07.** Array-length reads in eligible WebGL2 loops
+  now use checked host element counts. `inclusiveScan`, `exclusiveScan` and `compact` regain
+  their WebGL2 artifacts; the approved algorithm and host signatures are unchanged.
+  On Chromium 156.0.8078.4 with ANGLE/SwiftShader (software), the common differential arm
+  passed 164 calls across 43 functions on WebGPU and WebGL2 against the f32 oracle.
+  Only the whole reductions and `histogram` retain their existing WebGL2 refusals.
+  The new `scripts/kernel-length-cases.ts` checks ten inputs on each of three tiers.
+  Baseline `f826ece5` refused all ten WebGL2 calls with `arrayLength has no GLSL ES 3.00 spelling`;
+  its twenty WebGPU/CPU controls passed. The fix passed all thirty exact readbacks,
+  including subviews, vector element counts, Resident resizing and a changed-length control.
+  This measurement uses a software adapter; the physical-hardware item below remains open.
 - **Not delivered, pending.** The downstream work of "What it owes downstream" (the site, the
   editor). The later deliveries of D6. A hardware WebGPU device for the `common` arm (the
   software device only, so far).

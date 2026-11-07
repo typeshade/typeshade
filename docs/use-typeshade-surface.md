@@ -8376,6 +8376,10 @@ anywhere but `i` goes on to the CPU tier. `configure({ prefer: ['webgpu'] })` ch
 call it cannot run on throws, naming why (`render(): no tier it may use can run it (webgpu: there
 is no WebGPU device).`).
 
+An eligible WebGL2 loop can read an array parameter's `.length`. The call supplies the checked
+element count: a typed-array subview counts its own elements, and a flat vector array counts
+vectors. An array read only for its length needs no element upload.
+
 **Examples.** `loop-kernel` (the terrain above), `loop-reduction` (a sum, a mean and a variance, and
 a histogram), `loop-struct-array` (the particle step over `array<Particle>`) and `loop-on-cpu` (one
 refused loop per rule, each with its `TS8070`) are in `examples/`. `loop-fuse`, a chain of kernel calls
@@ -8386,8 +8390,8 @@ like any other: each double is two `f32`s in the buffers (§39), the runtime spl
 and binds the module's `_fp64` guard, and an `f64` reduction folds by the same 256-wide tree with
 the emulation's own add, min and max. Its `min` and `max` start from the largest finite `f32`,
 the emulation's range. The CPU tier computes each double as JavaScript does, so the two tiers
-agree to the emulation's precision, about 2^-44, not bit for bit. The WebGL2 tier takes no
-8-byte element.
+agree to the emulation's precision, about 2^-44, not bit for bit. The WebGL2 tier does not read
+or write 8-byte `f64` array elements. A read of `.length` alone uses the supplied element count.
 
 **The flavor of the emulated double.** The owner of a call picks which lowering of `f64` it runs
 (§39): `createDevice({ fp64Flavor })` for a device, which `dev.fp64Flavor` reports, and
@@ -10046,7 +10050,7 @@ interface FuseReport {
 **The tiers.** Only WebGPU fuses, and the arrays and results are the same on every tier.
 
 - On WebGPU a group of several calls is one compute entry. The runtime builds it from the IR in the faces of the calls, emits it with the WGSL writer that `typeshade/emit` uses, and keeps it for the shape of the group: the faces, the slot each array parameter takes, and the slots that are locals, with no length and no value. A second scope of the same shape builds nothing. The entry is text that the GPU compiles, and the runtime builds no code with `new Function`.
-- On WebGL2 each loop is a draw, as it is outside a scope (§65). `dispatches` counts the draws for each group and the plan, `submissions` is 0, and every group but the first says `WebGL2 runs the calls apart`. A loop over an `array<vec4f>` is not a WebGL2 loop, so a call that takes one goes to the next tier in `configure({ prefer })` that runs it, and to the CPU tier when no GPU tier does. A reduction has no WebGL2 program, so with `configure({ prefer: ['webgl2'] })` alone a call to `total` throws, and with the CPU tier after it the call runs there: its group's `tier` is `'cpu'`, and its `why` gives the reason of WebGL2, as above.
+- On WebGL2 each loop is a draw, as it is outside a scope (§65). `dispatches` counts the draws for each group and the plan, `submissions` is 0, and every group but the first says `WebGL2 runs the calls apart`. A loop that writes an `array<vec4f>` has no WebGL2 program, so that call goes to the next tier in `configure({ prefer })` that runs it, and to the CPU tier when no GPU tier does. A reduction has no WebGL2 program, so with `configure({ prefer: ['webgl2'] })` alone a call to `total` throws, and with the CPU tier after it the call runs there: its group's `tier` is `'cpu'`, and its `why` gives the reason of WebGL2, as above.
 - The CPU tier runs the calls one after another. each group's `dispatches`, the plan's `dispatches` and `submissions` are 0, and the report says nothing of why, unless another call of the plan ran on a better tier: then a group on the CPU tier with no other reason says why it ran there, as above. It is the oracle of a fused group (Rule 11.7).
 - `configure({ prefer })` orders the tiers of each call as it does outside a scope (§65).
 - Each group names the tier its calls ran on (change 0118). The plan settles the tier of each call before any call runs, with the checks the call makes outside a scope, a WebGL2 program that the driver refuses among them, so the group's `tier` is the tier the call ran on.
@@ -10121,8 +10125,8 @@ Each function writes every element of its output (Rule 8.23), so a pooled array 
 | Unary maps       | `abs`, `neg`, `sqrt`, `rsqrt`, `exp`, `log`, `expm1`, `log1p`, `floor`, `ceil`, `round`, `sign`, `sin`, `cos`, `tan`, `tanh`, `sigmoid`, `relu` as `(out, x)`; `clip(out, x, lo, hi)` | One loop at `i`. `expm1` and `log1p` keep a series where `\|x\| < 0.01`; `sigmoid` reaches `exp` through the non-positive side. In the shader module each is `<op>Map` (`absMap`), since a kernel function cannot carry a builtin's name; the host face exports it under the builtin's name (change 0072, Amendment 1). |
 | Whole reductions | `sum(x): f32`, `max(x): f32`, `min(x): f32`                                                                                                                         | A kernel function with a result, folded in Rule 7.2's one tree order on every tier. `max` and `min` start from the lowest and the highest finite `f32`. In the shader module they are `sum`, `maxAll` and `minAll`.                                                                                                                      |
 | Axis reductions  | `sumAxis`, `meanAxis`, `prodAxis`, `maxAxis`, `minAxis`, `argMaxAxis`, `argMinAxis` as `(out, x, axis: u32, inner: u32)`                                            | `x` is read as `[outer, axis, inner]`. One loop at `i` over `out`, each element a serial fold in ascending `k`. `argMaxAxis` and `argMinAxis` write the index as `f32`, the first maximum or minimum winning a tie.                                                                                                                         |
-| Scan             | `inclusiveScan(out, x, sums)`, `exclusiveScan(out, x, sums)` over `array<u32>`                                                                                       | Two loops of one kernel function, with no barrier (change 0072, Amendment 1): the first writes the sum of each block of `x` into `sums`, the caller's scratch of at least one element; the second writes each element's prefix within its block plus the sums of the blocks before it. The block is `ceil(x.length / sums.length)`, so a `sums` of about `sqrt(n)` elements costs about `2 n sqrt(n)` reads. The body reads `x.length` and `sums.length`, which GLSL ES 3.00 cannot spell, so on WebGL2 the call falls to the next tier (Rule 11.8). |
-| Compaction       | `compact(out, x, flags: array<u32>, offsets: array<u32>)`                                                                                                           | The elements whose flag is 1, in their order, where `offsets` is the exclusive scan of `flags`; 0 past the count of kept elements. Written as a gather at `i`, the source found by a binary search over `offsets[k] + flags[k]`, since a scatter to `offsets[i]` runs on the CPU only (Rule 8.22, R3). The body reads `x.length`, so on WebGL2 the call falls to the next tier, as the scan does.                                      |
+| Scan             | `inclusiveScan(out, x, sums)`, `exclusiveScan(out, x, sums)` over `array<u32>`                                                                                       | Two loops of one kernel function, with no barrier (change 0072, Amendment 1): the first writes the sum of each block of `x` into `sums`, the caller's scratch of at least one element; the second writes each element's prefix within its block plus the sums of the blocks before it. The block is `ceil(x.length / sums.length)`, so a `sums` of about `sqrt(n)` elements costs about `2 n sqrt(n)` reads. Both loops run on WebGL2; their `x.length` and `sums.length` reads use element counts supplied by the call. |
+| Compaction       | `compact(out, x, flags: array<u32>, offsets: array<u32>)`                                                                                                           | The elements whose flag is 1, in their order, where `offsets` is the exclusive scan of `flags`; 0 past the count of kept elements. Written as a gather at `i`, the source found by a binary search over `offsets[k] + flags[k]`, since a scatter to `offsets[i]` runs on the CPU only (Rule 8.22, R3). It also runs on WebGL2, using the supplied element count for `x.length`. |
 | Histogram        | `histogram(bins: array<u32>, x, lo, hi)`                                                                                                                            | Adds the count of `x` in each of `bins.length` equal bins over `[lo, hi)` into `bins`, a value outside clamped to the edge bins. Each add is an atomic on WebGPU and a plain add in iteration order on the CPU tier; WebGL2 has no atomics, so the call falls to the next tier (Rule 11.8). The caller zeroes `bins`.                         |
 
 **The planner's facts.** Every map writes `out` at `i` and reads its inputs at `i`, so a chain of
@@ -10145,10 +10149,11 @@ grouping above. The common-module arm of `scripts/gpu-differential.ts` calls eve
 the host face on WebGPU and on WebGL2, each tier required alone, against the f32 oracle: bit for
 bit where the determinism report lists no row for the function, and within 32 ULP or 2^-11 where
 it lists one (`exp`, `log`, `sin`, `cos`, `tan`, `tanh`, `inverseSqrt`, `/`), printing the largest
-distance it saw. A function a tier refuses (the three whole reductions, the two scans, `compact`
-and `histogram` on WebGL2) falls to the next tier of a host's `prefer` (Rule 11.8); the arm names
-each refusal and holds the function on the tiers that run it. `scripts/bundle-boundary.ts` holds
-the host face to `typeshade/runtime` and `src/core/` and to its budget.
+distance it saw. The two scans and `compact` are required on WebGL2. A function a tier refuses
+(the three whole reductions and `histogram` on WebGL2) falls to the next tier of a host's
+`prefer` (Rule 11.8); the arm names each refusal and holds the function on the tiers that run it.
+`scripts/bundle-boundary.ts` holds the host face to `typeshade/runtime` and `src/core/` and to its
+budget.
 
 **Not yet.** Sort, partition, a segmented reduction, `reduceByKey`, a nearest-neighbour search,
 matrix products and `f64` linear algebra, a workgroup-memory scan, and the workgroup-level helpers

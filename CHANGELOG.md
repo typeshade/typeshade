@@ -1635,6 +1635,17 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   literals suggest an `f32` annotation instead of an invalid decimal-point suffix.
   Compiler and editor checks keep the same spans, and the option changes no emitted code.
 
+- **Array lengths in WebGL2 kernels** (#689). Eligible kernel loops read array parameter
+  `.length` using checked element counts, including subviews and flat vector arrays. This
+  restores WebGL2 execution for `inclusiveScan`, `exclusiveScan` and `compact`. An array read
+  only for its length needs no element upload.
+  Paired Bun 1.4.4 gzip measurements change runtime from 153,254 to 153,258 bytes
+  (split total 155,226 to 155,231), fuse from 114,002 to 114,008 (split total 114,510
+  to 114,512), algorithms from 51,458 to 51,757 and random from 33,441 to 33,446.
+  Algorithms and random have one split asset each. Floors, initial runtime/fuse caps and
+  emitter budgets remain unchanged. The algorithms increase includes the three restored
+  GLSL artifacts.
+
 - **Refused base constructor diagnostics** (#321, names#19). `super()` no longer adds an
   unknown generated-function diagnostic after the base constructor's signature was refused.
   The original declaration diagnostic and independent call or body errors remain.

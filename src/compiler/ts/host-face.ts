@@ -2121,6 +2121,7 @@ function kernelGl(
             ? u.type.elem
             : (u.type as { scalar: string }).scalar) as 'f32',
           n: u.type.kind === 'vec' ? u.type.n : 1,
+          ...(u.lengthOf !== undefined ? { lengthOf: u.lengthOf } : {}),
         };
       }),
     });
