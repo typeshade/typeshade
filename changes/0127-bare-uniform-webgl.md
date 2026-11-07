@@ -1,7 +1,7 @@
 ---
 id: '0127'
 title: A scalar, vector or supported matrix uniform keeps its host value on WebGL2
-status: accepted
+status: implemented
 rules: []
 surface:
   - 67
@@ -20,7 +20,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                 |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0127, status accepted. The front matter is the identity and lifecycle authority.                                                                              |
+| Identity and status           | Proposal 0127, status implemented. The front matter is the identity and lifecycle authority.                                                                           |
 | Date and attribution          | Authored 2026-11-07 UTC by Codex while progressing the owner's remaining-issue request. This date records authorship, not acceptance.                                  |
 | Request source                | Issue [#452](https://github.com/typeshade/typeshade/issues/452), its recorded direction from #198, and roadmap B4.                                                     |
 | Applicability / Effectivity   | GLSL uniform emission, shader host draws, manifest render stages and the WebGL2 program runtime. Public source and host values retain their forms. Release unassigned. |
@@ -296,9 +296,12 @@ The accepted proposal merged as PR #1072 at `4fe5237b3b643929e5e8b481b371924d990
 The implementation branch `fix/452-bare-uniform-webgl` is based on main
 `89a05342e7699ba40bbfeea75eb9a7547286e8ef`. Implementation
 [PR #1075](https://github.com/typeshade/typeshade/pull/1075) starts at
-`982fdd6e51c2a4d7b2f74e438d5d58f918df9420`. This record is pre-merge evidence;
-the clean build receipt and full compile, differential and packed-journey gates remain
-pending at this revision.
+`982fdd6e51c2a4d7b2f74e438d5d58f918df9420`. The complete tested configuration is
+`99faa71da8d54a5dee0d4c8d484dfc10767af0bd`, which adds the complete typed host-test fixture.
+Its clean canonical build receipt records that revision and fingerprint
+`260f4b150c8dda69a59279e831a63e0fd40f63437d547da68af3548d11e291a0`.
+Codex implemented and independently reviewed the compiler delivery. This record completes
+the compiler work; the implementing PR records its final review and merge revision.
 
 The implementation adds private GLSL spellings and a lowered single-member struct only
 inside the GLSL writer. Both WebGL consumers query the linked block size and copy existing
@@ -334,6 +337,23 @@ Observed on 2026-11-07 UTC with Bun 1.4.4, Node 24.22.1 and TypeScript 5.6.3:
 - Lint, formatting, strict Doorstop, API surface, document references, IfChange and the
   accepted-proposal scope check pass. Paired bundle measurements and the narrowly adjusted
   caps are recorded in `CHANGELOG.md`; compiler/CSP scans pass.
+- [CI 42349965516](https://github.com/typeshade/typeshade/actions/runs/42349965516) passes at
+  `99faa71d`: pinned TypeScript units, TypeScript 5.9.3 and 6.0.3 units, source and policy,
+  strict traceability, full compile and differential gates, packed journeys, render golden
+  and the SwiftShader performance instrument. Package compatibility run 42349965563 and
+  downstream run 42349965459 also pass. These checks do not establish physical GPU performance.
+- Independent local full compile and differential gates also pass on that configuration.
+  The compile gate checks 203 Tint modules, 140 linked GLSL stage pairs and 131 Tint render
+  pipelines, including `hello-uniform`, plus the host and bare-uniform native cases above.
+  Differential checks pass 696 kernel calls, 98 fused-chain runs, 288 WebGL2 functions,
+  26 WebGL2 compute entries, 164 common-module calls and 67,200 class-member values.
+  The independent local packed-journey gate passes all 38 journeys and 188 runs,
+  including 56 runs of the new bare-uniform journey with required WebGL2 execution.
+
+The delivered implementation stays inside the accepted scope. The explicit vertex entry
+for the existing `hello-uniform` example supplies the two stages its declared renderability
+requires. No implementation deviation remains open. The following downstream obligations
+remain open and are tracked independently of compiler status.
 
 Compiler implementation does not establish downstream adoption. The two downstream
 repositories already have open compiler-pin work: site
