@@ -1635,6 +1635,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   must be non-negative integers. A malformed field attribute no longer causes missing-IO or
   missing-position follow-up errors; independent option errors remain visible.
 
+- **Array min/max element types** (#321, types#19). Arrays of structs, matrices, arrays or
+  booleans now receive one `TS8003` diagnostic in the compiler and editor, including arrays
+  with one element. Numeric scalar and vector lowering remains unchanged.
+
 - **Compute-only operations through helpers** (#321, control#14 and control#15). Vertex and
   fragment entries now refuse workgroup memory and barriers reached through helpers or
   accessors, including direct workgroup writes. Existing diagnostic text is preserved.

@@ -1,6 +1,7 @@
 import type { Expr, FuncDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { i32T } from '../../core/ir/types.js';
+import { authorTypeText } from './context.js';
 
 export function arraySize(t: ShaderType): number | undefined {
   return t.kind === 'array' ? t.size : undefined;
@@ -11,6 +12,14 @@ export function unrollMinMax(fn: 'min' | 'max', xs: Expr): Expr | string {
   if (n === undefined) return `${fn}(xs) needs a fixed-size array.`;
   const elem = xs.type.kind === 'array' ? xs.type.elem : undefined;
   if (!elem) return `${fn}(xs) needs an array.`;
+  // Check before unrolling: a one-element array emits no min/max call for Tint to check.
+  const numeric =
+    (elem.kind === 'scalar' && elem.scalar !== 'bool') ||
+    (elem.kind === 'vec' && elem.elem !== 'bool') ||
+    elem.kind === 'f64' ||
+    elem.kind === 'vec64';
+  if (!numeric)
+    return `${fn}(xs) cannot compare ${authorTypeText(elem)} elements. Pass an array of numeric scalars or vectors.`;
   let acc: Expr = { op: 'index', type: elem, base: xs, idx: { op: 'lit', type: i32T, value: 0 } };
   for (let i = 1; i < n; i++) {
     acc = {
