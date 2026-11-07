@@ -2208,6 +2208,140 @@ class ShipMaterial {
 // Terrain
 // ---------------------------------------------------------------------
 
+// The grass ticks under the terrain, outside the class: a numerical contract wraps a function of
+// the file (Rule 11.22), and the one call passes curl = 0 and spread = 0, which `finite-math`
+// folds away with the curve's sin and cos and one hash per blade (surface §78, #850 N5).
+const terrainTickRow = numerics(["finite-math"], function terrainTickRow(
+    q: vec2,
+    seed: vec2,
+    n: i32,
+    gap: f32,
+    len: f32,
+    bend: f32,
+    curl: f32,
+    spread: f32,
+    lw: f32
+  ): f32 {
+    const mid =
+      0.5 *
+      f32(n - 1);
+
+    const radius =
+      2.0 *
+      mid *
+      gap /
+      PI;
+
+    const signBend =
+      bend < 0.0
+        ? -1.0
+        : 1.0;
+
+    let distance = 1e9;
+
+    for (let k = 0; k < 9; k++) {
+      if (k >= n) {
+        break;
+      }
+
+      const fk =
+        (f32(k) - mid) /
+        mid;
+
+      const h = vec4(
+        Noise.hash12(
+          seed +
+          f32(k) * 3.1 +
+          51.0
+        ),
+        Noise.hash12(
+          seed +
+          f32(k) * 5.7 +
+          63.0
+        ),
+        Noise.hash12(
+          seed +
+          f32(k) * 2.3 +
+          77.0
+        ),
+        Noise.hash12(
+          seed +
+          f32(k) * 4.9 +
+          89.0
+        )
+      );
+
+      let base = vec2(
+        gap *
+        (f32(k) - mid),
+        bend *
+        fk *
+        fk +
+        max(-bend, 0.0)
+      );
+
+      base =
+        mix(
+          base,
+          radius *
+          vec2(
+            sin(0.5 * PI * fk),
+            signBend *
+            (
+              1.0 -
+              cos(0.5 * PI * fk)
+            )
+          ),
+          curl
+        );
+
+      base +=
+        vec2(
+          0.4 *
+          gap *
+          (h.x - 0.5),
+          0.35 *
+          len *
+          h.y
+        );
+
+      const bladeLength =
+        len *
+        (
+          1.0 -
+          spread *
+          Noise.hash12(
+            seed +
+            f32(k) * 6.1 +
+            97.0
+          )
+        );
+
+      const angle =
+        0.5 *
+        (h.z - 0.5);
+
+      distance =
+        min(
+          distance,
+          SDF.segment(
+            q,
+            base,
+            base +
+            bladeLength *
+            vec2(
+              sin(angle),
+              cos(angle)
+            )
+          ) -
+          (0.5 + h.w) *
+          lw
+        );
+    }
+
+    return distance;
+  });
+
 class Terrain {
   static coast(x: vec2): f32 {
     return (
@@ -2602,7 +2736,7 @@ class Terrain {
           rowT;
 
         const distance =
-          this.tickRow(
+          terrainTickRow(
             local,
             cell,
             count,
@@ -2638,137 +2772,6 @@ class Terrain {
         )
       )
     );
-  }
-
-  static tickRow(
-    q: vec2,
-    seed: vec2,
-    n: i32,
-    gap: f32,
-    len: f32,
-    bend: f32,
-    curl: f32,
-    spread: f32,
-    lw: f32
-  ): f32 {
-    const mid =
-      0.5 *
-      f32(n - 1);
-
-    const radius =
-      2.0 *
-      mid *
-      gap /
-      PI;
-
-    const signBend =
-      bend < 0.0
-        ? -1.0
-        : 1.0;
-
-    let distance = 1e9;
-
-    for (let k = 0; k < 9; k++) {
-      if (k >= n) {
-        break;
-      }
-
-      const fk =
-        (f32(k) - mid) /
-        mid;
-
-      const h = vec4(
-        Noise.hash12(
-          seed +
-          f32(k) * 3.1 +
-          51.0
-        ),
-        Noise.hash12(
-          seed +
-          f32(k) * 5.7 +
-          63.0
-        ),
-        Noise.hash12(
-          seed +
-          f32(k) * 2.3 +
-          77.0
-        ),
-        Noise.hash12(
-          seed +
-          f32(k) * 4.9 +
-          89.0
-        )
-      );
-
-      let base = vec2(
-        gap *
-        (f32(k) - mid),
-        bend *
-        fk *
-        fk +
-        max(-bend, 0.0)
-      );
-
-      base =
-        mix(
-          base,
-          radius *
-          vec2(
-            sin(0.5 * PI * fk),
-            signBend *
-            (
-              1.0 -
-              cos(0.5 * PI * fk)
-            )
-          ),
-          curl
-        );
-
-      base +=
-        vec2(
-          0.4 *
-          gap *
-          (h.x - 0.5),
-          0.35 *
-          len *
-          h.y
-        );
-
-      const bladeLength =
-        len *
-        (
-          1.0 -
-          spread *
-          Noise.hash12(
-            seed +
-            f32(k) * 6.1 +
-            97.0
-          )
-        );
-
-      const angle =
-        0.5 *
-        (h.z - 0.5);
-
-      distance =
-        min(
-          distance,
-          SDF.segment(
-            q,
-            base,
-            base +
-            bladeLength *
-            vec2(
-              sin(angle),
-              cos(angle)
-            )
-          ) -
-          (0.5 + h.w) *
-          lw
-        );
-    }
-
-    return distance;
   }
 
   static brush(

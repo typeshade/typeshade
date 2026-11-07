@@ -215,6 +215,9 @@ import { classArm } from './class-arm.js';
 import type { ShaderType, StructDecl } from '../src/index.js';
 
 const SEEDS = Number(process.env['TYPESHADE_DIFF_SEEDS'] ?? 48);
+/** The GLSL arm's seeds of relaxed functions (change 0107), drawn from `CONTRACT_SEED_BASE`. */
+const CONTRACT_SEEDS = 12;
+const CONTRACT_SEED_BASE = 1001;
 /** `[n, h]`: every array but a scatter target holds `n`, a scatter target `h`. 5000 folds a
  *  reduction's 20 partials a level. */
 const SIZES = [
@@ -1521,13 +1524,24 @@ const DRAW_FLOORS = [
   ['intShift', 75],
   ['callFn', 330],
   ['select', 1100],
+  // The contract seeds (change 0107, decision 3): forms `finite-math` folds in a relaxed function.
+  ['contractFold', 300],
 ] as const;
 const DRAW_COMPARED_FLOOR = 30000;
 const DRAW_SETTLED_FLOOR = 20000;
 
 /** The GLSL arm: each generated function drawn as a fragment program on WebGL2. */
 async function webgl2Arm(page: Page): Promise<number> {
-  const corpus = Array.from({ length: SEEDS }, (_, i) => generateModule(i + 1, { exact: true }));
+  const corpus = [
+    ...Array.from({ length: SEEDS }, (_, i) => generateModule(i + 1, { exact: true })),
+    // Relaxed functions (Rule 11.22): every function under `finite-math`, with forms it folds.
+    // They are compared as every other function is, which is decision 3 of change 0107: bit for
+    // bit on finite inputs, a zero's sign and a value the oracle computes as NaN or an infinity
+    // left out. Seeds past the exact corpus's, so that corpus does not change.
+    ...Array.from({ length: CONTRACT_SEEDS }, (_, i) =>
+      generateModule(CONTRACT_SEED_BASE + i, { exact: true, contract: true }),
+    ),
+  ];
   let failures = 0;
   const features = describeCorpus(corpus);
   for (const [what, floor] of DRAW_FLOORS) {
@@ -1623,12 +1637,14 @@ async function webgl2Arm(page: Page): Promise<number> {
     failures += 1;
   }
   // One seed at a time, so no one call to the page carries the whole corpus. The claim: every
-  // drawn module's report lists nothing.
+  // drawn module's report lists nothing but a contract seed's `contract` row, whose functions are
+  // held to the same comparison, which decision 3 of change 0107 settles.
   const listed = new Map<string, string>();
   for (const c of corpus) {
     const mine = drawCasesOf(c);
     for (const k of mine)
-      for (const r of determinismReport(k.d.module)) listed.set(`${r.op} (${r.kind})`, k.key);
+      for (const r of determinismReport(k.d.module))
+        if (r.kind !== 'contract') listed.set(`${r.op} (${r.kind})`, k.key);
     const { results, contextLost } = await page.evaluate(drawInPage, {
       jobs: mine.filter((k) => k.refused === undefined).map((k) => k.job),
     });

@@ -470,6 +470,7 @@ fn ShipDetails_tickRow(self_: ptr<function, ShipDetails>, q: vec2<f32>, seed: ve
   let radius = (((2.0 * mid) * gap) / PI);
   let bendSign = select(1.0, -1.0, (bend < 0.0));
   var distance: f32 = 1000000000.0;
+  let _cse0 = (0.5 * PI);
   for (var k: i32 = 0; (k < 9); k = (k + 1)) {
     if ((k >= n)) {
       break;
@@ -479,7 +480,8 @@ fn ShipDetails_tickRow(self_: ptr<function, ShipDetails>, q: vec2<f32>, seed: ve
     let fk = (_gv0 / mid);
     let h = vec4<f32>(Noise_hash12(((seed + (_gv1 * 3.1)) + 51.0)), Noise_hash12(((seed + (_gv1 * 5.7)) + 63.0)), Noise_hash12(((seed + (_gv1 * 2.3)) + 77.0)), Noise_hash12(((seed + (_gv1 * 4.9)) + 89.0)));
     var base: vec2<f32> = vec2<f32>((gap * _gv0), (((bend * fk) * fk) + _licm0));
-    base = _flow34_shared(base, radius, fk, bendSign, curl);
+    let _lc1 = (_cse0 * fk);
+    base = mix(base, (radius * vec2<f32>(sin(_lc1), (bendSign * (1.0 - cos(_lc1))))), curl);
     base += vec2<f32>((_licm1 * (h.x - 0.5)), (_licm2 * h.y));
     let bladeLength = (len * (1.0 - (spread * Noise_hash12(((seed + (_gv1 * 6.1)) + 97.0)))));
     let angle = (0.5 * (h.z - 0.5));
@@ -893,37 +895,11 @@ fn Terrain_grassInk(x: vec2<f32>, ro: vec3<f32>, t: f32, pixA: f32, lineA: f32) 
       let rowT = ((t * alongRay) / distanceToPoint);
       let lw = (_licm1 * rowT);
       let aa = (_licm2 * rowT);
-      let distance = Terrain_tickRow(local, cell, count, 0.02, 0.015, bend, 0.0, 0.0, lw);
+      let distance = terrainTickRow_k0(local, cell, count, 0.02, 0.015, bend, lw);
       ink = max(ink, (1.0 - smoothstep((-aa), aa, distance)));
     }
   }
   return (ink * (1.0 - smoothstep(8.0, 12.0, t)));
-}
-
-fn Terrain_tickRow(q: vec2<f32>, seed: vec2<f32>, n: i32, gap: f32, len: f32, bend: f32, curl: f32, spread: f32, lw: f32) -> f32 {
-  let _licm0 = max((-bend), 0.0);
-  let _licm1 = (0.4 * gap);
-  let _licm2 = (0.35 * len);
-  let mid = (0.5 * f32((n - 1)));
-  let radius = (((2.0 * mid) * gap) / PI);
-  let signBend = select(1.0, -1.0, (bend < 0.0));
-  var distance: f32 = 1000000000.0;
-  for (var k: i32 = 0; (k < 9); k = (k + 1)) {
-    if ((k >= n)) {
-      break;
-    }
-    let _gv1 = f32(k);
-    let _gv0 = (_gv1 - mid);
-    let fk = (_gv0 / mid);
-    let h = vec4<f32>(Noise_hash12(((seed + (_gv1 * 3.1)) + 51.0)), Noise_hash12(((seed + (_gv1 * 5.7)) + 63.0)), Noise_hash12(((seed + (_gv1 * 2.3)) + 77.0)), Noise_hash12(((seed + (_gv1 * 4.9)) + 89.0)));
-    var base: vec2<f32> = vec2<f32>((gap * _gv0), (((bend * fk) * fk) + _licm0));
-    base = _flow34_shared(base, radius, fk, signBend, curl);
-    base += vec2<f32>((_licm1 * (h.x - 0.5)), (_licm2 * h.y));
-    let bladeLength = (len * (1.0 - (spread * Noise_hash12(((seed + (_gv1 * 6.1)) + 97.0)))));
-    let angle = (0.5 * (h.z - 0.5));
-    distance = min(distance, (SDF_segment(q, base, (base + (bladeLength * vec2<f32>(sin(angle), cos(angle))))) - ((0.5 + h.w) * lw)));
-  }
-  return distance;
 }
 
 fn Terrain_brush(a: vec2<f32>, m: vec2<f32>, b: vec2<f32>, width: f32, taper: f32) -> f32 {
@@ -1190,6 +1166,29 @@ fn inverseMat2(a: f32, b: f32, c: f32, d: f32) -> mat2x2<f32> {
   return mat2x2<f32>(vec2<f32>((d / determinant), ((-b) / determinant)), vec2<f32>(((-c) / determinant), (a / determinant)));
 }
 
+fn terrainTickRow_k0(q: vec2<f32>, seed: vec2<f32>, n: i32, gap: f32, len: f32, bend: f32, lw: f32) -> f32 {
+  let _licm0 = max((-bend), 0.0);
+  let _licm1 = (0.4 * gap);
+  let _licm2 = (0.35 * len);
+  let mid = (0.5 * f32((n - 1)));
+  var distance: f32 = 1000000000.0;
+  for (var k: i32 = 0; (k < 9); k = (k + 1)) {
+    if ((k >= n)) {
+      break;
+    }
+    let _gv1 = f32(k);
+    let _gv0 = (_gv1 - mid);
+    let fk = (_gv0 / mid);
+    let h = vec4<f32>(Noise_hash12(((seed + (_gv1 * 3.1)) + 51.0)), Noise_hash12(((seed + (_gv1 * 5.7)) + 63.0)), Noise_hash12(((seed + (_gv1 * 2.3)) + 77.0)), Noise_hash12(((seed + (_gv1 * 4.9)) + 89.0)));
+    var base: vec2<f32> = vec2<f32>((gap * _gv0), (((bend * fk) * fk) + _licm0));
+    base = base;
+    base += vec2<f32>((_licm1 * (h.x - 0.5)), (_licm2 * h.y));
+    let angle = (0.5 * (h.z - 0.5));
+    distance = min(distance, (SDF_segment(q, base, (base + (len * vec2<f32>(sin(angle), cos(angle))))) - ((0.5 + h.w) * lw)));
+  }
+  return distance;
+}
+
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   let x = ((f32((vi & 1u)) * 4.0) - 1.0);
@@ -1265,9 +1264,4 @@ fn _flow24_fused(_flow1_input: vec2<f32>) -> vec4<f32> {
 
 fn _flow28_shared(_flow25_input: vec2<f32>, _flow26_input: vec2<f32>, _flow27_input: vec2<f32>) -> vec2<f32> {
   return ((_flow25_input - _flow26_input) + (_flow27_input * clamp((dot((_flow26_input - _flow25_input), _flow27_input) / dot(_flow27_input, _flow27_input)), 0.0, 1.0)));
-}
-
-fn _flow34_shared(_flow29_input: vec2<f32>, _flow30_input: f32, _flow31_input: f32, _flow32_input: f32, _flow33_input: f32) -> vec2<f32> {
-  let _cse0 = ((0.5 * PI) * _flow31_input);
-  return mix(_flow29_input, (_flow30_input * vec2<f32>(sin(_cse0), (_flow32_input * (1.0 - cos(_cse0))))), _flow33_input);
 }

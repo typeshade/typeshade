@@ -58,6 +58,11 @@ export interface GenOptions {
    *  grouping a driver may choose (WGSL §15.7.5, #378) rounds, and a GPU must match the f32
    *  oracle bit for bit. */
   readonly exact?: boolean;
+  /** Every function opts into the `finite-math` numerical contract (Rule 11.22, change 0107),
+   *  and an `f32` expression now and then takes a form the contract folds: `e * 0`, `0 * e` or
+   *  `e - e` (default false). On the finite inputs the corpus draws, the folded result is the
+   *  oracle's apart from the sign of a zero, which the differential gate does not compare. */
+  readonly contract?: boolean;
 }
 
 const SCALARS: readonly ShaderType[] = [f32T, i32T, u32T];
@@ -144,6 +149,7 @@ class Gen {
   constructor(
     private readonly rnd: () => number,
     private readonly exact = false,
+    private readonly contract = false,
   ) {}
 
   private mark(f: string): void {
@@ -223,6 +229,30 @@ class Gen {
     if (depth <= 0) return this.leaf(t, scope);
 
     const arms: Array<() => Expr> = [];
+
+    // Under a contract, a form `finite-math` folds (change 0107): e * 0, 0 * e or e - e.
+    if (this.contract && isF32(t))
+      arms.push(() => {
+        this.mark('contractFold');
+        const e = this.expr(t, depth - 1, scope, fns);
+        const zero: Expr =
+          t.kind === 'vec'
+            ? {
+                op: 'construct',
+                type: t,
+                args: Array.from({ length: t.n }, (): Expr => ({
+                  op: 'lit',
+                  type: f32T,
+                  value: 0,
+                })),
+              }
+            : { op: 'lit', type: t, value: 0 };
+        const form = Math.floor(this.rnd() * 3);
+        if (form === 2) return { op: 'binop', type: t, bop: '-', a: e, b: e };
+        return form === 0
+          ? { op: 'binop', type: t, bop: '*', a: e, b: zero }
+          : { op: 'binop', type: t, bop: '*', a: zero, b: e };
+      });
 
     arms.push(() => {
       const bop = this.pick(isInt(t) ? INT_BINOPS : this.exact ? EXACT.binops : F32_BINOPS);
@@ -538,7 +568,9 @@ class Gen {
     const scope: Scope = params.map((p) => ({ name: p.name, type: p.type, op: 'param' as const }));
     const body = this.stmts(opts.stmts, opts.depth, scope, fns, false, opts.nest);
     body.push({ s: 'return', expr: this.expr(ret, opts.depth, scope, fns) });
-    return { name, params, ret, body, attrs: [] };
+    return this.contract
+      ? { name, params, ret, body, attrs: [], numerics: ['finite-math'] }
+      : { name, params, ret, body, attrs: [] };
   }
 
   // ─── kernel functions (#349) ─────────────────────────────────────────────────────────────
@@ -1200,7 +1232,7 @@ export function generateModule(seed: number, opts: GenOptions = {}): Corpus {
   const depth = opts.depth ?? 3;
   const nest = opts.nest ?? 2;
   const types = opts.types ?? DEFAULT_TYPES;
-  const gen = new Gen(mulberry32(seed), opts.exact ?? false);
+  const gen = new Gen(mulberry32(seed), opts.exact ?? false, opts.contract ?? false);
   const rnd = mulberry32(seed ^ 0x5bf03635);
   const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]!;
 
