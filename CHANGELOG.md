@@ -1634,11 +1634,13 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   scratch buffers to the owner's bounded pool. A later plan reuses compatible storage and
   clears it before the first dispatch. Expired scratch handles stay unusable, failed plans
   release their leases, and disposal frees the pooled buffers. `FuseReport` is unchanged.
-  A zeroed ordinary array that reuses scratch storage gets a new buffer when its binding
-  needs different padding, including a scalar array later used as an array of `vec3` values.
+  A zeroed ordinary array that reuses scratch storage gets a new buffer when its first
+  binding needs different padding, including scalar storage first bound as `vec3` values.
+  Later bindings keep that buffer, its pending clear and earlier writes until submission.
+  Mixed-layout interpretation retains the existing first-binding behavior.
   Paired Bun 1.4.4 gzip measurements against `56b30650` change runtime from 153,258 to
-  153,694 bytes (split initial 38,637 to 39,112; total 155,231 to 155,683), and fuse from
-  114,008 to 114,134 (split initial 15,724 to 15,847; total 114,512 to 114,635).
+  153,735 bytes (split initial 38,637 to 39,149; total 155,231 to 155,719), and fuse from
+  114,008 to 114,167 (split initial 15,724 to 15,887; total 114,512 to 114,675).
   Only exceeded caps change; floors, emitter, algorithms and random budgets remain unchanged.
 
 - **Class-field deprecation warnings** (#321, misc#8). Unannotated instance and static fields

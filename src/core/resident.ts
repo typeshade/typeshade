@@ -120,7 +120,15 @@ export class ResidentArrayState {
   /** Whether the device buffer holds stale contents that are zeros by contract, which the next
    *  flush that binds it clears (`pendingClears` in `core/host-entry.ts`, change 0071). The host
    *  copy holds the zeros meanwhile. */
-  clearPending = false;
+  #clearPending = false;
+  #clearBound = false;
+  get clearPending(): boolean {
+    return this.#clearPending;
+  }
+  set clearPending(value: boolean) {
+    this.#clearPending = value;
+    this.#clearBound = false;
+  }
   /** The device that made the handle (`device.array()`, change 0071), which a call of another
    *  owner may not take; undefined for a handle of the default owner (`resident()`). */
   ownedBy: CallOwner | undefined;
@@ -213,7 +221,7 @@ export class ResidentArrayState {
   bufferFor(d: GpuDevice, layout: Layout, bytes: () => ArrayBuffer, writes: boolean): GpuBuffer {
     if (this.destroyed)
       throw new TypeError('This Resident was destroyed; make a new one with resident().');
-    if (this.clearPending && this.gpu?.d === d) {
+    if (this.clearPending && !this.#clearBound && this.gpu?.d === d) {
       // A pooled zeroed array has 32-bit host elements. Its next binding can need different
       // padding: twelve scalar scratch words occupy 48 bytes, four vec3 values occupy 64.
       // Count that layout without packing a potentially large array of zeros.
@@ -249,6 +257,9 @@ export class ResidentArrayState {
     // newer copy where it was: the device's when a call wrote it, both alike after an upload.
     if (writes) this.fresh = 'device';
     else if (this.fresh === 'host') this.fresh = 'both';
+    // A later binding in this batch must keep the earlier binding's buffer and pending clear.
+    // Only a new zeroed lease may prepare the layout again; a failed allocation never gets here.
+    this.#clearBound = this.clearPending;
     return this.gpu.buffer;
   }
 }

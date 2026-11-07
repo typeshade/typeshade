@@ -1308,6 +1308,106 @@ describe('device-owned scratch returns to the bounded array pool (#992)', () => 
     }
   });
 
+  it.each([
+    ['scalar', false],
+    ['scalar', true],
+    ['vector', false],
+    ['vector', true],
+  ] as const)(
+    'keeps a bound zeroed buffer when %s comes first (writes: %s)',
+    async (first, writes) => {
+      const gpu = recording();
+      const dev = await runtime.createDevice({ device: gpu.device });
+      const v = await loadVec4(generatedVec4.code!);
+      const m = await loadFused();
+      const scalars = dev.array(4, 'f32');
+      const vectors = dev.array(12, 'f32');
+      try {
+        await dev.fuse((scope) => {
+          void m.lenscale(scalars, scope.scratch(12));
+        });
+        let ordinary = dev.array(12, 'f32');
+        if (first === 'vector') {
+          await dev.fuse(() => {
+            void v.v3(vectors, ordinary);
+          });
+          dev.release(ordinary);
+          ordinary = dev.array(12, 'f32');
+        }
+        const before = residentState(ordinary)!.gpu!;
+        expect(before.size).toBe(first === 'scalar' ? 48 : 64);
+        gpu.commands.length = 0;
+        await dev.fuse(() => {
+          if (first === 'scalar') {
+            if (writes) void m.fillTo(ordinary, 9);
+            else void m.pairsum(scalars, ordinary);
+            void v.v3(vectors, ordinary);
+          } else {
+            if (writes) void v.v3(ordinary, vectors);
+            else void v.v3(vectors, ordinary);
+            void m.pairsum(scalars, ordinary);
+          }
+        });
+        expect(residentState(ordinary)!.gpu!.buffer).toBe(before.buffer);
+        expect(gpu.destroyCounts.get(before.buffer) ?? 0).toBe(0);
+        expect(pendingClears.has(before.buffer)).toBe(false);
+        expect(
+          gpu.commands.filter((c) => c === 'clear' || c.startsWith('dispatch') || c === 'submit'),
+        ).toEqual(['clear', 'dispatch 1 1 1', 'dispatch 1 1 1', 'submit']);
+        dev.release(ordinary);
+        ordinary = dev.array(12, 'f32');
+        // A new lease prepares its first layout again, including the reverse 64-to-48 transition.
+        await dev.fuse(() => {
+          if (first === 'scalar') void v.v3(vectors, ordinary);
+          else void m.pairsum(scalars, ordinary);
+        });
+        expect(residentState(ordinary)!.gpu!.size).toBe(first === 'scalar' ? 64 : 48);
+        expect(gpu.destroyCounts.get(before.buffer)).toBe(1);
+      } finally {
+        await dev.dispose();
+      }
+    },
+  );
+
+  it('retries a zeroed first binding after its replacement allocation fails', async () => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device });
+    const v = await loadVec4(generatedVec4.code!);
+    const m = await loadFused();
+    const scalars = dev.array(4, 'f32');
+    const vectors = dev.array(12, 'f32');
+    try {
+      await dev.fuse((scope) => {
+        void m.lenscale(scalars, scope.scratch(12));
+      });
+      const ordinary = dev.array(12, 'f32');
+      const before = residentState(ordinary)!.gpu!;
+      // Allocate the output before refusing the input's replacement.
+      const source = dev.array(new Float32Array(12));
+      await dev.fuse(() => {
+        void v.v3(vectors, source);
+      });
+      const create = gpu.device.createBuffer.bind(gpu.device);
+      gpu.device.createBuffer = () => {
+        throw new Error('replacement allocation failed');
+      };
+      const run = () =>
+        dev.fuse(() => {
+          void v.v3(vectors, ordinary);
+        });
+      await expect(run()).rejects.toThrow('replacement allocation failed');
+      expect(residentState(ordinary)!.gpu).toBe(before);
+      expect(pendingClears.has(before.buffer)).toBe(true);
+      expect(gpu.destroyCounts.get(before.buffer) ?? 0).toBe(0);
+      gpu.device.createBuffer = create;
+      await run();
+      expect(residentState(ordinary)!.gpu!.size).toBe(64);
+      expect(gpu.destroyCounts.get(before.buffer)).toBe(1);
+    } finally {
+      await dev.dispose();
+    }
+  });
+
   it('keeps a CPU write after GPU use when a reused scratch returns to the GPU', async () => {
     // This instrument supplies the download, not shader arithmetic. prefix() then computes
     // [1, 3, 6, 10] on the real CPU path, which the next GPU call must receive as an upload.
