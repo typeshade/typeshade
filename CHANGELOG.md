@@ -1630,6 +1630,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Class field initializer range diagnostics** (#321 types#12). An integer-written value
+  outside its declared `i32` or `u32` range now uses the existing range sentence and points
+  to the offending expression. Other mismatches use assignment diagnostics with cast remedies.
+  Compiler and editor agree; accepted initializers and emitted programs keep their meaning.
+
 - **Class-field deprecation warnings** (#321, misc#8). Unannotated instance and static fields
   that take the `f32` default now report the opt-in `TS8053` warning. Refused initializers add
   no warning, and remedies preserve private names and optional fields. Types and emitted code
