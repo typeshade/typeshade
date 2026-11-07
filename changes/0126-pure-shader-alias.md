@@ -1,7 +1,7 @@
 ---
 id: '0126'
 title: A pure shader alias preserves its target's declarations and binding slots
-status: accepted
+status: implemented
 rules:
   - '3.9'
 surface:
@@ -23,7 +23,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                        |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0126, `status: accepted`. The front matter is the identity and lifecycle authority.                                                                                  |
+| Identity and status           | Proposal 0126, `status: implemented`. The front matter is the identity and lifecycle authority.                                                                               |
 | Date and attribution          | Authored 2026-11-06 UTC by Codex while progressing the owner's remaining-issue request. This date records authorship, not approval.                                           |
 | Request source                | Issue [#780](https://github.com/typeshade/typeshade/issues/780), including its unused-binding counterexample and the factual correction in PR #1057.                          |
 | Applicability / Effectivity   | Shader linking through the public compiler, host-face generator, Vite, CLI and shader language service. WGSL, GLSL and CPU targets share the retained IR. Release unassigned. |
@@ -289,16 +289,86 @@ baseline; no compiler implementation starts before that merge.
 
 ### Configuration and validation record
 
-Implementation records do not yet apply. Delivery must identify the accepted proposal,
-implementation commits and PR, tested configuration, functional results and document validation.
-Keep deviations and remaining downstream work explicit. Compiler delivery does not establish
-downstream adoption.
+Implementation is in [PR #1059](https://github.com/typeshade/typeshade/pull/1059), following
+the accepted merge `42fe4fd77bffbfec6d25be35ea14110ab9f2b54a` of PR #1058.
+The first implementation commit is `8727a383f847aa279016271d737c5d479fe69446`.
+Commit `36c21e8116226a4bed9bb2dfe8812819741a742d` completes the paired import-failure
+and named-export assertions without changing production code. The integrated build and GPU
+gates use final source/test commit `86a7f2621e84007515228286392e2ff8d5f55c58`,
+which adds explicit types to the fixture path maps after the canonical build exposed their
+TypeScript inference errors; it changes no executable behavior. Its build receipt records the
+same revision and fingerprint `1b513104260c234e1d285e87f28088a51e6c61873609b0cde3ea9cd6b4e10ee1`.
+Git and the pull request identify later validation-record revisions and the eventual delivered merge. No release version is assigned.
 
-The preliminary compiler evidence above is from the 2026-11-06 audit at `00c8d0eb`; it is not
-validation of the proposed behavior. At draft revision `cfc11c6d`, 36 proposal/reference tests,
-documentation references and impact, formatting, proposal scope and installed commit hooks
-passed. The PR records the commands and tested configuration. Acceptance-record checks are
-recorded there separately; no implementation result is claimed.
+A Codex implementation agent changed only `src/compiler/ts/link.ts` in production: recognize
+the requested pure root, follow already resolved canonical edges with a visited set, and keep
+the terminal file and its declarations. Terminal export assignments take their existing direct
+validation path. The requested entry, export map, resolver, package naming and source mapping
+remain the existing authorities. Both modern import attributes and legacy assertion clauses
+exclude promotion. A second agent supplied native compile-gate and packed-journey coverage;
+an independent agent and the orchestrating agent reviewed implementation, tests and documents.
+
+Functional observations on 2026-11-06–07 UTC, with installed Node 24.22.1, Bun 1.4.4 and TypeScript 5.6.3:
+
+- Both primary regressions failed on accepted baseline `42fe4fd7`: an alias dropped an unused
+  first binding/private helper, and a zero-unit target lost its enable directive. They pass now.
+- The focused compiler/linker/resolver/module, shader language-service, generated host
+  tsc/TypeScript-language-service, CLI, Vite, API, proposal and requirement run passed
+  254 tests in 11 files. The two new files contain 33 tests. The API snapshot did not change.
+- Independent review passed 113 tests in four files at the first source commit and all
+  28 source-regression tests after the diagnostic additions. Subsequent changes only annotate
+  fixture map types; the canonical test build validates those annotations. No production finding remains unresolved.
+- Cases cover full private/exported inventory and order, automatic and explicit slots,
+  dependency collisions and package prefixes, zero-unit directives, custom Windows path
+  normalization, alias cycles, ordinary-root boundaries, failed import edges and original
+  target errors, editor invalidation, reached-binding host signatures, private export exclusion,
+  requested view/watch paths, and default/explicit/disabled fusion origins.
+- Canonical build, whole-repository lint and format checks, all five bundle-boundary subpaths,
+  documentation references and strict Doorstop validation pass. No dependency or budget changed.
+
+The independent same-path browser bundle of `src/index.ts`, using Bun 1.4.4 minification and
+only the accepted/current linker substitution, measured 5,293,055 to 5,293,635 bytes and
+1,495,835 to 1,496,367 gzip-9 bytes: increases of 580 and 532 bytes. The six fixture modules,
+bundled together with the same runtime, grew from 178,317 to 194,743 minified bytes and
+39,774 to 39,887 gzip-9 bytes: increases of 16,426 and 113 bytes. Direct target artifacts
+were unchanged. Each primary alias/chain generated module grew by 7,862 bytes, with WGSL
+535 to 830 bytes and render GLSL unchanged at 401 bytes; its host view grew by 124 bytes
+because the private entry now appears in the default manifest type. Each empty alias/chain
+module grew by 751 bytes, with WGSL 152 to 269 bytes and render GLSL 260 to 338 bytes;
+its host view size was unchanged. These are finite fixture measurements, not a general
+byte-identity or size guarantee. Independent fingerprint checks reproduced the generated
+artifacts and confirmed the older measurement baseline's relevant source matched acceptance.
+
+On 2026-11-07 UTC, `bun run gate:compile` passed on the clean built commit: 203 examples,
+203 Tint compilations, 139 WebGL2 programs, 130 render pipelines and entry calls covering
+18 compute and 18 fragment entries, with no failures. The two terminal fixtures and their
+single/chained aliases made 45 calls. Nine compute runs each read 32 values and matched the
+independent JavaScript reference exactly; 36 draw runs each read 4,096 channel values with
+maximum error 0.484375 of 255, below the limit of two. Aliases and chains matched direct
+compilation exactly, and omitted/undefined empty bindings matched `{}` byte for byte.
+Actual WGSL, render GLSL, manifest inventory/slots and private export visibility were checked.
+Existing broken-shader, pipeline, perturbed-value and depth instruments passed.
+
+The packed `bun run gate:journeys` run also passed on 2026-11-07 UTC: 37 journeys and
+132 runs, seven project-init checks and 265 host-import checks, with no failures. Its alias
+matrix passed 45 independent output comparisons, 30 exact direct-target comparisons and
+18 exact empty-argument comparisons, plus actual manifest/WGSL/render-GLSL assertions.
+The packed host TypeScript check and Vite development console probe passed. Both gates used
+Google Chrome for Testing 156.0.8078.4 and the Google SwiftShader adapter across WebGPU,
+WebGL2 and CPU. All gate processes, browsers and servers stopped after completion.
+
+The document audit updated Rule 3.9, surface §68, `AUTHORING.md`, the changelog, the journey
+description and generated requirement records. Linker/CLI/Vite/language-service and ordinary
+import references remain accurate; the historical proposals retain their baseline descriptions.
+The orchestrating agent separately reviewed the historical 0087 measurement, language-service
+identity and source mapping, internal multi-root example, linker/root comments and architecture
+references. Proposal policy, requirement synchronization, documentation impact/references,
+formatting and installed commit hooks are checked on the delivered revision.
+
+No implementation deviation remains open. TypeCV, website and editor adoption, compiler pins
+and their validation remain pending under the obligations below. Compiler completion does not
+establish downstream adoption. The final record changes documentation only; required CI checks
+and merge approval still follow the pull request's current head.
 
 ## What it owes downstream
 
