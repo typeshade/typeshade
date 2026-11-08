@@ -494,11 +494,11 @@ describe('the walk claims only what it has proven', () => {
     // `return` under a condition this walk cannot classify makes the rest of the function
     // reachable by a subset of the invocations — but by which subset is exactly what is not
     // known, so the class after it is the DIVERGENCE's own, not the literal `non-uniform`.
-    // An intrinsic in the return keeps this helper outside the single-pure-return proof.
-    // Its class stays `unknown`, which is above the derivative threshold.
+    // Promoting it refused this program, which Tint compiles: a call into a user function is
+    // `unknown`, and `unknown` is above the derivative threshold.
     expect(
       compiled(
-        `${HEAD}export function opaque(): f32 { return abs(0.5) }
+        `${HEAD}export function opaque(): f32 { return 0.5 }
 @fragment export function fs(v: VsOut): vec4 {
   if (opaque() > 0.5) { return vec4(0., 0., 0., 1.) }
   return textureSample(t, s, v.uv)
@@ -508,7 +508,7 @@ describe('the walk claims only what it has proven', () => {
     // The BARRIER threshold is untouched by that: `unknown` is still not `uniform`.
     expect(
       errorsOf(`declare const out: storage<array<f32>, "read_write">
-export function opaque(): f32 { return abs(0.5) }
+export function opaque(): f32 { return 0.5 }
 @compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
   if (opaque() > 0.5) { return }
   workgroupBarrier()
@@ -682,8 +682,8 @@ describe('a value that goes through a helper keeps its class', () => {
 @fragment export function fs(v: VsOut): vec4 { return shade(k, v.uv) }`,
     ],
   ])('still accepts %s, which Tint accepts', (_what, source) => {
-    // Both a proven single return and an unproven helper body stay below the derivative
-    // threshold on uniform arguments. Both were measured ACCEPTED on Tint.
+    // The unknown floor stays below the derivative threshold on uniform arguments.
+    // Both were measured ACCEPTED on Tint.
     expect(compiled(source).wgsl).toContain('textureSample(t, s,');
   });
 
@@ -803,24 +803,22 @@ export function outer(p: f32, q: f32): f32 { return inner(q, p) }
     expect(errorsOf(src)[0]).toContain('is reached under "VsOut.uv"');
   });
 
-  it('accepts a proven uniform helper condition and still refuses a varying argument', () => {
-    const source = (cond: string) => `declare const out: storage<array<f32>, "read_write">
+  it('keeps the BARRIER threshold where it was: unknown is still not uniform', () => {
+    for (const cond of ['edge(f32(lid.x))', 'edge(k)']) {
+      const errors = errorsOf(`declare const out: storage<array<f32>, "read_write">
 declare const k: uniform<f32>
 export function edge(x: f32): bool { return x > 0.5 }
 @compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
   if (${cond}) { workgroupBarrier() }
   out[lid.x] = 1.
-}`;
-    expect(compiled(source('edge(k)')).wgsl).toContain('workgroupBarrier()');
-    expect(errorsOf(source('edge(f32(lid.x))'))[0]).toContain(
-      'workgroupBarrier() is reached under "lid" (@builtin(local_invocation_id))',
-    );
+}`);
+      expect(errors.join('\n'), cond).toContain('workgroupBarrier() is reached under');
+    }
   });
 });
 
-// #180: a dependency summary is not by itself a proof that no unknown origin remains.
-// A single pure return is the narrow case whose entire value can be accounted for.
-describe('a single pure return can prove a helper uniform', () => {
+// #180 remains conservative: a pure callee cannot repair stale caller facts (#1088).
+describe('a helper retains the conservative barrier floor', () => {
   const source = (helper: string, condition: string, extra = '') => `
 declare const out: storage<array<f32>, "read_write">
 declare const k: uniform<f32>
@@ -854,8 +852,14 @@ export const cs = compute([64, 1, 1], function cs(lid: builtin<"local_invocation
       'function edge(x: vec2, i: u32): bool { return (x.y > 0.5 ? -x[i] : vec2(x.x * 2.).x) > 0.25; }',
       'edge(vec2(k), u32(0))',
     ],
-  ])('accepts %s', (_label, helper, condition) => {
-    expect(compiled(source(helper, condition)).wgsl).toContain('workgroupBarrier()');
+  ])('keeps the conservative refusal for %s', (_label, helper, condition) => {
+    const text = source(helper, condition);
+    const errors = errorsOf(text);
+    expect(
+      compile(`"use typeshade"\n${text}`).diagnostics.map((d) => `${d.code} ${d.message}`),
+    ).toEqual(errors);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('TS8052 workgroupBarrier() is reached under');
   });
 
   it.each([
@@ -878,20 +882,10 @@ export const cs = compute([64, 1, 1], function cs(lid: builtin<"local_invocation
       'let stash: workgroup<f32>;',
     ],
     ['read_write storage', 'function edge(): bool { return out[0] > 0.5; }', 'edge()', ''],
+    ['a global uniform', 'function edge(): bool { return k > 0.5; }', 'edge()', ''],
+    ['an intrinsic', 'function edge(x: f32): bool { return abs(x) > 0.5; }', 'edge(k)', ''],
     [
-      'a global uniform, outside this proof',
-      'function edge(): bool { return k > 0.5; }',
-      'edge()',
-      '',
-    ],
-    [
-      'an intrinsic, outside this proof',
-      'function edge(x: f32): bool { return abs(x) > 0.5; }',
-      'edge(k)',
-      '',
-    ],
-    [
-      'a nested user call, outside this proof',
+      'a nested user call',
       'function inner(x: f32): bool { return x > 0.5; } function edge(x: f32): bool { return inner(x); }',
       'edge(k)',
       '',
