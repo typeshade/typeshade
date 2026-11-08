@@ -291,8 +291,10 @@ chain over scratch arrays took 0.56 to 0.93 of the time of the calls apart, and 
 residents of 1,048,576 elements took 1.00 to 1.04 of it, so no hardware speedup is claimed. The change
 answers two of the decisions below for kernel functions: the minimal resource-access summary is the
 whole-`Resident` reads and writes with the proof's write-at-`i` and read-at-`i` facts, and a fusion
-requires exact equality, with no declared tolerance. It does not fuse on WebGL2, plans no transfer and
-reuses no buffer across scopes.
+requires exact equality, with no declared tolerance. That initial delivery did not fuse on WebGL2, plan transfers or
+reuse buffers across scopes. Device-owned scratch now borrows compatible buffers from the bounded
+array pool (#992). Change 0128 reports actual WebGPU scratch allocations and reuses, with buffer
+descriptor bytes. It does not measure driver heap use or establish a speedup.
 
 ### P4 — Additional targets and interop
 

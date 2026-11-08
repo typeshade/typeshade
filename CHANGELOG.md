@@ -17,6 +17,11 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **WebGPU scratch acquisition counts** (change 0128, #992). New fuse reports include
+  `webgpuScratch` allocation and reuse counts and their buffer descriptor bytes. Empty scopes,
+  fused locals and CPU or WebGL2 plans report zero. Older reports may omit the member;
+  `mergeReports` preserves that unknown state instead of treating it as zero.
+
 - **Pure shader root aliases** (change 0126, #780). A file containing only the shader directive
   and one value export-star retains its terminal target's private declarations, module
   directives and binding slots through alias chains. Ordinary imports remain selective.

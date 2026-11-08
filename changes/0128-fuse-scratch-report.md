@@ -1,7 +1,7 @@
 ---
 id: '0128'
 title: A fuse report counts WebGPU scratch buffer allocations and pool reuses
-status: accepted
+status: implemented
 rules:
   - '11.13'
 surface:
@@ -31,7 +31,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                 |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0128, accepted. The front matter controls its lifecycle.                                                                                                                      |
+| Identity and status           | Proposal 0128, implemented. The front matter controls its lifecycle.                                                                                                                   |
 | Date and attribution          | Authored 2026-11-07 UTC by Codex under the owner's request to continue remaining issues. This date records authorship, not approval.                                                   |
 | Request source                | Issue [#992](https://github.com/typeshade/typeshade/issues/992), from TypeAudio experiment 4 at compiler pin `14566606`.                                                               |
 | Applicability / Effectivity   | Reports returned by `fuse()` and `device.fuse()`, their aggregation and documentation. Release version unassigned.                                                                     |
@@ -40,7 +40,7 @@ downstream:
 
 ## What changes
 
-**Current behavior.** A `FuseReport` gives dispatch and submission counts. It does not say
+**Review-baseline behavior.** A `FuseReport` gives dispatch and submission counts. It does not say
 whether a scratch array caused a WebGPU storage buffer allocation or borrowed a pooled buffer.
 `DeviceStatistics.allocations` and `reuses` count `array()` calls, so they cannot supply this information.
 PR [#1074](https://github.com/typeshade/typeshade/pull/1074) fixes scratch pooling separately and leaves those public counters unchanged.
@@ -244,10 +244,69 @@ remain unassigned. Compiler delivery will not establish downstream completion or
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires the accepted proposal revision, implementation
-PR and commits, functional and document evidence, and dispositions for any deviation.
-The read-only source audit and issue evidence support this record; they do not validate an
-implementation of the new fields. Downstream adoption remains separate from compiler delivery.
+Compiler implementation is in [PR #1085](https://github.com/typeshade/typeshade/pull/1085),
+on branch `fix/992-scratch-report`, initially based on main
+`d298453748be4484b6c9a528ff0ce5401df596b4`. Accepted proposal revision
+`c0ea2de0ff3273f06a187691216c4eff44f9f832` merged through #1082 at
+`fd24285d19f80e0c4fdb166da144e21bf74ad2bd`. That merge and pool PR #1074
+preceded implementation commit `ad106fad`. Codex implemented and verified the compiler work;
+a separate collaborating agent reviewed the product diff and browser results.
+
+Observed on 2026-11-07 UTC with Bun 1.4.4, TypeScript 5.6.3 and Node 24.22.1:
+
+- Baseline regression controls: three expected failures and one legacy-omission pass.
+- Focused report, fuse and device suites: 325 tests pass. Canonical build passes.
+- API bake: 15 tests pass; only `FuseReport` changes shape.
+- Independent Chromium 156 / SwiftShader run: nine GPU/CPU rows and six acquisition controls
+  pass. Actual buffer IDs and descriptor sizes verify first allocation, later reuse, compatible
+  ordinary-buffer reuse, host-only allocation and repeated no-pool allocation. Wrong counters
+  and suppressed clears are detected; broken WGSL is refused. No uncaptured error was observed.
+- Paired bundle measurement against the implementation base: runtime mono 154059 → 154240 gzip
+  bytes, split initial 39148 → 39339, split total 156022 → 156276. Fuse mono 114318 → 114448,
+  split initial 15892 → 15992, split total 114834 → 114985. Only those exceeded caps change.
+  Emit, algorithms and random sizes stay equal. The boundary gate passes with the measured caps.
+- Rule 11.13, surface §71, JSDoc, API snapshot, CHANGELOG and requirements are updated together.
+  The agent read the requirement evidence, reviewed RULE-1113 and cleared SURF-038 and SURF-071
+  with Doorstop. The strict Doorstop check passes. Documentation references have no dead target.
+
+Product review and the bounded Chromium/SwiftShader run cover the three-file product diff with SHA-256
+`722047cc1d54aaac6921ac30a1e3e651d93c6ec32892dfa73080c14f815fca06` against the implementation base.
+This digest identifies a diff, not a commit. The final product diff is
+`59b03949e6583cbf023b05bbcd98a999ad61f710549979f98a37fcdfaf4cbc0d`; only the introductory
+report JSDoc changed after that bounded run. The executable product behavior is unchanged.
+
+Final integration uses main `b44571988ac2677a6d1e16f9434544e6ae9f1e73`, including the Vite
+import correction #1090 and conservative uniformity rollback #1091. Tested integration commit
+`1da8b6a61bd38012f1eccad543497013592a1f2b` has tree
+`9a368b99dc97467552b53be719b88fa93802ddc1`, identical to the locally validated integration.
+
+Functional evidence:
+
+- On 2026-11-07 UTC, the continuation run passed the clean canonical build and the 325
+  report/fuse/device tests with Bun 1.4.4, TypeScript 5.6.3 and Node 24.22.1.
+- Paired boundary measurements against main `b4457198` reproduced every size listed above.
+  No additional budget change was required. Emit, algorithms and random stayed equal.
+- On 2026-11-08 UTC, the integration passed the
+  [compile and differential job](https://github.com/typeshade/typeshade/actions/runs/42437574721/job/128599660006)
+  and the [packed journey job](https://github.com/typeshade/typeshade/actions/runs/42437574721/job/128599660041).
+  Every differential arm reported zero failures. The packed corpus passed 38 journeys and
+  188 runs. Its later host-import checks also passed. Render, SwiftShader performance-instrument,
+  package-smoke and TypeNN candidate checks also passed on this integration.
+- Chromium in the continuation workspace could not create its browser socket. Its local
+  compile rerun did not execute shaders, and its differential and journey reruns did not start.
+  The CI results above supply those gates on the integrated source. Neither SwiftShader
+  checks nor these acquisition counters establish physical GPU performance or driver heap use.
+
+Document evidence:
+
+- Lint, full formatting, documentation references and strict Doorstop passed on the integration.
+- Seven API/document/policy suites passed 87 tests. The implementation stays inside accepted
+  0128; the proposal-scope and paired-change checks pass.
+- This final record-only revision marks the compiler work implemented. Its current-head CI
+  remains a merge gate; the PR retains the exact final commit and check results.
+
+No design deviation is identified. Downstream adoption, publication and release remain separate
+and pending. The lifecycle state does not assert delivery in any downstream repository.
 
 ## What it owes downstream
 
