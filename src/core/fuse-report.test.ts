@@ -11,6 +11,21 @@ import * as root from '../index.js';
 import * as fuse from '../fuse.js';
 
 const cpu: FuseReport = { tier: 'cpu', dispatches: 0, submissions: 0, groups: [] };
+
+// Old literals remain valid. A present member is complete and readonly on every public face.
+const scratchTypeChecks = (report: FuseReport): void => {
+  const legacy: root.FuseReport = cpu;
+  const same: fuse.FuseReport = legacy;
+  const unknown: number | undefined = report.webgpuScratch?.allocatedBytes;
+  // @ts-expect-error a present member requires all four counters
+  const partial: FuseReport = { ...cpu, webgpuScratch: { allocations: 0 } };
+  // @ts-expect-error a metric cannot be written through the public report type
+  if (report.webgpuScratch !== undefined) report.webgpuScratch.allocations = 1;
+  // @ts-expect-error the member itself is readonly
+  report.webgpuScratch = undefined;
+  void [same, unknown, partial];
+};
+void scratchTypeChecks;
 const gl: FuseReport = {
   tier: 'webgl2',
   dispatches: 2,
@@ -103,8 +118,50 @@ describe('mergeReports (change 0071, Amendment 2)', () => {
   });
 
   it('is the report of a plan that did nothing for no report, and the report itself for one', () => {
-    expect(mergeReports([])).toEqual({ tier: 'cpu', dispatches: 0, submissions: 0, groups: [] });
+    expect(mergeReports([])).toEqual({
+      tier: 'cpu',
+      dispatches: 0,
+      submissions: 0,
+      groups: [],
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
+    });
     expect(mergeReports([gpu])).toEqual(gpu);
+  });
+
+  it('sums known scratch acquisitions into a detached snapshot (change 0128)', () => {
+    const a = {
+      ...gpu,
+      webgpuScratch: { allocations: 2, allocatedBytes: 80, reuses: 1, reusedBytes: 16 },
+    };
+    const b = {
+      ...cpu,
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
+    };
+    const c = {
+      ...gl,
+      webgpuScratch: { allocations: 1, allocatedBytes: 32, reuses: 2, reusedBytes: 48 },
+    };
+    const before = JSON.stringify([a, b, c]);
+    const merged = mergeReports([a, b, c]);
+    expect(merged.webgpuScratch).toEqual({
+      allocations: 3,
+      allocatedBytes: 112,
+      reuses: 3,
+      reusedBytes: 64,
+    });
+    expect(merged.webgpuScratch).not.toBe(a.webgpuScratch);
+    expect(merged.groups[0]).toBe(gpu.groups[0]);
+    expect(JSON.stringify([a, b, c])).toBe(before);
+  });
+
+  it('keeps legacy omissions unknown regardless of input order (change 0128)', () => {
+    const known = {
+      ...gpu,
+      webgpuScratch: { allocations: 1, allocatedBytes: 16, reuses: 0, reusedBytes: 0 },
+    };
+    for (const reports of [[known, cpu], [cpu, known], [known, cpu, known], [cpu]]) {
+      expect(mergeReports(reports)).not.toHaveProperty('webgpuScratch');
+    }
   });
 
   it('does not change the reports it was given', () => {

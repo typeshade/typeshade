@@ -296,7 +296,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
       - run: bun run gate:compile
-      # Includes current/disabled-admission Resident failure controls on real browser APIs.
+      # Includes current/disabled-admission Resident failure controls on supported browser tiers.
       - run: bun run gate:differential
 
   user-journeys:

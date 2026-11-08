@@ -309,6 +309,20 @@ async function runInPage(input: {
       );
     }
 
+    // A Resident draw requires a runtime-sized storage array. WebGL2 has no storage-buffer
+    // fragment path; a uniform cannot substitute, because uniform bindings take no Resident.
+    if (input.tier === 'webgl2') {
+      const refusal = await capture(
+        m.color!(document.createElement('canvas'), { xs: floats(0.5) }),
+      );
+      add(
+        'WebGL2 storage draw refusal',
+        false,
+        refusal instanceof TypeError &&
+          String(refusal).includes('GLSL ES 3.00 has no storage buffer'),
+      );
+      return result;
+    }
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 1;
     document.body.append(canvas);
@@ -391,7 +405,7 @@ export async function residentFailureArm(page: Page): Promise<number> {
           tier,
         });
         const dependencies = results.filter((r) => r.dependency);
-        if (dependencies.length !== (tier === 'webgl2' ? 7 : 8))
+        if (dependencies.length !== (tier === 'webgl2' ? 5 : 8))
           throw new Error('dependency corpus lost a case');
         for (const r of results) {
           const expected = !(disabled && r.dependency);
@@ -405,7 +419,7 @@ export async function residentFailureArm(page: Page): Promise<number> {
       }
     }
     console.log(
-      `Resident failure arm: ${checked} controls, ${failures} failures; WebGL2 push excluded (atomics unavailable)`,
+      `Resident failure arm: ${checked} controls, ${failures} failures; WebGL2 push and Resident draw excluded (atomics and fragment storage unavailable)`,
     );
     return failures;
   } finally {

@@ -17,6 +17,11 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **WebGPU scratch acquisition counts** (change 0128, #992). New fuse reports include
+  `webgpuScratch` allocation and reuse counts and their buffer descriptor bytes. Empty scopes,
+  fused locals and CPU or WebGL2 plans report zero. Older reports may omit the member;
+  `mergeReports` preserves that unknown state instead of treating it as zero.
+
 - **Pure shader root aliases** (change 0126, #780). A file containing only the shader directive
   and one value export-star retains its terminal target's private declarations, module
   directives and binding slots through alias chains. Ordinary imports remain selective.
@@ -1660,6 +1665,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   (initial 15,892 → 15,903; aggregate 114,834 → 114,987), algorithms 51,757 → 52,189,
   and random 33,446 → 33,557. Emit remains 118,605 bytes. Budgets cover the measured private
   facts and admission code; compiler imports, dynamic-code checks and floors remain unchanged.
+  After integrating main `f5f541d9` (scratch metrics), paired Bun 1.4.4 gzip measurements are:
+  runtime 154,240 → 154,373 bytes (initial 39,339 → 39,329; aggregate 156,276 → 156,382),
+  fuse 114,448 → 114,596 (initial 15,992 → 16,001; aggregate 114,985 → 115,128).
+  Emit, algorithms and random keep the measurements above. Only exceeded caps change; floors stay unchanged.
 
 - **Class field initializer range diagnostics** (#321 types#12). An integer-written value
   outside its declared `i32` or `u32` range now uses the existing range sentence and points

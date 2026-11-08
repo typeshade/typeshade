@@ -338,6 +338,7 @@ describe('a fuse scope on the CPU tier (Node has no WebGPU)', () => {
     });
     expect(await out.read()).toEqual(floats(4, 0, 8, 0));
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'cpu',
       dispatches: 0,
       submissions: 0,
@@ -493,6 +494,7 @@ describe('a fuse scope on the CPU tier (Node has no WebGPU)', () => {
 
   it('reports an empty scope as the CPU tier with nothing in it', async () => {
     await expect(fuse(() => {})).resolves.toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'cpu',
       dispatches: 0,
       submissions: 0,
@@ -619,6 +621,7 @@ describe('a fuse scope on the CPU tier (Node has no WebGPU)', () => {
     });
     expect(await sink.read()).toEqual(floats(1, 1, 1, 1));
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'cpu',
       dispatches: 0,
       submissions: 0,
@@ -981,6 +984,224 @@ describe('device-owned scratch returns to the bounded array pool (#992)', () => 
     return Object.assign(gpu, { destroyCounts });
   }
 
+  it('allocates for a host-only pool slot, then reports a real buffer lease (change 0128)', async () => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device });
+    const m = await loadFused();
+    const ordinary = dev.array(4, 'f32');
+    const out = dev.array(4, 'f32');
+    dev.release(ordinary);
+    expect(gpu.made).toEqual([]);
+    const run = () =>
+      dev.fuse((scope) => {
+        void m.pairsum(out, scope.scratch(4));
+      });
+    try {
+      expect((await run()).webgpuScratch).toEqual({
+        allocations: 1,
+        allocatedBytes: 16,
+        reuses: 0,
+        reusedBytes: 0,
+      });
+      expect((await run()).webgpuScratch).toEqual({
+        allocations: 0,
+        allocatedBytes: 0,
+        reuses: 1,
+        reusedBytes: 16,
+      });
+      expect(gpu.made.filter((b) => b.usage === RESIDENT_BUFFER).map((b) => b.size)).toEqual([
+        16, 16,
+      ]);
+      expect(dev.statistics).toMatchObject({ allocations: 2, reuses: 0 });
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it('sums different sizes once across nested scopes and keeps them in a chunk (change 0128)', async () => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device });
+    const m = await loadFused();
+    const out = dev.array(4, 'f32');
+    let nested: Promise<FuseReport> | undefined;
+    const body = (scope: FuseScope) => {
+      void m.lenscale(out, scope.scratch(4));
+      nested = fuse((inner) => {
+        void m.lenscale(out, inner.scratch(8));
+      });
+    };
+    try {
+      const first = await dev.fuse(body);
+      expect(await nested).toBe(first);
+      expect(first.webgpuScratch).toEqual({
+        allocations: 2,
+        allocatedBytes: 48,
+        reuses: 0,
+        reusedBytes: 0,
+      });
+      const second = await dev.fuse(body, { chunk: { key: 'scratch-metrics', units: 4 } });
+      expect(second.webgpuScratch).toEqual({
+        allocations: 0,
+        allocatedBytes: 0,
+        reuses: 2,
+        reusedBytes: 48,
+      });
+      expect(second.chunk).toMatchObject({ key: 'scratch-metrics', units: 4 });
+      expect(gpu.made.filter((b) => b.usage === RESIDENT_BUFFER).map((b) => b.size)).toEqual([
+        16, 16, 32,
+      ]);
+      expect(first.webgpuScratch).toEqual({
+        allocations: 2,
+        allocatedBytes: 48,
+        reuses: 0,
+        reusedBytes: 0,
+      });
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it('rejects a failed allocation and starts the next successful plan with fresh counts (change 0128)', async () => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device });
+    const m = await loadFused();
+    const out = dev.array(4, 'f32');
+    try {
+      await dev.fuse(() => {
+        void m.fillTo(out, 1);
+      });
+      const create = gpu.device.createBuffer.bind(gpu.device);
+      gpu.device.createBuffer = (descriptor) => {
+        if (descriptor.usage === RESIDENT_BUFFER) throw new Error('scratch allocation failed');
+        return create(descriptor);
+      };
+      const run = () =>
+        dev.fuse((scope) => {
+          void m.pairsum(out, scope.scratch(4));
+        });
+      await expect(run()).rejects.toThrow('scratch allocation failed');
+      expect(gpu.made.filter((b) => b.usage === RESIDENT_BUFFER)).toHaveLength(1);
+      gpu.device.createBuffer = create;
+      expect((await run()).webgpuScratch).toEqual({
+        allocations: 1,
+        allocatedBytes: 16,
+        reuses: 0,
+        reusedBytes: 0,
+      });
+      expect((await run()).webgpuScratch).toEqual({
+        allocations: 0,
+        allocatedBytes: 0,
+        reuses: 1,
+        reusedBytes: 16,
+      });
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it('does not count a pooled buffer from another native device as a reuse (change 0128)', async () => {
+    const gpu = recording();
+    const other = recording();
+    const dev = await runtime.createDevice({ device: gpu.device });
+    const m = await loadFused();
+    const ordinary = dev.array(floats(1, 2, 3, 4));
+    const out = dev.array(4, 'f32');
+    // Exercise the pool guard with an actual buffer created on a different device.
+    residentState(ordinary)!.bufferFor(
+      other.device,
+      { k: 'a', n: null, st: 4, e: { k: 's', t: 'f32' } },
+      () => floats(1, 2, 3, 4).buffer as ArrayBuffer,
+      false,
+    );
+    dev.release(ordinary);
+    try {
+      const report = await dev.fuse((scope) => {
+        void m.pairsum(out, scope.scratch(4));
+      });
+      expect(report.webgpuScratch).toEqual({
+        allocations: 1,
+        allocatedBytes: 16,
+        reuses: 0,
+        reusedBytes: 0,
+      });
+      expect(other.made.filter((b) => b.usage === RESIDENT_BUFFER)).toHaveLength(1);
+      expect(gpu.made.filter((b) => b.usage === RESIDENT_BUFFER)).toHaveLength(2);
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it('counts the first GPU acquisition after CPU work, not its upload or rebind (change 0128)', async () => {
+    const gpu = recording();
+    const dev = await runtime.createDevice({ device: gpu.device });
+    const m = await loadFused();
+    const out = dev.array(4, 'f32');
+    try {
+      for (let i = 0; i < 2; i++) {
+        const report = await dev.fuse((scope) => {
+          const t = scope.scratch(4);
+          void m.prefix(t);
+          void m.pairsum(out, t);
+          void m.pairsum(out, t);
+        });
+        expect(report.groups.map((g) => g.tier)).toEqual(['cpu', 'webgpu', 'webgpu']);
+        expect(report.webgpuScratch).toEqual(
+          i === 0
+            ? { allocations: 1, allocatedBytes: 16, reuses: 0, reusedBytes: 0 }
+            : { allocations: 0, allocatedBytes: 0, reuses: 1, reusedBytes: 16 },
+        );
+      }
+      expect(gpu.made.filter((b) => b.usage === RESIDENT_BUFFER)).toHaveLength(2);
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it('reports repeated allocations for the default owner without a pool (change 0128)', async () => {
+    const gpu = recording();
+    const m = await loadFused();
+    const out = zeros(4);
+    for (let i = 0; i < 2; i++) {
+      const report = await fuse((scope) => {
+        void m.pairsum(out, scope.scratch(4));
+      });
+      expect(report.webgpuScratch).toEqual({
+        allocations: 1,
+        allocatedBytes: 16,
+        reuses: 0,
+        reusedBytes: 0,
+      });
+    }
+    const buffers = gpu.made.filter((b) => b.usage === RESIDENT_BUFFER);
+    expect(buffers).toHaveLength(3);
+    expect(buffers.filter((b) => b.destroyed)).toHaveLength(2);
+  });
+
+  it.each(['cpu', 'webgl2'] as const)(
+    'records known zeros for scratch on %s (change 0128)',
+    async (tier) => {
+      const m = await loadFused();
+      const out = zeros(4);
+      if (tier === 'webgl2') webgl.context = stubGl();
+      configure({ prefer: [tier] });
+      try {
+        const report = await fuse((scope) => {
+          void m.pairsum(out, scope.scratch(4));
+        });
+        expect(report.tier).toBe(tier);
+        expect(report.webgpuScratch).toEqual({
+          allocations: 0,
+          allocatedBytes: 0,
+          reuses: 0,
+          reusedBytes: 0,
+        });
+      } finally {
+        webgl.context = null;
+        configure({});
+      }
+    },
+  );
+
   it('reuses one scratch buffer, clears before dispatch, and keeps array() counters and expired handles', async () => {
     const gpu = recording();
     const dev = await runtime.createDevice({ device: gpu.device, poolBytes: 16 });
@@ -996,13 +1217,28 @@ describe('device-owned scratch returns to the bounded array pool (#992)', () => 
       });
     try {
       const before = await run();
+      expect(before.webgpuScratch).toEqual({
+        allocations: 1,
+        allocatedBytes: 16,
+        reuses: 0,
+        reusedBytes: 0,
+      });
       const buffers = gpu.made.filter((b) => b.usage === RESIDENT_BUFFER);
       expect(buffers).toHaveLength(2);
       expect(buffers.every((b) => !b.destroyed)).toBe(true);
       expect(dev.statistics).toMatchObject({ allocations: 1, reuses: 0, live: 2, pooledBytes: 16 });
       gpu.commands.length = 0;
       const after = await run();
-      expect(after).toEqual(before);
+      expect(after).toEqual({
+        ...before,
+        webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 1, reusedBytes: 16 },
+      });
+      expect(before.webgpuScratch).toEqual({
+        allocations: 1,
+        allocatedBytes: 16,
+        reuses: 0,
+        reusedBytes: 0,
+      });
       expect(gpu.made.filter((b) => b.usage === RESIDENT_BUFFER)).toEqual(buffers);
       expect(
         gpu.commands.filter((c) => c === 'clear' || c.startsWith('dispatch') || c === 'submit'),
@@ -1030,10 +1266,17 @@ describe('device-owned scratch returns to the bounded array pool (#992)', () => 
     const m = await loadFused();
     const out = dev.array(4, 'f32');
     try {
-      for (let i = 0; i < 2; i++)
-        await dev.fuse((scope) => {
+      for (let i = 0; i < 2; i++) {
+        const report = await dev.fuse((scope) => {
           void m.pairsum(out, scope.scratch(4));
         });
+        expect(report.webgpuScratch).toEqual({
+          allocations: 1,
+          allocatedBytes: 16,
+          reuses: 0,
+          reusedBytes: 0,
+        });
+      }
       await kernelQueue.idle();
       const buffers = gpu.made.filter((b) => b.usage === RESIDENT_BUFFER);
       expect(buffers).toHaveLength(3);
@@ -1057,8 +1300,14 @@ describe('device-owned scratch returns to the bounded array pool (#992)', () => 
       const buffer = residentState(ordinary)!.gpu!.buffer;
       dev.release(ordinary);
       const count = gpu.made.length;
-      await dev.fuse((scope) => {
+      const report = await dev.fuse((scope) => {
         void m.pairsum(out, scope.scratch(4));
+      });
+      expect(report.webgpuScratch).toEqual({
+        allocations: 0,
+        allocatedBytes: 0,
+        reuses: 1,
+        reusedBytes: 16,
       });
       expect(gpu.made).toHaveLength(count);
       const again = dev.array(4, 'f32');
@@ -1118,7 +1367,12 @@ describe('device-owned scratch returns to the bounded array pool (#992)', () => 
       expect(dev.statistics.pooledBytes).toBe(16);
       delete options.bindGroup;
       gpu.commands.length = 0;
-      await run(out);
+      expect((await run(out)).webgpuScratch).toEqual({
+        allocations: 0,
+        allocatedBytes: 0,
+        reuses: 1,
+        reusedBytes: 16,
+      });
       expect(
         gpu.commands.filter((c) => c === 'clear' || c.startsWith('dispatch') || c === 'submit'),
       ).toEqual(['clear', 'dispatch 1 1 1', 'submit']);
@@ -1154,8 +1408,14 @@ describe('device-owned scratch returns to the bounded array pool (#992)', () => 
     const b = dev.array(floats(2, 3, 4, 5));
     const out = dev.array(4, 'f32');
     try {
-      await dev.fuse((scope) => {
+      const unused = await dev.fuse((scope) => {
         scope.scratch(4);
+      });
+      expect(unused.webgpuScratch).toEqual({
+        allocations: 0,
+        allocatedBytes: 0,
+        reuses: 0,
+        reusedBytes: 0,
       });
       await expect(
         dev.fuse((scope) => {
@@ -1170,6 +1430,12 @@ describe('device-owned scratch returns to the bounded array pool (#992)', () => 
         void m.relu(out, t);
       });
       expect(report.groups[0]!.fused).toBe(true);
+      expect(report.webgpuScratch).toEqual({
+        allocations: 0,
+        allocatedBytes: 0,
+        reuses: 0,
+        reusedBytes: 0,
+      });
       expect(gpu.made.filter((b) => b.usage === RESIDENT_BUFFER)).toHaveLength(3);
       expect(dev.statistics).toMatchObject({ allocations: 3, reuses: 0, live: 3, pooledBytes: 0 });
     } finally {
@@ -1217,12 +1483,18 @@ describe('device-owned scratch returns to the bounded array pool (#992)', () => 
     const uo = dev.array(4, 'u32');
     try {
       for (let i = 0; i < 2; i++) {
-        await dev.fuse((scope) => {
+        const signed = await dev.fuse((scope) => {
           void m.iadd(io, scope.scratch(4, 'i32'), ia);
         });
-        await dev.fuse((scope) => {
+        const unsigned = await dev.fuse((scope) => {
           void m.uadd(uo, scope.scratch(4, 'u32'), ua);
         });
+        for (const report of [signed, unsigned])
+          expect(report.webgpuScratch).toEqual(
+            i === 0
+              ? { allocations: 1, allocatedBytes: 16, reuses: 0, reusedBytes: 0 }
+              : { allocations: 0, allocatedBytes: 0, reuses: 1, reusedBytes: 16 },
+          );
       }
       expect(gpu.made.filter((x) => x.usage === RESIDENT_BUFFER)).toHaveLength(6);
       expect(gpu.commands.filter((x) => x === 'clear')).toHaveLength(2);
@@ -1238,10 +1510,16 @@ describe('device-owned scratch returns to the bounded array pool (#992)', () => 
     const m = await loadVec4(generatedVec4Fused.code!);
     const out = dev.array(8, 'f32');
     try {
-      for (let i = 0; i < 2; i++)
-        await dev.fuse((scope) => {
+      for (let i = 0; i < 2; i++) {
+        const report = await dev.fuse((scope) => {
           void m.vcount(out, scope.scratch(2, 'vec4f'));
         });
+        expect(report.webgpuScratch).toEqual(
+          i === 0
+            ? { allocations: 1, allocatedBytes: 32, reuses: 0, reusedBytes: 0 }
+            : { allocations: 0, allocatedBytes: 0, reuses: 1, reusedBytes: 32 },
+        );
+      }
       const buffers = gpu.made.filter((x) => x.usage === RESIDENT_BUFFER);
       expect(buffers.map((x) => x.size)).toEqual([32, 32]);
       expect(gpu.commands.filter((x) => x === 'clear')).toHaveLength(1);
@@ -1266,8 +1544,14 @@ describe('device-owned scratch returns to the bounded array pool (#992)', () => 
       const padded = residentState(source)!.gpu!;
       expect(padded.size).toBe(64);
       dev.release(source);
-      await dev.fuse((scope) => {
+      const report = await dev.fuse((scope) => {
         void m.lenscale(scalars, scope.scratch(12));
+      });
+      expect(report.webgpuScratch).toEqual({
+        allocations: 1,
+        allocatedBytes: 48,
+        reuses: 0,
+        reusedBytes: 0,
       });
       const buffers = gpu.made.filter((x) => x.usage === RESIDENT_BUFFER);
       expect(buffers.map((x) => x.size)).toEqual([64, 64, 16, 48]);
@@ -1432,6 +1716,12 @@ describe('device-owned scratch returns to the bounded array pool (#992)', () => 
         void m.pairsum(out, t);
       });
       expect(report.groups.map((g) => g.tier)).toEqual(['webgpu', 'cpu', 'webgpu']);
+      expect(report.webgpuScratch).toEqual({
+        allocations: 0,
+        allocatedBytes: 0,
+        reuses: 1,
+        reusedBytes: 16,
+      });
       expect(new Float32Array(buffer.record.contents!)).toEqual(floats(1, 3, 6, 10));
       expect(buffer.record.writes).toHaveLength(1);
       expect(dev.statistics.pooledBytes).toBe(16);
@@ -1479,6 +1769,7 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
     // A module built without `typeshade({ fuse: true })` has no facts to fuse by: each call is a
     // group of its own, and the report says why from the second group on.
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'webgpu',
       dispatches: 3,
       submissions: 1,
@@ -1763,6 +2054,7 @@ describe('a fuse scope that fuses, on a recording device', () => {
     });
     expect(gpu.flow).toEqual([dispatch, 'submit']);
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'webgpu',
       dispatches: 1,
       submissions: 1,
@@ -1813,6 +2105,7 @@ describe('a fuse scope that fuses, on a recording device', () => {
     });
     expect(gpu.flow).toEqual([dispatch, dispatch, 'submit']);
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'webgpu',
       dispatches: 2,
       submissions: 1,
@@ -2399,6 +2692,7 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     // 1000 elements are 4 workgroups of 256, and 4 partials are folded by one more dispatch.
     const { report, sum } = await chain(m, 1000);
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'webgpu',
       dispatches: 2,
       submissions: 1,
@@ -2746,6 +3040,7 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
       sum = m.total(x);
     });
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'webgpu',
       dispatches: 1,
       submissions: 1,
@@ -3164,6 +3459,7 @@ describe('a fuse scope that could fuse, with no WebGPU', () => {
     // ((1 + 1) + (2 + 1) + (3 + 1) + (4 + 1)) * 2 = 28, summed in the tree order.
     await expect(sum).resolves.toBe(28);
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'cpu',
       dispatches: 0,
       submissions: 0,
@@ -3186,6 +3482,7 @@ describe('a fuse scope that could fuse, with no WebGPU', () => {
     });
     expect(await out.read()).toEqual(floats(4, 0, 8, 0));
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'cpu',
       dispatches: 0,
       submissions: 0,
@@ -3218,6 +3515,7 @@ describe('a scratch array on the CPU tier', () => {
     expect(await out.read()).toEqual(floats(4, 0, 8, 0));
     // Nothing is dispatched, and the three calls are three groups, as with residents.
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'cpu',
       dispatches: 0,
       submissions: 0,
@@ -3708,6 +4006,7 @@ describe('a scratch array on a recording device', () => {
       void m.relu(out, u);
     });
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'webgpu',
       dispatches: 1,
       submissions: 1,
@@ -4111,6 +4410,7 @@ describe('the workgroup shapes of a report: one for each dispatch (proposal 0067
       void m.doubleTotal(out, xs);
     });
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'webgpu',
       dispatches: 2,
       submissions: 1,
@@ -4189,6 +4489,7 @@ describe('the workgroup shapes of a report: one for each dispatch (proposal 0067
       });
       // The WebGL2 tier draws each loop; it fuses nothing and has no workgroup to name.
       expect(report).toEqual({
+        webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
         tier: 'webgl2',
         dispatches: 2,
         submissions: 0,
@@ -4270,6 +4571,7 @@ describe('the tier of each group, and why a group ran on a later tier than its p
       // `add` draws on WebGL2. `total` reduces, which WebGL2 has no program for, so the CPU tier
       // runs it, and its group says so with that reason.
       expect(report).toEqual({
+        webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
         tier: 'webgl2',
         dispatches: 1,
         submissions: 0,
@@ -4303,6 +4605,7 @@ describe('the tier of each group, and why a group ran on a later tier than its p
       });
       await expect(sum).resolves.toBe(10);
       expect(report).toEqual({
+        webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
         tier: 'webgl2',
         dispatches: 1,
         submissions: 0,
@@ -4337,6 +4640,7 @@ describe('the tier of each group, and why a group ran on a later tier than its p
     };
     // The CPU tier: Node has no WebGPU device and no WebGL2 context.
     expect(await fuse(body)).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'cpu',
       dispatches: 0,
       submissions: 0,
@@ -4349,6 +4653,7 @@ describe('the tier of each group, and why a group ran on a later tier than its p
     configure({ prefer: ['webgl2', 'cpu'] });
     try {
       expect(await fuse(body)).toEqual({
+        webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
         tier: 'webgl2',
         dispatches: 2,
         submissions: 0,
@@ -4385,6 +4690,7 @@ describe('the tier of each group, and why a group ran on a later tier than its p
       const reason = reasonIn(await m.mul(u, t, a).catch((e: unknown) => e), 'webgl2');
       expect(reason).toBe('WebGL2 refused the program: the driver refuses it');
       expect(report).toEqual({
+        webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
         tier: 'webgl2',
         dispatches: 1,
         submissions: 0,
@@ -4726,6 +5032,7 @@ describe('a fuse report gives gpuTime to each WebGPU group, when the device meas
     expect(gpu.stamped).toEqual([[0, 1]]);
     expect(gpu.commands).toContain('resolve 2');
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'webgpu',
       dispatches: 1,
       submissions: 1,
@@ -4753,6 +5060,7 @@ describe('a fuse report gives gpuTime to each WebGPU group, when the device meas
     expect(gpu.commands.some((c) => c.startsWith('resolve'))).toBe(false);
     expect('gpuTime' in report.groups[0]!).toBe(false);
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'webgpu',
       dispatches: 1,
       submissions: 1,
@@ -5010,6 +5318,7 @@ describe('an entry call in a fuse scope (proposal 0069)', () => {
       void m.twice(x);
     });
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'webgpu',
       dispatches: 3,
       submissions: 1,
@@ -5460,6 +5769,7 @@ describe('a vec4f scratch array (proposal 0068)', () => {
       void m.vdouble(out, t);
     });
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'webgpu',
       dispatches: 1,
       submissions: 1,
@@ -5740,6 +6050,7 @@ describe('an indirect workgroup count, on a recording device (change 0075)', () 
       void c.mark({ marks, words: ws }, { indirect: counts });
     });
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'webgpu',
       dispatches: 2,
       submissions: 1,
@@ -6164,6 +6475,7 @@ describe('stores after the loops in a fuse scope (change 0094, Rule 11.13)', () 
     const report = await fuse(() => void m.plan!(count, wg));
     expect(gpu.flow).toEqual(['dispatch 1 1 1', 'submit']);
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'webgpu',
       dispatches: 1,
       submissions: 1,
@@ -6193,6 +6505,7 @@ describe('stores after the loops in a fuse scope (change 0094, Rule 11.13)', () 
     try {
       const report = await fuse(() => void m.mark!(out, xs));
       expect(report).toEqual({
+        webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
         tier: 'webgl2',
         dispatches: 1,
         submissions: 0,
@@ -6235,6 +6548,7 @@ describe('stores after the loops in a fuse scope (change 0094, Rule 11.13)', () 
     // buffers on a device that allows two, WebGL2 has no program for a loop that reduces, and the
     // CPU tier runs it.
     expect(report).toEqual({
+      webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'webgpu',
       dispatches: 1,
       submissions: 2,
