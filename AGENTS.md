@@ -153,6 +153,12 @@ describes it.
   function's element on WebGPU, WebGL2 and the CPU tier, and on the host class of change 0109,
   and held to the `f32` oracle's own constructor and member function. CI's compile-gate job runs
   it.
+- The differential gate also runs `scripts/resident-failure-arm.ts` (change 0129): generated
+  kernel chains, nested plans, compute entries, indirect counts, held bounds and rejected draws
+  on their supported WebGPU, WebGL2 and CPU tiers. Healthy controls require actual API work; failed dependencies must
+  issue no command and preserve error identity. A disabled-admission build must expose every
+  negative control. Pushed held lengths and Resident draws run on WebGPU and CPU: WebGL2 lacks
+  atomics and fragment storage buffers. The arm verifies the WebGL2 storage-draw refusal too.
 - `bun run gate:render`: the class-based 3D SDF example is rendered on headless WebGPU and its 48x48 RGBA8 pixels are compared exactly with the committed image golden. Use `UPDATE_RT_GOLDEN=1 bun run gate:render` only for an intentional golden refresh.
 - `bun run gate:journeys` (after `build`): the packed tarball installed into a fresh project,
   and every program in `journeys/` checked the way a user meets it: `compile()`, the language

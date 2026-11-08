@@ -8347,6 +8347,18 @@ queued call that fails leaves its error for `read()` to throw. On the CPU tier t
 array it holds, and costs nothing. A `Uint32Array` resident can also hold the workgroup count of
 an entry call, which a kernel or an entry wrote (§67, change 0075).
 
+**Failed inputs** (change 0129). A generated kernel, compute or fragment call checks incoming contents after earlier queued calls settle and its arguments validate.
+If an input it reads has failed, the call rejects with that same error before execution or uploads.
+Every Resident it would write retains that error, so the last output's `read()` reports the producer failure.
+Independent calls continue. Fixed-capacity `.length` queries and unused parameters do not depend on contents.
+Held lengths, device-held bounds and indirect counts do depend on contents.
+
+A successful call proved to be write-only clears its destination errors, including a call that writes only part of an array or runs no iterations.
+A read/write update cannot recover a failed input. `write(value)` replaces the bytes but keeps the previous error.
+Unproved access remains a content dependency; inspecting a pushed array's logical count currently also treats that array as an input.
+Older generated modules without sufficient access facts conservatively treat every Resident as an input.
+This policy covers generated host calls and their fuse plans. Sharing a handle with manually encoded runtime programs does not extend it to `Frame` submissions.
+
 `resident(length, element)` makes a zeroed `Resident` of `length` numbers, `element` being `'f32'`,
 `'i32'` or `'u32'`, with no element default. It holds no host copy and writes no byte to any queue
 when it is made. On WebGPU a call that uses it makes a zeroed storage buffer, as WebGPU makes every
@@ -8672,6 +8684,8 @@ const out = await sums.read(); // the one wait
 A `Resident` where the binding has a size, or is not a storage array, is a `TypeError`, and so
 is one `Resident` passed as two bindings of one call. Entry calls and kernel calls run one after
 another in the order they were made, so an entry and a kernel function can share a `Resident`.
+The failed-input policy of §65 applies before the entry executes, including after override specialization.
+Its content-reading bindings are checked in declaration order, followed by a Resident indirect count; write-only bindings can recover.
 
 **The workgroup count** is `n` or `[x, y, z]`, passed to `dispatchWorkgroups` as written. The
 view's comment on the entry gives its default `@workgroup_size`; selected constants above determine
@@ -8801,6 +8815,7 @@ requestAnimationFrame(frame);
   draw. On WebGPU the handle is bound as the buffer it already has, and nothing is read back; the
   CPU tier reads the handle's copy, brought up to date first. So a kernel function can compute
   an array that a draw shows every frame without leaving the GPU.
+  A failed content input rejects the draw before canvas preparation or painting, preserving its previous image (change 0129).
 - **Where it draws.** An inferred device owner's tier policy applies. Without a device-owned
   resource, the order remains WebGPU, then WebGL2 (the entry's GLSL ES 3.00 program, drawn into a
   framebuffer and copied upside down so row 0 is the top, as WGSL counts it), then the CPU tier,
@@ -9955,6 +9970,12 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 | the device changes while the scope runs   | `fuse(): the device changed while the scope ran.` An `Error`, which rejects `fuse`.                                                                                          |
 
 **When the plan runs.** When the body returns, the plan runs as one item of the kernel queue, at the place `fuse` was called (Rule 11.8). The calls made before it have run. A call or a `read()` made after `fuse` was called sees what the plan wrote, whether or not the promise of `fuse` has resolved. The promise resolves to the report when the plan has run, and rejects with the first error. Every recorded call is checked before the first one runs, as a call outside a scope is (a value that does not fit, an array shorter than a loop writes, one `Resident` as two parameters), so a call that fails its check fails the plan before any call has run. The error rejects the promise of each recorded call, and stays on each `Resident` they write, for `read()` to throw, as the error of a failed call outside a scope does.
+
+After all arguments validate, the plan checks content dependencies in recorded-call order before any group runs (change 0129).
+An earlier approved write-only call can recover a failed handle for a later reader in the same plan.
+The real error remains until the whole plan succeeds; execution does not reject that approved reader for the old error.
+A still-failed read rejects every recorded promise and planned output, including independent calls inside that plan, without a partial report.
+An execution failure keeps the same whole-plan boundary. Independent work outside it continues; nested scopes remain one plan.
 
 **What fuses.** On WebGPU the plan walks the calls in the order they were made. A call joins the group before it when all of these hold against every call already in the group, and not against the last one alone. `add(t, a, b); mul(u, t, c); pairsum(out, t)` has no array in common between `mul` and `pairsum`, and `pairsum` still reads what `add` wrote at the next index. A group of several calls shares one loop dispatch; a reduction adds its fold dispatches.
 

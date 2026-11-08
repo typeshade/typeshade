@@ -1,7 +1,7 @@
 ---
 id: '0129'
 title: Queued host calls propagate failed Resident inputs without stopping independent work
-status: accepted
+status: implemented
 rules:
   - '11.8'
   - '11.13'
@@ -35,7 +35,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0129, accepted. The front matter controls its lifecycle.                                                                                     |
+| Identity and status           | Proposal 0129, implemented. The front matter controls its lifecycle.                                                                                  |
 | Date and attribution          | Authored 2026-11-07 UTC by Codex under the owner's continuing issue-work request. This is an authorship date, not approval.                           |
 | Request source                | Issue [#998](https://github.com/typeshade/typeshade/issues/998), reported by TypeAudio experiment 5.                                                  |
 | Applicability / Effectivity   | Generated host kernel calls, compute-entry calls, fragment-entry calls and `fuse` plans using `Resident` inputs. Release version unassigned.          |
@@ -44,7 +44,7 @@ downstream:
 
 ## What changes
 
-**Current behavior.** A failed queued call stores its error on the `Resident` values it would write.
+**Review-baseline behavior.** A failed queued call stores its error on the `Resident` values it would write.
 `read()` throws that error. A later call can nevertheless read their old contents and succeed.
 Reading only the last output of a chain therefore hides an earlier failure.
 
@@ -217,9 +217,75 @@ Technical approval of this proposal is not implementation validation or downstre
 
 ### Configuration and validation record
 
-This record does not yet apply to delivery. The baseline reproduction and source audit establish the defect and current boundaries only.
-Delivery must identify the accepted revision, implementation PR and exact tested commits, actual checks and any deviation disposition.
-Compiler completion does not establish downstream adoption or publication.
+Compiler implementation is in [PR #1092](https://github.com/typeshade/typeshade/pull/1092),
+on branch `fix/998-failure-propagation`. Accepted proposal #1087 merged at
+`4c7da1a962da692c9a3b93de1b61fedb03816c36` before implementation commit
+`3b7041b35f8b743b4baae8059d5d709bfc624519`. Proposal correction #1089 clarified the existing
+whole-value host write without changing the implemented recovery behavior.
+
+Tested integration `a5870bf3d1b6d597f88e65615bc7fe4b72cb5b3a` has tree
+`2d02d934465fbbf4a1f9dd1a7eb7d37ad2221cea`. It includes main
+`f5f541d922fa0d7e4b98aa1df90ee67174c55531`, the conservative uniformity rollback and scratch metrics.
+Codex implemented and verified the compiler work. A separate collaborating agent reviewed the
+failure instrument and the combined admission, scratch cleanup and report paths.
+
+Functional evidence, observed on 2026-11-07 and 2026-11-08 UTC:
+
+- The implementation-baseline regression run failed nine of sixteen controls before the fix.
+  All passed afterward. The expanded regression suite covers compiler/editor acceptance,
+  linked helpers, precedence, legacy facts, held counts, indirect dispatch and rejected draws.
+- Initial native kernel/fuse validation passed 21 controls on Chromium 156 / SwiftShader WebGPU,
+  WebGL2 and CPU. Baseline and disabled-admission controls exposed the same nine failures.
+  These measurements cover product commit `3b7041b3`, not the later integrated tree.
+- The combined sources passed the canonical build and 398 tests across the fuse, report,
+  failed-input, content-access, host-face and host-entry suites. The published integration
+  also passed a clean canonical build. Local tools were Bun 1.4.4, TypeScript 5.6.3 and Node 24.22.1.
+- Independent before/after comparison against main `f5f541d9` covered 214 shader sources,
+  each with IR enabled and disabled: 428 variants, 424 emitted and four refused.
+  Diagnostics, public host exports, host views, files and Pack were byte-identical.
+  Generated executable differences were limited to private access payloads and their call arguments.
+- The integration's [compile and differential job](https://github.com/typeshade/typeshade/actions/runs/42451794897/job/128642421262)
+  passed 203 examples: 203 WGSL compilations, 140 WebGL2 programs and 131 render pipelines.
+  All seven differential arms passed. The persistent Resident failure arm passed 88 controls
+  across current and disabled-admission variants on WebGPU, WebGL2 and CPU.
+  Every dependency control detected disabled admission; healthy controls still executed.
+  Native command counters and unchanged canvases verified refusal before dependent work.
+- WebGPU and CPU exercised held pushed lengths and Resident draws, including fresh canvases.
+  WebGL2 exercised kernel, compute, indirect and held-bound dependencies and its existing
+  storage-fragment refusal. Its unavailable atomic-push and Resident-draw paths were not claimed.
+- The [packed journey job](https://github.com/typeshade/typeshade/actions/runs/42451794897/job/128642421344)
+  passed 38 journeys and 188 runs. Its later host-import checks also passed.
+  CI used Node 24.19.0 and Bun 1.4.4. Pinned TypeScript 5.6.3, TypeScript 5.9.3 and 6.0.3
+  unit partitions and aggregates passed, alongside render and SwiftShader performance-instrument checks.
+  [Package compatibility](https://github.com/typeshade/typeshade/actions/runs/42451794954) and
+  [downstream candidate checks](https://github.com/typeshade/typeshade/actions/runs/42451794884) passed.
+  Candidate checks do not establish downstream adoption.
+- Paired Bun 1.4.4 bundle measurements against `f5f541d9` passed the runtime boundary gate.
+  Runtime gzip bytes changed from 154240 to 154373; split initial 39339 to 39329, total 156276 to 156382.
+  Fuse changed from 114448 to 114596; split initial 15992 to 16001, total 114985 to 115128.
+  CHANGELOG retains the original algorithms/random receipt. Only exceeded caps changed; all floors remain.
+- Chromium in the continuation workspace could not create its IPC socket. Local CPU scaffolding
+  is not browser evidence. The CI browser results above supply the integrated native-API checks.
+  SwiftShader results do not establish physical GPU performance or driver behavior.
+
+Document evidence:
+
+- Rules 11.8/11.13, surfaces 65/67/71, API comments, CHANGELOG and generated requirements agree
+  with the delivered host-call boundary. Public host metadata and declaration shapes remain unchanged.
+- Lint, formatting, documentation references, strict Doorstop, paired-change and proposal-scope
+  checks passed. Reviewed requirement evidence retains scratch metrics and failed-plan cleanup.
+- This record-only revision marks compiler implementation complete. Current-head CI remains a
+  merge gate; the PR records its exact final commit and check results.
+
+Deviation disposition:
+
+- Closed: an early review described draft change 0048's partial host write as existing behavior.
+  Proposal correction #1089 and the implementation use only the existing whole-value `write(value)`.
+- Closed: CI run 42437722791 incorrectly required a WebGL2 storage-buffer fragment draw.
+  The corrected instrument checks supported tiers and WebGL2's existing refusal, as validation item 6 requires.
+  It changes no product capability and does not remove WebGL2 dependency controls.
+- No open design deviation is identified. Manual Runtime/Frame submissions remain outside this change.
+  Downstream adoption, publication and release remain separate and pending.
 
 ## What it owes downstream
 

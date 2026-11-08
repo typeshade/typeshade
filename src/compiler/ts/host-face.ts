@@ -31,6 +31,7 @@ import type {
 import type { ShaderType } from '../../core/ir/types.js';
 import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
 import { fnReads, fnWrites } from '../../core/passes/effects.js';
+import { hostContentReads } from './host-content-access.js';
 import { GPU_STUBS, type CpuValue } from '../../core/cpu-runtime.js';
 import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../core/intrinsics.js';
 import { generateModuleJs } from '../../core/cpu-codegen.js';
@@ -1055,6 +1056,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
       wgsl,
       wgslInteger,
       pack,
+      hostContentReads(m),
       log,
     ),
     files,
@@ -3047,6 +3049,7 @@ function moduleText(
   wgsl: string,
   wgslInteger: string | undefined,
   pack: Pack,
+  contentReads: ReturnType<typeof hostContentReads>,
   log?: ConsoleLog,
 ): string {
   const q = (s: string): string => JSON.stringify(s);
@@ -3147,13 +3150,15 @@ function moduleText(
         break;
       case 'compute': {
         const id = `__ts_e${t++}`;
+        const reads = `__ts_reads${t}`;
         out.push(
           `const ${id} = { ...${JSON.stringify(e.entry)}, ${texts}${e.entry.console === true ? ', log: __ts_console' : ''} };`,
+          `const ${reads} = ${JSON.stringify([...contentReads.get(e.entry.fn)!.bindings])};`,
           ...callable(
             e.name,
             ['bindings', 'workgroups', 'options = undefined'],
             [
-              `return ${RT}.callCompute(${MOD}, ${id}, arguments.length, bindings, workgroups, options);`,
+              `return ${RT}.callCompute(${MOD}, ${id}, arguments.length, bindings, workgroups, options, ${reads});`,
             ],
           ),
         );
@@ -3161,23 +3166,27 @@ function moduleText(
       }
       case 'kernel': {
         const id = `__ts_e${t++}`;
+        const reads = `__ts_reads${t}`;
         const ps = e.face.params.map((_, i) => `__ts_p${i}`);
         out.push(
           `const ${id} = ${JSON.stringify(e.face)};`,
+          `const ${reads} = ${JSON.stringify([...contentReads.get(e.face.fn)!.params])};`,
           ...callable(e.name, ps, [
-            `return ${RT}.callKernel(${MOD}, ${id}, arguments.length, [${ps.join(', ')}]);`,
+            `return ${RT}.callKernel(${MOD}, ${id}, arguments.length, [${ps.join(', ')}], ${reads});`,
           ]),
         );
         break;
       }
       case 'fragment': {
         const id = `__ts_e${t++}`;
+        const reads = `__ts_reads${t}`;
         out.push(
           `const ${id} = { ...${JSON.stringify(e.entry)}, ${texts}${e.entry.console === true ? ', log: __ts_console' : ''} };`,
+          `const ${reads} = ${JSON.stringify([...contentReads.get(e.entry.fn)!.bindings])};`,
           ...callable(
             e.name,
             ['target', 'bindings'],
-            [`return ${RT}.callDraw(${MOD}, ${id}, arguments.length, target, bindings);`],
+            [`return ${RT}.callDraw(${MOD}, ${id}, arguments.length, target, bindings, ${reads});`],
           ),
         );
         break;

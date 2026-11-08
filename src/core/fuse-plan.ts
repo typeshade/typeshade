@@ -26,8 +26,10 @@ import {
   type Layout,
 } from './host-entry.js';
 import type { CheckedEntry } from './host-compute.js';
+import { checkIncoming } from './host-failure.js';
 import {
   checkCall,
+  kernelInputs,
   grid,
   reduceOnGpu,
   runChecked,
@@ -427,6 +429,18 @@ export async function runPlan(
         ? checkCall(c.cpu, c.k, c.argc, c.args)
         : c.host.checkEntryCall(c.e, c.argc, c.bindings, c.workgroups),
     );
+    // Validate every argument before admitting contents. Earlier approved writers supply later
+    // readers virtually; real errors remain until the entire plan succeeds (0129).
+    const supplied = new Set<ResidentArrayState>();
+    calls.forEach((c, i) => {
+      checkIncoming(
+        c.kind === 'kernel'
+          ? kernelInputs(c.k, checked[i] as CheckedCall, c.incoming)
+          : c.host.entryInputs(c.e, checked[i] as CheckedEntry, c.incoming),
+        supplied,
+      );
+      for (const s of writtenBy(c)) supplied.add(s);
+    });
     const settled = await settle(calls, checked, owner);
     plan = regroup(planned, settled.groups);
     for (const [gi, g] of settled.groups.entries()) {
