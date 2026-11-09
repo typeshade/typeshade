@@ -8,6 +8,7 @@ exports: []
 exports-removed: []
 codes: []
 examples: []
+names: []
 downstream: []
 ---
 
@@ -34,8 +35,17 @@ they establish the scope.
 ## Why
 
 Describe the problem and its evidence. Explain the relevant alternatives and the reason for
-the proposed choice. State assumptions and unresolved decisions explicitly. For a need from a
-downstream repository, link its compiler issue and say why compiler work cannot meet the need.
+the proposed choice. State assumptions and unresolved decisions explicitly.
+
+## Why the compiler cannot do it
+
+Required when the proposal adds an author-facing name (`names`), a rule, a diagnostic code or a
+surface form. State what the author must write that the compiler cannot decide from the program
+alone, and give the evidence. An optimization, a numerical relaxation, a tuning parameter or a
+choice of strategy is the compiler's work. If the compiler can do it, the proposal is not
+needed. For a need from a downstream repository, link its compiler issue and say why compiler
+work cannot meet the need (`README.md`, A need from a downstream repository). A proposal that
+adds none of these writes "Not applicable:" and says what it adds.
 
 ## What it touches
 

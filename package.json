@@ -95,6 +95,7 @@
     "gate:differential": "bun scripts/gpu-differential.ts",
     "bake:goldens": "UPDATE_EMIT_GOLDENS=1 vitest run examples/emit-goldens.test.ts examples/shade-examples.test.ts examples/shade-twins.test.ts",
     "bake:api-surface": "bun scripts/bake-api-surface.ts",
+    "bake:author-names": "bun scripts/bake-author-names.ts",
     "bake:coredef": "bun scripts/bake-coredef-textures.ts",
     "bake:wgsl-names": "bun scripts/bake-wgsl-names.ts",
     "bake:webgl-extensions": "bun scripts/bake-webgl-extensions.ts",

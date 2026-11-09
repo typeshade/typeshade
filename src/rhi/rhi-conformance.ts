@@ -3,15 +3,20 @@
 // answer this file computes in plain JavaScript. A backend conforms when it gives every answer.
 //
 // It runs where a device is: the compile gate runs it on WebGPU and on WebGL2 in headless Chromium
-// (`scripts/rhi-conformance-page.ts`), and `rhi-conformance.test.ts` holds the suite itself (that
-// it reaches every member of the interface, and that its comparison can fail). The CPU backend of
-// milestone M3 joins it.
+// (`scripts/rhi-conformance-page.ts`), and `cpu.test.ts` runs it on the CPU backend of milestone M3
+// in plain Vitest. `rhi-conformance.test.ts` holds the suite itself (that it reaches every member
+// of the interface, and that its comparison can fail).
 //
-// Each case is written once against the interface. Its programs come in both languages a backend
-// takes (`caps.shaderLanguage`): WGSL, and GLSL ES 3.00 in WebGPU's conventions (a position in
+// Each case is written once against the interface. Its programs come in each language a backend
+// takes (`caps.shaderLanguage`): WGSL; GLSL ES 3.00 in WebGPU's conventions (a position in
 // WebGPU's clip space, the bindings by name), which the WebGL2 backend keeps (row 0 at the top,
-// depth 0 to 1, `frontFace`). Every value a case draws is exactly representable in an 8-bit unorm
-// texel, so each answer is exact.
+// depth 0 to 1, `frontFace`); and a `"use typeshade"` source, whose CPU program the CPU backend
+// runs (the CPU leg compiles it, so this file imports no compiler). Every value a case draws is
+// exactly representable in an 8-bit unorm texel, or is at least 0.03 of a step from a rounding
+// boundary, so each answer is exact.
+//
+// A case the CPU backend refuses names the refusal (`refusedOnCpu`, change 0120, item 4 and O6 (a)):
+// on that backend the case must throw an error that says it, and is then reported as skipped.
 
 import { STAGE, type RhiBindLayoutEntry, type RhiDevice, type RhiTexture } from './rhi.js';
 
@@ -31,6 +36,11 @@ export interface ConformanceCase {
   /** The members of `RhiDevice`, `RhiCommandEncoder`, `RhiRenderPass` and `RhiComputePass` the
    *  case calls. */
   readonly covers: readonly string[];
+  /** What the CPU backend's refusal of the case says, when it refuses it. */
+  readonly refusedOnCpu?: string;
+  /** Why the WebGL2 backend does not run the case, when it does not: the case is reported as
+   *  skipped there, and the compile gate's floor of WebGL2 cases leaves it out. */
+  readonly notOnWebgl2?: string;
   run(device: RhiDevice): Promise<{ got: number[]; want: number[] } | { skipped: string }>;
 }
 
@@ -39,6 +49,11 @@ const FULL_SCREEN_WGSL = `@vertex fn vs(@builtin(vertex_index) i: u32) -> @built
   return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
 }`;
 
+const FULL_SCREEN_SHADE = `export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> {
+  const p = vec2(f32((i << u32(1)) & u32(2)), f32(i & u32(2)));
+  return vec4(p * 2. - vec2(1., 1.), 0., 1.);
+});`;
+
 const FULL_SCREEN_GLSL = `#version 300 es
 void main() {
   vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
@@ -46,12 +61,22 @@ void main() {
 }
 `;
 
-/** The programs of a case in each language: one WGSL module, or a GLSL vertex and fragment. */
+/** The programs of a case in each language: one WGSL module, a GLSL vertex and fragment, or the
+ *  `"use typeshade"` source whose CPU program the CPU backend runs. */
 interface Programs {
   readonly wgsl: string;
   readonly vertex: string;
   readonly fragment: string;
+  readonly shade: string;
 }
+
+/** The program `device` takes of `programs`: the GLSL vertex, the WGSL, or the source. */
+const programOf = (device: RhiDevice, programs: Programs): string =>
+  device.caps.shaderLanguage === 'glsl-es300'
+    ? programs.vertex
+    : device.caps.shaderLanguage === 'cpu'
+      ? programs.shade
+      : programs.wgsl;
 
 /** A render pipeline of `programs` into one `rgba8unorm` target, with `entries` in group 0. */
 async function pipelineOf(
@@ -75,7 +100,7 @@ async function pipelineOf(
 }> {
   const glsl = device.caps.shaderLanguage === 'glsl-es300';
   const layout = device.createBindGroupLayout(entries);
-  const module = device.createShaderModule(glsl ? programs.vertex : programs.wgsl);
+  const module = device.createShaderModule(programOf(device, programs));
   const pipeline = await device.createRenderPipeline({
     label: 'a conformance pipeline',
     layouts: [layout],
@@ -157,6 +182,16 @@ layout(std140) uniform U { vec4 c; } u;
 layout(location = 0) out vec4 o;
 void main() { o = u.c; }
 `,
+  shade: `"use typeshade";
+class U {
+  c!: vec4;
+}
+declare const u: uniform<U>;
+${FULL_SCREEN_SHADE}
+export const fs = fragment(function fs(): vec4 {
+  return u.c;
+});
+`,
 };
 
 const UNIFORM_ENTRY: RhiBindLayoutEntry = {
@@ -166,6 +201,154 @@ const UNIFORM_ENTRY: RhiBindLayoutEntry = {
   label: 'U',
   buffer: { type: 'uniform' },
 };
+
+/** A vertex from a buffer's `vec2` at location 0, coloured from the uniform `U`. */
+const VERTEX_Q: Programs = {
+  wgsl: `struct U { c: vec4f }
+@group(0) @binding(0) var<uniform> u: U;
+@vertex fn vs(@location(0) q: vec2f) -> @builtin(position) vec4f { return vec4f(q, 0.0, 1.0); }
+@fragment fn fs() -> @location(0) vec4f { return u.c; }`,
+  vertex: `#version 300 es
+layout(location = 0) in vec2 q;
+void main() { gl_Position = vec4(q, 0.0, 1.0); }
+`,
+  fragment: UNIFORM_COLOUR.fragment,
+  shade: `"use typeshade";
+class U {
+  c!: vec4;
+}
+declare const u: uniform<U>;
+export const vs = vertex(function vs(q: location<0, vec2>): builtin<"position", vec4> {
+  return vec4(q, 0., 1.);
+});
+export const fs = fragment(function fs(): vec4 {
+  return u.c;
+});
+`,
+};
+
+/** A vertex from a buffer's clip position at location 0 and three numbers at location 1, which
+ *  reach the fragment interpolated `perspective`, `linear` and `flat`, as red, green and blue.
+ *  GLSL ES 3.00 has no `noperspective`; its program takes the linear number as `b * w` over `w`,
+ *  both interpolated perspective-correct, which is the number interpolated in screen space. */
+const INTERPOLATED: Programs = {
+  wgsl: `struct V {
+  @builtin(position) p: vec4f,
+  @location(0) a: f32,
+  @location(1) @interpolate(linear) b: f32,
+  @location(2) @interpolate(flat) f: f32,
+}
+@vertex fn vs(@location(0) p: vec4f, @location(1) v: vec3f) -> V { return V(p, v.x, v.y, v.z); }
+@fragment fn fs(i: V) -> @location(0) vec4f { return vec4f(i.a, i.b, i.f, 1.0); }`,
+  vertex: `#version 300 es
+layout(location = 0) in vec4 p;
+layout(location = 1) in vec3 v;
+out float a;
+out float bq;
+out float bw;
+flat out float f;
+void main() { gl_Position = p; a = v.x; bq = v.y * p.w; bw = p.w; f = v.z; }
+`,
+  fragment: `#version 300 es
+precision highp float;
+in float a;
+in float bq;
+in float bw;
+flat in float f;
+layout(location = 0) out vec4 o;
+void main() { o = vec4(a, bq / bw, f, 1.0); }
+`,
+  shade: `"use typeshade";
+interface V {
+  p: builtin<"position", vec4>;
+  a: location<0, f32>;
+  b: location<1, f32, { interpolate: "linear" }>;
+  f: location<2, f32, { interpolate: "flat" }>;
+}
+export const vs = vertex(function vs(p: location<0, vec4>, v: location<1, vec3>): V {
+  return { p: p, a: v.x, b: v.y, f: v.z };
+});
+export const fs = fragment(function fs(i: V): vec4 {
+  return vec4(i.a, i.b, i.f, 1.);
+});
+`,
+};
+
+/** The numbers each vertex of the interpolation cases carries: the same number interpolated
+ *  `perspective` and `linear`, and a third `flat`. Chosen so that every pixel's answer is at least
+ *  0.03 of an 8-bit step from a rounding boundary. */
+const NUMBERS = [0.8671875, 0.42578125, 0.01953125] as const;
+/** The flat numbers of the flat case: the first vertex's reaches every pixel. */
+const FLAT = [0.6, 0.2, 1] as const;
+/** The flat numbers of the other cases, alike at every vertex, so that no provoking vertex shows. */
+const SAME = [0.6, 0.6, 0.6] as const;
+
+/** One triangle of `INTERPOLATED` into an 8 × 8 target cleared to opaque black: the vertices at
+ *  `ndc` in normalized device coordinates, each with its `w` and its depth `z(y)` in normalized
+ *  device coordinates. */
+async function interpolatedFrame(
+  device: RhiDevice,
+  w: readonly [number, number, number],
+  z: (y: number) => number,
+  flat: readonly [number, number, number] = SAME,
+): Promise<number[]> {
+  const ndc = [
+    [-1, -1],
+    [3, -1],
+    [-1, 3],
+  ] as const;
+  const t = target(device, 8, 8);
+  const { pipeline, layout } = await pipelineOf(device, INTERPOLATED, [], {
+    buffers: [
+      {
+        arrayStride: 28,
+        attributes: [
+          { shaderLocation: 0, offset: 0, format: 'float32x4' },
+          { shaderLocation: 1, offset: 16, format: 'float32x3' },
+        ],
+      },
+    ],
+  });
+  const data = ndc.flatMap(([x, y], i) => [
+    x * w[i]!,
+    y * w[i]!,
+    z(y) * w[i]!,
+    w[i]!,
+    NUMBERS[i]!,
+    NUMBERS[i]!,
+    flat[i]!,
+  ]);
+  const vertices = device.createBuffer({ size: 84, usage: ['vertex', 'copy-dst'] });
+  device.writeBuffer(vertices, 0, new Float32Array(data));
+  const encoder = device.createCommandEncoder();
+  const pass = encoder.beginRenderPass({
+    colorAttachments: [
+      { view: device.createView(t), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] },
+    ],
+  });
+  pass.setPipeline(pipeline);
+  pass.setBindGroup(0, device.createBindGroup(layout, []));
+  pass.setVertexBuffer(0, vertices);
+  pass.draw(3);
+  pass.end();
+  await device.submit([encoder]);
+  return [...(await device.readTexture(t, 4))];
+}
+
+/** The answer of {@link interpolatedFrame} at pixel `(x, y)` of the 8 × 8 target: the triangle's
+ *  screen-space weights at the pixel's centre, the perspective-correct number from them and the
+ *  `w`s, the linear number, and the first vertex's flat number. */
+function interpolatedTexel(w: readonly number[], x: number, y: number): number[] {
+  const nx = (x + 0.5) / 4 - 1;
+  const ny = 1 - (y + 0.5) / 4;
+  const l = [0, (nx + 1) / 4, (ny + 1) / 4];
+  l[0] = 1 - l[1]! - l[2]!;
+  const perspective =
+    l.reduce((s, li, i) => s + (li * NUMBERS[i]!) / w[i]!, 0) /
+    l.reduce((s, li, i) => s + li / w[i]!, 0);
+  const linear = l.reduce((s, li, i) => s + li * NUMBERS[i]!, 0);
+  return [unorm8(perspective), unorm8(linear), unorm8(SAME[0]), 255];
+}
 
 export const CONFORMANCE: readonly ConformanceCase[] = [
   {
@@ -302,6 +485,12 @@ precision highp float;
 layout(location = 0) out vec4 o;
 void main() { o = vec4(floor(gl_FragCoord.x) / 255.0, floor(gl_FragCoord.y) / 255.0, 0.0, 1.0); }
 `,
+          shade: `"use typeshade";
+${FULL_SCREEN_SHADE}
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+  return vec4(floor(p.x) / 255., floor(p.y) / 255., 0., 1.);
+});
+`,
         },
         [],
       );
@@ -355,6 +544,19 @@ precision highp float;
 flat in vec4 c;
 layout(location = 0) out vec4 o;
 void main() { o = c; }
+`,
+          shade: `"use typeshade";
+declare const colours: storage<array<vec4>>;
+interface Out {
+  p: builtin<"position", vec4>;
+  c: location<0, vec4, { interpolate: "flat" }>;
+}
+export const vs = vertex(function vs(q: location<0, vec2>, k: builtin<"instance_index", u32>): Out {
+  return { p: vec4(q.x + f32(k), q.y, 0., 1.), c: colours[k] };
+});
+export const fs = fragment(function fs(c: location<0, vec4, { interpolate: "flat" }>): vec4 {
+  return c;
+});
 `,
         },
         [
@@ -416,6 +618,7 @@ void main() { o = c; }
   {
     name: 'a texture sampled nearest, its row 0 at the top',
     covers: ['createSampler'],
+    refusedOnCpu: 'which the CPU tier cannot read (change 0120, O6 (a))',
     async run(device) {
       const texels = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255];
       const tex = device.createTexture({
@@ -448,6 +651,14 @@ precision highp float;
 uniform highp sampler2D tex;
 layout(location = 0) out vec4 o;
 void main() { o = texture(tex, gl_FragCoord.xy / 4.0); }
+`,
+          shade: `"use typeshade";
+declare const tex: texture_2d<f32>;
+declare const smp: sampler;
+${FULL_SCREEN_SHADE}
+export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+  return textureSample(tex, smp, p.xy / 4.);
+});
 `,
         },
         [
@@ -495,6 +706,7 @@ void main() { o = texture(tex, gl_FragCoord.xy / 4.0); }
   {
     name: 'a depth test: depth 0 to 1, less, written; the nearest of three triangles stays',
     covers: ['beginRenderPass'],
+    refusedOnCpu: 'it draws with no depth or stencil test (change 0120, item 4)',
     async run(device) {
       const t = target(device, 4, 4);
       const depth = device.createTexture({
@@ -524,6 +736,20 @@ precision highp float;
 layout(std140) uniform U { vec4 c; vec4 z; } u;
 layout(location = 0) out vec4 o;
 void main() { o = u.c; }
+`,
+          shade: `"use typeshade";
+class U {
+  c!: vec4;
+  z!: vec4;
+}
+declare const u: uniform<U>;
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> {
+  const p = vec2(f32((i << u32(1)) & u32(2)), f32(i & u32(2)));
+  return vec4(p * 2. - vec2(1., 1.), u.z.x, 1.);
+});
+export const fs = fragment(function fs(): vec4 {
+  return u.c;
+});
 `,
         },
         [UNIFORM_ENTRY],
@@ -605,6 +831,7 @@ void main() { o = u.c; }
   {
     name: 'the blend constant: a target blended as the constant alone',
     covers: ['setBlendConstant'],
+    refusedOnCpu: 'it draws with no blending (change 0120, item 4)',
     async run(device) {
       const t = target(device, 4, 4);
       const { pipeline, layout } = await pipelineOf(device, UNIFORM_COLOUR, [UNIFORM_ENTRY], {
@@ -647,15 +874,10 @@ void main() { o = u.c; }
       const { pipeline, layout } = await pipelineOf(
         device,
         {
-          wgsl: `struct U { c: vec4f }
-@group(0) @binding(0) var<uniform> u: U;
-@vertex fn vs(@location(0) q: vec2f) -> @builtin(position) vec4f { return vec4f(q, 0.0, 1.0); }
-@fragment fn fs() -> @location(0) vec4f { return u.c; }`,
-          vertex: `#version 300 es
-layout(location = 0) in vec2 q;
-void main() { gl_Position = vec4(q, 0.0, 1.0); }
-`,
+          wgsl: VERTEX_Q.wgsl,
+          vertex: VERTEX_Q.vertex,
           fragment: UNIFORM_COLOUR.fragment,
+          shade: VERTEX_Q.shade,
         },
         [UNIFORM_ENTRY],
         {
@@ -700,6 +922,7 @@ void main() { gl_Position = vec4(q, 0.0, 1.0); }
   {
     name: 'a stencil reference: written where a draw passes, then tested equal',
     covers: ['setStencilReference'],
+    refusedOnCpu: 'it draws with no depth or stencil test (change 0120, item 4)',
     async run(device) {
       const t = target(device, 4, 4);
       const ds = device.createTexture({
@@ -802,9 +1025,17 @@ void main() { gl_Position = vec4(q, 0.0, 1.0); }
       ]);
       const pipeline = await device.createComputePipeline({
         layouts: [layout],
-        module:
-          device.createShaderModule(`@group(0) @binding(0) var<storage, read_write> d: array<u32>;
-@compute @workgroup_size(4) fn main(@builtin(global_invocation_id) g: vec3u) { d[g.x] = d[g.x] * 2u + 1u; }`),
+        module: device.createShaderModule(
+          device.caps.shaderLanguage === 'cpu'
+            ? `"use typeshade";
+declare const d: storage<array<u32>, "read_write">;
+export const main = compute([4, 1, 1], function main(g: builtin<"global_invocation_id", vec3u>): void {
+  d[g.x] = d[g.x] * u32(2) + u32(1);
+});
+`
+            : `@group(0) @binding(0) var<storage, read_write> d: array<u32>;
+@compute @workgroup_size(4) fn main(@builtin(global_invocation_id) g: vec3u) { d[g.x] = d[g.x] * 2u + 1u; }`,
+        ),
         entryPoint: 'main',
       });
       const data = device.createBuffer({ size: 32, usage: ['storage', 'copy-src', 'copy-dst'] });
@@ -826,6 +1057,184 @@ void main() { gl_Position = vec4(q, 0.0, 1.0); }
       return { got, want: values.map((v) => v * 2 + 1) };
     },
   },
+  {
+    name: 'interpolation: perspective-correct, and linear in screen space',
+    covers: ['draw'],
+    async run(device) {
+      const w = [1, 2, 4] as const;
+      const got = await interpolatedFrame(device, w, () => 0.25);
+      return { got, want: image(8, 8, (x, y) => interpolatedTexel(w, x, y)) };
+    },
+  },
+  {
+    name: "interpolation: flat, from the first vertex of the triangle (WebGPU's provoking vertex)",
+    covers: ['draw'],
+    notOnWebgl2:
+      'GLSL ES 3.00 takes a flat value from the last vertex, and the backend asks for no WEBGL_provoking_vertex',
+    async run(device) {
+      const w = [1, 2, 4] as const;
+      const got = await interpolatedFrame(device, w, () => 0.25, FLAT);
+      return { got, want: image(8, 8, (x, y) => interpolatedTexel(w, x, y)) };
+    },
+  },
+  {
+    name: 'clipping: a triangle cut by the near and the far plane keeps the values between them',
+    covers: ['draw'],
+    async run(device) {
+      // The depth runs from 1.5 at the bottom to -2.5 at the top: it is inside 0 to 1 only for
+      // y from -0.5 to 0.5, framebuffer rows 2 to 5. The values there are the uncut triangle's.
+      const w = [1, 2, 1] as const;
+      const got = await interpolatedFrame(device, w, (y) => 0.5 - y);
+      const want = image(8, 8, (x, y) =>
+        y >= 2 && y < 6 ? interpolatedTexel(w, x, y) : [0, 0, 0, 255],
+      );
+      return { got, want };
+    },
+  },
+  {
+    name: 'the fill rule: two triangles that share an edge through pixel centres cover each once',
+    covers: ['draw'],
+    async run(device) {
+      // In framebuffer pixels: red (0.5, 0.5), (2.5, 0.5), (0.5, 2.5), then green (2.5, 0.5),
+      // (2.5, 2.5), (0.5, 2.5). Every edge runs through pixel centres. A centre on an edge is
+      // covered when the edge is a top or a left edge of the triangle: red's top and left edges,
+      // and green's shared diagonal, which is its left edge.
+      const t = target(device, 4, 4);
+      const { pipeline, layout } = await pipelineOf(device, VERTEX_Q, [UNIFORM_ENTRY], {
+        buffers: [
+          { arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }] },
+        ],
+      });
+      const fb = [0.5, 0.5, 2.5, 0.5, 0.5, 2.5, 2.5, 0.5, 2.5, 2.5, 0.5, 2.5];
+      const ndc = fb.map((v, i) => (i % 2 === 0 ? v / 2 - 1 : 1 - v / 2));
+      const vertices = device.createBuffer({ size: 48, usage: ['vertex', 'copy-dst'] });
+      device.writeBuffer(vertices, 0, new Float32Array(ndc));
+      const red = uniform(device, [1, 0, 0, 1]);
+      const green = uniform(device, [0, 1, 0, 1]);
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view: device.createView(t),
+            loadOp: 'clear',
+            storeOp: 'store',
+            clearValue: [0, 0, 0, 1],
+          },
+        ],
+      });
+      pass.setPipeline(pipeline);
+      pass.setVertexBuffer(0, vertices);
+      pass.setBindGroup(
+        0,
+        device.createBindGroup(layout, [{ binding: 0, resource: { buffer: red } }]),
+      );
+      pass.draw(3);
+      pass.end();
+      // The second triangle is the second three vertices: a draw of six with the first three
+      // made degenerate would also do, but a buffer of its own keeps each draw plain.
+      const second = device.createBuffer({ size: 24, usage: ['vertex', 'copy-dst'] });
+      device.writeBuffer(second, 0, new Float32Array(ndc.slice(6)));
+      const pass2 = encoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view: device.createView(t),
+            loadOp: 'load',
+            storeOp: 'store',
+            clearValue: [0, 0, 0, 0],
+          },
+        ],
+      });
+      pass2.setPipeline(pipeline);
+      pass2.setVertexBuffer(0, second);
+      pass2.setBindGroup(
+        0,
+        device.createBindGroup(layout, [{ binding: 0, resource: { buffer: green } }]),
+      );
+      pass2.draw(3);
+      pass2.end();
+      await device.submit([encoder]);
+      const got = [...(await device.readTexture(t, 4))];
+      const reds = new Set(['0,0', '1,0', '0,1']);
+      const want = image(4, 4, (x, y) =>
+        reds.has(`${x},${y}`)
+          ? [255, 0, 0, 255]
+          : x === 1 && y === 1
+            ? [0, 255, 0, 255]
+            : [0, 0, 0, 255],
+      );
+      return { got, want };
+    },
+  },
+  {
+    name: 'front_facing: true for a counter-clockwise triangle in clip space, false for a clockwise one',
+    covers: ['draw'],
+    async run(device) {
+      const t = target(device, 4, 4);
+      const { pipeline, layout } = await pipelineOf(
+        device,
+        {
+          wgsl: `@vertex fn vs(@location(0) q: vec2f) -> @builtin(position) vec4f { return vec4f(q, 0.0, 1.0); }
+@fragment fn fs(@builtin(front_facing) f: bool) -> @location(0) vec4f {
+  return select(vec4f(0.4, 0.4, 0.4, 1.0), vec4f(1.0, 1.0, 1.0, 1.0), f);
+}`,
+          vertex: VERTEX_Q.vertex,
+          fragment: `#version 300 es
+precision highp float;
+layout(location = 0) out vec4 o;
+void main() { o = gl_FrontFacing ? vec4(1.0) : vec4(0.4, 0.4, 0.4, 1.0); }
+`,
+          shade: `"use typeshade";
+export const vs = vertex(function vs(q: location<0, vec2>): builtin<"position", vec4> {
+  return vec4(q, 0., 1.);
+});
+export const fs = fragment(function fs(f: builtin<"front_facing", bool>): vec4 {
+  if (f) {
+    return vec4(1., 1., 1., 1.);
+  }
+  return vec4(0.4, 0.4, 0.4, 1.);
+});
+`,
+        },
+        [],
+        {
+          buffers: [
+            { arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }] },
+          ],
+        },
+      );
+      // The culling case's two triangles: the left counter-clockwise, the right clockwise.
+      const vertices = device.createBuffer({ size: 48, usage: ['vertex', 'copy-dst'] });
+      device.writeBuffer(vertices, 0, new Float32Array([-1, -1, 0, -1, -1, 1, 0, -1, 0, 1, 1, -1]));
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view: device.createView(t),
+            loadOp: 'clear',
+            storeOp: 'store',
+            clearValue: [0, 0, 0, 1],
+          },
+        ],
+      });
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, device.createBindGroup(layout, []));
+      pass.setVertexBuffer(0, vertices);
+      pass.draw(6);
+      pass.end();
+      await device.submit([encoder]);
+      const got = [...(await device.readTexture(t, 4))];
+      // The left triangle covers the centres with y > 2x, in pixels from the top left; the right
+      // one, from (2, 4), (2, 0) and (4, 4), the centres with x >= 2 and x < 2 + y / 2.
+      const want = image(4, 4, (x, y) => {
+        const cx = x + 0.5;
+        const cy = y + 0.5;
+        if (cy > 2 * cx) return [255, 255, 255, 255];
+        if (cx > 2 && cx < 2 + cy / 2) return [102, 102, 102, 255];
+        return [0, 0, 0, 255];
+      });
+      return { got, want };
+    },
+  },
 ];
 
 /** The members of the interface no case calls, each with where it is held instead. */
@@ -839,12 +1248,27 @@ export const NOT_REACHED: Readonly<Record<string, string>> = {
  *  absent and whose `skipped` is undefined: a failure, with the error as its name's suffix. */
 export async function runConformance(device: RhiDevice): Promise<CaseResult[]> {
   const out: CaseResult[] = [];
+  const cpu = device.caps.shaderLanguage === 'cpu';
   for (const c of CONFORMANCE) {
+    if (device.backend === 'webgl2' && c.notOnWebgl2 !== undefined) {
+      out.push({ name: c.name, skipped: c.notOnWebgl2 });
+      continue;
+    }
+    const refused = cpu ? c.refusedOnCpu : undefined;
     try {
       const r = await c.run(device);
-      out.push({ name: c.name, ...r });
+      out.push(
+        refused === undefined
+          ? { name: c.name, ...r }
+          : { name: `${c.name}: ran, and the CPU backend refuses it ("${refused}")` },
+      );
     } catch (err) {
-      out.push({ name: `${c.name}: threw ${err instanceof Error ? err.message : String(err)}` });
+      const message = err instanceof Error ? err.message : String(err);
+      out.push(
+        refused !== undefined && message.includes(refused)
+          ? { name: c.name, skipped: `refused: ${message}` }
+          : { name: `${c.name}: threw ${message}` },
+      );
     }
   }
   return out;

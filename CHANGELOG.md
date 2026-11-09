@@ -161,6 +161,32 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   (+53) and split total 157,876 to 162,180 (+4,304). The floors and the other subpaths do not
   change.
 
+- **The render hardware interface has a CPU backend** (change 0120, milestone M3).
+  `src/rhi/cpu.ts` is a software device: buffers and textures are bytes in host memory, and a
+  program is a module's CPU tier code (Rule 11.7), a `CpuProgram` (`src/rhi/cpu-program.ts`), in
+  place of shader text. A dispatch runs every invocation of every workgroup in the call layer's
+  order, with the workgroup memory zeroed for each workgroup, and writes what the call layer's CPU
+  tier writes. A render pass draws a `triangle-list` with `src/rhi/cpu-raster.ts`: each triangle
+  clipped to `0 <= z <= w`, mapped by the viewport with row 0 at the top, the pixel centres inside
+  it covered by the top-left rule, and each interstage value interpolated `perspective`, `linear`
+  or `flat` (from the first vertex) as WGSL says. A colour converts as WebGPU converts it to an
+  8-bit unorm texel, and a canvas is shown with `putImageData`. It refuses with a `TypeError` a
+  depth or stencil test, blending, multisampling, another topology, and an entry that reaches a
+  texture, a sampler, a derivative or a barrier (change 0120, item 4 and O6 (a)). The conformance
+  suite gains a `"use typeshade"` form of each program, a CPU leg in Vitest, and five cases that
+  every backend runs (interpolation, flat interpolation, clipping, the fill rule and
+  `front_facing`); WebGL2 does not run the flat case, since GLSL ES 3.00 takes a flat value from
+  the last vertex. The program runtime has a CPU tier on it, internal until milestone M4
+  (`src/runtime/cpu.ts`; no public option reaches it): `load()` takes a
+  program's CPU code from the manifest's `CPU_PROGRAM` key (O2 (a)) and refuses with a `TypeError`
+  a manifest that carries none, one read from JSON or made by `packModule()`; its dispatches and
+  passes run on the CPU backend, and a pass into a canvas takes the canvas's `2d` context. The
+  runtime's own branches for that tier, the lookup of the CPU program and the GPU backends'
+  refusal of one add code to `typeshade/runtime`, so its caps in `scripts/bundle-budget.json`
+  take the measured gzip sizes: single file 160,166 to 160,575 (+409), split initial 40,832 to
+  41,217 (+385) and split total 162,180 to 162,582 (+402). The CPU backend and the rasterizer
+  are in no bundle. The floors and the other subpaths do not change.
+
 - **A constant argument reaches a function under a numerical contract** (#850 N5; Rule 11.22).
   At `-O2`, a call that passes a scalar literal to a function opted in with `numerics(...)` calls
   a copy of it with the literal in place, so `finite-math` folds what the literal decides:

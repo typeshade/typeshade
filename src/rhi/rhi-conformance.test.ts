@@ -2,7 +2,8 @@
 // reaches every member of the interface or says where that member is held instead, its comparison
 // can fail, and the compile gate runs it on both GPU backends. The runs themselves need a device:
 // `bun run gate:compile` runs the suite on WebGPU and on WebGL2 in headless Chromium
-// (`scripts/rhi-conformance-arm.ts`), with a perturbed device as its instrument.
+// (`scripts/rhi-conformance-arm.ts`), with a perturbed device as its instrument, and `cpu.test.ts`
+// runs it on the CPU backend (M3).
 
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
