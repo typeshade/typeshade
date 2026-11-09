@@ -98,7 +98,8 @@ describes it.
   `scripts/run-sharded-tests.ts` launches sharded runs in Node. It orders specifications by
   file, project and pool before the configured Vitest partitioner, preserving duplicate-file
   project coverage across concurrent discovery orders. Unsharded runs use the Vitest CLI.
-  `quality` runs lint, format, the bundle boundary and PR policy checks in parallel.
+  `quality` runs lint, format, the bundle boundary and PR policy checks in parallel. One
+  policy check, `scripts/rule-citation.ts`, holds Rule 13.1 on the pull request's description.
   `check` retains the required `typecheck + unit` name and requires both source checks and
   all pinned shards to succeed. Each TypeScript-version check requires only its own workers.
   A failed, cancelled or unexpectedly skipped dependency fails its aggregate check.
