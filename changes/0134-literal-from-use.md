@@ -1,7 +1,7 @@
 ---
 id: '0134'
 title: A written number takes its type from where the program uses it, so an author writes `1` and `4` and no cast, decimal point or default type
-status: draft
+status: accepted
 rules:
   - '5.1'
   - '5.2'
@@ -736,7 +736,10 @@ Changes 0036 and 0037 excluded these, and surface §13 states them:
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's go-ahead and a merge of this file with `status: accepted`. The
+Accepted. The owner (Seungup) approved acceptance in the Claude Code session on 2026-11-09, in
+Korean ("승인"), after the before and after forms and the decisions were shown (OD-4). The
+approval is recorded by the merge of pull request #1121 with `status: accepted`; the approved
+revision is this file as merged. Duration and cost are not estimated. The
 owner's decisions on Q1 to Q11 are recorded under "Decisions of the owner". Item 5 changes how
 authors write examples. Its implementing pull request is therefore not approved in advance, even
 after acceptance: its body shows one example before and after, and it waits for the owner's
