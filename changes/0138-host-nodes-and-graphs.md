@@ -1,7 +1,7 @@
 ---
 id: '0138'
 title: A host imports a shader module and uses each export as TypeScript does, calls GPU work as nodes, joins nodes into graphs with fuse, keeps uniform and storage data in typed-array views of one memory region with dirty tracking, and runs host CPU code as WebAssembly
-status: draft
+status: accepted
 rules:
   - '6.1'
   - '6.6'
@@ -60,7 +60,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0138, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Identity and status           | Proposal 0138, `status: accepted`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the owner's direction, from a design conversation with the owner in the same session. The date is the drafting date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Request source                | The owner (Seungup), in the Claude Code session of 2026-11-09. Shown the host code that proposal 0120 would give, the owner judged it scattered ("너무 중구난방이예요"), stopped the work of 0120 ("모두 멈춤"), and asked to design from the start how an imported `.shade.ts` is used. The owner's decisions in that conversation are recorded under Owner's decisions. No GitHub issue is recorded.                                                                                                                                                                                                                                                                                                                                                                                        |
 | Applicability / effectivity   | Expected: the host face and host view (`src/compiler/ts/host-face.ts` and its view writer), the call layer (`src/core/host-*.ts`, `resident.ts`, `owner.ts`), `typeshade/fuse` (`src/core/compute/`, the planner), the program runtime (`src/runtime/`), the render hardware interface of 0120 (`src/rhi/`), the Vite plugin and `tshc` (`src/vite.ts`, the host transform of R12, the WebAssembly emit of R16), `docs/language-design.md` Rules 6.1, 6.6, 8.20 to 8.24, 11.7, 11.8, 11.11, 11.13 and 11.17, `docs/use-typeshade-surface.md` §64, §67 and §71, `examples/hosts/`, `src/__api__/surface.md`, and the downstream repositories. The emitted WGSL and GLSL of a shader module do not change except where R10 and R11 generate new entry variants. No release version is assigned. |
@@ -462,7 +462,7 @@ Estimated, in milestones that each leave `main` green:
 Unknown: duration and cost; the planner's reach on WebGL2 and the CPU tier for indirect
 execution and MSAA (they lack both; refusal or a slower path is open item Q7).
 
-Decisions that must be resolved before acceptance:
+Decisions resolved before the milestone that needs each one (the owner's choice at acceptance; Approval and plan record):
 
 - **Q1.** Whether `fuse(fn)` returning a node replaces the immediate scope, with `await fuse(fn)()`
   for today's use, or whether the two take different names.
@@ -474,8 +474,8 @@ Decisions that must be resolved before acceptance:
   at `show`, or at each.
 - **Q5.** Whether `show(image, canvas)` is the one way to a canvas, or whether a canvas is also a
   resource that a graph writes.
-- **Q6.** Whether the host transform of R12 may rewrite an `if` in host code, outside a
-  `"use typeshade"` file, and how the editor shows that the condition is a GPU value.
+- **Q6.** Resolved by decision 13: a graph that branches on a GPU value is written in a
+  `"use typeshade"` file, so no host code is rewritten (R12).
 - **Q7.** On WebGL2 and the CPU tier, a refusal with the reason or a slower path for indirect
   execution, MSAA and a GPU-value condition.
 - **Q8.** The names of the new exports (`zeros`, `array`, `uniform`, `texture`, `show`, `device`,
@@ -533,10 +533,35 @@ The owner decided the three conflicts on 2026-11-09 (decisions 13 to 15). No fin
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require: the owner's decision in the
-conversation, or a review, and the merge of this file with `status: accepted`; the answers to
-Q1 to Q16; the approved scope and milestones; and the amendment to proposal 0120 named under
-What it touches.
+- **Decision.** The owner accepted this proposal on 2026-11-09 in the Claude Code session
+  ("승인"). Asked how to treat the open questions, the owner chose "방향 수락, 질문은 단계에서":
+  the direction is accepted now, and each open question is decided by the owner before the
+  milestone that needs it starts. The merge of pull request
+  [#1126](https://github.com/typeshade/typeshade/pull/1126) with `status: accepted` records the
+  acceptance.
+- **Approved scope.** R1 to R17, the owner's decisions 1 to 15, and the front matter as it
+  stands. Proposal 0120's item 3, item 4, item 6 and its milestones from M4 part 2c onward are
+  replaced; an amendment to 0120 withdraws them in its own pull request before milestone 1 of
+  this proposal is implemented.
+- **Open questions by milestone.** Each is asked of the owner before its milestone starts:
+
+| Milestone                      | Questions           |
+| ------------------------------ | ------------------- |
+| 1. Resources                   | Q8, Q9, Q13's text  |
+| 2. WebAssembly CPU tier        | Q10, Q12 (CSP path) |
+| 3. Non-blocking calls          | Q4, Q14             |
+| 4. Graphs for compute          | Q1, Q2, Q16         |
+| 5. Rendering                   | Q3, Q5, Q15         |
+| 6. Control flow                | Q16 (conditions)    |
+| 7. State and anti-aliasing     | Q7                  |
+| 8. Encoder layer, 9. Migration | none open           |
+
+- **Responsibilities.** Implementation is not yet assigned. Each implementing pull request
+  carries `Change: 0138`. A pull request that adds or renames a host-facing form an author
+  writes shows one example before and after, and waits for the owner's "merge" (CLAUDE.md,
+  Merging).
+- **Milestones.** 1 to 9 in the order of the Draft impact estimate. Duration and cost are not
+  estimated.
 
 ### Configuration and validation record
 
