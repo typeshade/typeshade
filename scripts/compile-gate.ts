@@ -160,6 +160,9 @@ import { entryBundle } from './entry-calls.js';
 import { ON_WEBGL2, PROGRAM_CASES } from './compute-case.js';
 import type { EntryReport } from './entry-calls-page.js';
 import { colours, differences, expectedFrame, FRAMES, type FrameName } from './render-case.js';
+import { samplerPairFailures } from './sampler-pair-cases.js';
+import { kernelLengthFailures } from './kernel-length-cases.js';
+import { bareUniformFailures } from './bare-uniform-cases.js';
 import {
   compile,
   compileModuleJs,
@@ -186,6 +189,8 @@ import { allKindsModule, type AllKindsNames } from '../src/core/testing/all-kind
 import { spellingsOf, type TargetSpellings } from '../src/core/spelling-plan.js';
 
 import { gateBrowserSettings, verifyGateGpu } from './gate-browser.js';
+import { rhiConformanceBundle, rhiConformanceVerdicts } from './rhi-conformance-arm.js';
+import type { RhiConformanceReport } from './rhi-conformance-page.js';
 
 /** Everything `createRenderPipeline` needs beyond the module, derived from the IR entries.
  *  `null` when this example is not a render pair, or when one of its IO types has no WebGPU
@@ -1626,12 +1631,12 @@ function wantedFeatures(): string[] {
 }
 
 /** A page on loopback — a secure context, so `navigator.gpu` exists. Serves one empty document. */
-function serve(entries: string): Promise<Server> {
+function serve(entries: string, rhi: string): Promise<Server> {
   return new Promise((resolveServer) => {
     const server = createServer((req, res) => {
-      if (req.url === '/entries.js') {
+      if (req.url === '/entries.js' || req.url === '/rhi.js') {
         res.setHeader('content-type', 'text/javascript; charset=utf-8');
-        res.end(entries);
+        res.end(req.url === '/rhi.js' ? rhi : entries);
         return;
       }
       res.setHeader('content-type', 'text/html; charset=utf-8');
@@ -2508,6 +2513,24 @@ function entryVerdicts(r: EntryReport, b: { compute: number; fragment: number })
   }
   failures += renderVerdicts(r.render, 'webgpu');
   failures += renderVerdicts(r.glRender, 'webgl2');
+  const samplerFailures = samplerPairFailures(r.samplers);
+  const lengthFailures = kernelLengthFailures(r.kernelLengths);
+  const uniformFailures = bareUniformFailures(r.bareUniforms);
+  for (const failure of uniformFailures) console.error(`FAIL bare uniforms: ${failure}`);
+  failures += uniformFailures.length;
+  console.log(
+    `bare uniforms: ${r.bareUniforms.rows.length} host/manifest calls, ${r.bareUniforms.blocks.length} native block probes, independent pixels and changed-value/guard instruments · failures: ${uniformFailures.length}`,
+  );
+  for (const failure of lengthFailures) console.error(`FAIL kernel lengths: ${failure}`);
+  failures += lengthFailures.length;
+  console.log(
+    `kernel lengths: ${String(r.kernelLengths.rows.length)} calls on WebGPU/WebGL2/CPU, independent element counts and changed-length instruments · failures: ${String(lengthFailures.length)}`,
+  );
+  for (const failure of samplerFailures) console.error(`FAIL sampler pairs: ${failure}`);
+  failures += samplerFailures.length;
+  console.log(
+    `sampler pairs: ${String(r.samplers.rows.length)} sources on WebGPU/WebGL2, independent pixels and wrong-sampler instruments · failures: ${String(samplerFailures.length)}`,
+  );
   // The canvas: the same picture as the `passes` frame, turned over onto the screen and back.
   {
     const got = r.glCanvas;
@@ -3011,7 +3034,7 @@ async function main(): Promise<number> {
   }
 
   const bundle = await entryBundle();
-  const server = await serve(bundle.js);
+  const server = await serve(bundle.js, await rhiConformanceBundle());
   const port = (server.address() as AddressInfo).port;
   const browser = await chromium.launch(browserSettings.launch).catch((error: unknown) => {
     server.close();
@@ -3019,6 +3042,7 @@ async function main(): Promise<number> {
   });
   let report: PageReport;
   let entryReport: EntryReport;
+  let rhiReport: RhiConformanceReport;
   let graphReport: GraphVerdict[];
   let gpuGraphReport: GpuGraphVerdict[];
   let valueReport: { id: string; out: number[]; errors: string[] }[];
@@ -3075,6 +3099,14 @@ struct Out { @builtin(position) pos: vec4<f32> }
     await page.waitForFunction(() => '__runEntries' in globalThis);
     entryReport = await page.evaluate(() =>
       (globalThis as unknown as { __runEntries(): Promise<EntryReport> }).__runEntries(),
+    );
+    // The RHI conformance leg (change 0120): one suite on the WebGPU and the WebGL2 backend.
+    await page.addScriptTag({ url: '/rhi.js', type: 'module' });
+    await page.waitForFunction(() => '__runRhiConformance' in globalThis);
+    rhiReport = await page.evaluate(() =>
+      (
+        globalThis as unknown as { __runRhiConformance(): Promise<RhiConformanceReport> }
+      ).__runRhiConformance(),
     );
   } catch (error) {
     primaryFailed = true;
@@ -3169,6 +3201,7 @@ struct Out { @builtin(position) pos: vec4<f32> }
   failures += pixelVerdict(pixelReport);
   failures += graphVerdicts(allGraphs, graphReport, gpuGraphReport, GRAPH_SIZE);
   failures += entryVerdicts(entryReport, bundle);
+  failures += rhiConformanceVerdicts(rhiReport);
   const withGlsl = examplesOnly.filter((v) => v.glslErrors !== null).length;
   const withPipeline = examplesOnly.filter((v) => v.pipelineErrors !== null).length;
   console.log(

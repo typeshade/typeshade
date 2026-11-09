@@ -26,6 +26,7 @@ import { collectModuleConsts } from './module-const.js';
 import { collectBindings } from './bindings.js';
 import { collectOverrides } from './overrides.js';
 import { collectModuleVars } from './module-vars.js';
+import { separateModuleVars } from './module-var-names.js';
 import { collectStructs, emittedStructDecls, type CollectedStruct } from './structs.js';
 import type { DeclaredSymbol, LoweredExpression } from './symbols.js';
 import type { SourceSpan } from '../../core/ir/span.js';
@@ -53,7 +54,10 @@ import {
   type LinkedProgram,
   type LinkRoot,
 } from './link.js';
-import { reportIntegerLiteralDeprecations } from './integer-literal-deprecation.js';
+import {
+  reportFieldLiteralDeprecations,
+  reportIntegerLiteralDeprecations,
+} from './integer-literal-deprecation.js';
 import {
   collectDiagnosticDirectives,
   derivativeUniformitySeverity,
@@ -311,7 +315,7 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   ]);
   const overrides = collectOverrides(sourceFile, diagnostics, symbols, glslNames);
   // Module variables (§24) after the consts their initializers may name.
-  const vars = collectModuleVars(
+  let vars = collectModuleVars(
     sourceFile,
     diagnostics,
     symbols,
@@ -324,6 +328,7 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   // then met `scope.define`, which throws — an exception out of `compile()` and out of the
   // language service's `getDiagnostics()`. Reported here, where all three lists exist.
   reportCrossDeclarationCollisions(sourceFile, diagnostics, consts, bindings, overrides, vars);
+  vars = separateModuleVars(sourceFile, vars, [...consts, ...bindings, ...overrides]);
   // The CollectedStructs whole, not their decls: #23's TS8029 names the spelling the author
   // used (`class`, `interface` or `type`), which only the collected form carries.
   // A method on a kernel function's array is written into the kernel function's body, and the
@@ -457,6 +462,9 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   }
   // A name nothing declares in a body no call lowered, which the lowering never read (Rule 2.1).
   reportUndeclaredValues(sourceFile, diagnostics);
+  // Field warnings use the actual declared type and leave refused initializers alone.
+  if (options.deprecations === true)
+    reportFieldLiteralDeprecations(sourceFile, diagnostics, symbols);
   // The decorated form of the migration release, read as written and warned once each
   // (change 0111, milestone 4).
   warnDecoratedForm(sourceFile, diagnostics);

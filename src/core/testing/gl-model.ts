@@ -28,6 +28,7 @@ import { lowerMemoryWords, type WordPlan } from '../passes/memory-words.js';
 import { drain, evalExpr, makeCtx, runFunction, type StepCtx } from '../debug/interp.js';
 import { dispatchEach, type WorkgroupCount } from '../debug/dispatch.js';
 import { schedulePasses, type Scheduled, type Vec3 } from '../debug/phased.js';
+import { splitF64 } from '../fp64/df64-lib.js';
 
 /** What a run of the model did. */
 export interface GlModelReport {
@@ -75,6 +76,21 @@ class Packer {
 
   pack(t: ShaderType, v: CpuValue, out: Uint32Array, at: number): void {
     switch (t.kind) {
+      case 'f64': {
+        const [hi, lo] = splitF64(v as number);
+        out[at] = f32Bits(hi);
+        out[at + 1] = f32Bits(lo);
+        return;
+      }
+      case 'vec64': {
+        const plane = this.stride({ kind: 'vec', n: t.n, elem: 'f32' });
+        (v as number[]).forEach((x, k) => {
+          const [hi, lo] = splitF64(x);
+          out[at + k] = f32Bits(hi);
+          out[at + plane + k] = f32Bits(lo);
+        });
+        return;
+      }
       case 'scalar':
       case 'atomic': {
         const s = t.kind === 'scalar' ? t.scalar : t.elem;
@@ -116,6 +132,14 @@ class Packer {
   /** Mark in `out` each word of a value of `t` at `at` that holds an `f32`. */
   floats(t: ShaderType, v: CpuValue, out: Uint8Array, at: number): void {
     switch (t.kind) {
+      case 'f64':
+        out[at] = out[at + 1] = 1;
+        return;
+      case 'vec64': {
+        const plane = this.stride({ kind: 'vec', n: t.n, elem: 'f32' });
+        for (let k = 0; k < t.n; k++) out[at + k] = out[at + plane + k] = 1;
+        return;
+      }
       case 'scalar':
         if (t.scalar === 'f32') out[at] = 1;
         return;
@@ -148,6 +172,15 @@ class Packer {
 
   unpack(t: ShaderType, words: Uint32Array, at: number, like: CpuValue): CpuValue {
     switch (t.kind) {
+      case 'f64':
+        return bitsF32(words[at]!) + bitsF32(words[at + 1]!);
+      case 'vec64': {
+        const plane = this.stride({ kind: 'vec', n: t.n, elem: 'f32' });
+        return Array.from(
+          { length: t.n },
+          (_, k) => bitsF32(words[at + k]!) + bitsF32(words[at + plane + k]!),
+        );
+      }
       case 'scalar':
       case 'atomic': {
         const s = t.kind === 'scalar' ? t.scalar : t.elem;

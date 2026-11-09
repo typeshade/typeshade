@@ -155,7 +155,7 @@ export function f(x: f32): f32 { return sqrt(x) * PI; }
       service.getHover('a.ts', service.positionAt('a.ts', source.lastIndexOf(needle) + 1))
         ?.contents ?? '';
     expect(at('sqrt(x)')).toContain('(x: number) => number');
-    expect(at('PI;')).toContain('number');
+    expect(at('PI;')).toContain('const PI: f32');
   });
 });
 

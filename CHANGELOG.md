@@ -17,6 +17,39 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **WebGPU scratch acquisition counts** (change 0128, #992). New fuse reports include
+  `webgpuScratch` allocation and reuse counts and their buffer descriptor bytes. Empty scopes,
+  fused locals and CPU or WebGL2 plans report zero. Older reports may omit the member;
+  `mergeReports` preserves that unknown state instead of treating it as zero.
+
+- **Pure shader root aliases** (change 0126, #780). A file containing only the shader directive
+  and one value export-star retains its terminal target's private declarations, module
+  directives and binding slots through alias chains. Ordinary imports remain selective.
+  Named host exports, requested-path identity and existing package naming remain unchanged.
+
+- **Optional empty fragment bindings** (change 0125, #454). A full-screen fragment entry
+  that reaches no host-supplied binding accepts `fs(canvas)`, `fs(canvas, undefined)` or
+  `fs(canvas, {})`. Runtime-owned guards do not require an argument; reached authored bindings
+  remain required. Compute argument positions and existing invalid-value checks are unchanged.
+
+- **A statement budget in debug launch configurations** (change 0124, #215).
+  `DebugLaunchConfig.maxSteps` accepts a positive integer and forwards it to the debugger's
+  existing session budget. The resolver and JSON Schema reject invalid values. Omission
+  remains unbounded; stepping and resume share the same budget.
+
+- **Scalar `f64` module constants** (change 0123, #967). Literal expressions, earlier constants
+  and permitted builtin calls fold to a double for the CPU and a literal pair for both GPU
+  targets. Explicit `f32` boundaries are preserved, and nonfinite or unrepresentable results
+  are diagnosed at the declaration. Namespace constants and unwritten static fields share
+  the same behavior. An earlier `f32` constant contributes its recorded compile-time value,
+  which need not reproduce its GPU builtin expression. The editor now gives `Math` constants
+  the compiler's `f32` type, while literal `f64` contexts retain their double values.
+
+- **Portable fusion identities** (change 0122, #805). `hostFace` accepts an exact `origin`
+  independent of its source `fileName`. Vite's opt-in `originNamespace` combines a package
+  namespace with each module's path relative to the project root. Distinct packages need
+  distinct namespaces. Defaults, source paths and shader behavior remain unchanged.
+
 - **The subgroup variant of a kernel function's WGSL** (change 0119, stage 1). A kernel function
   whose loop reduces a `u32` or an `i32` with any operator, or an `f32` with `min` or `max`, or
   scatters into an integer array with a write a lane makes at most once, gets a second text
@@ -91,6 +124,68 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   split initial from 36,465 to 36,469; the floors and `typeshade/emit` do not change.
 
 ### Changed
+
+- **Each fuse report group counts its device commands (§71, change 0121).** Required `group.dispatches` includes WebGPU push stages, reduction folds and store-only entries, WebGL2 draws, and zero on the CPU. Group counts sum to the plan total. Hand-built `FuseReport` groups must add the actual count; CPU groups add `dispatches: 0`. This source-breaking type change requires a new minor release before 1.0. Bundle measurements add 23 bytes gzip to runtime, 76 to fuse, 75 to algorithms and 48 to random; split aggregate grows by 100 bytes for runtime and 127 for fuse, with floors unchanged.
+- **The program runtime records through a render hardware interface on WebGPU** (change 0120,
+  milestone M1). `src/rhi/rhi.ts` declares the interface, internal and in no subpath, and
+  `src/rhi/webgpu.ts` is its WebGPU backend, into which `src/runtime/gpu.ts` is folded.
+  `createRuntime()`'s WebGPU tier makes its pipelines, bind groups, buffers, textures, samplers,
+  frames and passes through it and calls no `GPUDevice`, `GPUQueue` or `GPUCommandEncoder`
+  function itself; a `Resident` it binds still makes its buffer on the native device, in the call
+  layer (milestone M4). The native calls, their descriptors and the frames are the ones it made
+  before, and its API does not change. Two arguments that are not GPU objects now refuse with a
+  `TypeError` before WebGPU sees them: `rt.submit()` given something that is not a
+  `GPUCommandEncoder` (with the sentence an empty call has), and a geometry's `vertices` or
+  `indices.buffer` given an object that is not a `GPUBuffer`. The WebGL2 tier is unchanged
+  (milestone M2). The interface and its backend add code to the runtime, so the caps of
+  `typeshade/runtime` in `scripts/bundle-budget.json` take the measured gzip sizes: single file
+  154,373 to 155,924 (+1,551), split initial 39,339 to 40,779 (+1,440) and split total 156,382 to
+  157,876 (+1,494). The floors and the other subpaths do not change.
+- **The program runtime records through the render hardware interface on WebGL2** (change 0120,
+  milestone M2). `src/rhi/webgl2.ts` is the interface's WebGL2 backend over a
+  `WebGL2RenderingContext`: a storage buffer is a data texture of the element type the buffer
+  carries (`elem`), its programs are the GLSL ES 3.00 programs the manifest carries, bound by
+  name, its encoder runs each command as it is recorded, and it keeps WebGPU's conventions (row 0
+  at the top, `position`, depth, `frontFace`, the canvas turned over as it is copied to the
+  screen). `createRuntime()`'s WebGL2 tier (`src/runtime/gl.ts`, `gl-draw.ts`) makes its
+  textures, samplers, pipelines and passes through it and calls no WebGL2 function itself; a
+  dispatch still runs through the call layer's executor (`src/core/gl-compute.ts`), handed the
+  backend's context, until milestone M4. The calls the context receives, their order within a
+  pass, the errors and their texts and the frames are the ones it made before, and its API does
+  not change; the buffers a draw binds are made before its pipeline is bound rather than after.
+  `src/rhi/rhi-conformance.ts` is one suite of buffers, textures, passes and a dispatch, each
+  case against an answer computed in JavaScript, which `bun run gate:compile` runs on the WebGPU
+  and the WebGL2 backend in headless Chromium. The backend adds code to the runtime's deferred
+  WebGL2 chunk, so the caps of `typeshade/runtime` in `scripts/bundle-budget.json` take the
+  measured gzip sizes: single file 155,924 to 160,166 (+4,242), split initial 40,779 to 40,832
+  (+53) and split total 157,876 to 162,180 (+4,304). The floors and the other subpaths do not
+  change.
+
+- **The render hardware interface has a CPU backend** (change 0120, milestone M3).
+  `src/rhi/cpu.ts` is a software device: buffers and textures are bytes in host memory, and a
+  program is a module's CPU tier code (Rule 11.7), a `CpuProgram` (`src/rhi/cpu-program.ts`), in
+  place of shader text. A dispatch runs every invocation of every workgroup in the call layer's
+  order, with the workgroup memory zeroed for each workgroup, and writes what the call layer's CPU
+  tier writes. A render pass draws a `triangle-list` with `src/rhi/cpu-raster.ts`: each triangle
+  clipped to `0 <= z <= w`, mapped by the viewport with row 0 at the top, the pixel centres inside
+  it covered by the top-left rule, and each interstage value interpolated `perspective`, `linear`
+  or `flat` (from the first vertex) as WGSL says. A colour converts as WebGPU converts it to an
+  8-bit unorm texel, and a canvas is shown with `putImageData`. It refuses with a `TypeError` a
+  depth or stencil test, blending, multisampling, another topology, and an entry that reaches a
+  texture, a sampler, a derivative or a barrier (change 0120, item 4 and O6 (a)). The conformance
+  suite gains a `"use typeshade"` form of each program, a CPU leg in Vitest, and five cases that
+  every backend runs (interpolation, flat interpolation, clipping, the fill rule and
+  `front_facing`); WebGL2 does not run the flat case, since GLSL ES 3.00 takes a flat value from
+  the last vertex. The program runtime has a CPU tier on it, internal until milestone M4
+  (`src/runtime/cpu.ts`; no public option reaches it): `load()` takes a
+  program's CPU code from the manifest's `CPU_PROGRAM` key (O2 (a)) and refuses with a `TypeError`
+  a manifest that carries none, one read from JSON or made by `packModule()`; its dispatches and
+  passes run on the CPU backend, and a pass into a canvas takes the canvas's `2d` context. The
+  runtime's own branches for that tier, the lookup of the CPU program and the GPU backends'
+  refusal of one add code to `typeshade/runtime`, so its caps in `scripts/bundle-budget.json`
+  take the measured gzip sizes: single file 160,166 to 160,575 (+409), split initial 40,832 to
+  41,217 (+385) and split total 162,180 to 162,582 (+402). The CPU backend and the rasterizer
+  are in no bundle. The floors and the other subpaths do not change.
 
 - **A constant argument reaches a function under a numerical contract** (#850 N5; Rule 11.22).
   At `-O2`, a call that passes a scalar literal to a function opted in with `numerics(...)` calls
@@ -1599,6 +1694,200 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `docs/ir-builder.md` describes the builder for engines and tools.
 
 ### Fixed
+
+- **Conservative uniformity for helper conditions** (#180, #1088). Restored the previous
+  `unknown` floor for every user call. The single-return helper proof could accept a barrier
+  after a reference write or compound assignment left the caller's value or control-flow facts
+  stale. The proof is deferred until those origins are sound; `edge(k)` again keeps its prior
+  conservative refusal. Existing inline reference, capture and compound-assignment limitations
+  remain open in #1088.
+
+- **Vite imports after the runtime is ready.** The plugin pre-bundles `typeshade/fuse`
+  with the runtime and generated op library. A later shader-host import no longer starts
+  dependency optimization that reloads the page or returns HTTP 504 for its previous chunks.
+
+- **Bun host typings diagnostics in shaders** (#321 names#15). An unknown Bun value, function,
+  constructor or type now keeps the compiler's one refusal instead of also suggesting host
+  type packages. Only matching names in the same document are merged; independent errors remain.
+
+- **Inherited abstract constructors** (#321, names#19). A derived `super(...)` now reaches a
+  constructor inherited through an abstract intermediate class. Defaults, required arguments
+  and field-initializer order follow the same path as concrete inheritance.
+
+- **Failed Resident inputs reach dependent outputs** (change 0129, #998). Generated kernel,
+  compute and fragment calls reject failed content inputs with the same error at their queue
+  position. Independent work continues; successful write-only calls recover destinations,
+  including partial and zero-trip work. Fuse keeps one failure boundary and admits an earlier
+  recovery before a later reader. Rejected draws preserve their image. Public metadata and
+  shaders remain unchanged; manually encoded runtime Frames retain their separate contract.
+  Paired gzip measurements against `4c7da1a9`: runtime 154,059 → 154,203 bytes
+  (split initial 39,148 → 39,144; aggregate 156,022 → 156,144), fuse 114,318 → 114,475
+  (initial 15,892 → 15,903; aggregate 114,834 → 114,987), algorithms 51,757 → 52,189,
+  and random 33,446 → 33,557. Emit remains 118,605 bytes. Budgets cover the measured private
+  facts and admission code; compiler imports, dynamic-code checks and floors remain unchanged.
+  After integrating main `f5f541d9` (scratch metrics), paired Bun 1.4.4 gzip measurements are:
+  runtime 154,240 → 154,373 bytes (initial 39,339 → 39,329; aggregate 156,276 → 156,382),
+  fuse 114,448 → 114,596 (initial 15,992 → 16,001; aggregate 114,985 → 115,128).
+  Emit, algorithms and random keep the measurements above. Only exceeded caps change; floors stay unchanged.
+
+- **Class field initializer range diagnostics** (#321 types#12). An integer-written value
+  outside its declared `i32` or `u32` range now uses the existing range sentence and points
+  to the offending expression. Other mismatches use assignment diagnostics with cast remedies.
+  Compiler and editor agree; accepted initializers and emitted programs keep their meaning.
+
+- **Generic call diagnostic merging** (#321, classes#14). A wrong type-argument count now
+  keeps the compiler's single diagnostic in the editor and `tshc check`. Independent
+  TypeScript errors and value-argument count errors retain their diagnostics.
+
+- **Local call diagnostic names** (#321, classes#14). A refused call names its written
+  identifier instead of the lifted function name, including locals inside methods,
+  namespaces and generic functions. Diagnostic codes and source spans are unchanged.
+
+- **Class-field deprecation warnings** (#321, misc#8). Unannotated instance and static fields
+  that take the `f32` default now report the opt-in `TS8053` warning. Refused initializers add
+  no warning, and remedies preserve private names and optional fields. Types and emitted code
+  are unchanged.
+
+- **Bare uniforms on WebGL2** (#452, change 0127). Scalars, vectors and supported matrices
+  now use private std140 blocks while keeping their host values and layouts. Both draw paths
+  allocate the linked block size without changing packed bytes. Two-row matrices remain refused.
+  Paired Bun 1.4.4 measurements against main `89a05342` change runtime from 153,258 to
+  153,596 gzip bytes (split total 155,231 to 155,528), emit from 117,931 to 118,605
+  (one asset, also its split initial/total), and fuse from 114,008 to 114,160
+  (split total 114,512 to 114,667). Runtime/fuse initial downloads, algorithms and random
+  are unchanged. Only the exceeded caps move to those measurements; floors and the
+  compiler/CSP boundary checks remain in force.
+
+- **Output-pane backend diagnostics** (#321, misc#5). GLSL shortfalls now use the compiler's
+  warning text for render modules and stay quiet without a render entry. WGSL failures remain
+  errors on every output target. A render+compute module's GLSL uses the compiler's render
+  selection. Output requests leave cached document diagnostics unchanged.
+
+- **Module-variable editor diagnostics** (#321, control#18). A retired `perInvocation` type,
+  a `workgroup` variable declared `const`, or a `workgroup` type with no argument now shows
+  the compiler's existing TS8033 once. Independent type and name errors remain visible.
+
+- **Integer-literal deprecation warnings** (#321, misc#6 and misc#7). Counted-loop initializers
+  that already take an integer type no longer claim to be `f32`. Hexadecimal, octal and binary
+  literals suggest an `f32` annotation instead of an invalid decimal-point suffix.
+  Compiler and editor checks keep the same spans, and the option changes no emitted code.
+
+- **Array lengths in WebGL2 kernels** (#689). Eligible kernel loops read array parameter
+  `.length` using checked element counts, including subviews and flat vector arrays. This
+  restores WebGL2 execution for `inclusiveScan`, `exclusiveScan` and `compact`. An array read
+  only for its length needs no element upload.
+  Paired Bun 1.4.4 gzip measurements change runtime from 153,254 to 153,258 bytes
+  (split total 155,226 to 155,231), fuse from 114,002 to 114,008 (split total 114,510
+  to 114,512), algorithms from 51,458 to 51,757 and random from 33,441 to 33,446.
+  Algorithms and random have one split asset each. Floors, initial runtime/fuse caps and
+  emitter budgets remain unchanged. The algorithms increase includes the three restored
+  GLSL artifacts.
+
+- **Refused base constructor diagnostics** (#321, names#19). `super()` no longer adds an
+  unknown generated-function diagnostic after the base constructor's signature was refused.
+  The original declaration diagnostic and independent call or body errors remain.
+
+- **Class-member diagnostic contracts** (#321, classes#24). A decorated constructor parameter
+  property keeps its `TS8035` field-declaration message without a second `TS8028` at the same
+  decorator. Ordinary parameters still report invalid decorators. Three existing class-member
+  messages now have exact compiler and editor tests.
+
+- **Misplaced loop-control diagnostics** (#321, control#21 and control#28). The editor reports
+  the compiler's existing `TS8009` once for a `break` or `continue` without a target in its
+  function. Matching TypeScript diagnostics are merged only at the same statement; unrelated
+  errors and the existing top-level refusals remain. Both refusal texts now have exact code
+  and message tests.
+
+- **GLSL sampler conflicts** (#448). GLSL emission refuses a texture sampled with different
+  samplers, including across selected vertex and fragment entries; WGSL stays available.
+  WebGL2 pipeline creation rejects the same conflict before compiling a GL program.
+  A load-only stage preserves the other stage's sampler, and depth comparisons retain
+  their comparison sampler in render metadata. Bind the texture through two declarations
+  to use two sampler states on WebGL2.
+  Paired Bun 1.4.4 measurements raise the runtime gzip budget from 153,152 to 153,254 bytes
+  and its split total from 155,126 to 155,226; initial download falls from 38,637 to 38,635.
+  The emitter's single and split gzip size rises from 117,598 to 117,931 bytes.
+  Floors and the other three subpath budgets stay unchanged.
+
+- **Scratch buffer reuse** (#992, pool portion). A device-owned fuse plan now returns its
+  scratch buffers to the owner's bounded pool. A later plan reuses compatible storage and
+  clears it before the first dispatch. Expired scratch handles stay unusable, failed plans
+  release their leases, and disposal frees the pooled buffers. `FuseReport` is unchanged.
+  A zeroed ordinary array that reuses scratch storage gets a new buffer when its first
+  binding needs different padding, including scalar storage first bound as `vec3` values.
+  Later bindings keep that buffer, its pending clear and earlier writes until submission.
+  Mixed-layout interpretation retains the existing first-binding behavior.
+  Paired Bun 1.4.4 gzip measurements against `1492dbda` change runtime from 153,596 to
+  154,059 bytes (split initial 38,637 to 39,148; total 155,528 to 156,022), and fuse from
+  114,160 to 114,318 (split initial 15,724 to 15,892; total 114,667 to 114,834).
+  Only exceeded caps change; floors, emitter, algorithms and random budgets remain unchanged.
+
+- **Entry IO name diagnostics** (#321, misc#10). An unknown builtin or IO attribute name
+  no longer produces missing-attribute and missing-position follow-ups. The editor keeps the
+  compiler's unknown-builtin sentence at the written name. Independent field and option errors
+  remain visible.
+
+- **Malformed IO attribute arguments** (#321 misc#16). `builtin` and `location` now reject
+  missing, extra, or wrongly shaped arguments in the compiler and editor. Location literals
+  must be non-negative integers. A malformed field attribute no longer causes missing-IO or
+  missing-position follow-up errors; independent option errors remain visible.
+
+- **Array min/max element types** (#321, types#19). Arrays of structs, matrices, arrays or
+  booleans now receive one `TS8003` diagnostic in the compiler and editor, including arrays
+  with one element. Numeric scalar and vector lowering remains unchanged.
+
+- **Compute-only operations through helpers** (#321, control#14 and control#15). Vertex and
+  fragment entries now refuse workgroup memory and barriers reached through helpers or
+  accessors, including direct workgroup writes. Existing diagnostic text is preserved.
+  A use in another shader file is reported at the excluded entry so the editor shows it.
+
+- **Nested atomic module variables** (#321, control#16). A private module variable containing
+  an atomic through structs or arrays now receives the existing `TS8033` diagnostic in the
+  compiler and editor. Workgroup and storage declarations remain accepted. The workgroup
+  initializer remedy no longer suggests moving an atomic-containing value to private memory.
+
+- **Integer constant index bounds** (#321, control#9). Module, local, namespace and static
+  integer constants now receive the existing `TS8016` diagnostic when their proven index is
+  outside a fixed array, vector or matrix. Float-derived and runtime values remain outside
+  this conservative proof; the compiler and editor report the same authored access span.
+
+- **Builtin field type errors are reported once** (#321, types#10). The compiler and editor
+  report the error at the field declaration, even when several entries use its struct.
+  Entry-specific stage checks and direct parameter type checks remain in place.
+
+- **Inherited static reads keep their written class names (#987).** `TS8070` and fusion reports
+  distinguish `Base.OFFSET` from `Derived.OFFSET`, including imported aliases. Both names still
+  read the same field; shader text and shared storage stay unchanged.
+
+- **Switch validation** (#321, control#10 and control#11). A case outside its `i32` or `u32`
+  selector's range now reports `TS8017` before emitting invalid WGSL. A second `default` reports
+  `TS8017` instead of replacing the first body. The compiler and editor show the same refusal once.
+
+- **Integer `min` and `max` scatters run on WebGPU (#761).** The proof treated the target read
+  in `best[k] = min(best[k], value)` as an independent read across iterations and kept the loop
+  on the CPU. It now recognizes that read as part of the atomic combine, in either operand
+  order. Reads used to compute the key, other operands and separate reads still undergo the
+  existing independence checks. The signed and unsigned forms keep the caller's initial values.
+
+- **WebGL2 compute writes emulated-double storage values** (#1021). Scalar doubles retain
+  their hi/lo words, and vectors retain their separate hi/lo planes, including vec3 padding.
+  Writes split at log boundaries and subsequent loads preserve the low words. The load-time
+  emitter grows from 117,301 to 117,598 gzip bytes (+297) with Bun 1.4.4; its single-file and
+  split initial/total budgets record those measurements. Other budgets and floors are unchanged.
+
+- A local function that takes a function argument no longer reports a captured variable as undeclared when its initializer was already refused (#967). Compiler and editor retain the original error and still diagnose calls before a captured declaration.
+
+- A mutable static field remains readable beside a parameter with its flattened name (#1009). The module variable has a distinct internal name, while authored parameter names stay intact across CPU execution, optimization and WGSL/GLSL emission.
+
+- Calls through refused function-value aliases no longer add an unknown-function error. Array-length generics are refused once at their declaration with a usable alternative, and ECMAScript number predicates name valid f32 bit tests instead of suggesting the enclosing helper. Compiler and editor agree (#794).
+
+- A missing field in an abstract class's inherited body is reported once with the affected class names (#975). Compiler and editor keep different source positions and different remedies separate.
+
+- Generated CPU functions reuse a fixed-width buffer for their `inout` return values instead of allocating an array on each call (#961). Nested calls and interpreter fallbacks retain their existing results.
+
+- A call of a declared method on an abstract receiver now explains that the class has no instance and names the concrete-class remedy, instead of claiming the method does not exist. Compiler and editor retain TS8035 (#1008).
+
+- Resolve a namespace class's short base name in its enclosing namespaces before the file scope. Sibling and enclosing bases now contribute their inherited fields and methods (#976).
 
 - **The call checks a read under a guard on the counter over the iterations the guard keeps (#997).**
   A kernel function's call checks each array a loop reads at `a*i + c` against its length before it

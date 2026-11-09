@@ -60,7 +60,8 @@ import {
 } from '../unknown-names.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { spanOf, withSpan } from '../span.js';
-import { retargetIntLitCtx } from '../lit-coerce.js';
+import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
+import { numericMismatch } from '../numeric.js';
 import { lowerExpression } from './expression.js';
 import { lowerGenericCall, lowerUserCall } from './expression-misc.js';
 import { lowerLValue } from './statement.js';
@@ -1216,6 +1217,15 @@ export function collectClassFunctions(
   const out: ClassFunction[] = [];
   const byName = new Map(structs.map((s) => [s.decl.name, s]));
   const constructed = namesConstructed(sourceFile, structs, byName);
+  // An abstract class can be constructed as the base part of a concrete object. Keep its
+  // inherited constructor when a written super() reaches it, without adding unused copies.
+  const superTargets = new Set<string>();
+  for (const struct of structs) {
+    const body = struct.members?.ctor?.body;
+    if (body === undefined || !callsSuper(body)) continue;
+    const target = superCtorOf(struct, byName);
+    if (target !== undefined) superTargets.add(target.fn);
+  }
   const reported = new Set<string>();
   // The bodies each class emits, found for every class before any is lowered: whether a method
   // changes its object can depend on another class's, `this.inner.bump()` on `Inner.bump`.
@@ -1228,8 +1238,8 @@ export function collectClassFunctions(
     // dead copy per instance, under a name no call site can reach.
     const own =
       struct.binding !== undefined ? effective.bodies.filter((b) => !b.isStatic) : effective.bodies;
-    // An abstract class is a base and never a value, so it contributes no instance method and
-    // no constructor of its own; its bodies are lowered into each concrete class below. Its
+    // An abstract class is a base and never a value, so it contributes no instance method of
+    // its own; its bodies are lowered into each concrete class below. Its
     // statics are functions like any other and are kept, but for one that builds its value with
     // `new this()` under the `this` parameter of 0020: `this` is the class the call names, and
     // an abstract class has no instance to build, so that body is lowered for each concrete
@@ -1451,17 +1461,16 @@ export function collectClassFunctions(
         out.push(cf);
       }
       // A derived class inherits its base's field initializers and, when it declares none of its
-      // own, its constructor (T5, #92). An abstract class is never constructed, so it has no
-      // constructor function of its own; the body reaches each concrete class through the same
-      // inheritance.
+      // own, its constructor (T5, #92).
       const fieldInits = effective.fieldInits;
       // An abstract class is never `new`ed, but a derived constructor's `super(...)` calls its
-      // constructor, so one it declares itself is still emitted.
-      const found = struct.abstract
-        ? struct.members?.ctor
-          ? { node: struct.members.ctor, owner: struct }
-          : undefined
-        : effectiveCtor(struct, byName);
+      // constructor, including one it inherits through an abstract intermediate class.
+      const found =
+        struct.abstract && !superTargets.has(ctorFnName(name))
+          ? struct.members?.ctor
+            ? { node: struct.members.ctor, owner: struct }
+            : undefined
+          : effectiveCtor(struct, byName);
       const ctor = found?.node;
       if (struct.abstract && ctor === undefined) continue;
       if (ctor === undefined && fieldInits.length === 0 && !constructed.has(name)) continue;
@@ -1674,13 +1683,15 @@ function initAssigns(
   for (const f of inits) {
     const lowered = lowerExpression(f.init, sourceFile, scope, diagnostics, f.type);
     if (!lowered) continue;
-    const init = retargetIntLitCtx(lowered, f.init, f.type);
+    const retargeted = retargetIntLitCtx(lowered, f.init, f.type);
+    const init =
+      reportIntLitRange(retargeted, f.init, f.type, sourceFile, diagnostics) ?? retargeted;
     if (typeKey(init.type) !== typeKey(f.type)) {
       pushDiag(
         diagnostics,
         sourceFile,
         f.init,
-        `Field "${f.name}" is ${authorTypeText(f.type)} but its initializer is ${authorTypeText(init.type)}.`,
+        numericMismatch('assign', f.type, init.type),
         TS_CODES.TYPE_MISMATCH,
       );
       continue;
@@ -2152,6 +2163,24 @@ export function lowerClassCall(
       pushDiag(diagnostics, sourceFile, callee, staticOnValue(name, member));
       return undefined;
     }
+    const declaredMethods = [name, ...scope.ancestorsOf(name)].flatMap((c) =>
+      methodNames(classOfStruct(c).base, sourceFile),
+    );
+    if (
+      !field &&
+      accessor === undefined &&
+      scope.isAbstractStruct(name) &&
+      declaredMethods.includes(member)
+    ) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        callee.name,
+        `"${written}" is abstract, so there is no instance of it on which "${member}" could run. ` +
+          `Construct a concrete class that extends it and call "${member}" on that value.`,
+      );
+      return undefined;
+    }
     pushDiag(
       diagnostics,
       sourceFile,
@@ -2163,7 +2192,7 @@ export function lowerClassCall(
           ? `"${member}" is a field of ${written}, not a method.`
           : // On the member, as TypeScript's TS2339 is, with the method it is spelled like.
             unknownNameSentence(`"${written}" has no method "${member}".`, member, [
-              [name, ...scope.ancestorsOf(name)].flatMap((c) => methodNames(c, sourceFile)),
+              declaredMethods,
             ]),
     );
     return undefined;

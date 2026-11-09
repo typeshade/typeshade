@@ -1640,6 +1640,15 @@ export function groupEntries(
 export interface GpuCounts {
   dispatches: number;
   submissions: number;
+  /** Counts by settled fuse group, when these commands belong to a plan (change 0121). */
+  readonly groupDispatches?: number[];
+}
+
+/** Count the encoded command at the same site for both the plan and its owning group. */
+export function recordDispatches(counts: GpuCounts, group: number | undefined, n = 1): void {
+  counts.dispatches += n;
+  if (group !== undefined && counts.groupDispatches !== undefined)
+    counts.groupDispatches[group] = (counts.groupDispatches[group] ?? 0) + n;
 }
 
 /** The workgroups of a dispatch: three counts, or the device buffer that holds them and the byte
@@ -1796,7 +1805,7 @@ export class DispatchBatch {
           }
         }
         const uniforms = uniformsOf(d, taken);
-        for (const [i, { e, pipeline, checked, wg }] of taken.entries()) {
+        for (const [i, { e, pipeline, checked, wg, group }] of taken.entries()) {
           const { values } = checked;
           const buffers = new Map<EntryBinding, { buffer: GpuBuffer; size: number }>();
           const resources = new Map<DrawBinding, unknown>();
@@ -1864,7 +1873,7 @@ export class DispatchBatch {
             );
           if ('buffer' in wg) pass.dispatchWorkgroupsIndirect(wg.buffer, wg.offset);
           else pass.dispatchWorkgroups(wg[0], wg[1], wg[2]);
-          if (counts !== undefined) counts.dispatches++;
+          if (counts !== undefined) recordDispatches(counts, group);
           pass.end();
           log?.copy(encoder);
           for (const [b, { buffer, size }] of buffers) {

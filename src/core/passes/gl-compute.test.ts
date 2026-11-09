@@ -20,9 +20,61 @@ import { splitF64 } from '../fp64/df64-lib.js';
 import { PROGRAMS } from '../testing/compute-programs.js';
 import { stageOf } from '../ir/index.js';
 import { dispatchCompute } from '../debug/dispatch.js';
-import { runGlModel } from '../testing/gl-model.js';
+import { runGlModel, storageFloats, storageWords } from '../testing/gl-model.js';
 
 describe('buildGlCompute (change 0054)', () => {
+  it('stores double low words in their scalar slots and vector planes across log cuts (#1021)', () => {
+    const source = PROGRAMS['emulated double storage planes across log cuts']!;
+    const result = compile(source.src);
+    expect(result.diagnostics).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('double-storage.shade.ts', source.src);
+    expect(service.getDiagnostics('double-storage.shade.ts')).toEqual([]);
+    const program = buildGlCompute(result.module, source.entry);
+    expect(program.roots.map((r) => [r.name, r.stride])).toEqual([
+      ['scalar', 2],
+      ['pairs', 4],
+      ['triples', 8],
+      ['quads', 8],
+      ['checks', 1],
+    ]);
+    expect(Object.values(program.cuts)).toContain('log');
+    for (const logEntries of [1, 4]) {
+      const bindings = source.bindings();
+      const report = runGlModel(result.module, source.entry, source.workgroups, bindings, {
+        logEntries,
+      });
+      expect(report.maxLogWords).toBeLessThanOrEqual(logEntries * 4);
+      expect(bindings.checks).toEqual([2, 1, 2, 2, 2, 3, 2, 4]);
+      const words = storageWords(result.module, bindings);
+      const floats = (name: string): number[] => Array.from(new Float32Array(words[name]!.buffer));
+      const low = 2 ** -27;
+      expect(floats('scalar').slice(0, 4)).toEqual([1, low, 1, low * 2]);
+      expect(floats('pairs').slice(0, 4)).toEqual([-1, 1, -low, low]);
+      expect(floats('triples').slice(0, 16)).toEqual([
+        1,
+        2,
+        -1,
+        0,
+        low,
+        low,
+        -low,
+        0,
+        1,
+        2,
+        -1,
+        0,
+        low * 2,
+        low * 2,
+        -low * 2,
+        0,
+      ]);
+      expect(floats('quads').slice(0, 8)).toEqual([1.5, -0.5, 3.5, -0.5, low, -low, low, low]);
+      expect(Array.from(storageFloats(result.module, bindings).triples!).slice(0, 8)).toEqual([
+        1, 1, 1, 0, 1, 1, 1, 0,
+      ]);
+    }
+  });
   it('gives an entry memory and uniforms only for what it and its callees name', () => {
     // Two entries of one module, each with a storage array and a uniform of its own: the host
     // binds what an entry reaches, so a root or a uniform of the other entry has no value.

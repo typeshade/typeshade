@@ -833,7 +833,7 @@ export function pick(i: i32): vec4 {
 The value must be **constant**: a literal, a **whole** constant declared earlier in the file,
 a constructor over those, arithmetic over those with a divisor that is not zero, or a **math
 builtin** over those (`const K: f32 = sin(1.)`, `const UP: vec3 = normalize(vec3(1., 1., 0.))`,
-`const N: i32 = max(i32(4), 8)`). A constant that calls a builtin is emitted as the call, since
+`const N: i32 = max(i32(4), 8)`). Except for a scalar `f64` constant described below, a constant that calls a builtin is emitted as the call, since
 a builtin over constants is a constant expression in WGSL and in GLSL ES 3.00, so the GPU
 computes its own `sin(1.0)`; the front end still knows the value, so an integer one can bound
 a loop, and the CPU oracle computes the same call. The annotation has to agree with the call's
@@ -871,6 +871,51 @@ apart at module scope, where the field names alone cannot answer:
 ```ts
 const ORIGIN: P = { x: 0., y: 1. }; // → const ORIGIN: P = P(0.0, 1.0);
 ```
+
+### Scalar `f64` constants
+
+A scalar `f64` module constant folds to a JavaScript double for the CPU and a literal pair of
+`f32` words for both GPU targets (Rule 6.3, change 0123). A builtin in this initializer is
+evaluated at compile time through the oracle's definition; an emulation helper cannot be
+called at module scope. The existing ten scalar `f64` builtins in §39 and their refusals apply.
+This does not add a new vector, matrix or aggregate constant form.
+
+```ts
+"use typeshade";
+
+const TAU: f64 = 2 * Math.PI;
+const HALF: f64 = TAU / 2;
+const ROOT: f64 = sqrt(f64(2));
+const NARROW: f32 = 0.1;
+const WIDE = f64(NARROW);
+
+export function phase(x: f64): f64 {
+  return x / TAU + HALF + ROOT + WIDE;
+}
+```
+
+Numeric literals and `Math` constants in a literal-only `f64` expression keep the double:
+`f64(1 / 3)` is the JavaScript value of `1 / 3`. A written `f32(...)` establishes a rounding
+boundary, even inside parentheses or unary minus. Within this initializer, `f32` arithmetic
+and builtin calls round their operands and results to `f32` at each operation or call.
+`f64(f32(0.1))` therefore stores `Math.fround(0.1)`. With `const A: f32 = 16777216`,
+`f64((A + 1) - A)` stores zero. Widening preserves that rounded value, and subsequent `f64`
+arithmetic uses double precision. These rules apply to the new module-constant calculation;
+they do not change function-body evaluation or the existing scalar constant paths.
+
+An earlier scalar constant supplies its **recorded compile-time value**, rounded to `f32`
+when its type is `f32`. This does not re-evaluate its retained builtin expression as the GPU
+does. For example, with `A` above and `const B: f32 = abs((A + 1) - A)`, the existing collector
+records `B` as 1 for the oracle, while a GPU may compute its typed `f32` expression as zero.
+The new `const C = f64(B)` folds the recorded value to 1. If the runtime GPU evaluation is
+required, perform the conversion inside the function instead of declaring a new module constant.
+
+The final double and both words produced by the existing split must be finite; an out-of-range
+or nonfinite result is `TS8003` at the declaration. This gives the significand of the emulation,
+not binary64's exponent range. Tiny values follow the existing split's underflow behavior.
+The CPU preserves negative zero; the GPU zero sign is not guaranteed. Division by zero,
+declared-function calls, resources, field or element reads and nonconstant operands retain
+their refusals. Namespace constants and unwritten static fields (§26) use the same rules.
 
 ### A `Math` member bound to a name
 
@@ -1082,7 +1127,8 @@ is an `int`, and a TypeScript reader expects `let i = 0` to index an array — s
 will change. It has NOT changed yet: this release carries the window, not the flip. A build
 that wants to see which of its lines the flip will move asks for the warning, which is off by
 default and moves no emitted byte. A local that already takes an integer type from its declared uses
-does not carry that warning:
+does not carry that warning. Unannotated class fields that take this default also carry it,
+including static and readonly fields:
 
 ```ts
 compile(source, { deprecations: true });
@@ -3133,6 +3179,9 @@ A class that inherits its constructor runs its own initializers when that body r
 this, every initializer ran before the constructor's body, and a derived class's one for an
 inherited field was dropped, so that `B`'s `limit` was `A`'s.
 
+An abstract intermediate class forwards its inherited constructor when a derived `super(...)`
+calls it. Arguments, defaults and field initializers follow the same order as concrete inheritance.
+
 ### A chain of calls on one object
 
 A method whose every `return` is `return this` hands back its own object, so TypeScript runs the
@@ -4981,6 +5030,14 @@ Neither the retype nor the cast takes a call for a literal. `f32(0.1)` says whic
 means, so `f64(f32(0.1))` widens that `f32` exactly, to the pair `(0.10000000149011612, 0.0)`,
 as `s * f32(0.1)` widens it beside an `f64`.
 
+**Module constants.** Scalar `f64` constants can also stand outside a function (Rule 6.3,
+change 0123). `const TAU: f64 = 2 * Math.PI` keeps the double for the CPU and emits a literal
+pair on the GPU. Arithmetic and permitted builtin calls fold at compile time; no `df64_*`
+call remains in a module initializer. Section 12 specifies the explicit `f32` boundaries,
+the recorded value used for an earlier constant, and the finite-pair range check. Namespace
+constants and unwritten static fields use that same scalar rule. Aggregate forms and the
+operation table below are unchanged.
+
 **Vectors.** `vec2f64`, `vec3f64` and `vec4f64` are vectors of doubles. They swizzle and index
 like any other vector — a lane is a swizzle of the hi and lo planes the pass lowers the vector
 into — and `vecN(v)` narrows one per lane, which is `f32(lane)` N times.
@@ -6799,12 +6856,21 @@ The seeds are the spec's (wgsl.txt:17870-17883): `workgroup_id`, `num_workgroups
 `subgroup_size` and `num_subgroups` are uniform, a `uniform` buffer is uniform, a module or
 `override` constant is uniform, and every other built-in value and user input varies by
 invocation. A call into a USER function is **at least `unknown`, and at most as uniform as the
-arguments its RESULT DEPENDS ON**. Both halves are load-bearing, and each was the wrong answer
-on its own:
+arguments its RESULT DEPENDS ON**. A barrier under `edge(k)` therefore keeps the conservative
+refusal, even for `function edge(x: f32): bool { return x > 0.5 }` on a uniform `k` (#180).
+A single-pure-return proof was tried and withdrawn: the callee's pure expression did not prove
+that the caller's argument or surrounding control-flow facts were sound. Reference writes and
+compound assignments could leave those facts falsely uniform (#1088). A guard against reference
+parameters alone did not cover the compound-assignment case. Positive helper proofs remain
+deferred until caller origins are accounted for.
 
-- Never `uniform`, whatever the arguments say, because the body can read a module `var`, a
-  storage buffer or a built-in value the walk never sees — so reading the arguments alone would
-  PROVE uniform a call that is not one, and that proof is what the barrier rule rests on.
+Measured on Chromium 156.0.8078.4 / Google SwiftShader on 2026-11-07, with a broken-shader
+instrument first: Tint refuses a barrier under `edge(a)` after either `set(a, f32(lid.x))` or
+`let a = f32(lid.x); a += 1.`, and under `if (a > 0.5) { if (edge(k)) { … } }` after those writes,
+with `'workgroupBarrier' must only be called from uniform control flow`. The uniform-setter and
+uniform-compound neighbours compile. Restoring the old floor retains its conservative refusal
+for those valid helper conditions too; it does not change the inline analysis.
+
 - Never *more* uniform than the arguments that reach the result. A bare `unknown` laundered a
   definitely non-uniform value, so a one-line
   `function edge(x: f32): bool { return x > 0.5 }` put `if (edge(v.uv.x)) { textureSample(…) }`
@@ -6907,12 +6973,14 @@ What it does not reach is stated rather than implied, and kept true of the tree:
 `"use typeshade"` front end only, where a diagnostic can point at the authoring line, so an
 EDSL-assembled module reaches Tint — which owns the complete rule — unchanged; a `raw`
 statement's text is opaque to it; an `inout` parameter is not modelled, since the walk answers
-a call's result; and two refusals are deliberately conservative, filed as
-[#180](https://github.com/typeshade/typeshade/issues/180) with their measurements rather than
-fixed here — a barrier under `if (edge(k))` on a uniform `k`, which Tint accepts and the
-barrier threshold refuses because a user call's floor is `unknown`, and a summary that is
-flow-insensitive over locals, so `gate(x, y) { let acc = x * 2.; acc = y; return acc }` keeps
-`x` where the same statements inline do not. Both only ever refuse.
+a call's result; and return-dependency summaries remain flow-insensitive over locals.
+The caller-origin limitations include reference and captured writes, compound assignments, and
+reference reads that do not reach parameter dependencies; they remain tracked in
+[#1088](https://github.com/typeshade/typeshade/issues/1088). The rollback of the positive helper
+proof does not repair these pre-existing analysis limitations.
+Both findings in [#180](https://github.com/typeshade/typeshade/issues/180) remain open: `edge(k)`
+keeps the unknown floor, and `gate(x, y) { let acc = x * 2.; acc = y; return acc }` keeps `x`
+where the same statements inline do not.
 
 **The barrier rule is the spec's now, not a stricter one.** It used to refuse every `if` and
 `switch`, and `workgroupUniformLoad` kept that rule until proposal 0008. `if (k > 0.5)` on a
@@ -7451,10 +7519,19 @@ const h = height([0.5, 0.5], k); // an f32: a number
 const n = normal([0.5, 0.5], k); // a vec3: a readonly tuple of three numbers
 ```
 
-**The setup.** Run `npx tshc init` after installing TypeShade in an existing Vite project (change 0085).
+**The setup.** With the published or built package installed, run `npx tshc init` in an existing Vite project (change 0085).
 The command creates or merges the plugin configuration, host-view settings, shader project and synchronization scripts.
 It prints each changed file. Unrelated settings, script commands and JSONC comments are retained.
 A repeated successful invocation changes no file. Conflicts are refused before the first write.
+
+A GitHub source archive instead points the CLI and exports at TypeScript inside `node_modules`.
+Node refuses that installation with `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`.
+Run its CLI with `bun node_modules/typeshade/src/cli/bin.ts init`, or replace `init` with `check src` or `sync src`.
+The archive also lacks the generated `dist/shade.d.ts` that `typeshade/shade` names.
+Initialization supplies neither a compiler build nor that declaration, and its generated scripts do not change the runtime.
+Use a tarball with compiled JavaScript entry points and generated declarations for the Node/Vite setup below.
+Building `dist/` alone does not redirect the source package's manifest.
+For a source installation, check shaders through Bun's CLI; ordinary `tsc` cannot resolve its missing ambient declaration.
 
 The initializer accepts an ESM Vite configuration with a static default object or `defineConfig({ ... })` and a literal plugin array.
 CommonJS configurations retain manual setup. A new configuration uses an ESM file extension when the package is not a module.
@@ -7481,6 +7558,15 @@ import { typeshade } from 'typeshade/vite';
 
 export default defineConfig({ plugins: [typeshade()] });
 ```
+
+Fusion origins use source file names by default. To make those identities independent of the
+checkout directory, opt in with `typeshade({ originNamespace: '@acme/effects' })` (change 0122).
+Use a distinct nonempty namespace for each independently built package that can share a fusion scope.
+The plugin combines that exact namespace with each module's path relative to Vite's root as a JSON tuple.
+Nested paths and `../` remain part of the identity. External modules need a stable relative workspace layout.
+The root and shader path must be absolute and on the same drive or UNC share; invalid configuration throws a plugin error.
+Direct hook callers must supply `root` to `configResolved` when using this option. Calls without the option retain their existing behavior.
+This makes fusion identities portable; source spans and other metadata can still contain absolute paths (§71).
 
 ```jsonc
 // tsconfig.json, the host project's own: two lines
@@ -7648,7 +7734,7 @@ is a type error at the host's own line.
 | a `class` (§26)                              | `export declare class C { constructor(…); … }`, a value      |
 | an `interface` or a `type`; a `class` with a field that has no host value | `export interface S { … }`      |
 | a compute entry                              | `export declare function e(bindings, workgroups): Promise<void>` (§67) |
-| a full-screen fragment entry                 | `export declare function e(target, bindings): Promise<void>` (§67) |
+| a full-screen fragment entry                 | `export declare function e(target, bindings?): Promise<void>` when no host binding is reached; otherwise `bindings` is required (Rule 8.24; §67) |
 | a kernel function (§65)                      | `export declare function k(…): Promise<R>`                   |
 | a vertex entry, a generic function, a binding, anything else | `never`, with the reason and the work that adds it |
 
@@ -8261,6 +8347,18 @@ queued call that fails leaves its error for `read()` to throw. On the CPU tier t
 array it holds, and costs nothing. A `Uint32Array` resident can also hold the workgroup count of
 an entry call, which a kernel or an entry wrote (§67, change 0075).
 
+**Failed inputs** (change 0129). A generated kernel, compute or fragment call checks incoming contents after earlier queued calls settle and its arguments validate.
+If an input it reads has failed, the call rejects with that same error before execution or uploads.
+Every Resident it would write retains that error, so the last output's `read()` reports the producer failure.
+Independent calls continue. Fixed-capacity `.length` queries and unused parameters do not depend on contents.
+Held lengths, device-held bounds and indirect counts do depend on contents.
+
+A successful call proved to be write-only clears its destination errors, including a call that writes only part of an array or runs no iterations.
+A read/write update cannot recover a failed input. `write(value)` replaces the bytes but keeps the previous error.
+Unproved access remains a content dependency; inspecting a pushed array's logical count currently also treats that array as an input.
+Older generated modules without sufficient access facts conservatively treat every Resident as an input.
+This policy covers generated host calls and their fuse plans. Sharing a handle with manually encoded runtime programs does not extend it to `Frame` submissions.
+
 `resident(length, element)` makes a zeroed `Resident` of `length` numbers, `element` being `'f32'`,
 `'i32'` or `'u32'`, with no element default. It holds no host copy and writes no byte to any queue
 when it is made. On WebGPU a call that uses it makes a zeroed storage buffer, as WebGPU makes every
@@ -8314,6 +8412,10 @@ anywhere but `i` goes on to the CPU tier. `configure({ prefer: ['webgpu'] })` ch
 call it cannot run on throws, naming why (`render(): no tier it may use can run it (webgpu: there
 is no WebGPU device).`).
 
+An eligible WebGL2 loop can read an array parameter's `.length`. The call supplies the checked
+element count: a typed-array subview counts its own elements, and a flat vector array counts
+vectors. An array read only for its length needs no element upload.
+
 **Examples.** `loop-kernel` (the terrain above), `loop-reduction` (a sum, a mean and a variance, and
 a histogram), `loop-struct-array` (the particle step over `array<Particle>`) and `loop-on-cpu` (one
 refused loop per rule, each with its `TS8070`) are in `examples/`. `loop-fuse`, a chain of kernel calls
@@ -8324,8 +8426,8 @@ like any other: each double is two `f32`s in the buffers (§39), the runtime spl
 and binds the module's `_fp64` guard, and an `f64` reduction folds by the same 256-wide tree with
 the emulation's own add, min and max. Its `min` and `max` start from the largest finite `f32`,
 the emulation's range. The CPU tier computes each double as JavaScript does, so the two tiers
-agree to the emulation's precision, about 2^-44, not bit for bit. The WebGL2 tier takes no
-8-byte element.
+agree to the emulation's precision, about 2^-44, not bit for bit. The WebGL2 tier does not read
+or write 8-byte `f64` array elements. A read of `.length` alone uses the supplied element count.
 
 **The flavor of the emulated double.** The owner of a call picks which lowering of `f64` it runs
 (§39): `createDevice({ fp64Flavor })` for a device, which `dev.fp64Flavor` reports, and
@@ -8450,7 +8552,7 @@ on the GPU. `entry(bindings, workgroups)` dispatches it as written over `workgro
 on WebGPU, and reads every storage binding it writes back into the caller's value, or leaves it
 on the device in a `Resident` (Rules 8.24 and 11.8).
 A full-screen fragment entry draws into a canvas the same way, as `entry(target, bindings)`
-(below).
+(below). When it reaches no host-supplied binding, `entry(target)` is sufficient.
 
 Inside the body of a `fuse` scope (§71) an entry call is recorded and runs in the scope's plan. It
 forms a group of its own: no kernel call joins it, and it joins none. Its storage arrays with no
@@ -8582,6 +8684,8 @@ const out = await sums.read(); // the one wait
 A `Resident` where the binding has a size, or is not a storage array, is a `TypeError`, and so
 is one `Resident` passed as two bindings of one call. Entry calls and kernel calls run one after
 another in the order they were made, so an entry and a kernel function can share a `Resident`.
+The failed-input policy of §65 applies before the entry executes, including after override specialization.
+Its content-reading bindings are checked in declaration order, followed by a Resident indirect count; write-only bindings can recover.
 
 **The workgroup count** is `n` or `[x, y, z]`, passed to `dispatchWorkgroups` as written. The
 view's comment on the entry gives its default `@workgroup_size`; selected constants above determine
@@ -8690,7 +8794,16 @@ requestAnimationFrame(frame);
 - **`target`** is an `HTMLCanvasElement` or an `OffscreenCanvas`, and the frame fills its
   `width` by `height`. `position` is the pixel's centre, `(x + 0.5, y + 0.5)`, with row 0 at the
   top, on every tier.
-- **`bindings`** is the object above, typed exactly in the view.
+- **`bindings`** is the object above. Under Rule 8.24, it is optional exactly when this entry reaches no
+  host-supplied binding, including through its helpers. In that case `entry(target)`,
+  `entry(target, undefined)` and `entry(target, {})` draw the same frame; the view uses
+  `bindings?: {}`. An unused declaration does not make the argument required. The runtime's
+  `_fp64` guard does not count, by its ownership metadata; an authored binding named `_fp64`
+  or `_console` still counts. Console recording alone adds no host binding. Otherwise the
+  existing required object type remains. Sampler-property defaults do not make the whole
+  argument optional. Explicit objects retain validation; null, arrays, primitives and unknown
+  keys remain errors, even where TypeScript's existing `{}` type accepts a value. Compute's
+  leading bindings argument remains required, including `entry({}, workgroups)`.
 - **The owner** is the unique owner of the bindings' resident arrays and device-created textures
   (§65). A call with no owned resource uses the default owner. Mixing owners is refused before drawing.
 - **The result** is a promise that resolves when the frame is submitted, not when the GPU has
@@ -8702,6 +8815,7 @@ requestAnimationFrame(frame);
   draw. On WebGPU the handle is bound as the buffer it already has, and nothing is read back; the
   CPU tier reads the handle's copy, brought up to date first. So a kernel function can compute
   an array that a draw shows every frame without leaving the GPU.
+  A failed content input rejects the draw before canvas preparation or painting, preserving its previous image (change 0129).
 - **Where it draws.** An inferred device owner's tier policy applies. Without a device-owned
   resource, the order remains WebGPU, then WebGL2 (the entry's GLSL ES 3.00 program, drawn into a
   framebuffer and copied upside down so row 0 is the top, as WGSL counts it), then the CPU tier,
@@ -8712,8 +8826,10 @@ requestAnimationFrame(frame);
   A later owner must allow that tier. Switching owners on a WebGPU canvas reconfigures its context
   and rebuilds device-specific drawing resources.
 - **When a tier cannot draw it.** WebGL2 has no storage buffer, so an entry that reads one draws
-  on WebGPU or the CPU; a non-struct uniform and anything else the GLSL backend refuses leave the
-  WebGL2 tier out too. A texture has no CPU tier. When the canvas's tier cannot draw the entry,
+  on WebGPU or the CPU. A scalar, vector or supported matrix uniform uses a private WebGL2 block;
+  the host still supplies the same number or tuple. Two-row uniform matrices remain refused,
+  and bare arrays or other GLSL backend shortfalls leave the WebGL2 tier out. A texture has no CPU tier.
+  When the canvas's tier cannot draw the entry,
   the draw is refused with a `TypeError` that names why.
 
 ### `console.*` from an entry
@@ -8882,6 +8998,48 @@ checks.
 - A generic function or class is compiled once per set of type arguments the program uses
   (Rule 8.9), and a static field is a constant when nothing in the program writes it (Rule 8.13).
 - Two files may import each other. A call cycle through them is still refused (Rule 8.4).
+
+**A pure root alias (Rule 3.9, change 0126).** A requested file containing only the directive
+and one value export-star preserves its terminal target as a whole module.
+Here `k.shade.ts` is the alias; the first file supplies its target:
+
+```ts
+// new/k.shade.ts
+"use typeshade";
+declare const unused: uniform<f32>;
+declare const gain: uniform<f32>;
+function privateHelper(x: f32): f32 { return x * 2.; }
+export function scale(x: f32): f32 { return x * gain; }
+
+// k.shade.ts
+"use typeshade";
+export * from "./new/k.shade.ts";
+```
+
+Comments, whitespace and optional statement terminators do not change this form. Another
+statement, even an empty `;`, makes it ordinary. Named, namespace and type-only re-exports,
+multiple stars and exports with attributes remain outside this exception.
+
+Follow further pure aliases through the existing resolver. The first ordinary target keeps
+the declarations and module statements that direct compilation keeps, in the same order.
+This includes unused bindings, private helpers, private entry points, types, constants,
+module variables, overrides and existing directives. Dependencies of those declarations still
+follow ordinary reachability. An alias cycle with no terminal target uses ordinary linking
+and terminates without a new cycle diagnostic.
+
+Bindings retain their names, groups and slots, including unused bindings before reached ones.
+Package identity, version deduplication and private-name prefixes stay unchanged. A private
+name stays private; each host entry call still takes only its reached bindings (§67).
+A pure-looking dependency reached by an ordinary import or re-export remains selective.
+Invalid retained declarations report the same error at the target's source span. This does
+not add authored default exports or change their existing validation policy.
+
+The requested alias path still names the generated module, header and host view (§64).
+Its fusion origin defaults to that path; an explicit origin, including `""`, stays exact (§71).
+Vite's `originNamespace` still identifies the requested path. Declaration spans remain in their
+authored files, and watchers include every alias and loaded dependency. These identity fields
+and existing private package prefixes can differ from a direct target's, so artifact byte
+identity is not guaranteed. Compare declarations, binding layout and behavior under equal options.
 
 **How each path reads the files.** `compile(source, { fileName, readDocument })` reads each import
 through `readDocument`, which returns a file's text or `undefined`, and a package's
@@ -9076,7 +9234,11 @@ await frame.submit(); // console lines print here
   storage array the data texture its binding names (`dataTexture`), a texture a runtime texture or
   a `WebGLTexture`, read with the sampler its calls pass it, and vertices and indices a typed
   array, a `Resident`, uploaded again only when its host copy changes, or a `WebGLBuffer`. A
-  `TypeError` names what WebGL2 has no form of. It refuses a multisampled, layered or 3D texture.
+  `TypeError` names what WebGL2 has no form of. Before creating a GL program, it refuses two
+  selected stages that sample one texture binding with different samplers. A load-only stage
+  adds no sampler requirement and keeps the other stage's sampler. For different sampler
+  states, declare two texture bindings and bind the same host texture to both.
+  It refuses a multisampled, layered or 3D texture.
   It refuses targets that blend or mask apart, because WebGL2 has one blend state. It refuses a
   depth range other than 0 to 1 under a fragment that writes `frag_depth`. It refuses a depth bias
   on a format other than `depth24plus`, `depth32float` and `depth24plus-stencil8`. It refuses a
@@ -9773,6 +9935,12 @@ const y = await out.read(); // relu((a + b) * c)
 
 **The facts.** `typeshade()` and `hostFace()` include fusion facts and portable loop IR by default (change 0085).
 The default holds in `vite dev` and `vite build`. `fuse: true` keeps it; `fuse: false` is an optional size override.
+Each record's origin identifies its module. The runtime shares helpers by origin and function name.
+`hostFace(source, { fileName, origin })` accepts an exact opaque origin, including an empty string (change 0122).
+Omitting `origin` preserves `fileName`. The override leaves imports, diagnostics, watched files and generated views at their source paths.
+Distinct modules that can share a fusion scope need distinct origins. The compiler does not allocate globally unique identities.
+Vite's optional `originNamespace` encodes the namespace and relative module path together (§64).
+With `fuse: false`, neither option adds fusion metadata. Other source metadata retains its existing paths.
 For the five functions of `journeys/loop-fuse/ops.shade.ts`, the default module measures 4,289 bytes against 2,575 with `fuse: false`.
 These are Bun 1.4.3 minified modules with external imports, gzipped at level 9, measured on 2026-10-23 UTC.
 Facts retain the full layout, while an eligible ordinary call can use its private input layout (§65).
@@ -9803,7 +9971,13 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 
 **When the plan runs.** When the body returns, the plan runs as one item of the kernel queue, at the place `fuse` was called (Rule 11.8). The calls made before it have run. A call or a `read()` made after `fuse` was called sees what the plan wrote, whether or not the promise of `fuse` has resolved. The promise resolves to the report when the plan has run, and rejects with the first error. Every recorded call is checked before the first one runs, as a call outside a scope is (a value that does not fit, an array shorter than a loop writes, one `Resident` as two parameters), so a call that fails its check fails the plan before any call has run. The error rejects the promise of each recorded call, and stays on each `Resident` they write, for `read()` to throw, as the error of a failed call outside a scope does.
 
-**What fuses.** On WebGPU the plan walks the calls in the order they were made. A call joins the group before it when all of these hold against every call already in the group, and not against the last one alone. `add(t, a, b); mul(u, t, c); pairsum(out, t)` has no array in common between `mul` and `pairsum`, and `pairsum` still reads what `add` wrote at the next index. A group of several calls is one dispatch.
+After all arguments validate, the plan checks content dependencies in recorded-call order before any group runs (change 0129).
+An earlier approved write-only call can recover a failed handle for a later reader in the same plan.
+The real error remains until the whole plan succeeds; execution does not reject that approved reader for the old error.
+A still-failed read rejects every recorded promise and planned output, including independent calls inside that plan, without a partial report.
+An execution failure keeps the same whole-plan boundary. Independent work outside it continues; nested scopes remain one plan.
+
+**What fuses.** On WebGPU the plan walks the calls in the order they were made. A call joins the group before it when all of these hold against every call already in the group, and not against the last one alone. `add(t, a, b); mul(u, t, c); pairsum(out, t)` has no array in common between `mul` and `pairsum`, and `pairsum` still reads what `add` wrote at the next index. A group of several calls shares one loop dispatch; a reduction adds its fold dispatches.
 
 - F1: the call is a kernel function that lowers (§65), carrying fusion facts (included by default unless `fuse: false`), with one loop at the top level of its body and no store into an array after it, whose range reads no element of an array, and the call passes no held length (change 0094). The loop does not scatter into an integer array, has no `continue`, and runs at least one iteration.
 - F2: the loops start at the same index, run the same number of iterations and step by the same amount. The range is worked out for each call from its arguments, so a chain can fuse for one length and not for another.
@@ -9854,15 +10028,30 @@ A group that has none of the reasons above, and ran on a later tier than the pla
 
 **The report.** `fuse` resolves to the report of what the plan did:
 
+Each group has required `dispatches` (change 0121): its direct or indirect WebGPU dispatches,
+its WebGL2 draw calls, or zero on the CPU tier. Push count/scan/store stages, reduction folds
+and store-only entries belong to their executing group. A group that encodes no command reports zero.
+The group counts always sum to the plan total. An encoded indirect dispatch counts once even
+when its device-held dimensions are zero; the host does not read them to count the command.
+`workgroupShapes.length` cannot supply this count. A failed scope rejects without a partial report.
+Hand-built report groups must supply their actual count; CPU groups supply zero.
+
 ```ts
 interface FuseReport {
   readonly tier: 'webgpu' | 'webgl2' | 'cpu';
   readonly dispatches: number;
   readonly submissions: number;
+  readonly webgpuScratch?: {
+    readonly allocations: number;
+    readonly allocatedBytes: number;
+    readonly reuses: number;
+    readonly reusedBytes: number;
+  };
   readonly groups: readonly {
     readonly calls: readonly string[];
     readonly fused: boolean;
     readonly tier: 'webgpu' | 'webgl2' | 'cpu';
+    readonly dispatches: number;
     readonly why?: string;
     readonly workgroupShapes?: readonly (readonly [number, number, number])[];
     readonly gpuTime?: number;
@@ -9872,20 +10061,49 @@ interface FuseReport {
 }
 ```
 
-`tier` is the best tier that any call of the plan ran on, which is the best `tier` of its groups: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, and a fused group counts once. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Resident` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, the `tier` its calls ran on (change 0118), and its `why`. Every group has `tier`: a fused group ran on WebGPU, and any other group is one call, on the tier that call ran on. `workgroupShapes` lists, in dispatch order, the triple `[x, y, z]` of each dispatch the group made on WebGPU. A compute-entry group has one triple, the resolved shape of its call (§67), which may have more than one non-unit dimension. Kernel-loop dispatches have the form `[n, 1, 1]`. The entry that stores after a function's loops (§65, change 0094) adds no triple, so a function with no loop has none. A fused group or a single-loop call has one entry: the size its calls declare (F7), 64 when none does, or 256 for a group that reduces. A lone call of a function with more than one loop has one entry for each loop, so a map loop then a reducing loop gives `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the size of their reducing loop. The field is absent exactly when the group does not run on WebGPU. `indirect` is `true` for the group of an entry call with an indirect count (change 0075), and absent otherwise. On WebGPU `dispatches` counts its dispatch once, whatever the counts hold, since the plan does not read them. On the CPU tier and WebGL2 the call reads the counts from the host copy when it runs, and a read of the device that this needs is a submission. The host example reports these three scopes on WebGPU:
+`tier` is the best tier that any call of the plan ran on, which is the best `tier` of its groups: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, including each reduction fold after a fused loop. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Resident` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, the `tier` its calls ran on (change 0118), and its `why`. Every group has `tier`: a fused group ran on WebGPU, and any other group is one call, on the tier that call ran on. `workgroupShapes` lists, in dispatch order, the triple `[x, y, z]` of each dispatch the group made on WebGPU. A compute-entry group has one triple, the resolved shape of its call (§67), which may have more than one non-unit dimension. Kernel-loop dispatches have the form `[n, 1, 1]`. The entry that stores after a function's loops (§65, change 0094) adds no triple, so a function with no loop has none. A fused group or a single-loop call has one entry: the size its calls declare (F7), 64 when none does, or 256 for a group that reduces. A lone call of a function with more than one loop has one entry for each loop, so a map loop then a reducing loop gives `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the size of their reducing loop. The field is absent exactly when the group does not run on WebGPU. `indirect` is `true` for the group of an entry call with an indirect count (change 0075), and absent otherwise. On WebGPU `dispatches` counts its dispatch once, whatever the counts hold, since the plan does not read them. On the CPU tier and WebGL2 the call reads the counts from the host copy when it runs, and a read of the device that this needs is a submission. The host example reports these three scopes on WebGPU for 1,000 elements:
 
 ```json
-{"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true,"tier":"webgpu","workgroupShapes":[[64,1,1]]}]}
-{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul"],"fused":true,"tier":"webgpu","workgroupShapes":[[64,1,1]]},{"calls":["pairsum","relu"],"fused":true,"tier":"webgpu","why":"mul and pairsum run as two dispatches because pairsum reads `t[i ^ 1]` (line 38)","workgroupShapes":[[64,1,1]]}]}
-{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul","total"],"fused":true,"tier":"webgpu","workgroupShapes":[[256,1,1]]}]}
+{"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true,"tier":"webgpu","workgroupShapes":[[64,1,1]],"dispatches":1}],"webgpuScratch":{"allocations":0,"allocatedBytes":0,"reuses":0,"reusedBytes":0}}
+{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul"],"fused":true,"tier":"webgpu","workgroupShapes":[[64,1,1]],"dispatches":1},{"calls":["pairsum","relu"],"fused":true,"tier":"webgpu","why":"mul and pairsum run as two dispatches because pairsum reads `t[i ^ 1]` (line 38)","workgroupShapes":[[64,1,1]],"dispatches":1}],"webgpuScratch":{"allocations":1,"allocatedBytes":4000,"reuses":0,"reusedBytes":0}}
+{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul","total"],"fused":true,"tier":"webgpu","workgroupShapes":[[256,1,1]],"dispatches":2}],"webgpuScratch":{"allocations":0,"allocatedBytes":0,"reuses":0,"reusedBytes":0}}
 ```
 
-**Several plans as one.** The report's type, `FuseReport`, is exported from `typeshade/fuse`, from `typeshade/runtime` and from the package root (change 0071, Amendment 2), so a host that holds a report types it without importing the planner. `mergeReports(reports)`, from `typeshade/runtime` and the root, is the report of several plans as one, as a plan of several groups reports its own: `dispatches` and `submissions` summed, `groups` in the order given, each the group its report held, with its `tier` and its `why`, and `tier` the most capable tier any report ran on, WebGPU before WebGL2 before the CPU tier. A group keeps the `why` its own plan gave it, so a group that ran below the merged `tier`, and on the `tier` of its own plan, says nothing of it. With no report it is `{ tier: 'cpu', dispatches: 0, submissions: 0, groups: [] }`. A merged report has no `chunk` row (below), since it is no one chunk. It is arithmetic over the records and adds no planner dependency of its own (§69).
+**WebGPU scratch storage.** Every new runtime report includes `webgpuScratch` (change 0128).
+Its four counters describe the plan's actual scratch buffer acquisitions:
+
+| Counter          | Meaning                                                                    |
+| ---------------- | -------------------------------------------------------------------------- |
+| `allocations`    | New WebGPU storage buffers acquired for scratch arrays.                     |
+| `allocatedBytes` | The sum of those new buffers' descriptor sizes.                             |
+| `reuses`         | Existing storage buffers borrowed from the owner's pool for scratch arrays. |
+| `reusedBytes`    | The sum of those borrowed buffers' descriptor sizes.                        |
+
+A compatible ordinary `Resident` buffer can supply a reuse. A pooled slot with no GPU buffer
+supplies none; creating its buffer counts as an allocation. Incompatible size, type or device
+prevents reuse. Rebinding, clearing, uploading and returning a buffer add no acquisition.
+A replacement buffer adds an allocation. Bytes include layout padding, not driver heap usage.
+These counts add no GPU query, fence or readback and make no timing claim.
+
+Empty scopes, unused scratch, fused locals and CPU-only or WebGL2-only scopes report four zeros.
+Mixed-tier groups count each actual acquisition; nested scopes share their outer plan's report.
+A chunk retains the same counters. Failed scopes reject without a partial report, and their
+acquisitions do not enter the next successful report. The snapshot stays unchanged by later plans.
+Ordinary residents, reduction partials, staging, uniforms, guards and WebGL2 or host storage
+are excluded. `DeviceStatistics.allocations` and `reuses` still count `array()` calls (§69).
+
+The optional member preserves older report literals and serialized reports. Omission means
+unrecorded, not zero; a present object must supply all four counters. For example, a first plan
+that acquires one 40,960,000-byte buffer reports one allocation and that many allocated bytes.
+If its next plan borrows that buffer, it reports one reuse and 40,960,000 reused bytes, with zero
+allocations. This is an illustrative count, not a memory-usage or performance measurement.
+
+**Several plans as one.** The report's type, `FuseReport`, is exported from `typeshade/fuse`, from `typeshade/runtime` and from the package root (change 0071, Amendment 2), so a host that holds a report types it without importing the planner. `mergeReports(reports)`, from `typeshade/runtime` and the root, is the report of several plans as one, as a plan of several groups reports its own: `dispatches` and `submissions` summed, `groups` in the order given, each the group its report held, with its `tier`, `dispatches` and `why`, and `tier` the most capable tier any report ran on, WebGPU before WebGL2 before the CPU tier. A group keeps the `why` its own plan gave it, so a group that ran below the merged `tier`, and on the `tier` of its own plan, says nothing of it. With no report it has tier `'cpu'`, zero dispatches and submissions, no groups and four known-zero scratch counters. The four scratch counters are summed into a new object only when every input records them. Any omitted input leaves the merged `webgpuScratch` absent and unknown. A merged report has no `chunk` row (below), since it is no one chunk. It is arithmetic over the records and adds no planner dependency of its own (§69).
 
 **The GPU time.** When the device has the `timestamp-query` feature, each group that ran on WebGPU has `gpuTime`: the GPU time of its compute passes, in nanoseconds, as the device measured it. The feature is requested when the adapter reports it, and a device without it runs the same plan with no `gpuTime` on any group, which is not 0. A group on WebGL2 or on the CPU tier has none, and neither has a group whose timestamps could not be read, or whose submission held more than 2,048 passes. The time of a group is the sum of its passes; gaps between passes are in no group's time, and the browser may round each timestamp to a coarser step. The report of a scope that runs one fused group on such a device reads:
 
 ```json
-{"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true,"tier":"webgpu","workgroupShapes":[[64,1,1]],"gpuTime":412800}]}
+{"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true,"tier":"webgpu","workgroupShapes":[[64,1,1]],"gpuTime":412800,"dispatches":1}],"webgpuScratch":{"allocations":0,"allocatedBytes":0,"reuses":0,"reusedBytes":0}}
 ```
 
 **Scratch arrays.** `scope.scratch(length)` makes a handle for an intermediate that you never read. A kernel call takes it where it takes an `array<f32>`. `scope.scratch(n, 'i32')` and `scope.scratch(n, 'u32')` make an `array<i32>` and an `array<u32>`. `scope.scratch(n, 'vec4f')` makes an `array<vec4f>` of `n` vectors, which is `4 × n` numbers of the `Float32Array` the handle holds. It holds zeros when the plan starts, as a new buffer does.
@@ -9914,8 +10132,8 @@ interface FuseReport {
 **The tiers.** Only WebGPU fuses, and the arrays and results are the same on every tier.
 
 - On WebGPU a group of several calls is one compute entry. The runtime builds it from the IR in the faces of the calls, emits it with the WGSL writer that `typeshade/emit` uses, and keeps it for the shape of the group: the faces, the slot each array parameter takes, and the slots that are locals, with no length and no value. A second scope of the same shape builds nothing. The entry is text that the GPU compiles, and the runtime builds no code with `new Function`.
-- On WebGL2 each loop is a draw, as it is outside a scope (§65). `dispatches` counts the draws, `submissions` is 0, and every group but the first says `WebGL2 runs the calls apart`. A loop over an `array<vec4f>` is not a WebGL2 loop, so a call that takes one goes to the next tier in `configure({ prefer })` that runs it, and to the CPU tier when no GPU tier does. A reduction has no WebGL2 program, so with `configure({ prefer: ['webgl2'] })` alone a call to `total` throws, and with the CPU tier after it the call runs there: its group's `tier` is `'cpu'`, and its `why` gives the reason of WebGL2, as above.
-- The CPU tier runs the calls one after another. `dispatches` and `submissions` are 0, and the report says nothing of why, unless another call of the plan ran on a better tier: then a group on the CPU tier with no other reason says why it ran there, as above. It is the oracle of a fused group (Rule 11.7).
+- On WebGL2 each loop is a draw, as it is outside a scope (§65). `dispatches` counts the draws for each group and the plan, `submissions` is 0, and every group but the first says `WebGL2 runs the calls apart`. A loop that writes an `array<vec4f>` has no WebGL2 program, so that call goes to the next tier in `configure({ prefer })` that runs it, and to the CPU tier when no GPU tier does. A reduction has no WebGL2 program, so with `configure({ prefer: ['webgl2'] })` alone a call to `total` throws, and with the CPU tier after it the call runs there: its group's `tier` is `'cpu'`, and its `why` gives the reason of WebGL2, as above.
+- The CPU tier runs the calls one after another. each group's `dispatches`, the plan's `dispatches` and `submissions` are 0, and the report says nothing of why, unless another call of the plan ran on a better tier: then a group on the CPU tier with no other reason says why it ran there, as above. It is the oracle of a fused group (Rule 11.7).
 - `configure({ prefer })` orders the tiers of each call as it does outside a scope (§65).
 - Each group names the tier its calls ran on (change 0118). The plan settles the tier of each call before any call runs, with the checks the call makes outside a scope, a WebGL2 program that the driver refuses among them, so the group's `tier` is the tier the call ran on.
 
@@ -9989,8 +10207,8 @@ Each function writes every element of its output (Rule 8.23), so a pooled array 
 | Unary maps       | `abs`, `neg`, `sqrt`, `rsqrt`, `exp`, `log`, `expm1`, `log1p`, `floor`, `ceil`, `round`, `sign`, `sin`, `cos`, `tan`, `tanh`, `sigmoid`, `relu` as `(out, x)`; `clip(out, x, lo, hi)` | One loop at `i`. `expm1` and `log1p` keep a series where `\|x\| < 0.01`; `sigmoid` reaches `exp` through the non-positive side. In the shader module each is `<op>Map` (`absMap`), since a kernel function cannot carry a builtin's name; the host face exports it under the builtin's name (change 0072, Amendment 1). |
 | Whole reductions | `sum(x): f32`, `max(x): f32`, `min(x): f32`                                                                                                                         | A kernel function with a result, folded in Rule 7.2's one tree order on every tier. `max` and `min` start from the lowest and the highest finite `f32`. In the shader module they are `sum`, `maxAll` and `minAll`.                                                                                                                      |
 | Axis reductions  | `sumAxis`, `meanAxis`, `prodAxis`, `maxAxis`, `minAxis`, `argMaxAxis`, `argMinAxis` as `(out, x, axis: u32, inner: u32)`                                            | `x` is read as `[outer, axis, inner]`. One loop at `i` over `out`, each element a serial fold in ascending `k`. `argMaxAxis` and `argMinAxis` write the index as `f32`, the first maximum or minimum winning a tie.                                                                                                                         |
-| Scan             | `inclusiveScan(out, x, sums)`, `exclusiveScan(out, x, sums)` over `array<u32>`                                                                                       | Two loops of one kernel function, with no barrier (change 0072, Amendment 1): the first writes the sum of each block of `x` into `sums`, the caller's scratch of at least one element; the second writes each element's prefix within its block plus the sums of the blocks before it. The block is `ceil(x.length / sums.length)`, so a `sums` of about `sqrt(n)` elements costs about `2 n sqrt(n)` reads. The body reads `x.length` and `sums.length`, which GLSL ES 3.00 cannot spell, so on WebGL2 the call falls to the next tier (Rule 11.8). |
-| Compaction       | `compact(out, x, flags: array<u32>, offsets: array<u32>)`                                                                                                           | The elements whose flag is 1, in their order, where `offsets` is the exclusive scan of `flags`; 0 past the count of kept elements. Written as a gather at `i`, the source found by a binary search over `offsets[k] + flags[k]`, since a scatter to `offsets[i]` runs on the CPU only (Rule 8.22, R3). The body reads `x.length`, so on WebGL2 the call falls to the next tier, as the scan does.                                      |
+| Scan             | `inclusiveScan(out, x, sums)`, `exclusiveScan(out, x, sums)` over `array<u32>`                                                                                       | Two loops of one kernel function, with no barrier (change 0072, Amendment 1): the first writes the sum of each block of `x` into `sums`, the caller's scratch of at least one element; the second writes each element's prefix within its block plus the sums of the blocks before it. The block is `ceil(x.length / sums.length)`, so a `sums` of about `sqrt(n)` elements costs about `2 n sqrt(n)` reads. Both loops run on WebGL2; their `x.length` and `sums.length` reads use element counts supplied by the call. |
+| Compaction       | `compact(out, x, flags: array<u32>, offsets: array<u32>)`                                                                                                           | The elements whose flag is 1, in their order, where `offsets` is the exclusive scan of `flags`; 0 past the count of kept elements. Written as a gather at `i`, the source found by a binary search over `offsets[k] + flags[k]`, since a scatter to `offsets[i]` runs on the CPU only (Rule 8.22, R3). It also runs on WebGL2, using the supplied element count for `x.length`. |
 | Histogram        | `histogram(bins: array<u32>, x, lo, hi)`                                                                                                                            | Adds the count of `x` in each of `bins.length` equal bins over `[lo, hi)` into `bins`, a value outside clamped to the edge bins. Each add is an atomic on WebGPU and a plain add in iteration order on the CPU tier; WebGL2 has no atomics, so the call falls to the next tier (Rule 11.8). The caller zeroes `bins`.                         |
 
 **The planner's facts.** Every map writes `out` at `i` and reads its inputs at `i`, so a chain of
@@ -10013,10 +10231,11 @@ grouping above. The common-module arm of `scripts/gpu-differential.ts` calls eve
 the host face on WebGPU and on WebGL2, each tier required alone, against the f32 oracle: bit for
 bit where the determinism report lists no row for the function, and within 32 ULP or 2^-11 where
 it lists one (`exp`, `log`, `sin`, `cos`, `tan`, `tanh`, `inverseSqrt`, `/`), printing the largest
-distance it saw. A function a tier refuses (the three whole reductions, the two scans, `compact`
-and `histogram` on WebGL2) falls to the next tier of a host's `prefer` (Rule 11.8); the arm names
-each refusal and holds the function on the tiers that run it. `scripts/bundle-boundary.ts` holds
-the host face to `typeshade/runtime` and `src/core/` and to its budget.
+distance it saw. The two scans and `compact` are required on WebGL2. A function a tier refuses
+(the three whole reductions and `histogram` on WebGL2) falls to the next tier of a host's
+`prefer` (Rule 11.8); the arm names each refusal and holds the function on the tiers that run it.
+`scripts/bundle-boundary.ts` holds the host face to `typeshade/runtime` and `src/core/` and to its
+budget.
 
 **Not yet.** Sort, partition, a segmented reduction, `reduceByKey`, a nearest-neighbour search,
 matrix products and `f64` linear algebra, a workgroup-memory scan, and the workgroup-level helpers

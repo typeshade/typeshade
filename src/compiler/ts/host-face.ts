@@ -31,6 +31,7 @@ import type {
 import type { ShaderType } from '../../core/ir/types.js';
 import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
 import { fnReads, fnWrites } from '../../core/passes/effects.js';
+import { hostContentReads } from './host-content-access.js';
 import { GPU_STUBS, type CpuValue } from '../../core/cpu-runtime.js';
 import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../core/intrinsics.js';
 import { generateModuleJs } from '../../core/cpu-codegen.js';
@@ -43,12 +44,13 @@ import { callArgAccess } from '../../core/passes/access.js';
 import { toPortable } from '../../core/ir/portable.js';
 import { VERSION } from '../../core/version.js';
 import { workgroupShapeOf } from '../../core/ir/nodes.js';
-import type {
-  ComputeEntry,
-  DrawBinding,
-  EntryBinding,
-  HandleBinding,
-  Layout,
+import {
+  isGuard,
+  type ComputeEntry,
+  type DrawBinding,
+  type EntryBinding,
+  type HandleBinding,
+  type Layout,
 } from '../../core/host-entry.js';
 import { buildGlCompute, type GlComputeProgram } from '../../core/passes/gl-compute.js';
 import type { FragmentEntry } from '../../core/host-draw.js';
@@ -126,6 +128,11 @@ import {
 export interface HostFaceOptions {
   /** The shader module's path, carried into the diagnostics and named in the generated files. */
   readonly fileName: string;
+  /** The exact identity of this module's fusion records (change 0122). Defaults to `fileName`;
+   *  an empty string is an explicit identity. Distinct modules that can share a fusion scope
+   *  need distinct identities. This does not change source paths, imports, diagnostics or
+   *  views, and has no effect with `fuse: false`. */
+  readonly origin?: string;
   /** The specifier the generated module imports its runtime from. Defaults to
    *  `typeshade/runtime/internal`; a test points it at the source file. A tool that runs the
    *  generated module without a bundler (change 0062) maps `typeshade/runtime/internal` to the
@@ -906,7 +913,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
         overrideNames,
         privateNames,
         reachProblem,
-        ...(options.fuse !== false ? { fuse: { origin: options.fileName } } : {}),
+        ...(options.fuse !== false ? { fuse: { origin: options.origin ?? options.fileName } } : {}),
         entry: {
           module: m,
           bindings: m.bindings,
@@ -1049,6 +1056,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
       wgsl,
       wgslInteger,
       pack,
+      hostContentReads(m),
       log,
     ),
     files,
@@ -2115,6 +2123,7 @@ function kernelGl(
             ? u.type.elem
             : (u.type as { scalar: string }).scalar) as 'f32',
           n: u.type.kind === 'vec' ? u.type.n : 1,
+          ...(u.lengthOf !== undefined ? { lengthOf: u.lengthOf } : {}),
         };
       }),
     });
@@ -2798,7 +2807,7 @@ function viewText(
           ...above(
             `A full-screen \`fragment(f)\` entry: draws one frame into \`target\`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24).`,
           ),
-          `export declare function ${e.name}(target: HTMLCanvasElement | OffscreenCanvas, bindings: ${e.bindingsType}): Promise<void>;`,
+          `export declare function ${e.name}(target: HTMLCanvasElement | OffscreenCanvas, bindings${e.entry.bindings.every(isGuard) ? '?' : ''}: ${e.bindingsType}): Promise<void>;`,
         );
         break;
       case 'never': {
@@ -3040,6 +3049,7 @@ function moduleText(
   wgsl: string,
   wgslInteger: string | undefined,
   pack: Pack,
+  contentReads: ReturnType<typeof hostContentReads>,
   log?: ConsoleLog,
 ): string {
   const q = (s: string): string => JSON.stringify(s);
@@ -3140,13 +3150,15 @@ function moduleText(
         break;
       case 'compute': {
         const id = `__ts_e${t++}`;
+        const reads = `__ts_reads${t}`;
         out.push(
           `const ${id} = { ...${JSON.stringify(e.entry)}, ${texts}${e.entry.console === true ? ', log: __ts_console' : ''} };`,
+          `const ${reads} = ${JSON.stringify([...contentReads.get(e.entry.fn)!.bindings])};`,
           ...callable(
             e.name,
             ['bindings', 'workgroups', 'options = undefined'],
             [
-              `return ${RT}.callCompute(${MOD}, ${id}, arguments.length, bindings, workgroups, options);`,
+              `return ${RT}.callCompute(${MOD}, ${id}, arguments.length, bindings, workgroups, options, ${reads});`,
             ],
           ),
         );
@@ -3154,23 +3166,27 @@ function moduleText(
       }
       case 'kernel': {
         const id = `__ts_e${t++}`;
+        const reads = `__ts_reads${t}`;
         const ps = e.face.params.map((_, i) => `__ts_p${i}`);
         out.push(
           `const ${id} = ${JSON.stringify(e.face)};`,
+          `const ${reads} = ${JSON.stringify([...contentReads.get(e.face.fn)!.params])};`,
           ...callable(e.name, ps, [
-            `return ${RT}.callKernel(${MOD}, ${id}, arguments.length, [${ps.join(', ')}]);`,
+            `return ${RT}.callKernel(${MOD}, ${id}, arguments.length, [${ps.join(', ')}], ${reads});`,
           ]),
         );
         break;
       }
       case 'fragment': {
         const id = `__ts_e${t++}`;
+        const reads = `__ts_reads${t}`;
         out.push(
           `const ${id} = { ...${JSON.stringify(e.entry)}, ${texts}${e.entry.console === true ? ', log: __ts_console' : ''} };`,
+          `const ${reads} = ${JSON.stringify([...contentReads.get(e.entry.fn)!.bindings])};`,
           ...callable(
             e.name,
             ['target', 'bindings'],
-            [`return ${RT}.callDraw(${MOD}, ${id}, arguments.length, target, bindings);`],
+            [`return ${RT}.callDraw(${MOD}, ${id}, arguments.length, target, bindings, ${reads});`],
           ),
         );
         break;

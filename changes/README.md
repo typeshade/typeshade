@@ -20,17 +20,60 @@ A diff needs a proposal when it does any of the following:
 | rules     | Changes, adds or removes a `**Rule N.M.**` paragraph of `docs/language-design.md`.                                                                                                                  |
 | exports   | Adds, removes or reshapes an export listed in `src/__api__/surface.md`.                                                                                                                             |
 | visible   | Changes what a downstream repository shows or checks: a numbered section of `docs/use-typeshade-surface.md`, a diagnostic code (added, removed or renumbered), or the set of `examples/*.shade.ts`. |
+| names     | Adds an author-facing name to `src/__api__/author-names.md`, the baked set of names a `"use typeshade"` file can write.                                                                             |
 
 Anything else needs no proposal: an internal refactor, a test, a performance change, or a fix
 that touches none of the above. `scripts/changes.ts` applies these criteria to the diff, so
 nobody has to remember them.
 
+The `names` criterion has two differences from the others:
+
+- `Change: none` does not waive it. The language grows only through an accepted proposal that
+  lists each added name under `names:`.
+- A removed name is not a criterion. A smaller language is the direction the owner set on
+  2026-11-09. `scripts/changes.ts` still reports each removed name, and the diff of
+  `src/__api__/author-names.md` shows it to the reviewer.
+
+`src/author-names.test.ts` holds the snapshot to the ambient library (`SHADE_DTS`). After a
+name is added or removed, run `bun run bake:author-names` and commit the diff.
+
+## A need from a downstream repository
+
+A downstream repository (`DOWNSTREAM_REPOS` in `scripts/changes.ts`) that needs something of the
+compiler asks for compiler work first. It does not ask for a language change.
+
+1. Write the workaround in the downstream repository.
+2. Measure the workaround on the devices that show the need.
+3. Open an issue in this repository.
+4. State the need, the workaround and the measurement (device, commit, result) in the issue.
+
+The compiler side decides how to meet the need. What the compiler can decide is compiler work:
+an optimization the compiler can prove exact, a lowering, a tuning parameter or a report. That
+work adds no author-facing construct, and the criteria above give it no proposal. A numerical
+relaxation is not compiler work: it changes results, and the GPU computes what the CPU oracle
+computes (`docs/dx.md`).
+
+A language change is the last resort. A proposal that adds an author-facing name, rule,
+diagnostic code or form for a downstream need links the issue. Its
+`Why the compiler cannot do it` section says why compiler work cannot meet the need. Nothing
+domain-shaped is asked of the language (`docs/dx.md`, principle 7). Pull request #1094 (a draft) proposes the same principle as a
+design rule.
+
+The `downstream` field of a proposal lists the work that the proposal owes each repository. It
+does not record where a request came from.
+
 ## The lifecycle
 
 1. **Draft.** A new proposal uses `TEMPLATE.md` and the next free number in `NNNN-short-name.md`.
-   The author declares every affected rule, surface section, export, code, example and downstream
-   repository in the front matter. Rule links in `reqs/` (`reqs/README.md`) and searches of the
+   The author declares every affected rule, surface section, export, code, example, author-facing
+   name and downstream repository in the front matter. A proposal that adds to the language (an
+   author-facing name, a rule, a diagnostic code or a surface form) says in
+   `## Why the compiler cannot do it` what the author must write that the compiler cannot
+   decide. What the compiler can decide (an optimization it can prove exact, a tuning
+   parameter) is the compiler's work; a numerical relaxation changes results and is not. When the compiler can do it, the proposal is not needed:
+   the work is an implementation change with no proposal, or no change. Rule links in `reqs/` (`reqs/README.md`) and searches of the
    site and editor establish those impacts. Review starts with a proposal-only PR and `status: draft`.
+   Before the owner decides, the proposal passes an independent review (below).
 2. **Accepted.** Discussion happens on that pull request. Merging it with `status: accepted` is
    the agreement.
 3. **Implementation.** Each pull request that implements the proposal has a commit message line
@@ -56,6 +99,34 @@ A change the criteria catch but that truly needs no proposal, such as a typo ins
 says why on a line of its own in the commit message: `Change: none, <reason>`. That line stays
 in the history, where a reviewer reads it.
 
+## Independent review
+
+The rules that keep the language small are enforced by review: Rules 1.4, 1.6 and 1.7 of
+`docs/language-design.md`, `docs/dx.md` and `docs/compiler-owns-performance.md`. A review that
+nobody performs enforces nothing, and an author does not argue well against their own
+recommendation. Each proposal therefore receives one review from an agent or a person that did
+not write it, before the owner decides on it.
+
+1. Give the reviewer the proposal and the documents above.
+2. Ask the reviewer to argue against the proposal.
+3. Ask the reviewer to answer the questions below, with file and line evidence.
+4. Record the findings in the proposal, under `### Independent review record`.
+5. Answer each finding in the same section: fixed, or kept with the reason.
+6. Show the owner the open findings before the owner decides.
+
+The questions:
+
+- What does an author have to learn after this change that they did not have to learn before?
+- Can the compiler do this instead of the author? If not, why not? Test the proposal's
+  `Why the compiler cannot do it` section, which is the author's answer.
+- Does the proposal conflict with a principle or a rule? Name each conflict and where the
+  proposal resolves it. A conflict the proposal resolves by itself goes to the owner as a
+  question.
+- What does one example look like before and after the change?
+- What does the change remove?
+
+A proposal whose record has no independent review is not ready for the owner's decision.
+
 ## Controlled proposal records
 
 These requirements apply to newly authored proposals and to their subsequent handling. Existing
@@ -64,8 +135,9 @@ fields or change the lifecycle above. `TEMPLATE.md` provides prompts; an actual 
 those prompts with specific facts or explicit uncertainty. It contains no unfinished placeholders,
 fabricated signatures or predicted completion results.
 
-Each new proposal retains the four sections `What changes`, `Why`, `What it touches` and
-`What it owes downstream`. A document-control table precedes those sections. It identifies:
+Each new proposal retains the five sections `What changes`, `Why`,
+`Why the compiler cannot do it`, `What it touches` and `What it owes downstream`. A
+document-control table precedes those sections. It identifies:
 
 - The proposal number and current front-matter status.
 - The actual document date, timezone and whether the date means authorship, revision context or
@@ -78,6 +150,12 @@ Each new proposal retains the four sections `What changes`, `Why`, `What it touc
   document states that no PR is assigned.
 - Git as the revision-history authority and review/merge records as the decision evidence.
   A document does not invent the hash of the commit that will contain it.
+
+`src/changes.test.ts` fails a proposal numbered after 0130 that declares `names:` and whose
+`Why the compiler cannot do it` section is missing, empty or still the template's prompt
+(`compilerFirstProblems` in `scripts/changes.ts`). Proposals up to 0130 predate the section and
+are not rewritten. For a rule, a code or a surface form, this text requires the section and the
+independent review checks it: the front matter does not tell an added rule from an edited one.
 
 `id` and `status` in the front matter remain authoritative for proposal identity and state. The
 table must agree with them. New prose records do not substitute for the merged accepted-proposal
@@ -134,15 +212,16 @@ Use this procedure when preparing a new draft:
 3. Record the document-control facts.
 4. Describe the proposed behavior.
 5. Explain the evidence and alternatives.
-6. Declare the affected surfaces.
-7. Assess the expected impacts.
-8. Identify unresolved decisions.
-9. Identify the required validation evidence.
-10. Label future-stage records as not yet applicable.
-11. Replace the template prompts with proposal-specific content.
-12. Review the document against its evidence.
-13. Open the proposal-only draft PR.
-14. Record the actual PR reference.
+6. Explain why the compiler cannot do it.
+7. Declare the affected surfaces.
+8. Assess the expected impacts.
+9. Identify unresolved decisions.
+10. Identify the required validation evidence.
+11. Label future-stage records as not yet applicable.
+12. Replace the template prompts with proposal-specific content.
+13. Review the document against its evidence.
+14. Open the proposal-only draft PR.
+15. Record the actual PR reference.
 
 ## The front matter
 
@@ -158,6 +237,7 @@ exports: []                # exports added or reshaped
 exports-removed: []        # exports removed: downstream must stop naming them
 codes: []                  # diagnostic codes added, removed or renumbered
 examples: []               # examples/*.shade.ts ids added or removed
+names: []                  # author-facing names added to src/__api__/author-names.md
 downstream:                # the work each downstream repository will owe
 - repo: typeshade.github.io
   what: One line naming the pages
@@ -166,3 +246,9 @@ downstream:                # the work each downstream repository will owe
 `src/changes.test.ts` checks every proposal's shape: the fields, a unique id matching the file
 name, a known status, known downstream repositories, and rule and section numbers that exist
 once the proposal is implemented.
+
+`names` lists each author-facing name the change adds, spelled as `src/__api__/author-names.md`
+spells it: `abs` for a declared name, `Math.fround` for a member of a standard object and
+`Array.prototype.map` for an array method. A proposal written before this field existed omits
+it and declares no name. Such a proposal, once accepted, must be amended in its own pull request
+before an implementation that adds a name can pass `scripts/changes.ts`.

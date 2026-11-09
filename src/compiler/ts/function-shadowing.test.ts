@@ -329,13 +329,7 @@ export const fs = fragment(function fs(): vec4 {
     expect(r.eval('g')).toBe(6);
   });
 
-  describe('where the oracle cannot tell the parameter from the variable, the read stays refused as it was', () => {
-    // A module variable is a `varref`, and the IR holds a name once in a function: the oracle, the
-    // code generator and the debugger look a `param` and a `varref` up by name in one environment,
-    // and the optimizer's inliner substitutes by name. Beside a parameter `Voice_count`, a read of
-    // the variable reads the parameter (7 + 7 = 14 for `g(7)` where the field holds 1), whatever the
-    // writers print. So these keep the refusal they had, until the IR names the two apart.
-    const refused = `TS8022 "Voice" has no static field`;
+  describe('a mutable static and a parameter have distinct IR names (#1009)', () => {
     const messages = (source: string): string[] =>
       compile(source, { fileName: 'm.shade.ts' })
         .diagnostics.filter((d) => d.category === 'error')
@@ -364,9 +358,11 @@ export const fs = fragment(function fs(): vec4 {
   return vec4(g(7), 0., 0., 1.);
 });
 `;
-      const said = [`${refused} "count".`];
-      expect(messages(source)).toEqual(said);
-      expect(edited(source)).toEqual(said);
+      expect(messages(source)).toEqual([]);
+      expect(edited(source)).toEqual([]);
+      const r = compile(source);
+      expect(r.module.vars![0]!.name).not.toBe('Voice_count');
+      expect(r.eval('fs')).toEqual([7, 0, 0, 1]);
     });
 
     it('a static field the file writes, in an entry with a parameter of that name', () => {
@@ -382,9 +378,12 @@ export const fs = fragment(function fs(Voice_count: location<0, f32>): vec4 {
   return vec4(Voice_count + Voice.count, 0., 0., 1.);
 });
 `;
-      const said = [`${refused} "count".`];
-      expect(messages(source)).toEqual(said);
-      expect(edited(source)).toEqual(said);
+      expect(messages(source)).toEqual([]);
+      expect(edited(source)).toEqual([]);
+      const r = compile(source);
+      expect(r.module.vars![0]!.name).not.toBe('Voice_count');
+      expect(r.module.funcs.find((f) => f.name === 'fs')!.params[0]!.name).toBe('Voice_count');
+      expect(r.eval('fs', [7])).toEqual([8, 0, 0, 1]);
     });
   });
 });

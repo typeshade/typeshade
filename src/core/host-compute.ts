@@ -34,6 +34,7 @@ import {
   onGpu,
   packed,
   readInto,
+  recordDispatches,
   residentable,
   workgroupsOf,
   type Checked,
@@ -46,6 +47,7 @@ import {
 } from './host-entry.js';
 import { specializeEntry, checkEntryLimits, cpuSpecialization } from './host-overrides.js';
 import { fuseSlot } from './fuse-scope.js';
+import { checkIncoming, type IncomingReads } from './host-failure.js';
 import { defaultOwner, inferOwner, ownerOf, resourceOwner, type CallOwner } from './owner.js';
 import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
 import { glContext } from './gl-context.js';
@@ -53,7 +55,7 @@ import { runGlCompute, type GlComputeReport } from './gl-compute.js';
 import type { PlanRun } from './host-kernel.js';
 import type { GlComputeProgram } from './passes/gl-compute.js';
 import type { Tier } from './tiers.js';
-import { uploadImage } from './host-draw.js';
+import { uploadImage } from './gl-image.js';
 
 function checkArity(e: ComputeEntry, argc: number): void {
   if (argc !== 2 && argc !== 3)
@@ -209,7 +211,29 @@ export function checkEntryCall(
 /** What a scope borrows of this file to record an entry call, settle its tier and run it
  *  (changes 0069 and 0118), so that `typeshade/fuse` does not import the tiers of an entry
  *  (WebGL2, the CPU) to hold the plan. */
-export const entryHost = { residentsOf, indirectOf, checkEntryCall, entryTierFit, runEntry };
+export const entryHost = {
+  residentsOf,
+  indirectOf,
+  checkEntryCall,
+  entryTierFit,
+  runEntry,
+  entryInputs,
+};
+
+/** Incoming contents in binding order, followed by a device-held indirect count. */
+export function entryInputs(
+  e: ComputeEntry,
+  c: CheckedEntry,
+  reads: IncomingReads,
+): ResidentArrayState[] {
+  const states = e.bindings.flatMap((b) => {
+    if (!isBuffer(b)) return [];
+    const s = c.states.get(b);
+    return s !== undefined && (reads === undefined || reads.includes(b.name)) ? [s] : [];
+  });
+  if ('state' in c.wg) states.push(c.wg.state);
+  return states;
+}
 
 /**
  * Call a `@compute` entry from host code (Rule 8.24): dispatch `workgroups` workgroups of it,
@@ -232,6 +256,7 @@ export function callCompute(
   bindings: unknown,
   workgroups: unknown,
   options?: unknown,
+  reads?: IncomingReads,
 ): Promise<void> {
   let prepared = true;
   let refusal: unknown;
@@ -246,7 +271,7 @@ export function callCompute(
     refusal = err;
   }
   if (fuseSlot.active !== undefined)
-    return fuseSlot.active.entry(cpu, e, argc, bindings, workgroups, entryHost);
+    return fuseSlot.active.entry(cpu, e, argc, bindings, workgroups, entryHost, reads);
   const written: ResidentArrayState[] = [];
   const resources: [string, CallOwner | undefined][] = [];
   let owner: CallOwner;
@@ -273,7 +298,9 @@ export function callCompute(
   }
   const call = kernelQueue.run(async () => {
     if (!prepared) throw refusal;
-    await runEntry(cpu, e, { ...checkEntryCall(e, argc, bindings, workgroups), owner }, undefined);
+    const checked = { ...checkEntryCall(e, argc, bindings, workgroups), owner };
+    checkIncoming(entryInputs(e, checked, reads));
+    await runEntry(cpu, e, checked, undefined);
   });
   // A call nobody awaits keeps its error on what it writes, for `read()` to throw.
   call.then(
@@ -390,7 +417,7 @@ export async function runEntry(
       if (grid === undefined) return;
       await hostCopies(states, checked.values, run);
       const passes = await onGl(gl, e, e.gl!, checked, grid);
-      if (run !== undefined) run.counts.dispatches += passes;
+      if (run !== undefined) recordDispatches(run.counts, run.group, passes);
       return;
     }
     await run?.flush();

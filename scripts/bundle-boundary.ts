@@ -43,7 +43,7 @@ const SUBPATHS: readonly {
   {
     name: 'typeshade/runtime',
     entry: 'src/runtime.ts',
-    allowed: ['src/runtime.ts', 'src/runtime/', 'src/core/'],
+    allowed: ['src/runtime.ts', 'src/runtime/', 'src/rhi/', 'src/core/'],
     minModules: 15,
   },
   // The load-time emitter: the IR, the backends and the manifest builder, and no front end.
@@ -66,13 +66,19 @@ const SUBPATHS: readonly {
   {
     name: 'typeshade/algorithms',
     entry: 'src/algorithms/index.ts',
-    allowed: ['src/algorithms/', 'src/runtime-internal.ts', 'src/runtime/', 'src/core/'],
+    allowed: [
+      'src/algorithms/',
+      'src/runtime-internal.ts',
+      'src/runtime/',
+      'src/rhi/',
+      'src/core/',
+    ],
     minModules: 15,
   },
   {
     name: 'typeshade/random',
     entry: 'src/random/index.ts',
-    allowed: ['src/random/', 'src/runtime-internal.ts', 'src/runtime/', 'src/core/'],
+    allowed: ['src/random/', 'src/runtime-internal.ts', 'src/runtime/', 'src/rhi/', 'src/core/'],
     minModules: 15,
   },
 ];

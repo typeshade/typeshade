@@ -16,6 +16,38 @@ export interface ComputeProgram {
 }
 
 export const PROGRAMS: Record<string, ComputeProgram> = {
+  'emulated double storage planes across log cuts': {
+    src: `"use typeshade";
+declare const scalar: storage<array<f64>, "read_write">;
+declare const pairs: storage<array<vec2f64>, "read_write">;
+declare const triples: storage<array<vec3f64>, "read_write">;
+declare const quads: storage<array<vec4f64>, "read_write">;
+declare const checks: storage<array<f32>, "read_write">;
+export const main = compute([4], function main(gid: builtin<"global_invocation_id", vec3u>): void {
+  const i = gid.x;
+  const x = f64(1.) + f64(0.000000007450580596923828125) * f64(f32(i + 1));
+  scalar[i] = x;
+  pairs[i] = vec2f64(x, -x);
+  triples[i] = vec3f64(x, x + f64(1.), -x);
+  quads[i] = vec4f64(x, -x, x + f64(2.), x - f64(2.));
+  quads[i] += vec4f64(f64(0.5));
+  checks[i * 2] = f32(quads[i][2] - quads[i].x);
+  storageBarrier();
+  const v = triples[i].zyx;
+  pairs[i] = vec2f64(v.x, v.z);
+  checks[i * 2 + 1] = f32((scalar[i] - f64(1.)) * f64(134217728.));
+});
+`,
+    entry: 'main',
+    workgroups: 1,
+    bindings: () => ({
+      scalar: new Array(4).fill(0),
+      pairs: Array.from({ length: 4 }, () => [0, 0]) as unknown as CpuValue,
+      triples: Array.from({ length: 4 }, () => [0, 0, 0]) as unknown as CpuValue,
+      quads: Array.from({ length: 4 }, () => [0, 0, 0, 0]) as unknown as CpuValue,
+      checks: new Array(8).fill(0),
+    }),
+  },
   'a write at gid.x': {
     src: `"use typeshade";
 declare const xs: storage<array<f32>>;

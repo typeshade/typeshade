@@ -20,12 +20,14 @@ import {
   type Layout,
 } from './host-entry.js';
 import type {
+  entryInputs,
   checkEntryCall,
   entryTierFit,
   indirectOf,
   residentsOf,
   runEntry,
 } from './host-compute.js';
+import type { IncomingReads } from './host-failure.js';
 import { arityError, heldArgument } from './host-arity.js';
 import type { KernelFace } from './host-kernel.js';
 import { defaultOwner, foreignOwner, type CallOwner } from './owner.js';
@@ -99,6 +101,7 @@ export interface Plan {
 /** What the call layer lends the plan for an entry call (`entryHost` in `core/host-compute.ts`).
  *  Imported as types only: the planner holds none of the tiers an entry runs on. */
 interface EntryHost {
+  readonly entryInputs: typeof entryInputs;
   readonly residentsOf: typeof residentsOf;
   readonly indirectOf: typeof indirectOf;
   readonly checkEntryCall: typeof checkEntryCall;
@@ -198,8 +201,9 @@ const MOST_ELEMENTS = 0xffffffff;
  * The state of a scratch array: a {@link ResidentArrayState} that holds no elements until a call
  * needs them, and that only the plan of the scope that made it may use. A call is checked by its
  * length (`measure`) and not by a host copy. The first call that runs on WebGPU gets a zeroed
- * device buffer, which a new buffer is, and the first that runs on the host gets a zeroed host
- * array (`sync`), so a group that holds the array as a local makes neither. `release` frees both.
+ * device buffer, new or cleared from its owner's pool, and the first that runs on the host gets
+ * a zeroed host array (`sync`), so a group that holds the array as a local makes neither.
+ * `release` returns a leased buffer to that pool and drops the host array.
  */
 export class ScratchState extends ZeroedState {
   /** Where the array is in its life. A call may take it only while the plan of its scope runs. */
@@ -208,6 +212,9 @@ export class ScratchState extends ZeroedState {
   /** The element as the author spelled it. A `'vec4f'` array holds four numbers per element, so
    *  its zeroed state holds `4 × length` numbers of `f32` (change 0068). */
   readonly spelled: ScratchElement;
+
+  /** Actual storage acquisitions, retained after release for the successful plan's report. */
+  readonly webgpuScratch = { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 };
 
   constructor(
     length: number,
@@ -266,7 +273,7 @@ export class ScratchState extends ZeroedState {
     return super.sync();
   }
 
-  // With no host copy yet, the buffer is the array: a new one, which holds zeros (`ZeroedState`).
+  // With no host copy yet, the buffer is the array: new or cleared before its first dispatch.
   override bufferFor(
     d: GpuDevice,
     layout: Layout,
@@ -274,15 +281,31 @@ export class ScratchState extends ZeroedState {
     writes: boolean,
   ): GpuBuffer {
     this.#use('This array');
-    return super.bufferFor(d, layout, bytes, writes);
+    const unbound = this.gpu === undefined;
+    if (unbound) this.ownedBy?.scratchBuffer?.(this, d, layout);
+    const borrowed = this.gpu;
+    if (unbound && borrowed !== undefined) {
+      this.webgpuScratch.reuses++;
+      this.webgpuScratch.reusedBytes += borrowed.size;
+    }
+    const before = this.gpu?.buffer;
+    const buffer = super.bufferFor(d, layout, bytes, writes);
+    if (buffer !== before) {
+      this.webgpuScratch.allocations++;
+      this.webgpuScratch.allocatedBytes += this.gpu!.size;
+    }
+    return buffer;
   }
 
   /** The plan has run, or will not: free the device buffer and the host array, and refuse every
    *  use after. */
   release(): void {
+    if (this.phase === 'done') return;
     this.phase = 'done';
-    if (this.gpu !== undefined) forgetBuffer(this.gpu.d, this.gpu.buffer);
-    this.gpu?.buffer.destroy();
+    if (this.ownedBy?.releaseScratch?.(this) !== true) {
+      if (this.gpu !== undefined) forgetBuffer(this.gpu.d, this.gpu.buffer);
+      this.gpu?.buffer.destroy();
+    }
     this.gpu = undefined;
     this.host = undefined;
   }
@@ -315,6 +338,8 @@ export interface RecordedKernel {
   readonly k: KernelFace;
   readonly argc: number;
   readonly args: readonly unknown[];
+  /** Private content reads, independent of the plan's read-without-write scheduling facts. */
+  readonly incoming?: IncomingReads;
   /** The promise the call returned to the body. */
   readonly promise: Promise<unknown>;
   readonly settle: { resolve(value: unknown): void; reject(error: unknown): void };
@@ -329,6 +354,7 @@ export interface RecordedEntry {
   readonly argc: number;
   readonly bindings: unknown;
   readonly workgroups: unknown;
+  readonly incoming?: IncomingReads;
   /** The `Resident` each binding stands for, checked when the call was recorded. */
   readonly states: ReadonlyMap<EntryBinding, ResidentArrayState>;
   /** The `Resident` that holds the workgroup count of the call, if any (change 0075). */
@@ -411,6 +437,7 @@ class Scope implements FuseRecorder {
     k: KernelFace,
     argc: number,
     args: readonly unknown[],
+    incoming?: IncomingReads,
   ): Promise<unknown> {
     const bad = arityError(k, argc);
     if (bad !== undefined) throw bad;
@@ -447,7 +474,7 @@ class Scope implements FuseRecorder {
     });
     // A call nobody awaits keeps its error on what it writes, for `read()` to throw.
     promise.catch(() => undefined);
-    this.#calls.push({ kind: 'kernel', cpu, k, argc, args, promise, settle });
+    this.#calls.push({ kind: 'kernel', cpu, k, argc, args, incoming, promise, settle });
     return promise;
   }
 
@@ -458,6 +485,7 @@ class Scope implements FuseRecorder {
     bindings: unknown,
     workgroups: unknown,
     lent: unknown,
+    incoming?: IncomingReads,
   ): Promise<void> {
     const host = lent as EntryHost;
     // The refusals that need no value: the arguments, a `Resident` for a binding it may not
@@ -503,6 +531,7 @@ class Scope implements FuseRecorder {
       argc,
       bindings,
       workgroups,
+      incoming,
       states,
       indirect,
       host,

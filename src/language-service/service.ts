@@ -6,8 +6,8 @@ import { emitGlslModule } from '../core/backends/glsl.js';
 import { compileTsSource, type CompileTsSourceResult } from '../compiler/ts/source-file.js';
 import type { ImportHooks } from '../compiler/ts/link.js';
 import { TypeshadeHost, type TypeshadeLanguageServiceHost } from './host.js';
-import { TS_CODES } from '../compiler/ts/codes.js';
-import { makeDiagnostic } from '../compiler/ts/diagnostic.js';
+import { backendDiagnostic } from '../compiler/ts/diagnostic.js';
+import { renderPart } from '../compiler/ts/render-part.js';
 import { emittedStructDecls } from '../compiler/ts/structs.js';
 import {
   fromCompilerDiagnostic,
@@ -424,29 +424,40 @@ export function createTypeshadeLanguageServiceWith(
           enables: [...analysis.enables],
           ...(analysis.directives.length > 0 ? { diagnostics: [...analysis.directives] } : {}),
         };
+        // WGSL is the program, even when this pane requests GLSL. A failure shared by both
+        // writers must remain an error rather than become a GLSL warning or disappear.
+        let wgsl: string | undefined;
         try {
-          outputText =
-            target === 'wgsl'
-              ? emitModule(moduleDecl)
-              : emitGlslModule(moduleDecl, target === 'glsl-vertex' ? 'vertex' : 'fragment');
+          wgsl = emitModule(moduleDecl);
         } catch (e) {
-          // A backend refusing the module (a compute-only module asked for GLSL, a feature
-          // GLSL ES 3.00 cannot express) is a fact about this document and target, so it is
-          // reported the way compileTsSource reports its own emit failure: as a BACKEND
-          // diagnostic on the first statement, with the empty text an output pane can show.
-          const message = e instanceof Error ? e.message : String(e);
           diagnostics.push(
-            fromCompilerDiagnostic(
-              sourceFile,
-              uri,
-              makeDiagnostic(
-                sourceFile,
-                undefined,
-                `Backend emit failed for ${target}: ${message}`,
-                TS_CODES.BACKEND,
-              ),
-            ),
+            fromCompilerDiagnostic(sourceFile, uri, backendDiagnostic(sourceFile, e)),
           );
+        }
+        if (wgsl !== undefined) {
+          if (target === 'wgsl') outputText = wgsl;
+          else {
+            const hasRenderEntry = moduleDecl.funcs.some(
+              (f) => f.stage === 'vertex' || f.stage === 'fragment',
+            );
+            try {
+              outputText = emitGlslModule(
+                hasRenderEntry ? renderPart(moduleDecl) : moduleDecl,
+                target === 'glsl-vertex' ? 'vertex' : 'fragment',
+              );
+            } catch (e) {
+              // Rule 12.3: a GLSL-only shortfall warns when a render entry could use that
+              // target, and says nothing otherwise. Cached document diagnostics stay intact.
+              if (hasRenderEntry)
+                diagnostics.push(
+                  fromCompilerDiagnostic(
+                    sourceFile,
+                    uri,
+                    backendDiagnostic(sourceFile, e, 'warning'),
+                  ),
+                );
+            }
+          }
         }
       }
       return { target, text: outputText, diagnostics };

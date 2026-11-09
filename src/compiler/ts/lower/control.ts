@@ -749,11 +749,27 @@ export function lowerSwitch(
   // the labels; both are one clause with several selectors, which is what the IR now holds.
   let pending: number[] = [];
   let defaultBody: readonly Stmt[] | undefined;
+  let seenDefault = false;
   // Inside the case bodies a `break` is the switch's own, not an enclosing loop's.
   scope.enterSwitch();
   try {
     const clauses = node.caseBlock.clauses;
     for (const [index, clause] of clauses.entries()) {
+      if (ts.isDefaultClause(clause)) {
+        // Keep the first clause: overwriting it silently accepted a second default (#321).
+        // Track its presence separately, since an empty clause may itself be refused below.
+        if (seenDefault) {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            clause,
+            'Duplicate switch default; each switch may have only one default clause.',
+            TS_CODES.SWITCH_CASE,
+          );
+          continue;
+        }
+        seenDefault = true;
+      }
       // A body whose end is reachable runs on into the next body in TypeScript, and WGSL has
       // no fall-through: the lowering ends the clause here, so `case 0: x = 1.` above
       // `case 1: x += 2.; break` gave `k = 0` 3 in TypeScript and 1 on the GPU, with no
@@ -941,12 +957,12 @@ function caseValue(
     );
     return undefined;
   }
-  if (scrutKind === 'u32' && value < 0) {
+  if (!fitsTarget(value, scrutType)) {
     pushDiag(
       diagnostics,
       sourceFile,
       clause.expression,
-      `switch case ${String(value)} does not fit a u32 selector.`,
+      `switch case ${String(value)} does not fit a ${scrutKind} selector.`,
       TS_CODES.SWITCH_CASE,
     );
     return undefined;

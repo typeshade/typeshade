@@ -46,6 +46,135 @@ export const fs = fragment(function fs(): vec4 {
 });
 `;
 
+const PORTABLE_KERNEL = `"use typeshade";
+function act(x: f32): f32 { return x * 2.; }
+export function scale(out: array<f32>, xs: array<f32>): void {
+  for (let i: u32 = 0; i < out.length; i++) { out[i] = act(xs[i]); }
+}
+`;
+
+const fusionOrigins = (code: string): string[] =>
+  [...code.matchAll(/"fuse":\{"origin":("(?:\\.|[^"\\])*")/g)].map(
+    (match) => JSON.parse(match[1]!) as string,
+  );
+
+describe('opt-in portable fusion origins (0122)', () => {
+  it('preserves default hook calls and uses the exact namespace with a root', async () => {
+    const root = tempDir();
+    const file = join(root, 'ops.shade.ts');
+    const original = await typeshade().transform(PORTABLE_KERNEL, file);
+    expect(fusionOrigins(original!.code)).toEqual([file.replace(/\\/g, '/')]);
+    for (const command of ['serve', 'build']) {
+      const p = typeshade({ originNamespace: ' @acme/effects ' });
+      p.configResolved({ command, root });
+      const result = await p.transform(PORTABLE_KERNEL, `${file}?import`);
+      expect(fusionOrigins(result!.code)).toEqual([
+        JSON.stringify([' @acme/effects ', 'ops.shade.ts']),
+      ]);
+    }
+    const off = typeshade({ originNamespace: 'pkg', fuse: false });
+    off.configResolved({ command: 'build', root });
+    expect(fusionOrigins((await off.transform(PORTABLE_KERNEL, file))!.code)).toEqual([]);
+  });
+
+  it('rejects invalid portable configuration through the plugin before writing a view', async () => {
+    expect(() => typeshade({ originNamespace: '' })).toThrow(
+      'originNamespace must be a nonempty string',
+    );
+    const file = join(tempDir(), 'ops.shade.ts');
+    for (const root of [undefined, '', 'relative/project']) {
+      const p = typeshade({ originNamespace: 'pkg' });
+      p.configResolved({ command: 'build', ...(root === undefined ? {} : { root }) });
+      await expect(p.transform(PORTABLE_KERNEL, file)).rejects.toThrow('originNamespace requires');
+    }
+    await expect(
+      typeshade({ originNamespace: 'pkg' }).transform(PORTABLE_KERNEL, file),
+    ).rejects.toThrow('an absolute Vite root from configResolved');
+    const p = typeshade({ originNamespace: 'pkg' });
+    p.configResolved({ command: 'build', root: tempDir() });
+    await expect(p.transform(PORTABLE_KERNEL, 'ops.shade.ts')).rejects.toThrow(
+      'an absolute shader path',
+    );
+    expect(existsSync(file.replace(/\.ts$/, '.typeshade.ts'))).toBe(false);
+  });
+
+  it('distinguishes nested modules and packages while two checkouts produce the same code', async () => {
+    const outputs: string[] = [];
+    for (const root of [tempDir(), tempDir()]) {
+      const p = typeshade({ originNamespace: '@acme/effects' });
+      p.configResolved({ command: 'build', root });
+      mkdirSync(join(root, 'src'), { recursive: true });
+      outputs.push((await p.transform(PORTABLE_KERNEL, join(root, 'src/ops.shade.ts')))!.code);
+    }
+    expect(outputs[0]).toBe(outputs[1]);
+    expect(fusionOrigins(outputs[0]!)).toEqual(['["@acme/effects","src/ops.shade.ts"]']);
+    const root = tempDir();
+    const origins: string[] = [];
+    for (const [namespace, directory] of [
+      ['pkg-a', 'src/first'],
+      ['pkg-a', 'src/second'],
+      ['pkg-b', 'src/first'],
+      ['pkg-a', 'node_modules/one/src'],
+      ['pkg-a', 'node_modules/two/src'],
+    ] as const) {
+      mkdirSync(join(root, directory), { recursive: true });
+      const p = typeshade({ originNamespace: namespace });
+      p.configResolved({ command: 'build', root });
+      origins.push(
+        ...fusionOrigins(
+          (await p.transform(PORTABLE_KERNEL, join(root, directory, 'ops.shade.ts')))!.code,
+        ),
+      );
+    }
+    expect(new Set(origins).size).toBe(5);
+  });
+
+  it('receives the project root from a real Vite build in two checkouts', async () => {
+    const { build } = await import('vite');
+    const outputs: string[] = [];
+    for (const root of [tempDir(), tempDir()]) {
+      mkdirSync(join(root, 'src'), { recursive: true });
+      writeFileSync(join(root, 'src/ops.shade.ts'), PORTABLE_KERNEL);
+      writeFileSync(join(root, 'main.ts'), "export { scale } from './src/ops.shade.ts';\n");
+      const origins: string[] = [];
+      const out = await build({
+        root,
+        configFile: false,
+        logLevel: 'silent',
+        plugins: [
+          typeshade({ originNamespace: '@acme/effects' }),
+          {
+            name: 'capture-generated-fusion-identity',
+            enforce: 'pre',
+            transform(code, id) {
+              if (id.endsWith('/src/ops.shade.ts')) origins.push(...fusionOrigins(code));
+              return null;
+            },
+          },
+        ],
+        resolve: {
+          alias: { 'typeshade/runtime/internal': join(import.meta.dirname, 'runtime-internal.ts') },
+        },
+        build: {
+          write: false,
+          minify: false,
+          lib: { entry: join(root, 'main.ts'), formats: ['es'], fileName: 'main' },
+        },
+      });
+      expect(origins).toEqual(['["@acme/effects","src/ops.shade.ts"]']);
+      const chunks = (Array.isArray(out) ? out[0]! : out) as unknown as {
+        output: readonly { code?: string }[];
+      };
+      const code = chunks.output.map((chunk) => chunk.code ?? '').join('\n');
+      expect(code).toContain('@acme/effects');
+      expect(code).not.toContain(root.replace(/\\/g, '/'));
+      expect(existsSync(join(root, 'src/ops.shade.typeshade.ts'))).toBe(true);
+      outputs.push(code);
+    }
+    expect(outputs[0]).toBe(outputs[1]);
+  });
+});
+
 describe('a host file imports a .shade.ts through the plugin', () => {
   it('calls the export, which runs at f32 on the CPU tier, and the view is written beside it', async () => {
     const dir = tempDir();
@@ -141,28 +270,44 @@ describe('a .shade.ts that imports another, through the plugin (Rule 3.9)', () =
     );
   });
 
-  it('hands each file the module read to the bundler to watch', async () => {
-    const dir = tempDir();
-    const lib = join(dir, 'lib.shade.ts');
-    writeFileSync(lib, LIB);
-    const watched: string[] = [];
-    const out = await typeshade().transform.call(
-      { addWatchFile: (id: string) => void watched.push(id) } as never,
-      APP,
-      join(dir, 'app.shade.ts'),
-    );
-    expect(out?.code).toContain(' as brighten };');
-    expect(watched).toEqual([lib.replace(/\\/g, '/')]);
-  });
+  it.each([undefined, '@acme/effects'])(
+    'keeps imported watch paths with namespace %s',
+    async (originNamespace) => {
+      const dir = tempDir();
+      const lib = join(dir, 'lib.shade.ts');
+      writeFileSync(lib, LIB);
+      const watched: string[] = [];
+      const plugin = typeshade(originNamespace === undefined ? {} : { originNamespace });
+      plugin.configResolved({ command: 'build', root: dir });
+      const out = await plugin.transform.call(
+        { addWatchFile: (id: string) => void watched.push(id) } as never,
+        APP,
+        join(dir, 'app.shade.ts'),
+      );
+      expect(out?.code).toContain(' as brighten };');
+      expect(watched).toEqual([lib.replace(/\\/g, '/')]);
+      expect(readFileSync(join(dir, 'app.shade.typeshade.ts'), 'utf8')).toBe(
+        hostFace(APP, {
+          fileName: join(dir, 'app.shade.ts'),
+          readDocument: (f) => readFileSync(f, 'utf8'),
+        }).view,
+      );
+    },
+  );
 
-  it('fails the build on an error in the imported file, at that file', async () => {
-    const dir = tempDir();
-    const lib = join(dir, 'lib.shade.ts');
-    writeFileSync(lib, LIB.replace('x * t.gain', 'x * t.gian'));
-    await expect(typeshade().transform(APP, join(dir, 'app.shade.ts'))).rejects.toThrow(
-      `${join(dir, 'app.shade.ts').replace(/\\/g, '/')} does not compile:\n${lib.replace(/\\/g, '/')}:8:16 TS8022 `,
-    );
-  });
+  it.each([undefined, '@acme/effects'])(
+    'keeps imported error paths with namespace %s',
+    async (originNamespace) => {
+      const dir = tempDir();
+      const lib = join(dir, 'lib.shade.ts');
+      writeFileSync(lib, LIB.replace('x * t.gain', 'x * t.gian'));
+      const plugin = typeshade(originNamespace === undefined ? {} : { originNamespace });
+      plugin.configResolved({ command: 'build', root: dir });
+      await expect(plugin.transform(APP, join(dir, 'app.shade.ts'))).rejects.toThrow(
+        `${join(dir, 'app.shade.ts').replace(/\\/g, '/')} does not compile:\n${lib.replace(/\\/g, '/')}:8:16 TS8022 `,
+      );
+    },
+  );
 });
 
 /** `shade-tint` installed in `dir`'s node_modules, publishing `LIB` under the `typeshade`

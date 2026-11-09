@@ -605,6 +605,9 @@ export interface Binding {
   readonly type: ShaderType;
   readonly mutable: boolean;
   readonly constValue?: number | boolean;
+  /** Integer-only proof for bounds checks, derived from the emitted initializer. Unlike
+   * constValue, this never approximates an f32 subtree with the CPU's double precision. */
+  readonly indexConstValue?: number;
   /** The address space, for `kind: 'binding'` only. Carried because a diagnostic about a
    *  runtime-sized array has to say something different for `storage` than for `uniform`:
    *  `arrayLength(&x)` is spelled `ptr<storage, array<E>, AM>` and exists for nothing else,
@@ -695,6 +698,7 @@ export class LoweringScope {
   /** The class whose static member's body is being lowered, which is what `this` names there
    *  (Rule 8.13); undefined everywhere else. */
   private staticOwner: string | undefined;
+  private constantF32Conversions = false;
   private privates: PrivateFieldTable = new Map();
   private withheldMembers: WithheldTable = new Map();
   private readonlyMembers: ReadonlyFieldTable = new Map();
@@ -1078,6 +1082,22 @@ export class LoweringScope {
 
   staticClass(): string | undefined {
     return this.staticOwner;
+  }
+
+  /** Preserve written f32 conversions while lowering one f64 module initializer (0123).
+   *  Other declarations and function bodies retain their ordinary literal folding. */
+  withF64ConstPrecision<T>(lower: () => T): T {
+    const previous = this.constantF32Conversions;
+    this.constantF32Conversions = true;
+    try {
+      return lower();
+    } finally {
+      this.constantF32Conversions = previous;
+    }
+  }
+
+  preservesConstantF32(): boolean {
+    return this.constantF32Conversions;
   }
 
   /** The collected struct with this name, or undefined. The lookup a CONTEXTUAL type needs:

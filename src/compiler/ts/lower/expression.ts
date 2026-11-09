@@ -25,6 +25,7 @@ import {
   retargetLit,
 } from '../numeric.js';
 import { foldNumericLit, retargetIntLitCtx, shiftAmountMessage } from '../lit-coerce.js';
+import { foldF64ModuleConst } from '../module-const-f64.js';
 import { libraryNameSentence, mapTsTypeToShaderType, writesRefusedType } from '../type-map.js';
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js';
 import { lowerArrayLiteral, refuseListSpread } from './expression-array.js';
@@ -36,6 +37,7 @@ import { notAValueSentence } from './new-target.js';
 import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
+import { workgroupStageMessage } from '../stage-restrictions.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { refuseIdentityKind, refuseNegationKind, refuseOperatorKind } from './operator-kinds.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
@@ -547,20 +549,21 @@ function lowerIdentifier(
     case 'modvar': {
       // Workgroup memory is a compute entry's alone (§24): a vertex or fragment entry that
       // names it is refused here, on the read, with the reason. A helper function has no
-      // stage and passes; Tint decides for it from the entry that calls it.
+      // stage and passes; the final call-graph check inherits its callers' stages.
       const stage = scope.currentStage();
       if (binding.space === 'workgroup' && (stage === 'vertex' || stage === 'fragment')) {
         pushDiag(
           diagnostics,
           sourceFile,
           node,
-          `"${node.text}" is workgroup memory, which only a compute entry has; a ${stage} entry cannot read or write it.`,
+          workgroupStageMessage(node.text, stage),
           TS_CODES.MODULE_VAR,
         );
         return undefined;
       }
       if (refuseBareAtomic(binding.type, node, sourceFile, scope, diagnostics)) return undefined;
-      return { op: 'varref', type: binding.type, name: irNameOf(binding) };
+      const ref: Expr = { op: 'varref', type: binding.type, name: irNameOf(binding) };
+      return binding.space === 'workgroup' ? withSpan(ref, sourceFile, node) : ref;
     }
     case 'binding':
     case 'local':
@@ -722,6 +725,7 @@ function pair(left: Expr, right: Expr, lNode: ts.Expression, rNode: ts.Expressio
 
 /** Whether `e` is a divisor the constant folder proves is zero in at least one component. */
 export function divisorIsZero(e: Expr, scope: LoweringScope): boolean {
+  if (scope.preservesConstantF32()) return foldF64ModuleConst(e, scope) === 0;
   const parts = foldConstComponents(e, scope);
   return parts !== undefined && parts.some((v) => v === 0);
 }
@@ -822,7 +826,16 @@ function lowerBinary(
   const equality = lowerOptionalEquality(node, left, right, sourceFile, scope, diagnostics);
   if (equality !== 'not-optional') return equality;
   if (refuseKeyOperands(node, left.type, right.type, sourceFile, diagnostics)) return undefined;
-  [left, right] = pair(left, right, node.left, node.right);
+  // The f64 module folder must see every operation of a concrete f32 subtree. Folding
+  // only a nested literal operand here would erase a rounding step, depending on grouping.
+  // A literal-only f64 position still folds the whole tree when it is retargeted or cast.
+  if (
+    !scope.preservesConstantF32() ||
+    typeKey(left.type) !== 'f32' ||
+    typeKey(right.type) !== 'f32'
+  ) {
+    [left, right] = pair(left, right, node.left, node.right);
+  }
   const arith = ARITH[node.operatorToken.kind];
   if (arith !== undefined) {
     if (arith === '*') {

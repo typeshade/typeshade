@@ -3,6 +3,7 @@
 // Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
 
 import { logicalTypeKey as typeKey } from '../optional.js';
+import { foldIndexConst } from '../index-bound.js';
 import ts from 'typescript';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
@@ -790,6 +791,8 @@ function lowerDeclarationKind(
     scope,
     diagnostics,
     aliasOf,
+    decl.name,
+    isConst ? foldIndexConst(init, scope) : undefined,
   );
   if (!bound) return undefined;
   // The statement carries the IR name, `p_1` for a `p` that shadows or follows another `p` in
@@ -889,6 +892,9 @@ function lowerSuperCall(
   }
   const decl = scope.resolveCallee(sup.fn);
   if (!decl) {
+    // The base constructor's signature already said why it was not emitted, as for `new B()`.
+    // Its generated function name is not another mistake at this `super()` (Rule 12.4).
+    if (scope.declarationRefused(sup.fn)) return undefined;
     pushDiag(
       diagnostics,
       sourceFile,
@@ -1282,6 +1288,7 @@ function defineLocal(
   diagnostics: TsCompilerDiagnostic[],
   aliasOf?: string,
   nameNode: ts.Node = decl.name,
+  indexConstValue?: number,
 ): Binding | undefined {
   let bound: Binding;
   try {
@@ -1291,6 +1298,7 @@ function defineLocal(
       type,
       mutable,
       constValue,
+      indexConstValue,
       ...(aliasOf !== undefined ? { aliasOf } : {}),
     });
   } catch (e) {

@@ -6,6 +6,7 @@
 // Vite plugin writes everything the draw needs into the generated module at build time, as a
 // `FragmentEntry` literal: the module's WGSL, the GLSL ES 3.00 fragment program where the WebGL2
 // tier can draw it, and each binding the entry reaches, with its layout.
+// With no host-supplied binding, `entry(target)` supplies the empty object (change 0125).
 //
 // Three tiers, and a canvas keeps the first one that draws into it, since a canvas keeps the
 // first kind of context it hands out:
@@ -31,28 +32,46 @@
 import type { CpuValue } from './cpu-runtime.js';
 import type { ConsoleLog } from './console.js';
 import {
+  ADDRESS,
   checkBindings,
   consoleFor,
-  groupEntries,
   describe,
   flavored,
   gpuHandle,
   isBuffer,
   isGuard,
   packed,
-  pipelineLayout,
-  STAGE,
   toCpu,
   type Checked,
   type DrawBinding,
   type GeneratedCpu,
   type GpuDevice,
-  type Sampling,
+  type Layout,
 } from './host-entry.js';
+import { packLayout } from './manifest-types.js';
 import { fuseSlot } from './fuse-scope.js';
+import { checkIncoming, type IncomingReads } from './host-failure.js';
 import { defaultOwner, inferOwner, ownerOf, resourceOwner, type CallOwner } from './owner.js';
 import { TIERS, type Tier } from './tiers.js';
 import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
+import {
+  STAGE as RHI_STAGE,
+  type RhiBindEntry,
+  type RhiBindGroupLayout,
+  type RhiBindLayoutEntry,
+  type RhiBindResource,
+  type RhiBuffer,
+  type RhiCanvas,
+  type RhiDevice,
+  type RhiRenderPipeline,
+  type RhiShaderModule,
+  type RhiTexture,
+} from '../rhi/rhi.js';
+import type { CpuCode, CpuIoField, CpuProgram } from '../rhi/cpu-program.js';
+import { GL_IMAGE, uploadImage, type GlImage } from './gl-image.js';
+import { webgpuDevice } from '../rhi/webgpu.js';
+import { webgl2Device } from '../rhi/webgl2.js';
+import { cpuDevice } from '../rhi/cpu.js';
 
 // ─── what the generated module carries ───────────────────────────────────────────────────────
 
@@ -184,8 +203,10 @@ interface Painter {
   readonly onDevice?: true;
   /** The actual WebGPU device, for automatic fp64 selection. */
   readonly device?: object;
-  prepare(e: FragmentEntry): Promise<void>;
-  paint(e: FragmentEntry, cpu: GeneratedCpu, f: Frame): void;
+  prepare(e: FragmentEntry, cpu: GeneratedCpu): Promise<void>;
+  /** Record and submit one frame. The CPU backend runs it in the submit, and returns the
+   *  promise of that submit, which rejects when the entry's code throws. */
+  paint(e: FragmentEntry, cpu: GeneratedCpu, f: Frame): Promise<void> | undefined;
 }
 
 interface CanvasState {
@@ -216,22 +237,36 @@ export function callDraw(
   argc: number,
   target: unknown,
   bindings: unknown,
+  reads?: IncomingReads,
 ): Promise<void> {
   fuseSlot.active?.refuse(`${e.name}()`, 'a draw');
   try {
-    if (argc !== 2)
-      throw new TypeError(`${e.name}() takes 2 arguments, (target, bindings); got ${argc}.`);
+    const empty = e.bindings.every(isGuard);
+    if (argc !== 2 && !(empty && argc === 1))
+      throw new TypeError(
+        empty
+          ? `${e.name}() takes 1 or 2 arguments, (target, bindings?); got ${argc}.`
+          : `${e.name}() takes 2 arguments, (target, bindings); got ${argc}.`,
+      );
     if (!isCanvas(target))
       throw new TypeError(
         `${e.name}(): "target" is an HTMLCanvasElement or an OffscreenCanvas; got ${describe(target)}.`,
       );
-    const frame = frameOf(e, bindings);
+    const frame = frameOf(e, empty && bindings === undefined ? {} : bindings);
     let state = canvases.get(target);
     if (state === undefined) canvases.set(target, (state = { chain: Promise.resolve() }));
     const s = state;
     const before = s.chain;
     const draw = (): Promise<void> =>
       before.then(async () => {
+        checkIncoming(
+          e.bindings.flatMap((b) => {
+            const state = frame.residents.get(b.name);
+            return state !== undefined && (reads === undefined || reads.includes(b.name))
+              ? [state]
+              : [];
+          }),
+        );
         // A context can be configured for another GPU. Do not reuse the previous owner's painter.
         if (s.painter === undefined || s.owner !== frame.owner) {
           s.owner = frame.owner;
@@ -243,9 +278,9 @@ export function callDraw(
         // (change 0073); the WebGL2 program and the CPU tier have one text each.
         const de =
           painter.onDevice === true ? flavored(e, frame.owner.fp64Flavor(painter.device)) : e;
-        await painter.prepare(de);
+        await painter.prepare(de, cpu);
         if (painter.onDevice !== true) await hostResidents(e, frame);
-        painter.paint(de, cpu, frame);
+        await painter.paint(de, cpu, frame);
       });
     // A draw with an owned resource takes its place among the kernel and entry calls, so it sees
     // what the calls made before it wrote, and no call made after it writes first.
@@ -278,7 +313,7 @@ async function painterFor(
   const d = allows('webgpu') ? await owner.device() : null;
   if (d !== null) {
     const ctx = canvas.getContext('webgpu') as GpuCanvasContext | null;
-    if (ctx !== null) return webgpuPainter(d as unknown as RenderDevice, ctx);
+    if (ctx !== null) return webgpuPainter(d, ctx);
   }
   if (allows('webgl2') && first.gl !== undefined) {
     const gl = canvas.getContext('webgl2', {
@@ -287,8 +322,8 @@ async function painterFor(
       depth: false,
       stencil: false,
       premultipliedAlpha: false,
-    }) as Gl | null;
-    if (gl !== null) return webgl2Painter(gl, canvas);
+    }) as object | null;
+    if (gl !== null) return webgl2Painter(gl);
   }
   if (allows('cpu') && first.noCpu === undefined) {
     const c2d = canvas.getContext('2d', { alpha: false }) as Ctx2d | null;
@@ -309,41 +344,7 @@ function noTier(e: FragmentEntry, tier: string, why: string | undefined): TypeEr
   );
 }
 
-// ─── WebGPU, structurally ────────────────────────────────────────────────────────────────────
-
-interface GpuTexture {
-  createView(): unknown;
-  destroy(): void;
-}
-interface GpuCanvasContext {
-  configure(c: { device: unknown; format: string; alphaMode: 'opaque' }): void;
-  getCurrentTexture(): GpuTexture;
-}
-interface RenderPipeline {
-  getBindGroupLayout(index: number): unknown;
-}
-interface RenderDevice extends GpuDevice {
-  createRenderPipeline(d: object): RenderPipeline;
-  /** WebGPU's asynchronous form (see `pipelineFor` in `host-entry.ts`); optional for a test double. */
-  createRenderPipelineAsync?(d: object): Promise<RenderPipeline>;
-  createTexture(d: object): GpuTexture;
-  createSampler(d: object): unknown;
-  createCommandEncoder(): ReturnType<GpuDevice['createCommandEncoder']> & {
-    beginRenderPass(d: object): {
-      setPipeline(p: RenderPipeline): void;
-      setBindGroup(i: number, g: unknown): void;
-      draw(n: number): void;
-      end(): void;
-    };
-  };
-  readonly queue: GpuDevice['queue'] & {
-    writeTexture(dst: object, data: ArrayBufferView, layout: object, size: object): void;
-    copyExternalImageToTexture(src: object, dst: object, size: object): void;
-  };
-}
-
-/** `GPUBufferUsage`, whose values the WebGPU specification fixes. */
-const BUFFER = { COPY_DST: 8, UNIFORM: 64, STORAGE: 128 } as const;
+// ─── the draw, on the render hardware interface (change 0120, D2) ────────────────────────────
 
 /** The full-screen triangle: three vertices, counter-clockwise, covering clip space. */
 const FULLSCREEN_WGSL = `@vertex fn v(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
@@ -351,390 +352,432 @@ const FULLSCREEN_WGSL = `@vertex fn v(@builtin(vertex_index) i: u32) -> @builtin
   return vec4<f32>(p * 2.0 - 1.0, 0.0, 1.0);
 }`;
 
-const renderPipelines = new WeakMap<object, Map<FragmentEntry, Promise<RenderPipeline>>>();
+/** The same triangle as a GLSL ES 3.00 vertex program, in WebGPU's clip space: the WebGL2 backend
+ *  turns its position to GL's (`toGlClip`), so its depth is the near plane and `gl_FragCoord.z` is
+ *  0, as WGSL's `position.z` is on WebGPU. */
+const FULLSCREEN_GLSL = `#version 300 es
+void main() {
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
 
-async function renderPipelineFor(
-  d: RenderDevice,
-  e: FragmentEntry,
-  format: string,
-): Promise<RenderPipeline> {
-  let per = renderPipelines.get(d);
-  if (per === undefined) renderPipelines.set(d, (per = new Map()));
-  let p = per.get(e);
+/** The same triangle as a CPU program, for the CPU backend. */
+const FULLSCREEN_CPU: CpuProgram = {
+  code: {
+    F: {
+      v: (i: number): readonly number[] => [((i << 1) & 2) * 2 - 1, (i & 2) * 2 - 1, 0, 1],
+    } as unknown as CpuCode['F'],
+    $: { bindings: {}, vars: {} },
+  },
+  entries: {
+    v: {
+      fn: 'v',
+      stage: 'vertex',
+      params: [{ kind: 'field', field: { name: 'i', builtin: 'vertex_index' } }],
+      out: { kind: 'field', field: { name: 'position', builtin: 'position', width: 4 } },
+    },
+  },
+  bindings: [],
+  workgroupZero: {},
+};
+
+/** The CPU program of a full-screen fragment entry: the module's generated code, the entry's
+ *  builtins and its `@location(0)` colour, and each buffer binding's layout, by which the CPU
+ *  backend reads the bytes it is bound as the value `toCpu` makes. One for each entry and code. */
+const cpuPrograms = new WeakMap<FragmentEntry, CpuProgram>();
+function cpuProgramOf(e: FragmentEntry, cpu: GeneratedCpu): CpuProgram {
+  let p = cpuPrograms.get(e);
   if (p === undefined) {
-    p = (async () => {
-      const module = d.createShaderModule({ code: e.wgsl });
-      const errors = (await module.getCompilationInfo()).messages.filter((m) => m.type === 'error');
-      if (errors.length > 0)
-        throw new Error(
-          `${e.name}: WebGPU refused the module's WGSL: ${errors.map((m) => `line ${m.lineNum}:${m.linePos} ${m.message}`).join('; ')}`,
-        );
-      const descriptor = {
-        layout: pipelineLayout(d, e.bindings, e.log, STAGE.FRAGMENT),
-        vertex: { module: d.createShaderModule({ code: FULLSCREEN_WGSL }), entryPoint: 'v' },
-        fragment: { module, entryPoint: e.entryPoint ?? e.fn, targets: [{ format }] },
-        primitive: { topology: 'triangle-list' },
-      };
-      return d.createRenderPipelineAsync !== undefined
-        ? await d.createRenderPipelineAsync(descriptor)
-        : d.createRenderPipeline(descriptor);
-    })();
-    per.set(e, p);
+    const colour: CpuIoField = { name: e.out ?? 'colour', location: 0, width: 4 };
+    p = {
+      code: cpu as unknown as CpuCode,
+      entries: {
+        [e.fn]: {
+          fn: e.fn,
+          stage: 'fragment',
+          params: e.params.map((builtin) => ({
+            kind: 'field' as const,
+            field: { name: builtin, builtin },
+          })),
+          out:
+            e.out === null
+              ? { kind: 'field', field: colour }
+              : { kind: 'struct', fields: [colour] },
+        },
+      },
+      bindings: e.bindings.filter(isBuffer).map((b) => ({
+        name: b.name,
+        group: b.group,
+        binding: b.binding,
+        layout: packLayout(b.layout),
+        kind: b.space,
+      })),
+      workgroupZero: {},
+    };
+    cpuPrograms.set(e, p);
   }
   return p;
 }
 
-function webgpuPainter(d: RenderDevice, ctx: GpuCanvasContext): Painter {
-  const nav = (globalThis as { navigator?: { gpu?: { getPreferredCanvasFormat(): string } } })
-    .navigator;
-  const format = nav?.gpu?.getPreferredCanvasFormat() ?? 'bgra8unorm';
-  ctx.configure({ device: d, format, alphaMode: 'opaque' });
-  const ready = new Map<FragmentEntry, RenderPipeline>();
-  const prepare = async (e: FragmentEntry): Promise<void> => {
-    if (!ready.has(e)) ready.set(e, await renderPipelineFor(d, e, format));
+/** The element type of a storage buffer's words, which the WebGL2 backend's data texture holds. */
+function elemOf(l: Layout): 'f32' | 'i32' | 'u32' {
+  while (l.k === 'a') l = l.e;
+  const t = l.k === 's' || l.k === 'v' ? l.t : 'f32';
+  return t === 'i32' || t === 'u32' ? t : 'f32';
+}
+
+/** The bind group layouts of an entry's bindings, by group index, every group up to the last,
+ *  written out rather than `'auto'` (see `pipelineLayout` in `host-entry.ts`). On WebGL2 an entry
+ *  carries what its program binds by name: each uniform's block, each texture's sampler uniform
+ *  and the sampler binding GLSL ES 3.00 fuses with it. The CPU backend binds buffers only. */
+function layoutsOf(rhi: RhiDevice, e: FragmentEntry): RhiBindGroupLayout[] {
+  const groups = new Map<number, RhiBindLayoutEntry[]>();
+  const add = (g: number, entry: RhiBindLayoutEntry): void => {
+    let list = groups.get(g);
+    if (list === undefined) groups.set(g, (list = []));
+    list.push(entry);
   };
-  const paint: Painter['paint'] = (e, _cpu, f) => {
-    const pipeline = ready.get(e)!;
-    const resources = new Map<string, unknown>();
-    const owned: { destroy(): void }[] = [];
-    for (const b of e.bindings) {
-      const resident = f.residents.get(b.name);
-      if (resident !== undefined && isBuffer(b)) {
-        const buffer = resident.bufferFor(d, b.layout, () => packed(b, resident.host), false);
-        resources.set(b.name, { buffer });
-      } else if (isBuffer(b)) {
-        const bytes = f.bytes.get(b.name)!;
-        const buffer = d.createBuffer({
-          size: bytes.byteLength,
-          usage: (b.space === 'uniform' ? BUFFER.UNIFORM : BUFFER.STORAGE) | BUFFER.COPY_DST,
-        });
-        d.queue.writeBuffer(buffer, 0, bytes);
-        owned.push(buffer);
-        resources.set(b.name, { buffer });
-      } else {
-        resources.set(b.name, gpuHandle(d, b, f, owned));
-      }
-    }
-    const encoder = d.createCommandEncoder();
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [
-        {
-          view: ctx.getCurrentTexture().createView(),
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: 'clear',
-          storeOp: 'store',
+  const gl = rhi.backend === 'webgl2' ? e.gl : undefined;
+  const bindingOf = (name: string | null | undefined): number | undefined =>
+    name === null || name === undefined
+      ? undefined
+      : e.bindings.find((b) => b.name === name)?.binding;
+  for (const b of e.bindings) {
+    if (rhi.backend === 'cpu' && !isBuffer(b)) continue;
+    const at = { binding: b.binding, visibility: RHI_STAGE.fragment, label: b.name };
+    if (b.space === 'texture') {
+      const sampler = bindingOf(gl?.samplers[b.name]);
+      add(b.group, {
+        ...at,
+        name: b.glsl ?? b.name,
+        ...(sampler !== undefined ? { samplerBinding: sampler } : {}),
+        texture: { sampleType: 'float', viewDimension: '2d', multisampled: false },
+      });
+    } else if (b.space === 'storage-texture')
+      add(b.group, {
+        ...at,
+        storageTexture: {
+          access: b.storage!.access,
+          format: b.storage!.format,
+          viewDimension: '2d',
         },
-      ],
+      });
+    else if (b.space === 'sampler') add(b.group, { ...at, sampler: { type: 'filtering' } });
+    else if (b.space === 'uniform')
+      add(b.group, { ...at, name: gl?.blocks[b.name] ?? b.name, buffer: { type: 'uniform' } });
+    else
+      add(b.group, {
+        ...at,
+        name: b.glsl ?? b.name,
+        buffer: { type: 'rw' in b && b.rw ? 'storage' : 'read-only-storage' },
+      });
+  }
+  if (e.log !== undefined && rhi.backend === 'webgpu')
+    add(e.log.group, {
+      binding: e.log.binding,
+      visibility: RHI_STAGE.fragment,
+      buffer: { type: 'storage' },
     });
-    pass.setPipeline(pipeline);
-    const log = consoleFor(d, e.name, e.log);
-    for (const [g, entries] of groupEntries(e.bindings, (b) => resources.get(b.name), log))
-      pass.setBindGroup(g, d.createBindGroup({ layout: pipeline.getBindGroupLayout(g), entries }));
-    pass.draw(3);
-    pass.end();
-    log?.copy(encoder);
-    d.queue.submit([encoder.finish()]);
-    for (const o of owned) o.destroy();
-    // The frame is submitted; its console calls print when the GPU has run it, after the
-    // promise resolved, since a draw reads nothing back.
-    void log?.print();
-  };
-  return { tier: 'webgpu', onDevice: true, device: d, prepare, paint };
+  const last = Math.max(-1, ...groups.keys());
+  return Array.from({ length: last + 1 }, (_, g) => rhi.createBindGroupLayout(groups.get(g) ?? []));
 }
 
-// ─── WebGL2, structurally ────────────────────────────────────────────────────────────────────
-
-/** The part of `WebGL2RenderingContext` a draw uses; the constants are the specification's. */
-interface Gl {
-  createShader(t: number): object | null;
-  shaderSource(s: object, src: string): void;
-  compileShader(s: object): void;
-  getShaderParameter(s: object, p: number): unknown;
-  getShaderInfoLog(s: object): string | null;
-  createProgram(): object | null;
-  attachShader(p: object, s: object): void;
-  linkProgram(p: object): void;
-  getProgramParameter(p: object, n: number): unknown;
-  getProgramInfoLog(p: object): string | null;
-  useProgram(p: object | null): void;
-  getUniformBlockIndex(p: object, name: string): number;
-  uniformBlockBinding(p: object, index: number, binding: number): void;
-  getUniformLocation(p: object, name: string): object | null;
-  uniform1i(l: object | null, v: number): void;
-  createBuffer(): object | null;
-  bindBuffer(t: number, b: object | null): void;
-  bufferData(t: number, data: ArrayBuffer, usage: number): void;
-  bindBufferBase(t: number, i: number, b: object | null): void;
-  createTexture(): object | null;
-  activeTexture(unit: number): void;
-  bindTexture(t: number, tex: object | null): void;
-  texImage2D(
-    t: number,
-    level: number,
-    internal: number,
-    format: number,
-    type: number,
-    source: object,
-  ): void;
-  texImage2D(
-    t: number,
-    level: number,
-    internal: number,
-    width: number,
-    height: number,
-    border: number,
-    format: number,
-    type: number,
-    pixels: ArrayBufferView,
-  ): void;
-  texParameteri(t: number, p: number, v: number): void;
-  pixelStorei(p: number, v: number | boolean): void;
-  createFramebuffer(): object | null;
-  bindFramebuffer(t: number, f: object | null): void;
-  framebufferTexture2D(t: number, a: number, tt: number, tex: object | null, level: number): void;
-  texStorage2D(t: number, levels: number, internal: number, w: number, h: number): void;
-  deleteTexture(t: object | null): void;
-  deleteBuffer(b: object | null): void;
-  createVertexArray(): object | null;
-  bindVertexArray(v: object | null): void;
-  viewport(x: number, y: number, w: number, h: number): void;
-  clearColor(r: number, g: number, b: number, a: number): void;
-  clear(mask: number): void;
-  drawArrays(mode: number, first: number, count: number): void;
-  blitFramebuffer(
-    sx0: number,
-    sy0: number,
-    sx1: number,
-    sy1: number,
-    dx0: number,
-    dy0: number,
-    dx1: number,
-    dy1: number,
-    mask: number,
-    filter: number,
-  ): void;
+/** What an entry draws with on one device: its pipeline and its bind group layouts. */
+interface Prepared {
+  readonly pipeline: RhiRenderPipeline;
+  readonly layouts: readonly RhiBindGroupLayout[];
 }
 
-const GL = {
-  FRAGMENT_SHADER: 0x8b30,
-  VERTEX_SHADER: 0x8b31,
-  COMPILE_STATUS: 0x8b81,
-  LINK_STATUS: 0x8b82,
-  UNIFORM_BUFFER: 0x8a11,
-  STREAM_DRAW: 0x88e0,
-  TEXTURE_2D: 0x0de1,
-  TEXTURE0: 0x84c0,
-  RGBA: 0x1908,
-  RGBA8: 0x8058,
-  UNSIGNED_BYTE: 0x1401,
-  TEXTURE_MIN_FILTER: 0x2801,
-  TEXTURE_MAG_FILTER: 0x2800,
-  TEXTURE_WRAP_S: 0x2802,
-  TEXTURE_WRAP_T: 0x2803,
-  NEAREST: 0x2600,
-  LINEAR: 0x2601,
-  CLAMP_TO_EDGE: 0x812f,
-  REPEAT: 0x2901,
-  MIRRORED_REPEAT: 0x8370,
-  UNPACK_FLIP_Y_WEBGL: 0x9240,
-  UNPACK_PREMULTIPLY_ALPHA_WEBGL: 0x9241,
-  UNPACK_COLORSPACE_CONVERSION_WEBGL: 0x9243,
-  FRAMEBUFFER: 0x8d40,
-  READ_FRAMEBUFFER: 0x8ca8,
-  DRAW_FRAMEBUFFER: 0x8ca9,
-  COLOR_ATTACHMENT0: 0x8ce0,
-  COLOR_BUFFER_BIT: 0x4000,
-  TRIANGLES: 0x0004,
-} as const;
+const prepared = new WeakMap<RhiDevice, Map<FragmentEntry, Promise<Prepared>>>();
 
-/** The full-screen triangle's vertex program. Its depth is the near plane, so `gl_FragCoord.z`
- *  is 0, as WGSL's `position.z` is for the WebGPU tier's triangle. */
-const FULLSCREEN_GLSL = `#version 300 es
-void main() {
-  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
-  gl_Position = vec4(p * 2.0 - 1.0, -1.0, 1.0);
-}`;
-
-interface GlProgram {
-  readonly program: object;
-  readonly blocks: readonly { name: string; index: number }[];
-  readonly textures: readonly { name: string; location: object | null }[];
+/** The part of a WebGPU shader module that reports how its WGSL compiled. */
+interface CompilationInfo {
+  getCompilationInfo?(): Promise<{
+    messages: readonly { type: string; lineNum: number; linePos: number; message: string }[];
+  }>;
 }
 
-function compileGl(gl: Gl, e: FragmentEntry): GlProgram {
-  const shader = (type: number, src: string): object => {
-    const s = gl.createShader(type)!;
-    gl.shaderSource(s, src);
-    gl.compileShader(s);
-    if (gl.getShaderParameter(s, GL.COMPILE_STATUS) !== true)
-      throw new Error(`${e.name}: WebGL2 refused the GLSL: ${gl.getShaderInfoLog(s) ?? ''}`);
-    return s;
-  };
-  const program = gl.createProgram()!;
-  gl.attachShader(program, shader(GL.VERTEX_SHADER, FULLSCREEN_GLSL));
-  gl.attachShader(program, shader(GL.FRAGMENT_SHADER, e.gl!.frag));
-  gl.linkProgram(program);
-  if (gl.getProgramParameter(program, GL.LINK_STATUS) !== true)
-    throw new Error(`${e.name}: WebGL2 refused the GLSL: ${gl.getProgramInfoLog(program) ?? ''}`);
-  const blocks = Object.entries(e.gl!.blocks).map(([name, block], i) => {
-    const index = gl.getUniformBlockIndex(program, block);
-    gl.uniformBlockBinding(program, index, i);
-    return { name, index };
+async function prepareOn(
+  rhi: RhiDevice,
+  e: FragmentEntry,
+  cpu: GeneratedCpu,
+  format: string,
+): Promise<Prepared> {
+  let fragment: RhiShaderModule;
+  let vertex: RhiShaderModule;
+  if (rhi.backend === 'webgpu') {
+    fragment = rhi.createShaderModule(e.wgsl);
+    const info = rhi.toNative(fragment) as CompilationInfo;
+    const errors = ((await info.getCompilationInfo?.())?.messages ?? []).filter(
+      (m) => m.type === 'error',
+    );
+    if (errors.length > 0)
+      throw new Error(
+        `${e.name}: WebGPU refused the module's WGSL: ${errors.map((m) => `line ${m.lineNum}:${m.linePos} ${m.message}`).join('; ')}`,
+      );
+    vertex = rhi.createShaderModule(FULLSCREEN_WGSL);
+  } else if (rhi.backend === 'webgl2') {
+    fragment = rhi.createShaderModule(e.gl!.frag);
+    vertex = rhi.createShaderModule(FULLSCREEN_GLSL);
+  } else {
+    fragment = rhi.createShaderModule(cpuProgramOf(e, cpu));
+    vertex = rhi.createShaderModule(FULLSCREEN_CPU);
+  }
+  const layouts = layoutsOf(rhi, e);
+  const pipeline = await rhi.createRenderPipeline({
+    label: `the draw of ${e.name}`,
+    layouts,
+    module: vertex,
+    vertex: { entryPoint: 'v', buffers: [] },
+    fragment: {
+      module: fragment,
+      entryPoint: e.entryPoint ?? e.fn,
+      // The frame is opaque on every tier. WebGPU's canvas (`alphaMode: 'opaque'`) and the WebGL2
+      // context (`alpha: false`) drop the colour's alpha; the CPU backend's `putImageData` would
+      // not, so its pipeline writes red, green and blue, and the clear's alpha of 1 stays.
+      targets: [{ format, ...(rhi.backend === 'cpu' ? { writeMask: 0x7 } : {}) }],
+    },
+    primitive: { topology: 'triangle-list', cullMode: 'none', frontFace: 'ccw' },
+    multisample: { count: 1, mask: 0xffffffff },
   });
-  // The sampler is declared under the GLSL name its binding carries (Proposal 0070, C8).
-  const textures = Object.keys(e.gl!.samplers).map((name) => ({
-    name,
-    location: gl.getUniformLocation(program, e.bindings.find((b) => b.name === name)?.glsl ?? name),
-  }));
-  return { program, blocks, textures };
+  return { pipeline, layouts };
 }
 
 /** One opaque white texel: the `_fp64` guard's 1.0. */
 const WHITE = new Uint8Array([255, 255, 255, 255]);
 
-const GL_WRAP = { clamp: GL.CLAMP_TO_EDGE, repeat: GL.REPEAT, mirror: GL.MIRRORED_REPEAT } as const;
-
-/** Upload an image source into the `TEXTURE_2D` bound to `gl`'s active unit as `RGBA8`, with the
- *  filter and the address of `s`. The first row of the image is texture coordinate 0, as it is
- *  on WebGPU. A full-screen draw and a compute entry's call (`host-compute.ts`) both upload
- *  their images here. */
-export function uploadImage(
-  gl: Pick<Gl, 'pixelStorei' | 'texImage2D' | 'texParameteri'>,
-  source: object,
-  s: Sampling,
-): void {
-  gl.pixelStorei(GL.UNPACK_FLIP_Y_WEBGL, false);
-  gl.pixelStorei(GL.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-  gl.texImage2D(GL.TEXTURE_2D, 0, GL.RGBA, GL.RGBA, GL.UNSIGNED_BYTE, source);
-  const filter = s.filter === 'nearest' ? GL.NEAREST : GL.LINEAR;
-  gl.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, filter);
-  gl.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, filter);
-  gl.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_S, GL_WRAP[s.address]);
-  gl.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_T, GL_WRAP[s.address]);
-}
-
-function webgl2Painter(gl: Gl, canvas: Canvas): Painter {
-  const programs = new Map<FragmentEntry, GlProgram>();
-  const vao = gl.createVertexArray();
-  let target: { fbo: object | null; tex: object | null; w: number; h: number } | undefined;
-  const prepare = (e: FragmentEntry): Promise<void> => {
-    if (e.gl === undefined) return Promise.reject(noTier(e, 'WebGL2', e.noGl));
-    if (!programs.has(e)) programs.set(e, compileGl(gl, e));
-    return Promise.resolve();
+/**
+ * The painter of one canvas on one RHI device: WebGPU over the owner's `GPUDevice`, WebGL2 over
+ * the canvas's own context, or the CPU backend over its `2d` context. Every tier records the same
+ * commands: a pipeline of the full-screen triangle and the entry, a bind group of each group, one
+ * render pass into the canvas's texture that clears to opaque black, and one draw of 3 vertices.
+ */
+function rhiPainter(
+  rhi: RhiDevice,
+  target: RhiCanvas,
+  tier: Tier,
+  format: string,
+  noTierWhy: (e: FragmentEntry) => string | undefined,
+  tierName: string,
+): Painter {
+  const ready = new Map<FragmentEntry, Prepared>();
+  let per = prepared.get(rhi);
+  if (per === undefined) prepared.set(rhi, (per = new Map()));
+  const cache = per;
+  const prepare = async (e: FragmentEntry, cpu: GeneratedCpu): Promise<void> => {
+    if (noTierWhy(e) !== undefined) throw noTier(e, tierName, noTierWhy(e));
+    if (ready.has(e)) return;
+    let p = cache.get(e);
+    if (p === undefined) {
+      p = prepareOn(rhi, e, cpu, format);
+      cache.set(e, p);
+      // A pipeline that failed is made again at the next draw.
+      p.catch(() => cache.delete(e));
+    }
+    ready.set(e, await p);
   };
   const paint: Painter['paint'] = (e, _cpu, f) => {
-    const p = programs.get(e)!;
-    const { width: w, height: h } = canvas;
-    if (target === undefined || target.w !== w || target.h !== h) {
-      if (target !== undefined) gl.deleteTexture(target.tex);
-      const tex = gl.createTexture();
-      gl.bindTexture(GL.TEXTURE_2D, tex);
-      gl.texStorage2D(GL.TEXTURE_2D, 1, GL.RGBA8, w, h);
-      const fbo = target?.fbo ?? gl.createFramebuffer();
-      gl.bindFramebuffer(GL.FRAMEBUFFER, fbo);
-      gl.framebufferTexture2D(GL.FRAMEBUFFER, GL.COLOR_ATTACHMENT0, GL.TEXTURE_2D, tex, 0);
-      target = { fbo, tex, w, h };
-    }
-    gl.bindFramebuffer(GL.FRAMEBUFFER, target.fbo);
-    gl.viewport(0, 0, w, h);
-    gl.clearColor(0, 0, 0, 1);
-    gl.clear(GL.COLOR_BUFFER_BIT);
-    gl.useProgram(p.program);
-    const owned: object[] = [];
-    p.blocks.forEach(({ name }, i) => {
-      const buffer = gl.createBuffer()!;
-      gl.bindBuffer(GL.UNIFORM_BUFFER, buffer);
-      gl.bufferData(GL.UNIFORM_BUFFER, f.bytes.get(name)!, GL.STREAM_DRAW);
-      gl.bindBufferBase(GL.UNIFORM_BUFFER, i, buffer);
-      owned.push(buffer);
-    });
-    const textures: object[] = [];
-    p.textures.forEach(({ name, location }, unit) => {
-      if (e.bindings.some((b) => b.name === name && isGuard(b))) {
-        // The `_fp64` guard: one texel of 1.0, which the emulation multiplies by.
-        const tex = gl.createTexture()!;
-        gl.activeTexture(GL.TEXTURE0 + unit);
-        gl.bindTexture(GL.TEXTURE_2D, tex);
-        gl.texImage2D(GL.TEXTURE_2D, 0, GL.RGBA, 1, 1, 0, GL.RGBA, GL.UNSIGNED_BYTE, WHITE);
-        gl.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, GL.NEAREST);
-        gl.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, GL.NEAREST);
-        gl.uniform1i(location, unit);
-        textures.push(tex);
-        return;
+    const { pipeline, layouts } = ready.get(e)!;
+    const gpu = rhi.backend === 'webgpu' ? (rhi.native as unknown as GpuDevice) : undefined;
+    const buffers: RhiBuffer[] = [];
+    const textures: RhiTexture[] = [];
+    const glTextures: object[] = [];
+    const owned: { destroy(): void }[] = [];
+    const resourceOf = (b: DrawBinding): RhiBindResource => {
+      const resident = f.residents.get(b.name);
+      if (resident !== undefined && isBuffer(b) && gpu !== undefined) {
+        // On WebGPU a `Resident` is bound as its device buffer, which the RHI's WebGPU handle is.
+        const buffer = resident.bufferFor(gpu, b.layout, () => packed(b, resident.host), false);
+        return { buffer: rhi.fromNative('buffer', buffer as object)! };
       }
-      const img = f.images.get(name)!;
+      if (isBuffer(b)) {
+        const bytes = f.bytes.get(b.name)!;
+        const buffer = rhi.createBuffer({
+          size: bytes.byteLength,
+          usage: [b.space, 'copy-dst'],
+          ...(b.space === 'storage' ? { elem: elemOf(b.layout) } : {}),
+        });
+        rhi.writeBuffer(buffer, 0, bytes);
+        buffers.push(buffer);
+        return { buffer };
+      }
+      // WebGPU uploads an image, and makes a sampler, as a compute entry's call does.
+      if (gpu !== undefined)
+        return {
+          native: gpuHandle(
+            gpu as unknown as Parameters<typeof gpuHandle>[0],
+            b,
+            f,
+            owned,
+          ) as object,
+        };
+      if (isGuard(b)) {
+        // The `_fp64` guard: one texel of 1.0, which the emulation multiplies by.
+        const texture = rhi.createTexture({
+          size: [1, 1, 1],
+          format: 'rgba8unorm',
+          usage: ['sampled', 'copy-dst'],
+        });
+        rhi.writeTexture(texture, WHITE, 4, 1, 1);
+        textures.push(texture);
+        return { view: rhi.createView(texture) };
+      }
+      if (b.space === 'sampler') {
+        const s = f.samplers.get(b.name) ?? { filter: 'linear', address: 'clamp' };
+        return {
+          sampler: rhi.createSampler({
+            magFilter: s.filter,
+            minFilter: s.filter,
+            mipmapFilter: 'nearest',
+            addressModeU: ADDRESS[s.address],
+            addressModeV: ADDRESS[s.address],
+            addressModeW: ADDRESS[s.address],
+          }),
+        };
+      }
+      const img = f.images.get(b.name)!;
       if (img.view !== undefined)
         throw new TypeError(
-          `${e.name}(): binding "${name}" is a Texture on the WebGPU device, which the WebGL2 tier cannot read; pass an image source for a draw that may fall back.`,
+          `${e.name}(): binding "${b.name}" is a Texture on the WebGPU device, which the WebGL2 tier cannot read; pass an image source for a draw that may fall back.`,
         );
-      const smp = e.gl!.samplers[name];
-      const s = (smp !== null && smp !== undefined ? f.samplers.get(smp) : undefined) ?? {
-        filter: 'nearest',
-        address: 'clamp',
-      };
+      // The RHI takes no image source yet: the image is uploaded to a texture of the context the
+      // backend runs on, and bound as the host's own texture (Rule 11.17).
+      const gl = rhi.native as unknown as GlImage;
       const tex = gl.createTexture()!;
-      gl.activeTexture(GL.TEXTURE0 + unit);
-      gl.bindTexture(GL.TEXTURE_2D, tex);
-      uploadImage(gl, img.source, s);
-      gl.uniform1i(location, unit);
-      textures.push(tex);
-    });
-    gl.bindVertexArray(vao);
-    gl.drawArrays(GL.TRIANGLES, 0, 3);
-    // `gl_FragCoord` counts rows from the bottom: copy the frame upside down, so the program's
-    // first row is the canvas's top row, as WGSL's `position` has it.
-    gl.bindFramebuffer(GL.READ_FRAMEBUFFER, target.fbo);
-    gl.bindFramebuffer(GL.DRAW_FRAMEBUFFER, null);
-    gl.blitFramebuffer(0, 0, w, h, 0, h, w, 0, GL.COLOR_BUFFER_BIT, GL.NEAREST);
-    for (const b of owned) gl.deleteBuffer(b);
-    for (const t of textures) gl.deleteTexture(t);
+      gl.activeTexture(GL_IMAGE.TEXTURE0);
+      gl.bindTexture(GL_IMAGE.TEXTURE_2D, tex);
+      uploadImage(gl, img.source, { filter: 'nearest', address: 'clamp' });
+      gl.bindTexture(GL_IMAGE.TEXTURE_2D, null);
+      glTextures.push(tex);
+      return { native: tex };
+    };
+    const log = gpu !== undefined ? consoleFor(gpu, e.name, e.log) : undefined;
+    const encoder = rhi.createCommandEncoder();
+    let done: Promise<void>;
+    try {
+      const groups = new Map<number, RhiBindEntry[]>();
+      for (const b of e.bindings) {
+        if (rhi.backend === 'cpu' && !isBuffer(b)) continue;
+        let list = groups.get(b.group);
+        if (list === undefined) groups.set(b.group, (list = []));
+        list.push({ binding: b.binding, resource: resourceOf(b) });
+      }
+      if (log !== undefined) {
+        let list = groups.get(log.group);
+        if (list === undefined) groups.set(log.group, (list = []));
+        list.push({
+          binding: log.entry.binding,
+          resource: { buffer: rhi.fromNative('buffer', log.entry.resource.buffer as object)! },
+        });
+      }
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view: rhi.createView(rhi.currentTexture(target)),
+            clearValue: [0, 0, 0, 1],
+            loadOp: 'clear',
+            storeOp: 'store',
+          },
+        ],
+      });
+      pass.setPipeline(pipeline);
+      layouts.forEach((layout, g) =>
+        pass.setBindGroup(g, rhi.createBindGroup(layout, groups.get(g) ?? [])),
+      );
+      pass.draw(3);
+      pass.end();
+      if (log !== undefined) log.copy(rhi.toNative(encoder) as Parameters<typeof log.copy>[0]);
+      done = rhi.submit([encoder]);
+    } finally {
+      for (const b of buffers) rhi.destroyBuffer(b);
+      for (const t of textures) rhi.destroyTexture(t);
+      for (const o of owned) o.destroy();
+      const gl = glTextures.length > 0 ? (rhi.native as unknown as GlImage) : undefined;
+      for (const t of glTextures) gl!.deleteTexture(t);
+    }
+    // The frame is submitted; its console calls print when the GPU has run it, after the
+    // promise resolved, since a draw reads nothing back.
+    void log?.print();
+    // The CPU backend ran the frame in the submit, and an error of its code rejects the draw. A
+    // GPU's submit resolves when the GPU has run the frame, which a draw does not wait for.
+    if (rhi.backend === 'cpu') return done;
+    done.catch(() => undefined);
+    return undefined;
   };
-  return { tier: 'webgl2', prepare, paint };
+  return {
+    tier,
+    ...(rhi.backend === 'webgpu' ? { onDevice: true as const, device: rhi.native! } : {}),
+    prepare,
+    paint,
+  };
 }
 
-// ─── the CPU tier ────────────────────────────────────────────────────────────────────────────
+/** The RHI device of each native device the call layer draws with, so the pipelines an entry
+ *  makes on one device serve every canvas of that device. */
+const rhis = new WeakMap<object, RhiDevice>();
+function rhiOf(native: object, make: (n: never) => RhiDevice): RhiDevice {
+  let r = rhis.get(native);
+  if (r === undefined) rhis.set(native, (r = make(native as never)));
+  return r;
+}
 
+/** The CPU backend the call layer draws on: one software device for every canvas. */
+let cpuRhi: RhiDevice | undefined;
+
+function webgpuPainter(d: object, ctx: GpuCanvasContext): Painter {
+  const nav = (globalThis as { navigator?: { gpu?: { getPreferredCanvasFormat(): string } } })
+    .navigator;
+  const format = nav?.gpu?.getPreferredCanvasFormat() ?? 'bgra8unorm';
+  ctx.configure({ device: d, format, alphaMode: 'opaque' });
+  const rhi = rhiOf(d, webgpuDevice);
+  return rhiPainter(rhi, rhi.fromNative('canvas', ctx)!, 'webgpu', format, () => undefined, '');
+}
+
+function webgl2Painter(gl: object): Painter {
+  const rhi = rhiOf(gl, webgl2Device);
+  return rhiPainter(
+    rhi,
+    rhi.fromNative('canvas', gl)!,
+    'webgl2',
+    'rgba8unorm',
+    (e) => (e.gl === undefined ? (e.noGl ?? 'unknown') : undefined),
+    'WebGL2',
+  );
+}
+
+/** The part of a `2d` context the CPU tier draws with. */
 interface Ctx2d {
-  createImageData(w: number, h: number): { data: Uint8ClampedArray };
+  createImageData(w: number, h: number): object;
   putImageData(img: object, x: number, y: number): void;
 }
 
+/** Each `2d` context as the CPU backend takes it: with the canvas it draws, at that canvas's size.
+ *  One for each context, so the backend keeps one canvas handle for it. */
+const contexts2d = new WeakMap<object, object>();
+
 function cpuPainter(c2d: Ctx2d, canvas: Canvas): Painter {
-  const prepare = (e: FragmentEntry): Promise<void> =>
-    e.noCpu !== undefined ? Promise.reject(noTier(e, 'the CPU', e.noCpu)) : Promise.resolve();
-  const paint: Painter['paint'] = (e, cpu, f) => {
-    const { width: w, height: h } = canvas;
-    for (const [name, v] of f.cpu) cpu.$.bindings[name] = v;
-    const fn = cpu.F[e.fn]!;
-    const init = cpu.F['$initPrivates'];
-    const img = c2d.createImageData(w, h);
-    const px = img.data;
-    try {
-      for (let y = 0; y < h; y++)
-        for (let x = 0; x < w; x++) {
-          const args = e.params.map(
-            (p): CpuValue =>
-              (p === 'position' ? [x + 0.5, y + 0.5, 0, 1] : true) as unknown as CpuValue,
-          );
-          init?.();
-          cpu.$.invocation = [x, y, 0];
-          const r = fn(...args) as unknown;
-          const at = 4 * (y * w + x);
-          // A discarded pixel keeps the clear colour, opaque black.
-          const c =
-            r === undefined
-              ? undefined
-              : ((e.out === null ? r : (r as Record<string, unknown>)[e.out]) as number[]);
-          for (let i = 0; i < 3; i++)
-            px[at + i] = c === undefined ? 0 : Math.round(clamp01(c[i]!) * 255);
-          px[at + 3] = 255;
-        }
-    } finally {
-      cpu.$.invocation = undefined;
-    }
-    c2d.putImageData(img, 0, 0);
-  };
-  return { tier: 'cpu', prepare, paint };
+  const rhi = (cpuRhi ??= cpuDevice());
+  let context = contexts2d.get(c2d);
+  if (context === undefined)
+    contexts2d.set(
+      c2d,
+      (context = {
+        canvas,
+        createImageData: (w: number, h: number) => c2d.createImageData(w, h),
+        putImageData: (img: object, x: number, y: number) => c2d.putImageData(img, x, y),
+      }),
+    );
+  return rhiPainter(
+    rhi,
+    rhi.fromNative('canvas', context)!,
+    'cpu',
+    'rgba8unorm',
+    (e) => e.noCpu,
+    'the CPU',
+  );
 }
 
-const clamp01 = (x: number): number => (x > 1 ? 1 : x > 0 ? x : 0);
+/** The part of a canvas's `webgpu` context the call layer configures. */
+interface GpuCanvasContext {
+  configure(c: { device: unknown; format: string; alphaMode: 'opaque' }): void;
+}

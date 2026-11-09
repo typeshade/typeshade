@@ -850,9 +850,9 @@ describe('a function handed over that reads a variable whose declaration was ref
   /** `body` with an entry that calls `run(2.)`, written as a stage call. */
   const STAGED = (body: string): string =>
     `"use typeshade";\n${body}\nexport const fs = fragment(function fs(): vec4 {\n  return vec4(run(2.), 0., 0., 1.);\n});\n`;
-  /** The module constant of #967, which the front end refuses (part 2 of the issue asks for it). */
-  const DOUBLE = `const TAU_DOUBLE: f64 = 6.283185307179586;\n`;
-  const REFUSED = `${TS_CODES.TYPE_MISMATCH} Module const "TAU_DOUBLE" must be f32, i32, u32, or bool for now.`;
+  /** The shape of #967, now refused for an actual range error: 0123 permits its original value. */
+  const DOUBLE = `const TAU_DOUBLE: f64 = f64(1e38) * 4;\n`;
+  const REFUSED = `${TS_CODES.TYPE_MISMATCH} Module const "TAU_DOUBLE" is f64, but its value cannot be represented by two finite f32 words. Use a finite value within the emulated double's f32 range.`;
   const NOT_YET = (name: string): string =>
     `${TS_CODES.UNKNOWN_NAME} The function written here reads "${name}", which is not declared yet where it runs: a let or a const is not there before its declaration, and TypeScript throws. Declare "${name}" above this call.`;
   /** What each half says of `src`: `compile()`'s errors, and every diagnostic of the editor. */
@@ -871,6 +871,18 @@ describe('a function handed over that reads a variable whose declaration was ref
     editor: [`typeshade ${diagnostic}`],
   });
 
+  it('accepts the original f64 constant through the captured local (#967)', () => {
+    expect(
+      halves(
+        STAGED(`${APPLY}const TAU_DOUBLE: f64 = 6.283185307179586;
+export function run(k: f32): f32 {
+  const step = TAU_DOUBLE / 8.;
+  return apply((x) => x * f32(step), k);
+}`),
+      ),
+    ).toEqual({ compiler: [], editor: [] });
+  });
+
   it('says only the refusal of the module constant, read through a local by an arrow function handed to a call', () => {
     expect(
       halves(
@@ -880,6 +892,73 @@ describe('a function handed over that reads a variable whose declaration was ref
 }`),
       ),
     ).toEqual(once(REFUSED));
+  });
+
+  it.each([
+    'const step = TAU_DOUBLE / 8.;',
+    'const base = TAU_DOUBLE / 8.; const step = base * 2.;',
+  ])(
+    'says only the cause when a local higher-order function captures a refused local: %s',
+    (declarations) => {
+      const src = STAGED(`${DOUBLE}export function run(k: f32): f32 {
+      ${declarations}
+      function apply(f: (x: f32) => f32, x: f32): f32 {
+        return f(x) + f32(step);
+      }
+      return apply((x) => x * 2., k);
+    }`);
+      expect(halves(src)).toEqual(once(REFUSED));
+    },
+  );
+
+  it('keeps another refusal as the cause of a missing local capture', () => {
+    const src = STAGED(`export function run(k: f32): f32 {
+      let values: f32[] = [1., 2.];
+      const step = values[0];
+      function apply(f: (x: f32) => f32, x: f32): f32 { return f(x) + step; }
+      return apply((x) => x, k);
+    }`);
+    expect(halves(src)).toEqual(
+      once(`${TS_CODES.UNKNOWN_TYPE} T[] is a JS array type. Use array<T, N>.`),
+    );
+  });
+
+  it('still reports a local higher-order call before its captured declaration', () => {
+    const src = STAGED(`${DOUBLE}export function run(k: f32): f32 {
+      function apply(f: (x: f32) => f32, x: f32): f32 { return f(x) + f32(step); }
+      const result = apply((x) => x, k);
+      const step = TAU_DOUBLE / 8.;
+      return result;
+    }`);
+    const missing = `${TS_CODES.UNKNOWN_NAME} "apply" reads "step", which is not declared yet where "apply" is called: a let or a const is not there before its declaration, and TypeScript throws. Call "apply" after "step" is declared.`;
+    expect(halves(src)).toEqual({
+      compiler: [REFUSED, missing],
+      editor: [`typeshade ${REFUSED}`, `typeshade ${missing}`],
+    });
+  });
+
+  it('does not hide an independent error beside the refused capture', () => {
+    const src = STAGED(`${DOUBLE}export function run(k: f32): f32 {
+      const step = TAU_DOUBLE / 8.;
+      function apply(f: (x: f32) => f32, x: f32): f32 { return f(x) + f32(step); }
+      const result = apply((x) => x, k);
+      return missing;
+    }`);
+    const missing = `${TS_CODES.UNKNOWN_NAME} Unknown identifier "missing".`;
+    expect(halves(src)).toEqual({
+      compiler: [REFUSED, missing],
+      editor: [`typeshade ${REFUSED}`, `typeshade ${missing}`],
+    });
+  });
+
+  it('runs a local higher-order function when the captured initializer is valid', () => {
+    const src = STAGED(`export function run(k: f32): f32 {
+      const step = k * 3.;
+      function apply(f: (x: f32) => f32, x: f32): f32 { return f(x) + step; }
+      return apply((x) => x * 2., k);
+    }`);
+    expect(halves(src)).toEqual({ compiler: [], editor: [] });
+    expect(run(src)).toBe(10);
   });
 
   it('says only the refusal through an array method, a fold and a local function the arrow names', () => {

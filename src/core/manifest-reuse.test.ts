@@ -1,27 +1,45 @@
 import { describe, expect, it, vi } from 'vitest';
 import { compile } from '../compiler/ts/compile.js';
 import { hostFace } from '../compiler/ts/host-face.js';
+import { createTypeshadeLanguageService } from '../language-service/service.js';
 import { wgslBackend } from './backends/wgsl.js';
 import { buildManifest, type Pack, type PackOptions } from './manifest.js';
 
 const source = `"use typeshade";
 declare const data: storage<array<f32>, "read_write">;
 @compute([1])
-export function main(@builtin(global_invocation_id) id: vec3u): void {
+export function main(@builtin("global_invocation_id") id: vec3u): void {
   const x = f64(data[id.x]) * 1.000000001;
   console.log("x", f32(x));
   data[id.x] = f32(x);
 }
 `;
 
+function compiledSource() {
+  const fileName = 'reuse.shade.ts';
+  const r = compile(source, { fileName });
+  expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+  expect(r.wgsl).toContain('@builtin(global_invocation_id)');
+  const service = createTypeshadeLanguageService();
+  service.openDocument(fileName, source);
+  try {
+    expect(service.getDiagnostics(fileName).filter((d) => d.severity === 'error')).toEqual([]);
+  } finally {
+    service.closeDocument(fileName);
+  }
+  return r;
+}
+
 describe('reuse the validated default WGSL within a host compilation', () => {
   it('preserves the complete manifest, including fp64, console and portable IR', () => {
-    const r = compile(source, { fileName: 'reuse.shade.ts' });
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(r.wgsl).toBeDefined();
+    const r = compiledSource();
     const options = { console: true, ir: true };
     const expected = buildManifest(r.module, options);
     expect(expected.console).toBeDefined();
+    expect(expected.ir).toBeDefined();
+    expect(expected.entries.find((e) => e.name === 'main')?.inputs).toEqual([
+      expect.objectContaining({ name: 'id', builtin: 'global_invocation_id' }),
+    ]);
     expect(expected.bindings.some((b) => b.injected && b.name === '_fp64')).toBe(true);
     expect(buildManifest(r.module, options, r.wgsl)).toEqual(expected);
   });
@@ -55,7 +73,7 @@ export const main = compute([1], function main(): void {
   });
 
   it('never reuses default text for explicit emit options or plugins', () => {
-    const r = compile(source);
+    const r = compiledSource();
     const options: PackOptions[] = [
       { emit: {} },
       { emit: { level: 'O0', parens: 'minimal', fp64Flavor: 'integer' } },

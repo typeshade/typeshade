@@ -28,8 +28,8 @@ export type BuiltinStage = 'vertex' | 'fragment' | 'compute';
 /**
  * Every attribute (decorator) name `"use typeshade"` actually parses and acts on:
  * `@vertex`/`@fragment`/`@compute` on a top-level function (`lower/function.ts`'s `parseStage`)
- * and `@builtin`/`@location` on that function's parameters or a struct field (`builtinDecoratorArg`/
- * `numberDecorator` here and in `structs.ts`). This is the one place this list is spelled out;
+ * and `@builtin`/`@location` on that function's parameters or a struct field
+ * (`readIoAttributes`). This is the one place this list is spelled out;
  * `language-service/ambient.ts`'s `ATTRIBUTE_NAMES` re-exports it rather than retyping it, the
  * same way it already re-exports {@link WGSL_BUILTIN_NAMES} from `core/sot.ts` — the language
  * service depends on the compiler, never the reverse, so the canonical list lives here.
@@ -265,23 +265,67 @@ function attributeNameOf(decorator: ts.Decorator): string | undefined {
  *  struct return type). */
 export type BuiltinDirection = 'input' | 'output';
 
-/** Finds a `@builtin("name")` decorator among `decorators` and returns its raw string and the
- *  string literal node itself, for a diagnostic span narrower than the whole declaration.
- *  Mirrors the decorator-call shape both `structs.ts` and `lower/function.ts` already parse. */
-export function builtinDecoratorArg(
+/** Reads the two IO attributes through one argument-shape check. A present malformed
+ *  attribute is reported here, rather than silently becoming an unattributed input. */
+export function readIoAttributes(
+  diagnostics: TsCompilerDiagnostic[],
+  sourceFile: ts.SourceFile,
   decorators: readonly ts.Decorator[],
-): { readonly name: string; readonly argNode: ts.StringLiteralLike } | undefined {
+): {
+  readonly builtin?: { readonly name: string; readonly argNode: ts.StringLiteralLike };
+  readonly location?: number;
+  readonly invalid: boolean;
+} {
+  let builtin: { name: string; argNode: ts.StringLiteralLike } | undefined;
+  let location: number | undefined;
+  let invalid = false;
   for (const d of decorators) {
-    if (!ts.isCallExpression(d.expression)) continue;
-    if (!ts.isIdentifier(d.expression.expression) || d.expression.expression.text !== 'builtin') {
-      continue;
+    const name = attributeNameOf(d);
+    if (name !== 'builtin' && name !== 'location') continue;
+    const args = ts.isCallExpression(d.expression) ? d.expression.arguments : [];
+    const arg = args[0];
+    if (args.length === 1 && arg !== undefined) {
+      if (
+        name === 'builtin' &&
+        (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg))
+      ) {
+        builtin ??= { name: arg.text, argNode: arg };
+        continue;
+      }
+      if (name === 'location' && ts.isNumericLiteral(arg)) {
+        const value = Number(arg.text);
+        if (Number.isInteger(value) && value >= 0) {
+          location ??= value;
+          continue;
+        }
+      }
     }
-    const arg = d.expression.arguments[0];
-    if (arg && (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg))) {
-      return { name: arg.text, argNode: arg };
+    invalid = true;
+    const message =
+      name === 'builtin'
+        ? '@builtin takes one name as a string: @builtin("position").'
+        : '@location takes one non-negative integer literal: @location(0).';
+    // A generic declaration can be read more than once, but one attribute is one mistake.
+    const diagnostic = makeDiagnostic(
+      sourceFile,
+      d,
+      message,
+      name === 'builtin' ? TS_CODES.BUILTIN_NAME : TS_CODES.ATTRIBUTE_NAME,
+    );
+    if (
+      !diagnostics.some(
+        (error) =>
+          error.fileName === diagnostic.fileName &&
+          error.start === diagnostic.start &&
+          error.length === diagnostic.length &&
+          error.code === diagnostic.code &&
+          error.message === diagnostic.message,
+      )
+    ) {
+      diagnostics.push(diagnostic);
     }
   }
-  return undefined;
+  return { builtin, location, invalid };
 }
 
 function isWgslBuiltinName(name: string): name is WgslBuiltinName {
@@ -511,21 +555,44 @@ export function checkBuiltinStage(
  * decorator that is not a name at all (`@N.k`, `@(fragment)`), were dropped the same way, and
  * are refused too (Rule 6.7). `@std140` and `@align` on a class, `@align` on a field, and a
  * stage on a class are left alone: `structs.ts` says those are not applied, and a second
- * sentence here would contradict it.
+ * sentence here would contradict it. Returns whether the name is unknown, so a struct field
+ * can distinguish its already-refused IO spelling from an absent attribute.
  */
 export function checkAttributeName(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
   decorator: ts.Decorator,
   site: AttributeSite,
-): void {
-  const message = attributeRefusal(decorator, sourceFile, site);
-  if (message === undefined) return;
+): boolean {
+  const refusal = attributeRefusal(decorator, sourceFile, site);
+  if (refusal === undefined) return false;
+  const { message } = refusal;
+  const start = decorator.getStart(sourceFile);
+  const on = decorator.parent;
+  // The struct collector already refuses a decorated parameter property as a field. Keep
+  // that sentence only when it actually covers this decorator (Rule 12.4, #321 classes#24).
+  if (
+    on !== undefined &&
+    ts.isParameter(on) &&
+    on.parent !== undefined &&
+    ts.isConstructorDeclaration(on.parent) &&
+    ts.isParameterPropertyDeclaration(on, on.parent) &&
+    diagnostics.some(
+      (d) =>
+        d.code === TS_CODES.CLASS_MEMBER &&
+        d.category === 'error' &&
+        d.fileName === sourceFile.fileName &&
+        d.start === start &&
+        d.length === decorator.getEnd() - start,
+    )
+  ) {
+    return false;
+  }
   // A generic function, and one that takes a function, is lowered once per instance, and each
   // pass reads its decorators again: one decorator is one refusal (Rule 12.4).
-  const start = decorator.getStart(sourceFile);
-  if (diagnostics.some((d) => d.start === start && d.message === message)) return;
-  diagnostics.push(makeDiagnostic(sourceFile, decorator, message, TS_CODES.ATTRIBUTE_NAME));
+  if (!diagnostics.some((d) => d.start === start && d.message === message))
+    diagnostics.push(makeDiagnostic(sourceFile, decorator, message, TS_CODES.ATTRIBUTE_NAME));
+  return refusal.unknownName === true;
 }
 
 /** The sentence {@link checkAttributeName} refuses `decorator`, written at `site`, with, or
@@ -534,18 +601,19 @@ function attributeRefusal(
   decorator: ts.Decorator,
   sourceFile: ts.SourceFile,
   site: AttributeSite,
-): string | undefined {
+): { message: string; unknownName?: true } | undefined {
   const name = attributeNameOf(decorator);
   if (name === undefined) {
-    return (
-      `"${decorator.getText(sourceFile)}" is not applied: an attribute is written "@name" or ` +
-      `"@name(...)". Remove it.`
-    );
+    return {
+      message:
+        `"${decorator.getText(sourceFile)}" is not applied: an attribute is written "@name" or ` +
+        `"@name(...)". Remove it.`,
+    };
   }
   if (ATTRIBUTE_NAMES.includes(name)) {
     if (SITE_ATTRIBUTES[site]?.includes(name) === true) return undefined;
     if (site === 'a class' && STAGE_ATTRIBUTES.includes(name)) return undefined;
-    return misplacedAttribute(name, site);
+    return { message: misplacedAttribute(name, site) };
   }
   if (
     RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES.includes(name) &&
@@ -553,9 +621,11 @@ function attributeRefusal(
   ) {
     return undefined;
   }
-  return name === 'std140'
-    ? STD140_NOT_APPLIED
-    : (wgslAttributeSentence(name, site) ?? unknownAttribute(name));
+  if (name === 'std140') return { message: STD140_NOT_APPLIED };
+  const elsewhere = wgslAttributeSentence(name, site);
+  return elsewhere === undefined
+    ? { message: unknownAttribute(name), unknownName: true }
+    : { message: elsewhere };
 }
 
 /** The sentence for `name`, one of {@link ATTRIBUTE_NAMES}, written at `site`, which does not

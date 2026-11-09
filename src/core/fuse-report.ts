@@ -5,10 +5,10 @@
 // without importing one line of the planner (Rule 11.11, change 0071 Amendment 2).
 
 /**
- * What a `fuse` scope did once its plan had run. The counts are of the calls the plan made to
- * the device and nothing else: a `dispatches` is one dispatch on WebGPU or one draw on WebGL2,
- * and a `submissions` is one `queue.submit`, a read of a `Resident` that the plan needed
- * included.
+ * What a `fuse` scope did once its plan had run. Dispatch and submission counts describe calls
+ * to the device: a `dispatches` is one dispatch on WebGPU or one draw on WebGL2, and a
+ * `submissions` is one `queue.submit`, including a read of a `Resident` that the plan needed.
+ * `webgpuScratch` separately records storage acquired for the plan's scratch arrays.
  *
  * Exported from `typeshade/fuse`, from `typeshade/runtime` and from the root (change 0071,
  * Amendment 2), so a host that holds a report types it without importing the planner.
@@ -28,8 +28,24 @@ export interface FuseReport {
    *  so the plan submits what it holds before it, and each read of a `Resident` from the device
    *  that the call needs is a submission too. */
   readonly submissions: number;
+  /** WebGPU storage acquired for this plan's scratch arrays (change 0128). New runtime reports
+   *  always include all four counters, including zeros. Omission in an older or manually made
+   *  report means unknown. Bytes are buffer descriptor sizes, including layout padding, not
+   *  physical GPU heap usage. Ordinary residents, reduction partials, staging, uniforms and
+   *  WebGL2 or host storage are excluded. */
+  readonly webgpuScratch?: {
+    /** Newly created storage buffers acquired for scratch arrays. */
+    readonly allocations: number;
+    /** The sum of those new buffers' descriptor sizes. */
+    readonly allocatedBytes: number;
+    /** Existing storage buffers borrowed from the owner pool for scratch arrays. */
+    readonly reuses: number;
+    /** The sum of those borrowed buffers' descriptor sizes. */
+    readonly reusedBytes: number;
+  };
   /** The groups of calls, in order, each by the names of its kernel functions. A group that is
-   *  `fused` is one dispatch. `why` says, in the author's words, why a group stands apart from
+   *  `fused` shares a loop dispatch, with additional dispatches for reduction folds. `why`
+   *  says, in the author's words, why a group stands apart from
    *  the one before it, or why it ran on a later tier than the plan's (see the group's `tier`);
    *  a group with nothing to say leaves it out. */
   readonly groups: readonly {
@@ -43,6 +59,10 @@ export interface FuseReport {
      *  the one the `Error` of a call that no tier can run gives that tier, without the
      *  `webgpu: `, `webgl2: ` or `cpu: ` before it. */
     readonly tier: 'webgpu' | 'webgl2' | 'cpu';
+    /** Device commands this group made: direct/indirect dispatches on WebGPU, draws on WebGL2,
+     *  zero on the CPU. Includes push stages, reduction folds and store-only entries. These
+     *  counts sum to the report's `dispatches`; workgroup shapes do not determine them. */
+    readonly dispatches: number;
     readonly why?: string;
     /** The workgroup of each dispatch the group made on WebGPU, as `[n, 1, 1]`, in dispatch
      *  order. A fused group or a single-loop call has one entry. A lone call of a function with
@@ -86,6 +106,8 @@ const TIER_RANK = { cpu: 0, webgl2: 1, webgpu: 2 } as const;
  * report held, not a copy, so each keeps the `tier` it ran on and its `why` (change 0118), while
  * the merged `tier` stays the best of the reports' tiers. A merged report has no `chunk` row, since
  * it is no one chunk (change 0074): `device.chunkRates` holds what the device measured of each key.
+ * Scratch counters are summed only when every input records them; an omitted input keeps the
+ * merged counters unknown. No inputs gives four known zeros (change 0128).
  *
  * Exported from `typeshade/runtime` and from the root (change 0071, Amendment 2).
  */
@@ -94,11 +116,32 @@ export function mergeReports(reports: readonly FuseReport[]): FuseReport {
   let dispatches = 0;
   let submissions = 0;
   const groups: FuseReport['groups'][number][] = [];
+  let webgpuScratch:
+    | {
+        allocations: number;
+        allocatedBytes: number;
+        reuses: number;
+        reusedBytes: number;
+      }
+    | undefined = { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 };
   for (const r of reports) {
     if (TIER_RANK[r.tier] > TIER_RANK[tier]) tier = r.tier;
     dispatches += r.dispatches;
     submissions += r.submissions;
     groups.push(...r.groups);
+    if (r.webgpuScratch === undefined) webgpuScratch = undefined;
+    else if (webgpuScratch !== undefined) {
+      webgpuScratch.allocations += r.webgpuScratch.allocations;
+      webgpuScratch.allocatedBytes += r.webgpuScratch.allocatedBytes;
+      webgpuScratch.reuses += r.webgpuScratch.reuses;
+      webgpuScratch.reusedBytes += r.webgpuScratch.reusedBytes;
+    }
   }
-  return { tier, dispatches, submissions, groups };
+  return {
+    tier,
+    dispatches,
+    submissions,
+    groups,
+    ...(webgpuScratch === undefined ? {} : { webgpuScratch }),
+  };
 }

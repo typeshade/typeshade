@@ -10,6 +10,7 @@ rules:
   - '11.10'
   - '11.11'
   - '11.17'
+  - '11.20'
 surface:
   - 3
   - 65
@@ -58,6 +59,7 @@ downstream:
 | Applicability / effectivity   | `docs/language-design.md` Rules 8.21, 8.24, 11.7, 11.8, 11.10, 11.11 and 11.17 and their items in `reqs/`; `docs/use-typeshade-surface.md` §3, §65, §66, §67 and §69; `typeshade/runtime` (`src/runtime.ts`, `src/runtime/`), the call layer (`src/core/host-*.ts`, `gl-compute.ts`, `gl-context.ts`, `resident.ts`, `owner.ts`), `typeshade/compute` (`src/core/compute/runner.ts`), the host face (`src/compiler/ts/host-face.ts`), a new `src/rhi/`, `examples/`, `src/__api__/surface.md`, and the downstream repositories. The emitted WGSL and GLSL ES 3.00 do not change. No release version is assigned. |
 | Review baseline               | `main` at `b76407d54afb17852eb3fb9c3af71ca539967335` (the merge of pull request #1022), read on 2026-11-03. X-GIS read-only at the clone the owner provided, `rhi/` package `@xgis/rhi` 0.0.1.                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Review and revision authority | Pull request [#1030](https://github.com/typeshade/typeshade/pull/1030) (branch `claude/proposal-0120-device-rhi`). Git records the revisions of this file. The review and merge of its pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                                                                                                                                                                                                                |
+| Amendment                     | A1, 2026-11-09 (UTC): the owner decided in the conversation that the CPU tier loads a module's CPU program lazily, from a chunk of its own, and that the record takes in Rule 11.20 and the validation of M2 and M3 as delivered (see Amendments). A coding agent (Claude Code session, 2026-11-09) drafted the text. The merge of the pull request that carries it is the acceptance. Git holds the earlier text.                                                                                                                                                                                               |
 
 ## What changes
 
@@ -341,7 +343,9 @@ text of each option stays as the draft gave it, so the record shows what was wei
   enters the runtime's closure, and `ir` is opt-in. (c) The manifest carries the generated code as
   text: that needs `new Function`, which Rule 11.7 forbids. **Recommendation: (a).** Rule 11.10
   gains one sentence (the default export's `Symbol`-keyed CPU program, outside the JSON) and Rule
-  11.7 names the vertices and pixels of a draw and the program runtime's passes.
+  11.7 names the vertices and pixels of a draw and the program runtime's passes. Amendment A1
+  (2026-11-09) replaces (a) with a lazy form of it: the `Symbol` key holds a loader of the CPU
+  program, not the program.
 - **O3. The default device.** `configure({ runtime })` names the program runtime whose device the
   default owner's calls use, and `runtime()` returns the default runtime. (a) `configure({ device })`
   takes a `Device`, whose backend the default owner's calls then use; `configure({ runtime })` and
@@ -502,7 +506,12 @@ exact interiors. Each is checked at implementation, and a wrong one is a recorde
   `configure({ device })` and the deprecation of `configure({ runtime })` (O3); one WebGL2 context
   for a device (O5); `device.native`.
 - **Rule 11.10.** The default export of a host import carries the CPU program outside its JSON
-  (O2 (a)). If O2 is decided otherwise, an amendment withdraws this entry.
+  (O2 (a)). If O2 is decided otherwise, an amendment withdraws this entry. Amendment A1: the
+  default export carries a loader of the CPU program, in a chunk of its own, and the Enforced-by
+  sentence on `src/vite.test.ts` says that the default export's chunk carries no CPU tier.
+- **Rule 11.20** (Amendment A1). Its Enforced-by names `src/rhi/` beside `src/runtime/` and
+  `src/core/` as what `scripts/bundle-boundary.ts` holds each host face to. No requirement of the
+  rule changes.
 - **Rule 11.11.** The program runtime is reached through `Device`, runs on the RHI, has the CPU
   tier, and `createRuntime()` is deprecated and then removed.
 - **Rule 11.17.** The escape hatches `Runtime.device` and `createRuntime({ device })` become
@@ -641,6 +650,60 @@ requests and their commits that say `Change: 0120`; the delivered configuration;
 results of Validation required, with the date, the commit and the tool versions; the document
 validation; each deviation with its disposition; and the pending work. Compiler status
 `implemented` will not establish the downstream completion of M6.
+
+## Amendments
+
+An amendment changes the accepted text. Its pull request is proposal-only, and its merge is its
+acceptance. Git holds the earlier text. The decided text stays in place, and an amendment record
+sits under it.
+
+### A1. The CPU program loads lazily; Rule 11.20 and the validation of M2 and M3 (2026-11-09)
+
+- [fact] Why. M3 (pull request #1102, merged at `f2f05cb`) found that O2 (a) conflicts with Rule
+  11.10's Enforced-by. That sentence says that `src/vite.test.ts` bundles a module's default export
+  alone with no CPU tier. Under O2 (a) the default export holds the CPU program, so every bundle
+  that imports it carries the CPU tier. #1102 therefore does not attach the program in
+  `src/compiler/ts/host-face.ts`; `load()` reads the key, and the tests attach the program.
+- [decision, owner, 2026-11-09] O2 becomes (a′), a lazy form of (a). The owner chose "CPU 코드를
+  지연 로드" (load the CPU code lazily) over (a) as accepted and over an explicit import by the host.
+  - The default export of a module's host import carries, under the `Symbol` key `CPU_PROGRAM`,
+    a function that returns a promise of the module's CPU program. The function calls `import()`
+    on a module the Vite plugin and `tshc` write for the CPU code alone.
+  - A bundler puts that module in a chunk of its own. A bundle that imports only the default
+    export carries no CPU code in the default export's chunk. It fetches the CPU chunk only when
+    a CPU device runs one of the module's entries.
+  - `load()` stays synchronous. On the CPU tier it records the loader. The first submit that runs
+    one of the module's entries awaits it; the CPU backend's `submit()` already returns a promise.
+  - A manifest from `packModule()` or from JSON has no loader, and `load()` on the CPU tier still
+    refuses it with the `TypeError` of O2 (a).
+  - The `Symbol` key stays outside the JSON, so the manifest's JSON does not change.
+  - [fact] Why not (a). Every bundle would carry the CPU code of every entry, and Rule 11.10's
+    guarantee would go. Why not an explicit import. Each host file would name a second import for
+    the CPU tier, and the host files of M5 would be longer.
+- [proposal, agent; the owner chose to carry it in this amendment, 2026-11-09] Rule 11.10's text takes the sentence of (a′) in M4. Its
+  Enforced-by keeps `src/vite.test.ts` and says that the default export's chunk carries no CPU
+  tier and that the CPU code is in a chunk the loader imports.
+- [proposal, agent; the owner chose to carry it in this amendment, 2026-11-09] Rule 11.20 joins the rules of this proposal. Its Enforced-by names
+  `src/rhi/` as a directory `scripts/bundle-boundary.ts` holds each host face to. Since M1 the
+  program runtime imports `src/rhi/`, so the sentence that names only `src/runtime/` and
+  `src/core/` is no longer true. M4 writes the text. This closes M2's open deviation on Rule 11.20.
+- [proposal, agent; the owner chose to carry it in this amendment, 2026-11-09] The validation of M2 and M3 is as delivered.
+  - The RHI conformance suite runs its WebGPU and WebGL2 legs in the compile gate
+    (`scripts/rhi-conformance-arm.ts`), not in the user journeys. This closes D-M2-1.
+  - The rasterizer's interpolation, clipping, fill rule and `front_facing` are held to the
+    conformance suite's exact answers on all three backends, not to the frames of new journeys.
+    [fact] The journeys install the packed tarball, and no public path reaches the CPU tier before
+    M4. This closes D-M3-1.
+  - M5's journeys, which run the host examples, compare the CPU tier's frames with the GPU tiers'
+    once `createDevice()` reaches it.
+- Open, not decided here: the WebGL2 backend takes a `flat` value from the last vertex (GL's
+  provoking vertex), and WebGPU and the CPU backend take it from the first. The conformance
+  suite's flat case records this. Next action: a bug fix or a decision in M4.
+- Affects: the front matter `rules` (adds 11.20), the Document control table, O2, What it touches
+  (Rules 11.10 and 11.20), and the milestones M2 and M3 of the plan as delivered.
+- Not affected: the title, `surface`, `exports`, `exports-removed`, `codes`, `examples` and
+  `downstream`; D1 to D6; O1 and O3 to O8.
+- Status: `status: accepted` does not change.
 
 ## What it owes downstream
 

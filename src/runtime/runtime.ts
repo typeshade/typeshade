@@ -8,22 +8,23 @@ import type { Pack, PackBindings } from '../core/manifest-types.js';
 import { glContext, makeGlContext } from '../core/gl-context.js';
 import { configuredRuntime, gpuDevice } from '../core/host-entry.js';
 import { deviceInfo, retainAdapter, type DeviceInfo } from '../core/device-info.js';
-import {
-  BUFFER,
-  MAP_READ,
-  TEXTURE,
-  gpuOf,
-  type BindGroupLayout,
-  type Buffer,
-  type CommandEncoder,
-  type Device,
-  type RenderPassEncoder,
-  type TextureView,
-} from './gpu.js';
+import type {
+  RhiBindEntry,
+  RhiBindGroup,
+  RhiBindGroupLayout,
+  RhiBuffer,
+  RhiCommandEncoder,
+  RhiDevice,
+  RhiRenderPass,
+  RhiTextureView,
+} from '../rhi/rhi.js';
+import { gpuOf, webgpuDevice } from '../rhi/webgpu.js';
+import { cpuProgramOf } from './cpu-program.js';
 import {
   BufferPool,
   blendConstantOf,
   checkManifest,
+  depthStencilAttachmentOf,
   passOf,
   ProgramImpl,
   scissorOf,
@@ -33,7 +34,6 @@ import {
   type Geometry,
   type PassFit,
   type PassHost,
-  type PassPlan,
   type PassState,
   type Program,
   type RenderPipeline,
@@ -261,8 +261,12 @@ export interface Runtime<D extends object = object> {
 
 const CONSOLE_BYTES = 1 << 20;
 
+/** The refusal of a manifest with no CPU program on the CPU tier (change 0120, O2 (a)). */
+export const NO_CPU_PROGRAM =
+  "load(): the CPU tier runs a module's CPU program, which this manifest does not carry; a manifest read from JSON or made by packModule() has none. Load the default export of the module's host import (change 0120, O2 (a)).";
+
 interface PendingConsole {
-  readonly buffer: Buffer;
+  readonly buffer: RhiBuffer;
   readonly log: ConsoleLog;
   readonly entry: string;
   readonly size: number;
@@ -270,28 +274,29 @@ interface PendingConsole {
 
 export class RuntimeImpl implements Runtime {
   readonly info: DeviceInfo;
-  readonly tier = 'webgpu';
   readonly limits: Readonly<Record<string, number>>;
   readonly pool: BufferPool;
   readonly #sink: ConsoleSink | undefined;
   readonly #consoleBytes: number;
   #pending: PendingConsole[] = [];
-  readonly #groups = new Map<BindGroupLayout, Map<string, object>>();
-  #guard: TextureView | undefined;
+  readonly #groups = new Map<RhiBindGroupLayout, Map<string, RhiBindGroup>>();
+  #guard: RhiTextureView | undefined;
   readonly #owned: boolean;
   readonly #emit: RuntimeOptions['emit'];
   /** The adapter's limits when the runtime requested the device: R4 names them (change 0051). */
   readonly #adapter: Readonly<Record<string, number>>;
 
   constructor(
-    readonly gpu: Device,
+    /** The device the runtime records through; the runtime calls no WebGPU function itself
+     *  (change 0120). */
+    readonly rhi: RhiDevice,
     options: RuntimeOptions,
     owned: boolean,
     adapter: Readonly<Record<string, number>> = {},
   ) {
-    this.pool = new BufferPool(gpu);
-    this.info = deviceInfo('webgpu', gpu);
-    this.limits = copyLimits(gpu.limits);
+    this.pool = new BufferPool(rhi);
+    this.info = deviceInfo(rhi.backend === 'cpu' ? 'cpu' : 'webgpu', rhi.native);
+    this.limits = rhi.caps.limits;
     this.#sink = typeof options.console === 'function' ? options.console : undefined;
     this.#consoleBytes = options.consoleBytes ?? CONSOLE_BYTES;
     this.#owned = owned;
@@ -307,14 +312,28 @@ export class RuntimeImpl implements Runtime {
     return 'Pass the program in createRuntime({ programs }), or raise the limit with createRuntime({ limits }).';
   }
 
+  /** `'webgpu'`; on the CPU backend (change 0120, M3) `'cpu'`, which `Runtime.tier` names from
+   *  milestone M4, when a `Device` reaches this tier. */
+  get tier(): RuntimeTier {
+    return (this.rhi.backend === 'cpu' ? 'cpu' : 'webgpu') as RuntimeTier;
+  }
+
+  /** The `GPUDevice`; on the CPU backend, which has no native device, the backend itself. */
   get device(): object {
-    return this.gpu;
+    return this.rhi.native ?? this.rhi;
   }
 
   load<E extends PackBindings>(program: Pack<E>, options: LoadOptions = {}): Program<E> {
     checkManifest(program);
+    if (this.rhi.backend === 'cpu') {
+      // The CPU tier runs the module's CPU program, which a manifest's JSON cannot carry
+      // (change 0120, O2 (a)). Its code delivers its own `console.*` calls, so no recorded variant
+      // is loaded.
+      if (cpuProgramOf(program) === undefined) throw new TypeError(NO_CPU_PROGRAM);
+      return new ProgramImpl(this, program, false) as unknown as Program<E>;
+    }
     for (const f of program.features)
-      if (!this.gpu.features.has(f))
+      if (!this.rhi.caps.hasFeature(f))
         throw new TypeError(
           `The program needs the "${f}" feature, which this device lacks; request it, or pass the program in createRuntime({ programs }).`,
         );
@@ -334,11 +353,11 @@ export class RuntimeImpl implements Runtime {
   }
 
   texture(options: TextureOptions | object): Texture {
-    return new TextureImpl(this.gpu, options);
+    return new TextureImpl(this.rhi, options);
   }
 
   sampler(options?: SamplerOptions | object): Sampler {
-    return new SamplerImpl(this.gpu, options);
+    return new SamplerImpl(this.rhi, options);
   }
 
   frame(): Frame {
@@ -346,47 +365,42 @@ export class RuntimeImpl implements Runtime {
   }
 
   /** A bind group, cached by its layout and the identity of what it holds. */
-  bindGroup(layout: BindGroupLayout, key: string, entries: readonly object[]): object {
+  bindGroup(
+    layout: RhiBindGroupLayout,
+    key: string,
+    entries: readonly RhiBindEntry[],
+  ): RhiBindGroup {
     let byKey = this.#groups.get(layout);
     if (byKey === undefined) this.#groups.set(layout, (byKey = new Map()));
     let g = byKey.get(key);
     if (g === undefined) {
       // A cache that keeps every group ever made would hold every transient buffer too.
       if (byKey.size > 4096) byKey.clear();
-      byKey.set(key, (g = this.gpu.createBindGroup({ layout, entries })));
+      byKey.set(key, (g = this.rhi.createBindGroup(layout, entries)));
     }
     return g;
   }
 
   /** The `_fp64` guard's view: a 1 × 1 texture that holds 1.0. */
-  guardView(): TextureView {
+  guardView(): RhiTextureView {
     if (this.#guard === undefined) {
-      const t = this.gpu.createTexture({
+      const t = this.rhi.createTexture({
         size: [1, 1, 1],
         format: 'rgba8unorm',
-        usage: TEXTURE.TEXTURE_BINDING | TEXTURE.COPY_DST,
+        usage: ['sampled', 'copy-dst'],
       });
-      (
-        this.gpu.queue as unknown as {
-          writeTexture(d: object, data: Uint8Array, l: object, s: readonly number[]): void;
-        }
-      ).writeTexture(
-        { texture: t },
-        new Uint8Array([255, 255, 255, 255]),
-        { bytesPerRow: 4 },
-        [1, 1, 1],
-      );
-      this.#guard = t.createView();
+      this.rhi.writeTexture(t, new Uint8Array([255, 255, 255, 255]), 4, 1, 1);
+      this.#guard = this.rhi.createView(t);
     }
     return this.#guard;
   }
 
   /** A zeroed console buffer for one dispatch or draw of `entry`, read back at the next submit. */
-  consoleBuffer(log: ConsoleLog, entry: string): Buffer {
+  consoleBuffer(log: ConsoleLog, entry: string): RhiBuffer {
     const size = this.#consoleBytes;
-    const buffer = this.pool.take(size, BUFFER.STORAGE | BUFFER.COPY_SRC | BUFFER.COPY_DST);
+    const buffer = this.pool.take(size, ['storage', 'copy-src', 'copy-dst']);
     // The cursor and the dropped count start at 0; what lies past the cursor is never read.
-    this.gpu.queue.writeBuffer(buffer, 0, new Uint32Array(2));
+    this.rhi.writeBuffer(buffer, 0, new Uint32Array(2));
     this.#pending.push({ buffer, log, entry, size });
     return buffer;
   }
@@ -394,21 +408,19 @@ export class RuntimeImpl implements Runtime {
   /** Record the copies of the console buffers pending into `encoder`, and return what reads
    *  them back once it is submitted: it delivers each buffer's lines, and resolves to the count of
    *  each. */
-  takeConsole(encoder: CommandEncoder): (() => Promise<SubmitResult['console']>) | undefined {
+  takeConsole(encoder: RhiCommandEncoder): (() => Promise<SubmitResult['console']>) | undefined {
     const pending = this.#pending;
     this.#pending = [];
     if (pending.length === 0) return undefined;
     const copies = pending.map((p) => {
-      const staging = this.pool.take(p.size, BUFFER.MAP_READ | BUFFER.COPY_DST);
+      const staging = this.pool.take(p.size, ['map-read', 'copy-dst']);
       encoder.copyBufferToBuffer(p.buffer, 0, staging, 0, p.size);
       return { ...p, staging };
     });
     return async () => {
       const rows: { entry: string; lines: number; dropped: number }[] = [];
       for (const c of copies) {
-        await c.staging.mapAsync(MAP_READ);
-        const words = new Uint32Array(c.staging.getMappedRange().slice(0));
-        c.staging.unmap();
+        const words = new Uint32Array(await this.rhi.readBuffer(c.staging));
         const { events, dropped } = decodeConsole(words, c.log);
         // A sink takes the lines and the count, so the runtime prints neither.
         if (this.#sink !== undefined) for (const e of events) this.#sink(e);
@@ -425,12 +437,17 @@ export class RuntimeImpl implements Runtime {
   async submit(...encoders: readonly object[]): Promise<SubmitResult> {
     if (encoders.length === 0)
       throw new TypeError('submit() takes the GPUCommandEncoders to submit.');
-    const last = encoders[encoders.length - 1] as CommandEncoder;
-    const read = this.takeConsole(last);
+    const given = encoders.map((e) => {
+      const encoder =
+        typeof e === 'object' && e !== null ? this.rhi.fromNative('encoder', e) : undefined;
+      if (encoder === undefined)
+        throw new TypeError('submit() takes the GPUCommandEncoders to submit.');
+      return encoder;
+    });
+    const read = this.takeConsole(given[given.length - 1]!);
     // The queue is given the commands before anything is awaited: a texture read started after
     // this call reads what it submitted (surface section 69).
-    this.gpu.queue.submit(encoders.map((e) => (e as CommandEncoder).finish()));
-    const done = this.gpu.queue.onSubmittedWorkDone();
+    const done = this.rhi.submit(given);
     this.pool.release(done);
     const rows = read === undefined ? [] : await read();
     await done;
@@ -440,21 +457,21 @@ export class RuntimeImpl implements Runtime {
   destroy(): void {
     this.pool.destroy();
     this.#groups.clear();
-    if (this.#owned) (this.gpu as unknown as { destroy?(): void }).destroy?.();
+    if (this.#owned) this.rhi.destroy();
   }
 }
 
 class FrameImpl implements Frame {
-  readonly #enc: CommandEncoder;
+  readonly #enc: RhiCommandEncoder;
   #submitted = false;
 
   constructor(private readonly rt: RuntimeImpl) {
-    rt.gpu.pushErrorScope('validation');
-    this.#enc = rt.gpu.createCommandEncoder();
+    rt.rhi.pushValidationScope();
+    this.#enc = rt.rhi.createCommandEncoder();
   }
 
   get encoder(): object {
-    return this.#enc;
+    return this.rt.rhi.toNative(this.#enc);
   }
 
   dispatch<B>(
@@ -467,16 +484,17 @@ class FrameImpl implements Frame {
 
   pass(targets: PassTargets, record: (pass: RenderPass) => void): void {
     // Check the targets first: a refused pass begins nothing on the encoder.
-    const plan = passOf(targets, WEBGPU_PASS);
+    const rhi = this.rt.rhi;
+    const plan = passOf(targets, passHost(rhi));
     // The size of the first attachment that has one: WebGPU requires one size for all of them.
     let size: { width: number; height: number } | undefined;
     const colorAttachments = plan.color.map((c) => {
-      const v = viewOf(c.target);
+      const v = viewOf(rhi, c.target);
       size ??= v.size;
       return { view: v.view, loadOp: c.load, storeOp: c.store, clearValue: c.clear };
     });
     const d = plan.depth;
-    const depthView = d === undefined ? undefined : viewOf(d.target);
+    const depthView = d === undefined ? undefined : viewOf(rhi, d.target);
     size ??= depthView?.size;
     const raw = this.#enc.beginRenderPass({
       colorAttachments,
@@ -485,7 +503,7 @@ class FrameImpl implements Frame {
         : {}),
     });
     const limit = this.rt.limits.maxTextureDimension2D ?? 8192;
-    const pass = new FramePass(raw, limit, size, {
+    const pass = new FramePass(raw, rhi.toNative(raw), limit, size, {
       depthFormat: d?.format,
       depthReadOnly: d?.depth.readOnly ?? false,
       stencilReadOnly: d?.stencil?.readOnly ?? false,
@@ -493,7 +511,7 @@ class FrameImpl implements Frame {
     try {
       record(pass);
     } finally {
-      (raw as RenderPassEncoder).end();
+      raw.end();
     }
   }
 
@@ -504,12 +522,11 @@ class FrameImpl implements Frame {
     const read = this.rt.takeConsole(this.#enc);
     // The queue is given the commands before anything is awaited: a texture read started after
     // this call reads the frame (surface section 69).
-    this.rt.gpu.queue.submit([this.#enc.finish()]);
-    const error = this.rt.gpu.popErrorScope();
-    const done = this.rt.gpu.queue.onSubmittedWorkDone();
+    const done = this.rt.rhi.submit([this.#enc]);
+    const error = this.rt.rhi.popValidationScope();
     this.rt.pool.release(done);
     const e = await error;
-    if (e !== null) throw new Error(`The frame did not validate: ${e.message}`);
+    if (e !== null) throw new Error(`The frame did not validate: ${e}`);
     const rows = read === undefined ? [] : await read();
     await done;
     return { console: rows };
@@ -518,52 +535,37 @@ class FrameImpl implements Frame {
 
 /** The view a pass attaches, and its size when the runtime knows one: a runtime texture's, a canvas
  *  context's current texture's (the drawing buffer's size), or the host's view, which has none. */
-function viewOf(t: object): { view: object; size?: { width: number; height: number } } {
+function viewOf(
+  rhi: RhiDevice,
+  t: object,
+): { view: RhiTextureView; size?: { width: number; height: number } } {
   if (t instanceof TextureImpl)
     return { view: t.view(), size: { width: t.width, height: t.height } };
-  if ('getCurrentTexture' in t) {
-    const tex = (
-      t as { getCurrentTexture(): { createView(): object; width: number; height: number } }
-    ).getCurrentTexture();
-    return { view: tex.createView(), size: { width: tex.width, height: tex.height } };
+  const canvas = rhi.fromNative('canvas', t);
+  if (canvas !== undefined) {
+    const tex = rhi.currentTexture(canvas);
+    return { view: rhi.createView(tex), size: { width: tex.width, height: tex.height } };
   }
-  if ('createView' in t) return { view: (t as { createView(): object }).createView() };
-  return { view: t };
+  const host = rhi.fromNative('texture', t);
+  if (host !== undefined) return { view: rhi.createView(host) };
+  return { view: rhi.fromNative('view', t)! };
 }
 
-/** The WebGPU host of `passOf`: a runtime texture, a canvas context, and a texture's format. */
-const WEBGPU_PASS: PassHost = {
+/** The host of `passOf` on the RHI: a runtime texture, a canvas context, and a texture's format. */
+const passHost = (rhi: RhiDevice): PassHost => ({
   isTexture: (t) => t instanceof TextureImpl,
-  isCanvas: (t) => 'getCurrentTexture' in t,
+  isCanvas: (t) => rhi.fromNative('canvas', t) !== undefined,
   formatOf: (t) => (t as { format?: string }).format,
-};
-
-/** The `depthStencilAttachment` of a plan. A read-only aspect names only its read-only flag, since
- *  WebGPU refuses a load, a store or a clear on it. An aspect that is not read-only names its load,
- *  its store and its clear. WebGPU requires the stencil operations of a stencil format, and it
- *  refuses them on a depth-only one. */
-function depthStencilAttachmentOf(view: object, d: NonNullable<PassPlan['depth']>): object {
-  const a = d.depth;
-  const s = d.stencil;
-  return {
-    view,
-    ...(a.readOnly
-      ? { depthReadOnly: true }
-      : { depthLoadOp: a.load, depthStoreOp: a.store, depthClearValue: a.clear }),
-    ...(s === undefined
-      ? {}
-      : s.readOnly
-        ? { stencilReadOnly: true }
-        : { stencilLoadOp: s.load, stencilStoreOp: s.store, stencilClearValue: s.clear }),
-  };
-}
+});
 
 /** The pass a frame records into on WebGPU: its encoder's pass, with the calls that check their
- *  arguments (proposal 0064) and the state a draw needs to restore the pass value. */
+ *  arguments (proposal 0064) and the state a draw needs to restore the pass value. A draw records
+ *  into `rhiPass`; `raw` is its native encoder. */
 class FramePass implements RenderPass {
   readonly passState: PassState;
   constructor(
-    readonly raw: RenderPassEncoder,
+    readonly rhiPass: RhiRenderPass,
+    readonly raw: object,
     private readonly limit: number,
     private readonly size: { readonly width: number; readonly height: number } | undefined,
     fit: PassFit,
@@ -583,20 +585,20 @@ class FramePass implements RenderPass {
     maxDepth?: number,
   ): void {
     const v = viewportOf(x, y, width, height, minDepth, maxDepth, this.limit);
-    this.raw.setViewport(...v.rect, v.minDepth, v.maxDepth);
+    this.rhiPass.setViewport(...v.rect, v.minDepth, v.maxDepth);
   }
   setScissorRect(x: number, y: number, width: number, height: number): void {
-    this.raw.setScissorRect(...scissorOf(x, y, width, height, this.size));
+    this.rhiPass.setScissorRect(...scissorOf(x, y, width, height, this.size));
   }
   setBlendConstant(color: ArrayLike<number>): void {
     const c = blendConstantOf(color);
-    this.raw.setBlendConstant(c);
+    this.rhiPass.setBlendConstant(c);
     this.passState.blend = c;
     this.passState.blendDeclared = false;
   }
   setStencilReference(reference: number): void {
     const r = stencilReferenceOf(reference);
-    this.raw.setStencilReference(r);
+    this.rhiPass.setStencilReference(r);
     this.passState.stencilReference = r;
   }
 }
@@ -630,8 +632,8 @@ export async function createRuntime<D extends object = object>(
         );
       return (await onGl(options.device, false)) as unknown as Runtime<D>;
     }
-    const device = options.device as unknown as Device;
-    if (limits !== undefined) checkDeviceLimits(limits, device.limits);
+    const device = webgpuDevice(options.device);
+    if (limits !== undefined) checkDeviceLimits(limits, device.caps.limits);
     return new RuntimeImpl(device, options, false) as unknown as Runtime<D>;
   }
   const prefer = options.prefer ?? (['webgpu', 'webgl2'] as const);
@@ -677,7 +679,7 @@ export async function createRuntime<D extends object = object>(
       ...(Object.keys(requiredLimits).length > 0 ? { requiredLimits } : {}),
     });
     retainAdapter(device, adapter);
-    return new RuntimeImpl(device, options, true, supported) as unknown as Runtime<D>;
+    return new RuntimeImpl(webgpuDevice(device), options, true, supported) as unknown as Runtime<D>;
   }
   throw new Error(`createRuntime(): no tier it may use is here (${why.join('; ')}).`);
 }
@@ -785,9 +787,7 @@ export function runtime(): Promise<Runtime> {
     // The call layer asks for a new device once one is lost; so does the default runtime.
     if (fallback === undefined || fallbackDevice !== device) {
       fallbackDevice = device;
-      fallback = Promise.resolve(
-        new RuntimeImpl(device as unknown as Device, {}, false) as Runtime,
-      );
+      fallback = Promise.resolve(new RuntimeImpl(webgpuDevice(device), {}, false) as Runtime);
     }
     return fallback;
   });

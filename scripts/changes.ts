@@ -17,6 +17,10 @@
 //             src/compiler/ts/codes.ts or src/core/diagnostics/codes.ts), or the set of
 //             `examples/*.shade.ts` and `examples/hosts/<id>/<id>.shade.ts` files
 //             the site's gallery and the Playground list one by one
+//   names     adds an author-facing name to src/__api__/author-names.md, the snapshot of every
+//             name a `"use typeshade"` file can write (docs/language-design.md §2.1), baked and
+//             held by src/author-names.test.ts. A removed name needs no proposal: it is reported,
+//             and the snapshot's diff shows it, but a smaller language is the direction wanted.
 //
 // Anything else (an internal refactor, a test, a fix that changes none of the above) needs none.
 //
@@ -29,9 +33,16 @@
 //      `Change: none, <reason>`. It stays in the history.
 //   2. What the diff actually touches must be inside what the proposal declared: every rule it
 //      changes, every surface section, every export removed or reshaped, every diagnostic code,
-//      every example added or removed. Something outside is either an undeclared cascade or a
-//      proposal to update; either way the check stops. What was declared and is not in this diff
+//      every example added or removed, every author-facing name added. Something outside is
+//      either an undeclared cascade or a proposal to update; either way the check stops. What was declared and is not in this diff
 //      is listed as still to do: one proposal may be implemented over several pull requests.
+//
+// WHY THE COMPILER CANNOT DO IT. A proposal numbered after COMPILER_FIRST_AFTER that adds an
+// author-facing name (`names:`) must carry a non-empty `## Why the compiler cannot do it`
+// section that is not the template's prompt: what the compiler can decide (an optimization, a
+// numerical relaxation, a tuning parameter) is the compiler's work, never an author-facing
+// construct, and a proposal whose answer is "the compiler can" is not needed. src/changes.test.ts
+// applies `compilerFirstProblems` to every proposal on disk.
 //
 // Where it runs: the shared commit policy (scripts/precommit.ts), the Claude hook
 // (scripts/doc-impact.ts --hook), and CI on every pull request.
@@ -87,6 +98,8 @@ export interface Proposal {
   readonly exportsRemoved: readonly string[];
   readonly codes: readonly string[];
   readonly examples: readonly string[];
+  /** Author-facing names the change adds to src/__api__/author-names.md (`Math.x` for a member). */
+  readonly names: readonly string[];
   readonly downstream: readonly { repo: string; what: string }[];
 }
 
@@ -119,6 +132,7 @@ export function parseProposal(file: string, text: string): Proposal {
     exportsRemoved: list(f['exports-removed']),
     codes: list(f.codes),
     examples: list(f.examples),
+    names: list(f.names),
     downstream,
   };
 }
@@ -177,6 +191,61 @@ export function owedDownstream(
   );
 }
 
+// ─── why the compiler cannot do it ─────────────────────────────────────────────────────────
+
+/** The heading of the section a proposal that adds to the language must fill. */
+export const COMPILER_FIRST_HEADING = 'Why the compiler cannot do it';
+
+/** The last proposal written before the section existed. Proposals up to it are historical
+ *  records and are not rewritten; every later one is held to the section. */
+export const COMPILER_FIRST_AFTER = '0130';
+
+/** The text of a `## heading` section, without HTML comments, up to the next `## ` heading;
+ *  null when the proposal has no such section. Fenced code is skipped when looking for headings. */
+export function sectionBody(text: string, heading: string): string | null {
+  const lines = text.split('\n');
+  let fence = false;
+  let start = -1;
+  let stop = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (/^\s*```/.test(line)) fence = !fence;
+    if (fence || !/^## /.test(line)) continue;
+    if (start >= 0) {
+      stop = i;
+      break;
+    }
+    if (line.slice(3).trim() === heading) start = i + 1;
+  }
+  if (start < 0) return null;
+  return lines
+    .slice(start, stop)
+    .join('\n')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .trim();
+}
+
+/**
+ * What stops a proposal that adds author-facing names without saying why the compiler cannot do
+ * the work: a missing section, an empty one, or the template's prompt left in place (`prompt`,
+ * the section's text in changes/TEMPLATE.md). Empty for a proposal numbered up to
+ * COMPILER_FIRST_AFTER and for one that adds no name.
+ */
+export function compilerFirstProblems(p: Proposal, text: string, prompt = ''): string[] {
+  if (p.id <= COMPILER_FIRST_AFTER || p.names.length === 0) return [];
+  const body = sectionBody(text, COMPILER_FIRST_HEADING);
+  const where = `${p.file} adds the author-facing name ${p.names.join(', ')}`;
+  if (body === null)
+    return [`${where} and has no \`## ${COMPILER_FIRST_HEADING}\` section (changes/TEMPLATE.md).`];
+  if (body === '' || body === prompt.trim())
+    return [
+      `${where} and its \`## ${COMPILER_FIRST_HEADING}\` section is empty or still the ` +
+        "template's prompt: say what the author must state that the compiler cannot decide, or " +
+        'drop the proposal if the compiler can.',
+    ];
+  return [];
+}
+
 // ─── what a diff touches ───────────────────────────────────────────────────────────────────
 
 export interface Touched {
@@ -186,16 +255,36 @@ export interface Touched {
   readonly exportsRemoved: ReadonlySet<string>;
   readonly codes: ReadonlySet<string>;
   readonly examples: ReadonlySet<string>;
+  /** Author-facing names the snapshot gains. */
+  readonly names: ReadonlySet<string>;
+  /** Author-facing names the snapshot loses: reported, never a criterion. */
+  readonly namesRemoved: ReadonlySet<string>;
 }
 
+/** Whether a diff meets none of the criteria. A removed author-facing name is not one. */
 export const nothingTouched = (t: Touched): boolean =>
   t.rules.size +
     t.surface.size +
     t.exports.size +
     t.exportsRemoved.size +
     t.codes.size +
-    t.examples.size ===
+    t.examples.size +
+    t.names.size ===
   0;
+
+/** The snapshot of every author-facing name, baked by src/author-names.test.ts. */
+export const NAMES_FILE = 'src/__api__/author-names.md';
+
+/** The names a snapshot of NAMES_FILE lists: every line inside its fenced blocks. */
+export function authorNames(text: string): Set<string> {
+  const out = new Set<string>();
+  let fence = false;
+  for (const line of text.split('\n')) {
+    if (/^```/.test(line)) fence = !fence;
+    else if (fence && line.trim() !== '') out.add(line.trim());
+  }
+  return out;
+}
 
 /** Numbered `## N.` sections of a document containing any of the given lines. */
 export function sectionsAt(text: string, lines: ReadonlySet<number> | undefined): Set<number> {
@@ -299,7 +388,29 @@ export function touchedBy(diff: Diff): Touched {
     addExample(newPath);
   }
 
-  return { rules, surface: surfaceSections, exports, exportsRemoved, codes, examples };
+  // A side without the snapshot (before it was introduced, or deleted, which its test refuses)
+  // is no change of names: introducing the baseline adds no name to the language.
+  const namesBase = atBase(diff, NAMES_FILE);
+  const namesHead = atHead(diff, NAMES_FILE);
+  const names = new Set<string>();
+  const namesRemoved = new Set<string>();
+  if (namesBase !== '' && namesHead !== '') {
+    const before = authorNames(namesBase);
+    const after = authorNames(namesHead);
+    for (const n of after) if (!before.has(n)) names.add(n);
+    for (const n of before) if (!after.has(n)) namesRemoved.add(n);
+  }
+
+  return {
+    rules,
+    surface: surfaceSections,
+    exports,
+    exportsRemoved,
+    codes,
+    examples,
+    names,
+    namesRemoved,
+  };
 }
 
 // ─── the check ─────────────────────────────────────────────────────────────────────────────
@@ -325,8 +436,17 @@ export function judge(touched: Touched, messages: string, agreed: readonly Propo
   if (nothingTouched(touched)) return { problems: [], pending: [], proposal: null };
   const { ids, none } = changeLines(messages);
   const what = describe(touched);
+  // An added author-facing name is the one criterion `Change: none` cannot waive: the language
+  // grows only by a proposal that says why the name is needed (changes/README.md).
+  const unwaivable =
+    touched.names.size > 0
+      ? [
+          'An added author-facing name needs an accepted proposal that lists it under `names:`; ' +
+            `\`Change: none\` does not cover ${[...touched.names].map((n) => `\`${n}\``).join(', ')}.`,
+        ]
+      : [];
   if (!ids.length) {
-    if (none) return { problems: [], pending: [], proposal: null };
+    if (none) return { problems: unwaivable, pending: [], proposal: null };
     return {
       problems: [
         `This change needs a proposal (changes/README.md): it touches ${what}. Name an accepted one ` +
@@ -373,6 +493,7 @@ export function judge(touched: Touched, messages: string, agreed: readonly Propo
     ],
     ['diagnostic code', touched.codes, declared((p) => p.codes), declared((p) => p.codes)],
     ['example', touched.examples, declared((p) => p.examples), declared((p) => p.examples)],
+    ['author-facing name', touched.names, declared((p) => p.names), declared((p) => p.names)],
   ];
   const pending: string[] = [];
   if (live.length) {
@@ -402,6 +523,7 @@ export function describe(t: Touched): string {
   if (t.exports.size) parts.push(`export ${[...t.exports].join(', ')}`);
   if (t.codes.size) parts.push(`code ${[...t.codes].join(', ')}`);
   if (t.examples.size) parts.push(`example ${[...t.examples].join(', ')}`);
+  if (t.names.size) parts.push(`author-facing name ${[...t.names].join(', ')}`);
   return parts.join('; ');
 }
 
@@ -432,6 +554,11 @@ if (import.meta.main) {
       'This change touches no rule, export or downstream-visible surface: no proposal needed.',
     );
   else console.log(`This change touches ${describe(touched)}.`);
+  if (touched.namesRemoved.size)
+    console.log(
+      `It removes the author-facing name ${[...touched.namesRemoved].join(', ')} ` +
+        '(no proposal needed; a reviewer reads the removal in src/__api__/author-names.md).',
+    );
   for (const p of verdict.problems) console.log(`  ✗ ${p}`);
   if (verdict.pending.length)
     console.log(`  still to do under the proposal: ${verdict.pending.join('; ')}`);

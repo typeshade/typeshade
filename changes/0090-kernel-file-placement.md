@@ -216,10 +216,25 @@ the option set. Only the language-service API path was run; tsserver, typescript
 vitest were not run.
 
 **Fact** (measured with `hostFace` at `e03ff7e`). A shader module whose only statement after the
-directive is `export * from "./new/k.shade.ts"` compiles. Its generated module is byte-identical
-to its target's, and its host view carries the target's `@compute` entry. **Inference.** A moved
-kernel file can leave an alias at its old path. A bundle that reads both paths holds two copies
-of the compiled module.
+directive was `export * from "./new/k.shade.ts"` compiled. In that fixture, its generated module
+was byte-identical to its target's, and its host view carried the target's `@compute` entry.
+**Inference.** A moved kernel file can leave an alias at its old path. For that fixture, a
+bundle that reads both paths holds two copies of the compiled module. This observation does
+not establish byte identity for every alias and target.
+
+**Recheck** (2026-11-06, UTC; `main` at `00c8d0eb`), following
+[#780](https://github.com/typeshade/typeshade/issues/780). Direct compilation retained an unused
+private binding at slot 0, followed by two reached bindings at slots 1 and 2. A pure export-star
+alias omitted the unused binding and assigned the reached bindings slots 0 and 1.
+Even with every binding reached, an uncalled private helper appeared only in the directly
+compiled module. In both cases, WGSL and generated modules differed; host views matched.
+Comparisons used the same basename, `fuse: false` and a shared explicit `origin`.
+
+The compiler, `hostFace` and shader language service reported no diagnostics in these cases.
+The language service's WGSL matched the compiler's output. These checks measured no emitted
+GLSL or GPU behavior. Rule 3.9 and `changes/0022-shader-imports.md` retain the entry file's
+declarations and re-exports, plus the imported declarations they reach. This correction records
+that existing behavior; it changes neither the rule nor this proposal's scope or status.
 
 ### Alternatives considered
 
