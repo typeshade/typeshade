@@ -1,7 +1,7 @@
 ---
 id: '0137'
 title: A parameter that a function writes back to its caller is written `@inout a: f32` or `@out c: f32`, before the parameter, and no longer as the type `inout<T>` or `out<T>`
-status: accepted
+status: implemented
 rules:
   - '1.7'
   - '1.8'
@@ -721,10 +721,10 @@ qualifier is written before a parameter, as "@inout a: f32", and here the type i
   named under "What it touches", follow the change: the first leaves out TS1206 on a qualifier
   and only it, and proves it reads one; the second counts the new remedy site. Disposition:
   closed.
-- D-4. `status` stays `accepted` in this pull request, at the coordinator's instruction, though
+- D-4. `status` first stayed `accepted` in this pull request, at the coordinator's instruction.
   `changes/README.md` (lifecycle, step 4) says the pull request that finishes the compiler
-  repository's work sets `implemented`. Disposition: open; the owner decides whether this pull
-  request or a later one sets it.
+  repository's work sets `implemented`, and this pull request finishes it, so it sets
+  `implemented`. Downstream work stays pending (What it owes downstream). Disposition: closed.
 
 ## What it owes downstream
 
