@@ -5,8 +5,6 @@
 //   - `uniform(Camera, { … })` is one struct laid out by Rule 6.8's uniform rules (std140).
 //   - `zeros(Particle, n)` and `array(Particle, data)` are `n` structs laid out as a storage array
 //     with no size (std430), a `Buffer<Particle>`.
-//   - `texture({ size, format })` is a texture of the block's default device (`device.use()`), a
-//     GPU resource that takes no range of the region.
 //
 // Each uniform and storage resource is a byte range of the one region of `runtime/region.ts`.
 // A field is reached through its accessor: `camera.pos.set(0, 2, 5)`, `ps.at(i).vel.set(v)`,
@@ -886,7 +884,8 @@ export function array(...args: unknown[]): unknown {
  * names the device, and the texture is the one `device.texture(options)` makes. A texture lives
  * on its device only, so it takes no range of the region (R17).
  *
- * Exported from `typeshade/runtime`.
+ * Not exported yet: `device.use()` changes the `Device` export, which proposal 0138's front
+ * matter does not declare, so `texture()` and `use()` join `typeshade/runtime` once it does.
  *
  * @param options - `size` and `format`, as `device.texture()` takes them.
  * @returns the device's texture.

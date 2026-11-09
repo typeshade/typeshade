@@ -61,7 +61,6 @@ import { TIERS, tierNames, type Tier } from '../core/tiers.js';
 import { TextureImpl, type Texture } from './resources.js';
 import { webgpuDevice } from '../rhi/webgpu.js';
 import { fitChunk, learnRate, type ChunkRate } from './chunk.js';
-import { endUse, pushUse } from './default-device.js';
 
 export type { ChunkRate } from './chunk.js';
 
@@ -247,25 +246,7 @@ export interface Device {
    *  and destroy the WebGPU device the owner requested. A `GPUDevice` or a runtime the host handed
    *  in is left as it is. A use after `dispose()` is a `TypeError`. */
   dispose(): Promise<void>;
-  /** Make this device the default of a block until the returned handle is disposed (change
-   *  0138, Amendment A1): `using _ = device.use()`. Uses nest, and the innermost is the default.
-   *  `texture()` makes its texture on the default device; the calls of a node follow it from
-   *  milestone 3 of proposal 0138 (R3). Where the `lib` declares no `Symbol.dispose`, call
-   *  `dispose()` on the handle.
-   *  @throws `TypeError` after `dispose()`. */
-  use(): DeviceUse;
 }
-
-/** The key of `Symbol.dispose` where the `lib` declares it, so `using` takes the handle. */
-type DisposeKey = SymbolConstructor extends { readonly dispose: infer S extends symbol }
-  ? S
-  : never;
-
-/** What {@link Device.use} returns: the handle whose disposal ends the use. Not an export of its
- *  own: proposal 0138 declares `Device`, whose `use()` returns it. */
-type DeviceUse = { dispose(): void } & ([DisposeKey] extends [never]
-  ? unknown
-  : { readonly [K in DisposeKey]: () => void });
 
 /** A pooled element: the zeroed ones, and `f64`, which `resident(Float64Array)` holds. */
 type PooledElement = ZeroedElement | 'f64';
@@ -584,15 +565,6 @@ class DeviceImpl implements Device {
     this.#usable('wait()');
     await kernelQueue.idle();
     await this.#fence();
-  }
-
-  use(): DeviceUse {
-    this.#usable('use()');
-    const use = pushUse<Device>(this);
-    const handle = { dispose: () => endUse(use) } as DeviceUse;
-    const key = (Symbol as { readonly dispose?: symbol }).dispose;
-    if (typeof key === 'symbol') Object.defineProperty(handle, key, { value: () => endUse(use) });
-    return handle;
   }
 
   dispose(): Promise<void> {

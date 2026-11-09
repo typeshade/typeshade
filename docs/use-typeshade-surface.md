@@ -7537,7 +7537,8 @@ a picking test, a unit test. No device, buffer or compile step appears in the ho
 `typescript` is needed at build time only. A compute entry runs on the GPU through the same
 import, and a full-screen fragment entry draws into a canvas (§67). The device a compute
 entry runs on takes the limits and features that `configure({ limits, features })` names, and
-`callDevice()` reports it (§65, change 0051).
+`callDevice()` reports it (§65, change 0051). `configure()` is deprecated (change 0138, Amendment
+A1): a device is opened by `createDevice({ limits, features })`.
 
 ```ts
 "use typeshade";
@@ -7911,6 +7912,49 @@ does on the host runs on the GPU: the GPU runs a method through a kernel functio
 calls it on an element of an array (§65, §67). A host method converts at the boundary at each
 call, as a helper does, so a host loop that ticks an instance once per sample pays that per
 sample: the host method is the reference, and the kernel is the fast path.
+
+**Resources** (change 0138, milestone 1; Rule 8.21). A class a shader module exports also types
+data a host keeps for the GPU. `uniform(Camera, { … })` makes one struct laid out as a
+`uniform<Camera>` binding is, a `Uniform<Camera>`; `zeros(Particle, n)` and `array(Particle, data)` make `n`
+structs laid out as a `storage<array<Particle>>` binding is, a `Buffer<Particle>`.
+
+```ts
+import { uniform, zeros, array } from 'typeshade/runtime';
+import { Camera, Particle } from './scene.shade.ts';
+
+const camera = uniform(Camera, { time: 0 });
+camera.pos.set(0, 2, 5); // a vector, from its components
+camera.view.set(view); // a matrix, from an array of 16, column-major
+camera.set({ time: now / 1000 }); // some of the fields
+const pos = camera.pos.get(); // Readonly<Float32Array>: the field's view
+
+const ps = zeros(Particle, 1024);
+ps.at(3).vel.set(0, 1, 0);
+const seeded = array(Particle, [{ life: 1 }, { life: 2 }]); // the other fields are zero
+const all = await ps.read(); // Particle[], each an instance of the class
+```
+
+Each uniform and storage array is a byte range of one memory region (R17 of change 0138), an
+`ArrayBuffer` that is resizable where the runtime has one. Each field has one accessor with a
+typed view of the region, made once and made again only after the region moved its ranges. `set`
+checks each number as a call checks it (Rule 8.21), compares it with what the view holds, writes
+only a changed one and widens the resource's dirty byte range; it allocates nothing. `get` returns
+a scalar's number, or the typed view of a vector, a matrix or an array of scalars, each element at
+its stride (a matrix column of three rows has a fourth, unused lane). An `f64` field is two `f32`
+halves in the region, so its `get` returns the joined number or a new `Float64Array`. A host that
+writes through a view sets `needsUpdate = true`. A new resource is dirty over its whole range.
+
+A resource is freed by `dispose()`, by `using` at the end of a block, or when the garbage collector
+reclaims it. An accessor of a freed resource throws a `TypeError` that names it:
+`Uniform<Camera> was disposed; its fields cannot be read or set. Make a new one with
+uniform(Camera).` A class with a field that has no layout (a `bool`, a two-row matrix in a
+uniform) is refused with the reason, and so is a field named like the accessor's own member
+(`set`, and on a uniform `needsUpdate` and `dispose`). A texture lives on its device only and
+takes no range of the region.
+
+At milestone 1 no call takes a resource yet: a kernel function, an entry and a draw take plain data
+and a `Resident` as before. The upload of each dirty range when a call reads the resource is
+milestone 3 of change 0138.
 
 **The name** (Rule 3.8). A shader module a host imports is named `*.shade.ts`. The plugin refuses
 a `.ts` the bundle reads that begins with `"use typeshade"` under any other name, with the
@@ -8369,8 +8413,10 @@ opened tier, not the effective tier of each call. `FuseReport.tier` keeps its ag
 (§71). Reading information performs no browser operation. No native handles, persistent device
 ID, user agent, storage or automatic sending is added. The host controls inspection and consent.
 
-**Resident arrays.** `resident(value)`, from `typeshade` or `typeshade/runtime`, wraps a host
-value once: a typed array, an array of objects, or any other host value (Rule 8.21), such as a
+**Resident arrays.** `array(value)`, from `typeshade/runtime`, wraps a host value once (change
+0138, Amendment A1: it replaces `resident(value)`, which still works, warns once and is removed
+after a deprecation release; `array(length, element)` replaces `resident(length, element)` the same
+way): a typed array, an array of objects, or any other host value (Rule 8.21), such as a
 struct a frame's draws share. A kernel function takes the handle wherever it takes the array
 (Rule 11.8). The first call on WebGPU uploads it; the calls after bind the same buffer and read
 nothing back, and `await dev.read()` returns a new copy of what it holds. `dev.write(value)`
@@ -8384,9 +8430,9 @@ a buffer of the program runtime too (§69), and `configure({ runtime })` puts th
 runtime's device, so one `Resident` serves both:
 
 ```ts
-import { resident } from 'typeshade/runtime';
+import { array } from 'typeshade/runtime';
 
-const dev = resident(new Float32Array(512 * 512));
+const dev = array(new Float32Array(512 * 512));
 render(k, 512, dev); // queued: every array it writes is resident, and it returns nothing
 const sum = await total(dev); // reads the same buffer
 const img = await dev.read(); // the one read of the chain

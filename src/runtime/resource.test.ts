@@ -28,9 +28,10 @@ import {
   type Buffer,
   type Uniform,
 } from './resource.js';
-import { createDevice } from './device.js';
 import { configure, resident, residentState } from '../core/resident.js';
 import { hasWarned } from '../core/deprecation.js';
+import { createDevice } from './device.js';
+import { endUse, pushUse } from './default-device.js';
 
 const RUNTIME = resolve(__dirname, '../core/host-runtime.ts');
 const PUBLIC = resolve(__dirname, '../runtime.ts');
@@ -316,7 +317,7 @@ describe('the region (R17, Amendment A1)', () => {
   });
 });
 
-describe('the deprecated forms and the default device (Amendment A1)', () => {
+describe('the deprecated forms (Amendment A1)', () => {
   beforeEach(() => vi.restoreAllMocks());
 
   it('array(value) is the Resident resident(value) was, and resident() warns once', () => {
@@ -337,16 +338,18 @@ describe('the deprecated forms and the default device (Amendment A1)', () => {
     configure({});
     expect(hasWarned('configure()')).toBe(true);
   });
+});
 
-  it('texture() makes its texture on the device in use, and refuses with none', async () => {
+describe('texture() (Amendment A1; not exported until the proposal declares Device)', () => {
+  it('makes its texture on the device in use, and refuses with none', async () => {
     expect(() => texture({ size: [2, 2], format: 'rgba8unorm' })).toThrow(
       'texture(): no device is in use. Open one with createDevice() and write `using _ = device.use()` before this call.',
     );
     const device = await createDevice({ prefer: ['cpu'] });
-    const use = device.use();
+    const use = pushUse(device);
     const t = texture({ size: [2, 2], format: 'rgba8unorm' });
     expect(t.width).toBe(2);
-    use.dispose();
+    endUse(use);
     expect(() => texture({ size: [2, 2], format: 'rgba8unorm' })).toThrow(TypeError);
     await device.dispose();
   });

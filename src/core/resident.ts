@@ -786,8 +786,8 @@ export function checkFp64Flavor(at: string, v: unknown): 'auto' | Fp64Flavor {
  *
  * Exported from `typeshade` and `typeshade/runtime`.
  *
- * @deprecated Open a device with `createDevice()` and make it the default of a block with
- *   `using _ = device.use()` (change 0138, Amendment A1). The first call prints one warning.
+ * @deprecated Open a device with `createDevice()`, which takes the same options (change 0138,
+ *   Amendment A1). The first call prints one warning.
  *
  * @param options - `prefer`, a non-empty list of `'webgpu'`, `'webgl2'` and `'cpu'`; `runtime`,
  *   a runtime or `null`; `limits`, WebGPU limits by name; `features`, WebGPU feature names;
@@ -805,10 +805,7 @@ export function configure(options: {
   readonly features?: readonly string[];
   readonly fp64Flavor?: 'auto' | Fp64Flavor;
 }): void {
-  warnDeprecated(
-    'configure()',
-    'Open a device with createDevice() and pass its options there; `using _ = device.use()` makes it the default of a block.',
-  );
+  warnDeprecated('configure()', 'Open a device with createDevice() and pass its options there.');
   // Every check comes before the first change, so a refused call changes nothing.
   if (options.fp64Flavor !== undefined)
     checkFp64Flavor('configure({ fp64Flavor })', options.fp64Flavor);

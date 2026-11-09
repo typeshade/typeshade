@@ -17,6 +17,19 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **Host resources** (change 0138, milestone 1). `typeshade/runtime` exports `uniform(Class,
+init?)`, `zeros(Class, n)` and `array(Class, data)`, which make a `Uniform<T>` or a
+  `Buffer<T>` of a class a shader module exports. Each uniform and storage array is a byte range
+  of one memory region, laid out by Rule 6.8 (resizable where the runtime allows). Each field has
+  an accessor: `camera.pos.set(0, 2, 5)`, `camera.view.set(m)`, `camera.set({ time })`,
+  `ps.at(i).vel.set(v)`. `set` allocates nothing, writes only a changed number and widens the
+  resource's dirty byte range; `get` returns the field's typed view, and `needsUpdate = true`
+  marks a write through it. `await ps.read()` gives the elements as instances of the class. A
+  resource is freed by `dispose()`, by `using` or by the garbage collector, and an accessor of a
+  freed one throws a `TypeError` that names it. The generated module puts each exported class's
+  layouts on the class. No call takes a resource yet: the upload of a dirty range at submission is
+  milestone 3. `array` is now a function as well as the family's type.
+
 - **WebGPU scratch acquisition counts** (change 0128, #992). New fuse reports include
   `webgpuScratch` allocation and reuse counts and their buffer descriptor bytes. Empty scopes,
   fused locals and CPU or WebGL2 plans report zero. Older reports may omit the member;
@@ -1682,6 +1695,14 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   installs `typeshade` without a peer conflict. TypeScript 7 stays out: its default export has
   no `SyntaxKind`, and the package throws on import against it. A wider range breaks nothing
   (Rule 13.9 counts only a narrower one).
+
+### Deprecated
+
+- **`resident()` and `configure()`** (change 0138, Amendment A1). `array(value)` and
+  `array(length, element)` make the same `Resident` that `resident()` made; a device is opened
+  only by `createDevice()`, which takes the options `configure()` took. Each
+  deprecated function still works as before, prints one `console.warn` at its first call, and is
+  removed after a deprecation release.
 
 ### Removed
 
