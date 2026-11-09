@@ -17,7 +17,9 @@ import {
   type Stmt,
 } from '../core/ir/index.js';
 import { allKindsModule } from '../core/testing/all-kinds-module.js';
-import { GlDrawing, GlPass, GlRenderPrograms, glslNameOf, pinOverrides } from './gl-draw.js';
+import { GlDrawing, GlRenderPrograms, glslNameOf, pinOverrides } from './gl-draw.js';
+import { webgl2Device } from '../rhi/webgl2.js';
+import { createRuntime } from './runtime.js';
 import { compile } from '../compiler/ts/compile.js';
 import { emitGlslStages } from '../core/backends/glsl.js';
 import { reflect, wgslLayout } from '../core/reflect.js';
@@ -139,7 +141,7 @@ describe('the WebGL2 host pins and binds by the GLSL names (Proposal 0070, C8)',
     const override = pack.overrides.find((o) => o.name === 'shared')!;
     const block = draw.blocks.buffer!;
     const { gl, calls } = recordingGl();
-    const drawing = new GlDrawing(gl);
+    const drawing = new GlDrawing(webgl2Device(gl));
     new GlRenderPrograms(drawing, pack).render({
       vertex: 'e',
       fragment: 'fe',
@@ -347,7 +349,7 @@ describe('a binding whose GLSL and WGSL spellings agree binds by the GLSL name (
     expect(glslNameOf(record)).toBe(record.emitted);
     expect(glslNameOf(record)).not.toBe('class');
     const { gl, calls } = recordingGl();
-    new GlRenderPrograms(new GlDrawing(gl), pack).render({
+    new GlRenderPrograms(new GlDrawing(webgl2Device(gl)), pack).render({
       vertex: 'e',
       fragment: 'fe',
       constants: { shared: 3 },
@@ -382,20 +384,13 @@ export const fs = fragment(function fs(): location<0, vec4> { return vec4(U, V, 
     new DataView(data.buffer).setFloat32(0, value, true);
     return data;
   };
-  const programDraw = (gl: WebGL2RenderingContext, values: Record<string, number>) => {
-    const pipeline = new GlRenderPrograms(new GlDrawing(gl), pack).render({
-      vertex: 'vs',
-      fragment: 'fs',
-    });
-    const pass = new GlPass({
-      gl,
-      width: 1,
-      height: 1,
-      depthReadOnly: false,
-      stencilReadOnly: false,
-    });
-    pipeline.draw(pass, values, { count: 3 });
-    for (const step of pass.steps) step.run(gl);
+  const programDraw = async (gl: WebGL2RenderingContext, values: Record<string, number>) => {
+    const rt = await createRuntime({ device: gl });
+    const pipeline = await rt.load(pack).render({ vertex: 'vs', fragment: 'fs' });
+    const target = rt.texture({ size: [1, 1], format: 'rgba8unorm' });
+    const frame = rt.frame();
+    frame.pass({ color: [target] }, (p) => p.draw(pipeline, values as never, { count: 3 }));
+    await frame.submit();
   };
   class Canvas {
     width = 1;

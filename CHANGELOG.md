@@ -126,6 +126,40 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 ### Changed
 
 - **Each fuse report group counts its device commands (§71, change 0121).** Required `group.dispatches` includes WebGPU push stages, reduction folds and store-only entries, WebGL2 draws, and zero on the CPU. Group counts sum to the plan total. Hand-built `FuseReport` groups must add the actual count; CPU groups add `dispatches: 0`. This source-breaking type change requires a new minor release before 1.0. Bundle measurements add 23 bytes gzip to runtime, 76 to fuse, 75 to algorithms and 48 to random; split aggregate grows by 100 bytes for runtime and 127 for fuse, with floors unchanged.
+- **The program runtime records through a render hardware interface on WebGPU** (change 0120,
+  milestone M1). `src/rhi/rhi.ts` declares the interface, internal and in no subpath, and
+  `src/rhi/webgpu.ts` is its WebGPU backend, into which `src/runtime/gpu.ts` is folded.
+  `createRuntime()`'s WebGPU tier makes its pipelines, bind groups, buffers, textures, samplers,
+  frames and passes through it and calls no `GPUDevice`, `GPUQueue` or `GPUCommandEncoder`
+  function itself; a `Resident` it binds still makes its buffer on the native device, in the call
+  layer (milestone M4). The native calls, their descriptors and the frames are the ones it made
+  before, and its API does not change. Two arguments that are not GPU objects now refuse with a
+  `TypeError` before WebGPU sees them: `rt.submit()` given something that is not a
+  `GPUCommandEncoder` (with the sentence an empty call has), and a geometry's `vertices` or
+  `indices.buffer` given an object that is not a `GPUBuffer`. The WebGL2 tier is unchanged
+  (milestone M2). The interface and its backend add code to the runtime, so the caps of
+  `typeshade/runtime` in `scripts/bundle-budget.json` take the measured gzip sizes: single file
+  154,373 to 155,924 (+1,551), split initial 39,339 to 40,779 (+1,440) and split total 156,382 to
+  157,876 (+1,494). The floors and the other subpaths do not change.
+- **The program runtime records through the render hardware interface on WebGL2** (change 0120,
+  milestone M2). `src/rhi/webgl2.ts` is the interface's WebGL2 backend over a
+  `WebGL2RenderingContext`: a storage buffer is a data texture of the element type the buffer
+  carries (`elem`), its programs are the GLSL ES 3.00 programs the manifest carries, bound by
+  name, its encoder runs each command as it is recorded, and it keeps WebGPU's conventions (row 0
+  at the top, `position`, depth, `frontFace`, the canvas turned over as it is copied to the
+  screen). `createRuntime()`'s WebGL2 tier (`src/runtime/gl.ts`, `gl-draw.ts`) makes its
+  textures, samplers, pipelines and passes through it and calls no WebGL2 function itself; a
+  dispatch still runs through the call layer's executor (`src/core/gl-compute.ts`), handed the
+  backend's context, until milestone M4. The calls the context receives, their order within a
+  pass, the errors and their texts and the frames are the ones it made before, and its API does
+  not change; the buffers a draw binds are made before its pipeline is bound rather than after.
+  `src/rhi/rhi-conformance.ts` is one suite of buffers, textures, passes and a dispatch, each
+  case against an answer computed in JavaScript, which `bun run gate:compile` runs on the WebGPU
+  and the WebGL2 backend in headless Chromium. The backend adds code to the runtime's deferred
+  WebGL2 chunk, so the caps of `typeshade/runtime` in `scripts/bundle-budget.json` take the
+  measured gzip sizes: single file 155,924 to 160,166 (+4,242), split initial 40,779 to 40,832
+  (+53) and split total 157,876 to 162,180 (+4,304). The floors and the other subpaths do not
+  change.
 
 - **A constant argument reaches a function under a numerical contract** (#850 N5; Rule 11.22).
   At `-O2`, a call that passes a scalar literal to a function opted in with `numerics(...)` calls
