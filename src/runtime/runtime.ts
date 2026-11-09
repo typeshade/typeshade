@@ -309,7 +309,8 @@ export class RuntimeImpl implements Runtime {
   }
 
   get device(): object {
-    return this.rhi.native;
+    // This runtime runs on a WebGPU device, whose native object is the `GPUDevice`.
+    return this.rhi.native!;
   }
 
   load<E extends PackBindings>(program: Pack<E>, options: LoadOptions = {}): Program<E> {
