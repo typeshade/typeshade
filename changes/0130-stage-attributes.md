@@ -1,7 +1,7 @@
 ---
 id: '0130'
 title: An entry point is a function declaration with one stage attribute, `@vertex`, `@fragment` or `@compute([x, y?, z?])`, written in the language's own syntax and not as a call of a fixed function name
-status: draft
+status: accepted
 rules:
   - '1.7'
   - '1.8'
@@ -181,7 +181,7 @@ downstream:
 
 | Field                         | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0130, `status: draft` (front matter).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Identity and status           | Proposal 0130, `status: accepted` (front matter).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Date and attribution          | Authored 2026-11-09 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-09, in Korean. The owner said that the examples' change from `@vertex` to `vertex(…)` (change 0111 D1) was not intended; that TypeShade is a language, not a library, with its own directive and compiler; that `@vertex`, `@fragment` and `@compute` are to be attributes; and that TypeShade borrows TypeScript's syntax and is not a language that uses it as it is, as Vue and React (JSX) are not ("타입스크립트 문법을 차용한거지 그대로 쓰는 언어가 아니라니까요… vue, react도 똑같은데"). No GitHub issue is recorded.                                                                                                      |
 | Applicability / effectivity   | `docs/language-design.md` Rules 1.7, 1.8 (new), 2.1, 6.6, 6.7, 7.6, 8.1, 8.7, 8.22 and 8.25, `reqs/`, `docs/use-typeshade-surface.md` (every section that shows an entry), `docs/dx.md` (cited, not changed), `docs/roadmap.md` (one sentence added to its first rule), the front end's entry detection (`src/compiler/ts/stage-call.ts` and its consumers), the ambient library and the editor's diagnostic filter (`src/language-service/`), the host face, `tshc migrate`, `examples/plain-typescript.test.ts`, `journeys/`, `README.md` (`tsconfig.shade.json`), every `examples/**/*.shade.ts` that declares an entry, and the downstream repositories. No release version is assigned. |
@@ -831,9 +831,23 @@ example files, 172 inferable. The text overclaims that every entry is inferable.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require: a new independent review of this
-revision with its findings answered, the merge of #1094 with `status: accepted`, and the
-milestones above.
+- **Decision.** Accepted by the owner (Seungup) on 2026-11-09, in the Claude Code session, by the
+  answer "병합" (merge) to the question whether to merge pull request #1094 as accepted, after the
+  owner was shown one example before and after, the final rule texts and the costs (OD-4). The
+  owner cannot approve their own pull request on GitHub, so this go-ahead is the review
+  (`CLAUDE.md`, Merging). The merge of #1094 with `status: accepted` records the decision.
+- **Approved revision and scope.** This file as merged by #1094: decisions D1 to D5 as recorded,
+  the proposed rule texts, and the rules, surface sections, codes, examples and downstream work
+  in the front matter.
+- **Evidence read at acceptance.** The independent review records above (the attribute form at
+  `b601699f`, `cfe20e9a`, and the diff checks of `5ea5aef2` and `8bd6c32d`, the last with no
+  contradiction found) and the measurements cited in the text.
+- **Responsibilities.** Implementation is not yet assigned. Each implementing pull request carries
+  `Change: 0130`, and each one that changes how an author writes an example shows the owner one
+  example before and after and waits for the owner's "merge" (`CLAUDE.md`, Merging).
+- **Milestones.** As Migration order states: 0131's implementation, then 0132's, then 0130's
+  front end, editor and warning release, then its codemod, then the refusing release. Duration
+  and cost are not estimated.
 
 ### Configuration and validation record
 
