@@ -1,14 +1,17 @@
 ---
 id: '0136'
-title: Every for loop TypeScript accepts compiles, the counted form becomes the compiler's own fact, and an entry's return type is inferred where its body says it
+title: A for loop is no longer refused for not being counted, the counted form becomes the compiler's own fact, and an entry's return type is inferred where its body says it
 status: draft
 rules:
   - '7.5'
   - '8.19'
   - '8.22'
 surface:
+  - 3
   - 14
+  - 16
   - 17
+  - 65
 exports: []
 exports-removed: []
 codes: []
@@ -26,7 +29,7 @@ downstream:
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity and status           | Proposal 0136, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the owner's direction. The date is the drafting date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the owner's direction, and revised the same day after the independent review recorded below. The dates are drafting and revision dates. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                      |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-09, in Korean. The owner asked which parts of the supported surface push onto the author work that the language or the compiler should do, judged against `OD-3`. From an audit of the surface, the owner chose two items for this proposal: the refusals of a `for` loop that is not counted (`TS8006`, `TS8007`, `TS8008`), and the return type an entry must write (`TS8021`). No GitHub issue is recorded.                                                                                                                                                 |
 | Applicability / effectivity   | Expected: `docs/language-design.md` Rules 7.5, 8.19 and 8.22 (its R1 clause), §7.1 (the definitions, not a rule) and Appendix B's Rule 7.5 row, `docs/use-typeshade-surface.md` §14 and §17, `reqs/`, `src/compiler/ts/lower/control.ts` (`lowerFor` and the counted analysis it calls), `src/compiler/ts/loop-bound.ts`, `src/compiler/ts/kernel-loops.ts` (the R1 sentence), `src/compiler/ts/lower/function.ts` (the entry return), `src/language-service/` (the recorded inferred return), the IR `for` statement if a header carries two statements (decision F2), `CHANGELOG.md`. No release version is assigned. |
 | Review baseline               | `main` at `583891d2` (merge of pull request #1120), 2026-11-09. The measurements of the compiler were made on `2cc98b8f`, the commit before it; `583891d2` changes no file under `src/compiler/` that they read (it adds `OD-5` and part 2b of change 0120). Change 0130 is `accepted` and not yet implemented on either commit.                                                                                                                                                                                                                                                                                        |
@@ -37,7 +40,7 @@ downstream:
 The examples in this proposal are written in the final form of change 0130 (accepted, not yet
 implemented): an entry is `@vertex export function vs(…)` or `@fragment export function fs(…)`.
 
-### Item 1: every `for` loop TypeScript accepts compiles
+### Item 1: a `for` loop is no longer refused for not being counted
 
 Today Rule 7.5 says "A `for` loop must be counted". The front end refuses every other `for`, and
 most refusals tell the author to rewrite the loop as a `while`. Measured on `2cc98b8f`, each in a
@@ -70,9 +73,15 @@ Proposed (decision F1, recommended):
 - The compiler classifies each `for`. A `for` that meets today's counted shape keeps its counted
   fact (the IR `for`'s `counted`, Rule 7.5's analysis, unchanged). Any other `for` is lowered as an
   open loop, as a `while` is today: an IR `for` with no `counted`.
-- The counter of a `for` is a local like any `let`: it takes its annotation, or the type its
-  initializer has. The one exception Rule 7.5 makes today stays: an unannotated non-negative
-  integer literal compared with a `u32` bound is a `u32`.
+- The counter's type follows today's Rule 7.5 for every header it covers today: an annotation is
+  the type; an unannotated counter whose initializer is an integer literal is an `i32`, or a `u32`
+  when the literal is non-negative and the bound it is compared with is a `u32`. So
+  `for (let i = 0; i < 10; i++)` keeps an `i32` counter, although `let n = 10` alone is not an
+  `i32` today. Only a header that is refused today gets a new reading: an unannotated counter whose
+  initializer is a float literal (`for (let x = 0.; …)`) or another expression takes that
+  initializer's type, as any `let` does. Proposal 0134 (draft, pull request #1121, "a written
+  number takes its type from its uses") changes how a written number is typed; if it is accepted,
+  the integer-literal counter follows its rule, and this proposal does not decide that rule.
 - Kept refusals, for a loop the compiler proves never ends, the same rule as for `while`: a `for`
   with no condition, or a condition that folds to `true`, and no `break` or `return` that leaves
   it; a constant header whose step never moves the counter; a constant header that never reaches
@@ -82,16 +91,29 @@ Proposed (decision F1, recommended):
   proof refuses under R1, as a `while` is today. The function runs on the CPU tier, and the host
   view says why, in a sentence that no longer calls it "a while loop".
 
+What stays refused or out of scope after item 1 (measured on `583891d2` where a sentence is
+quoted). Each rule below is not Rule 7.5's and is not changed here:
+
+- An increment or a decrement used as a value, in a condition or anywhere: `for (let i = 0; i++ < 5;)`
+  is refused today as a missing update (`TS8008`) and after as `while (i++ < 5)` is today,
+  `TS8099 ++/-- is a statement, not a value.`; so is `while ((k = k + 1) < 5)`.
+- A call that writes in a loop condition, anywhere but as one side of its comparison: `TS8006`
+  (surface §7, Rule 7.9) for a `while` today; the same rule applies to a `for` condition and to a
+  `for` update that is not a statement the backends take.
+- Two declarations of different types in one header (`for (let i = 0, x = 0.; …)`): GLSL ES 3.00
+  declares one type in a `for` initializer. Under F2.1 the compiler moves the declarations ahead of
+  the loop in a block of their own; under F2.2 the header stays refused.
+- `for…of`, `for…in` and labels keep their rules (Rule 7.5, surface §17).
+
 ### Item 2: an entry's return type is inferred where its body says it
 
 Today Rule 8.19 lets every function infer its return type from its body, and then says "An entry
 point writes its return type, which is its output (Rule 8.2)." An entry with no return type that
 returns a value is refused, and the sentence already names the answer: `TS8021 Entry function "fs"
 returns a value (inferred type vec4) but has no return type annotation; add ": vec4" to the
-signature.` For a vertex entry the one omission gives three diagnostics (measured on
-`examples/loops-over-data.shade.ts` with `: VsOut` removed): `TS8020 … It returns nothing.`,
-`TS8021 … (inferred type VsOut) …` and `TS8010 VsOut.uv reads @location(0), which "vs" does not
-produce.`, against Rule 12.4 ("One mistake reads as one diagnostic").
+signature.` (A vertex entry with no return type also gets a false `TS8020` and `TS8010` beside the
+`TS8021`. That is a Rule 12.4 bug, filed as issue #1129; it needs no proposal and is not evidence
+for this one.)
 
 The return type of an entry carries the output's attribute (Rule 8.2, change 0111 D2). The
 compiler already gives the default one from the type: a bare `vec4` vertex result is
@@ -108,13 +130,23 @@ Proposed (decision R1, recommended):
   an option (`builtin<"position", vec4, { invariant: true }>`), or a location option
   (`location<0, vec4, { blend_src: 1 }>`). An entry whose body cannot be read as one of the
   defaults writes it.
-- An object literal returned with no return type takes the struct whose field names it matches,
-  the fallback surface §16 already gives a position that declares nothing. It must match exactly
-  one struct the program declares; a literal that matches none or several keeps `TS8022`, and its
-  sentence names the remedy, "write the return type". (Measured: today the table holds only the
-  structs the program uses, so `return { color: … }` with `Color` named nowhere else is
-  `TS8022 Object literal { color } does not match a known struct.`; the implementation widens the
-  table to every declared struct for this fallback.)
+- An object literal returned by an entry with no return type takes the struct whose field names
+  it matches, the fallback surface §16 already gives a position that declares nothing. The
+  candidates are the structs the program declares that are not used as the type of a binding
+  (`uniform<T>`, `storage<T>`), of a module variable or of workgroup memory: a resource struct such
+  as `Frame` in `examples/loops-over-data.shade.ts` is never an entry's result by inference. The
+  literal must match exactly one candidate; a literal that matches none or several keeps `TS8022`,
+  and its sentence names the remedy, "write the return type".
+- The widened table applies to that position only: an entry's result with no return type. Every
+  other position keeps today's table, which holds the structs the program uses. Measured: a used
+  `P { a, b }` beside an unused twin `Q { a, b }` compiles today, and must still compile; a
+  regression test is owed. Measured too: `return { color: … }` from an entry with `Color` named
+  nowhere else is `TS8022 Object literal { color } does not match a known struct.` today; the
+  widened table finds `Color`.
+- With proposal 0135 (draft, #1123), a struct whose fields carry no attribute can be an entry's
+  I/O. An inferred result does not make a struct I/O by itself: the candidates above exclude the
+  resource structs, and a struct a binding uses is never inferred as a result. An author who wants
+  a struct to be a result and also a binding's type writes the return type.
 - `TS8021` keeps its two other sentences (a bare `return` in a function that returns `T`; a
   function that returns `undefined` and no value). The entry sentence leaves.
 
@@ -242,10 +274,22 @@ No option reverses an entry of `docs/owner-decisions.md`.
 
 **F. Item 1.**
 
-- F1 (recommended). Lower every `for`; keep only the refusals of a loop proved never to end, as
-  for `while`. Cost: a `for` no longer promises a reader that it is counted (the reason Rule 7.5's
-  rationale gives today); a kernel's loop that is not counted runs on the CPU tier, which the host
-  view reports. The rest of the analysis stays.
+- F1 (recommended). Lower every `for` that is refused today only for not being counted; keep
+  only the refusals of a loop proved never to end, as for `while`. The costs below are costs of
+  `OD-3`, shown to the owner as `CLAUDE.md` (The owner's decisions) requires:
+  - A `for` no longer promises a reader that it is counted (the reason Rule 7.5's rationale gives
+    today).
+  - A typing mistake in a counted header passes as an open loop. Measured on `583891d2`:
+    `for (let i = 0; i < n; j++)` (the update writes `j`, not `i`) is `TS8008 for-update must be
+i++ / i += <const>, or i *= / /= <const>.` today. After F1 it compiles, and the loop never ends
+    when `n > 0`: no front-end check reads a runtime bound for that.
+  - A kernel function's loop that is not counted moves to the CPU tier, and the author learns it
+    only from the `TS8070` warning (`KERNEL_LOOP_ON_CPU`, a warning; the program is correct) and
+    the host view. Today the author is refused and rewrites the loop.
+  - A derivative rewrite or a reverse-mode gradient that meets such a loop refuses it with today's
+    general sentence, `its operand is computed in a loop whose trip count is not a constant`
+    (`src/compiler/ts/source-file.ts`, `loop-trips`). Today the `for` itself was refused earlier, in
+    the author's words; after F1 the sentence comes later and names less.
 - F1b (variant). As F1, and also lower a constant header that never reaches its bound or leaves
   its type, with WGSL's wrapping arithmetic. Cost: a loop of two billion trips (`i--` from 0 to a
   bound of 10 wraps after 2^31 steps) compiles without a word; the CPU oracle runs it as long.
@@ -287,7 +331,8 @@ No option reverses an entry of `docs/owner-decisions.md`.
 
 ### Conflicts
 
-None found that this proposal resolves by itself. Two texts are read against `OD-3` and follow it:
+None found that this proposal resolves by itself. Two texts are read against `OD-3` and follow it,
+and two other proposals are read beside this one:
 
 - Rule 7.5's rationale: "What a counted `for` promises a reader is exactly that shape, so a loop
   that ends some other way is written as a `while`, which says so." The compiler can tell whether a
@@ -297,6 +342,13 @@ None found that this proposal resolves by itself. Two texts are read against `OD
 - Rule 8.19's sentence "An entry point writes its return type, which is its output (Rule 8.2)."
   The output's default attribute is the compiler's already (Rule 8.2's "a bare `vec4`"). The
   sentence is narrowed to the results whose attribute is not the default.
+- Proposal 0134 (draft, pull request #1121) changes how a written number is typed: from its uses,
+  with no fixed default (the owner's direction recorded there). This proposal keeps today's
+  integer-literal counter (an `i32`, or a `u32` against a `u32` bound) and defers to 0134's rule if
+  it is accepted. Neither proposal depends on the other's acceptance.
+- Proposal 0135 (draft, pull request #1123) lets a struct whose fields carry no attribute be an
+  entry's I/O. Item 2 limits the structs an inferred result can take (no resource struct), so an
+  inferred result does not turn a binding's struct into I/O.
 
 ## Owner's decisions
 
@@ -333,19 +385,29 @@ signature says it is the depth.
   it returns matches no single struct." "Enforced by" loses the entry clause of `TS8021`.
 - `rules` 8.22: R1, "a `while` and a multiplicative step are refused", becomes "a `while`, a `for`
   that is not counted and a multiplicative step are refused".
+- `surface` 3: the entry text says that an entry's return type may be left out where its body
+  says the result (Rule 8.19), and that a non-default output attribute is written.
 - `surface` 14: "An entry point writes its return type, which is its output (§3)." is rewritten as
   Rule 8.19 is.
+- `surface` 16: "Which struct `{ … }` builds comes from the type the position declares" gains the
+  entry result with no return type, and its fallback names the candidates (no resource struct) and
+  the widened table for that one position.
 - `surface` 17: the section opens with the counted fact as the compiler's, shows `for (;;)`, an
   `f32` counter and a bound the body writes as accepted, and keeps the refusals of a loop that never
   ends.
+- `surface` 65: a kernel function's loop that is not counted runs on the CPU tier with `TS8070`, as
+  a `while` does; the section's R1 text names a `for` that is not counted beside a `while`.
 - `codes`: none added, removed or renumbered (`TS8006`, `TS8007` and `TS8008` stay for `for…of`,
   `while` and the kept refusals; `TS8021` stays for its two other sentences). Sentences change
   (Rule 12.5): the `for` sentences in the table above leave, the kept ones lose "write the loop as a
   while", `TS8021`'s entry sentence leaves, `TS8022` gains "write the return type" for an entry's
   object literal, and the kernel R1 sentence of `src/compiler/ts/kernel-loops.ts` changes.
-- `examples`: none added or removed. No example needs an edit: every loop and every annotation
-  written today stays valid. The implementation may add a `for` form to
-  `examples/loops-over-data.shade.ts`, the compile gate's loop evidence.
+- `examples`: none added or removed, and none edited: every loop and every annotation written
+  today stays valid. The new loop forms are tested in `src/compiler/ts/` and on the compile gate
+  through test sources, not through an example. An implementing pull request that edits an example
+  to the new forms (for example `examples/loops-over-data.shade.ts`) changes how an author writes
+  that example, and is then not approved in advance (`CLAUDE.md`, Merging): it shows the example
+  before and after and waits for the owner to say "merge".
 - `exports`, `names`: none.
 - `docs/language-design.md` Rule 7.2 (the mappings) and Rule 8.2 are read, not changed.
 
@@ -359,6 +421,9 @@ signature says it is the depth.
 | Fact              | `while (true)` in `isqrt` emits `for (var _w: i32 = 0; true; _w = (_w + 1))` in WGSL and `for (int _w = 0; true; _w = (_w + 1))` in GLSL ES 3.00 (`compile()`, `2cc98b8f`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Fact              | `examples/loops-over-data.shade.ts` with `: VsOut` and `: Color` removed: `TS8020`, `TS8021 … (inferred type VsOut) …`, `TS8010` and `TS8022 Object literal { color } does not match a known struct.`, the same four in the editor.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Fact              | A bare `vec4` vertex result already takes `@builtin(position)` and a bare scalar or vector fragment result `@location(0)` (`src/compiler/ts/lower/function.ts`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Fact (review)     | The reviewer compiled five open-loop shapes through the compiler's own emitters (an IR `for` with no `counted`) and fed the WGSL to Tint and the GLSL ES 3.00 to ANGLE; all five were accepted. This is the reviewer's measurement, relayed by the coordinating session; its exact shapes and configuration are in the review, not repeated here.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Fact (`583891d2`) | `for (let i = 0; i++ < 5;)`: `TS8008 for-update is required (e.g. i++).`; `while (i++ < 5)`: `TS8099 ++/-- is a statement, not a value.`; `for (let i = 0, x = 0.; i < 4; i++)`: `TS8008 for-init must declare exactly one identifier.`; `for (let i = 0; i < n; j++)`: `TS8008 for-update must be …`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Fact (review)     | Hover on an entry's parameter today can show `any` where the compiler has a type (the reviewer's example: `uv: any`), a Rule 12.7 disagreement that an inferred entry return must not widen.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Fact              | In `examples/**/*.shade.ts` (114 files): 100 `for (…)` headers and 5 `while (` loops; every render entry (172) writes its return type, as Rule 8.19 requires.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Inference         | No example changes its WGSL or GLSL: every loop written today is counted and keeps its lowering; every annotation written today stays. `bun run bake:goldens` with no golden changed proves it at implementation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Estimate          | Implementation: `lowerFor` falls back to the open-loop lowering instead of refusing; the counter type; the kept refusals' sentences; F2's IR header list; the entry return through Rule 8.19's path and the editor's recorded return; the tests in both halves. Duration and cost are unknown.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -372,11 +437,17 @@ signature says it is the depth.
   (`recordInferredReturn`, `src/compiler/ts/lower/function.ts`, #162) and skips an entry today
   (`stub.stage === undefined`); it records an entry's too, so the projection TypeScript reads gives
   the entry the type the compiler inferred.
-- Owed tests, both halves on the same source: each row of item 1's table accepted (and its WGSL,
+- Owed tests, both halves on the same source: each row of item 1's table that is refused today only for not being counted accepted (and its WGSL,
   GLSL and CPU oracle agree on one value), each kept refusal with its new sentence, an entry with no
   return type for a bare `vec4`, a struct value and a matched object literal, and the refusal of a
-  literal that matches two structs; rows in `src/language-service/ambient-parity.test.ts`; hover on
-  an entry with no return type shows the inferred type.
+  literal that matches two structs; rows in `src/language-service/ambient-parity.test.ts`.
+- Owed hover tests (`getHover`, Rule 12.7): the counter of `for (let i = 0; i < 10; i++)` is
+  `i32`; the counter of `for (let i = 0; i < xs.length; i++)` over a storage array is `u32`; the
+  counter of `for (let x = 0.; x < 1.; x += 0.25)` is `f32`; an entry with no return type shows the
+  inferred result type; each of its parameters shows the compiler's type, not `any` (the review
+  found `uv: any` on an entry today).
+- Owed regression test: a used `P { a, b }` beside an unused `Q { a, b }` still compiles in a
+  helper's object literal; an entry's object literal that matches both is the one `TS8022`.
 
 ### Host-facing reports
 
@@ -390,7 +461,8 @@ signature says it is the depth.
 ### Draft impact estimate
 
 - Known: no source that compiles today is refused, and none changes its emit.
-- Known: Rules 7.5, 8.19 and 8.22 and surface §14 and §17 are rewritten; `reqs/` follows.
+- Known: Rules 7.5, 8.19 and 8.22 and surface §3, §14, §16, §17 and §65 are rewritten; `reqs/`
+  follows.
 - Estimate: item 1 without F2 is local to `lowerFor`; F2 changes the IR `for` and every reader of
   it. Item 2 is local to the entry path of `src/compiler/ts/lower/function.ts`, §16's fallback and
   the language service. Duration and cost are unknown.
@@ -415,8 +487,22 @@ to choose between; the two texts under "Conflicts" are read against `OD-3`, whic
 
 ### Independent review record
 
-Not yet performed. Before the owner decides, an agent or a person that did not write this proposal
-reviews it against `changes/README.md` (Independent review) and the record is written here.
+Reviewer: an AI agent (Claude Code) that did not write this proposal, at the direction of the
+coordinating session, on 2026-11-09. Revision reviewed: `dbf4845d`, the head of pull request #1124
+when the review was made. The coordinating session relayed the findings. The answers below were
+written in the revision that follows.
+
+| #   | Finding                                                                                                                                                                                                                                                             | Answer                                                                                                                                                                                                                                                                                      |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Blocking: "the counter takes its annotation or its initializer's type" makes `for (let i = 0; i < 10; i++)` an `f32` counter (a bare `let n = 10` is not an `i32` today), breaking counted loops. Keep today's rule; add hover tests; cross-reference 0134 (#1121). | Fixed: item 1 keeps today's integer-literal counter (`i32`, or `u32` against a `u32` bound); only a header refused today gets the new reading; hover tests are owed (The editor); 0134 is cross-referenced in item 1 and "Conflicts".                                                       |
+| 2   | Add surface §16, §65 and §3 to `surface:`.                                                                                                                                                                                                                          | Fixed: the front matter and "What it touches" list §3, §14, §16, §17 and §65.                                                                                                                                                                                                               |
+| 3   | The widened struct table must apply only to an entry's result with no return type; a used `P { a, b }` beside an unused twin `Q { a, b }` compiles today and must keep compiling; add a regression test.                                                            | Fixed: item 2 limits the widened table to that one position and owes the regression test.                                                                                                                                                                                                   |
+| 4   | The title overclaims: `while (i++ < 5)` and `while ((k = k + 1) < 5)` are `TS8099`; two declarations of different types do not fit GLSL's header; the "call that writes" rule holds for conditions and updates.                                                     | Fixed: the title reads "no longer refused for not being counted"; item 1 lists what stays refused or out of scope, measured on `583891d2`.                                                                                                                                                  |
+| 5   | R1's "any declared struct" includes resource structs (`Frame`); with 0135 an unattributed struct becomes I/O silently. The `TS8020`/`TS8021`/`TS8010` cascade is a Rule 12.4 bug that needs no proposal; file an issue and cite it.                                 | Fixed: the candidates exclude a struct used as a binding's, a module variable's or workgroup memory's type; 0135 is cross-referenced; the cascade is issue #1129 (no duplicate found among open and closed issues for `TS8021` and `TS8020`), and it is no longer cited as evidence for R1. |
+| 6   | Say whether examples are edited; if so the implementing pull request is not approved in advance.                                                                                                                                                                    | Fixed: no example is edited; an implementing pull request that edits one is not approved in advance ("What it touches").                                                                                                                                                                    |
+| 7   | Show as costs of `OD-3`: a typo in a counted header passes as an open loop; a kernel moves to the CPU with only `TS8070`; the derivative and gradient refusal sentences become vaguer.                                                                              | Fixed: listed under F1, with the typo case measured on `583891d2` and the `loop-trips` sentence quoted.                                                                                                                                                                                     |
+| 8   | Note: the reviewer's emitter-based evidence on Tint and ANGLE (five shapes accepted).                                                                                                                                                                               | Recorded in "Measured facts" as the reviewer's measurement.                                                                                                                                                                                                                                 |
+| 9   | Note: hover tests are owed; an entry's hover shows `uv: any` today, a Rule 12.7 disagreement.                                                                                                                                                                       | Recorded in "Measured facts"; the hover tests are owed under "The editor".                                                                                                                                                                                                                  |
 
 ### Approval and plan record
 
