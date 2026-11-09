@@ -121,6 +121,14 @@ export class GlRuntimeImpl implements Runtime<WebGL2RenderingContext> {
     return new GlFrameImpl(this);
   }
 
+  /** Record a pass and run it now, outside the queue of `core/resident.ts`: for the call layer's
+   *  draw, which already holds its place in that queue (change 0120, M4). A frame's `submit()`
+   *  would queue behind it. The device is given the pass's commands before the promise is
+   *  returned when no `Resident` must be read back first. */
+  runPass(targets: PassTargets, record: (pass: RenderPass) => void): Promise<void> {
+    return recordPass(this.drawing, targets, record)();
+  }
+
   submit(): ReturnType<Frame['submit']> {
     return Promise.reject(
       new TypeError(
