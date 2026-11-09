@@ -96,6 +96,43 @@ describe('the entry call as a program-runtime pipeline and pass (change 0120, M4
     expect(counts()).toEqual(Object.fromEntries(MAKERS.map((k) => [k, 0])));
   });
 
+  it('creates no object on the device for a call that repeats its shapes, with spare buffers in the pool', async () => {
+    // A call of another entry with more buffers of the same sizes leaves spares in the runtime's
+    // pool. The repeated calls of `scale` take the same buffers each time all the same, so they
+    // reuse their bind group (CI, 2026-11-09, PR #1126: three bind groups in four calls).
+    const wide = (
+      await load(`"use typeshade";
+declare const a: uniform<f32>;
+declare const b: uniform<f32>;
+declare const c: storage<array<f32>, "read_write">;
+declare const d: storage<array<f32>, "read_write">;
+declare const e: storage<array<f32>, "read_write">;
+declare const f: storage<array<f32>, "read_write">;
+declare const g: storage<array<f32>, "read_write">;
+
+export const fill = compute([1], function fill(gid: builtin<"global_invocation_id", vec3u>) {
+  c[gid.x] = a;
+  d[gid.x] = b;
+  e[gid.x] = a;
+  f[gid.x] = b;
+  g[gid.x] = a;
+});
+`)
+    ).fill as (b: unknown, w: unknown) => Promise<void>;
+    const one = () => new Float32Array(1);
+    await wide({ a: 1, b: 2, c: one(), d: one(), e: one(), f: one(), g: one() }, 1);
+    const scale = (await load(SCALE)).scale as (b: unknown, w: unknown) => Promise<void>;
+    const xs = Float32Array.from({ length: 10 }, (_, i) => i + 0.5);
+    await scale({ k: 3, xs, ys: new Float32Array(10), pts: new Float32Array(20) }, 2);
+    const proto = Object.getPrototypeOf(cpuDevice()) as Proto;
+    const spies = MAKERS.map((k) => vi.spyOn(proto, k));
+    for (let i = 0; i < 4; i++)
+      await scale({ k: 3, xs, ys: new Float32Array(10), pts: new Float32Array(20) }, 2);
+    expect(Object.fromEntries(MAKERS.map((k, i) => [k, spies[i]!.mock.calls.length]))).toEqual(
+      Object.fromEntries(MAKERS.map((k) => [k, 0])),
+    );
+  });
+
   it('computes an f64 on the host doubles it was given, with no bytes between', async () => {
     const m = await load(`"use typeshade";
 declare const xs: storage<array<f64>>;

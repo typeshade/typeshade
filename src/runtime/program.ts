@@ -1391,9 +1391,12 @@ export class BufferPool {
   take(size: number, usage: readonly RhiBufferUsage[]): RhiBuffer {
     const rounded = Math.max(16, Math.ceil(size / 16) * 16);
     const key = `${[...usage].sort().join('|')}:${rounded}`;
-    // First in, first out: a frame whose shapes repeat takes the same buffers in the same order, so
-    // the bind groups over them are the cache's, not a second set over the buffers turned round.
-    const b = this.#free.get(key)?.shift() ?? this.device.createBuffer({ size: rounded, usage });
+    // Each list is a stack, and `release` puts back on top what a frame took, in the order the frame
+    // took it. A frame whose shapes repeat then takes the same buffers in the same order as the frame
+    // before it, so the bind groups over them are the cache's. A stack refilled in the order taken
+    // turned two buffers round on alternate frames (#1115). A queue handed out the spares a wider
+    // frame left, in turn, so each frame took another set and made another bind group (CI of #1126).
+    const b = this.#free.get(key)?.pop() ?? this.device.createBuffer({ size: rounded, usage });
     this.#taken.push([key, b]);
     return b;
   }
@@ -1403,7 +1406,8 @@ export class BufferPool {
     const taken = this.#taken;
     this.#taken = [];
     const back = (): void => {
-      for (const [key, b] of taken) {
+      // Last taken goes in first, so the first taken is on top for the next frame.
+      for (const [key, b] of taken.reverse()) {
         let list = this.#free.get(key);
         if (list === undefined) this.#free.set(key, (list = []));
         list.push(b);

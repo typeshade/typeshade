@@ -381,6 +381,35 @@ describe('the program runtime (Rule 11.11)', () => {
     expect(fake.made.shaderModule).toBe(1);
   });
 
+  it('creates nothing per frame once the frames repeat, when the pool holds spare buffers', async () => {
+    // A frame that takes more buffers of a size than the next frames do leaves spares in the pool.
+    // Handed out first in, first out, the spares turned round under the repeated frames, so each
+    // took another buffer and missed the bind group cache (CI, 2026-11-09, PR #1126).
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(manifest(SCALE)).compute();
+    const out = fake.device.createBuffer({ size: 400, usage: 0x80 });
+    const xs = new Float32Array(100);
+    const values = { params: { scale: 2 }, xs, out };
+    // Three uniform buffers and two storage buffers of the size `xs` packs to, so the two sizes
+    // turn round out of step.
+    const wide = rt.frame();
+    wide.dispatch(pipeline, values, 2);
+    wide.dispatch(pipeline, values, 2);
+    wide.dispatch(pipeline, { ...values, xs: new Float32Array(50) }, 1);
+    await wide.submit();
+    const frame = async () => {
+      const f = rt.frame();
+      f.dispatch(pipeline, values, 2);
+      await f.submit();
+    };
+    await frame();
+    const { writeBuffer: _w, ...after1 } = fake.made;
+    for (let i = 0; i < 8; i++) await frame();
+    const { writeBuffer: _w2, ...after9 } = fake.made;
+    expect(after9).toEqual(after1);
+  });
+
   it('binds a storage array at the size of its data, which the pool rounds up (#367)', async () => {
     // WGSL's `arrayLength` is the bound size over the stride. The pool hands out a buffer
     // rounded to 16 bytes, and bound whole it made five `f32`s an array of 8.
