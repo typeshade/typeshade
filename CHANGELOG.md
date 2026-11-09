@@ -139,8 +139,8 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   `indices.buffer` given an object that is not a `GPUBuffer`. The WebGL2 tier is unchanged
   (milestone M2). The interface and its backend add code to the runtime, so the caps of
   `typeshade/runtime` in `scripts/bundle-budget.json` take the measured gzip sizes: single file
-  153,129 to 154,587 (+1,458), split initial 38,589 to 40,000 (+1,411) and split total 155,026 to
-  156,496 (+1,470). The floors and the other subpaths do not change.
+  154,373 to 155,924 (+1,551), split initial 39,339 to 40,779 (+1,440) and split total 156,382 to
+  157,876 (+1,494). The floors and the other subpaths do not change.
 
 - **A constant argument reaches a function under a numerical contract** (#850 N5; Rule 11.22).
   At `-O2`, a call that passes a scalar literal to a function opted in with `numerics(...)` calls
