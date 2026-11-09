@@ -21,13 +21,13 @@ Each count is one status of one target. The rows column counts the rows of the t
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | A | WebGPU | 175 | 106 | 0 | 49 | 79 | 21 | 430 |
 | A | WebGL2 | 108 | 13 | 9 | 0 | 125 | 175 | 430 |
-| B | WebGPU | 241 | 0 | 10 | 0 | 40 | 3 | 294 |
+| B | WebGPU | 240 | 0 | 12 | 0 | 39 | 3 | 294 |
 | B | WebGL2 | 204 | 0 | 18 | 0 | 39 | 33 | 294 |
 | C | WebGPU | 96 | 0 | 0 | 1 | 23 | 14 | 134 |
 | C | WebGL2 | 98 | 0 | 0 | 0 | 27 | 9 | 134 |
 | D | WebGPU | 28 | 12 | 0 | 2 | 15 | 22 | 79 |
 | D | WebGL2 | 23 | 11 | 4 | 0 | 30 | 11 | 79 |
-| all | WebGPU | 540 | 118 | 10 | 52 | 157 | 60 | 937 |
+| all | WebGPU | 539 | 118 | 12 | 52 | 156 | 60 | 937 |
 | all | WebGL2 | 433 | 24 | 31 | 0 | 221 | 228 | 937 |
 
 ## Table A: WebGPU host API
@@ -703,7 +703,7 @@ Each count is one status of one target. The rows column counts the rows of the t
 | WGSL attribute | `@builtin` | `src/core/spec-conformance/fixtures/wgsl-names.json §attributes` | docs/language-design.md:434-447 | typed (`src/compiler/ts/entry-io.test.ts`) | typed (`src/core/backends/glsl.test.ts`) |  |
 | WGSL attribute | `@compute` | `src/core/spec-conformance/fixtures/wgsl-names.json §attributes` | docs/language-design.md:449 | typed (`src/compiler/ts/stage3.test.ts`) | typed (`scripts/gpu-differential.ts`); change 0054 |  |
 | WGSL attribute | `@const` | `src/core/spec-conformance/fixtures/wgsl-names.json §attributes` | src/core/spec-conformance/fixtures/wgsl-names.json:482 | n/a (a spec-internal attribute on built-in functions) | n/a (a spec-internal attribute on built-in functions) |  |
-| WGSL attribute | `@diagnostic` | `src/core/spec-conformance/fixtures/wgsl-names.json §attributes` | docs/language-design.md:449; docs/language-design.md:653-659 | typed (`src/core/passes/uniformity.test.ts`); on an entry, Rule 8.5; surface §54; the module-level directive form is the keywords:diagnostic row | n/a (no GLSL form) |  |
+| WGSL attribute | `@diagnostic` | `src/core/spec-conformance/fixtures/wgsl-names.json §attributes` | docs/language-design.md:449; docs/language-design.md:653-659 | refused (Rule 1.4; portable: write the sample or the derivative where it is; the compiler rewrites what it can reach (Rule 8.5); otherwise textureSampleLevel or textureSampleGrad, or the call moved above the branch); a written @diagnostic is TS8028; surface §54; subgroup_uniformity: the compiler writes that filter only on its own lowering (src/core/passes/kernel-lower.ts), and the uniformity walk refuses an author subgroup call in non-uniform control flow (TS8052) | n/a (no GLSL form) |  |
 | WGSL attribute | `@fragment` | `src/core/spec-conformance/fixtures/wgsl-names.json §attributes` | docs/language-design.md:449 | typed (`src/compiler/ts/clip-color.test.ts`) | typed (`src/core/backends/glsl.test.ts`) |  |
 | WGSL attribute | `@group` | `src/core/spec-conformance/fixtures/wgsl-names.json §attributes` | docs/language-design.md:453 | refused (Rule 6.7; portable: source order of declare (Rule 6.1)) | refused (Rule 6.7; portable: source order of declare (Rule 6.1)) |  |
 | WGSL attribute | `@id` | `src/core/spec-conformance/fixtures/wgsl-names.json §attributes` | docs/language-design.md:453 | refused (Rule 6.7; portable: the override\<T> declaration (Rule 6.4)); the host sets an override by name | refused (Rule 6.7; portable: the override\<T> declaration (Rule 6.4)) |  |
@@ -723,7 +723,7 @@ Each count is one status of one target. The rows column counts the rows of the t
 | WGSL keyword | `continue` | `src/core/spec-conformance/fixtures/wgsl-names.json §keyword-summary` | docs/use-typeshade-surface.md:1795; src/compiler/ts/lower/statement.ts:238; src/compiler/ts/lower/statement.ts:286 | typed (`src/core/ir/builder-ambient.test.ts`); gap inside: group 12 (#160): labelled continue (TypeScript form) is refused (TS8099); roadmap T13, docs/roadmap.md:209 | typed (`examples/shade-examples.test.ts`); gap inside: group 12 (#160): labelled continue (TypeScript form) is refused (TS8099); roadmap T13, docs/roadmap.md:209 |  |
 | WGSL keyword | `continuing` | `src/core/spec-conformance/fixtures/wgsl-names.json §keyword-summary` | docs/language-design.md:565-570 | n/a (the update clause of a counted for, Rule 7.5) | n/a (the update clause of a counted for, Rule 7.5) | also: the break if form of the continuing clause is n/a (Rule 7.5) |
 | WGSL keyword | `default` | `src/core/spec-conformance/fixtures/wgsl-names.json §keyword-summary` | docs/language-design.md:553-557 | typed (`src/core/ir/match-expr.test.ts`) | typed (`examples/shade-examples.test.ts`) |  |
-| WGSL keyword | `diagnostic` | `src/core/spec-conformance/fixtures/wgsl-names.json §keyword-summary` | docs/use-typeshade-surface.md:5925-5927; docs/use-typeshade-surface.md:6367 | gap (group 12, #643); refused today with no rule number: surface §50 (the module-level directive is not written by hand) | n/a (not written by hand (surface §50); no GLSL form) | also: the @diagnostic attribute on an entry is typed (issue 161) |
+| WGSL keyword | `diagnostic` | `src/core/spec-conformance/fixtures/wgsl-names.json §keyword-summary` | docs/use-typeshade-surface.md:5925-5927; docs/use-typeshade-surface.md:6367 | refused (Rule 1.4; portable: write the sample or the derivative where it is; the compiler rewrites what it can reach (Rule 8.5); otherwise textureSampleLevel or textureSampleGrad, or the call moved above the branch); the module-level directive is not written by hand (surface §50) | n/a (not written by hand (surface §50); no GLSL form) |  |
 | WGSL keyword | `discard` | `src/core/spec-conformance/fixtures/wgsl-names.json §keyword-summary` | docs/language-design.md:579-585 | typed (`src/compiler/ts/builtins.test.ts`); Rule 7.7 | typed (`src/compiler/ts/builtins.test.ts`) |  |
 | WGSL keyword | `else` | `src/core/spec-conformance/fixtures/wgsl-names.json §keyword-summary` | src/compiler/ts/lower/statement.ts:215; src/compiler/ts/lower/statement.ts:2063-2092 | typed (`src/core/ir/condexpr-arms.test.ts`) | typed (`src/core/backends/glsl-legalize.test.ts`) |  |
 | WGSL keyword | `enable` | `src/core/spec-conformance/fixtures/wgsl-names.json §keyword-summary` | docs/language-design.md:1125-1129 | typed (`src/core/backends/enable-directives.test.ts`); Rule 10.1: a string directive | n/a (no GLSL form; a GLSL #extension is the writer's) |  |
@@ -1465,7 +1465,7 @@ Gap cells: WebGPU 0, WebGL2 15. Sub-gaps: WebGPU 0, WebGL2 1. Issues named: #642
 
 ### Group 12: Refusals without a rule number
 
-Gap cells: WebGPU 19, WebGL2 5. Sub-gaps: WebGPU 3, WebGL2 4. Issues named: #160, #162, #536, #643.
+Gap cells: WebGPU 18, WebGL2 5. Sub-gaps: WebGPU 3, WebGL2 4. Issues named: #160, #162, #536, #643.
 
 - WebGPU, `GPUDevice.importExternalTexture()`: gap (#162)
 - WebGPU, `GPUExternalTexture`: gap (#162)
@@ -1489,7 +1489,6 @@ Gap cells: WebGPU 19, WebGL2 5. Sub-gaps: WebGPU 3, WebGL2 4. Issues named: #160
 - WebGL2, `const_assert`: gap (#643)
 - WebGPU, `continue`: inside typed (#160)
 - WebGL2, `continue`: inside typed (#160)
-- WebGPU, `diagnostic`: gap (#643)
 - WebGPU, `while`: inside typed (#160)
 - WebGL2, `while`: inside typed (#160)
 - WebGPU, `subgroup_size_control`: gap (#536)

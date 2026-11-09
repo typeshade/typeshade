@@ -37,9 +37,8 @@
 // and one more, for what the proposal does not list: a value the compiler cannot recompute at
 // all (a `raw` statement, a write through an `inout` parameter, a call with an effect).
 //
-// Not here: a module whose author wrote a `derivative_uniformity` filter is left as it is
-// (`source-file.ts` decides; change 0132's migration order removes the filter later). A
-// barrier and a subgroup call are never rewritten.
+// Not here: a barrier and a subgroup call are never rewritten. No author filter switches the
+// rule off: change 0132 removed it, and the front end refuses a written one (`TS8028`).
 
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
 import type { ShaderType } from '../ir/types.js';
