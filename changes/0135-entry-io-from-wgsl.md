@@ -256,12 +256,12 @@ No option reverses an entry of `docs/owner-decisions.md`.
   for one release and refused after it; an option moves to the second argument. Cost: about 197
   example lines, typeaudio's 19 lines, the site's pages and every downstream source that writes a
   type migrate before the refusing release (`tshc migrate` rewrites them); one warning sentence is
-  added (Rule 12.5). Benefit: one spelling. Two published artifacts bundle a compiler:
+  added (Rule 12.5). Benefit: one spelling. Two published builds bundle a compiler,
   vscode-typeshade 0.3.0 on the Visual Studio Marketplace (compiler pin `3e1e8420`, 2026-10-27)
-  and `@typeshade/mcp` 0.1.0 and 0.1.1 on npm (2026-09-23). Each keeps the compiler it bundles, so
-  a source its users write keeps compiling there; when an artifact moves its pin past this change,
-  the one release of warnings reaches its users before the refusal does. The migration does not
-  rest on nothing having been published. `OD-3` says "A construct that the compiler could
+  and `@typeshade/mcp` 0.1.0 and 0.1.1 on npm (2026-09-23). Under `OD-6` (the owner, 2026-11-09,
+  recorded in pull request #1132, not yet on `main`) they were test builds before any official
+  release, so no warning release is owed because of them. The one release of warnings in D1.2 is
+  the owner's choice for D1 ("경고 후 거부"), not a debt to those builds. `OD-3` says "A construct that the compiler could
   replace is removed", and the written type is such a construct.
 - D1.1 (rejected). `T` is optional, and a written `T` stays accepted for good with no warning. Cost: two
   spellings for one value (`builtin<"vertex_index">` and `builtin<"vertex_index", u32>`), which
@@ -388,6 +388,8 @@ The points below were checked against the owner's decision on `OD-5` of 2026-11-
   the source needs only what the author must state.
 - `OD-2`: not touched. The entries keep `@vertex`, `@fragment` and `@compute([…])` (change 0130).
 - `OD-4`: the example above and the options with their costs are shown before the owner decides.
+- `OD-6` (recorded in pull request #1132, not yet on `main`): nothing is released yet; the bundled
+  builds were tests. It is cited where D1.2's migration is discussed.
 
 This proposal reverses no entry.
 
