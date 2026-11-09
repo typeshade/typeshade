@@ -1,7 +1,7 @@
 ---
 id: '0139'
 title: A deprecation window is owed only for a meaning that an official release of the `typeshade` package carried; bundles, prereleases and changelog headings do not count
-status: accepted
+status: implemented
 rules:
   - '13.9'
   - '13.10'
@@ -229,10 +229,28 @@ estimated.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the implementing commit and pull request,
-`bun run reqs:sync` and `python scripts/doorstop-check.py -C` with the two items reviewed,
-`bun run docs:refs`, `bun run docs:impact`, `bun scripts/changes.ts --base origin/main` and
-`npx vitest run src/changelog.test.ts src/reqs.test.ts`, each with its date, commit and result.
+Implementing pull request: #1143 (branch `claude/clever-ramanujan-yrfjsq-impl-0139`), commit
+`5ce0f134` with `Change: 0139`, merged as `6f17efdd` on 2026-11-09. It is approved in advance
+(this proposal's Approval record). Every required check passed on `5ce0f134`.
+
+Delivered configuration: Rule 13.9 defines an official release as written under "What changes"
+item 1; Rule 13.10 counts official releases as written under item 2; both rules' Derives from
+add OD-6 and change `0139`; `RELEASING.md` §7 and the header comment of `src/changelog.test.ts`
+follow; `reqs/rules/RULE-1309.md` and `RULE-1310.md` are synced and reviewed.
+
+Validation evidence, run on 2026-11-09 on `5ce0f134` (base `85f2482a`, Bun 1.4.4):
+
+| Check                                                                       | Result                                                  |
+| --------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `npx vitest run src/changelog.test.ts src/reqs.test.ts src/changes.test.ts` | 55 passed                                               |
+| `bun run reqs:sync`, `python scripts/doorstop-check.py -C -e -F`            | clean after `doorstop review RULE-1309` and `RULE-1310` |
+| `bun run docs:refs`                                                         | 0 dead references                                       |
+| `bun run docs:impact`                                                       | every location read; the proposals among it are records |
+| `bun scripts/changes.ts --base origin/main`                                 | touches Rule 13.9 and Rule 13.10, within 0139           |
+
+Deviations: none. Pending: the separate `CHANGELOG.md` follow-up (the `[0.1.0]` heading and the
+sentences that call `0.1.0` published, and `docs/HISTORY.md` line 25), which is not part of this
+record.
 
 ## What it owes downstream
 
