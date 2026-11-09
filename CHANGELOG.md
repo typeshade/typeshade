@@ -176,7 +176,11 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   suite gains a `"use typeshade"` form of each program, a CPU leg in Vitest, and five cases that
   every backend runs (interpolation, flat interpolation, clipping, the fill rule and
   `front_facing`); WebGL2 does not run the flat case, since GLSL ES 3.00 takes a flat value from
-  the last vertex. No tier runs on the CPU backend yet, so no bundle changes.
+  the last vertex. The program runtime has a CPU tier on it, internal until milestone M4
+  (`src/runtime/cpu.ts`; no public option reaches it, so no bundle changes): `load()` takes a
+  program's CPU code from the manifest's `CPU_PROGRAM` key (O2 (a)) and refuses with a `TypeError`
+  a manifest that carries none, one read from JSON or made by `packModule()`; its dispatches and
+  passes run on the CPU backend, and a pass into a canvas takes the canvas's `2d` context.
 
 - **A constant argument reaches a function under a numerical contract** (#850 N5; Rule 11.22).
   At `-O2`, a call that passes a scalar literal to a function opted in with `numerics(...)` calls
