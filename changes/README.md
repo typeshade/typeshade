@@ -52,9 +52,9 @@ an optimization, a lowering, a numerical relaxation, a tuning parameter or a rep
 adds no author-facing construct, and the criteria above give it no proposal.
 
 A language change is the last resort. A proposal that adds an author-facing name, rule,
-diagnostic code or form for a downstream need links the issue. Its `Why` section says why
-compiler work cannot meet the need. Nothing domain-shaped is asked of the language
-(`docs/dx.md`, principle 7). Pull request #1094 (a draft) proposes the same principle as a
+diagnostic code or form for a downstream need links the issue. Its
+`Why the compiler cannot do it` section says why compiler work cannot meet the need. Nothing
+domain-shaped is asked of the language (`docs/dx.md`, principle 7). Pull request #1094 (a draft) proposes the same principle as a
 design rule.
 
 The `downstream` field of a proposal lists the work that the proposal owes each repository. It
@@ -115,7 +115,8 @@ not write it, before the owner decides on it.
 The questions:
 
 - What does an author have to learn after this change that they did not have to learn before?
-- Can the compiler do this instead of the author? If not, why not?
+- Can the compiler do this instead of the author? If not, why not? Test the proposal's
+  `Why the compiler cannot do it` section, which is the author's answer.
 - Does the proposal conflict with a principle or a rule? Name each conflict and where the
   proposal resolves it. A conflict the proposal resolves by itself goes to the owner as a
   question.
@@ -133,12 +134,8 @@ those prompts with specific facts or explicit uncertainty. It contains no unfini
 fabricated signatures or predicted completion results.
 
 Each new proposal retains the five sections `What changes`, `Why`,
-`Why the compiler cannot do it`, `What it touches` and `What it owes downstream`.
-`src/changes.test.ts` fails a proposal numbered after 0130 that declares `names:` and whose
-`Why the compiler cannot do it` section is missing, empty or still the template's prompt
-(`compilerFirstProblems` in `scripts/changes.ts`). Proposals up to 0130 predate the section and
-are not rewritten. For a rule, a code or a surface form the section is required by this text
-and checked in review, since the front matter does not tell an added rule from an edited one. A document-control table precedes those sections. It identifies:
+`Why the compiler cannot do it`, `What it touches` and `What it owes downstream`. A
+document-control table precedes those sections. It identifies:
 
 - The proposal number and current front-matter status.
 - The actual document date, timezone and whether the date means authorship, revision context or
@@ -151,6 +148,12 @@ and checked in review, since the front matter does not tell an added rule from a
   document states that no PR is assigned.
 - Git as the revision-history authority and review/merge records as the decision evidence.
   A document does not invent the hash of the commit that will contain it.
+
+`src/changes.test.ts` fails a proposal numbered after 0130 that declares `names:` and whose
+`Why the compiler cannot do it` section is missing, empty or still the template's prompt
+(`compilerFirstProblems` in `scripts/changes.ts`). Proposals up to 0130 predate the section and
+are not rewritten. For a rule, a code or a surface form, this text requires the section and the
+independent review checks it: the front matter does not tell an added rule from an edited one.
 
 `id` and `status` in the front matter remain authoritative for proposal identity and state. The
 table must agree with them. New prose records do not substitute for the merged accepted-proposal
