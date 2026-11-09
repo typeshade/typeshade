@@ -22,6 +22,12 @@
 
 import { andGap, gap, na, refused, type Row, typed } from './model.js';
 
+/** The portable spelling of the `derivative_uniformity` filter's two rows (change 0132, Rule
+ *  1.4): the filter is not borrowed, because the compiler's rewrite gives the program it would
+ *  have admitted. */
+const DERIVATIVE_FILTER_PORTABLE =
+  'write the sample or the derivative where it is; the compiler rewrites what it can reach (Rule 8.5); otherwise textureSampleLevel or textureSampleGrad, or the call moved above the branch';
+
 export const WGSL_ROWS: readonly Row[] = [
   // ─── built-in functions (169 keys) ───
   {
@@ -2750,9 +2756,10 @@ export const WGSL_ROWS: readonly Row[] = [
     name: '`@diagnostic`',
     covers: ['wgsl:attributes:diagnostic'],
     evidence: 'docs/language-design.md:449; docs/language-design.md:653-659',
-    webgpu: typed(
-      'src/core/passes/uniformity.test.ts',
-      'on an entry, Rule 8.5; surface §54; the module-level directive form is the keywords:diagnostic row',
+    webgpu: refused(
+      'Rule 1.4',
+      DERIVATIVE_FILTER_PORTABLE,
+      'a written @diagnostic is TS8028; surface §54; subgroup_uniformity: the compiler writes that filter only on its own lowering (src/core/passes/kernel-lower.ts), and the uniformity walk refuses an author subgroup call in non-uniform control flow (TS8052)',
     ),
     webgl2: na('no GLSL form'),
   },
@@ -2997,11 +3004,10 @@ export const WGSL_ROWS: readonly Row[] = [
     name: '`diagnostic`',
     covers: ['wgsl:keywords:diagnostic'],
     evidence: 'docs/use-typeshade-surface.md:5925-5927; docs/use-typeshade-surface.md:6367',
-    note: 'also: the @diagnostic attribute on an entry is typed (issue 161)',
-    webgpu: gap(
-      12,
-      'refused today with no rule number: surface §50 (the module-level directive is not written by hand)',
-      643,
+    webgpu: refused(
+      'Rule 1.4',
+      DERIVATIVE_FILTER_PORTABLE,
+      'the module-level directive is not written by hand (surface §50)',
     ),
     webgl2: na('not written by hand (surface §50); no GLSL form'),
   },

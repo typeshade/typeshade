@@ -4265,4 +4265,4 @@ export const main = fragment(function main(
     new NamekScene();
 
   return scene.colorAt(uv);
-}, { diagnostic: ["off", "derivative_uniformity"] });
+});

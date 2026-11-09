@@ -9,6 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
+import { DIAGNOSTIC_OPTION_REFUSAL } from '../../compiler/ts/stage-call.js';
 import { TS_CODES } from '../../compiler/ts/codes.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { compileModule } from '../oracle.js';
@@ -245,18 +246,30 @@ export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
     expect(wgsl).not.toContain('textureSampleGrad');
   });
 
-  it('leaves a module that writes a derivative_uniformity filter as it is written', () => {
-    // Change 0132's later step removes the filter; until then its module keeps today's emit.
+  it('refuses a module that writes a derivative_uniformity filter, and rewrites it without one', () => {
+    // Step 1 of change 0132 left such a module as it was written; the filter is now refused at
+    // once (TS8028, in both halves), and the same source without it is rewritten.
     const src = frag(`  if (v.uv.x > 0.5) { return textureSample(t, s, v.uv); }
-  return vec4(0.);`).replace(
+  return vec4(0.);`);
+    const filtered = src.replace(
       /\n\}\);$/,
       '\n}, { diagnostic: ["warning", "derivative_uniformity"] });',
     );
-    const { c, said } = uniformity(src);
-    expect(said).toHaveLength(1);
-    expect(c.diagnostics.find((d) => d.code === TS_CODES.UNIFORMITY)?.category).toBe('warning');
-    expect(c.wgsl).toContain('textureSample(t, s, v.uv)');
-    expect(c.wgsl).not.toContain('textureSampleGrad');
+    expect(filtered).not.toBe(src);
+    const { c, said } = uniformity(filtered);
+    expect(said).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.shade.ts', `"use typeshade";\n${filtered}`);
+    const refusal = [`TS8028 ${DIAGNOSTIC_OPTION_REFUSAL}`];
+    expect(c.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual(refusal);
+    expect(
+      service.getDiagnostics('a.shade.ts').map((d) => `${String(d.code)} ${d.message}`),
+    ).toEqual(refusal);
+    expect(c.wgsl).toBeUndefined();
+    const without = uniformity(src);
+    expect(without.said).toEqual([]);
+    expect(without.c.wgsl).toContain('textureSampleGrad(t, s, v.uv,');
+    expect(without.c.wgsl).not.toContain('diagnostic(');
   });
 });
 
@@ -376,13 +389,14 @@ export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   });
 });
 
-describe("the two examples that write the filter, without it (change 0132's evidence)", () => {
-  // Their sources keep the option in this step; the later step of 0132 deletes it. Read here
-  // with it deleted, both compile with every call reached.
-  const without = (id: string): string =>
-    readFileSync(new URL(`../../../examples/${id}.shade.ts`, import.meta.url), 'utf8')
-      .replace(/^"use typeshade";\n/, '')
-      .replace(/, \{ diagnostic: \["off", "derivative_uniformity"\] \}\)/g, ')');
+describe("the two examples that wrote the filter (change 0132's evidence)", () => {
+  // Change 0132 deleted the option from both sources. Read as written, both compile with every
+  // call reached.
+  const without = (id: string): string => {
+    const text = readFileSync(new URL(`../../../examples/${id}.shade.ts`, import.meta.url), 'utf8');
+    expect(text).not.toContain('diagnostic: [');
+    return text.replace(/^"use typeshade";\n/, '');
+  };
 
   it('sample-branch: both samples of the branch reached, the uniform one left', () => {
     const { wgsl, glsl } = reached(without('sample-branch'));

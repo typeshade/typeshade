@@ -704,13 +704,13 @@ float ShipMaterial_celShadow(vec3 ro, vec3 rd, Ship ship, NamekTrees trees) {
 _spec4_result _spec3_NamekTrees_nearest(NamekTrees self_, vec3 p) {
   float firstDistance = length((p.xz - self_.first.position));
   float secondDistance = length((p.xz - self_.second.position));
-  NamekTree _sel1;
+  NamekTree _sel2;
   if ((firstDistance < secondDistance)) {
-    _sel1 = self_.first;
+    _sel2 = self_.first;
   } else {
-    _sel1 = self_.second;
+    _sel2 = self_.second;
   }
-  NamekTree _spec5_returned = _sel1;
+  NamekTree _spec5_returned = _sel2;
   return _spec4_result(_spec5_returned.position, _spec5_returned.height);
 }
 
@@ -1047,39 +1047,50 @@ float Terrain_dirtInk(vec2 x, vec2 eye, float t, mat2 jacobian, float lw) {
   return ((1.0 - smoothstep(-0.5, 0.5, distance)) * (1.0 - smoothstep(10.0, 14.0, t)));
 }
 
+float _flow37_shared(float _flow35_input, float _flow36_input) {
+  return (0.03 * ((abs((_flow35_input - 0.5)) + (0.5 * abs((_flow36_input - 0.5)))) - 0.35));
+}
+
 mat2 inverseMat2(float a, float b, float c, float d) {
   float determinant = ((a * d) - (b * c));
   return mat2(vec2((d / determinant), ((-b) / determinant)), vec2(((-c) / determinant), (a / determinant)));
 }
 
-vec3 Terrain_shade(vec3 p, vec3 ro, float t, float pixA, float lineA, Ship ship, NamekTrees trees) {
-  vec3 _sel0;
+float _flow42_shared(float _flow38_input, float _flow39_input, float _flow40_input, float _flow41_input) {
+  return ((0.5 + ((_flow38_input - 0.5) * (0.5 + _flow39_input))) + ((0.7 * (_flow40_input - 0.5)) * smoothstep(0.35, 0.75, _flow41_input)));
+}
+
+float _flow46_shared(float _flow43_input, float _flow44_input, float _flow45_input) {
+  float _cse0 = (0.02 * _flow44_input);
+  return max(_flow43_input, smoothstep((0.61 - _cse0), (0.615 - _cse0), _flow45_input));
+}
+
+vec3 Terrain_shade_grad(vec3 p, vec3 ro, float t, float pixA, float lineA, Ship ship, NamekTrees trees, float hoist_d_h0, float hoist_d_h1, float hoist_d_h2, float hoist_d_h3, vec2 hoist_d_h4, vec2 hoist_d_h5) {
+  vec3 _sel1;
   if ((length(p.xz) > MESA_R)) {
-    _sel0 = Terrain_normal(p.xz, t);
+    _sel1 = Terrain_normal(p.xz, t);
   } else {
-    _sel0 = vec3(0.0, 1.0, 0.0);
+    _sel1 = vec3(0.0, 1.0, 0.0);
   }
-  vec3 normal = _sel0;
+  vec3 normal = _sel1;
   vec2 x = p.xz;
   float radius = length(x);
   float height = (p.y - GROUND);
   vec2 warped = Terrain_groundWarp(x);
   vec3 col = mix(GRASS, GRASS_DK, (0.6 * smoothstep(0.55, 0.56, Noise_fbm(((warped * 1.1) + 3.0)))));
   float dirt = Terrain_dirtField(warped);
-  vec2 dirtGradient = vec2(dFdx(dirt), dFdy(dirt));
-  float recede = smoothstep(0.25, 0.6, (abs(dirtGradient.x) / max(length(dirtGradient), 0.000001)));
-  dirt += (0.03 * ((abs((Noise_value((x * 5.0)) - 0.5)) + (0.5 * abs((Noise_value(((x * 11.0) + 7.0)) - 0.5)))) - 0.35));
-  float fieldWidth = max(length(vec2(dFdx(dirt), dFdy(dirt))), 0.00001);
-  vec2 dx = dFdx(x);
-  vec2 dy = dFdy(x);
-  mat2 jacobian = mat2(dx, dy);
-  mat2 inverseJacobian = inverseMat2(dx.x, dx.y, dy.x, dy.y);
+  vec2 dirtGradient = vec2(hoist_d_h0, hoist_d_h1);
+  float recede = smoothstep(0.25, 0.6, (abs(hoist_d_h0) / max(length(dirtGradient), 0.000001)));
+  dirt += _flow37_shared(Noise_value((x * 5.0)), Noise_value(((x * 11.0) + 7.0)));
+  float fieldWidth = max(length(vec2(hoist_d_h2, hoist_d_h3)), 0.00001);
+  mat2 jacobian = mat2(hoist_d_h4, hoist_d_h5);
+  mat2 inverseJacobian = inverseMat2(hoist_d_h4.x, hoist_d_h4.y, hoist_d_h5.x, hoist_d_h5.y);
   float lw = ((0.5 * lineA) / pixA);
   vec2 grain = vec2(dot(x, DIRT_GRAIN), dot(x, vec2((-DIRT_GRAIN.y), DIRT_GRAIN.x)));
   vec2 _gv0 = (x * 0.25);
   grain.y += ((0.8 * Noise_fbm((_gv0 + 5.0))) + (0.12 * Noise_value(((x * 1.9) + 2.0))));
   vec2 _gv1 = (x * 0.6);
-  float pattern = ((0.5 + ((Noise_fbm((vec2((0.45 * grain.x), (3.0 * grain.y)) + 27.0)) - 0.5) * (0.5 + Noise_value((_gv1 + 31.0))))) + ((0.7 * (Noise_value((vec2((1.2 * grain.x), (11.0 * grain.y)) + 41.0)) - 0.5)) * smoothstep(0.35, 0.75, Noise_value((vec2((0.7 * grain.x), (1.5 * grain.y)) + 13.0)))));
+  float pattern = _flow42_shared(Noise_fbm((vec2((0.45 * grain.x), (3.0 * grain.y)) + 27.0)), Noise_value((_gv1 + 31.0)), Noise_value((vec2((1.2 * grain.x), (11.0 * grain.y)) + 41.0)), Noise_value((vec2((0.7 * grain.x), (1.5 * grain.y)) + 13.0)));
   vec3 dirtColor = mix(SAND, DIRT_DK, mix(0.36, 0.6, smoothstep(0.25, 0.75, pattern)));
   col = mix(col, dirtColor, smoothstep((-fieldWidth), fieldWidth, dirt));
   if (((dirt > ((3.0 * fieldWidth) * lw)) && (abs(determinant(jacobian)) > 1e-12))) {
@@ -1097,8 +1108,7 @@ vec3 Terrain_shade(vec3 p, vec3 ro, float t, float pixA, float lineA, Ship ship,
   float shore = (-0.35 * lap);
   float foam = (1.0 - smoothstep((shore + 0.15), (shore + 0.2), shoreDistance));
   float mesa = Terrain_mesaField(x);
-  float _lc0 = (0.02 * lap);
-  foam = max(foam, smoothstep((0.61 - _lc0), (0.615 - _lc0), mesa));
+  foam = _flow46_shared(foam, lap, mesa);
   float wave = (Noise_value(vec2((((3.0 * radius) + (3.0 * Noise_value(_gv0))) + (1.2 * u.time)), 0.5)) * Noise_value((_gv1 + 2.0)));
   foam = max(foam, (fade * smoothstep(0.5, 0.53, wave)));
   sea = mix(sea, SEA_HI, foam);
@@ -1183,12 +1193,23 @@ vec3 NamekScene_render(NamekScene self_, vec3 ro, vec3 rd, float pixA, float lin
   float terrainT = Terrain_march(ro, rd, (shipHit ? march.hit.x : 400.0));
   vec3 col = vec3(0.0);
   float frontT = 10000000000.0;
+  vec3 _gv0 = (ro + (rd * terrainT));
+  vec2 x_h1 = _gv0.xz;
+  vec2 warped_h2 = Terrain_groundWarp(x_h1);
+  float dirt_h3 = Terrain_dirtField(warped_h2);
+  float hoist_d_h4 = dFdx(dirt_h3);
+  float hoist_d_h5 = dFdy(dirt_h3);
+  dirt_h3 += _flow37_shared(Noise_value((x_h1 * 5.0)), Noise_value(((x_h1 * 11.0) + 7.0)));
+  float hoist_d_h6 = dFdx(dirt_h3);
+  float hoist_d_h7 = dFdy(dirt_h3);
+  vec2 hoist_d_h8 = dFdx(x_h1);
+  vec2 hoist_d_h9 = dFdy(x_h1);
   if ((shipHit && (terrainT < 0.0))) {
     vec3 p = (ro + (rd * march.hit.x));
     col = ShipMaterial_shade(p, NamekScene_calcNormal(self_, p), rd, march.hit.y, march.hit.x, pixA, lineA, self_.ship, self_.trees, self_.details, self_.lettering);
     frontT = march.hit.x;
   } else if ((terrainT > 0.0)) {
-    col = Terrain_shade((ro + (rd * terrainT)), ro, terrainT, pixA, lineA, self_.ship, self_.trees);
+    col = Terrain_shade_grad(_gv0, ro, terrainT, pixA, lineA, self_.ship, self_.trees, hoist_d_h4, hoist_d_h5, hoist_d_h6, hoist_d_h7, hoist_d_h8, hoist_d_h9);
     frontT = terrainT;
   } else {
     col = Sky_color(rd);

@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
+import { DIAGNOSTIC_OPTION_REFUSAL } from './stage-call.js';
 import { isDecoratedFormWarning } from '../../core/testing/decorated-form.js';
 import { hostFace } from './host-face.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
@@ -140,7 +141,7 @@ export const fs = fragment(function main(): vec4 { return vec4(1., 0., 0., 1.); 
     ]);
   });
 
-  it('reads a diagnostic option as @diagnostic, and refuses another option', () => {
+  it('refuses a diagnostic option and another option (change 0132)', () => {
     const SAMPLE = `"use typeshade";
 declare const t: texture_2d<f32>;
 declare const s: sampler;
@@ -152,20 +153,22 @@ export const fs = fragment(
   OPTIONS,
 );
 `;
-    const off = compiled(
-      SAMPLE.replace('OPTIONS', '{ diagnostic: ["off", "derivative_uniformity"] }'),
-    );
-    expect(off.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(off.wgsl).toContain('diagnostic(off, derivative_uniformity);');
-    expect(errors(SAMPLE.replace('OPTIONS', '{ blend: "add" }'))).toContainEqual(
-      expect.stringContaining('TS8028 A stage call takes one option, "diagnostic"'),
-    );
+    // The filter was read as `@diagnostic` until change 0132 removed it: it is one refusal now,
+    // and the sample under the branch is rewritten, with no directive.
+    const off = SAMPLE.replace('OPTIONS', '{ diagnostic: ["off", "derivative_uniformity"] }');
+    expect(errors(off)).toEqual([`TS8028 ${DIAGNOSTIC_OPTION_REFUSAL}`]);
+    expect(compiled(SAMPLE.replace('OPTIONS,', '')).wgsl).toContain('textureSampleGrad(');
+    expect(compiled(SAMPLE.replace('OPTIONS,', '')).wgsl).not.toContain('diagnostic(');
+    expect(errors(SAMPLE.replace('OPTIONS', '{ blend: "add" }'))).toEqual([
+      'TS8028 A stage call takes no options; "blend: "add"" is not one. Delete it.',
+    ]);
   });
 });
 
 describe("a namespace's entry takes no options", () => {
   // The option was dropped with no word, and the rule it meant to switch off still refused the
-  // sample; `@diagnostic` on a namespace's function is refused, and so is the option now.
+  // sample. A namespace's entry refused the option before change 0132 removed it from every
+  // stage call; the refusal is now the one a top-level stage call gets.
   const source = `"use typeshade";
 declare const t: texture_2d<f32>;
 declare const s: sampler;
@@ -179,8 +182,7 @@ namespace N {
   );
 }
 `;
-  const refusal =
-    'TS8028 "diagnostic" does not apply to a namespace\'s entry: it marks an entry at the top of the file. Remove the options.';
+  const refusal = `TS8028 ${DIAGNOSTIC_OPTION_REFUSAL}`;
 
   it('the compiler refuses the options and emits no directive', () => {
     const result = compiled(source);

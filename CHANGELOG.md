@@ -1667,6 +1667,24 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Removed
 
+- **The diagnostic filter: the compiler rewrites an implicit-LOD sample or a derivative in
+  non-uniform control flow** (change 0132; Rule 1.4, Rule 6.7, Rule 8.5, surface §3, §7, §50 and
+  §54). The stage call's `{ diagnostic: [...] }` option, the decorated `@diagnostic(…)` and the
+  ambient `diagnostic` declaration are gone. A `textureSample`, `textureSampleBias`,
+  `textureSampleCompare` or screen-space derivative the uniformity walk finds in non-uniform
+  control flow is recomputed before the statement that made the flow non-uniform, and sampled
+  inside with `textureSampleGrad` and the gradients computed there (`textureGrad` on GLSL ES
+  3.00). A call the rewrite cannot reach keeps `TS8052`, which now names the reason and no
+  longer offers the filter. Delete a written filter, or run `tshc migrate`, which deletes it: a
+  leftover `{ diagnostic: [...] }` or `@diagnostic(…)` is `TS8028`, an error, in the compiler and
+  in the editor. No published version had the filter, so no warning release precedes the
+  refusal (Rules 13.9 and 13.10 bind a published version). `CompileTsSourceResult.directives` is
+  removed, and the `"use typeshade"` front end emits no `diagnostic(...)` directive;
+  `ModuleDecl.diagnostics` stays for the IR builder. The WGSL `@diagnostic` attribute row and the
+  `diagnostic` keyword row of `docs/capability-coverage.md` are `refused` with Rule 1.4. The
+  examples `sample-branch` and `capsule-corp-namek-class` drop the option, and their WGSL and
+  GLSL ES 3.00 carry the gradient form in place of the directive.
+
 - **A meaning that an ECMAScript form carries in every case has that one spelling (change 0112,
   change 0112).** The ambient library no longer declares, and the front end no longer resolves, the
   names below. A program that calls or reads one stops compiling with a sentence that names the
