@@ -197,12 +197,21 @@ through the owner's account can too, so the rule is written here:
   - a pull request whose commits say `Change: none` and that edits only documentation or a
     proposal's `status` line;
   - a pull request that implements a proposal already `accepted` on `main`, within what the
-    proposal declares (`scripts/changes.ts` passes);
+    proposal declares (`scripts/changes.ts` passes), and that adds or renames no author-facing
+    name and does not change how an author writes an example (below);
   - a bug fix that needs no proposal.
 
   Everything else waits for the owner to say "merge" in the conversation: a new proposal, and a
   change to a design rule, a public export, a surface section, a diagnostic code or the set of
   examples that no accepted proposal covers. After a merge, report it to the owner.
+
+- An implementing pull request that adds or renames an author-facing name (`docs/language-design.md`
+  §2.1), or changes how an author writes an example, is not approved in advance, even when its
+  proposal is accepted. Its body shows one example before and after the change. Show the owner
+  that comparison in the conversation, and wait for the owner to say "merge". An accepted
+  proposal approves a direction; the owner approves what authors will read.
+- A proposal that changes how an author writes an example shows one example before and after
+  the change in its own text. Show the owner that comparison before the owner decides on it.
 
 - Never push to `main` directly, and never force-push it.
 - The ruleset, the secrets and every other repository setting are the owner's to change: an
