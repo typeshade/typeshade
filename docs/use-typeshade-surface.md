@@ -6795,19 +6795,74 @@ and narrows nothing. Where a helper that writes stands on the right of `&&` or `
 arm of `?:`, the compiler writes that operand as an `if` of its own (§26); the walk reads it as
 the operator the author wrote, and names it so.
 
-**What the compiler says now.** The call is refused at the call, naming the value the control
-flow depends on and the three ways out:
+**The compiler rewrites what it can reach (change 0132).** An implicit-LOD sample or a
+derivative the walk finds in non-uniform control flow is not the author's to move. The compiler
+recomputes, then derives:
+
+1. The hoist point is the latest statement before the call, on the path that reaches it, whose
+   control flow is uniform: before the `if` or the `switch`, before the statement that holds the
+   `&&`, `||` or `?:`, before the statement that holds a non-uniform `return`, before a loop.
+   When the call is in a helper that a non-uniform call site reaches, the hoist point is in the
+   caller.
+2. The backward slice of the call's operand (the coordinate of a sample, the argument of a
+   derivative) is emitted again at the hoist point with fresh names. The original statements
+   stay where they are.
+3. At the hoist point, `dpdx` and `dpdy` of the recomputed coordinate (`dFdx` and `dFdy` on GLSL
+   ES 3.00), or the recomputed derivative itself.
+4. Inside the branch, the sample becomes `textureSampleGrad` with those gradients (`textureGrad`
+   on GLSL ES 3.00), and a derivative becomes the value computed at the hoist point. A
+   `textureSampleBias` multiplies both gradients by `exp2(clamp(bias, -16.0, 15.99))`. A
+   `textureSampleCompare`, and a sample of a `texture_1d`, have no gradient form, so the whole
+   call is recomputed at the hoist point and its value used inside.
+5. A helper between the hoist point and the call is specialized: a copy takes the gradients as
+   extra parameters, and the call site that needs them calls the copy. A helper nothing else
+   calls leaves the module.
+
+```wgsl
+fn sharp_grad(uv: vec2<f32>, hoist_gx_h0: vec2<f32>, hoist_gy_h1: vec2<f32>) -> vec4<f32> {
+  return textureSampleGrad(albedo, smp, uv, hoist_gx_h0, hoist_gy_h1);
+}
+// in fs, before `if (v.uv.x > 0.5)`:
+  let uv_h0 = v.uv;
+  let hoist_gx_h1 = dpdx(uv_h0);
+  let hoist_gy_h2 = dpdy(uv_h0);
+```
+
+The decision whether the rewrite reaches a call runs in `compileTsSource`, before the walk
+reports, so `compile()` and the language service say the same (Rule 12.7), and the WGSL writer,
+the GLSL writer and the CPU oracle read the rewritten functions (Rule 11.1). The oracle samples
+nothing and differences nothing: with `gpuStubs` a rewritten program gives the placeholder it
+gave before, and without it the derivative moved to the hoist point throws for an invocation
+that skips the branch. A module that writes a `derivative_uniformity` filter is not rewritten
+until a later step of change 0132 removes the filter. The rewrite never touches a barrier or a
+subgroup call.
+
+**What the compiler says for a call it cannot reach.** The call keeps `TS8052` at the call,
+naming the value the control flow depends on, why the compiler could not compute it before the
+statement, and what the author can write instead:
 
 ```
 textureSample() is reached under "VsOut.uv" (a fragment input at @location(0)), which WGSL's
 derivative_uniformity rule refuses: the implicit level of detail is a difference between
-neighbouring invocations, and one that did not run has no value to difference against. Hoist
-the call above the branch, or use textureSampleLevel or textureSampleGrad, whose level of
-detail is the one you wrote, or give the stage call of the entry the option
-{ diagnostic: ["off", "derivative_uniformity"] } to take the module as written.
+neighbouring invocations, and one that did not run has no value to difference against. The
+compiler could not compute the gradients before the branch: its operand reads "stash", which
+the branch writes. Move the call above the branch and select from its result, or call
+textureSampleLevel or textureSampleGrad with the level or the gradients you want.
 ```
 
-The sentence names the statement that made the flow non-uniform, and the move that fits it.
+The reasons:
+
+| The operand | The reason |
+| --- | --- |
+| reads `read_write` storage, `workgroup` or `private` memory that a function writes | its operand reads "…", which the branch writes |
+| depends on an atomic operation | its operand depends on an atomic operation |
+| is computed in a loop without a constant trip count, or with a jump out of it | its operand is computed in a loop whose trip count is not a constant |
+| is an argument of a call with no gradient form that fails one of the above | "…" is a depth texture (or a texture_1d), which has no gradient form, and its arguments are computed in the branch |
+| changes from one iteration of a loop on the path to the next | its operand changes on each iteration of a loop that not every invocation runs |
+| depends on anything else the compiler cannot repeat (a `raw` statement, a write through an `inout` parameter, a call with an effect) | its operand depends on a value the compiler cannot recompute there |
+
+A barrier's sentence is the one below, and a module that writes the filter keeps the sentence it
+had. The sentence names the statement that made the flow non-uniform, and the move that fits it.
 Each move compiles on Tint:
 
 | The call is reached | The sentence says it is reached | The move |
@@ -6828,12 +6883,12 @@ inside an `if` on the value is reached under that `if`, whatever its bound, and 
 uniform inside a loop the value bounds leaves the loop's condition as the reason. A barrier's
 sentence also names the other way out, a value the whole workgroup shares to branch, return,
 break, continue, bound the loop, test on the left side or test in the condition on; a
-derivative's names the explicit-LOD sample and the filter. The filter is offered where the file
-can carry it, as the `diagnostic` option of a stage call: on the entry when every entry is
+derivative's names the explicit-LOD sample, and no longer the filter. In a module that writes
+the filter with severity `warning` or `info`, the sentence still offers it where the file can
+carry it, as the `diagnostic` option of a stage call: on the entry when every entry is
 top-level, on a top-level entry when another entry is a namespace's, since a namespace's stage
 call refuses its `diagnostic` option and a namespace's function `@diagnostic` (`TS8028`, §7),
-and not at all in a file whose every entry is a namespace's. The decorated form's
-`@diagnostic` on a top-level function is still read, and is not offered. The value is named as the author
+and not at all in a file whose every entry is a namespace's. The value is named as the author
 wrote it: a helper as it is called, `Lim.hit(…)` or `done(…)`, never the name the emit gives it,
 and a helper the walk cannot see through by its own name, not as "the expression".
 
@@ -6894,11 +6949,11 @@ contributes every argument, which is the conservative floor.
 It is **flow-sensitive**, which is what makes both thresholds true rather than merely stated.
 The environment is threaded in statement order and merged at each branch's join:
 
-<!-- doc-snippets: skip — the first half is REFUSED on purpose, so it cannot be a unit that compiles; both halves are pinned by src/core/passes/uniformity.test.ts. -->
+<!-- doc-snippets: skip — a fragment, not a unit that compiles; both halves are pinned by src/core/passes/uniformity.test.ts. -->
 
 ```ts
 const edge = v.uv.x > 0.5;
-if (edge) { return textureSample(t, s, v.uv); }   // refused, naming VsOut.uv — the root, not the name
+if (edge) { return textureSample(t, s, v.uv); }   // non-uniform, naming VsOut.uv — the root, not the name (rewritten, or refused when unreachable)
 
 let g: f32 = v.uv.x;
 g = 0.25;
@@ -6921,14 +6976,14 @@ top level of a helper-only module under no branch at all, with no spelling that 
 
 The argument half is what makes the walk read a helper as its callers use it:
 
-<!-- doc-snippets: skip — the first half is REFUSED on purpose, so it cannot be a unit that compiles; both halves are pinned by src/core/passes/uniformity.test.ts. -->
+<!-- doc-snippets: skip — a fragment, not a unit that compiles; both halves are pinned by src/core/passes/uniformity.test.ts. -->
 
 ```ts
 export function shade(x: f32, uv: vec2): vec4 {
-  if (x > 0.5) { return textureSample(t, s, uv); }   // refused when x was handed v.uv.x
+  if (x > 0.5) { return textureSample(t, s, uv); }   // non-uniform when x was handed v.uv.x
   return vec4(0., 0., 0., 1.);
 }
-// shade(v.uv.x, v.uv)  → refused, naming VsOut.uv
+// shade(v.uv.x, v.uv)  → non-uniform, naming VsOut.uv: rewritten, or refused when unreachable
 // shade(k, v.uv)       → accepted, and Tint accepts it too
 ```
 
