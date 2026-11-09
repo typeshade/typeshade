@@ -1,7 +1,7 @@
 ---
 id: '0136'
 title: A for loop is no longer refused for not being counted, the counted form becomes the compiler's own fact, and an entry's return type is inferred where its body says it
-status: draft
+status: accepted
 rules:
   - '7.5'
   - '8.19'
@@ -522,10 +522,13 @@ written in the revision that follows.
 
 ### Approval and plan record
 
-This record does not yet apply. Every open question is decided ("Owner's decisions") and every
-review finding is answered. The proposal is ready for acceptance once this revision is merged with
-`status: accepted` on the owner's go-ahead. That merge will record the decision; the approved
-scope will be F1, F2.1 and R1 as written here.
+Accepted. The owner (Seungup) approved acceptance in the Claude Code session on 2026-11-09, in
+Korean ("0136 승인"), after the before and after forms, the options and their costs were shown
+(OD-4). The approval is recorded by the merge of pull request #1124 with `status: accepted`. The
+approved revision is this file as merged; the approved scope is F1, F2.1 and R1, as written here. The
+implementation follows in its own pull requests, each commit with `Change: 0136`. An implementing
+pull request that changes how an author writes an example shows one example before and after and
+waits for the owner's "merge" (`CLAUDE.md`, Merging). Duration and cost are not estimated.
 
 ### Configuration and validation record
 
