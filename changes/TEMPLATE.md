@@ -37,12 +37,18 @@ they establish the scope.
 Describe the problem and its evidence. Explain the relevant alternatives and the reason for
 the proposed choice. State assumptions and unresolved decisions explicitly.
 
+## Owner's decisions
+
+Name each entry of `docs/owner-decisions.md` this proposal rests on, by its id (for example
+`OD-1`). State that the proposal reverses no entry. A proposal that would reverse an entry is
+not drafted until the owner changes the entry.
+
 ## Why the compiler cannot do it
 
 Required when the proposal adds an author-facing name (`names`), a rule, a diagnostic code or a
 surface form. State what the author must write that the compiler cannot decide from the program
-alone, and give the evidence. An optimization, a numerical relaxation, a tuning parameter or a
-choice of strategy is the compiler's work. If the compiler can do it, the proposal is not
+alone, and give the evidence. An optimization the compiler can prove exact, a tuning parameter or
+a choice of strategy is the compiler's work; a numerical relaxation changes results and is not. If the compiler can do it, the proposal is not
 needed. For a need from a downstream repository, link its compiler issue and say why compiler
 work cannot meet the need (`README.md`, A need from a downstream repository). A proposal that
 adds none of these writes "Not applicable:" and says what it adds.
