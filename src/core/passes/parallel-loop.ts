@@ -528,6 +528,10 @@ function proveLoop(
   // R4: what the loop writes is read only where it writes it; a reduction is not read.
   const reducedNames = new Set(reductions.map((r) => r.name));
   const scattered = new Set(out.filter((w) => w.kind === 'scatter').map((w) => w.name));
+  const combinedNames = new Set([
+    ...reducedNames,
+    ...out.filter((w) => w.kind === 'scatter' && w.float !== true).map((w) => w.name),
+  ]);
   // The index facts of change 0058 (F3). A read of an array the loop does not write is skipped
   // below, so its fact is taken where it is skipped; a read of one it does write is held to the
   // indices it writes, and is noted as read back.
@@ -548,13 +552,16 @@ function proveLoop(
   let bad: LoopRefusal | undefined;
   walk(loop.body, (st) => {
     if (bad !== undefined) return;
-    // A reduction's own statement reads the variable it combines into, which is the combine.
+    // A reduction or integer scatter's own statement reads the target it combines into. Keep the
+    // target's indices: a scatter key can itself read an element another iteration writes.
     const combined =
-      (st.s === 'assign' || st.s === 'assignOp') && reducedNames.has(rootName(st.target) ?? '')
+      (st.s === 'assign' || st.s === 'assignOp') && combinedNames.has(rootName(st.target) ?? '')
         ? combineOf(st).combine
         : undefined;
     const readsHere =
-      combined !== undefined ? readsOf({ s: 'call', expr: combined.with } as Stmt) : readsOf(st);
+      combined !== undefined && (st.s === 'assign' || st.s === 'assignOp')
+        ? readsOf({ ...st, expr: combined.with })
+        : readsOf(st);
     // `a[k] op= e` reads the element it writes, which `readsOf` leaves to its combine.
     if (st.s === 'assignOp') {
       const written = rootName(st.target);

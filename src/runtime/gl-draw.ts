@@ -18,6 +18,7 @@ export { pinOverrides, glslOverrideNames } from '../core/gl-overrides.js';
 // read reads what was submitted before it, as on WebGPU.
 
 import { byteSize, describe, Misfit, pack, type Layout } from '../core/host-entry.js';
+import { glUniformBytes } from '../core/gl-uniform-bytes.js';
 import { compile, gpuDone } from '../core/gl-compute.js';
 import {
   layoutFromPack,
@@ -831,6 +832,8 @@ interface Slot {
   /** The sampler binding a texture is read with, or null for none. */
   readonly sampler?: string | null;
   readonly layout?: Layout;
+  /** Allocation minimum of the linked uniform block; the logical layout stays unchanged. */
+  readonly minimum?: number;
 }
 
 /** The program of a load on WebGL2: its manifest's vertex and fragment programs. */
@@ -899,6 +902,17 @@ export class GlRenderPrograms {
     // Before `compile`: a refused state leaves no GL program behind.
     if (plan.depth !== undefined)
       refuseBias(prefix, plan.depth, this.d.polygonOffsetClamp !== null);
+    // One combined texture uniform has one sampler state across both stages. A null
+    // stage entry is load-only and imposes no state; it must not erase the other stage's.
+    const samplers: Record<string, string | null> = { ...v.samplers };
+    for (const [texture, sampler] of Object.entries(f?.samplers ?? {})) {
+      const previous = samplers[texture];
+      if (previous != null && sampler !== null && previous !== sampler)
+        throw new TypeError(
+          `${prefix}: it samples "${texture}" with "${previous}" and "${sampler}", and GLSL ES 3.00 fuses a texture with one sampler. Declare the texture twice, one binding per sampler.`,
+        );
+      samplers[texture] = previous ?? sampler;
+    }
     const pin = (src: string): string =>
       plan.constants === undefined ? src : pinOverrides(src, plan.constants, glslOverrideNames(m));
     const vertex = toGlClip(pin((v as PackGlVertex).vertex));
@@ -912,29 +926,45 @@ export class GlRenderPrograms {
     );
     return {
       program,
-      slots: this.#slots(program, v as PackGlVertex, f),
+      slots: this.#slots(program, v as PackGlVertex, f, samplers),
       state: this.#state(plan, vs, fs),
     };
   }
 
   /** Each binding the two programs read, at its block binding point or texture unit, set on
    *  `program` once: the units are the same for every pipeline that links the same programs. */
-  #slots(program: WebGLProgram, v: PackGlVertex, f: PackGlDraw | undefined): Slot[] {
+  #slots(
+    program: WebGLProgram,
+    v: PackGlVertex,
+    f: PackGlDraw | undefined,
+    samplers: Readonly<Record<string, string | null>>,
+  ): Slot[] {
     const gl = this.d.gl;
     const blocks = { ...v.blocks, ...f?.blocks };
-    const samplers = { ...v.samplers, ...f?.samplers };
     const data = [...new Set([...(v.data ?? []), ...(f?.data ?? [])])];
     const slots: Slot[] = [];
     gl.useProgram(program);
     Object.keys(blocks)
       .sort()
-      .forEach((name, i) => {
+      .forEach((name) => {
         const b = this.#bindings.get(name)!;
-        gl.uniformBlockBinding(program, gl.getUniformBlockIndex(program, blocks[name]!), i);
+        const index = gl.getUniformBlockIndex(program, blocks[name]!);
+        // Inactive after driver optimization: no size query and no binding point needed.
+        if (index === gl.INVALID_INDEX) return;
+        const minimum: unknown = gl.getActiveUniformBlockParameter(
+          program,
+          index,
+          gl.UNIFORM_BLOCK_DATA_SIZE,
+        );
+        if (typeof minimum !== 'number' || !Number.isSafeInteger(minimum) || minimum < 1)
+          throw new Error(`WebGL2 reports an invalid uniform block size for "${name}".`);
+        const unit = slots.length;
+        gl.uniformBlockBinding(program, index, unit);
         slots.push({
           binding: b,
           kind: 'block',
-          unit: i,
+          unit,
+          minimum,
           ...(b.layout !== undefined ? { layout: layoutFromPack(b.layout) } : {}),
         });
       });
@@ -1208,7 +1238,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
           if (s.kind === 'block') {
             const buf = gl.createBuffer()!;
             made.push(buf);
-            uploadBlock(gl, s.unit, buf, bytes);
+            uploadBlock(gl, s.unit, buf, bytes, s.minimum!);
           } else
             bindTexture(
               gl,
@@ -1227,7 +1257,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
         if (s.kind === 'block') {
           const buf = gl.createBuffer()!;
           made.push(buf);
-          uploadBlock(gl, s.unit, buf, bytes);
+          uploadBlock(gl, s.unit, buf, bytes, s.minimum!);
         } else {
           const t = dataTexture(gl, b, bytes);
           made.push(t);
@@ -1384,11 +1414,15 @@ function packed(layout: Layout, v: unknown, name: string, where: string): Uint8A
   }
 }
 
-/** A uniform block's bytes at binding point `unit`, padded to std140's 16. */
-function uploadBlock(gl: GL, unit: number, buf: WebGLBuffer, bytes: Uint8Array): void {
-  const size = Math.max(16, Math.ceil(bytes.byteLength / 16) * 16);
-  const data = new Uint8Array(size);
-  data.set(bytes);
+/** A uniform block's unchanged bytes, padded for both the driver and the 16-byte policy. */
+function uploadBlock(
+  gl: GL,
+  unit: number,
+  buf: WebGLBuffer,
+  bytes: Uint8Array,
+  minimum: number,
+): void {
+  const data = glUniformBytes(bytes, minimum);
   gl.bindBuffer(gl.UNIFORM_BUFFER, buf);
   gl.bufferData(gl.UNIFORM_BUFFER, data, gl.STREAM_DRAW);
   gl.bindBuffer(gl.UNIFORM_BUFFER, null);

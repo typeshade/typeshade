@@ -1,6 +1,7 @@
 // ═══ Which sampler each texture is sampled with (Rule 11.10, change 0028) ═══
 //
-// One fact, two consumers. The WebGL2 tier fuses each texture with the one sampler its calls
+// One pairing fact serves reflection, GLSL emission and runtime metadata. The WebGL2 tier
+// fuses each texture with the one sampler its calls
 // pass it (`glDrawOf` in `manifest.ts`), and a WebGPU host lays a texture out `'float'` or
 // `'unfilterable-float'` by whether any call gives it a sampler (`reflect()`'s `sampleType`).
 // WebGPU refuses a texture laid out `'unfilterable-float'` that a call pairs with a `filtering`
@@ -21,7 +22,8 @@
 //   - a `let` of a texture or a sampler is the handle it names.
 //
 // A comparison sampler pairs with a depth texture alone, which is laid out `'depth'` whatever
-// meets it, so it is left out. Read-only over the IR, and no backend: `reflect()` is target-neutral.
+// meets it, so reflection leaves it out. GLSL emission and runtime metadata ask for comparison
+// pairs too. Read-only over the IR, and no backend: `reflect()` is target-neutral.
 //
 // Implements: Rule 11.10 (docs/language-design.md; traced in reqs/).
 
@@ -55,7 +57,7 @@ const isHandle = (t: ShaderType): boolean => isTexture(t) || isSampler(t);
  * @param bindings - the names of the module's bindings, which a handle's name is one of unless
  *   it is a local or a parameter.
  * @param comparison - pair a depth texture with the comparison sampler it is compared through
- *   as well, which the WebGL2 compute tier fuses into one shadow sampler (change 0054); off,
+ *   as well, which WebGL2 render and compute programs fuse into one shadow sampler; off,
  *   only a plain `sampler` pairs.
  */
 export function texturePairs(

@@ -160,6 +160,7 @@ export function drawReference(size = 32) {
   const tiled = [];
   const ramped = [];
   const deep = [];
+  const unbound = [];
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
       const u = (x + 0.5) * scale;
@@ -178,8 +179,9 @@ export function drawReference(size = 32) {
       ramped.push((x / size) * 255, (y / size) * 255, 0, 255);
       const band = (12345.678 + (x + 0.5) * 1e-6) * 1000;
       deep.push((band - Math.floor(band)) * 255, ((y + 0.5) / 32) * 255, 0, 255);
+      unbound.push(((x + 0.5) / 32) * 255, ((y + 0.5) / 32) * 255, 0.25 * 255, 255);
     }
-  return { plasma, tiled, ramped, deep };
+  return { plasma, tiled, ramped, deep, unbound, guarded: [...deep] };
 }
 
 /** The kernel function over doubles, in f64 as JavaScript computes it: the emulation and the
@@ -191,6 +193,22 @@ function doubleLoops() {
 
 /** What `loops()` in `src/gpu.ts` should read back, in f32 as the GPU computes it. */
 export function loopReference() {
+  const scatter = {};
+  const scatterKeys = Array.from({ length: 1031 }, (_, i) => (Math.floor(i / 4) * 7) % 31);
+  const unsigned = scatterKeys.map((_, i) => (Math.imul(i + 1, 2654435761) + 19) >>> 0);
+  for (const [name, values, op, initial] of [
+    ['unsignedMin', unsigned, Math.min, 0xffffff00],
+    ['unsignedMax', unsigned, Math.max, 17],
+    ['signedMin', unsigned.map((x) => x | 0), Math.min, 2147483600],
+    ['signedMax', unsigned.map((x) => x | 0), Math.max, -2147483600],
+  ]) {
+    const best = new Array(32).fill(initial);
+    for (let i = 0; i < scatterKeys.length; i++) {
+      const key = scatterKeys[i];
+      best[key] = op(best[key], values[i]);
+    }
+    for (const mode of ['off', 'auto']) scatter[`scatter_${name}_${mode}`] = best;
+  }
   const f = Math.fround;
   const k = [1, 0.5, 2, 0.25];
   const render = [];
@@ -243,6 +261,8 @@ export function loopReference() {
   for (const x of xs) histogram[Math.min(Math.trunc(Math.max(f(f(x - lo) * scale), 0)), 63)]++;
   return {
     render,
+    ...scatter,
+    scatterVariantChecks: [8],
     layout: Array.from({ length: 1024 }, (_, i) => (i % 16) / 8 + 3),
     layoutMapped: Array.from({ length: 1024 }, (_, i) => (i % 16) / 8 + 3),
     layoutResident: Array.from({ length: 1024 }, (_, i) => (i % 16) / 8 + 3),
@@ -331,5 +351,21 @@ function pushReference() {
     // scale by 2, keep above 19.8, mark with +1: the fused plan and the calls apart alike.
     pushFused: fused,
     pushApart: fused,
+  };
+}
+
+// Independent plain JavaScript for the direct/pure-alias/chain host calls (change 0126).
+export function aliasReference() {
+  const frame = (blue) => {
+    const out = [];
+    for (let y = 0; y < 32; y++)
+      for (let x = 0; x < 32; x++)
+        out.push(...[(x + 0.5) / 32, (y + 0.5) / 32, blue, 1].map((v) => v * 255));
+    return out;
+  };
+  return {
+    compute: Array.from({ length: 32 }, (_, i) => i * 0.375 + 1),
+    render: frame(0.375),
+    empty: frame(0.25),
   };
 }

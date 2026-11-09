@@ -752,7 +752,7 @@ describe("the Math object the ambient library declares is the compiler's table (
     expect(mathNameDrift(withoutCall)).toEqual([
       'Math.sin is a call the compiler resolves and the library does not declare',
     ]);
-    const withoutValue = SHADE_DTS.replace(/^ {2}readonly PI: number\n/m, '');
+    const withoutValue = SHADE_DTS.replace(/^ {2}readonly PI: f32\n/m, '');
     expect(withoutValue).not.toBe(SHADE_DTS);
     expect(mathNameDrift(withoutValue)).toEqual([
       'Math.PI is a value the compiler resolves and the library does not declare',
@@ -806,6 +806,50 @@ describe("the Math object the ambient library declares is the compiler's table (
       expect([typescriptRefusal(source), compilerRefusal(source)]).toEqual([null, null]);
     });
   }
+
+  it.each(Object.entries(MATH_CONST_ALIAS))(
+    "Math.%s has the compiler's f32 type and retains literal precision in f64 positions",
+    (name, value) => {
+      const source = `"use typeshade";
+const { ${name}: pattern } = Math;
+const member = Math.${name};
+const DIRECT: f64 = 2 * Math.${name};
+const PATTERN: f64 = pattern;
+const MEMBER = f64(member);
+const CAST = f64(Math.${name});
+const NARROW = f64(f32(Math.${name}));
+export function read(): f64 { return Math.${name}; }
+`;
+      const result = compile(source);
+      expect(result.diagnostics).toEqual([]);
+      const service = createTypeshadeLanguageService();
+      service.openDocument('constant.shade.ts', source);
+      expect(service.getDiagnostics('constant.shade.ts')).toEqual([]);
+      const offset = source.indexOf(`Math.${name}`);
+      expect(
+        service.getHover('constant.shade.ts', service.positionAt('constant.shade.ts', offset + 5))
+          ?.contents,
+      ).toContain(`MathObject.${name}: f32`);
+      for (const alias of ['pattern', 'member']) {
+        const at = source.lastIndexOf(alias);
+        expect(
+          service.getHover('constant.shade.ts', service.positionAt('constant.shade.ts', at))
+            ?.contents,
+        ).toContain(`${alias}: f32`);
+      }
+      expect(compileTsSource(source).expressions.find((e) => e.start === offset)?.type).toEqual({
+        kind: 'scalar',
+        scalar: 'f32',
+      });
+      const constants = new Map(result.module.consts.map((c) => [c.name, c.cpuValue]));
+      expect(constants.get('DIRECT')).toBe(2 * value);
+      for (const id of ['PATTERN', 'CAST']) expect(constants.get(id)).toBe(value);
+      // A member copied into a module constant is an earlier f32 value, whereas the
+      // destructured Math binding remains a literal alias (changes 0113 and 0123).
+      for (const id of ['MEMBER', 'NARROW']) expect(constants.get(id)).toBe(Math.fround(value));
+      expect(result.eval('read')).toBe(value);
+    },
+  );
 });
 
 describe('a Math member the compiler expands, and atan(y, x), is written one way in both halves (#186)', () => {

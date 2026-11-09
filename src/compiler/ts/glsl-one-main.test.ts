@@ -66,9 +66,24 @@ describe('two entries of one stage, with none named (#213)', () => {
       expect(service.getDiagnostics('a.ts')).toEqual([]);
       const glsl = service.getCompiledOutput('a.ts', `glsl-${stage}`)!;
       expect(glsl.text).toBe('');
-      expect(glsl.diagnostics.map((d) => `${String(d.code)} ${d.message}`)).toEqual([
-        `TS8015 Backend emit failed for glsl-${stage}: ${refusal(stage, names)}`,
-      ]);
+      expect(glsl.diagnostics).toMatchObject([{ code: 'TS8015', severity: 'warning' }]);
+      expect(
+        glsl.diagnostics.map(({ code, message, severity, span }) => ({
+          code,
+          message,
+          category: severity,
+          start: span.start,
+          length: span.length,
+        })),
+      ).toEqual(
+        compile(src).diagnostics.map(({ code, message, category, start, length }) => ({
+          code,
+          message,
+          category,
+          start,
+          length,
+        })),
+      );
       const wgsl = service.getCompiledOutput('a.ts', 'wgsl')!;
       expect(wgsl.diagnostics).toEqual([]);
       for (const name of names.split(', ')) expect(wgsl.text).toContain(`fn ${name}(`);

@@ -304,10 +304,11 @@ const callOf = (
  *  (`planSpellings`). A module variable is a `varref`, and the IR holds a name once in a function:
  *  the oracle, the code generator and the debugger look a `param` and a `varref` up by name in one
  *  environment, and the optimizer's inliner substitutes by name. Beside a parameter of its name a
- *  read of the variable reads the parameter, whatever the writers print, so that read stays
- *  refused, as it was before the lookup found the module value. */
+ *  read of the variable would read the parameter, whatever the writers print. Source parameters
+ *  are separated from module variables before lowering (#1009); retain this guard for a
+ *  synthesized parameter that would otherwise reintroduce that ambiguous IR slot. */
 function hiddenByParameter(b: Binding, scope: LoweringScope): boolean {
-  const holder = scope.resolveIr(b.name);
+  const holder = scope.resolveIr(irNameOf(b));
   if (holder === undefined || holder === b || holder.kind !== 'param') return false;
   return b.kind === 'modvar';
 }
@@ -571,7 +572,7 @@ export function lowerSuperAccessorRead(
       return undefined;
     }
     return b.kind === 'modvar'
-      ? { op: 'varref', type: b.type, name: b.name }
+      ? { op: 'varref', type: b.type, name: irNameOf(b) }
       : { op: 'constref', type: b.type, name: b.name };
   }
   const statik = inStaticMember(scope);

@@ -104,8 +104,9 @@ you never write costs nothing in your bundle:
   frame's locals, and resolves breakpoints by line. It also carries the launch configuration
   that describes such a run as data, keyed by what the entry declares rather than by argument
   position, with a baked JSON Schema for a `launch.json` and a formatter that renders a value
-  in the shader type its author wrote. It is what an editor's debug adapter and the
-  Playground's step panel are both built on. See `docs/debugging.md`.
+  in the shader type its author wrote. The optional positive-integer `maxSteps` bounds the
+  session's statement events; omission leaves the run unbounded. It is what an editor's debug
+  adapter and the Playground's step panel are both built on. See `docs/debugging.md`.
 - `typeshade/core/ir` is the IR builder, for an engine or a tool that assembles a module in
   code instead of compiling a source. It has no stability promise before 1.0, and this guide
   does not use it: [`docs/ir-builder.md`](docs/ir-builder.md) does.
@@ -571,6 +572,13 @@ constructor over those, arithmetic over those, or a math builtin over those
 (`const K: f32 = sin(1.)`). A constant read in a function is a name the editor resolves, so
 a renamed or misspelt constant is an error at every use site.
 
+A scalar `f64` constant is also allowed: `const TAU: f64 = 2 * Math.PI` folds to a double for
+the CPU and a literal pair for the GPU. Its permitted builtin calls fold at compile time too.
+Written `f32` conversions and `f32` operations retain their rounding boundaries; an earlier
+`f32` constant supplies its recorded compile-time value rounded to `f32`, which need not be
+the value of its retained GPU builtin expression. Section 12 of
+`docs/use-typeshade-surface.md` gives the precision rules and the finite-pair range limit.
+
 ## Functions and entry points
 
 After this page you can declare a helper, call it from another function, write an entry
@@ -748,9 +756,10 @@ requires.
 
 A file imports what another shader file exports, as any TypeScript module does. The file
 you compile and the shader files it imports, directly or through another, are one program,
-and the program becomes one module. What your file reaches in an imported file comes with
-it, its helpers, structs, constants and bindings; the imported file's own entry points do
-not.
+and the program becomes one module. An ordinary import brings the declarations your file
+reaches, including helpers, structs, constants and bindings; unrelated entries stay out.
+A pure root alias instead preserves its terminal target (see
+[A shader module that imports another](#a-shader-module-that-imports-another)).
 
 ```ts
 // noise.shade.ts
@@ -1184,7 +1193,14 @@ error naming the entry. Read an explicit level with `textureSampleLevel(tex, smp
 which is legal in every stage. The derivative builtins `fwidth`, `dpdx` and `dpdy` are
 fragment-only for the same reason and have no vertex or compute form, so precompute the
 quantity there and pass it in. On GLSL ES 3.00 the texture and the sampler fuse into one
-`sampler2D`, and the sampler argument disappears from the call.
+`sampler2D`, and the sampler argument disappears from the call. One texture binding can
+therefore use one sampler across the selected stages. GLSL emission refuses different
+samplers for that binding; WGSL remains available. Declare the texture twice, once per
+sampler, and bind the same host texture to both declarations.
+
+The WebGL2 runtime checks the same condition when it combines a vertex and fragment
+entry. A stage that only loads a texture imposes no sampler state. It keeps the sampler
+used by the other stage. Depth comparisons keep their declared comparison sampler.
 
 ### Array and integer textures
 
@@ -1707,7 +1723,10 @@ with the same validation as `program.compute`. A plan keeps its existing submiss
 the selected workgroup shape. CPU calls use generated closures with the same constants;
 WebGL2 supports the declared default workgroup shape and array lengths. An imported fragment
 entry called as `entry(canvas, bindings)` draws a full-screen fragment entry into a canvas
-(`docs/use-typeshade-surface.md` §67):
+(`docs/use-typeshade-surface.md` §67). If it reaches no host-supplied binding, including through
+its helpers, call `entry(canvas)`; explicit `undefined` or `{}` has the same meaning. Unused
+declarations and runtime-owned resources do not require a bindings argument. Compute calls
+keep their leading bindings object:
 
 ```ts
 // app.ts, ordinary TypeScript: terrain.shade.ts exports `height(p: vec2, k: vec4): f32`
@@ -1740,7 +1759,11 @@ what it returns is a fresh value. It is synchronous.
 What a host can call is an exported function that is not an entry point, not generic, takes no
 function, and reaches no binding and no GPU-only builtin. Everything else the module exports
 appears to the host as `never`, with the reason, so calling it is a type error where you wrote
-the call. Run `npx tshc init` in an existing Vite project to configure the plugin, host views and synchronization scripts (change 0085).
+the call. With the published or built package, run `npx tshc init` in an existing Vite project
+to configure the plugin, host views and synchronization scripts (change 0085).
+An installed GitHub source archive requires `bun node_modules/typeshade/src/cli/bin.ts init`.
+It has no generated `typeshade/shade` declaration, and its CLI and Vite plugin cannot run under Node.
+Initialization does not remove those limits; see [installation](./README.md#getting-started).
 The command preserves unrelated settings and JSONC comments and refuses conflicts before writing.
 Repeated initialization changes no file. Manual setup and `tshc sync` remain supported.
 Shader checks use the shared `tshc check` diagnostics; ordinary `tsc` accepts the entry forms (stage calls and attribute types), but not vector arithmetic, which TypeScript has no operator overloading for.
@@ -1869,10 +1892,34 @@ scratch arrays and the tiers: `docs/use-typeshade-surface.md` §71.
 
 A `"use typeshade"` file imports what another one exports, as any TypeScript module does:
 `import { fbm } from './noise.shade.ts'`. The file you compile and the shader files it imports,
-directly or through another, are one program, and the program becomes one module. What your file
-reaches in an imported file comes with it, its helpers, structs, constants and bindings, and the
-imported file's own entry points do not. Each file keeps its own scope, so two files can each have
+directly or through another, are one program, and the program becomes one module. An ordinary
+import brings the declarations your file reaches: helpers, structs, constants and bindings.
+Unrelated entry points stay out. Each file keeps its own scope, so two files can each have
 a private `hash`; the module emits the second one under a name of its own.
+
+A file kept as a pure alias contains only the shader directive and one value export-star.
+Here `k.shade.ts` is the alias; the first file supplies its target:
+
+```ts
+// new/k.shade.ts
+"use typeshade";
+declare const unused: uniform<f32>;
+declare const gain: uniform<f32>;
+function privateHelper(x: f32): f32 { return x * 2.; }
+export function scale(x: f32): f32 { return x * gain; }
+
+// k.shade.ts
+"use typeshade";
+export * from "./new/k.shade.ts";
+```
+
+Compiling that alias preserves its terminal target's declarations and binding slots, including
+unused bindings and private helpers. Further pure aliases form a chain. This exception starts
+only at the requested root; ordinary imports remain selective. Extra statements, named or
+type-only re-exports, multiple stars and import attributes do not form a pure alias.
+Private declarations stay private, and target errors retain their original file and span.
+The alias keeps its requested path and default fusion identity, so generated artifacts need
+not be byte-identical to the target's. See surface §68 for the complete contract (change 0126).
 
 `compile()` reads what a source imports through a `readDocument` you pass it, which returns a
 file's text by its path, or `undefined` when there is none. The Vite plugin, `tshc check`,
@@ -2560,7 +2607,9 @@ hardware practice; §39 of `docs/use-typeshade-surface.md` has the detail.
 
 ### Declaring an f64 value
 
-Write `f64` where you would write `f32`: in a uniform field, in a parameter, in a local. The
+Write `f64` where you would write `f32`: in a uniform field, in a parameter, in a local or in a
+scalar module constant. A module initializer folds before emit; its final double and both
+`f32` words must be finite. The [module constant rules](#module-constants) describe its precision boundaries. The
 operators, the comparisons and the builtins keep their spelling, so a body converted from f32
 usually changes only in its signature.
 

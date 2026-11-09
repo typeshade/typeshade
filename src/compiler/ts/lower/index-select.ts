@@ -35,6 +35,7 @@ import {
   sameKeys,
 } from '../key-types.js';
 import { foldConstValue } from '../loop-bound.js';
+import { foldIndexConst } from '../index-bound.js';
 
 export function lowerIndex(
   node: ts.ElementAccessExpression,
@@ -163,8 +164,8 @@ function lowerIndexOf(
   }
   if (refuseBareAtomic(elem, node, sourceFile, scope, diagnostics)) return undefined;
   const bound = indexBound(base.type);
-  if (bound !== undefined && idx.op === 'lit' && typeof idx.value === 'number') {
-    const i = idx.value;
+  const i = bound === undefined ? undefined : foldIndexConst(idx, scope);
+  if (bound !== undefined && i !== undefined) {
     if (!Number.isInteger(i) || i < 0 || i >= bound) {
       pushDiag(
         diagnostics,

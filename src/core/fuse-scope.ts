@@ -5,6 +5,8 @@
 // plan loads core/fuse-plan.ts after reserving its place (change 0085). This slot imports none
 // of the recorder or executor, so ordinary call modules need neither to check an active scope.
 
+import type { IncomingReads } from './host-failure.js';
+
 /** What the call layer asks of the scope that is open. */
 export interface FuseRecorder {
   /**
@@ -14,7 +16,13 @@ export interface FuseRecorder {
    *
    * @throws `TypeError` naming the call, for one that cannot be recorded.
    */
-  kernel(cpu: unknown, k: unknown, argc: number, args: readonly unknown[]): Promise<unknown>;
+  kernel(
+    cpu: unknown,
+    k: unknown,
+    argc: number,
+    args: readonly unknown[],
+    reads?: IncomingReads,
+  ): Promise<unknown>;
   /**
    * Take an entry call into the scope instead of running it (Rule 8.24, change 0069): it forms a
    * group of its own in the plan. `cpu` is the generated module's CPU code, `e` the entry, and
@@ -32,6 +40,7 @@ export interface FuseRecorder {
     bindings: unknown,
     workgroups: unknown,
     host: unknown,
+    reads?: IncomingReads,
   ): Promise<void>;
   /** Refuse `call`, which `what` describes ("a draw"), because a scope records kernel calls and
    *  entry calls only. Always throws a `TypeError`. */

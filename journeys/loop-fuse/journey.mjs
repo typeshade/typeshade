@@ -62,6 +62,7 @@ function reduction(n, folds) {
     webgpu: {
       groups: [['add', 'mul', 'total']],
       dispatches: 1 + folds,
+      groupDispatches: [1 + folds],
       submissions: 1,
       buffers: 3,
     },
@@ -69,6 +70,7 @@ function reduction(n, folds) {
     // and its group says why in the words the call layer gives WebGL2 (change 0118).
     webgl2: {
       dispatches: 2,
+      groupDispatches: [1, 1, 0],
       why: [
         undefined,
         'WebGL2 runs the calls apart',
@@ -97,9 +99,15 @@ export default {
       // submission of its own that the device sees and the report does not count. `t` and `u` are
       // locals of the entry: the buffers of an array's size are the host's four residents (`a`,
       // `b`, `c` and `out`) and the staging buffer of its one `read()`, and none is a scratch array's.
-      webgpu: { groups: [['add', 'mul', 'relu']], dispatches: 1, submissions: 1, buffers: 5 },
+      webgpu: {
+        groups: [['add', 'mul', 'relu']],
+        dispatches: 1,
+        groupDispatches: [1],
+        submissions: 1,
+        buffers: 5,
+      },
       // On WebGL2 each loop is a draw.
-      webgl2: { dispatches: 3 },
+      webgl2: { dispatches: 3, groupDispatches: [1, 1, 1] },
       reads: 1,
     },
     {
@@ -128,10 +136,11 @@ export default {
           `mul and pairsum run as two dispatches because pairsum reads \`t[i ^ 1]\` (line ${line})`,
         ],
         dispatches: 2,
+        groupDispatches: [1, 1],
         submissions: 1,
         buffers: 6,
       },
-      webgl2: { dispatches: 4 },
+      webgl2: { dispatches: 4, groupDispatches: [1, 1, 1, 1] },
       reads: 1,
     },
     reduction(N, 1),

@@ -128,13 +128,12 @@ export function f(a: f32, b: f32): f32 {
   });
 
   it("carries the backends' verdict, which the language service never computes (Rule 12.3)", () => {
-    // WGSL takes a loose scalar uniform; GLSL ES 3.00 has no std140 block for one. A render
-    // module compiles, and the GLSL shortfall is a warning.
+    // A bare array remains a GLSL shortfall. Bare scalar uniforms now have a block (0127).
     const render = `"use typeshade";
-declare const scale: uniform<f32>;
+declare const scale: uniform<array<vec4, 2>>;
 
 export const fs = fragment(function fs(): vec4 {
-  return vec4(scale, 0., 0., 1.);
+  return scale[0];
 });
 `;
     const report = checkDocuments([doc('render.shade.ts', render)]);

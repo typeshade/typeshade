@@ -41,6 +41,8 @@ export interface KernelGlLoop {
     readonly glsl?: string;
     readonly scalar: 'f32' | 'i32' | 'u32';
     readonly n: number;
+    /** An array parameter's checked element count, supplied under its authored name. */
+    readonly lengthOf?: string;
   }[];
 }
 
@@ -159,7 +161,7 @@ export function onWebgl2(
   for (const u of loop.uniforms) {
     const at = gl.getUniformLocation(program, u.glsl ?? u.name);
     if (at === null) continue;
-    const v = u.name === '_start' ? start : uniforms.get(u.name);
+    const v = u.name === '_start' ? start : uniforms.get(u.lengthOf ?? u.name);
     const xs = (u.n === 1 ? [v] : (v as readonly number[])) as number[];
     if (u.scalar === 'f32') gl[`uniform${u.n}fv` as 'uniform1fv'](at, xs);
     else if (u.scalar === 'i32') gl[`uniform${u.n}iv` as 'uniform1iv'](at, xs);

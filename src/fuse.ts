@@ -46,6 +46,10 @@ fuseSlot.open = (body, owner) => runScope(body as (scope: FuseScope) => void, ow
  * run apart. WebGL2 runs the calls apart, and the CPU tier never fuses. A call outside a scope is
  * not changed.
  *
+ * Failed incoming Resident contents reject the whole plan before execution (change 0129).
+ * An earlier approved write-only call can recover a handle for a later call in the same plan.
+ * Every recorded promise and planned output retains a rejection; independent calls outside continue.
+ *
  * `scope.scratch(length)` makes an intermediate that the host never reads. Where the plan fuses
  * every call that takes it, and each reaches it at exactly the loop's counter and never by its
  * length, the fused entry holds it as a local, and no device buffer and no host array is made for

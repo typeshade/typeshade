@@ -160,6 +160,9 @@ import { entryBundle } from './entry-calls.js';
 import { ON_WEBGL2, PROGRAM_CASES } from './compute-case.js';
 import type { EntryReport } from './entry-calls-page.js';
 import { colours, differences, expectedFrame, FRAMES, type FrameName } from './render-case.js';
+import { samplerPairFailures } from './sampler-pair-cases.js';
+import { kernelLengthFailures } from './kernel-length-cases.js';
+import { bareUniformFailures } from './bare-uniform-cases.js';
 import {
   compile,
   compileModuleJs,
@@ -2508,6 +2511,24 @@ function entryVerdicts(r: EntryReport, b: { compute: number; fragment: number })
   }
   failures += renderVerdicts(r.render, 'webgpu');
   failures += renderVerdicts(r.glRender, 'webgl2');
+  const samplerFailures = samplerPairFailures(r.samplers);
+  const lengthFailures = kernelLengthFailures(r.kernelLengths);
+  const uniformFailures = bareUniformFailures(r.bareUniforms);
+  for (const failure of uniformFailures) console.error(`FAIL bare uniforms: ${failure}`);
+  failures += uniformFailures.length;
+  console.log(
+    `bare uniforms: ${r.bareUniforms.rows.length} host/manifest calls, ${r.bareUniforms.blocks.length} native block probes, independent pixels and changed-value/guard instruments · failures: ${uniformFailures.length}`,
+  );
+  for (const failure of lengthFailures) console.error(`FAIL kernel lengths: ${failure}`);
+  failures += lengthFailures.length;
+  console.log(
+    `kernel lengths: ${String(r.kernelLengths.rows.length)} calls on WebGPU/WebGL2/CPU, independent element counts and changed-length instruments · failures: ${String(lengthFailures.length)}`,
+  );
+  for (const failure of samplerFailures) console.error(`FAIL sampler pairs: ${failure}`);
+  failures += samplerFailures.length;
+  console.log(
+    `sampler pairs: ${String(r.samplers.rows.length)} sources on WebGPU/WebGL2, independent pixels and wrong-sampler instruments · failures: ${String(samplerFailures.length)}`,
+  );
   // The canvas: the same picture as the `passes` frame, turned over onto the screen and back.
   {
     const got = r.glCanvas;

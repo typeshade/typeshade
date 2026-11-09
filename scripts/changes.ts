@@ -15,7 +15,8 @@
 //   visible   changes what a repository downstream shows or checks: a numbered section of
 //             docs/use-typeshade-surface.md, a diagnostic code (added, removed or renumbered in
 //             src/compiler/ts/codes.ts or src/core/diagnostics/codes.ts), or the set of
-//             `examples/*.shade.ts` files the site's gallery and the Playground list one by one
+//             `examples/*.shade.ts` and `examples/hosts/<id>/<id>.shade.ts` files
+//             the site's gallery and the Playground list one by one
 //
 // Anything else (an internal refactor, a test, a fix that changes none of the above) needs none.
 //
@@ -248,10 +249,32 @@ export function touchedBy(diff: Diff): Touched {
     ...sectionsAt(atBase(diff, SURFACE_DOC), diff.removedAt.get(SURFACE_DOC)),
   ]);
 
-  const apiBefore = surface(atBase(diff, API));
-  const apiAfter = surface(atHead(diff, API));
-  const exportsRemoved = new Set([...apiBefore.names].filter((n) => !apiAfter.names.has(n)));
-  const exports = new Set([...apiAfter.names].filter((n) => !apiBefore.names.has(n)));
+  const beforeApi = atBase(diff, API);
+  const afterApi = atHead(diff, API);
+  const apiBefore = surface(beforeApi);
+  const apiAfter = surface(afterApi);
+  const bySubpath = (text: string): Map<string, Set<string>> => {
+    const paths = new Map<string, Set<string>>();
+    for (const section of text.split(/^## /m)) {
+      const heading = /^`([^`]+)`/.exec(section);
+      if (heading) paths.set(heading[1]!, surface(section).names);
+    }
+    return paths;
+  };
+  const beforePaths = bySubpath(beforeApi);
+  const afterPaths = bySubpath(afterApi);
+  // Compare import locations first, then use names for the existing proposal schema.
+  const missingExports = (
+    before: Map<string, Set<string>>,
+    after: Map<string, Set<string>>,
+  ): Set<string> =>
+    new Set(
+      [...before].flatMap(([path, names]) =>
+        [...names].filter((name) => !after.get(path)?.has(name)),
+      ),
+    );
+  const exportsRemoved = missingExports(beforePaths, afterPaths);
+  const exports = missingExports(afterPaths, beforePaths);
   for (const { name } of reshapedExports(apiBefore, apiAfter)) exports.add(name);
 
   const codesBefore = codeTable(atBase(diff, TS_CODES), atBase(diff, SD_CODES));
@@ -260,12 +283,20 @@ export function touchedBy(diff: Diff): Touched {
   for (const [name, code] of codesBefore) if (codesAfter.get(name) !== code) codes.add(code);
   for (const [name, code] of codesAfter) if (codesBefore.get(name) !== code) codes.add(code);
 
-  const shadeExample = /^examples\/([\w-]+)\.shade\.ts$/;
+  // Match the corpus: a top-level shader, or the host directory's namesake shader.
+  const exampleId = (file: string): string | undefined =>
+    /^examples\/([\w-]+)\.shade\.ts$/.exec(file)?.[1] ??
+    /^examples\/hosts\/([\w-]+)\/\1\.shade\.ts$/.exec(file)?.[1];
   const examples = new Set<string>();
-  for (const f of [...diff.added, ...diff.deleted, ...diff.renamed.flat()]) {
-    const m = shadeExample.exec(f);
-    if (m && !diff.renamed.some(([a, b]) => a === f && shadeExample.exec(b)?.[1] === m[1]))
-      examples.add(m[1]!);
+  const addExample = (file: string): void => {
+    const id = exampleId(file);
+    if (id !== undefined) examples.add(id);
+  };
+  for (const file of [...diff.added, ...diff.deleted]) addExample(file);
+  for (const [oldPath, newPath] of diff.renamed) {
+    if (exampleId(oldPath) === exampleId(newPath)) continue;
+    addExample(oldPath);
+    addExample(newPath);
   }
 
   return { rules, surface: surfaceSections, exports, exportsRemoved, codes, examples };

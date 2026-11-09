@@ -26,8 +26,10 @@ import {
   type Layout,
 } from './host-entry.js';
 import type { CheckedEntry } from './host-compute.js';
+import { checkIncoming } from './host-failure.js';
 import {
   checkCall,
+  kernelInputs,
   grid,
   reduceOnGpu,
   runChecked,
@@ -397,7 +399,7 @@ export async function runPlan(
   owner: CallOwner,
 ): Promise<FuseReport> {
   let plan: SettledPlan;
-  const counts: GpuCounts = { dispatches: 0, submissions: 0 };
+  const counts: GpuCounts = { dispatches: 0, submissions: 0, groupDispatches: [] };
   const tiers = new Set<Tier>();
   let batch: DispatchBatch | undefined;
   const gpuTimes = new Map<number, number | null>();
@@ -427,6 +429,18 @@ export async function runPlan(
         ? checkCall(c.cpu, c.k, c.argc, c.args)
         : c.host.checkEntryCall(c.e, c.argc, c.bindings, c.workgroups),
     );
+    // Validate every argument before admitting contents. Earlier approved writers supply later
+    // readers virtually; real errors remain until the entire plan succeeds (0129).
+    const supplied = new Set<ResidentArrayState>();
+    calls.forEach((c, i) => {
+      checkIncoming(
+        c.kind === 'kernel'
+          ? kernelInputs(c.k, checked[i] as CheckedCall, c.incoming)
+          : c.host.entryInputs(c.e, checked[i] as CheckedEntry, c.incoming),
+        supplied,
+      );
+      for (const s of writtenBy(c)) supplied.add(s);
+    });
     const settled = await settle(calls, checked, owner);
     plan = regroup(planned, settled.groups);
     for (const [gi, g] of settled.groups.entries()) {
@@ -466,16 +480,25 @@ export async function runPlan(
     if (c.kind === 'kernel') c.settle.resolve(results[i]);
     else c.settle.resolve();
   });
+  const webgpuScratch = { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 };
+  for (const s of scratch) {
+    webgpuScratch.allocations += s.webgpuScratch.allocations;
+    webgpuScratch.allocatedBytes += s.webgpuScratch.allocatedBytes;
+    webgpuScratch.reuses += s.webgpuScratch.reuses;
+    webgpuScratch.reusedBytes += s.webgpuScratch.reusedBytes;
+  }
   return {
     tier: TIERS.find((t) => tiers.has(t)) ?? 'cpu',
     dispatches: counts.dispatches,
     submissions: counts.submissions,
+    webgpuScratch,
     groups: plan.groups.map((g, gi) => {
       const ns = gpuTimes.get(gi);
       return {
         calls: g.calls.map((i) => plan.calls[i]!.name),
         fused: g.fused,
         tier: g.tier,
+        dispatches: counts.groupDispatches![gi] ?? 0,
         ...(g.why !== undefined ? { why: g.why } : {}),
         ...(g.workgroupShapes !== undefined ? { workgroupShapes: g.workgroupShapes } : {}),
         ...(typeof ns === 'number' ? { gpuTime: ns } : {}),

@@ -4,7 +4,8 @@ import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, i32T, structT } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import { authorTypeText, type LoweringScope } from '../context.js';
+import { authorTypeText, irNameOf, writtenText, type LoweringScope } from '../context.js';
+import { kernelStaticReadNames } from '../kernel-loops.js';
 import {
   MATH_MEMBER_NAMES,
   resolveMathConst,
@@ -220,9 +221,12 @@ function lowerPropertyAccessOf(
       if (!checkStaticFieldAccess(read.declaredOn, prop, at, sourceFile, scope, diagnostics)) {
         return undefined;
       }
-      return binding.kind === 'modvar'
-        ? { op: 'varref', type: binding.type, name: binding.name }
-        : { op: 'constref', type: binding.type, name: binding.name };
+      const ref: Expr =
+        binding.kind === 'modvar'
+          ? { op: 'varref', type: binding.type, name: irNameOf(binding) }
+          : { op: 'constref', type: binding.type, name: binding.name };
+      kernelStaticReadNames.set(ref, writtenText(node).replace(/\s+/g, ' ').trim());
+      return ref;
     }
     // A static accessor, `Vec.zero` for `static get zero()` (Rule 8.11).
     if (scope.structByName(owner) !== undefined) {

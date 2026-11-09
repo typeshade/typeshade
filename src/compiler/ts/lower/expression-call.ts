@@ -81,6 +81,7 @@ import { crossedClampBounds } from '../loop-bound.js';
 import { refuseConstCall } from './const-call.js';
 import { parseSwizzle } from '../swizzle.js';
 import { libraryNameSentence } from '../type-map.js';
+import { unknownNameAlreadyReported } from '../refused-names.js';
 import { isConsoleMethod } from '../../../core/console.js';
 
 /** What a `vecN<T>(…)` type argument may name, by the text the author wrote (#150). `f64` is
@@ -345,6 +346,13 @@ export function lowerCall(
         span: spanOf(sourceFile, node),
       };
     }
+    if (ts.isIdentifier(obj) && obj.text === 'Number' && declarationOf(obj) === undefined) {
+      const sentence = numberPredicateSentence(callee.name.text, `Number.${callee.name.text}`);
+      if (sentence !== undefined) {
+        pushDiag(diagnostics, sourceFile, obj, sentence, TS_CODES.UNKNOWN_NAME);
+        return undefined;
+      }
+    }
     if (ts.isIdentifier(obj) && obj.text === 'Math') {
       viaMath = true;
       const taken = takeMathMember(callee.name.text, callee.name);
@@ -470,14 +478,8 @@ export function lowerCall(
     if (local !== undefined) {
       const leading = captureArguments(local, name, node, sourceFile, scope, diagnostics);
       if (leading === undefined) return undefined;
-      return lowerUserCall(
-        node,
-        local,
-        sourceFile,
-        scope,
-        diagnostics,
-        leading.length > 0 ? { leading, shown: name } : {},
-      );
+      // A lifted function keeps its written diagnostic name even when it captures nothing.
+      return lowerUserCall(node, local, sourceFile, scope, diagnostics, { leading, shown: name });
     }
     if (name === 'array') return lowerArrayCtor(node, sourceFile, scope, diagnostics);
     // A function the file declares or imports wins over every builtin function of its name: a
@@ -496,14 +498,7 @@ export function lowerCall(
         // its own parameters, as this body holds it (Rule 8.17).
         const leading = captureArguments(decl, name, node, sourceFile, scope, diagnostics);
         if (leading === undefined) return undefined;
-        return lowerUserCall(
-          node,
-          decl,
-          sourceFile,
-          scope,
-          diagnostics,
-          leading.length > 0 ? { leading, shown: name } : {},
-        );
+        return lowerUserCall(node, decl, sourceFile, scope, diagnostics, { leading, shown: name });
       }
       // A generic function is compiled once per set of argument types the file calls it with
       // (roadmap 0.3 item T9, #92). The instance does not exist until a call asks for it, so the
@@ -599,14 +594,10 @@ export function lowerCall(
           // ahead of its own parameters, as this body holds it (Rule 8.17).
           const leading = captureArguments(decl, name, node, sourceFile, scope, diagnostics);
           if (leading === undefined) return undefined;
-          return lowerUserCall(
-            node,
-            decl,
-            sourceFile,
-            scope,
-            diagnostics,
-            leading.length > 0 ? { leading, shown: name } : {},
-          );
+          return lowerUserCall(node, decl, sourceFile, scope, diagnostics, {
+            leading,
+            shown: name,
+          });
         }
         // A generic function is compiled once per set of argument types the file calls it
         // with (roadmap 0.3 item T9, #92). The instance does not exist until a call asks for
@@ -629,7 +620,14 @@ export function lowerCall(
   if (ts.isIdentifier(callee) && ctor === undefined && intrinsicId === undefined) {
     // One refused where it is declared said why there (roadmap 0.3 item T10, #92).
     if (scope.declarationRefused(callee.text)) return undefined;
-    pushDiag(diagnostics, sourceFile, callee, unknownFunctionSentence(callee), TS_CODES.UNKNOWN_FN);
+    if (!unknownNameAlreadyReported(callee, callee.text, sourceFile, diagnostics))
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        callee,
+        unknownFunctionSentence(callee),
+        TS_CODES.UNKNOWN_FN,
+      );
     for (const arg of node.arguments) {
       if (isFunctionArgument(arg, scope) || ts.isStringLiteralLike(arg)) continue;
       lowerExpression(arg, sourceFile, scope, diagnostics);
@@ -2853,6 +2851,8 @@ export function unknownFunctionSentence(callee: ts.Identifier): string {
   if (callee.text === 'discard') {
     return `"discard" is a statement, not a function. Write it without the parentheses: "discard;".`;
   }
+  const predicate = numberPredicateSentence(callee.text);
+  if (predicate !== undefined) return predicate;
   const library =
     declarationOf(callee) === undefined ? libraryNameSentence(callee.text, 'callee') : undefined;
   if (library !== undefined) return library;
@@ -2861,6 +2861,20 @@ export function unknownFunctionSentence(callee: ts.Identifier): string {
     callee.text,
     calleeScopes(callee),
     'Declare it in this file, or import it from another shader module.',
+  );
+}
+
+/** ECMAScript number predicates have no shader spelling; test stored f32 bits explicitly. */
+function numberPredicateSentence(name: string, shown = name): string | undefined {
+  if (name !== 'isFinite' && name !== 'isNaN') return undefined;
+  const test =
+    name === 'isFinite'
+      ? '(bitcast<u32>(x) & u32(0x7f800000)) != u32(0x7f800000)'
+      : '(bitcast<u32>(x) & u32(0x7fffffff)) > u32(0x7f800000)';
+  return (
+    `"${shown}" is an ECMAScript number predicate, not a shader function. ` +
+    `For an f32 value x, test its bits with "${test}". ` +
+    `This inspects the stored value; it does not make GPU arithmetic preserve NaNs or infinities.`
   );
 }
 

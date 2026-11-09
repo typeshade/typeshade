@@ -3,6 +3,7 @@
 import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
+import { fileDeclaresType } from '../compiler/ts/type-map.js';
 import { isRemovedCall } from '../compiler/ts/removed-names.js';
 import { usesDecoratedForm } from '../compiler/ts/decorated-form.js';
 import {
@@ -1343,8 +1344,20 @@ interface SameMistake {
 const SAME_MISTAKE: readonly SameMistake[] = [
   {
     typescript: 2304,
-    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
-    reason: 'An unknown name: a value, a function or a type, `Date` among them.',
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002', 'TS8033']),
+    reason:
+      'An unknown name: a value, a function or a type, `Date` among them; the retired ' +
+      '`perInvocation` wrapper has its own module-variable remedy.',
+  },
+  {
+    typescript: 1155,
+    typeshade: new Set(['TS8033']),
+    reason: 'A workgroup variable declared const without an initializer must instead use let.',
+  },
+  {
+    typescript: 2314,
+    typeshade: new Set(['TS8033']),
+    reason: 'A bare workgroup type is missing the type argument the compiler names.',
   },
   {
     typescript: 2583,
@@ -1377,6 +1390,16 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     typescript: 2580,
     typeshade: new Set(['TS8022', 'TS8004', 'TS8002', 'TS8072']),
     reason: 'The same for a name of Node, where TypeScript offers its types to install.',
+  },
+  {
+    typescript: 2867,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'An unknown Bun name, where TypeScript offers host types a shader cannot use.',
+  },
+  {
+    typescript: 2868,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'The same Bun name when TypeScript also suggests changing tsconfig types.',
   },
   {
     typescript: 2552,
@@ -1477,14 +1500,24 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     reason: 'A `return` at the top level of the file.',
   },
   {
+    typescript: 1113,
+    typeshade: new Set(['TS8017']),
+    reason: 'A second default clause in one switch, reported at that clause.',
+  },
+  {
     typescript: 1105,
-    typeshade: new Set(['TS8014']),
-    reason: 'A `break` at the top level.',
+    typeshade: new Set(['TS8014', 'TS8009']),
+    reason: 'A `break` at the top level or outside a loop or switch.',
   },
   {
     typescript: 1104,
-    typeshade: new Set(['TS8014']),
-    reason: 'A `continue` at the top level.',
+    typeshade: new Set(['TS8014', 'TS8009']),
+    reason: 'A `continue` at the top level or outside a loop.',
+  },
+  {
+    typescript: 1107,
+    typeshade: new Set(['TS8009']),
+    reason: 'A `break` or `continue` with no target inside its function.',
   },
   {
     typescript: 1101,
@@ -1606,6 +1639,11 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     reason:
       'The wrong number of arguments. For a `Math` member the compiler expands it says so as ' +
       'TS8003 (`Math.hypot(x)`: `hypot expects 2 or 3 arguments.`).',
+  },
+  {
+    typescript: 2558,
+    typeshade: new Set(['TS8019']),
+    reason: 'The wrong number of type arguments on the same call or construction.',
   },
   {
     typescript: 2322,
@@ -1937,6 +1975,32 @@ function sameMistakeSpans(
   diagnostic: TypeshadeDiagnostic,
   error: TypeshadeDiagnostic,
 ): boolean {
+  const code = ruleCodeOf(diagnostic.code);
+  if (code === 2867 || code === 2868) {
+    if (diagnostic.uri !== error.uri) return false;
+    if (diagnostic.span.start === error.span.start && diagnostic.span.length === error.span.length)
+      return true;
+    // The compiler refuses an unknown constructor over the whole new expression. Only
+    // its root name repeats the host-typings error; a computed key or argument is separate.
+    const built = error.code === 'TS8022' ? newCovering(context, error.span) : undefined;
+    if (built === undefined) return false;
+    let target = unparenthesized(built.expression);
+    while (ts.isPropertyAccessExpression(target)) {
+      target = unparenthesized(target.expression);
+    }
+    const name = spanOfNode(target, context.sourceFile);
+    return (
+      ts.isIdentifier(target) &&
+      name.start === diagnostic.span.start &&
+      name.length === diagnostic.span.length
+    );
+  }
+  if (code === 2558) {
+    return sameTypeArgumentMistake(context, diagnostic, error);
+  }
+  if (error.code === TS_CODES.MODULE_VAR) {
+    return sameModuleVariableMistake(context, diagnostic, error);
+  }
   const built = newCovering(context, error.span);
   if (
     built !== undefined &&
@@ -1954,6 +2018,76 @@ function sameMistakeSpans(
   return (
     within(diagnostic.span, error.span) &&
     (diagnostic.span.start === error.span.start || spanEnd(diagnostic.span) === spanEnd(error.span))
+  );
+}
+
+/** TS8019 also reports value-argument counts. Its stable type-count sentence and exact call
+ *  span must both match before TS2558 on that call's type-argument list can be dropped. */
+function sameTypeArgumentMistake(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  error: TypeshadeDiagnostic,
+): boolean {
+  if (
+    diagnostic.uri !== error.uri ||
+    !/ takes \d+(?: to \d+)? type argument\(s\), got \d+\.$/.test(error.message)
+  )
+    return false;
+  const { sourceFile } = context;
+  for (
+    let node: ts.Node | undefined = nodeAtPosition(sourceFile, diagnostic.span.start);
+    node !== undefined;
+    node = node.parent
+  ) {
+    if (!ts.isCallExpression(node) && !ts.isNewExpression(node)) continue;
+    const types = node.typeArguments;
+    if (types === undefined || types.length === 0) continue;
+    if (
+      types[0]!.getStart(sourceFile) === diagnostic.span.start &&
+      types[types.length - 1]!.getEnd() === spanEnd(diagnostic.span)
+    ) {
+      const call = spanOfNode(node, sourceFile);
+      return call.start === error.span.start && call.length === error.span.length;
+    }
+  }
+  return false;
+}
+
+/** TS8033 covers many module-variable refusals. Only the wrapper name, or the name of a
+ *  const workgroup declaration, repeats these TypeScript errors. An unknown type inside
+ *  the wrapper and a generic elsewhere must keep their own diagnostics. */
+function sameModuleVariableMistake(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  error: TypeshadeDiagnostic,
+): boolean {
+  if (diagnostic.uri !== error.uri) return false;
+  const { sourceFile } = context;
+  const matches = (node: ts.Node, span: TypeshadeTextSpan): boolean => {
+    const actual = spanOfNode(node, sourceFile);
+    return actual.start === span.start && actual.length === span.length;
+  };
+  const name = nodeAtPosition(sourceFile, diagnostic.span.start);
+  if (!ts.isIdentifier(name) || !matches(name, diagnostic.span)) return false;
+  const code = ruleCodeOf(diagnostic.code);
+  const parent = name.parent;
+  if (ts.isTypeReferenceNode(parent) && parent.typeName === name) {
+    const wrapper =
+      (code === 2304 && name.text === 'perInvocation') ||
+      (code === 2314 && name.text === 'workgroup' && !parent.typeArguments?.length);
+    return wrapper && matches(parent, error.span);
+  }
+  if (code !== 1155 || !ts.isVariableDeclaration(parent) || parent.name !== name) return false;
+  const type = parent.type;
+  return (
+    ts.isVariableDeclarationList(parent.parent) &&
+    (parent.parent.flags & ts.NodeFlags.Const) !== 0 &&
+    parent.initializer === undefined &&
+    type !== undefined &&
+    ts.isTypeReferenceNode(type) &&
+    ts.isIdentifier(type.typeName) &&
+    type.typeName.text === 'workgroup' &&
+    matches(parent, error.span)
   );
 }
 
@@ -2508,8 +2642,10 @@ function isAboutRefusedOperation(
 }
 
 /** The codes the compiler refuses a whole decorator with: `TS8028` for a name nothing reads
- *  there, `TS8010` for `@align` or `@std140` it does not apply, `TS8035` for one on a method. */
+ *  there, `TS8024` for a malformed builtin argument, `TS8010` for `@align` or `@std140` it does
+ *  not apply, `TS8035` for one on a method. */
 const DECORATOR_REFUSALS: ReadonlySet<string> = new Set([
+  TS_CODES.BUILTIN_NAME,
   TS_CODES.ATTRIBUTE_NAME,
   TS_CODES.STRUCT_FIELD,
   TS_CODES.CLASS_MEMBER,
@@ -2562,9 +2698,55 @@ function isInRefusedDecorator(
   return siblings.some((d) => refused(d, METHOD_DECORATOR_REFUSAL));
 }
 
+/** An IO attribute type's malformed argument or unknown builtin name is the compiler's refusal.
+ *  Only TypeScript's constraint error on that argument repeats it: errors in the value type
+ *  or the options remain independent, even though the compiler spans the attribute type. */
+function isAboutRefusedIoArgument(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  if (diagnostic.code !== 2344) return false;
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.span.start);
+  while (node !== undefined) {
+    if (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)) {
+      const code =
+        node.typeName.text === 'builtin'
+          ? TS_CODES.BUILTIN_NAME
+          : node.typeName.text === 'location'
+            ? TS_CODES.ATTRIBUTE_NAME
+            : undefined;
+      const first = node.typeArguments?.[0];
+      if (
+        code !== undefined &&
+        first !== undefined &&
+        within(diagnostic.span, spanOfNode(first, context.sourceFile))
+      ) {
+        const span = spanOfNode(node, context.sourceFile);
+        const nameSpan = spanOfNode(first, context.sourceFile);
+        const ownName = fileDeclaresType(node, node.typeName.text, context.sourceFile);
+        if (
+          compilerErrors.some(
+            (error) =>
+              error.code === code &&
+              ((error.span.start === span.start && error.span.length === span.length) ||
+                (code === TS_CODES.BUILTIN_NAME &&
+                  !ownName &&
+                  error.span.start === nameSpan.start &&
+                  error.span.length === nameSpan.length)),
+          )
+        )
+          return true;
+      }
+    }
+    node = node.parent;
+  }
+  return false;
+}
+
 /**
  * The merged list for one document: `typescript` (already filtered by
- * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). Eight
+ * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). These
  * rules drop a report, and each only ever drops an ERROR that another error already covers:
  *
  * - a TypeScript error that is TypeScript's own knock-on of a call it failed to resolve
@@ -2573,6 +2755,8 @@ function isInRefusedDecorator(
  *   about the value of one (`isAboutRefusedOperation`), goes;
  * - a TypeScript error inside a decorator the compiler refuses whole (`isInRefusedDecorator`)
  *   goes;
+ * - a TypeScript constraint error on an IO attribute type's first argument repeats the
+ *   compiler error spanning that type or its unknown builtin name (`isAboutRefusedIoArgument`);
  * - a TypeScript error that `SAME_MISTAKE` pairs by code with a compiler error, and whose span
  *   sits where one mistake would put the two (`sameMistakeSpans`), goes: the compiler's stays;
  * - a TypeScript error about what the compiler refused whole, a `throw` and what it throws, an
@@ -2617,6 +2801,7 @@ export function mergeDiagnostics(
     if (isKnockOn(context, diagnostic, typescript)) return false;
     if (isAboutRefusedOperation(context, diagnostic, operatorRefusals)) return false;
     if (isInRefusedDecorator(context, diagnostic, compilerErrors)) return false;
+    if (isAboutRefusedIoArgument(context, diagnostic, compilerErrors)) return false;
     if (repeatsRefusal(context, diagnostic, refusals, compilerErrors)) return false;
     if (repeatsStrictModeRefusal(context, diagnostic, compilerErrors)) return false;
     if (readsDeclarationAsValue(context, diagnostic, compilerErrors)) return false;

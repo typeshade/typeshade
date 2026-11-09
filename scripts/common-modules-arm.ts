@@ -48,10 +48,8 @@ const TIERS = ['webgpu', 'webgl2'] as const;
  *  in a host's `prefer`, and the arm holds the function on the tiers that run it. */
 const REFUSED_ON: Readonly<Record<string, readonly string[]>> = {
   // A loop that writes a reduction variable and no array is not a WebGL2 loop (Rule 11.8); a
-  // scatter by atomics has no GLSL ES 3.00; a body that reads a second array's `.length` has no
-  // GLSL spelling of `arrayLength` (the scan and the compaction; typeshade/typeshade#689). Each
-  // falls to the next tier of a host's `prefer`.
-  webgl2: ['sum', 'maxAll', 'minAll', 'histogram', 'inclusiveScan', 'exclusiveScan', 'compact'],
+  // scatter by atomics has no GLSL ES 3.00. Each falls to the next tier of a host's `prefer`.
+  webgl2: ['sum', 'maxAll', 'minAll', 'histogram'],
 };
 
 /** The envelope a function with a determinism row is held to. */

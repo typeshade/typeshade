@@ -80,6 +80,7 @@ import { isIntegerVarying } from '../passes/varying-interpolate.js';
 import { mapExpr, mapStmt } from '../passes/opt/ir-transform.js';
 import { analyzePortableKernel, isPortableComputeEntry } from '../passes/portable-kernel.js';
 import { reachFrom } from '../passes/stage-bindings.js';
+import { texturePairs } from '../passes/texture-pairs.js';
 import { dslError } from '../diagnostics/error.js';
 import { f32Lit, intLit } from './wgsl.js';
 import {
@@ -104,6 +105,7 @@ import { spellingsOf } from '../spelling-plan.js';
 import { hoistDiscardingCtorArgs } from './glsl-legalize.js';
 import { lowerSwitchContinues } from './glsl-switch-continue.js';
 import { lowerUniformBlockValues } from './glsl-block-values.js';
+import { lowerBareUniforms } from './glsl-bare-uniforms.js';
 import { lowerGlobalPlaceArguments } from './glsl-global-places.js';
 import { readLocalsInPlace } from '../passes/local-places.js';
 import { fixpoint } from '../passes/opt/index.js';
@@ -2084,11 +2086,15 @@ export function emitGlslEntries(
   }
   // Computed ONCE from the AUTHORED module (X-GIS #1670), as emitGlslStages does.
   const extHeader = glslEs300Backend.modulePreamble?.(m) ?? '';
+  const names = glslBindingNames(m);
   return {
     lowered: true,
     programs: entries.map((x) => {
       try {
-        return joinGlsl(assembleGlsl(extHeader, lowered, x.stage, o, glslEntryName(m, x.name)), o);
+        return joinGlsl(
+          assembleGlsl(extHeader, lowered, names, x.stage, o, glslEntryName(m, x.name)),
+          o,
+        );
       } catch (err) {
         return asError(err);
       }
@@ -2100,6 +2106,36 @@ export function emitGlslEntries(
  *  gives it. An entry the plan renames (a name GLSL cannot spell) is found by its authored name. */
 function glslEntryName(m: ModuleDecl, name: string | undefined): string | undefined {
   return name === undefined ? undefined : (spellingsOf(m).glsl.entries.get(name) ?? name);
+}
+
+/** Diagnostics keep authored binding names even after the target spelling pass. */
+function glslBindingNames(m: ModuleDecl): ReadonlyMap<string, string> {
+  return new Map([...spellingsOf(m).glsl.bindings].map(([written, emitted]) => [emitted, written]));
+}
+
+/** Check the functions this artifact uses, after lowering resolves local handle aliases.
+ *  Reflection's pairing walk is shared, including the existing comparison-sampler mode.
+ *  Checking before lowering would confuse a local handle with a same-named binding. */
+function assertTextureSamplerPairs(
+  m: ModuleDecl,
+  functions: readonly FuncDecl[],
+  writtenNames: ReadonlyMap<string, string>,
+): void {
+  const byName = new Map(m.funcs.map((f) => [f.name, f]));
+  const pairs = texturePairs(
+    new Set(functions.map((f) => f.name)),
+    byName,
+    new Set(byName.keys()),
+    new Set(m.bindings.map((b) => b.name)),
+    true,
+  );
+  const written = (name: string): string => writtenNames.get(name) ?? name;
+  for (const [texture, samplers] of pairs) {
+    if (samplers.size < 2) continue;
+    throw new UnsupportedFeatureError(
+      `glsl-es300: it samples "${written(texture)}" with ${[...samplers].map((n) => `"${written(n)}"`).join(' and ')}, and GLSL ES 3.00 fuses a texture with one sampler. Declare the texture twice, one binding per sampler.`,
+    );
+  }
 }
 
 function lowerForGlsl(authored: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
@@ -2192,23 +2228,23 @@ function lowerForGlsl(authored: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl 
   // no later transformation exists that could reintroduce the fatal shape — not a
   // third-party `EmitPlugin.transformIR`, not the opt-in `inline()`. The guarantee is by
   // construction rather than by an argument about what each downstream pass happens to do.
-  const legalized = hoistDiscardingCtorArgs(
-    lowerUniformBlockValues(
-      applyIRPlugins(
-        lowerHostLooseBlocks(
-          sanitizeReservedIdents(
-            spellModule(
-              lowerForBackend(src, glslEs300Backend, undefined, opts?.fp64Flavor),
-              plan.glsl,
-              'glsl',
-            ),
-            plan.glsl,
-          ),
+  const plugged = applyIRPlugins(
+    lowerHostLooseBlocks(
+      sanitizeReservedIdents(
+        spellModule(
+          lowerForBackend(src, glslEs300Backend, undefined, opts?.fp64Flavor),
+          plan.glsl,
+          'glsl',
         ),
-        opts,
+        plan.glsl,
       ),
     ),
+    opts,
   );
+  // Compute emulation still binds its scalar values with glUniform*, as host-owned values do.
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- preserve the deprecated option's existing loose-uniform contract.
+  const blocks = opts?.emulateCompute ? plugged : lowerBareUniforms(plugged, plan.glsl);
+  const legalized = hoistDiscardingCtorArgs(lowerUniformBlockValues(blocks));
   // Final control-flow legalization only: no expression is hoisted/rebuilt, so the
   // discarding-ctor invariant above survives. ANGLE's HLSL forbids switch continues.
   return lowerSwitchContinues(legalized);
@@ -2229,6 +2265,7 @@ function assembleGlsl(
    *  siblings that must agree, the divergence archetype this repo pays for). */
   extHeader: string,
   lowered: ModuleDecl,
+  writtenBindings: ReadonlyMap<string, string>,
   stage: 'vertex' | 'fragment' | undefined,
   opts?: GlslEmitOptions,
   /** Name of the single entry to spell for this stage. A module may declare SEVERAL
@@ -2248,13 +2285,14 @@ function assembleGlsl(
   // `saturate`, `fma`, `dpdx` and `dpdy` into GLSL spellings, and a module that declares one
   // of those names must call ITS function, not the rewrite (emit.ts, withDeclaredFns).
   return withDeclaredFns(lowered, () =>
-    assembleGlslParts(extHeader, lowered, stage, opts, keepEntry, omitEntries),
+    assembleGlslParts(extHeader, lowered, writtenBindings, stage, opts, keepEntry, omitEntries),
   );
 }
 
 function assembleGlslParts(
   extHeader: string,
   lowered: ModuleDecl,
+  writtenBindings: ReadonlyMap<string, string>,
   stage: 'vertex' | 'fragment' | undefined,
   opts?: GlslEmitOptions,
   keepEntry?: string,
@@ -2291,6 +2329,13 @@ function assembleGlslParts(
   const helpers = lowered.funcs.filter(
     (f) => !isEntry(f) && (scope === null || scope.fns.has(f.name)),
   );
+
+  // A selected entry determines executable uses, even when opaque raw text makes the
+  // declaration scope conservative. An absent stage of an entry module runs nothing;
+  // a library with no entries (or an explicit whole-module emit) exposes all helpers.
+  const pairRoots =
+    stage === undefined || !lowered.funcs.some(isEntry) ? [...helpers, ...entries] : entries;
+  assertTextureSamplerPairs(lowered, pairRoots, writtenBindings);
 
   // A struct consumed as a uniform/storage BINDING type becomes a UBO/SSBO block, NOT a
   // GLSL `struct` decl — reusing its name for both a `struct` and a `uniform <Name> {…}`
@@ -2680,7 +2725,8 @@ function withPortableLowering<T extends GlslEmitOptions>(m: ModuleDecl, opts?: T
  *    outside the list above, a vertex entry returning a bare non-struct output, a raw
  *    statement with no `glsl` text, or a `stage` with more than one entry, which has one
  *    `main()` to give them (name it with {@link emitGlslStages}'s `vertexEntry` or
- *    `fragmentEntry`).
+ *    `fragmentEntry`), or one texture sampled with different samplers in the emitted artifact.
+ *    Bind the same texture through separate texture declarations to give each its sampler.
  *
  *  @example
  *  ```ts
@@ -2704,7 +2750,13 @@ export function emitGlslModule(
   // The `#extension` header comes from the AUTHORED module (X-GIS #1670) — see assembleGlsl's
   // `extHeader` param.
   return joinGlsl(
-    assembleGlsl(glslEs300Backend.modulePreamble?.(m) ?? '', lowerForGlsl(m, o), stage, o),
+    assembleGlsl(
+      glslEs300Backend.modulePreamble?.(m) ?? '',
+      lowerForGlsl(m, o),
+      glslBindingNames(m),
+      stage,
+      o,
+    ),
     o,
   );
 }
@@ -2751,6 +2803,7 @@ export function emitGlslFragment(
   const a = assembleGlsl(
     glslEs300Backend.modulePreamble?.(m) ?? '',
     lowerForGlsl(m, o),
+    glslBindingNames(m),
     stage,
     o,
     undefined,
@@ -2765,9 +2818,10 @@ export function emitGlslFragment(
 }
 
 /** Emit both stages of one module, lowering and optimizing it once. The result is
- *  identical to calling `emitGlslModule(m, 'vertex')` and `emitGlslModule(m, 'fragment')`,
- *  at about half the cost, since the optimizer runs once for both stages. Use it from a
- *  host that creates a pipeline, which always needs both.
+ *  the same stage sources as separate `emitGlslModule` calls, while the optimizer runs once.
+ *  The pair also checks that one texture uses one sampler across the selected stages:
+ *  a linked GLSL program shares each combined texture uniform. Use it from a host that
+ *  creates a pipeline, which always needs both.
  *
  *  `opts.vertexEntry` and `opts.fragmentEntry` name the entry to emit for each stage, for
  *  a module that declares several entries of one stage. GLSL allows one `main()` per
@@ -2801,14 +2855,21 @@ export function emitGlslStages(
   // Computed ONCE from the AUTHORED module, then shared by both stages — the header is a
   // module-level fact, not a per-stage one (X-GIS #1670).
   const extHeader = glslEs300Backend.modulePreamble?.(m) ?? '';
-  return {
-    vertex: joinGlsl(
-      assembleGlsl(extHeader, lowered, 'vertex', o, glslEntryName(m, o?.vertexEntry)),
-      o,
-    ),
-    fragment: joinGlsl(
-      assembleGlsl(extHeader, lowered, 'fragment', o, glslEntryName(m, o?.fragmentEntry)),
-      o,
-    ),
-  };
+  const names = glslBindingNames(m);
+  const vertexEntry = glslEntryName(m, o?.vertexEntry);
+  const fragmentEntry = glslEntryName(m, o?.fragmentEntry);
+  const vertex = joinGlsl(assembleGlsl(extHeader, lowered, names, 'vertex', o, vertexEntry), o);
+  const fragment = joinGlsl(
+    assembleGlsl(extHeader, lowered, names, 'fragment', o, fragmentEntry),
+    o,
+  );
+  // Each individual stage may use one sampler, yet their linked program shares the texture
+  // uniform. Check only the selected entries' union, after the per-stage ambiguity checks.
+  const selected = lowered.funcs.filter((f) =>
+    stageOf(f) === 'vertex'
+      ? vertexEntry === undefined || f.name === vertexEntry
+      : stageOf(f) === 'fragment' && (fragmentEntry === undefined || f.name === fragmentEntry),
+  );
+  assertTextureSamplerPairs(lowered, selected, names);
+  return { vertex, fragment };
 }

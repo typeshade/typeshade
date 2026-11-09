@@ -39,7 +39,8 @@ Three things already in the tree do most of the work a debugger needs.
   outside it and contain no TypeShade knowledge.
 
 The mapping from an IR node back to source exists for the source compiler. A statement, a
-function declaration and a call expression carry an optional `span` field
+function declaration, a call expression, an assignment target and a workgroup-variable read
+carry an optional `span` field
 (`src/core/ir/nodes.ts`), which the front end sets when it lowers a `"use typeshade"` file, and
 `sourceSpanOf` (`src/core/ir/span.ts`, exported from `typeshade` and `typeshade/debug`)
 reads it. A node has no span when the `fn()` EDSL authored it, when a pass synthesised it (a
@@ -559,7 +560,10 @@ is exactly the collision worth avoiding.
 - **An assignment's target.** The lvalue a statement writes, so a debugger can highlight what
   is about to change rather than the whole line. It is the one other expression position an
   author points at while stepping.
-- **Nothing else, in milestone 1.** A span on every `Expr` would roughly double the field count
+- **A workgroup-variable read.** Its span locates a stage diagnostic reached through a helper.
+  It adds no debugger step event. Portable IR omits this expression span, as it omits other
+  variable-expression spans.
+- **Other expression kinds remain spanless.** A span on every `Expr` would roughly double the field count
   of the IR's most numerous objects to serve hover and expression-level stepping, neither of
   which the first milestone promises. It is additive later, at the same capture sites. This is
   §5 decision 3.
@@ -577,7 +581,7 @@ stamps every statement it produced, plus the finer sites that stamp first:
 for an assignment's target. In `lower/control.ts` it is `lowerFor`, for the loop header's own
 `init` and `update`, and `lowerUpdate`, which owns the target of a standalone `i++` as well as
 a `for` header's. In `lower/function.ts` it is `parseSignature`, for the `FuncDecl` and its
-`nameSpan`; in `lower/expression.ts`, the one line that dispatches a call. The shape at each
+`nameSpan`; in `lower/expression.ts`, the call dispatch and a workgroup-variable read. The shape at each
 site is one helper applied to an existing return value, so the change is additive and does not
 restructure lowering.
 
@@ -654,6 +658,7 @@ or from the engine.
   "program": "${workspaceFolder}/examples/hello.shade.ts",
   "entry": "fs",
   "stopOnEntry": true,
+  "maxSteps": 10000,
   "precision": "f32",
   "derivatives": "zero",
   "invocation": {
@@ -672,10 +677,21 @@ or from the engine.
 and the engine ignores: the engine is handed a module that is already compiled, so it has no
 use for a path. An adapter should still set it, and should hand the same string to the compiler
 as `fileName`, because that is what makes the module's spans name the file a breakpoint's
-`file` is matched against. Everything else has a default, and the default is the zero of the
-type, which is what the Playground's "Run on the CPU" does today and what `zeroOf`
-(`src/core/cpu-runtime.ts`) already computes from a `ShaderType`. Two builtins are the
-exception, for the reason §4.2 gives.
+`file` is matched against. Omitted invocation and binding values use their type's zero where
+one exists, as `zeroOf` (`src/core/cpu-runtime.ts`) computes from a `ShaderType`. Section 4.2
+gives the builtin exceptions; §4.3 describes binding defaults. Launch options have their own
+defaults, such as `stopOnEntry: true` and `precision: 'f32'`.
+
+`maxSteps` is an optional positive integer. It bounds statement events reached during the
+whole session, including work between pauses. Stepping and `continue()` share the same
+budget; post-call events do not consume it. Omission or JavaScript `undefined` leaves the
+run unbounded. Zero, negatives, fractions, non-finite values and non-number values, including
+`null`, are configuration errors before the shader runs.
+
+Exhaustion throws the existing error naming `maxSteps` and leaves the session finished.
+With `stopOnEntry: false`, this can happen during `startDebugSessionFromConfig` itself.
+The budget is not a time limit or a count of loop iterations. An adapter can choose its own
+default budget; the shared launch configuration supplies none.
 
 ### 4.2 The invocation
 

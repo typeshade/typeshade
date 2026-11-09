@@ -149,14 +149,20 @@ const s = startDebugSessionFromConfig(module, {
 })
 ```
 
-`entry` is the only key you have to write. Every other value defaults to the zero of its
-declared type, with two exceptions that a zero would misrepresent: a fragment `position`
+`entry` is the only key you have to write. Omitted invocation and binding values use their
+declared type's zero where one exists, with two builtin exceptions that a zero would
+misrepresent: a fragment `position`
 defaults to `[0, 0, 0, 1]`, because a `w` of zero makes every perspective divide `NaN`, and
 `front_facing` defaults to `true`, because `false` is the case a single-sided draw never runs.
 A compute entry derives `local_invocation_id`, `workgroup_id` and `local_invocation_index`
 from the `global_invocation_id` you give it and the entry's own `@compute([x, y, z])` size, and
 `num_workgroups` from `dispatch`; supply one of a derived pair yourself and it is checked
 rather than overwritten, so an id that contradicts its derivation is an error naming both.
+
+Launch options have their own defaults. Optional `maxSteps` accepts a positive integer budget
+of statement events for the whole session, including work between pauses. Omission leaves the
+run unbounded. An invalid value is a configuration error; exhaustion raises the existing
+`maxSteps` error and finishes the session.
 
 A configuration that does not fit the module throws a `DebugConfigError` before the shader runs
 a statement, and it reports every problem it can see at once: a misspelled builtin alongside a

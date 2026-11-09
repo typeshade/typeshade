@@ -2496,8 +2496,13 @@ export interface KernelGlLoopPlan {
   readonly outScalar: 'f32' | 'i32' | 'u32';
   /** The arrays the loop reads: each by its parameter and by the sampler the program names it. */
   readonly reads: readonly { readonly param: string; readonly name: string }[];
-  /** The loose uniforms the program reads: the scalar parameters, then `_start`. */
-  readonly uniforms: readonly { readonly name: string; readonly type: ShaderType }[];
+  /** The loose uniforms: scalar parameters, `_start`, and the array lengths the body reads. */
+  readonly uniforms: readonly {
+    readonly name: string;
+    readonly type: ShaderType;
+    /** The authored array parameter whose checked element count supplies this uniform. */
+    readonly lengthOf?: string;
+  }[];
 }
 
 /** The binding that carries the dispatch: `.x` the iteration count, `.y` the grid's width. */
@@ -2615,7 +2620,7 @@ export function lowerKernelGl(
       };
     const header = rangeOf(st);
     if (header === undefined) return { noWebgl2: `loop ${loopNo} compares its counter oddly` };
-    const uniforms = [
+    const uniforms: KernelGlLoopPlan['uniforms'][number][] = [
       ...scalars.map((p) => ({ name: p.name, type: p.type })),
       { name: '_start', type: header.type },
     ];
@@ -2680,19 +2685,63 @@ export function lowerKernelGl(
         ...(inner.span !== undefined ? { span: inner.span } : {}),
       };
     };
-    const body: Stmt[] = [
-      { s: 'let', name: '_k', expr: gidX },
-      {
-        s: 'if',
-        arms: [
-          {
-            cond: { op: 'compare', type: boolT, cop: '>=', a: kRef, b: count },
-            body: [{ s: 'return' }],
-          },
-        ],
-      },
-      ...iterationOf(c, undefined, []).map(toTexel),
-    ];
+    // Lengths are host-known element counts, not texture dimensions (a padded texture and
+    // an array of vectors need not have one texel per element). Rewrite before collecting
+    // element reads so an array measured only by length needs no texture upload (#689).
+    const arrayOf = new Map(arrays.map((p) => [glNames.get(p.name) ?? p.name, p.name]));
+    const lengthNames = new Map<string, string>();
+    const taken = new Set([
+      ...declaredNames(m),
+      ...glNames.values(),
+      argsStruct,
+      argsBinding,
+      '_start',
+      GL_DISPATCH,
+      GL_OUT,
+    ]);
+    const lengthUniform = (e: Expr): Expr => {
+      if (
+        e.op !== 'call' ||
+        e.fn !== 'arrayLength' ||
+        e.declRef !== undefined ||
+        e.args.length !== 1
+      )
+        return e;
+      const array = e.args[0]!;
+      const param = array.op === 'varref' ? arrayOf.get(array.name) : undefined;
+      if (param === undefined) return e;
+      let name = lengthNames.get(param);
+      if (name === undefined) {
+        let suffix = 0;
+        do {
+          name = `_length${suffix++}`;
+        } while (taken.has(name));
+        taken.add(name);
+        lengthNames.set(param, name);
+        uniforms.push({ name, type: u32T, lengthOf: param });
+      }
+      return {
+        op: 'member',
+        type: u32T,
+        base: { op: 'varref', type: { kind: 'struct', name: argsStruct }, name: argsBinding },
+        field: name,
+      };
+    };
+    const body = (
+      [
+        { s: 'let', name: '_k', expr: gidX },
+        {
+          s: 'if',
+          arms: [
+            {
+              cond: { op: 'compare', type: boolT, cop: '>=', a: kRef, b: count },
+              body: [{ s: 'return' }],
+            },
+          ],
+        },
+        ...iterationOf(c, undefined, []).map(toTexel),
+      ] satisfies Stmt[]
+    ).map((s) => mapStmt(s, (e) => mapExpr(e, lengthUniform)));
     // What the body reads of the arrays: each is a data texture of its name.
     const read = new Set<string>();
     const names = new Set(arrays.map((p) => glNames.get(p.name) ?? p.name));

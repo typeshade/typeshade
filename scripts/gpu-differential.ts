@@ -78,6 +78,10 @@
 // THE COMMON-MODULE ARM. `common-modules-arm.ts` calls every function of `typeshade/algorithms`
 // and `typeshade/random` through its baked host face, on WebGPU and on WebGL2 (change 0072).
 //
+// THE FAILURE ARM. `resident-failure-arm.ts` calls generated hosts on each tier and proves
+// failed content dependencies submit no work. A disabled-admission build must fail the same
+// controls, including compute, draw, held length/bounds, indirect counts and nested fuse plans.
+//
 // THE CLASS ARM. `class-arm.ts` writes a twin module for each exported class of the examples and
 // of `journeys/class-twins/`, and holds each member a host could call, as an entry's local and as
 // a kernel function's element, to the oracle's `C_new` and member function on WebGPU, WebGL2,
@@ -212,6 +216,7 @@ import { createTypeshadeLanguageService } from '../src/language-service/service.
 import { computeArm } from './gl-compute-arm.js';
 import { commonModulesArm } from './common-modules-arm.js';
 import { classArm } from './class-arm.js';
+import { residentFailureArm } from './resident-failure-arm.js';
 import type { ShaderType, StructDecl } from '../src/index.js';
 
 const SEEDS = Number(process.env['TYPESHADE_DIFF_SEEDS'] ?? 48);
@@ -2873,10 +2878,12 @@ async function chainArm(page: Page): Promise<number> {
 
 async function main(): Promise<number> {
   const browserSettings = gateBrowserSettings(process.env);
-  // `TYPESHADE_DIFF_ARMS=kernel,chain,glsl,compute,common,class` runs a subset; every arm by
+  // `TYPESHADE_DIFF_ARMS=kernel,chain,glsl,compute,common,class,failure` runs a subset; every arm by
   // default.
   const arms = new Set(
-    (process.env['TYPESHADE_DIFF_ARMS'] ?? 'kernel,chain,glsl,compute,common,class').split(','),
+    (process.env['TYPESHADE_DIFF_ARMS'] ?? 'kernel,chain,glsl,compute,common,class,failure').split(
+      ',',
+    ),
   );
   const server = await serve();
   const port = (server.address() as AddressInfo).port;
@@ -2889,8 +2896,18 @@ async function main(): Promise<number> {
   try {
     const url = `http://127.0.0.1:${String(port)}/`;
     await verifyGateGpu(browser, url, browserSettings, {
-      webgpu: arms.has('kernel') || arms.has('chain') || arms.has('common') || arms.has('class'),
-      webgl: arms.has('glsl') || arms.has('compute') || arms.has('common') || arms.has('class'),
+      webgpu:
+        arms.has('kernel') ||
+        arms.has('chain') ||
+        arms.has('common') ||
+        arms.has('class') ||
+        arms.has('failure'),
+      webgl:
+        arms.has('glsl') ||
+        arms.has('compute') ||
+        arms.has('common') ||
+        arms.has('class') ||
+        arms.has('failure'),
     });
     const page = await browser.newPage();
     await page.goto(url);
@@ -2905,6 +2922,7 @@ async function main(): Promise<number> {
     // examples and of `journeys/class-twins/`, through a twin module, on every tier and on the
     // oracle.
     if (arms.has('class')) failures += await classArm(page);
+    if (arms.has('failure')) failures += await residentFailureArm(page);
   } catch (error) {
     primaryFailed = true;
     throw error;

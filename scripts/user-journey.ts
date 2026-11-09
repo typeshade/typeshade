@@ -234,10 +234,11 @@ async function hostImport(
 ): Promise<number> {
   const app = join(work, 'host-import');
   cpSync(join(REPO, 'journeys', '_host-import'), app, { recursive: true });
-  // The particles and plasma journeys' shaders, which `src/gpu.ts` runs through the import.
+  // Journey shaders that `src/gpu.ts` runs through the import on WebGPU.
   for (const [id, file] of [
     ['particles', 'particles.shade.ts'],
     ['plasma', 'plasma.shade.ts'],
+    ['scatter-extremes', 'extremes.shade.ts'],
   ] as const)
     cpSync(join(REPO, 'journeys', id, file), join(app, 'src', file));
   writeFileSync(
@@ -396,7 +397,14 @@ async function hostImport(
       ],
       { cwd: app, encoding: 'utf8' },
     ).stdout,
-  ) as { plasma: number[]; tiled: number[]; ramped: number[]; deep: number[] };
+  ) as {
+    plasma: number[];
+    tiled: number[];
+    ramped: number[];
+    deep: number[];
+    unbound: number[];
+    guarded: number[];
+  };
   const drawn = web.draws ?? {};
   const compare = (key: string, want: number[], steps: number): void => {
     const got = drawn[key];
@@ -411,6 +419,77 @@ async function hostImport(
     );
   };
   // f32 against the f64 reference, rounded to 8 bits: two steps of 1/255.
+  for (const name of ['unbound', 'guarded'] as const) {
+    const tiers =
+      name === 'guarded'
+        ? ['webgpu float', 'webgpu integer', 'webgl2', 'cpu']
+        : ['webgpu float', 'webgl2', 'cpu'];
+    for (const tier of tiers) {
+      for (const form of ['object', 'omitted', 'undefined'])
+        compare(`${name} ${tier} ${form}`, drawRef[name], 2);
+      const explicit = drawn[`${name} ${tier} object`];
+      for (const form of ['omitted', 'undefined']) {
+        const got = drawn[`${name} ${tier} ${form}`];
+        check(
+          Array.isArray(explicit) &&
+            Array.isArray(got) &&
+            got.length === explicit.length &&
+            got.every((value, i) => value === explicit[i]),
+          `${name} ${tier} ${form} is byte-identical to explicit empty bindings`,
+        );
+      }
+    }
+  }
+  check(
+    JSON.stringify(drawn['guarded flavors']) === '[1]',
+    `guard-only draw submits distinct float/integer WGSL with the correct guard (${JSON.stringify(drawn['guarded flavors'])})`,
+  );
+  const aliasRef = JSON.parse(
+    spawnSync(
+      'node',
+      [
+        '--input-type=module',
+        '-e',
+        "console.log(JSON.stringify((await import('./reference.mjs')).aliasReference()))",
+      ],
+      { cwd: app, encoding: 'utf8' },
+    ).stdout,
+  ) as Record<'compute' | 'render' | 'empty', number[]>;
+  check(
+    JSON.stringify(drawn['alias artifacts']) === '[1]',
+    `pure aliases preserve binding slots, private entry inventory and actual WGSL/render GLSL (${JSON.stringify(drawn['alias artifacts'])})`,
+  );
+  for (const name of ['direct', 'alias', 'chain']) {
+    for (const tier of ['webgpu', 'webgl2', 'cpu']) {
+      for (const kind of ['compute', 'render', 'empty'] as const) {
+        for (const suffix of kind === 'empty' ? [' object', ' omitted', ' undefined'] : ['']) {
+          const key = `alias ${name} ${kind} ${tier}${suffix}`;
+          compare(key, aliasRef[kind], kind === 'compute' ? 0 : 2);
+          const got = drawn[key];
+          if (name !== 'direct') {
+            const direct = drawn[`alias direct ${kind} ${tier}${suffix}`];
+            check(
+              Array.isArray(got) &&
+                Array.isArray(direct) &&
+                got.length === direct.length &&
+                got.every((value, i) => value === direct[i]),
+              `${key} equals its direct target exactly`,
+            );
+          }
+          if (kind === 'empty' && suffix !== ' object') {
+            const explicit = drawn[`alias ${name} empty ${tier} object`];
+            check(
+              Array.isArray(got) &&
+                Array.isArray(explicit) &&
+                got.length === explicit.length &&
+                got.every((value, i) => value === explicit[i]),
+              `${key} equals explicit empty bindings exactly`,
+            );
+          }
+        }
+      }
+    }
+  }
   for (const tier of ['webgpu', 'webgl2', '2d']) compare(`plasma ${tier}`, drawRef.plasma, 2);
   // Nearest filtering at texel centres: the image's bytes, exactly.
   for (const tier of ['webgpu', 'webgl2']) compare(`tiled ${tier}`, drawRef.tiled, 0);
@@ -522,6 +601,10 @@ async function hostImport(
     `a production build records no console call (got ${JSON.stringify(web.logs)})`,
   );
   const dev = await inDevServer(app);
+  check(
+    dev.reloads === 0,
+    `vite dev keeps the page when the shader host imports fuse after the runtime (reloads ${dev.reloads})`,
+  );
   const printed4 = [1.5, 2.5, 3.5, 4.5].map(
     (x, i) => `GPU  kernels.shade.ts:38  [${i}, 0, 0]  x ${i} ${x}`,
   );
@@ -844,7 +927,9 @@ function viteEntry(app: string): string {
  *  `npx vite` put `npx` and a shell between the gate and vite, and `kill()` ended those two and
  *  left vite running (#923). The server is stopped and waited for, then its port is checked: a
  *  server that is still listening fails the run. */
-async function inDevServer(app: string): Promise<{ logs: string[]; error?: string }> {
+async function inDevServer(
+  app: string,
+): Promise<{ logs: string[]; reloads: number; error?: string }> {
   const port = 5170 + Math.floor(Math.random() * 500);
   const server = startChild(
     'node',
@@ -870,7 +955,7 @@ async function inDevServer(app: string): Promise<{ logs: string[]; error?: strin
         await fetch(url);
         break;
       } catch {
-        if (i === 100) return { logs: [], error: 'the dev server did not start' };
+        if (i === 100) return { logs: [], reloads: 0, error: 'the dev server did not start' };
         await new Promise((done) => setTimeout(done, 200));
       }
     }
@@ -884,37 +969,28 @@ async function inDevServer(app: string): Promise<{ logs: string[]; error?: strin
         );
     });
     await page.goto(url);
-    const call = (): Promise<string | undefined> =>
-      page.evaluate(async () => {
-        try {
-          const m = (await import('/src/gpu.ts' as string)) as { logged(): Promise<void> };
-          await m.logged();
-          return undefined;
-        } catch (e) {
-          return String(e);
-        }
-      });
-    let error: string | undefined;
-    for (let attempt = 0; ; attempt++) {
+    let reloads = 0;
+    page.on('framenavigated', (frame) => {
+      if (frame === page.mainFrame()) reloads++;
+    });
+    // Finish the runtime's initial optimization before discovering the host's fuse import.
+    // Otherwise both can enter the first optimizer batch and conceal a missing pre-bundle.
+    await page.evaluate(async () => {
+      await import('/src/dev-runtime.ts' as string);
+    });
+    const error = await page.evaluate(async () => {
       try {
-        error = await call();
-        break;
+        const m = (await import('/src/gpu.ts' as string)) as { logged(): Promise<void> };
+        await m.logged();
+        return undefined;
       } catch (e) {
-        // The import brings the dev server a dependency it has not optimized yet (`typeshade/fuse`,
-        // change 0073), and Vite reloads the page once it has: the call is made again on the
-        // reloaded page, which has every dependency, and prints nothing of the first attempt.
-        if (attempt < 3 && /Execution context was destroyed/.test(String(e))) {
-          await page.waitForLoadState('load');
-          printed.length = 0;
-          continue;
-        }
-        throw e;
+        return String(e);
       }
-    }
+    });
     // The console events are page messages, delivered after the call resolves.
     await page.waitForTimeout(200);
     const logs = await Promise.all(printed);
-    return { logs, ...(error !== undefined ? { error } : {}) };
+    return { logs, reloads, ...(error !== undefined ? { error } : {}) };
   };
   return withGateBrowser(browser, stopServer, run);
 }

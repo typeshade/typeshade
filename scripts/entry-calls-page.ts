@@ -37,6 +37,12 @@
 // the scene does not want, which the gate must see differ (AGENTS.md#gate-discipline).
 
 import { configure } from '../src/core/host-runtime.js';
+import { observeDrawShaders } from '../journeys/_host-import/src/draw-shader-observer.js';
+import {
+  runAliasFixture,
+  verifyAliasArtifacts,
+  type AliasFixture,
+} from '../journeys/_host-import/src/pure-alias-checks.js';
 import {
   byteSize,
   pack,
@@ -69,6 +75,21 @@ import {
   type Programs,
   type Readback,
 } from './render-case.js';
+import {
+  runSamplerPairs,
+  type SamplerPairReport,
+  type SamplerPairRun,
+} from './sampler-pair-cases.js';
+import {
+  runKernelLengths,
+  type KernelLengthModule,
+  type KernelLengthReport,
+} from './kernel-length-cases.js';
+import {
+  runBareUniforms,
+  type BareUniformRun,
+  type BareUniformReport,
+} from './bare-uniform-cases.js';
 
 /** One callable entry of one example, as `scripts/entry-calls.ts` lists it. */
 export interface EntryCase {
@@ -83,6 +104,8 @@ export interface EntryCase {
   readonly call: (...args: unknown[]) => Promise<void>;
   /** The module's manifest, its default export, which the program runtime loads. */
   readonly manifest: Pack;
+  /** The two binding-free fixtures of change 0125 alone run the argument/flavor matrix. */
+  readonly emptyBindings?: 'plain' | 'guard';
 }
 
 /** What one tier did against the reference tier: its worst difference, or why it did not run. */
@@ -120,6 +143,12 @@ export interface EntryReport {
   readonly glRender: EntryReport['render'];
   /** The `passes` frame drawn into a canvas by a runtime on its WebGL2 context. */
   readonly glCanvas: Readback;
+  /** #448: conflicting sampler refusals and valid single-pair render readbacks. */
+  readonly samplers: SamplerPairReport;
+  /** #689: checked element lengths and independent outputs on all three kernel tiers. */
+  readonly kernelLengths: KernelLengthReport;
+  /** Change 0127: bare host values on both draw paths, with live block/guard instruments. */
+  readonly bareUniforms: BareUniformReport;
 }
 
 /** A runtime-sized array's element count, and a canvas's side. */
@@ -260,17 +289,167 @@ function pixels(el: HTMLCanvasElement): number[] {
   return [...ctx.getImageData(0, 0, SIZE, SIZE).data];
 }
 
-async function drawOn(c: EntryCase, kind?: 'webgl2' | '2d'): Promise<number[]> {
+type EmptyDraw = { form: 'omitted' | 'undefined' | 'object'; flavor: 'float' | 'integer' };
+
+async function drawOn(c: EntryCase, kind?: 'webgl2' | '2d', empty?: EmptyDraw): Promise<number[]> {
   const el = canvas(kind);
-  await c.call(el, bindingsOf(c));
-  // A canvas hands out only the kind of context it gave first: WebGPU drew this one, or the
-  // reference is some other tier and the comparison would be with itself.
-  if (kind === undefined && el.getContext('webgpu') === null)
-    throw new Error('the draw did not run on WebGPU');
-  return pixels(el);
+  if (empty !== undefined)
+    configure({ prefer: [kind === '2d' ? 'cpu' : (kind ?? 'webgpu')], fp64Flavor: empty.flavor });
+  try {
+    if (empty?.form === 'omitted') await c.call(el);
+    else if (empty?.form === 'undefined') await c.call(el, undefined);
+    else await c.call(el, bindingsOf(c));
+    // A canvas hands out only the kind of context it gave first: WebGPU drew this one, or the
+    // reference is some other tier and the comparison would be with itself.
+    if ((kind === undefined || empty !== undefined) && el.getContext(kind ?? 'webgpu') === null)
+      throw new Error(`the draw did not run on ${kind ?? 'webgpu'}`);
+    return pixels(el);
+  } finally {
+    if (empty !== undefined) configure({});
+  }
+}
+
+/** Three argument forms, each held to plain JavaScript pixels and to the explicit object.
+ *  Actual shader creation proves both WebGPU flavors ran, including the float guard. */
+async function emptyBindingsVerdict(c: EntryCase): Promise<EntryVerdict> {
+  const tiers: TierVerdict[] = [];
+  let changed = 0;
+  const expected: number[] = [];
+  for (let y = 0; y < SIZE; y++)
+    for (let x = 0; x < SIZE; x++) {
+      const band = (12345.678 + (x + 0.5) * 0.000001) * 1000;
+      expected.push(
+        ...(c.emptyBindings === 'guard'
+          ? [band - Math.floor(band), (y + 0.5) / 32, 0, 1]
+          : [(x + 0.5) / 32, (y + 0.5) / 32, 0.25, 1]
+        ).map((v) => v * 255),
+      );
+    }
+  const observed = c.emptyBindings === 'guard' ? observeDrawShaders(c.name) : undefined;
+  const modes = [
+    { tier: 'webgpu float', kind: undefined, flavor: 'float' },
+    ...(c.emptyBindings === 'guard'
+      ? ([{ tier: 'webgpu integer', kind: undefined, flavor: 'integer' }] as const)
+      : []),
+    { tier: 'webgl2', kind: 'webgl2', flavor: 'float' },
+    { tier: 'cpu', kind: '2d', flavor: 'float' },
+  ] as const;
+  try {
+    for (const { tier, kind, flavor } of modes) {
+      observed?.select(flavor);
+      let reference: number[] | undefined;
+      for (const form of ['object', 'omitted', 'undefined'] as const) {
+        try {
+          const got = await drawOn(c, kind, { form, flavor });
+          if (got.length !== expected.length)
+            throw new Error('the draw returned the wrong pixel count');
+          if (form === 'object') reference = got;
+          else {
+            const explicit = reference;
+            if (explicit === undefined || got.some((v, i) => v !== explicit[i]))
+              throw new Error(`${form} differs from the explicit empty bindings object`);
+          }
+          if (tier === 'webgpu float' && form === 'object') {
+            const colours = new Set<number>();
+            for (let i = 0; i < got.length; i += 4)
+              colours.add((got[i]! << 16) | (got[i + 1]! << 8) | got[i + 2]!);
+            changed = colours.size;
+          }
+          const worst = Math.max(...got.map((v, i) => Math.abs(v - expected[i]!)));
+          tiers.push({ tier: `${tier} ${form}`, worst, values: got.length });
+        } catch (e) {
+          tiers.push({ tier: `${tier} ${form}`, error: message(e) });
+        }
+      }
+    }
+    observed?.verify();
+  } catch (e) {
+    tiers.push({ tier: 'fp64 flavor instrument', error: message(e) });
+  } finally {
+    observed?.close();
+  }
+  return { id: c.id, kind: c.kind, name: c.name, changed, tiers };
 }
 
 let programRuntime: Promise<Runtime> | undefined;
+
+/** Direct/alias/chain results must match independent arithmetic and each other. */
+async function aliasVerdicts(fixtures: readonly AliasFixture[]): Promise<EntryVerdict[]> {
+  verifyAliasArtifacts(fixtures);
+  const verdicts: EntryVerdict[] = [];
+  let direct: Record<string, number[] | string> | undefined;
+  for (const fixture of fixtures) {
+    const results = await runAliasFixture(fixture);
+    direct ??= results;
+    if (Object.keys(results).length !== 15)
+      throw new Error(`${fixture.name}: the alias fixture did not exercise all fifteen calls`);
+    for (const kind of ['compute', 'render', 'empty'] as const) {
+      const expected: number[] = [];
+      if (kind === 'compute') {
+        for (let i = 0; i < 32; i++) expected.push(i * 0.375 + 1);
+      } else {
+        for (let y = 0; y < 32; y++)
+          for (let x = 0; x < 32; x++)
+            expected.push(
+              ...[(x + 0.5) / 32, (y + 0.5) / 32, kind === 'empty' ? 0.25 : 0.375, 1].map(
+                (v) => v * 255,
+              ),
+            );
+      }
+      const tiers: TierVerdict[] = [];
+      let changed = 0;
+      for (const [key, got] of Object.entries(results).filter(([key]) =>
+        key.startsWith(`${kind} `),
+      )) {
+        const tier = key.slice(kind.length + 1);
+        if (typeof got === 'string') {
+          tiers.push({ tier, error: got });
+          continue;
+        }
+        const baseline = direct[key];
+        const explicit = results[`empty ${tier.split(' ')[0]} object`];
+        if (
+          !Array.isArray(baseline) ||
+          got.length !== expected.length ||
+          got.some((value, i) => value !== baseline[i]) ||
+          (kind === 'empty' &&
+            (!Array.isArray(explicit) || got.some((value, i) => value !== explicit[i])))
+        ) {
+          tiers.push({
+            tier,
+            error: 'alias pixels/values differ from the direct or explicit-object call',
+          });
+          continue;
+        }
+        if (tier === 'webgpu' || tier === 'webgpu object') {
+          if (kind === 'compute') changed = got.filter((v) => v !== 0).length;
+          else {
+            const colours = new Set<number>();
+            for (let i = 0; i < got.length; i += 4)
+              colours.add((got[i]! << 16) | (got[i + 1]! << 8) | got[i + 2]!);
+            changed = colours.size;
+          }
+        }
+        tiers.push({
+          tier,
+          values: got.length,
+          worst:
+            kind === 'compute'
+              ? worstOf(expected, got)
+              : Math.max(...got.map((v, i) => Math.abs(v - expected[i]!))),
+        });
+      }
+      verdicts.push({
+        id: `case:shader-alias-${fixture.name}`,
+        name: kind,
+        kind: kind === 'compute' ? 'compute' : 'fragment',
+        changed,
+        tiers,
+      });
+    }
+  }
+  return verdicts;
+}
 
 /** The storage bindings the entry writes, flattened, after one dispatch by the program runtime
  *  from the manifest: the written bindings are GPU buffers the page makes, filled with the same
@@ -762,6 +941,7 @@ async function programCaseVerdict(run: ProgramCaseRun): Promise<EntryVerdict> {
 }
 
 async function verdictOf(c: EntryCase): Promise<EntryVerdict> {
+  if (c.emptyBindings !== undefined) return emptyBindingsVerdict(c);
   const base = { id: c.id, kind: c.kind, name: c.name };
   if (c.kind === 'compute') {
     let want: number[];
@@ -847,6 +1027,10 @@ export async function runEntries(
   cases: readonly EntryCase[],
   programs: Programs,
   programCases: readonly ProgramCaseRun[] = [],
+  aliases: readonly AliasFixture[] = [],
+  samplerCases: readonly SamplerPairRun[] = [],
+  kernelModule?: KernelLengthModule,
+  bareUniformRuns: readonly BareUniformRun[] = [],
 ): Promise<EntryReport> {
   // The instrument, FIRST: a comparison that cannot see one changed value is blind.
   const probe = [0.5, -1, 2, 3];
@@ -854,6 +1038,7 @@ export async function runEntries(
   const verdicts: EntryVerdict[] = [];
   for (const c of cases) verdicts.push(await verdictOf(c));
   for (const c of programCases) verdicts.push(await programCaseVerdict(c));
+  verdicts.push(...(await aliasVerdicts(aliases)));
   // The render case: right, and with a depth test the scene does not want ('less' where a
   // reversed projection needs 'greater'), which the gate must see differ.
   const render = {
@@ -882,5 +1067,18 @@ export async function runEntries(
   } catch (e) {
     glCanvas = { error: message(e) };
   }
-  return { perturbedReported, verdicts, render, glRender, glCanvas };
+  const samplers = await runSamplerPairs(samplerCases);
+  if (kernelModule === undefined) throw new Error('the kernel-length gate module is missing');
+  const kernelLengths = await runKernelLengths(kernelModule);
+  const bareUniforms = await runBareUniforms(bareUniformRuns);
+  return {
+    perturbedReported,
+    verdicts,
+    render,
+    glRender,
+    glCanvas,
+    samplers,
+    kernelLengths,
+    bareUniforms,
+  };
 }

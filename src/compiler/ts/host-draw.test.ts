@@ -162,9 +162,8 @@ export const derivative = fragment(function derivative(p: builtin<"position", ve
 declare const k: uniform<f32>;
 export const plainUniform = fragment(function plainUniform(p: builtin<"position", vec4>): vec4 { return p * k; });
 `);
-    expect(fragmentOf(plain.exports, 'plainUniform').entry.noGl).toMatch(
-      /^the GLSL backend refuses it: .*uniform binding 'k' must be a struct/,
-    );
+    expect(fragmentOf(plain.exports, 'plainUniform').entry.noGl).toBeUndefined();
+    expect(fragmentOf(plain.exports, 'plainUniform').entry.gl?.blocks.k).toBeDefined();
     const sampled = fragmentOf(f.exports, 'sampled').entry;
     expect(sampled.gl?.samplers).toEqual({ tex: 'smp' });
     expect(sampled.noCpu).toBe(

@@ -94,8 +94,8 @@ export type Expr =
       readonly name: string;
       /** Where this was written, when it is the TARGET of an assignment — the lvalue a
        *  statement is about to write, so a debugger can highlight what changes rather than the
-       *  whole line. A read of the same name carries none in this increment. Read it with
-       *  {@link sourceSpanOf}. */
+       *  whole line. An authored workgroup-variable read also carries its span for stage
+       *  diagnostics; it adds no debugger step. Read it with {@link sourceSpanOf}. */
       readonly span?: SourceSpan;
     }
   | {

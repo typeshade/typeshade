@@ -3,9 +3,12 @@
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
 import { attributeDecoratorsOf } from '../attribute-types.js';
+import { variableRefused } from '../refused-names.js';
+import { moduleVarSourceName } from '../module-var-names.js';
 import { stageCallOf, stageCallOfDeclaration, stageDeclarationOf } from '../stage-call.js';
 import { numericsOf } from '../numerics.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
+import { moduleIndexConst } from '../index-bound.js';
 import { countPushedLengths, pushedParams } from './kernel-push.js';
 import { guardKernelBody } from '../../../core/passes/kernel-stores.js';
 import { inlineKernelMethods, type KernelInlineGap } from './kernel-methods.js';
@@ -43,7 +46,7 @@ import {
   restrictedFieldTableOf,
   withheldTableOf,
 } from '../context.js';
-import type { CollectedStruct } from '../structs.js';
+import { hasRefusedIoAttribute, type CollectedStruct } from '../structs.js';
 import { recordDeclaration, recordInferredReturn, type DeclaredSymbolSink } from '../symbols.js';
 import { mapTsTypeToShaderType, withCollections } from '../type-map.js';
 import {
@@ -108,6 +111,7 @@ import {
   SUBGROUP_INTRINSICS,
 } from '../../../core/intrinsics.js';
 import { diagnosticAtSpan, makeDiagnostic } from '../diagnostic.js';
+import { checkComputeOnlyUses } from '../stage-restrictions.js';
 import { spanOf, withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { isAsyncOrGenerator, isVarStatement, refusalWithin } from '../semantic.js';
@@ -138,7 +142,7 @@ import {
 } from './class-methods.js';
 import { closureUse, declarationOf } from './closures.js';
 import {
-  builtinDecoratorArg,
+  readIoAttributes,
   checkAttributeName,
   checkBuiltinName,
   checkBuiltinStage,
@@ -174,7 +178,8 @@ function writtenModuleNames(
     if (holdsFunction(decl)) continue;
     const dot = field.indexOf('.');
     const member = emittedMemberName(field.slice(dot + 1));
-    values.set(staticConstName(field.slice(0, dot), member), field);
+    const name = staticConstName(field.slice(0, dot), member);
+    values.set(scope.resolveModuleValue(name)?.irName ?? name, field);
   }
   for (const [emitted, written] of writtenConstNames(sourceFile)) values.set(emitted, written);
   return { values, functions };
@@ -340,6 +345,20 @@ export function lowerSourceFunctions(
           refused.add(base);
           continue;
         }
+      }
+      const lengths = arrayLengthParameters(stmt);
+      if (lengths.length > 0) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          lengths[0]!,
+          `"${stmt.name.text}" uses ${lengths.map((p) => `"${p.name.text}"`).join(' and ')} ` +
+            `as an array length, but generic parameters name types, not lengths (Rule 8.9). ` +
+            `Write a helper for each fixed length, or export a kernel taking an unsized array and a separate size argument.`,
+          TS_CODES.UNKNOWN_TYPE,
+        );
+        refused.add(base);
+        continue;
       }
       generics.set(base, { node: stmt, prefix });
       fns.generics.add(base);
@@ -1211,6 +1230,15 @@ export function lowerSourceFunctions(
           ? (scope.bindingOfDeclaration(k) ?? scope.resolve('this'))
           : scope.bindingOfDeclaration(k);
       if (held === undefined) {
+        // A captured local declared above the call may be absent because its initializer was
+        // refused. Keep that cause, rather than claiming the declaration is below this call.
+        if (
+          k !== THIS_CAPTURE &&
+          k.getSourceFile() === sf &&
+          k.end <= node.pos &&
+          variableRefused(k, sf, [...diagnostics, ...diags])
+        )
+          return undefined;
         // Read before its declaration, where TypeScript throws: the call runs the function now.
         pushDiag(
           diags,
@@ -1810,6 +1838,7 @@ export function lowerSourceFunctions(
     diagnostics,
   );
   checkFragmentOnlyOps(funcs, nodeByName, sourceFile, diagnostics);
+  checkComputeOnlyUses(funcs, vars, nodeByName, sourceFile, diagnostics);
   // A read before an assignment, and an `@out` parameter's definite writes, on the source
   // (Rules 7.6 and 8.25).
   checkDefiniteAssignment(sourceFile, diagnostics);
@@ -1963,7 +1992,8 @@ function stageRestrictedOpsOf(body: readonly Stmt[]): Set<string> {
  *  with it, so no call is left without its function. A copy of an `abstract` class's method is
  *  the only lowering its body gets, so what it says is said whether or not anything calls it;
  *  so is a copy of its static that builds its value with `new this()` (0020), which the abstract
- *  class itself has no lowering of. */
+ *  class itself has no lowering of. Identical missing-field reports in those copies name
+ *  the affected classes together; different source spans or remedies stay separate. */
 function sayInherited(
   inherited: readonly { cf: ClassFunction; said: readonly TsCompilerDiagnostic[] }[],
   funcs: FuncDecl[],
@@ -2005,14 +2035,40 @@ function sayInherited(
     }
   }
   for (let i = funcs.length - 1; i >= 0; i--) if (dropped.has(funcs[i]!.name)) funcs.splice(i, 1);
-  const key = (d: TsCompilerDiagnostic): string =>
-    `${d.start}:${d.length}:${d.code ?? ''}:${d.message}`;
-  const said = new Set(diagnostics.map(key));
+  const key = (d: TsCompilerDiagnostic, message = d.message): string =>
+    JSON.stringify([d.fileName, d.start, d.length, d.category, d.code, message]);
+  const said = new Set(diagnostics.map((d) => key(d)));
+  const fields = new Map<string, { index: number; classes: string[] }>();
   for (const { cf, said: own } of inherited) {
     if (dropped.has(cf.stub.name)) continue;
     for (const d of own) {
       if (said.has(key(d))) continue;
       said.add(key(d));
+      // Only the receiver's name varies in this sentence. Do not erase other type names or
+      // a different suggested field: those can identify a failure specific to one class.
+      const prefix = d.message.match(/^Unknown field "[^"]+" on /)?.[0];
+      const name = authorTypeText(structT(cf.struct.decl.name));
+      if (
+        onlyLowering(cf) &&
+        d.code === TS_CODES.UNKNOWN_NAME &&
+        prefix !== undefined &&
+        d.message.startsWith(`${prefix}${name}.`)
+      ) {
+        const suffix = d.message.slice(prefix.length + name.length);
+        const id = key(d, `${prefix}${suffix}`);
+        const group = fields.get(id);
+        if (group !== undefined) {
+          if (!group.classes.includes(name)) group.classes.push(name);
+          const names = group.classes;
+          const together =
+            names.length === 1
+              ? names[0]!
+              : `${names.slice(0, -1).join(', ')} and ${names.at(-1)!}`;
+          diagnostics[group.index] = { ...d, message: `${prefix}${together}${suffix}` };
+          continue;
+        }
+        fields.set(id, { index: diagnostics.length, classes: [name] });
+      }
       diagnostics.push(d);
     }
   }
@@ -2381,7 +2437,13 @@ export function parseParams(
       )
     )
       return undefined;
-    const builtinArg = stage ? builtinDecoratorArg(decoratorsOf(p)) : undefined;
+    const io = stage ? readIoAttributes(diagnostics, sourceFile, decoratorsOf(p)) : undefined;
+    // Validate independent option arguments even when the IO argument itself is malformed.
+    const interpolateAttr = stage
+      ? interpolateDecoratorArg(diagnostics, sourceFile, decoratorsOf(p))
+      : undefined;
+    if (io?.invalid) return undefined;
+    const builtinArg = io?.builtin;
     let builtin: string | undefined;
     if (builtinArg) {
       const validName = checkBuiltinName(
@@ -2408,7 +2470,7 @@ export function parseParams(
     if (stage && pType.kind === 'struct') {
       checkStructBuiltinFields(diagnostics, sourceFile, p, pType.name, structs, stage, 'input');
     }
-    const location = stage ? numberDecorator(p, sourceFile, 'location') : undefined;
+    const location = io?.location;
     // An emulated double on the entry's IO boundary (#151 F64-09). A FRAGMENT @location input
     // is interpolated; a VERTEX one is a buffer read, which carries a scalar f64's pair in one
     // slot but cannot carry a vec64's two.
@@ -2431,9 +2493,6 @@ export function parseParams(
     // attribute an author wrote here was dropped with no diagnostic and reached neither
     // target (§53). The whole argument list is kept, as the struct path keeps it: the GLSL
     // writer needs the sampling as well as the type.
-    const interpolateAttr = stage
-      ? interpolateDecoratorArg(diagnostics, sourceFile, decoratorsOf(p))
-      : undefined;
     if (interpolateAttr !== undefined && location === undefined) {
       pushDiag(
         diagnostics,
@@ -2959,7 +3018,7 @@ function refuseVertexWithoutPosition(
     const decl = structs.find((s) => s.decl.name === ret.name);
     // An unknown struct was reported where it was named; do not pile on.
     if (decl === undefined) return;
-    if (decl.decl.fields.some((f) => f.builtin === 'position')) return;
+    if (decl.decl.fields.some((f) => f.builtin === 'position' || hasRefusedIoAttribute(f))) return;
     pushDiag(
       diagnostics,
       sourceFile,
@@ -2981,13 +3040,13 @@ function refuseVertexWithoutPosition(
   );
 }
 
-/** What a function's scope needs of a module const: its name and type, its CPU value when it
- *  is a scalar, and its initializer when it is not. A `ConstDecl` is one; the fields it does
- *  not have here (`wgslValue`) are the emitter's. */
+/** What a function's scope needs of a module const. `wgslValue` and `valueExpr` also supply
+ *  conservative integer index proofs; a CPU value alone does not prove the emitted value. */
 export interface ScopedConst {
   readonly name: string;
   readonly type: ShaderType;
   readonly cpuValue?: number | boolean;
+  readonly wgslValue?: number;
   readonly valueExpr?: Expr;
 }
 
@@ -3058,6 +3117,7 @@ export function functionScope(
       // its `valueExpr`, not a value; taking it as one made `v / Z` for any vector const `Z`
       // a division by zero to the constant folder (#68). The initializer rides along instead.
       constValue: c.type.kind === 'scalar' ? c.cpuValue : undefined,
+      indexConstValue: moduleIndexConst(c, scope),
       ...(c.type.kind !== 'scalar' && c.valueExpr !== undefined ? { valueExpr: c.valueExpr } : {}),
     });
   }
@@ -3078,7 +3138,14 @@ export function functionScope(
   // A module variable (§24) reads and writes as a `varref`, like a binding; its space decides
   // what may hold an atomic and which stage may reach it.
   for (const v of vars) {
-    defineOnce({ kind: 'modvar', name: v.name, type: v.type, mutable: true, space: v.space });
+    defineOnce({
+      kind: 'modvar',
+      name: moduleVarSourceName(v),
+      irName: v.name,
+      type: v.type,
+      mutable: true,
+      space: v.space,
+    });
   }
   // Module values live outside the parameters and body locals, as in TypeScript (#429).
   scope.push();
@@ -3973,8 +4040,8 @@ function decoratorsOf(node: ts.Node): readonly ts.Decorator[] {
  *  and the compiler otherwise emits that struct's WGSL text with a member neither backend nor
  *  Tint accepts, silently. Every diagnostic anchors at `node` (the parameter or the return type
  *  annotation) since a `StructField` carries no source position of its own — see `structs.ts`'s
- *  `collectStructs`, which already validated each field's builtin *name* independently of how
- *  the struct ends up used. */
+ *  `collectStructs`, which already validated each field's builtin name and type independently
+ *  of how the struct ends up used. */
 function checkStructBuiltinFields(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
@@ -3996,6 +4063,7 @@ function checkStructBuiltinFields(
   // vertex output and a fragment input are the SAME struct. What is left below reads the
   // stage, which is genuinely different between the two uses.
   for (const field of collected.decl.fields) {
+    if (hasRefusedIoAttribute(field)) continue;
     // A `@location` on a COMPUTE entry, reached through a struct parameter. The bare-parameter
     // spelling was refused where it is parsed, and this one walked past it: Tint answers
     // `'@location' cannot be used by compute shaders`. Stage-dependent, so it belongs here
@@ -4038,19 +4106,7 @@ function checkStructBuiltinFields(
     }
     if (!field.builtin) continue;
     checkBuiltinStage(diagnostics, sourceFile, node, field.builtin, stage, direction);
-    checkBuiltinType(diagnostics, sourceFile, node, field.builtin, field.type);
   }
-}
-
-function numberDecorator(node: ts.Node, _sf: ts.SourceFile, name: string): number | undefined {
-  for (const d of decoratorsOf(node)) {
-    if (!ts.isCallExpression(d.expression)) continue;
-    if (!ts.isIdentifier(d.expression.expression) || d.expression.expression.text !== name)
-      continue;
-    const a = d.expression.arguments[0];
-    if (a && ts.isNumericLiteral(a)) return Number(a.text);
-  }
-  return undefined;
 }
 
 /** ASI keeps a newline after `return` from handing back the following expression. Explain
@@ -4118,6 +4174,30 @@ function pushDiag(
   code: TsCode,
 ): void {
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
+}
+
+/** A type parameter used as an array length cannot be supplied by a type argument. */
+function arrayLengthParameters(decl: ts.FunctionDeclaration): ts.TypeParameterDeclaration[] {
+  const used = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isTypeReferenceNode(node) &&
+      ts.isIdentifier(node.typeName) &&
+      node.typeName.text === 'array'
+    ) {
+      const length = node.typeArguments?.[1];
+      if (
+        length !== undefined &&
+        ts.isTypeReferenceNode(length) &&
+        ts.isIdentifier(length.typeName)
+      )
+        used.add(length.typeName.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  for (const parameter of decl.parameters) if (parameter.type !== undefined) visit(parameter.type);
+  if (decl.type !== undefined) visit(decl.type);
+  return decl.typeParameters?.filter((parameter) => used.has(parameter.name.text)) ?? [];
 }
 
 /** The type arguments one call settles: the ones it writes, or the ones its arguments show.

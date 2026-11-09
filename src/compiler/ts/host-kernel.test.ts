@@ -1328,6 +1328,24 @@ export function sizes(out: array<f32>, a: array<f32>, b: array<f32>) {
     expect(fuse!.ir.version).toBe(VERSION);
   });
 
+  it('uses an explicit fusion identity, including an empty one, without changing source paths (0122)', () => {
+    const fileName = '/app/m.shade.ts';
+    const original = hostFace(OPS, { fileName });
+    for (const origin of ['["@acme/ops","src/m.shade.ts"]', '']) {
+      const changed = hostFace(OPS, { fileName, origin });
+      const records = changed.exports!.flatMap((e) =>
+        e.kind === 'kernel' && e.face.fuse !== undefined ? [e.face.fuse] : [],
+      );
+      expect(records.length).toBeGreaterThan(0);
+      for (const record of records) expect(record.origin).toBe(origin);
+      expect(changed.code).toContain(`"origin":${JSON.stringify(origin)}`);
+      expect(changed.view).toBe(original.view);
+      expect(changed.files).toEqual(original.files);
+      expect(changed.diagnostics).toEqual(original.diagnostics);
+      expect(hostFace(OPS, { fileName, origin, fuse: false }).code).not.toContain('"fuse":');
+    }
+  });
+
   it("carries the lowered module as IR, which the WGSL writer emits as the face's WGSL when nothing is cut", () => {
     // A helper the function calls, a reduction with its tree, a scatter, and a struct array: each
     // face's own functions are all it has, so the cut leaves the module whole.

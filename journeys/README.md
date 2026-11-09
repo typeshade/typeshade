@@ -35,6 +35,19 @@ It also distinguishes null and undefined through nullable classes, fields, array
 arguments and optional chains, and checks short-circuit conversion effects against an
 independent JavaScript reference (change 0098).
 
+`scatter-extremes/` checks `min` and `max` scatters into signed and unsigned integer arrays
+against a plain-JavaScript reference. Several workgroups write the same cells; both operand
+orders preserve the initial storage and the cell no iteration writes (#761).
+Its shader is also copied into `_host-import/`, whose host requires WebGPU and checks both
+`subgroups: 'off'` and `'auto'` against the same reference and the device's selected variant.
+
+`f64-module-constants/` checks scalar module constants and their precision boundaries
+against an independent JavaScript reference (change 0123). It covers literals, arithmetic,
+`Math` constants, builtin calls, earlier constants, namespaces and unwritten static fields.
+Both fp64 flavors must run on WebGPU and WebGL2, with no WebGL2 skip. The CPU oracle runs
+the same cases. Normal-range results use a tolerance of `1e-12`; workgroup-tail elements
+must keep their initial zero. The packed harness also checks the compiler and language service.
+
 ## A journey
 
 The import journey also checks private kernel input projection (change 0082): helper reads
@@ -59,7 +72,8 @@ selected override and dispatch shape, and the 256-wide run checks the documented
 `workgroup-override-f64/` repeats the specialization through nested workgroup arrays of
 emulated doubles. Sizes 32, 64 and 128 run with both fp64 flavors against the CPU oracle and
 an independent integer-valued reference. A tail workgroup checks lanes beyond the authored
-default extent (#740).
+default extent (#740). With emulated-double storage available on WebGL2 (#1021), both fp64
+flavors run the default size 64 there and assert the documented refusal for sizes 32 and 128.
 
 A journey is a directory holding one or more `*.shade.ts` sources and a `journey.mjs` host.
 
@@ -124,6 +138,11 @@ A sixth kind, `kind: 'limits'` (change 0051), is a host that runs one program on
 4. every value the bundle prints matches `reference.mjs`, the same computation in plain JavaScript;
 5. a browser bundle of `src/gpu.ts` calls two `@compute` entries through the import in a page with WebGPU (change 0016), one of them through a barrier, which has no CPU tier, and both match the reference, called with plain typed arrays and again chained through `resident` arrays, the map's output the block sum's input, which only queue; `markGroups` runs over the workgroup count that `planGroups` wrote into a `resident` array (change 0075), with WebGPU required and again on the CPU tier, each against the reference and the two element for element; and a third, `axpy` of `src/doubles.shade.ts`, over `Float64Array`s its module emulates as two `f32`s each, held to a double's reference within 1e-12; `deep` of `src/deep.shade.ts`, a fragment entry that computes in `f64`, is drawn on WebGPU, WebGL2 and the CPU tier with the `_fp64` guard the runtime binds; it then draws two full-screen fragment entries of `src/draw.shade.ts` on WebGPU, WebGL2 and the CPU tier, each frame against the reference, and a sampled texture's draw on the CPU is refused with the reason, and a third, which reads a `resident` array a kernel function filled, on WebGPU and the CPU tier. It calls the particles journey's kernel function `step` for 20 frames on a `resident` array, whose steps only queue and whose one read follows the last, and draws the plasma journey's `fs` through the import, each against that journey's own reference, and checks that a production build records no `console.*` call while `vite dev` prints an entry's calls from WebGPU in order, each line with its tier, file and line and invocation. It also calls `dstats` of `src/doubles.shade.ts`, a kernel function over 70 000 `f64`s whose map and sum and min run on WebGPU, required, held to a double's reference within 1e-12, and kernel functions of `src/loops.shade.ts` (change 0013), whose loops run on WebGPU one invocation per iteration, each against the f32 reference, two of them reductions whose sums match the tree order bit for bit (300 000 `f32`s, folded over two levels of partials), one a histogram whose bins are atomics, two that read an array's length inside an iteration, over arrays of 5, 12 and 7 elements, the last a `resident` one, whose byte sizes are no multiple of 16 (#367), and renders into and reduces over `resident` arrays that stay on the device across the calls, and one with an array too short for its loop, which is refused before anything is uploaded; and three that use an array's methods on their arrays (change 0079), `methodStats`, `methodFill` and `methodSearch`, whose `reduce`, `fill`, `forEach`, `some` and searches run on WebGPU, required, each against what `Array.prototype` gives.
 
+The dev step first imports `src/dev-runtime.ts`, which imports only the public runtime.
+Once that import resolves, it imports the shader host and its `typeshade/fuse` dependency.
+The page must stay loaded and print the four expected GPU console lines without an import retry.
+This detects a missing startup pre-bundle even when Vite's late dependency reload would otherwise succeed on a second call.
+
 The `vite dev` server of check 5 is a child of the gate, and the gate stops it. The gate starts `node` on the `vite` entry of the import project (the `bin` field of its `vite` package), so the child is the server. It does not start `npx vite`: `kill()` ended `npx` and left the `vite` that `npx` had started running, with its port (#923). The gate sends SIGTERM, waits until the server has exited, sends SIGKILL after ten seconds, and fails if its port still accepts a connection. Every child that the gate starts goes through `scripts/gate-children.ts`. The gate ends with a check that no such child is alive: it stops a child that is alive and fails.
 
 The automatic-fuse build imports no registration subpath. Fresh browser and module-worker realms
@@ -136,6 +155,21 @@ The import journey also checks ordinary owner inference (change 0085). Owned ind
 select WebGPU or CPU without global configuration. Owned texture calls match the byte reference,
 and a foreign device's scope refuses them. Two WebGPU owners alternate on one canvas; a queued
 array fill precedes its draw, and a texture-only draw waits for its queued writer.
+
+The binding-free fragments in `src/empty-bindings.shade.ts` and
+`src/empty-bindings-guard.shade.ts` draw with omitted bindings, `undefined` and `{}`
+(change 0125). Every form matches an independent JavaScript pixel reference, and the three
+forms match byte for byte. Both fragments run on WebGPU, WebGL2 and the CPU tier. The
+guard-only fragment also runs with both WebGPU fp64 flavors. Captured shader text proves
+that the flavors differ and only the float flavor uses the runtime guard. The compile gate's
+entry-call leg checks the same fixtures and verifies their host-binding metadata.
+
+The pure-alias fixtures compare two terminal modules with their direct, aliased and chained
+imports (change 0126). An unused first binding retains its slot, and a private entry stays
+in the manifest without becoming a named host export. Forty-five compute, fragment and
+empty-binding calls run across their supported WebGPU, WebGL2 and CPU tiers. Outputs match
+independent JavaScript references and the direct calls; omitted bindings match `{}` exactly.
+The compile gate checks the same fixtures, including actual WGSL and render GLSL output.
 
 In the same project, from the same tarball, the script then builds `examples/hosts/` (change 0061) with Vite: the host examples, each a module and the `host.ts` an application would write. It calls each host's `run()` through `examples/hosts/_drive.ts` in two pages. The first has WebGPU and sets `configure({ prefer: ['webgpu'] })`, so a kernel or entry call cannot fall back to another tier. The second hides `navigator.gpu`, sets `configure({ prefer: ['webgl2'] })` and makes each canvas's `webgl2` context first, so every call, draw and `runtime()` runs on WebGL2. Each result is compared with `examples/hosts/_reference.ts`, the reference `examples/host-examples.test.ts` holds the CPU tier to, and a host must pass on a tier exactly when `examples/hosts/_order.ts` lists that tier for it.
 
@@ -155,12 +189,29 @@ and reads of the original module values to the CPU oracle and WebGPU.
 
 A journey belongs with the change that makes it work. A pull request that improves what a user can write adds the journey that shows it, and the gate keeps it working from then on.
 
+`journeys/bare-uniforms/` (change 0127, #452) passes scalar, vector and six three/four-row
+matrix values without a struct wrapper. Weighted components expose lane and column swaps.
+Every original and changed input runs on WebGPU, required WebGL2 and the CPU oracle, against
+plain JavaScript. Scalar and vector `f64` cases exercise both emitted flavors with values
+whose low word affects the pixel. Two zero-multiplied reads retain the same output when the
+input changes, whether the native driver keeps their block active or removes it.
+
+The compile gate calls the same fixtures through generated host modules and manifest render
+pipelines (`scripts/bare-uniform-cases.ts`). A changed value reuses the same canvas and owner,
+or the same runtime and pipeline, so a cached upload must take the new value.
+Host WebGPU and both manifest tiers exercise both
+`f64` flavors; generated host WebGL2 retains its existing float flavor. Actual shader creation
+distinguishes the WebGPU flavors. Native GLSL probes reject a broken shader and buffers one
+byte below each active block's queried size, then restore the packed bytes and read the pixel.
+Changing the float flavor's real guard texture to zero must change its readback.
+
 `journeys/class-upcasts/` (change 0038, #429) passes a read-only derived material into a
 base-typed constructor. Its independent JavaScript classes verify the material response,
 one evaluation of a side-effecting factory and argument order on the CPU and WebGPU.
 
 `journeys/class-twins/` (change 0110) writes a bank of audio units as classes: a lowpass and
-a derived gain stage, a phasor with a getter, an envelope with no constructor, a counter that a
+a derived gain stage, a gain whose constructor crosses an abstract intermediate class,
+a phasor with a getter, an envelope with no constructor, a counter that a
 helper advances through `@inout`, a panner with a vector field and a wavetable voice that reads
 a binding. An entry and a kernel function step a bank of filters through a block, and an entry
 plays a bank of voices, each against plain JavaScript. Its classes are also the corpus of the
