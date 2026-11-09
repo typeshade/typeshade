@@ -76,8 +76,8 @@ and every person reads this file before any other document of this repository.
   the type form (`pos: builtin<"position", vec4>`, `uv: location<0, vec2>`).
 - What it means:
   - A parameter that the function writes back to its caller is written `@inout a: f32` or
-    `@out c: f32`. The type form `inout<T>` and `out<T>` of change 0111 D5 is not the
-    language's form. Change 0111 D5 moved the qualifier into the type only so that a plain
+    `@out c: f32`. The type form `inout<T>` and `out<T>` of change 0111 D4 is not the
+    language's form. Change 0111 D4 moved the qualifier into the type only so that a plain
     `tsc` accepts the file, which OD-1 rejects.
   - `in` is not written: every parameter is passed by value unless it carries `@inout` or
     `@out`.
