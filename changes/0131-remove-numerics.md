@@ -350,15 +350,16 @@ Estimated:
 1. **Decided 2026-11-09: option A** (delete `finite-math.ts`, `contract-constants.ts`,
    `contract-boundary.ts` and their hooks). The owner's words in the Claude Code session:
    "추천대로" (as recommended), then "승인" (approved).
-2. Keep the numbers Rule 11.22 and surface §78 with new content (recommended), or remove them
-   and change `src/changes.test.ts` to accept a removed rule for an implemented proposal. Open.
+2. **Decided 2026-11-09: keep the numbers Rule 11.22 and surface §78 with new content.** The
+   alternative was to remove them and change `src/changes.test.ts` to accept a removed rule for
+   an implemented proposal. The owner's words in the Claude Code session on 2026-11-09: "승인" (approved), given to the recommendation.
 3. A source that still writes `numerics(...)`: the plain `TS8004` (recommended: no program uses
    it, and no published version has it), or a migration release with a named message and a
-   `tshc migrate` step. Open.
+   `tshc migrate` step. **Decided 2026-11-09: the plain `TS8004`, no migration release.** The owner's words in the Claude Code session on 2026-11-09: "승인" (approved), given to the recommendation.
 4. **Decided 2026-11-09: close draft pull request #965 unmerged, after 0131 is accepted.** The
    owner's words: "추천대로", then "승인". #965 stays open until then.
-5. Set change 0107 to `archived`, with a line that names 0131, in the pull request that
-   implements this change. Open.
+5. **Decided 2026-11-09: set change 0107 to `archived`, with a line that names 0131, in the
+   pull request that implements this change.** The owner's words in the Claude Code session on 2026-11-09: "승인" (approved), given to the recommendation.
 
 ### Independent review record
 
@@ -386,12 +387,12 @@ follows `2dd2e26b` on pull request #1104.
 | N5. The removal of `src/common-modules.test.ts:44-49` was not named.                                                                                                                                                                                                            | Fixed                       | Proposed item 4 names it.                                                                                                                                                                                                                                                                                                                          |
 | An author who wants #965's gain must delete the dead terms by hand; the proposal did not say so.                                                                                                                                                                                | Fixed                       | "What an author sees" and the example say so.                                                                                                                                                                                                                                                                                                      |
 
-Open findings: none. Open decisions for the owner: 2, 3 and 5.
+Open findings: none. Open decisions for the owner: none.
 
 ### Approval and plan record
 
 This record does not yet apply. Acceptance will require the owner's decision on this pull
-request, the approved revision, answers to the open decisions 2, 3 and 5, and the review record.
+request, the approved revision and the review record. Decisions 0 to 5 are decided.
 
 ### Configuration and validation record
 
