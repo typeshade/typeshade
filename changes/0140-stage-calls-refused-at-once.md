@@ -1,7 +1,7 @@
 ---
 id: '0140'
 title: The stage calls `vertex(f)`, `fragment(f)`, `compute([…], f)` and `workgroup_size([…], f)` and an `export default` entry are refused with `TS8028` with no warning release (amends change 0130 D4)
-status: draft
+status: accepted
 rules:
   - '1.8'
   - '6.7'
@@ -310,11 +310,14 @@ No finding is open.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision on the proposal's
-pull request, the merge with `status: accepted`, the pointer sentence in change 0130, and the
-approved revision. Each implementing pull request carries `Change: 0140` with `Change: 0130`.
-Pull requests 2, 3 and 4 change how an author writes an example or what compiles, so each shows
-one example before and after and waits for the owner's "merge" (`CLAUDE.md`, Merging).
+Accepted. The owner (Seungup) approved acceptance in the Claude Code session on 2026-11-09, in
+Korean ("승인"), after the before and after forms and the four pull requests were shown (OD-4).
+The approval is recorded by the merge of pull request #1141 with `status: accepted`; the approved
+revision is this file as merged. The same merge adds the pointer sentence to change 0130. Each
+implementing pull request carries `Change: 0140` with `Change: 0130`. Pull requests 2, 3 and 4
+change how an author writes an example or what compiles, so each shows one example before and
+after and waits for the owner's "merge" (`CLAUDE.md`, Merging). Duration and cost are not
+estimated.
 
 ### Configuration and validation record
 
