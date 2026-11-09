@@ -37,10 +37,10 @@ downstream:
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Identity and status           | Proposal 0134, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the owner's direction. Revised 2026-11-09 (UTC) by the same agent after the first independent review, after the owner's decisions on Q1, Q2 and Q4, and after the second independent review and the owner's decision on Q3, all recorded below. The dates are drafting and revision dates. They are not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| Request source                | The owner (Seungup) asked on 2026-11-09 which parts of the surface push the compiler's work onto the author, judged against OD-3. From the audit the owner chose item 1, numeric literals, for a proposal. The owner decided Q1 to Q9 in the same session (Decisions of the owner, below).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the owner's direction. Revised the same day (UTC) by the same agent after each of three independent reviews and after the owner's decisions on Q1 to Q11, all recorded below. The dates are drafting and revision dates. They are not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Request source                | The owner (Seungup) asked on 2026-11-09 which parts of the surface push the compiler's work onto the author, judged against OD-3. From the audit the owner chose item 1, numeric literals, for a proposal. The owner decided Q1 to Q11 in the same session (Decisions of the owner, below).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Applicability / effectivity   | Expected compiler work: a new numeric type pass over the module (item 1), the module-constant, function-result, class-field and module-variable lowering, the WGSL and GLSL emitters, the CPU oracle's constant values, `src/compiler/ts/local-numeric-inference.ts`, `src/compiler/ts/lit-coerce.ts`, `src/compiler/ts/numeric.ts`, `src/language-service/hover.ts`. The retirement of `TS8053`: `src/compiler/ts/codes.ts` (the entry and the header list of retired codes), `scripts/numbering.ts` (`CODE_GAPS`), `src/compiler/ts/integer-literal-deprecation.ts` and its test, `src/compiler/ts/field-literal-deprecation.test.ts`, `src/compiler/ts/remedy-lines.test.ts`, `src/compiler/ts/array-literal.test.ts`, `src/compiler/ts/source-file.ts`, `src/language-service/check.ts` and `check.test.ts`, the `--deprecations` help line of `src/cli/run.ts`, the JSDoc of `CompileOptions.deprecations` and `CompileTsSourceOptions.deprecations`. Documents: `docs/language-design.md` (Rules 5.1, 5.2, 8.14, 8.19, 12.7, 13.10, §14), `docs/use-typeshade-surface.md` (§12, §13, §14, §24, §26), `docs/roadmap.md` (T15), `RELEASING.md` (§7), `docs/language-service-api.md`, `docs/benchmark-typescript.md`, `reqs/rules/RULE-1310.md`, `examples/*.shade.ts` (content only), `CHANGELOG.md` (`### Changed`, `### Removed`). No release version is assigned. |
-| Review baseline               | First draft on `main` at `2cc98b8f` (merge of pull request #1113). Later revisions on `main` at `583891d2` and then `77e19b5a`, each merged into the branch. The measurements below were made on `2cc98b8f` and repeated on `583891d2` on 2026-11-09, with the same results. F17 to F19 were measured on `77e19b5a`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Review baseline               | First draft on `main` at `2cc98b8f` (merge of pull request #1113). Later revisions merged `main` into the branch at `583891d2`, `77e19b5a`, `984fa069` and `261888a9` (merge of pull request #1125). F1 to F16 were measured on `2cc98b8f` and repeated on `583891d2`, with the same results; F17 to F19 on `77e19b5a`; F20 on `984fa069`; F21 and F22 on `261888a9`. All on 2026-11-09.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Review and revision authority | Pull request #1121 (draft). Git records the revisions of this file. A merge with `status: accepted` will record the decision.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ## What changes
@@ -101,15 +101,26 @@ i32", because #148 decided that the default becomes `i32` (§14, roadmap item T1
      `it / 100`.
 
    An integer of no kind is `i32`, as WGSL concretizes an AbstractInt in an integer-only
-   position, unless another use says `u32`. The compiler solves all of these together, as a
+   position, unless another use says `u32`. Where a known non-negative value does not fit an
+   `i32` (`f | 3000000000`), the compiler takes `u32`, as item 3 takes `f32` for a value an `i32`
+   cannot hold. This is the compiler's choice under OD-7, not a rule the author learns. The compiler solves all of these together, as a
    fixed point over the module. The result does not depend on source order. Uses of one value
    that demand two concrete types stay refused with `TS8003` and the annotation remedy, as Rule
-   5.1 says today. A value that an integer demand makes an integer and that a `/` divides is
-   refused with `TS8003` (decision Q6). The sentence names the two fixes: annotate the value
-   (`let k: i32 = 7`, for integer division) or convert it (`f32(k) / 2`). This covers every
-   integer demand, the declared uses of changes 0036 and 0037 among them, because the reason is
-   the same: the compiler cannot know whether the author means 3 or 3.5. This is a new numeric type pass
-   over the module and a change to the lowering order. It is not an extension of
+   5.1 says today.
+
+   **Division (decisions Q6, Q10 and Q11).** A `/` (and `/=`) is integer division only when one
+   operand has an integer type the author wrote: a declared parameter, a builtin such as
+   `vi: u32`, an annotated local, a declared field or result. So `vi / k` stays an integer
+   division, as `vi / 7` is. Where the integer type of every operand came from inference (a value
+   of item 1, a local of changes 0036 and 0037, a constant of item 2 that some read makes an
+   integer), the `/` is refused with `TS8003`. The sentence names the two fixes: annotate the
+   value (`let k: u32 = 7`, for integer division) or convert it (`f32(k) / 2`). Examples refused:
+   `let k = 7; h(k); return r + k / 2;`, `let k = 7; h(k); k /= 2;`,
+   `const k = 7; h(k); return f32(k / 2);`. On 2026-11-09 the owner was shown F20, which compiles
+   today as `k / 2u`, and confirmed that it is refused (decision Q6). The owner decided the same
+   for a `const` (decision Q10) and the rule of the declared operand (decision Q11).
+
+   This is a new numeric type pass over the module and a change to the lowering order. It is not an extension of
    `src/compiler/ts/local-numeric-inference.ts`, which reads one function's declared uses.
 
    **A function's result decided by its callers (Rule 8.19, new text).** Rule 8.19 says today
@@ -136,6 +147,8 @@ i32", because #148 decided that the default becomes `i32` (§14, roadmap item T1
    `vi * K` is `vi * 3u` and `x * K` is `x * 3.0` in one function, and
    `const N = 8; for (let j = 0; j < N; j++)` compiles. A function-local `const k = 1` read at two
    types is accepted, as a module `const` is. Its edges:
+   - A constant that some read makes an integer and that a `/` divides is refused, as a value
+     of item 1 is (decision Q10; Division, above).
    - A cast is a read. `u32(K)` converts the written number, as `u32(3)` does. A constant of no
      fixed type therefore never needs the choice of item 3.
    - A `const` initialized from such constants and written numbers (`const M = K * 2`) is one
@@ -180,8 +193,12 @@ i32", because #148 decided that the default becomes `i32` (§14, roadmap item T1
    - the same constant, at a read: the compiler's type for that read (`K: u32` in `vi * K`).
      `src/language-service/hover.ts` keys a type by declaration today, so this needs a table per
      reference;
+   - a float-written constant, at its declaration: `const C = 0.1 (f32 or f64 where it is read)`;
+   - a function its callers decide to one type: `function g(): u32`;
    - a function with two copies: at the declaration, its result in TypeShade's words
      (`function g() (u32 or f32 where it is called)`); at a call, the copy's result type;
+   - a value whose `/` is refused (decision Q6): the type inference gave it (`let k: u32`), and
+     the `TS8003` sentence at the `/`;
    - an imported constant or function: the compiler's type for the read in the importing file.
      Today hover falls back to TypeScript's type for an imported name, so this needs the
      language service to analyse the import as the compiler does (it has `readDocument`);
@@ -197,7 +214,9 @@ i32", because #148 decided that the default becomes `i32` (§14, roadmap item T1
    example `const WIN_N = 12.0` becomes `const WIN_N = 12`, a constant of no fixed type that the
    emitters inline, and `let acc = 0.` becomes `let acc = 0`, whose type follows its uses.
    Proposed default (the draft's, not an owner's decision): item 5 ships first, in its own pull
-   request, on today's compiler. Reasons: its goldens stay byte-identical, so its review is about
+   request, on today's compiler, with the retirement of `TS8053` in the same or an earlier pull
+   request: once the examples drop their decimal points, `TS8053`'s text ("will type as i32")
+   would contradict decisions Q2 and Q5 on about 60 lines (F4). Reasons: its goldens stay byte-identical, so its review is about
    text only; it needs no rule; and the later items then review their own golden diffs, each
    against a known baseline. If it ships after, the rewrite is measured again and its golden diff
    is reviewed. Item 5 changes how authors write examples, so
@@ -208,28 +227,42 @@ i32", because #148 decided that the default becomes `i32` (§14, roadmap item T1
 The changes below take effect at once, with no warning release (decision Q4). TypeShade has no
 official release, and the published artifacts of F11 were test builds (decision Q9, OD-6). The `CHANGELOG.md` entry under `[Unreleased]`,
 `### Changed`, names each change, the old value, the new value and the edit that keeps the old
-one. `### Removed` names `TS8053`. The implementing pull request shows these changes to the owner
-before the merge (OD-4).
+one. `### Removed` names `TS8053`. Each implementing pull request that changes a value or newly refuses a program is not
+approved in advance: its body shows each change before and after, and it waits for the owner's
+"merge" (OD-4).
 
-- **A constant above 2^24 (item 2, decision Q4).** A module or local `const` of an
-  integer-written number that `f32` does not hold exactly, read through a cast or beside an
-  `f64` (F13). `const PRIME = 2654435761; vi * u32(PRIME)` read 2654435840 and reads 2654435761.
-  `const K = 16777217; vi + u32(K)` read 16777216 and reads 16777217.
-  `const K = -16777219; i32(K)` read -16777220 and reads -16777219. To keep the old value,
-  write `const K: f32 = …`.
-- **A float-written constant beside an `f64` (item 2, decision Q7).** `const C = 0.1;` read
-  beside an `f64` (`x + f64(C)`, `x * C`) carried the `f32` value of 0.1, `vec2<f32>(C, 0.0)`
-  (F10), and carries the full double, as the written `x * 0.1` does. To keep the old value,
-  write `const C: f32 = 0.1`.
+- **A constant whose value `f32` does not hold exactly (item 2, decisions Q4 and Q7).** A constant
+  of no fixed type (module, function-local, or a static field that no code writes, including a
+  constant computed from constants) whose ECMAScript value `f32` does not hold exactly, read
+  through a cast or beside an `f64`, reads its exact value. Today the compiler rounds it to `f32`
+  (F10, F13, F22):
+  - `const PRIME = 2654435761; vi * u32(PRIME)` read 2654435840 and reads 2654435761.
+  - `const K = 16777217; vi + u32(K)` read 16777216 and reads 16777217.
+  - `const K = -16777219; i32(K)` read -16777220 and reads -16777219.
+  - `class S { static K = 16777217; }` with `u32(S.K)` read 16777216 and reads 16777217.
+  - `const K = 7; x * (K / 3)` with `x: f64` carried the `f32` quotient (2.3333333) and carries the
+    full double of 7 / 3. `const M = K / 3;` read beside an `f64` does the same.
+  - `const C = 0.1;` beside an `f64` carried the `f32` value of 0.1 and carries the full double,
+    as the written `x * 0.1` does.
+
+  To keep the old value, write the constant's type (`const K: f32 = …`).
+
 - **A value nothing decides (item 3, decision Q5).** No change: it stays an `f32`, with today's
   values, and no golden moves (`let calls = 0` in `loop-on-cpu.shade.ts` among them, F15). A
   function result that no caller decides stays `f32`:
   `function g() { return 16777217; } … u32(g())` still reads 16777216 (F19).
-- **Newly refused (item 1, decision Q6).** A value that an integer demand makes an integer and
-  that a `/` divides. This includes a local that the declared uses of change 0036 make an
-  integer: `function h(a: u32): u32 { … } let k = 7; h(k); return k / 2;` compiles today as
-  `u32` integer division, `k / 2u` (F20), and is refused with `TS8003` after. The fix the
-  sentence names: `let k: u32 = 7` (keeps `3`) or `f32(k) / 2` (`3.5`).
+- **Newly refused (Division, decisions Q6, Q10 and Q11).** A `/` or `/=` whose operands are all
+  integers by inference only. Each compiles today and is refused with `TS8003` after; the fix the
+  sentence names is an annotation (`let k: u32 = 7` or `const k: u32 = 7`, keeps the integer
+  division) or a conversion (`f32(k) / 2`, gives 3.5). With `function h(a: u32): u32`:
+  - `let k = 7; const r = h(k); return r + k / 2;` emits `k / 2u` today (F20).
+  - `let k = 7; h(k); k /= 2;` emits a `u32` division today (F21).
+  - `const k = 7; h(k); return f32(k / 2);` emits `3.0` today (F21).
+  - `const k = 7; let j: i32 = k; return f32(k / 2) + f32(j);` emits `3.0` today (F21).
+  - `const k = 7; const r = h(k); return r + k / 2;` emits `r + 3u` today (F21).
+  - `const k = 7; h(k); return xs[k / 2];` emits `xs[3u]` today (F21).
+
+  Still allowed: `let k = 7; h(k); return vi / k;` (`vi` is a declared `u32`), as today (F21).
 
 The CPU oracle's recorded values move with the emitted values, so the GPU and the oracle still
 agree.
@@ -296,7 +329,7 @@ written (item 2), and `let a = 0` may drop its decimal point, since `a += xs[j]`
 | A loop bound                             | `const N: i32 = 8; … j < N`            | `const N = 8; … j < N` (item 2; refused today)               |
 | A number nothing decides                 | `let k = 0.` (f32), `let k = 0` (f32)  | `let k = 0.` (f32), `let k = 0` (f32, the compiler's choice) |
 | A float constant beside an `f64`         | `const C: f64 = 0.1` (else f32 value)  | `const C = 0.1` (the full double; item 2)                    |
-| An integer value divided by `/`          | `let k = 7; h(k); k / 2` (integer `/`) | refused: write `let k: u32 = 7` or `f32(k) / 2` (Q6)         |
+| An integer value divided by `/`          | `let k = 7; h(k); k / 2` (integer `/`) | refused: write `let k: u32 = 7` or `f32(k) / 2` (Q6, Q11)    |
 | An explicit type, where the author wants | `u32(1)`, `let k: u32 = 1`, `1.`       | unchanged; every form of today still compiles                |
 
 ## Why
@@ -334,8 +367,10 @@ scratch files and are not committed.
 | F16 | fact      | `TS8053` is the only warning `deprecations: true` reports today (`reportIntegerLiteralDeprecations` in `src/compiler/ts/source-file.ts`). An unannotated parameter is refused (`TS8002 Parameter "a" requires a TypeShade type annotation.`), so a value reaches a function only through a declared parameter.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | F17 | fact      | `let h = 3000000000; h += 1; return f32(h);` compiles today: `var h: f32 = 3000000000.0;`, with `TS8053`. An `i32` cannot hold 3000000000 (Rule 5.4).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | F18 | fact      | `let p = 1; for (let j: u32 = 0; j < n; j++) { p *= 2; } return f32(p);` compiles today with `var p: f32 = 1.0;` and `TS8053`. The values under an `i32` (-2147483648 at n = 31, 0 at n ≥ 32) are WGSL's wrapping `i32` arithmetic (§1.8), not measured on a device.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| F20 | fact      | `function h(a: u32): u32 { return a; }` and `let k = 7; const r = h(k); return r + k / 2;` compile today: `var k: u32 = 7u;` and `(r + (k / 2u))`, integer division. Measured on `984fa069`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | F19 | fact      | `function g() { return 16777217; } … return u32(g());` compiles today: `fn g() -> f32 { return 16777217.0; }`, with no `TS8053`. `export function g() { return 3; }` emits `fn g() -> f32`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| F20 | fact      | `function h(a: u32): u32 { return a; }` and `let k = 7; const r = h(k); return r + k / 2;` compile today: `var k: u32 = 7u;` and `(r + (k / 2u))`, integer division. Measured on `984fa069`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| F21 | fact      | With `function h(a: u32): u32`, each compiles today with no diagnostic: `let k = 7; h(k); k /= 2;` (`var k: u32 = 7u`, a `u32` division); `const k = 7; h(k); return f32(k / 2);` (`return 3.0;`); `const k = 7; let j: i32 = k; return f32(k / 2) + f32(j);` (`3.0 + f32(j)`); `const k = 7; const r = h(k); return r + k / 2;` (`r + 3u`); `const k = 7; h(k); return xs[k / 2];` (`xs[3u]`); `let k = 7; h(k); return vi / k;` (`vi / k`).                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| F22 | fact      | `const K = 7;` with `x * (K / 3)` on `x: f64` emits `const K: f32 = 7.0;` and `vec2<f32>((K / 3.0), 0.0)`, the `f32` quotient. `const M = K / 3;` emits `const M: f32 = 2.3333333333333335;` and `vec2<f32>(M, 0.0)`. `class S { static K = 16777217; }` with `u32(S.K)` emits `const S_K: f32 = 16777217.0;`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ### Alternatives
 
@@ -365,7 +400,7 @@ It is kept here as the record of the alternative.
 
 ## Decisions of the owner
 
-The owner decided nine questions on 2026-11-09, in the Claude Code session, in Korean. The
+The owner decided eleven questions on 2026-11-09, in the Claude Code session, in Korean. The
 choices below are the owner's; the coordinator of the session relayed them.
 
 - **Q1, the arithmetic of an expression of written numbers.** The owner chose "ECMAScript: 0.5".
@@ -388,13 +423,11 @@ choices below are the owner's; the coordinator of the session relayed them.
   there. The rejected spelling was TypeScript's literal type, `const K: 3`. Its costs were that
   it is TypeScript's reading and not the language's (OD-1), and that it does not tell the author
   which types the reads take.
-- **Q9, whether the bundled artifacts count as published releases.** Asked about the artifacts of
-  F11, the owner answered: "아직 정식 릴리즈 전이라 문제 없음 테스트용으로 한것뿐이라" (there is no
-  official release yet, so there is no problem; those were only test builds). `vscode-typeshade`
-  0.3.0 and `@typeshade/mcp` 0.1.x are test builds, TypeShade has no official release, and no
-  warning window is owed. The session records it as OD-6 in pull request #1132. Rule 13.10 is
-  amended to match (What it touches). The rejected outcome was a Rule 13.10 window for every
-  value that changes.
+- **Q4, a constant that `f32` does not hold exactly.** The owner chose "바로 정확하게" (exact, at
+  once). A constant above 2^24 read through a cast or beside an `f64` gives its exact value at
+  once, with no warning release, because no version is published (F11; precedent 0131 and
+  0132). The rejected sides were a Rule 13.10 window with a warning (4a) and a narrower item 2
+  (4b). Decision Q9 confirms its basis.
 - **Q5, how the compiler chooses a type that nothing decides.** The owner chose "f32 (추천)":
   option (b), `f32` wherever nothing decides. Today's values stay; no golden moves; the rounding
   past 2^24 is a cost of decision Q2. The rejected options were (a), by the operations (`i32` for
@@ -404,6 +437,9 @@ choices below are the owner's; the coordinator of the session relayed them.
   "거부 (추천)": option (b), a refusal with `TS8003`, whose sentence names the fix. Example:
   `let k = 7; … xs[k]; … return f32(k / 2);` is refused. The rejected options were (a), the
   integer wins (`3`), and (c), two copies of `k`.
+  On 2026-11-09 the owner was shown F20 (`function h(a: u32) {…} let k = 7; h(k);
+return r + k / 2;`, which compiles today as `k / 2u`) and confirmed that it is refused (third
+  review, S1).
 - **Q7, the decimal point and a float-written constant.** The owner chose "상수만 확장 (추천)":
   option (c), extend item 2 only. A float-written `const` is a constant of no fixed type among
   `f32` and `f64`; `let k = 2.0` stays an `f32`, and Rule 5.5 for variables does not change. The
@@ -413,11 +449,26 @@ choices below are the owner's; the coordinator of the session relayed them.
   session records decision Q2 as OD-7 in pull request #1132: a number's type is inferred from its
   uses; there is no default type to learn; the compiler's choice where nothing decides is `f32`;
   a value made an integer and then divided by `/` is refused.
-- **Q4, a constant that `f32` does not hold exactly.** The owner chose "바로 정확하게" (exact, at
-  once). A constant above 2^24 read through a cast or beside an `f64` gives its exact value at
-  once, with no warning release, because no version is published (F11; precedent 0131 and
-  0132). The rejected sides were a Rule 13.10 window with a warning (4a) and a narrower item 2
-  (4b). Decision Q9 confirms its basis.
+- **Q9, whether the bundled artifacts count as published releases.** Asked about the artifacts of
+  F11, the owner answered: "아직 정식 릴리즈 전이라 문제 없음 테스트용으로 한것뿐이라" (there is no
+  official release yet, so there is no problem; those were only test builds). `vscode-typeshade`
+  0.3.0 and `@typeshade/mcp` 0.1.x are test builds, TypeShade has no official release, and no
+  warning window is owed. The session records it as OD-6 in pull request #1132. Rule 13.10 is
+  amended to match (What it touches). The rejected outcome was a Rule 13.10 window for every
+  value that changes.
+- **Q10, a constant that an integer demand reaches and a `/` divides.** The owner chose "const도
+  거부" (refuse a const too). A function-local or any other `const` that an integer demand reaches
+  and that `/` divides is refused exactly as a `let` is (decision Q6).
+  `function h(a: u32) {…} const k = 7; h(k); return f32(k / 2);` emits `3.0` today (F21) and is
+  refused, not read as 3.5. The rejected options were the ECMAScript value 3.5 (the constant's
+  abstract fold) and today's integer division.
+- **Q11, when `/` is integer division.** The owner chose "선언된 정수만 허용" (allow only a declared
+  integer). A `/` performs integer division only when one operand has an integer type the author
+  wrote: a parameter, a builtin such as `vi: u32`, an annotated local, a field. Where the integer
+  type came only from inference, the `/` is refused. `let k = 7; h(k); return vi / k;` stays
+  allowed, as `vi / 7` is; `let k = 7; h(k); k /= 2;` is refused (`/=` counts as `/`). The
+  rejected options were integer division for any integer operand, and refusal of every integer
+  `/` that an inferred value takes part in.
 
 ## Owner's decisions
 
@@ -445,28 +496,30 @@ Not applicable: the proposal adds no author-facing name, no diagnostic code and 
 It retires `TS8053`. It widens Rules 5.1, 5.2, 8.14 and 8.19 so that the compiler, not the
 author, decides the type of a written number from every place it reaches. The compiler can do
 this because each place is in the same program, with a type the front end already computes for
-`TS8003`. The owner made the design choices (Q1 to Q9).
+`TS8003`. The owner made the design choices (Q1 to Q11).
 
 ## Open items
 
-The owner decided every open question (Q1 to Q9). Two items remain. For each the draft proposes
-a default. Neither needs the owner unless the owner wants another order or scope.
+The owner decided every question (Q1 to Q11). Two items remain, each with a default this draft
+proposes. Neither needs the owner unless the owner wants another order or scope.
 
 1. **Untyped array-literal elements once change 0114 S2 lands** (`const a = [1, 2, 3]; a[i] * x`).
    Proposed default: S2's element type follows Rule 5.1 as this change amends it, by S2's own
-   text. So an untyped array literal of integer-written elements bound to a `const` takes its
-   element type from the reads of its elements, as one value of item 1: every element shares
-   one type, the fixed point decides it, and `f32` applies where nothing decides (decision Q5).
-   Reasons: S2 already defers to Rule 5.1, so no second rule is needed; one element type keeps
-   S2's "one type for all elements" rule; and OD-7 asks for inference wherever a number reaches.
-   The implementation of S2 carries the work, not this change.
-2. **Whether item 5 ships first.** Proposed default: yes, in its own pull request, on today's
-   compiler, for the reasons in item 5. That pull request waits for the owner's "merge"
-   (Approval and plan record).
+   text. An untyped array literal of integer-written elements bound to a `const` has one element
+   type, decided by the reads of its elements as one value of item 1, and `f32` where nothing
+   decides (decision Q5). Elements read at two types are refused with `TS8003`, because an array
+   has one element type. Decisions Q6 and Q7 apply to the elements: an element made an integer by
+   inference and divided by `/` is refused, and float-written elements stay floats. Reasons: S2
+   already defers to Rule 5.1, so no second rule is needed; and OD-7 asks for inference wherever
+   a number reaches. The implementation of S2 carries the work, and S2's pull request shows the
+   owner one example before and after (OD-4).
+2. **Item 5 ships first.** Proposed default: yes, in its own pull request, on today's compiler,
+   with the retirement of `TS8053` in the same or an earlier pull request (item 5 gives the
+   reasons). That pull request waits for the owner's "merge" (Approval and plan record).
 
 ## What it touches
 
-- **Rule 5.1**: rewritten as items 1 to 3 say. Its last sentence ("Where no integer type is
+- **Rule 5.1**: rewritten as items 1 to 3 and the division rule of item 1 say. Its last sentence ("Where no integer type is
   established, the literal must be an `f32`") and the paragraph "The default is _open_" are
   replaced by the compiler's choice of item 3 (`f32`, decision Q5) and the
   refusal of decision Q6. Its "Enforced by" adds the new tests.
@@ -481,13 +534,13 @@ a default. Neither needs the owner unless the owner wants another order or scope
 - **Rule 12.7**: the editor shows the compiler's type for a local, a field, a function's result
   and each read of a constant of no fixed type, and TypeShade's words at a declaration
   (decision Q3), as item 4 lists.
-- **Rule 13.10**: its text gains a sentence: a window is owed only for a behaviour that an
-  official release of the `typeshade` package carried, and no window is owed before the first
-  one (OD-6, decision Q9). A test build that bundles the compiler is not an official release. Its
-  "Derives from" and "Enforced by" name #148 and
-  `src/compiler/ts/integer-literal-deprecation.test.ts`, which go. A test keeps
-  `Verifies: Rule 13.10`: it asserts that `deprecations: true` moves no emitted byte and reports
-  no warning on a program today. `reqs/rules/RULE-1310.md` follows.
+- **Rule 13.10**: only the edits the retirement of `TS8053` needs. Its "Derives from" and
+  "Enforced by" name #148 and `src/compiler/ts/integer-literal-deprecation.test.ts`, which go. A
+  test keeps `Verifies: Rule 13.10`: it asserts that `deprecations: true` moves no emitted byte and
+  reports no warning on a program today. `reqs/rules/RULE-1310.md` follows. The sentence that no
+  window is owed before the first official release (OD-6) is not part of this change. The
+  session's coordinator opens it as its own pull request after #1132, with "official release"
+  defined by an identifier there.
 - **Surface §12**: a module `const` of a written number is a constant of no fixed type
   (integer-written: any scalar where read; float-written: `f32` or `f64` where read).
 - **Surface §13**: rewritten for items 1 to 3; the snippets drop needless casts and decimal
@@ -518,8 +571,7 @@ Required evidence at implementation (not yet applicable): tests that read both h
 source for each row of the forms table (`compile()` emit or `TS8003`, editor `getDiagnostics`
 and `getHover`); a test for each place of item 1; a test for each edge of item 2 (a cast, a
 constant from a constant, an imported constant, a loop bound, a constant above 2^24 at its exact
-value); a test for each case of item 3 (`f32` where nothing decides) and for F17; a test of the Q6
-refusal in both halves, including F20; a test for a
+value); a test for each case of item 3 (`f32` where nothing decides) and for F17; a test of the division rule in both halves, for each case of F20 and F21 and for `vi / k`; a test for a
 function result decided by two callers and for one decided by none; a hover test for each case
 of item 4; a CPU-oracle test against the GPU for each folded constant; the compile gate on both
 targets; `src/language-service/expression-parity.test.ts` with no new divergence; the example
@@ -542,8 +594,8 @@ goldens re-baked and reviewed; the `CHANGELOG.md` entries of "Values that change
 - Downstream: the site and the editor rewrite text and remove `TS8053`; typecv and typeaudio may
   drop casts and review their constants above 2^24.
 
-Decisions to resolve before acceptance: none. The two open items have proposed defaults
-(Open items).
+Decisions to resolve before acceptance: none. The two open items have proposed defaults (Open
+items). The proposal is ready for acceptance on the owner's go-ahead.
 
 ### Independent review record
 
@@ -621,8 +673,45 @@ and the author's answer:
 - **N4.** The implementing pull request shows its value changes to the owner. Fixed: "Values that
   change" and the OD-4 entry.
 
-After the second review, the owner decided Q5 to Q8 (and Q9). The revision that records those
-decisions has not been reviewed independently.
+After the second review, the owner decided Q5 to Q9.
+
+**Third review.** Reviewer: an AI agent (Claude Code) that did not write this proposal, run by
+the session's coordinator. Date: 2026-11-09. Revision reviewed: commit `9f00704c`. The owner
+answered the review's two questions the same day (Q10, Q11). Each finding and the author's
+answer:
+
+- **B1 (blocking).** A function-local `const` that an integer demand reaches escaped the `/`
+  refusal through item 2. Resolved by decision Q10: item 1's division rule covers a constant, F21
+  lists the cases, "Values that change" lists them as newly refused, and "Answers to changes 0036
+  and 0037" says a function-local `const` leaves their inference.
+- **S1.** The owner had not seen F20. Fixed: the owner was shown F20 and confirmed the refusal
+  (decision Q6); item 1 cites that in place of "because the reason is the same".
+- **Q11 (owner question).** When `/` is integer division. Decided: only with an operand of a type
+  the author wrote (decision Q11); item 1 states it; `vi / k` stays allowed and `k /= 2` is
+  refused (F21).
+- **S3.** The constant rows of "Values that change" were narrower than item 2. Fixed: one row for
+  every constant of no fixed type whose ECMAScript value `f32` does not hold exactly, with the
+  measured examples (F22).
+- **S4.** An integer of no kind as `i32` could fail to hold a known value. Fixed: the compiler
+  takes `u32` for a known non-negative value above the `i32` range, stated as its choice under
+  OD-7.
+- **S5.** Approval of the implementing pull requests. Fixed: each one that changes a value or
+  newly refuses a program is not approved in advance ("Values that change", Approval and plan
+  record).
+- **S6.** The OD-6 sentence of Rule 13.10 belongs to its own change. Fixed: removed from this
+  proposal; only the edits for the retirement of `TS8053` stay. The session's coordinator opens
+  that pull request after #1132.
+- **N1.** Hover wording was missing for three cases. Fixed: item 4 adds a float-written constant,
+  a function its callers decide to one type, and a refused `/`.
+- **N2.** Stale rows and order. Fixed: Date and attribution and Review baseline rows refreshed; F19
+  before F20; Q1 to Q11 in order; the broken wrap in item 1 joined.
+- **N4.** `scripts/changes.ts` gives no signal on a proposal-only diff ("no proposal needed").
+  Kept as a check that ran; reported as not useful for this diff.
+- **Open items.** Fixed: the S2 default says an array has one element type (read at two types is
+  refused), that decisions Q6 and Q7 apply to elements, and that S2's pull request shows the owner
+  an example; the item 5 default retires `TS8053` first or with item 5.
+
+The revision that answers the third review has not been reviewed independently.
 
 ### Answers to changes 0036 and 0037
 
@@ -635,8 +724,11 @@ Changes 0036 and 0037 excluded these, and surface §13 states them:
   source order.
 - "This is not general inference through arithmetic" (change 0037). That was a scope limit, with
   no rule behind it. Item 1 is that general inference.
-- "A module constant … keep[s] [its] existing rules." Item 2 changes that rule for an
-  integer-written module constant.
+- "A module constant … keep[s] [its] existing rules." Item 2 changes that rule for a module
+  constant of a written number.
+- A function-local `const` initialized by an integer-written literal leaves the inference of
+  changes 0036 and 0037: it becomes a constant of no fixed type (item 2). A `/` over it follows
+  the division rule of item 1 (decision Q10).
 - "Where no integer type is established, the `f32` default remains" (changes 0036 and 0037).
   Item 3 replaces the default with the compiler's choice, `f32` (decision Q5).
 - Loop induction variables, explicit annotations, casts and float-written initializers keep
@@ -644,12 +736,13 @@ Changes 0036 and 0037 excluded these, and surface §13 states them:
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require an independent review of this revision, and a merge of this file with `status: accepted`. The
-owner's decisions on Q1 to Q9 are recorded under "Decisions of the owner". Item 5 changes how
+This record does not yet apply. Acceptance will require the owner's go-ahead and a merge of this file with `status: accepted`. The
+owner's decisions on Q1 to Q11 are recorded under "Decisions of the owner". Item 5 changes how
 authors write examples. Its implementing pull request is therefore not approved in advance, even
 after acceptance: its body shows one example before and after, and it waits for the owner's
-"merge" (`CLAUDE.md`, Merging). The pull request that changes values shows each change to the
-owner before the merge (OD-4).
+"merge" (`CLAUDE.md`, Merging). Each implementing pull request that changes a value or newly
+refuses a program is not approved in advance either: its body shows each change before and
+after, and it waits for the owner's "merge" (OD-4).
 
 ### Configuration and validation record
 
