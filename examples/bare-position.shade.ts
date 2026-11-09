@@ -20,14 +20,16 @@
 // shader there is its WebGL2 target, on a program Tint accepts. This example is the gate's
 // evidence that the pair compiles and links.
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   return vec4(xs[i], ys[i], 0., 1.);
-});
+}
 
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment
+export function fs(p: builtin<"position", vec4>): vec4 {
   const uv: vec2 = fract(p.xy * 0.01);
   return vec4(uv, 0.4, 1.);
-});
+}

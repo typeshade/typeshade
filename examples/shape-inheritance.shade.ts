@@ -26,7 +26,7 @@ interface VsOut {
 }
 
 abstract class Shape {
-  center!: vec2;
+  center: vec2;
   constructor(center: vec2) {
     this.center = center;
   }
@@ -39,7 +39,7 @@ abstract class Shape {
 }
 
 class Circle extends Shape {
-  radius!: f32;
+  radius: f32;
   constructor(center: vec2, radius: f32) {
     super(center);
     this.radius = radius;
@@ -51,7 +51,7 @@ class Circle extends Shape {
 }
 
 class Square extends Shape {
-  extent!: f32;
+  extent: f32;
   constructor(center: vec2, extent: f32) {
     super(center);
     this.extent = extent;
@@ -63,7 +63,7 @@ class Square extends Shape {
 }
 
 class Ring extends Circle {
-  thickness!: f32;
+  thickness: f32;
   constructor(center: vec2, radius: f32, thickness: f32) {
     super(center, radius);
     this.thickness = thickness;
@@ -75,15 +75,17 @@ class Ring extends Circle {
   }
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
   return { pos: vec4(p, 0., 1.), uv: p };
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): vec4 {
+@fragment
+export function fs(v: VsOut): vec4 {
   const circle = new Circle(vec2(-0.45, 0.), 0.3);
   const square = new Square(vec2(0.45, 0.), 0.26);
   const ring = new Ring(vec2(0., 0.55), 0.22, 0.05);
@@ -92,4 +94,4 @@ export const fs = fragment(function fs(v: VsOut): vec4 {
     vec3(0.36, 0.7, 0.98) * square.coverage(v.uv) +
     vec3(0.98, 0.86, 0.4) * ring.coverage(v.uv);
   return vec4(lit + vec3(0.05, 0.05, 0.08), 1.);
-});
+}

@@ -17,8 +17,8 @@
 // uniform declaration ever reached the compile gate or the per-stage GLSL sweep.
 
 class Uniforms {
-  tint!: vec4;
-  gain!: f32;
+  tint: vec4;
+  gain: f32;
 }
 
 declare const u: uniform<Uniforms>;
@@ -33,13 +33,15 @@ interface VsOut {
 // that only ever sees a binding read from one stage cannot tell a per-stage reachability
 // bug from a working walk, which is the gap #14 hid in. The clip position is untouched, so
 // the triangle still covers the screen whatever the host sets `gain` to.
-export const vs = vertex(function vs(idx: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(idx: builtin<"vertex_index", u32>): VsOut {
   const x = f32(idx & 1) * 4. - 1.;
   const y = f32(idx >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, (y * 0.5 + 0.5) * u.gain) };
-});
+}
 
-export const fs = fragment(function fs(vo: VsOut): vec4 {
+@fragment
+export function fs(vo: VsOut): vec4 {
   // TypeScript types `v * s` as `number`, so handing the product straight to
   // `vec4(v: vec3, w: number)` used to draw TS2345 in the editor on a program that compiles,
   // which is why this local is annotated (issue #43). The language service now filters that
@@ -47,4 +49,4 @@ export const fs = fragment(function fs(vo: VsOut): vec4 {
   // emitted WGSL and GLSL goldens are pinned to this shape.
   const rgb: vec3 = u.tint.rgb * vo.uv.y;
   return vec4(rgb, u.tint.a);
-});
+}

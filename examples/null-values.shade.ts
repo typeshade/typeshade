@@ -15,7 +15,7 @@ interface VsOut {
 interface Color { color: location<0, vec4>; }
 
 class Sample {
-  private value!: f32 | null;
+  private value: f32 | null;
   constructor(value: f32 | null) { this.value = value; }
   get amount(): f32 | null { return this.value; }
 }
@@ -31,15 +31,17 @@ function tint(value?: f32 | null): vec3 {
   return vec3(0.1, 0.1, value);
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   const p = vec2(xs[i], ys[i]);
   return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment
+export function fs(v: VsOut): Color {
   const value = sample(v.uv.x)?.amount;
   return { color: vec4(tint(value), 1.) };
-});
+}

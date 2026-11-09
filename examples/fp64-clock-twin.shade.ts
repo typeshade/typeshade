@@ -22,11 +22,11 @@
 // harnesses bind it to 1.0 by probing the program for it.
 
 class Uniforms {
-  time!: f32;
-  resolution!: vec2;
-  epoch!: f64; // mission-time base seconds, swept 1e4..1e9 by the host's UPTIME slider
-  speed!: f32; // dial revolutions per second
-  fp64!: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
+  time: f32;
+  resolution: vec2;
+  epoch: f64; // mission-time base seconds, swept 1e4..1e9 by the host's UPTIME slider
+  speed: f32; // dial revolutions per second
+  fp64: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
 }
 
 declare const U: uniform<Uniforms>;
@@ -36,13 +36,15 @@ interface VsOut {
   uv: location<0, vec2>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-});
+}
 
-export const fs_clock = fragment(function fs_clock(vo: VsOut): vec4 {
+@fragment
+export function fs_clock(vo: VsOut): vec4 {
   // Absolute mission time = epoch + live seconds; the ADD runs in df64 on the right (exact)
   // and in plain f32 on the left (the +time vanishes under ulp(1e8) = 8 s). `f64(U.time)` is
   // the exact widen, `* U.speed` lifts the f32 speed beside the double (§39), and only the
@@ -93,4 +95,4 @@ export const fs_clock = fragment(function fs_clock(vo: VsOut): vec4 {
     vec3(1.0, 0.6, 0.15) * trail +
     vec3(1.0, 0.85, 0.5) * hub;
   return vec4(rgb, 1.);
-});
+}

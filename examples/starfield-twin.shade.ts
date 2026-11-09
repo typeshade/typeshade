@@ -14,9 +14,9 @@
 // repeated head.
 
 class Uniforms {
-  time!: f32;
-  resolution!: vec2;
-  density!: f32;
+  time: f32;
+  resolution: vec2;
+  density: f32;
 }
 
 declare const U: uniform<Uniforms>;
@@ -33,11 +33,12 @@ function screenCoords(uv: vec2, resolution: vec2): vec2 {
   return vec2((uv.x * 2. - 1.) * asp, uv.y * 2. - 1.);
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-});
+}
 
 // An exact integer hash (lowbias32 with xxHash's primes): every target and the CPU oracle
 // agree on every bit of it. `fract(sin(x) * 43758.5453)` did not, since WGSL bounds `sin`
@@ -54,7 +55,8 @@ function hash(p: vec2): f32 {
   return f32(h >> 8) * 5.9604644775390625e-8; // 2^-24, exact: WGSL lets `/` round
 }
 
-export const fs = fragment(function fs(vo: VsOut): vec4 {
+@fragment
+export function fs(vo: VsOut): vec4 {
   const t = U.time;
   const res = U.resolution;
   const p = screenCoords(vo.uv, res);
@@ -89,4 +91,4 @@ export const fs = fragment(function fs(vo: VsOut): vec4 {
   const s = p.y + p.x * 0.35;
   const band = exp(-(s * s * 6.));
   return vec4(col + vec3(0.09, 0.11, 0.16) * band, 1.);
-});
+}

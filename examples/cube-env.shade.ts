@@ -32,14 +32,16 @@ declare const smp: sampler;
 declare const pointShadow: texture_depth_cube;
 declare const shadowSmp: sampler_comparison;
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   return vec4(xs[i], ys[i], 0., 1.);
-});
+}
 
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment
+export function fs(p: builtin<"position", vec4>): vec4 {
   const uv: vec2 = fract(p.xy * 0.004);
   // A view direction from the pixel: the environment is looked up by DIRECTION, not by uv.
   const dir: vec3 = normalize(vec3(uv * 2. - 1., 1.));
@@ -62,4 +64,4 @@ export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   const voxel = textureLoad(lut, vec3i(0, 0, 0), 0);
   const shade = mix(graded.rgb, glossy.rgb, 0.25) * (lit * detail.r) * fade;
   return vec4(shade + voxel.rgb * 0.05, 1.);
-});
+}

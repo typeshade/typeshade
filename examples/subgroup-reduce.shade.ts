@@ -29,7 +29,8 @@ declare const src: storage<array<u32>>;
 declare const bins: storage<array<atomic<u32>>, "read_write">;
 declare const seen: storage<array<u32>, "read_write">;
 
-export const histogram = compute([64, 1, 1], function histogram(
+@compute([64, 1, 1])
+export function histogram(
   gid: builtin<"global_invocation_id", vec3u>,
   subgroup: builtin<"subgroup_id", u32>,
   subgroups: builtin<"num_subgroups", u32>,
@@ -48,4 +49,4 @@ export const histogram = compute([64, 1, 1], function histogram(
   if (gid.x < subgroups) {
     seen[gid.x] = subgroup;
   }
-});
+}

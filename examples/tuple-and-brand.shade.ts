@@ -44,16 +44,18 @@ function corner(i: i32): [x: f32, y: f32] {
   return [xs[i], ys[i]];
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): vec4 {
   const c = corner(i32(vi));
   return vec4(c[0], c[1], 0., 1.);
-});
+}
 
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment
+export function fs(p: builtin<"position", vec4>): vec4 {
   const uv: vec2 = fract(p.xy * 0.01);
   const span = bounds(uv.x as Meters);
   // A list written straight into a parameter that declares `[f32, f32]`, which is the one
   // position that used to need `array<f32, 2>(...)` spelled out.
   const depth = mid([span[0], span[1]]);
   return vec4(uv.x, uv.y, depth / HORIZON, 1.);
-});
+}

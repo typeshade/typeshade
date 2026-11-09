@@ -22,10 +22,12 @@ interface Color {
   color: location<0, vec4>;
 }
 
-export const vs = vertex(function vs(vin: VsIn): VsOut {
+@vertex
+export function vs(vin: VsIn): VsOut {
   return { pos: vec4(vin.position, 1.), uv: vin.uv };
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment
+export function fs(v: VsOut): Color {
   return { color: vec4(v.uv, 0.2, 1.) };
-});
+}

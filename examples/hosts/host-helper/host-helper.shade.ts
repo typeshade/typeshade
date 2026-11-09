@@ -10,7 +10,7 @@
 */
 
 class View {
-  size!: vec2;
+  size: vec2;
 }
 
 declare const view: uniform<View>;
@@ -21,7 +21,8 @@ export function height(p: vec2): f32 {
   return 0.5 + 0.25 * sin(6.2831853 * p.x) * cos(6.2831853 * p.y);
 }
 
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment
+export function fs(p: builtin<"position", vec4>): vec4 {
   const h = height(p.xy / view.size);
   return vec4(h, h, h, 1.);
-});
+}

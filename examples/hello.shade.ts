@@ -16,7 +16,8 @@ interface Color {
   color: location<0, vec4>;
 }
 
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex
+export function vs(i: builtin<"vertex_index", u32>): Clip {
   let x = -0.8;
   let y = -0.8;
   if (i === 1) {
@@ -27,8 +28,9 @@ export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
     y = 0.8;
   }
   return { pos: vec4(x, y, 0., 1.) };
-});
+}
 
-export const fs = fragment(function fs(): Color {
+@fragment
+export function fs(): Color {
   return { color: vec4(1., 0., 0., 1.) };
-});
+}

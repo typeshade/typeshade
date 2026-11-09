@@ -39,10 +39,10 @@
 //   ITER     = 128
 
 class Uniforms {
-  center!: vec2f64; // one DF64Vec2 slot, the host packs [hi.x, hi.y, lo.x, lo.y]
-  resolution!: vec2;
-  zoom_exp!: f32; // view span = 10^-zoom_exp complex units
-  fp64!: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
+  center: vec2f64; // one DF64Vec2 slot, the host packs [hi.x, hi.y, lo.x, lo.y]
+  resolution: vec2;
+  zoom_exp: f32; // view span = 10^-zoom_exp complex units
+  fp64: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
 }
 
 declare const u: uniform<Uniforms>;
@@ -52,13 +52,15 @@ interface VsOut {
   uv: location<0, vec2>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-});
+}
 
-export const fs_julia = fragment(function fs_julia(vo: VsOut): vec4 {
+@fragment
+export function fs_julia(vo: VsOut): vec4 {
   const span = 10.0 ** -u.zoom_exp;
   // Each half maps its own 0..1 sub-range onto the SAME complex window
   // (pan lives on the HOST in full double precision, see fp64-mandelbrot.ts).
@@ -152,4 +154,4 @@ export const fs_julia = fragment(function fs_julia(vo: VsOut): vec4 {
   // Emit-neutral: the WGSL and GLSL are byte-identical without it.
   const rgb: vec3 = (vec3(0.5) + cos(ph + s * 5.5 + 2.2) * 0.5) * mix(0.35, 1.0, s) * (1. - inside);
   return vec4(rgb, 1.);
-});
+}

@@ -30,8 +30,8 @@ interface Color {
 }
 
 class Hit {
-  t!: f32;
-  normal!: vec2;
+  t: f32;
+  normal: vec2;
 }
 
 type Curve = (x: f32) => f32 | undefined;
@@ -98,15 +98,17 @@ function offsetOf(h: Hit | undefined, far: f32): f32 {
   return h?.t ?? far;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
   return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment
+export function fs(v: VsOut): Color {
   const x = v.uv.x * 2. - 1.;
   // A local declared with no initializer starts absent; one path gives it a value.
   let shade: f32 | undefined;
@@ -120,4 +122,4 @@ export const fs = fragment(function fs(v: VsOut): Color {
   const b = offsetOf(hit, 0.);
   const n = hit?.normal ?? vec2(0., 0.);
   return { color: vec4(r, g, b * 0.5 + n.x * 0.25, 1.) };
-});
+}

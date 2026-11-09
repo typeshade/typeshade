@@ -26,10 +26,10 @@
 // vertex stage that `_fullscreen.ts` shares are re-spelled below.
 
 class Uniforms {
-  center!: vec2f64; // one DF64Vec2 slot, host packs [hi.x, hi.y, lo.x, lo.y]
-  resolution!: vec2;
-  zoom_exp!: f32; // view span = 10^-zoom_exp complex units
-  fp64!: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
+  center: vec2f64; // one DF64Vec2 slot, host packs [hi.x, hi.y, lo.x, lo.y]
+  resolution: vec2;
+  zoom_exp: f32; // view span = 10^-zoom_exp complex units
+  fp64: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
 }
 
 declare const u: uniform<Uniforms>;
@@ -39,13 +39,15 @@ interface VsOut {
   uv: location<0, vec2>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.; // -1, 3, -1
   const y = f32(vi >> 1) * 4. - 1.; // -1, -1, 3
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-});
+}
 
-export const fs_ship = fragment(function fs_ship(vo: VsOut): vec4 {
+@fragment
+export function fs_ship(vo: VsOut): vec4 {
   const span = 10.0 ** -u.zoom_exp;
   const half = vo.uv.x * 2.0;
   const sx = half - (vo.uv.x < 0.5 ? 0.0 : 1.0);
@@ -119,4 +121,4 @@ export const fs_ship = fragment(function fs_ship(vo: VsOut): vec4 {
     s * s,
   ) * (1. - inside);
   return vec4(rgb, 1.);
-});
+}

@@ -27,9 +27,9 @@
 // block.
 
 class Uniforms {
-  resolution!: vec2;
-  half_width!: f32; // plot spans x in [1-w, 1+w]
-  fp64!: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
+  resolution: vec2;
+  half_width: f32; // plot spans x in [1-w, 1+w]
+  fp64: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
 }
 
 declare const u: uniform<Uniforms>;
@@ -39,13 +39,15 @@ interface VsOut {
   uv: location<0, vec2>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-});
+}
 
-export const fs_cancel = fragment(function fs_cancel(vo: VsOut): vec4 {
+@fragment
+export function fs_cancel(vo: VsOut): vec4 {
   const w = u.half_width;
   const halfUv = vo.uv.x * 2.;
   const sx = halfUv - (vo.uv.x < 0.5 ? 0.0 : 1.0);
@@ -119,4 +121,4 @@ export const fs_cancel = fragment(function fs_cancel(vo: VsOut): vec4 {
   );
   const rgb = mix(vec3(0.35, 0.33, 0.3), rgb3, axis);
   return vec4(rgb, 1.);
-});
+}

@@ -17,7 +17,8 @@ interface Color {
   color: location<0, vec4>;
 }
 
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(i: builtin<"vertex_index", u32>): VsOut {
   let x: f32;
   let y: f32;
   x = -1.;
@@ -31,9 +32,10 @@ export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
   const pos = vec4(x, y, 0., 1.);
   const uv = vec2(x, y) * 0.5 + vec2(0.5, 0.5);
   return { pos, uv };
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment
+export function fs(v: VsOut): Color {
   let band: i32 = i32(v.uv.x * 4.);
   band &= 3;
   band |= 0;
@@ -68,4 +70,4 @@ export const fs = fragment(function fs(v: VsOut): Color {
       rgb = vec3(0.85, 0.85, 0.9);
   }
   return { color: vec4(rgb, 1.) };
-});
+}
