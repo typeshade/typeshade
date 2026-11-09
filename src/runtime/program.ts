@@ -31,15 +31,20 @@ import {
   type PackBinding,
   type PackEntry,
 } from '../core/manifest-types.js';
-import {
-  BUFFER,
-  type BindGroupLayout,
-  type Buffer,
-  type ComputePassEncoder,
-  type Device,
-  type RenderPassEncoder,
-  type ShaderModule,
-} from './gpu.js';
+import type {
+  RhiBindGroup,
+  RhiBindGroupLayout,
+  RhiBindLayoutEntry,
+  RhiBindResource,
+  RhiBuffer,
+  RhiBufferUsage,
+  RhiComputePass,
+  RhiComputePipeline,
+  RhiDevice,
+  RhiRenderPass,
+  RhiRenderPipeline,
+  RhiShaderModule,
+} from '../rhi/rhi.js';
 import { needOfEntry, PIPELINE_LIMITS, selectBindings } from './limits.js';
 import { SamplerImpl, TextureImpl } from './resources.js';
 import type { DepthAttachment, PassTargets, RuntimeImpl } from './runtime.js';
@@ -1184,41 +1189,6 @@ const writesStencil = (s: PlanStencil | undefined, cull: 'none' | 'front' | 'bac
   s.writeMask !== 0 &&
   ((cull !== 'front' && changesStencil(s.front)) || (cull !== 'back' && changesStencil(s.back)));
 
-/** The WebGPU `depthStencil` of a plan. A bias key appears only when its value is not 0, and the four
- *  stencil fields whenever `depth.stencil` is present (proposal 0064). */
-function depthStencilOf(d: NonNullable<RenderPlan['depth']>): object {
-  const b = d.bias;
-  const s = d.stencil;
-  return {
-    format: d.format,
-    depthCompare: d.compare,
-    depthWriteEnabled: d.write,
-    ...(b.constant !== 0 ? { depthBias: b.constant } : {}),
-    ...(b.slopeScale !== 0 ? { depthBiasSlopeScale: b.slopeScale } : {}),
-    ...(b.clamp !== 0 ? { depthBiasClamp: b.clamp } : {}),
-    ...(s !== undefined
-      ? {
-          stencilFront: { ...s.front },
-          stencilBack: { ...s.back },
-          stencilReadMask: s.readMask,
-          stencilWriteMask: s.writeMask,
-        }
-      : {}),
-  };
-}
-
-/** The WebGPU `multisample` entries of a plan: none for the default count 1 and mask, and each
- *  field only when it differs from its default (proposal 0064). */
-const multisampleOf = (m: RenderPlan['multisample']): object =>
-  m.count === 1 && m.mask === 0xffffffff
-    ? {}
-    : {
-        multisample: {
-          ...(m.count !== 1 ? { count: m.count } : {}),
-          ...(m.mask !== 0xffffffff ? { mask: m.mask } : {}),
-        },
-      };
-
 /** The viewport of `setViewport`, checked against the tier's viewport limit `limit` (L). A `TypeError`
  *  names the first argument out of its range. Depths default to 0 and 1. */
 export function viewportOf(
@@ -1330,8 +1300,8 @@ export function blendConstantOf(color: unknown): readonly [number, number, numbe
   return xs as unknown as [number, number, number, number];
 }
 
-/** `GPUBindGroupLayoutEntry` for a manifest binding, visible to `visibility`. */
-function layoutEntry(b: PackBinding, visibility: number): object {
+/** The bind group layout entry of a manifest binding, visible to `visibility` (`STAGE` bits). */
+function layoutEntry(b: PackBinding, visibility: number): RhiBindLayoutEntry {
   const r = b.resource;
   const base = { binding: b.binding, visibility };
   switch (r.resourceKind) {
@@ -1388,13 +1358,13 @@ function layoutEntry(b: PackBinding, visibility: number): object {
 /** A pool of buffers the runtime reuses: a buffer taken during a frame comes back once the
  *  queue has run the frame, so a frame whose shapes repeat allocates nothing. */
 export class BufferPool {
-  readonly #free = new Map<string, Buffer[]>();
-  #taken: [string, Buffer][] = [];
-  constructor(private readonly device: Device) {}
+  readonly #free = new Map<string, RhiBuffer[]>();
+  #taken: [string, RhiBuffer][] = [];
+  constructor(private readonly device: RhiDevice) {}
 
-  take(size: number, usage: number): Buffer {
+  take(size: number, usage: readonly RhiBufferUsage[]): RhiBuffer {
     const rounded = Math.max(16, Math.ceil(size / 16) * 16);
-    const key = `${usage}:${rounded}`;
+    const key = `${[...usage].sort().join('|')}:${rounded}`;
     const b = this.#free.get(key)?.pop() ?? this.device.createBuffer({ size: rounded, usage });
     this.#taken.push([key, b]);
     return b;
@@ -1414,8 +1384,8 @@ export class BufferPool {
   }
 
   destroy(): void {
-    for (const list of this.#free.values()) for (const b of list) b.destroy();
-    for (const [, b] of this.#taken) b.destroy();
+    for (const list of this.#free.values()) for (const b of list) this.device.destroyBuffer(b);
+    for (const [, b] of this.#taken) this.device.destroyBuffer(b);
     this.#free.clear();
     this.#taken = [];
   }
@@ -1439,10 +1409,11 @@ interface PipelineShape {
   /** Per group index, its layout and its slots in binding order. */
   readonly groups: readonly {
     readonly index: number;
-    readonly layout: BindGroupLayout;
+    readonly layout: RhiBindGroupLayout;
     readonly slots: readonly Slot[];
   }[];
-  readonly pipelineLayout: object;
+  /** The layouts of `groups`, by group index: what the pipeline is made with. */
+  readonly layouts: readonly RhiBindGroupLayout[];
   /** The entries whose calls the console buffer records, when the program records. */
   readonly console?: {
     readonly slot: PackBinding;
@@ -1455,11 +1426,14 @@ export class ProgramImpl implements Program {
   readonly #wgsl: string;
   readonly #bindings: ReadonlyMap<string, PackBinding>;
   readonly #log: ConsoleLog | undefined;
-  #module: ShaderModule | undefined;
+  #module: RhiShaderModule | undefined;
   readonly #pipelines = new Map<string, Promise<ComputePipelineImpl | RenderPipelineImpl>>();
   /** The GPU render pipelines, by the `gpuKey` of their state, with the layout each is made with. */
-  readonly #gpuPipelines = new Map<string, Promise<{ gpu: object; shape: PipelineShape }>>();
-  readonly #layouts = new Map<string, BindGroupLayout>();
+  readonly #gpuPipelines = new Map<
+    string,
+    Promise<{ gpu: RhiRenderPipeline; shape: PipelineShape }>
+  >();
+  readonly #layouts = new Map<string, RhiBindGroupLayout>();
 
   constructor(
     readonly rt: RuntimeImpl,
@@ -1472,12 +1446,12 @@ export class ProgramImpl implements Program {
     this.#log = recorded?.log;
   }
 
-  get device(): Device {
-    return this.rt.gpu;
+  get device(): RhiDevice {
+    return this.rt.rhi;
   }
 
-  #shaderModule(): ShaderModule {
-    return (this.#module ??= this.device.createShaderModule({ code: this.#wgsl }));
+  #shaderModule(): RhiShaderModule {
+    return (this.#module ??= this.device.createShaderModule(this.#wgsl));
   }
 
   /** Refuse a pipeline whose entries need more of a limit than the device has (change 0051, R4).
@@ -1535,26 +1509,19 @@ export class ProgramImpl implements Program {
       void vis;
     }
     const maxGroup = Math.max(-1, ...byGroup.keys());
-    const groups: { index: number; layout: BindGroupLayout; slots: Slot[] }[] = [];
-    const layouts: BindGroupLayout[] = [];
+    const groups: { index: number; layout: RhiBindGroupLayout; slots: Slot[] }[] = [];
+    const layouts: RhiBindGroupLayout[] = [];
     for (let g = 0; g <= maxGroup; g++) {
       const slots = (byGroup.get(g) ?? []).sort((a, b) => a.binding.binding - b.binding.binding);
       const entriesOf = slots.map((s) => layoutEntry(s.binding, visibility.get(s.binding.name)!));
       const key = JSON.stringify(entriesOf);
       let layout = this.#layouts.get(key);
       if (layout === undefined)
-        this.#layouts.set(
-          key,
-          (layout = this.device.createBindGroupLayout({ entries: entriesOf })),
-        );
+        this.#layouts.set(key, (layout = this.device.createBindGroupLayout(entriesOf)));
       layouts.push(layout);
       groups.push({ index: g, layout, slots });
     }
-    return {
-      groups,
-      pipelineLayout: this.device.createPipelineLayout({ bindGroupLayouts: layouts }),
-      ...(console !== undefined ? { console } : {}),
-    };
+    return { groups, layouts, ...(console !== undefined ? { console } : {}) };
   }
 
   compute(entry?: string, options?: { readonly constants?: Constants }): Promise<ComputePipeline> {
@@ -1576,15 +1543,13 @@ export class ProgramImpl implements Program {
       this.#checkPipelineLimits([e]);
       const shape = this.#shape([e]);
       p = this.device
-        .createComputePipelineAsync({
-          layout: shape.pipelineLayout,
-          compute: {
-            module: this.#shaderModule(),
-            entryPoint: e.emitted,
-            ...(constants !== undefined
-              ? { constants: wgslConstants(this.manifest, constants.values) }
-              : {}),
-          },
+        .createComputePipeline({
+          layouts: shape.layouts,
+          module: this.#shaderModule(),
+          entryPoint: e.emitted,
+          ...(constants !== undefined
+            ? { constants: wgslConstants(this.manifest, constants.values) }
+            : {}),
         })
         .then(
           (gpu) => new ComputePipelineImpl(this, e, shape, gpu, workgroupShape),
@@ -1648,21 +1613,15 @@ export class ProgramImpl implements Program {
     vs: PackEntry,
     fs: PackEntry | undefined,
     plan: RenderPlan,
-  ): Promise<{ readonly gpu: object; readonly shape: PipelineShape }> {
+  ): Promise<{ readonly gpu: RhiRenderPipeline; readonly shape: PipelineShape }> {
     this.#checkPipelineLimits(fs === undefined ? [vs] : [vs, fs]);
     const shape = this.#shape(fs === undefined ? [vs] : [vs, fs]);
     const vertex = vs.vertex;
-    // Every stage is created with the same values: WebGPU takes a name any stage's module
-    // declares, whether or not that stage's entry reads it.
-    const stage =
-      plan.constants === undefined
-        ? {}
-        : { constants: wgslConstants(this.manifest, plan.constants) };
     return this.device
-      .createRenderPipelineAsync({
-        layout: shape.pipelineLayout,
+      .createRenderPipeline({
+        layouts: shape.layouts,
+        module: this.#shaderModule(),
         vertex: {
-          module: this.#shaderModule(),
           entryPoint: vs.emitted,
           buffers:
             vertex === undefined
@@ -1677,25 +1636,16 @@ export class ProgramImpl implements Program {
                     })),
                   },
                 ],
-          ...stage,
         },
         ...(fs !== undefined
-          ? {
-              fragment: {
-                module: this.#shaderModule(),
-                entryPoint: fs.emitted,
-                targets: plan.targets,
-                ...stage,
-              },
-            }
+          ? { fragment: { entryPoint: fs.emitted, targets: plan.targets } }
           : {}),
-        primitive: {
-          topology: plan.primitive.topology,
-          cullMode: plan.primitive.cullMode,
-          frontFace: plan.primitive.frontFace,
-        },
-        ...(plan.depth !== undefined ? { depthStencil: depthStencilOf(plan.depth) } : {}),
-        ...multisampleOf(plan.multisample),
+        ...(plan.constants !== undefined
+          ? { constants: wgslConstants(this.manifest, plan.constants) }
+          : {}),
+        primitive: plan.primitive,
+        ...(plan.depth !== undefined ? { depthStencil: plan.depth } : {}),
+        multisample: plan.multisample,
       })
       .then(
         (gpu) => ({ gpu, shape }),
@@ -1750,7 +1700,9 @@ export class ProgramImpl implements Program {
     const b = s.binding;
     const uniform = b.resource.resourceKind === 'uniform-buffer';
     try {
-      if (isGpuBuffer(v)) return { bound: (v as unknown as { size: number }).size };
+      const host =
+        typeof v === 'object' && v !== null ? this.device.fromNative('buffer', v) : undefined;
+      if (host !== undefined) return { bound: host.size };
       const state = residentState(v);
       if (state !== undefined) {
         if (s.layout === undefined) return undefined;
@@ -1771,8 +1723,8 @@ export class ProgramImpl implements Program {
     shape: PipelineShape,
     entry: PackEntry,
     values: Bindings,
-    consoleBuffer: Buffer | undefined,
-  ): object[] {
+    consoleBuffer: RhiBuffer | undefined,
+  ): RhiBindGroup[] {
     if (typeof values !== 'object' || values === null)
       throw new TypeError(
         `"${entry.name}"${at(entry)}: the bindings are ${describe(values)}, not an object.`,
@@ -1790,12 +1742,16 @@ export class ProgramImpl implements Program {
           }.`,
         );
     return shape.groups.map((g) => {
-      const resources: object[] = [];
+      const resources: { binding: number; resource: RhiBindResource }[] = [];
       const key: number[] = [];
       for (const s of g.slots) {
         const r = this.#resource(s, entry, values, consoleBuffer);
         resources.push({ binding: s.binding.binding, resource: r });
-        key.push(idOf('buffer' in r ? (r as { buffer: object }).buffer : r));
+        key.push(
+          idOf(
+            'buffer' in r ? r.buffer : 'view' in r ? r.view : 'sampler' in r ? r.sampler : r.native,
+          ),
+        );
       }
       return this.rt.bindGroup(g.layout, key.join(','), resources);
     });
@@ -1805,16 +1761,18 @@ export class ProgramImpl implements Program {
     s: Slot,
     entry: PackEntry,
     values: Bindings,
-    consoleBuffer: Buffer | undefined,
-  ): object {
+    consoleBuffer: RhiBuffer | undefined,
+  ): RhiBindResource {
     const b = s.binding;
     if (b.name === '_console') return { buffer: consoleBuffer! };
-    if (b.name === '_fp64') return this.rt.guardView();
+    if (b.name === '_fp64') return { view: this.rt.guardView() };
     const v = values[b.name];
     const where = `"${entry.name}"${at(entry)}, binding "${b.name}" (${b.type})`;
     if (v === undefined) throw new TypeError(`${where} is not given.`);
     if (RESOURCE_KINDS.has(b.resource.resourceKind)) {
-      if (isGpuBuffer(v)) return { buffer: v };
+      const host =
+        typeof v === 'object' && v !== null ? this.device.fromNative('buffer', v) : undefined;
+      if (host !== undefined) return { buffer: host };
       const state = residentState(v);
       if (state !== undefined) {
         // One buffer of both layers (change 0025): the Resident's, uploaded on its first use.
@@ -1826,15 +1784,17 @@ export class ProgramImpl implements Program {
         const writes = entry.bindings?.find((x) => x.name === b.name)?.writes ?? false;
         try {
           return {
-            buffer: state.bufferFor(
-              this.device as unknown as GpuDevice,
-              layout,
-              () => {
-                const bytes = new ArrayBuffer(byteSize(layout, state.host, b.name));
-                pack(new DataView(bytes), 0, layout, state.host, b.name);
-                return bytes;
-              },
-              writes,
+            buffer: this.residentBuffer(
+              state.bufferFor(
+                this.device.native as GpuDevice,
+                layout,
+                () => {
+                  const bytes = new ArrayBuffer(byteSize(layout, state.host, b.name));
+                  pack(new DataView(bytes), 0, layout, state.host, b.name);
+                  return bytes;
+                },
+                writes,
+              ),
             ),
           };
         } catch (err) {
@@ -1848,11 +1808,12 @@ export class ProgramImpl implements Program {
         );
       return this.#packed(s.layout, v, b, where);
     }
-    if (v instanceof TextureImpl) return v.view();
-    if (v instanceof SamplerImpl) return v.sampler;
+    if (v instanceof TextureImpl) return { view: v.view() };
+    if (v instanceof SamplerImpl) return { sampler: v.handle };
     if (typeof v === 'object' && v !== null) {
-      if ('createView' in v) return (v as { createView(): object }).createView();
-      return v;
+      const texture = this.device.fromNative('texture', v);
+      if (texture !== undefined) return { view: this.device.createView(texture) };
+      return { native: v };
     }
     throw new TypeError(
       `${where} takes a Texture, a Sampler or the host's GPU object; got ${describe(v)}.`,
@@ -1867,7 +1828,7 @@ export class ProgramImpl implements Program {
     v: unknown,
     b: PackBinding,
     where: string,
-  ): { readonly buffer: Buffer; readonly size?: number } {
+  ): { readonly buffer: RhiBuffer; readonly size?: number } {
     let bytes: ArrayBuffer;
     try {
       const size = byteSize(l, v, b.name);
@@ -1877,38 +1838,37 @@ export class ProgramImpl implements Program {
       if (err instanceof Misfit) throw new TypeError(`${where}: ${err.path} ${err.problem}.`);
       throw err;
     }
-    const usage =
-      (b.resource.resourceKind === 'uniform-buffer' ? BUFFER.UNIFORM : BUFFER.STORAGE) |
-      BUFFER.COPY_DST;
-    const buffer = this.rt.pool.take(bytes.byteLength, usage);
-    this.device.queue.writeBuffer(buffer, 0, bytes);
+    const buffer = this.rt.pool.take(bytes.byteLength, [
+      b.resource.resourceKind === 'uniform-buffer' ? 'uniform' : 'storage',
+      'copy-dst',
+    ]);
+    this.device.writeBuffer(buffer, 0, bytes);
     return b.resource.resourceKind === 'uniform-buffer'
       ? { buffer }
       : { buffer, size: bytes.byteLength };
   }
-}
 
-const isGpuBuffer = (v: unknown): v is Buffer =>
-  typeof v === 'object' && v !== null && 'mapAsync' in v && 'getMappedRange' in v;
+  /** The handle of the native buffer a `Resident` holds. The call layer makes it on the native
+   *  device until it runs on the RHI too (change 0120, M4). */
+  residentBuffer(native: object): RhiBuffer {
+    return this.device.fromNative('buffer', native)!;
+  }
+}
 
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 /** A compute pass the dispatch records into: the host's, or one it begins in the host's
- *  encoder. */
-function computePass(target: object): { pass: ComputePassEncoder; end: boolean } {
-  if ('dispatchWorkgroups' in target) return { pass: target as ComputePassEncoder, end: false };
-  if ('encoder' in target && 'pass' in target)
-    return {
-      pass: (
-        target as { encoder: { beginComputePass(): ComputePassEncoder } }
-      ).encoder.beginComputePass(),
-      end: true,
-    };
-  if ('beginComputePass' in target)
-    return {
-      pass: (target as { beginComputePass(): ComputePassEncoder }).beginComputePass(),
-      end: true,
-    };
+ *  encoder, a frame's, or the encoder a frame hands it. */
+function computePass(rhi: RhiDevice, target: object): { pass: RhiComputePass; end: boolean } {
+  const pass = rhi.fromNative('compute-pass', target);
+  if (pass !== undefined) return { pass, end: false };
+  const encoder =
+    'encoder' in target && 'pass' in target
+      ? rhi.fromNative('encoder', (target as { encoder: object }).encoder)
+      : 'beginComputePass' in target
+        ? rhi.fromNative('encoder', target)
+        : undefined;
+  if (encoder !== undefined) return { pass: encoder.beginComputePass(), end: true };
   throw new TypeError(
     `dispatch() records into a GPUCommandEncoder, a GPUComputePassEncoder or a Frame; got ${describe(target)}.`,
   );
@@ -1935,7 +1895,7 @@ export class ComputePipelineImpl implements ComputePipeline {
     private readonly program: ProgramImpl,
     private readonly e: PackEntry,
     private readonly shape: PipelineShape,
-    private readonly gpu: object,
+    private readonly gpu: RhiComputePipeline,
     readonly workgroupShape: readonly [number, number, number],
   ) {}
 
@@ -1953,7 +1913,7 @@ export class ComputePipelineImpl implements ComputePipeline {
     const consoleBuffer =
       recorder !== undefined ? rt.consoleBuffer(recorder.log, recorder.entry) : undefined;
     const groups = this.program.bindGroups(this.shape, this.e, bindings, consoleBuffer);
-    const { pass, end } = computePass(target);
+    const { pass, end } = computePass(rt.rhi, target);
     pass.setPipeline(this.gpu);
     groups.forEach((g, i) => pass.setBindGroup(i, g));
     pass.dispatchWorkgroups(...wg);
@@ -1977,7 +1937,7 @@ export class RenderPipelineImpl implements RenderPipeline {
     private readonly vs: PackEntry,
     private readonly fs: PackEntry | undefined,
     private readonly shape: PipelineShape,
-    private readonly gpu: object,
+    private readonly gpu: RhiRenderPipeline,
     private readonly takesVertices: boolean,
     private readonly blendConstant?: readonly [number, number, number, number],
     private readonly depth?: RenderPlan['depth'],
@@ -1992,10 +1952,14 @@ export class RenderPipelineImpl implements RenderPipeline {
   }
 
   draw(target: object, bindings: Bindings, geometry: Geometry): void {
-    const pass = ('raw' in target ? (target as { raw: object }).raw : target) as RenderPassEncoder;
+    const rhi = this.program.device;
+    // A frame's pass records into its RHI pass; a host's own pass is taken as it is.
+    const pass =
+      (target as { rhiPass?: RhiRenderPass }).rhiPass ??
+      rhi.fromNative('render-pass', 'raw' in target ? (target as { raw: object }).raw : target);
     // A frame's pass keeps its blend constant; a host's own pass has none, so it keeps none.
     const state = (target as { passState?: PassState }).passState;
-    if (typeof pass.setPipeline !== 'function' || typeof pass.draw !== 'function')
+    if (pass === undefined)
       throw new TypeError(
         `draw() records into a GPURenderPassEncoder or a frame's pass; got ${describe(target)}.`,
       );
@@ -2043,7 +2007,7 @@ export class RenderPipelineImpl implements RenderPipeline {
         );
       pass.setVertexBuffer(
         0,
-        this.#resident(v, 'vertices', this.vs) ?? this.#upload(v, BUFFER.VERTEX),
+        this.#resident(v, 'vertices', this.vs) ?? this.#upload(v, 'vertex', this.vs),
       );
     }
     const instances = geometry.instances ?? 1;
@@ -2056,12 +2020,12 @@ export class RenderPipelineImpl implements RenderPipeline {
     if (resident !== undefined) pass.setIndexBuffer(resident, 'uint32');
     else if (ArrayBuffer.isView(idx)) {
       pass.setIndexBuffer(
-        this.#upload(idx, BUFFER.INDEX),
+        this.#upload(idx, 'index', entry),
         idx instanceof Uint16Array ? 'uint16' : 'uint32',
       );
     } else {
       const host = idx as { readonly buffer: object; readonly format: 'uint16' | 'uint32' };
-      pass.setIndexBuffer(host.buffer as Buffer, host.format);
+      pass.setIndexBuffer(this.#upload(host.buffer, 'index', entry), host.format);
     }
     pass.drawIndexed(geometry.count, instances);
   }
@@ -2070,7 +2034,7 @@ export class RenderPipelineImpl implements RenderPipeline {
    *  every binding of the handle shares, uploaded on its first use and when `write()` changed
    *  it, and bound as it is otherwise. Undefined for a value that is no `Resident`. A `Resident`
    *  of anything but the typed arrays the field takes is a `TypeError` naming the field. */
-  #resident(v: unknown, field: 'indices' | 'vertices', entry: PackEntry): Buffer | undefined {
+  #resident(v: unknown, field: 'indices' | 'vertices', entry: PackEntry): RhiBuffer | undefined {
     const state = residentState(v);
     if (state === undefined) return undefined;
     const host = state.view();
@@ -2092,23 +2056,28 @@ export class RenderPipelineImpl implements RenderPipeline {
       const a = state.host as Uint32Array;
       return a.buffer.slice(a.byteOffset, a.byteOffset + a.byteLength) as ArrayBuffer;
     };
-    return state.bufferFor(
-      this.program.device as unknown as GpuDevice,
-      layout,
-      bytes,
-      false,
-    ) as unknown as Buffer;
+    return this.program.residentBuffer(
+      state.bufferFor(this.program.device.native as GpuDevice, layout, bytes, false),
+    );
   }
 
-  #upload(v: ArrayBufferView | object, usage: number): Buffer {
-    if (!ArrayBuffer.isView(v)) return v as Buffer;
+  /** A typed array uploaded into a buffer the pool hands out, or the host's own buffer. */
+  #upload(v: ArrayBufferView | object, usage: 'vertex' | 'index', entry: PackEntry): RhiBuffer {
     const rt = this.program.rt;
+    if (!ArrayBuffer.isView(v)) {
+      const host = rt.rhi.fromNative('buffer', v);
+      if (host === undefined)
+        throw new TypeError(
+          `"${entry.name}"${at(entry)}: the geometry's ${usage === 'vertex' ? 'vertices' : 'indices'} ${describe(v)} is no buffer of this device.`,
+        );
+      return host;
+    }
     // Index data is padded to 4 bytes, which writeBuffer needs.
     const size = Math.ceil(v.byteLength / 4) * 4;
-    const buffer = rt.pool.take(size, usage | BUFFER.COPY_DST);
+    const buffer = rt.pool.take(size, [usage, 'copy-dst']);
     const bytes = new Uint8Array(size);
     bytes.set(new Uint8Array(v.buffer, v.byteOffset, v.byteLength));
-    rt.gpu.queue.writeBuffer(buffer, 0, bytes);
+    rt.rhi.writeBuffer(buffer, 0, bytes);
     return buffer;
   }
 }

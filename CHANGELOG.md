@@ -126,6 +126,21 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 ### Changed
 
 - **Each fuse report group counts its device commands (§71, change 0121).** Required `group.dispatches` includes WebGPU push stages, reduction folds and store-only entries, WebGL2 draws, and zero on the CPU. Group counts sum to the plan total. Hand-built `FuseReport` groups must add the actual count; CPU groups add `dispatches: 0`. This source-breaking type change requires a new minor release before 1.0. Bundle measurements add 23 bytes gzip to runtime, 76 to fuse, 75 to algorithms and 48 to random; split aggregate grows by 100 bytes for runtime and 127 for fuse, with floors unchanged.
+- **The program runtime records through a render hardware interface on WebGPU** (change 0120,
+  milestone M1). `src/rhi/rhi.ts` declares the interface, internal and in no subpath, and
+  `src/rhi/webgpu.ts` is its WebGPU backend, into which `src/runtime/gpu.ts` is folded.
+  `createRuntime()`'s WebGPU tier makes its pipelines, bind groups, buffers, textures, samplers,
+  frames and passes through it and calls no `GPUDevice`, `GPUQueue` or `GPUCommandEncoder`
+  function itself; a `Resident` it binds still makes its buffer on the native device, in the call
+  layer (milestone M4). The native calls, their descriptors and the frames are the ones it made
+  before, and its API does not change. Two arguments that are not GPU objects now refuse with a
+  `TypeError` before WebGPU sees them: `rt.submit()` given something that is not a
+  `GPUCommandEncoder` (with the sentence an empty call has), and a geometry's `vertices` or
+  `indices.buffer` given an object that is not a `GPUBuffer`. The WebGL2 tier is unchanged
+  (milestone M2). The interface and its backend add code to the runtime, so the caps of
+  `typeshade/runtime` in `scripts/bundle-budget.json` take the measured gzip sizes: single file
+  154,373 to 155,924 (+1,551), split initial 39,339 to 40,779 (+1,440) and split total 156,382 to
+  157,876 (+1,494). The floors and the other subpaths do not change.
 
 - **A constant argument reaches a function under a numerical contract** (#850 N5; Rule 11.22).
   At `-O2`, a call that passes a scalar literal to a function opted in with `numerics(...)` calls
