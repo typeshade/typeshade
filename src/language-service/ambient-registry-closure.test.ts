@@ -138,7 +138,7 @@ const EXPRESSION_FORMS: Readonly<Record<string, string>> = {
 };
 
 /** The forms that are written in a DECLARATION rather than in an expression. One program
- *  exercises all fourteen, which is also the shape every example opens with. The four before
+ *  exercises all thirteen, which is also the shape every example opens with. The four before
  *  `inout` are the entry-IO and uniformity attributes #158 and #161 added (§53, §54); they are listed here
  *  rather than excused on `DECLARED_NOT_LOWERABLE` because the witness below really does
  *  compile them and each one really does reach the emitted WGSL. */
@@ -161,8 +161,6 @@ const DECLARATION_FORMS: readonly string[] = [
   // A kernel function's stage call (change 0111, amendment 1), which the witness's `scale` takes;
   // `vertex`, `fragment` and `compute` are its stage calls too, and both spellings compile.
   'workgroup_size',
-  // A function's numerical contract (change 0107), which the witness's `half` takes.
-  'numerics',
 ];
 
 const DECLARATION_WITNESS = `"use typeshade";
@@ -198,9 +196,8 @@ export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocatio
   bump(out[gid.x]);
 });
 export const scale = workgroup_size([128], function scale(xs: array<f32>): void {
-  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * half(un.k); }
+  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * un.k; }
 });
-const half = numerics(["finite-math"], function half(x: f32): f32 { return x * 0.5; });
 `;
 
 const LOWERABLE: ReadonlySet<string> = new Set([

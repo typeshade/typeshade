@@ -358,14 +358,6 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
     reason:
       "GLSL's qualifier: a parameter that names a place the function writes, WGSL `ptr<AS, T>`",
   },
-
-  // A numerical contract (Rule 11.22, proposal 0107): a call that wraps a function, in the form
-  // change 0111 gives every attribute. WGSL has no attribute for it; it changes what the
-  // optimizer may do, and nothing in the emitted text names it.
-  {
-    name: 'numerics',
-    reason: 'opts a function into named floating-point rewrites the default optimizer refuses',
-  },
 ];
 // LINT.ThenChange(docs/language-design.md:extensions)
 
@@ -574,7 +566,7 @@ function internalLeaks(dts: string, rows: ReadonlyMap<string, unknown>): string[
  *  is `| family | \`name\` | reason |`; no other table in the document is read. */
 function documentedExtensions(markdown: string): { name: string; reason: string }[] {
   const start = markdown.indexOf('**Rule 9.6.**');
-  const stop = markdown.indexOf('Eleven families', start);
+  const stop = markdown.indexOf('Ten families', start);
   if (start < 0 || stop < 0) throw new Error('docs/language-design.md has no §9.3 extension table');
   const rows: { name: string; reason: string }[] = [];
   for (const line of markdown.slice(start, stop).split('\n')) {

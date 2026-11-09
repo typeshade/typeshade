@@ -68,7 +68,6 @@
 import type { ModuleDecl, Expr } from '../ir/index.js';
 import { mapStmt, mapModuleExprs, deadFnElim, memberFold } from './opt/index.js';
 import { inlineLinearAll } from './inline-linear.js';
-import { outsideContracts } from './contract-boundary.js';
 
 /** How far `inline({ opaque })` unlocks `FuncDecl.opaque`. Spelled as inline code
  *  rather than a `{@link}`: the internal pass is not published in the API reference,
@@ -168,15 +167,6 @@ export function forceInline(
   m: ModuleDecl,
   policy: InlineOpaque = 'keep',
   opts?: InlineOpaqueOpts,
-): ModuleDecl {
-  // A function under a numerical contract is held out of it (change 0107, `contract-boundary.ts`).
-  return outsideContracts(m, (rest) => forceInlineOf(rest, policy, opts));
-}
-
-function forceInlineOf(
-  m: ModuleDecl,
-  policy: InlineOpaque,
-  opts: InlineOpaqueOpts | undefined,
 ): ModuleDecl {
   if (policy === 'keep') return inlineLinearAll(m);
   const locked = new Set(m.funcs.filter((f) => f.opaque === true).map((f) => f.name));

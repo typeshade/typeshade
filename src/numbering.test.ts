@@ -70,6 +70,8 @@ describe('the numbers on the tree', () => {
     const next = nextFree(codesText, surfaceText);
     expect(next.code).toBeLessThan(CATCH_ALL.number);
     expect(codesIn(codesText).some((c) => c.number === next.code)).toBe(false);
+    // A code retired at the top of the sequence (TS8078, change 0131) is a gap, not free.
+    expect(CODE_GAPS.some((g) => next.code >= g.from && next.code <= g.to)).toBe(false);
     expect(sectionsIn(surfaceText)).not.toContain(next.section);
   });
 });
