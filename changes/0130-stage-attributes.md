@@ -163,15 +163,15 @@ downstream:
   - repo: typeshade.github.io
     what: Every page, example card, Playground starter (`playground-host-default.ts`) and generated host text that shows a stage call or `workgroup_size(…)` is written again with the stage attribute, in English and in Korean; `compiler-changes.md` records 0130 when the pin moves.
   - repo: vscode-typeshade
-    what: Snippets, the skill's references and the grammar show the stage attributes; the editor's TS1206 filter is narrowed to a stage attribute on a module function and decoupled from TS2564; `compiler-changes.md` records 0130 when the pin moves.
+    what: Snippets, the skill's references and the grammar show the stage attributes; its tsserver tests (`FALSE_POSITIVE_CODES`, `plugin-cases.ts` line 48) follow the narrowed TS1206 filter, which lives in this repository (`src/language-service/diagnostics.ts`); `compiler-changes.md` records 0130 when the pin moves.
   - repo: radiance
-    what: Every shader file that uses a stage call moves to the attribute form with `tshc migrate`; `compiler-changes.md` records 0130 when the pin moves.
+    what: It already writes `@compute`, `@vertex` and `@fragment` (4, in `packages/radiance/src/kernels/trace.shade.ts` and `scripts/probes/hit-sphere.shade.ts`) and has no stage call; it owes the move of 5 `@builtin` and 1 `@location` parameter decorators to types (change 0111); `compiler-changes.md` records 0130 when the pin moves. <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds --> <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds -->
   - repo: typenn
     what: No stage call or stage decorator was found at review time (grep of `src/`); `compiler-changes.md` records 0130 when the pin moves.
   - repo: typecv
-    what: Its shader files already use the stage decorators (251 under `src/` at review time), which this change keeps; it still owes the move of its 224 `@builtin` and 10 `@inout` parameter decorators to types (change 0111), which `tshc migrate` does; do not run `tshc migrate` at the current pin; `compiler-changes.md` records 0130 when the pin moves.
+    what: Its shader files already use the stage decorators (251 under `src/` at review time), which this change keeps; it still owes the move of its 224 `@builtin` and 10 `@inout` parameter decorators to types (change 0111), which `tshc migrate` does; do not run a `tshc migrate` from before 0130's implementation (its pin `78a9060f` has none, and 0111's codemod would rewrite the stages to calls); `compiler-changes.md` records 0130 when the pin moves.
   - repo: typeaudio
-    what: The stage calls under `experiments/` (15 at review time, 6 of them inside template strings in the sound-match experiment's program file, which `tshc migrate` cannot rewrite and the author edits by hand) move to the attribute form; `compiler-changes.md` records 0130 when the pin moves.
+    what: The stage calls under `experiments/` (15 at review time, 6 of them inside template strings in `experiments/07-sound-match/` (5 in `program.ts`, 1 in `refusals.ts`), which `tshc migrate` cannot rewrite and the author edits by hand) move to the attribute form; `compiler-changes.md` records 0130 when the pin moves.
 ---
 
 **Document control**
@@ -212,8 +212,20 @@ export function fs(i: VsOut): location<0, vec4> { … }
 @compute([8, 8])
 export function blur(gid: builtin<"global_invocation_id", vec3u>) { … }
 
-@workgroup_size([128])
+@workgroup_size([128]) // optional: without it the compiler chooses the size
 export function k(a: array<f32>) { … }
+```
+
+**D3, before and after:**
+
+```ts
+// before (change 0111 D8)
+class VsOut { pos!: builtin<"position", vec4>; uv!: location<0, vec2>; }
+let q!: vec2; split(p, q);
+
+// after
+class VsOut { pos: builtin<"position", vec4>; uv: location<0, vec2>; }
+let q: vec2; split(p, q);
 ```
 
 **The principle, a new Rule 1.8.** <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds --> The proposed text, for `docs/language-design.md` §1.8 after
@@ -221,11 +233,16 @@ Rule 1.7:
 
 > **Rule 1.8.** <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds --> A construct of the language is written in the language's own syntax: the
 > directive, a type of the surface, or an attribute `@name` or `@name(…)` on the declaration it
-> marks. A construct that marks a declaration is an attribute; a construct that marks a value is a
-> type. A construct must not be written as a call of a function whose only role is to carry it.
-> A construct exists only for what the author must state and the compiler cannot know or prove;
-> an optimization the compiler can prove exact, a tuning parameter and a validation the compiler
-> can satisfy by rewriting the program are the compiler's work. TypeShade borrows TypeScript's
+> marks. A construct that marks a function, its stage or its dispatch is an attribute `@name` or
+> `@name(…)` on the function's declaration. A construct that describes a value that flows in or
+> out (a parameter, a field, a result, a binding) is part of its type. A construct must not be
+> written as a call of a function whose only role is to carry it. A construct exists only for
+> what the author must state and the compiler cannot know or prove; an optimization the compiler
+> can prove exact, a tuning parameter and a validation the compiler can satisfy by rewriting the
+> program are the compiler's work. Where the compiler chooses a tuning parameter by default, an
+> attribute may let the author state it explicitly, as `@workgroup_size([n])` does for a kernel
+> (Rule 8.22): the default is the compiler's choice, and the attribute is an override, never a
+> requirement. TypeShade borrows TypeScript's
 > syntax and is not TypeScript: whether a TypeScript tool (`tsc`, a formatter, a linter, a
 > bundler) accepts a form is not a criterion for the surface, and the tooling for the language's
 > own syntax is the project's work, as it is for Vue single-file components and JSX.
@@ -261,52 +278,101 @@ entered in the owner-decision register (separate pull request). This proposal am
   does not mean that TypeScript's toolchain accepts the file, since TypeShade is a language of its
   own (`docs/language-design.md` §1.8)."
 
+**The other amended rules, proposed text** (each replaces the named sentence, or adds the
+sentence given):
+
+- **Rule 2.1**, added: "An attribute name a stage or a dispatch is written with (`vertex`,
+  `fragment`, `compute`, `workgroup_size`) is an author-facing name reached as a decorator (2.1(a));
+  `@compute([…])` folds WGSL's `@compute` and `@workgroup_size` into one TypeShade spelling."
+- **Rule 6.6**, added: "No decorator is written on a parameter or a field; the language service
+  keeps hiding TypeScript's TS1206 on one only while `compile()` warns on it (change 0111,
+  milestone 4), and stops in the release that refuses it."
+- **Rule 6.7**, the sentence "Each is written where a plain `tsc --strict` accepts it (change
+  0111): …" with its call examples is replaced by: "A stage is an attribute on the entry's
+  function declaration (`@vertex`, `@fragment`, `@compute([x, y?, z?])`, Rule 8.1), and a kernel's
+  size the optional attribute `@workgroup_size([n])` (Rule 8.22); `builtin` and `location` are
+  types and `interpolate`, `invariant` and `blend_src` their options (Rule 6.6), and `inout` and
+  `out` are the types `inout<T>` and `out<T>` (Rule 8.25)."
+- **Rule 7.6**, added: "Such a local is declared without `!`; a written `!` is accepted."
+- **Rule 8.1**, new text: "An entry point is a function declaration at the top of the file or of
+  a namespace, exported or not, with exactly one stage attribute written before the declaration:
+  `@vertex export function vs(…)`. The order `export @vertex function` is accepted and means the
+  same; `export default` is refused on an entry, which takes the declaration's name. A bare
+  `@compute` and `@compute()` take the default size. An entry written as a `const`, an arrow
+  function or a function expression, and an entry method on a class, must be refused."
+- **Rule 8.7**, the first words "`@compute` carries the workgroup size" stay; the rule loses its
+  reference to the call form.
+- **Rule 8.22**, the phrase "a function declaration or a `const` a `workgroup_size([n], f)` call
+  initializes (change 0111)" becomes "a function declaration", and the rule adds: "Its workgroup
+  size is the compiler's choice unless the optional attribute `@workgroup_size([n])` states it;
+  the size changes the time a loop takes, not the bits it writes. A reduction still runs in the
+  tree of 256, so the attribute on a kernel whose loop reduces is refused with `TS8077` as today."
+
 The proposed rules, in short:
 
 1. An entry point is a function declaration at the top of the file or of a namespace with
    exactly one stage attribute: `@vertex`, `@fragment` or `@compute([x, y?, z?])` (Rule 8.1).
    A bare `@compute` takes the default size, 64 (Rule 8.7). An extent is a positive integer
    literal, an integer module constant or a `u32` override name, as Rule 8.7 says today.
-2. A kernel function's size other than the default is the attribute `@workgroup_size([n])` on
-   its declaration, in place of the `workgroup_size([n], f)` call (Rule 8.22). The size stays
-   public (`docs/dx.md` principle 6).
+2. A kernel function's size is the compiler's choice by default. The author may state it with
+   the optional attribute `@workgroup_size([n])` on the declaration, in place of the
+   `workgroup_size([n], f)` call (Rule 8.22, D1). The size stays reachable (`docs/dx.md`
+   principle 6) and is never required.
 3. Entry inputs and outputs keep the types of change 0111; no decorator on a parameter or a field
    (Rule 6.6). D3: the `!` on an entry I/O field and on a local an `out<T>` argument fills is no
-   longer written; the language service sets `strictPropertyInitialization: false` for shader
-   files, which states the language's zero-initialisation (Rule 7.6).
+   longer written. The TypeShade program (`typeshadeCompilerOptions`,
+   `src/language-service/host.ts` lines 62-76; its script set at line 222) sets
+   `strictPropertyInitialization: false`, which states the language's zero-initialisation for
+   fields (Rule 7.6). A local's `let q!` is TS2454, which the language service already drops in
+   every shader file (`src/language-service/diagnostics.ts` lines 1297-1308). A written `!` stays
+   accepted, since it is valid TypeScript; `tshc migrate` removes it (it adds it today,
+   `src/cli/migrate.ts` lines 157-198), and the 52 examples that carry `!:` drop it.
 4. The calls `vertex(f)`, `fragment(f)`, `compute([…], f)` and `workgroup_size([…], f)` give a
    `TS8028` warning that names the attribute for one migration release (D4), and are refused
    after it. `tshc migrate` rewrites them.
 5. A stage attribute on anything but a function declaration at the top of the file or of a
    namespace (a method, an arrow function, a local function, an overload signature), two stage
    attributes on one function, and `@compute` with a fourth, zero or non-integer extent are
-   refused with `TS8028` or `TS8037` as today, with messages that name the attribute.
+   refused with `TS8028` or `TS8037` as today, with messages that name the attribute. An entry
+   written as a `const` or an arrow function, allowed by Rule 8.1 today, is removed with the
+   call forms.
 6. The attribute names `vertex`, `fragment`, `compute` and `workgroup_size` stay author-facing
    names (Rule 2.1(a), an attribute reached as a decorator). The ambient library declares them
    with decorator signatures, as before change 0111, so the author-facing name set
-   (`src/__api__/author-names.md`) keeps the same names.
+   (`src/__api__/author-names.md`, lines 90, 127, 291 and 295) keeps the same names. For the
+   warning release the ambient library keeps both overload sets (`ambient.ts` lines 1655-1671);
+   the call overloads leave with the refusal.
 7. `numerics` and `diagnostic` are not in this proposal: proposals 0131 (#1104) and 0132
-   (#1105) remove them. Both are accepted before this proposal's call forms are refused, so no
-   entry is left with an option it cannot write.
+   (#1105) remove them. Both are implemented before this proposal's codemod runs, so no entry is
+   left with an option it cannot write (Interaction with 0131 and 0132).
 
 The emitted WGSL and GLSL ES 3.00 do not change for a migrated program.
 
 ### The editor (Rule 1.7, Rule 12.7)
 
-TypeScript does not type-check a decorator on a function declaration; it reports TS1206 and
-checks nothing in its argument. The language service therefore projects the attribute:
+TypeScript does not type-check a decorator on a function declaration: it reports TS1206 and
+checks nothing in its argument. It still answers references, rename, go-to-definition, quick info
+and completion inside the attribute (measured with TypeScript 5.6.3 on
+`@compute([WG, "x", undefinedName])`: `findReferences` and `findRenameLocations` on `WG` include
+the occurrence in the attribute). The language service therefore:
 
-1. In the virtual file it gives TypeScript, the language service removes the attribute from the
-   declaration.
-2. It checks the attribute's name and arguments itself, with the compiler's own check, and
-   reports `TS8028` or `TS8037` where `compile()` does.
-3. Its TS1206 filter covers only a stage attribute or `@workgroup_size` on a function declaration
-   at the top of the file or of a namespace. It no longer depends on `usesDecoratedForm`, it no
-   longer hides TS2564 (D3 handles field initialisation), and it does not hide TS1206 on a
-   parameter or field decorator, which change 0111 still refuses.
+1. Keeps the attribute as written in the virtual file it gives TypeScript, so references,
+   rename, definition and completion inside it stay TypeScript's.
+2. Runs the compiler's own check of the attribute's name and extents, and reports `TS8028` or
+   `TS8037` where `compile()` does. This is not a second checker of the language (Rule 1.7's
+   rationale): it calls the compiler's check.
+3. Drops TS1206 only on a stage attribute or `@workgroup_size` on a function declaration at the
+   top of the file or of a namespace. The filter no longer depends on `usesDecoratedForm` and no
+   longer hides TS2564 (D3 handles field initialisation). It keeps hiding TS1206 on a parameter
+   or field decorator only while `compile()` warns on one (Rule 6.6, as proposed).
+4. Keeps the guard of `src/language-service/navigation.ts` lines 42-56, which refuses positions
+   inside a decorator on a function to avoid a TypeScript `Debug.fail`, until a test shows it is
+   no longer needed on the supported TypeScript versions; it then narrows it to positions where
+   TypeScript fails.
 
-Hover, completion and navigation on an attribute name come from the same check. A test reads both
-halves on each case (`src/language-service/ambient-parity.test.ts` shape).
+A test reads both halves on each case (`src/language-service/ambient-parity.test.ts` shape),
+including a rename of an override used in `@compute([WG])` that leaves `compile()` accepting the
+renamed program.
 
 ### Tooling owed by the project
 
@@ -351,6 +417,39 @@ migration period kept it (`src/compiler/ts/stage3.test.ts`; measured on `415b276
 decorated `hello-vsout` compiles with TS8028 warnings and emits `@vertex` and `@fragment`).
 The host face reads the stage from the attribute as it did before change 0111.
 
+### Costs of the owner's decisions
+
+Recorded as costs, not as reasons to change the design (`docs/owner-decisions.md`, Precedence):
+
+- **OD-1.** Every entry is TS1206 in a plain `tsc` and in an editor without the TypeShade
+  plugin. prettier, typescript-eslint, esbuild, `bun build` and Node's type stripping cannot
+  parse the files; the project owes a formatter path, a lint path and loaders (Tooling owed by
+  the project). Until then `*.shade.ts` stays unformatted (`.prettierignore`). Template-string
+  shaders in typeplot (25) and typeaudio (6) are migrated by hand, and no tool checks them.
+- **OD-2.** Downstream migrates twice in about a month (0111 to calls, 0130 back): typeaudio 15
+  entries, the site in English and Korean, 101 examples, 77 journeys, the tests. Arrow and
+  `const` entries go. The language service needs the projection above and a two-halves rename
+  test. Two overload sets stay in the ambient library for one release.
+- **OD-3.** A kernel's size is a construct the compiler could choose; it stays as an optional
+  override, with the compiler's choice as the default (D1). 0130's refusal step waits on 0131 and
+  0132 being implemented.
+- **OD-4.** Each decision is shown to the owner with its options and costs before it is taken.
+
+## Owner's decisions
+
+This proposal rests on `OD-1` (a language of its own; tool acceptance is not a criterion), `OD-2`
+(stages are `@vertex`, `@fragment` and `@compute`), `OD-3` (the compiler chooses a kernel's size by
+default; no construct the compiler can replace is required) and `OD-4` (the decisions below were
+shown and taken in the conversation). It reverses no entry.
+
+## Why the compiler cannot do it
+
+- **The stage.** The author states it (`OD-2`). The compiler does not infer it.
+- **A compute entry's size.** It is observable: `local_invocation_id`, the extent of workgroup
+  memory, barriers and the host's workgroup count depend on it. Only the author knows it.
+- **A kernel's size.** The compiler can choose it, and does by default (D1). The optional
+  `@workgroup_size([n])` lets the author state it; nothing requires it.
+
 ## What it touches
 
 - <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds -->
@@ -363,7 +462,8 @@ The host face reads the stage from the attribute as it did before change 0111.
 - **Rule 7.6**: a local that an `out<T>` argument fills first is declared without `!` (D3).
 - **Rule 8.1**: an entry point is a function declaration with one stage attribute.
 - **Rule 8.7**: the workgroup size is `@compute`'s argument; the call form is removed.
-- **Rule 8.22**: a kernel's size is `@workgroup_size([n])`.
+- **Rule 8.22**: a kernel's size is the compiler's choice by default; `@workgroup_size([n])` is an optional override; `TS8077` as today.
+- **Entries written as a `const`, an arrow function or a function expression**: removed with the call forms (Rule 8.1).
 - **Surface sections**: every section that shows an entry (the list is change 0111's, to be
   confirmed by `tshc migrate`'s dry run at acceptance).
 - **codes**: `TS8028` warns on, then refuses, the call forms, and stops warning on the stage
@@ -377,14 +477,23 @@ The host face reads the stage from the attribute as it did before change 0111.
 - **Also**: `journeys/` (77 files with stage calls, run by the required `user journeys` check);
   `README.md` (`tsconfig.shade.json`, still describing `experimentalDecorators` and
   `strictPropertyInitialization: false`); `examples/plain-typescript.test.ts` (it stops being a
-  surface criterion: it keeps only the regression net it states, without TS1206 and TS2564).
+  surface criterion: with TS1206 and TS2564 out of its assertion nothing is left, so it is
+  replaced by a test that the language service reports no TS1206 or TS2564 on any example).
+- **Also**: `AUTHORING.md` (lines 13-17 and 179-182 teach the stage calls); `src/cli/init.ts`
+  lines 194-195 (the tsconfig `tshc init` writes); `changes/0111-plain-typescript-entries.md`
+  (D5's note and the milestone-5 freeze); the stage-call consumers `src/compiler/ts/semantic.ts`,
+  `source-file.ts` and `lower/closures.ts` (`numerics.ts` is left to 0131); `journeys/_harness.mjs`
+  (`TSC_DOCUMENTED`, which already tolerates TS1206); `README.md` lines 223-235 (its count of 217
+  TS1206 across 72 files). Surface §78 (numerics) is left to 0131.
+- **Positions**: an entry's diagnostic span starts at its first decorator
+  (`src/compiler/ts/lower/function.ts` line 2880), so any golden with positions moves.
 
 ### Draft impact estimate
 
 Known, measured at the baselines named above:
 
-- 94 example files carry a stage call; 0 examples use `workgroup_size(`; 15 uses of
-  `workgroup_size(` are in `src/` and `journeys/` tests.
+- 94 example files carry a stage call; 0 examples use `workgroup_size(`; 16 lines in 9 test files
+  use `workgroup_size([` (none in `journeys/`).
 - typecv: 251 stage decorators (kept), 224 `@builtin` and 10 `@inout` parameter decorators
   (moved to types under change 0111).
 - typeplot: 5 `@vertex` and 39 `@fragment`, 25 of them inside template strings in
@@ -400,9 +509,11 @@ exists from before change 0111. Duration and cost are unknown.
 
 Decided by the owner on 2026-11-09, in the Claude Code session:
 
-- **D1. A kernel's size.** Kept public (`docs/dx.md` principle 6), decided by "추천대로". Its
-  spelling becomes the attribute `@workgroup_size([n])` in this revision, by the same principle as
-  the stages; **the owner is asked to confirm this spelling**.
+- **D1. A kernel's size.** The owner answered, in the question form: "유지하되, 기본적으류는
+  컴파일러가 크기를 정하도록" (keep it, but by default let the compiler choose the size). The
+  spelling `@workgroup_size([n])` was confirmed by "승인". The attribute is optional; without it
+  the compiler chooses (Rule 8.22, as proposed). This resolves the conflict between Rule 1.8, <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds -->
+  `OD-3` and `docs/dx.md` principle 6 that the review of `b601699f` raised.
 - **D2. A compute entry's size.** `@compute([x, y?, z?])`, decided by the owner's direction that
   the stages are attributes. The builtin-option spelling of `3b20a19c` is withdrawn.
 - **D3. D8's `!`.** Dropped; the language service sets `strictPropertyInitialization: false` for
@@ -418,16 +529,49 @@ direction and is withdrawn.
 ### Migration order
 
 1. Freeze change 0111's milestone 5 for the stage forms now.
-2. Proposals 0131 and 0132 are accepted, so no stage call is left with an option.
+2. Proposals 0131 and 0132 are implemented, so no stage call is left with an option.
 3. Implement the attributes as the decided form, the narrowed editor filter and projection, and
    split `tshc migrate` (stage calls to attributes; parameter and field decorators to types).
 4. Migrate the examples, the tests, `journeys/` and the documents; template strings are edited by
    hand.
 5. One release warns on the call forms; the next refuses them.
 
+### Interaction with 0131 and 0132
+
+- 0131 (#1104) removes `numerics`; 0132 (#1105) removes `diagnostic` (a warning release, then
+  refusal, as the owner decided for 0132). Both are implemented before 0130's codemod runs:
+  `tshc migrate` cannot place a `{ numerics }` or `{ diagnostic }` option on an attribute.
+- A pre-0111 `@diagnostic(…)` decorator, which `src/compiler/ts/decorated-form.ts` lines 113-117
+  still reads, follows 0132: a warning for one release, then refusal.
+- 0132's decision on the rewrite was taken with "proved exact" read as this proposal's Rule 1.8 <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds -->
+  wording; this revision keeps that wording.
+
 ### Independent review record
 
-**This revision needs a new independent review before acceptance.**
+**This revision answers the review of `b601699f` below. It needs a new independent review
+before acceptance.**
+
+#### Independent review of revision `b601699f`
+
+Reviewer: a Claude Code agent that did not write this revision, run by the author on 2026-11-09
+under `changes/README.md` (Independent review), with `docs/owner-decisions.md` as constraints.
+Revision reviewed: `b601699f`. Verdict: revise before the owner decides.
+
+| ID    | Finding                                                                                                                             | Status                                                                                                                              |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| B1    | Rule 1.8's "declaration → attribute, value → type" contradicts `builtin<>`, `location<>` and `inout<T>` on parameters and fields.   | fixed: the criterion now names a function, its stage or its dispatch (attribute) and a value that flows in or out (type).           | <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds --> |
+| B2    | D1 (keep the kernel size) against Rule 1.8 and `OD-3`; asked only to confirm the spelling.                                          | decided by the owner: optional attribute, the compiler's choice by default (D1).                                                    | <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds --> |
+| B3    | Removing the attribute from the virtual file breaks rename of an override in `@compute([WG])`; TypeScript answers references there. | fixed: the attribute is kept in the virtual file; the compiler's check reports TS8028/TS8037; a two-halves rename test is required. |
+| S1    | No `Why the compiler cannot do it` section.                                                                                         | fixed, with `Owner's decisions`.                                                                                                    |
+| S2    | Parameter and field decorators are warnings, not refusals; the filter must keep hiding their TS1206 while `compile()` warns.        | fixed: The editor, item 3; Rule 6.6 as proposed.                                                                                    |
+| S3    | D3 does not cover locals; per-file option wording.                                                                                  | fixed: item 3 and D3 before/after.                                                                                                  |
+| S4    | Proposed text of each amended rule missing.                                                                                         | fixed: The other amended rules.                                                                                                     |
+| S5    | Both overload sets during the warning release.                                                                                      | fixed: item 6.                                                                                                                      |
+| S6    | Order: 0131 and 0132 must be implemented, not accepted.                                                                             | fixed: Migration order and Interaction.                                                                                             |
+| S7    | radiance, typeplot, typeaudio, typecv, vscode-typeshade downstream text.                                                            | fixed: front matter and What it owes downstream.                                                                                    |
+| S8    | Scope: AUTHORING.md, `tshc init`, 0111, consumers, harness, README, plain-typescript test.                                          | fixed: What it touches.                                                                                                             |
+| Notes | 16 test lines in 9 files; §78; diagnostic spans; Rule 1.8 vs §1.8; `@compute` folds `@workgroup_size`; author names kept.           | fixed in the text, except the naming of Rule 1.8 inside §1.8, which stays (noted).                                                  | <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds --> |
+| Costs | The review's costs of OD-1 to OD-4.                                                                                                 | recorded: Costs of the owner's decisions.                                                                                           |
 
 **Revisions `19ccafee` and `3b20a19c` (stage inference) are superseded.** The owner rejected
 tool parseability as a criterion on 2026-11-09 ("타입스크립트 문법을 차용한거지 그대로 쓰는
@@ -501,8 +645,8 @@ example files, 172 inferable. The text overclaims that every entry is inferable.
 ### Approval and plan record
 
 This record does not yet apply. Acceptance will require: a new independent review of this
-revision with its findings answered, the owner's confirmation of D1's spelling, the merge of
-#1094 with `status: accepted`, and the milestones above.
+revision with its findings answered, the merge of #1094 with `status: accepted`, and the
+milestones above.
 
 ### Configuration and validation record
 
@@ -516,5 +660,7 @@ surface document and `reqs/`.
 
 Each repository in `downstream` moves its stage calls to attributes with `tshc migrate` when it
 moves its pin past the implementation (template strings by hand), and records 0130 in its
-`compiler-changes.md`. typeplot is not in `DOWNSTREAM_REPOS`; it writes the stage decorators today
-and owes nothing for the stages.
+`compiler-changes.md`. typeplot is not in `DOWNSTREAM_REPOS`. It writes the stage decorators today
+(5 `@vertex`, 39 `@fragment`) and owes nothing for the stages; it still owes the move of 24
+`@builtin` and 25 `@location` parameter decorators to types (change 0111), 25 lines of them in
+template strings that `tshc migrate` cannot rewrite.
