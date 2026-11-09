@@ -91,8 +91,11 @@ describe('the draw as a program-runtime pipeline and pass (change 0120, M4)', ()
     // The first draw makes the program, the pipeline, its layouts and the pool's buffer.
     await fs(canvas, { frame: { time: 0, scale: 0.25 } });
     const first = [...canvas.pixels!];
-    const proto = Object.getPrototypeOf(cpuDevice()) as Record<string, unknown>;
-    const spies = MAKERS.map((k) => vi.spyOn(proto as never, k as never));
+    const proto = Object.getPrototypeOf(cpuDevice()) as Record<
+      (typeof MAKERS)[number],
+      (...a: unknown[]) => unknown
+    >;
+    const spies = MAKERS.map((k) => vi.spyOn(proto, k));
     for (let i = 0; i < 4; i++) await fs(canvas, { frame: { time: 0, scale: 0.25 } });
     expect(Object.fromEntries(MAKERS.map((k, i) => [k, spies[i]!.mock.calls.length]))).toEqual(
       Object.fromEntries(MAKERS.map((k) => [k, 0])),
