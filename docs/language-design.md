@@ -1729,22 +1729,23 @@ A TypeShade extension, including a new type of the f64 family, must be added by 
 - Derives from: the `[Unreleased]` entries of `CHANGELOG.md`, whose shape the rule describes; `docs/use-typeshade-surface.md` §8 ("a target example stays labelled _(target)_").
 - Enforced by: `doc-snippets.test.ts`; review for the CHANGELOG.
 
-**Rule 13.9.** A published version must follow Semantic Versioning 2.0.0, and before `1.0.0` the minor is the breaking position: a breaking change must ship only in a new `0.N.0`, and a `0.N.P` must only fix and add. From `1.0.0`, a breaking change must ship only in a new major.
+**Rule 13.9.** An official release must follow Semantic Versioning 2.0.0, and before `1.0.0` the minor is the breaking position: a breaking change must ship only in a new `0.N.0`, and a `0.N.P` must only fix and add. From `1.0.0`, a breaking change must ship only in a new major.
+An _official release_ is a version of the `typeshade` package published on npm, other than the placeholder `0.0.0` and with no prerelease part (a version such as `1.0.0-rc.1` is not one). A published package that bundles the compiler (the `vscode-typeshade` extension, `@typeshade/mcp`) is not one, and neither is a version heading of `CHANGELOG.md`, a GitHub release or a tag with no such version on npm.
 A change is _breaking_ when an upgrade can make a program that worked stop working or work differently: `compile()` or the language service refuses a program it accepted, a program that compiled computes a different value on a target or on the CPU oracle, an export listed in `src/__api__/surface.md` is removed or reshaped so that a caller's code no longer type-checks, an escape hatch Rule 11.17 names is removed, or what it accepts is narrowed, or the `typescript` peer range narrows.
 A change is not breaking when the emitted text moves and the values it computes do not, when a warning is added, when a program is newly refused that Tint or WebGL2 already refused (Rule 12.6), or when a target or the oracle is fixed to compute what WGSL defines; that last is recorded under `### Fixed` with the old result named.
 Every breaking change must carry a `CHANGELOG.md` entry that names the edit an author makes to migrate.
 
 - Rationale: npm's caret range reads a `0.x` version as `>=0.N.0 <0.(N+1).0`, so a break in a patch reaches every `^0.N.0` user unasked; and semver alone does not say what "breaking" means for a compiler whose output text changes far more often than its meaning.
-- Derives from: roadmap item 25 (`docs/roadmap.md`), decided by the maintainer on 2026-09-24 in `changes/0010-versions-and-deprecation-window.md`.
+- Derives from: roadmap item 25 (`docs/roadmap.md`), decided by the maintainer on 2026-09-24 in `changes/0010-versions-and-deprecation-window.md`; `docs/owner-decisions.md` OD-6; change `0139`.
 - Enforced by: `src/changelog.test.ts` (the version headings of `CHANGELOG.md` and the minor bump of a release that breaks); review for what counts as breaking.
 
-**Rule 13.10.** A change that keeps a program compiling and makes it compute something else must ship in two steps, and the second must come no earlier than the next breaking release after the first step's release was published (the next minor before `1.0.0`, the next major after it).
-First, a published release must report every affected line as a `category: 'warning'` diagnostic behind the opt-in deprecation option (`compile(src, { deprecations: true })`, `tshc check --deprecations`), naming the edit that keeps today's meaning, with no emitted byte moved with the option on or off.
+**Rule 13.10.** A change that keeps a program compiling and makes it compute something other than what an official release (Rule 13.9) computed for it must ship in two steps, and the second must come no earlier than the next breaking release after the first step's official release was published (the next minor before `1.0.0`, the next major after it).
+First, an official release must report every affected line as a `category: 'warning'` diagnostic behind the opt-in deprecation option (`compile(src, { deprecations: true })`, `tshc check --deprecations`), naming the edit that keeps today's meaning, with no emitted byte moved with the option on or off.
 Then the default changes, the warning and its code are retired, a `### Changed` entry names the old meaning, the new one and the one-line edit that keeps the old, and every example golden is re-baked and reviewed.
-The window is counted in published releases. From `1.0.0`, a spelling or an export that will be removed must get the same window: the spelling warns under the same option, and the export carries `@deprecated` in its JSDoc naming its replacement.
+The window is counted in official releases. A meaning that no official release carried owes no window. From `1.0.0`, a spelling or an export that will be removed must get the same window: the spelling warns under the same option, and the export carries `@deprecated` in its JSDoc naming its replacement.
 
-- Rationale: a program that stops compiling says so, with its fix (Rule 12.1); a program that computes something else says nothing, and a shader is where a silent change is hardest to see. A warning that never reached npm warned nobody.
-- Derives from: `RELEASING.md#7-versions-and-deprecations`; `changes/0010-versions-and-deprecation-window.md`; #148, the first change to take the window.
+- Rationale: a program that stops compiling says so, with its fix (Rule 12.1); a program that computes something else says nothing, and a shader is where a silent change is hardest to see. A warning that never reached npm warned nobody. The bundled builds were tests (OD-6).
+- Derives from: `RELEASING.md#7-versions-and-deprecations`; `changes/0010-versions-and-deprecation-window.md`; #148, the first change to take the window; `docs/owner-decisions.md` OD-6; change `0139`.
 - Enforced by: `src/compiler/ts/integer-literal-deprecation.test.ts` (the first step for #148: the warning under the option, no emitted byte moved); review for the timing of the second step.
 
 ## 14. Open decisions
