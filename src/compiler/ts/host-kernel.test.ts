@@ -968,7 +968,7 @@ export function axpy(a: f32, xs: array<f32>, ys: array<f32>, out: array<f32>) {
     ],
     [
       'a write through a reference',
-      `function bump(v: inout<f32>): void { v += 1.; }\nexport function inc(out: array<f32>) { for (let i: u32 = 0; i < out.length; i++) { bump(out[i]); } }`,
+      `function bump(@inout v: f32): void { v += 1.; }\nexport function inc(out: array<f32>) { for (let i: u32 = 0; i < out.length; i++) { bump(out[i]); } }`,
       'inc',
       'loop 1 writes "out" through a reference a call takes, and WebGL2 writes its texel by an assignment',
     ],
@@ -1591,7 +1591,7 @@ export function half(img: texture_storage_2d<"r32float", "read_write">, w: u32, 
   it('a loop that writes through an @inout argument of a call skips the iteration under the flag (decision D2)', () => {
     const { wgsl } = lowered(
       `"use typeshade";
-function bump(v: inout<f32>) { v = v + 1.; }
+function bump(@inout v: f32) { v = v + 1.; }
 export function viaRef(out: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     bump(out[i]);

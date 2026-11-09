@@ -441,9 +441,10 @@ Same Expr / Stmt / FuncDecl / BindingDecl / StructDecl as the EDSL.
 5. **`@vertex` / `@fragment`** + explicit builtin and `VsIn` locations.
 6. Reflect JSON + optional `.d.ts` for `declare` names.
 7. **Stage calls and attribute types** (change 0111): `vertex(f)`, `fragment(f)`,
-   `compute([…], f)`, `workgroup_size([…], f)`, `builtin<N, T>`, `location<I, T>`, `inout<T>` and
-   `out<T>`, the form a plain `tsc --strict` accepts. The decorators of steps 2, 4 and 5 stay
-   accepted until the release after the migration release.
+   `compute([…], f)`, `workgroup_size([…], f)`, `builtin<N, T>` and `location<I, T>`. The
+   decorators of steps 2, 4 and 5 stay accepted until the release after the migration release.
+   A parameter qualifier is written before the parameter, `@inout a: f32` and `@out c: f32`
+   (change 0137).
 
 Do not start Execution Graph or class methods before 2–4 are green. (Class methods landed as §26.)
 
@@ -471,7 +472,8 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | builtin parameter on an incompatible stage | stage mismatch |
 | `@compute` method on a class | an entry is declared at the top level, not on a class (Rule 8.1) |
 | `@diagnostic(…)` anywhere: on a function, a field, a parameter or a declaration | `TS8028`, an error, in the compiler and in the editor: `"@diagnostic(…)" is not a decorator the compiler reads (Rule 6.7). Delete it: the compiler rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5) and reports each other one with TS8052 and the reason. "tshc migrate" deletes it.` Change 0132 removed the filter, with no warning release (§54) |
-| a decorator of the decorated form where it is read: `@vertex`, `@fragment`, `@compute(…)` or `@workgroup_size(…)` on a function, `@builtin`, `@location`, `@interpolate`, `@invariant`, `@blend_src`, `@inout` or `@out` on a parameter or a field | a `TS8028` warning, one per decorator, in the compiler and in the editor, naming the new spelling (change 0111, the migration release): `"@vertex" is the decorated form, which the next release refuses: write "export const vs = vertex(function vs(…) { … })", or run "tshc migrate" (change 0111).`, and for an attribute the member's type, `write "pos: builtin<"position", vec4, { invariant: true }>"`. A decorator refused where it is written keeps that refusal alone. The release after it refuses each one. The editor drops TypeScript's TS1206 and TS2564 only in a file that still writes the decorated form |
+| a decorator of the decorated form where it is read: `@vertex`, `@fragment`, `@compute(…)` or `@workgroup_size(…)` on a function, `@builtin`, `@location`, `@interpolate`, `@invariant` or `@blend_src` on a parameter or a field | a `TS8028` warning, one per decorator, in the compiler and in the editor, naming the new spelling (change 0111, the migration release): `"@vertex" is the decorated form, which the next release refuses: write "export const vs = vertex(function vs(…) { … })", or run "tshc migrate" (change 0111).`, and for an attribute the member's type, `write "pos: builtin<"position", vec4, { invariant: true }>"`. A decorator refused where it is written keeps that refusal alone. The release after it refuses each one. The editor drops TypeScript's TS1206 and TS2564 only in a file that still writes the decorated form. A parameter qualifier, `@inout` or `@out`, is no decorated form and warns nowhere (change 0137) |
+| the type form of a parameter qualifier, `inout<T>` or `out<T>`, in any type position: a parameter, a local, a result, a type alias, a generic argument or a field | a `TS8028` error, once, at the written `inout<…>`, in the compiler and in the editor (change 0137): `"inout<f32>" is the type form of a parameter qualifier, which the language does not have: write "@inout a: f32", or run "tshc migrate" (change 0137).`; away from a parameter, `… a qualifier is written before a parameter, as "@inout a: f32", and here the type is "f32"; "tshc migrate" rewrites a parameter's type form (change 0137).` |
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
 | `.length` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 | a call of a name that change 0112 removed: `arrayLength`, `log10`, `log1p`, `expm1`, `cbrt`, `hypot`, `sum`, `none`, `pow`; a read of `PI`, `E`, `LN2`, `LN10`, `LOG2E` or `LOG10E`; `any(xs, p)` or `all(xs, p)` | `TS8004` for a call, `TS8022` for a read, `TS8019` for the two folds, each in one sentence that names the spelling to write: `arrayLength was removed: write xs.length.`, `PI was removed: write Math.PI.`, `any expects 1 argument, got 2; the array fold was removed: write xs.some(p).` (§10) |
@@ -483,8 +485,8 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | A name the file does not declare: a value, a callee, a type, a field, a member, an assignment target, an attribute, a `@builtin` id, an `enable` extension, an import | `TS8022`, `TS8004`, `TS8002` and the rest, on the name, with the remedy in one order (Rule 12.1): TypeShade's spelling of a GLSL or HLSL name (`lerp` is `mix`), else the name of the same kind it is spelled like (`Did you mean "clamp"?`), else the declaration it needs. `window`, `Date` and `fetch` are such names, once, where they are used, in a body a call lowers or not; a type nothing declares is `TS8002` wherever it is written, a claim, a type argument (`B<vec3<Foo>>` included), an alias, an `implements` clause and the base a class or an interface extends included. A type the library declares for TypeScript's own use (`Number`, `Object`) read or called is said to be one, and `Math`, `console` and `Symbol` to be what they are. A name the file declares is the file's, whatever it spells, `class Mat` and `interface Pick` included (§28), except `eval` and `arguments`, which strict mode lets no variable, parameter or function bind (`TS8068`) |
 | A math builtin called with arguments its signature does not take | `TS8036`. Two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind the builtin has no form for (`sin` on an integer vector), a scalar where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix; the fix is named (§10) |
 | `new` on anything but a class the file declares | `TS8035`, once for the file, naming what the target is and what to write: a WGSL constructor or a function is called without `new`, a WGSL type with no constructor (`sampler`, a texture) and a type the library declares for TypeScript (`Array`) are types, `Symbol` is the library's own, an enum's values are its members, a mixin applied to a class is built through a class that extends it, and an interface, a type alias, a namespace, a type parameter, a value and an `abstract` class are no class to build. A target nothing declares, and a member the object before it does not have, is `TS8022` (§26) |
-| A local read before it is assigned on every path, an `out<T>` parameter read before the function writes it, or a path that returns without writing one | `TS8075`, by TypeScript's TS2454 rule, which the editor shows in TypeScript's place: `"s" is read here before it is assigned on every path. Assign it before this read, or declare it with a value (Rule 7.6).` An argument an `out<T>` parameter takes assigns the variable (§70) |
-| A value nothing holds, or a place no function may write, handed to an `inout<T>` or `out<T>` parameter; a qualifier where a function takes its parameters by value | `TS8073`, naming the edit (§70) |
+| A local read before it is assigned on every path, an `@out` parameter read before the function writes it, or a path that returns without writing one | `TS8075`, by TypeScript's TS2454 rule, which the editor shows in TypeScript's place: `"s" is read here before it is assigned on every path. Assign it before this read, or declare it with a value (Rule 7.6).` An argument an `@out` parameter takes assigns the variable (§70) |
+| A value nothing holds, or a place no function may write, handed to an `@inout` or `@out` parameter; a qualifier where a function takes its parameters by value | `TS8073`, naming the edit (§70); the editor shows it alone, with no TS1206 beside it |
 | A module const, a module `let`, a static field or an enum member whose initializer calls a function or builds a class of the module | The declaration's own sentence, once, naming it as written (`S.K`): `TS8003` for a constant, which is folded before any function exists, so the value is built inside the function that reads it; `TS8033` for a module variable. A read or a write of it, and a module `let` built from it, add nothing (§12, §24, §26) |
 | An optional value (`T \| undefined`, §76) read where a `T` is needed and nothing narrowed it: an operand, an argument, a `return` of a non-optional function, an index, a member read | `TS8003`, in TypeScript's TS18048, TS2532 and TS2538 place, which the editor shows alone: `"v" is "f32 \| undefined" here, and "*" takes an f32. Test it first, "if (v !== undefined)", or give the absent case a value, "v ?? 0.".` An optional as a condition, `v!`, `undefined` where nothing expects an optional, and `x === undefined` on a value that is always there are `TS8003` too, each naming the edit; `o?.m()`, `typeof v` and a call read twice in a loop condition are `TS8099` (Rule 7.10) |
 | `T \| null`, `T \| undefined` or `T \| null \| undefined` where no optional may stand: an enum member, a `Map` or `Record` value, or a struct or an array that holds one in a binding, a module variable or constant, an override, an entry point's parameter or result, or a kernel function's parameter or result | `TS8002`. `"f32 \| undefined" holds a value and a flag saying whether it is there, which a local, a parameter, a function's result, a struct field or an array element may hold; a binding may not. Carry a u32 flag beside the value, "f32".`, and through a struct or an array `"U" holds "w: f32 \| undefined", a value and a flag saying whether it is there, which a local, a parameter, a function's result, a struct field or an array element may hold; a binding may not. Carry a u32 flag beside the value, "f32".` A kernel function's result names its own two forms: `…; a kernel function's result may not. Carry a u32 flag beside the value, "f32", in an array the function writes, or return a struct with a "found: u32" field beside it.` (#792) (change 0093; §28, §76) |
@@ -550,13 +552,13 @@ pixels[i] = 1.;            // an element
 | `const` local | no: `TS8005` |
 | `declare const x: uniform<T>` / `storage<T>` | no: `TS8005` |
 | a function parameter | no: `TS8018` |
-| an `inout<T>` or `out<T>` parameter | yes: the caller's place (§70) |
+| an `@inout` or `@out` parameter | yes: the caller's place (§70) |
 | anything that is not a name (`vec3(0.).x`) | no: `TS8018` |
 
 The parameter row covers writing **through** a parameter (`p.x = 1.`, `p.xs[i] = 1.`) and
 writing it **whole** (`p = 1.`, `p += 1.`, `p++`) alike. The whole write used to be accepted and
 emitted as `p = 1.0;`, which Tint refuses; it is `TS8018` now, naming the local to copy it into
-(§52). A parameter declared `inout<T>` or `out<T>` is the one parameter a write lands on whole and
+(§52). A parameter declared `@inout` or `@out` is the one parameter a write lands on whole and
 through: it names the caller's place, so `p = 1.` and `p.x = 1.` write the variable the caller
 passed (§70).
 
@@ -1157,8 +1159,8 @@ also permits writes to the local's components, fields or elements. A parameter w
 whole write keeps its existing read-only place restriction; resource handles and a kernel
 function's reference-backed arrays do not become local copies.
 
-A parameter declared `inout<T>` or `out<T>` takes no copy: it names the caller's place, and the
-call passes the variable itself (§70). The qualifier is the type of a parameter of a
+A parameter declared `@inout` or `@out` takes no copy: it names the caller's place, and the
+call passes the variable itself (§70). The qualifier is written before a parameter of a
 function declared at the top of the file or of a namespace; a method, a constructor, an
 accessor, an entry, a local function and a generic function take values, and each refuses a
 qualifier with `TS8073`. A local function captures a qualified parameter as it captures any variable, and
@@ -1210,7 +1212,7 @@ The annotation is what carries the type, so it is required; a `const` still need
 read before the local is assigned on every path is refused with `TS8075`, by TypeScript's rule
 for its TS2454, which the editor shows in TypeScript's place (Rule 7.6): `x += 1.`, `x.y = 1.`
 and `x[0] = 1.` read `x` and assign nothing, and an assignment inside a local function does not
-count outside it. An argument an `out<T>` parameter takes assigns the local, so `let s: f32;
+count outside it. An argument an `@out` parameter takes assigns the local, so `let s: f32;
 add(a, b, s); return s;` is accepted (§70). Every target starts the local at the zero of its
 type all the same: WGSL and both CPU backends always did (`0.`, `false` for a `bool`, an array of
 zeros, and a struct with every field zeroed, recursively), and GLSL ES 3.00 writes the zero as
@@ -2777,12 +2779,12 @@ takes its object as a parameter the callee writes THROUGH, and the call is a pla
 GLSL ES 3.00 spells that with the qualifier it has, `inout Particle self_`; WGSL has no such
 qualifier and spells it as a pointer, `self_: ptr<function, Particle>`, read through as
 `(*self_)`. The IR says which parameters are written and nothing about how a target spells it.
-A function of the file takes a place the same way when its parameter is declared `inout<T>`
-(§70): `function step(p: inout<Particle>, dt: f32)` called as `step(ps[gid.x], 0.5)` is the
+A function of the file takes a place the same way when its parameter is declared `@inout`
+(§70): `function step(@inout p: Particle, dt: f32)` called as `step(ps[gid.x], 0.5)` is the
 method above with its object named. A method itself takes no qualified parameter in this
 version (`TS8073`), and a call counts its object as one of its references when it checks that
 no two name one variable (`TS8074`). A method that hands its object, or a field, a component or
-an element of it, to an `inout<T>` or `out<T>` parameter, `bump(this.n)`, writes its object as an
+an element of it, to an `@inout` or `@out` parameter, `bump(this.n)`, writes its object as an
 assignment to it does, and takes it by reference: `bump(&(*self_).n)` on WGSL. On GLSL ES 3.00
 a module variable handed to such a method is written by its name, through a copy of the
 function, `Particle_step_p(0.5)` for `p.step(0.5)`, and not copied in and out.
@@ -6138,17 +6140,24 @@ spelling; the gate classifies such a call by the rule instead of listing it.
 
 ### A reference, to the editor
 
-The ambient library declares the types `inout<T>` and `out<T>`, each of which means `T`, so
-TypeScript's checker reads a qualified parameter as its plain type, which the body reads and writes, and a program the
-compiler accepts is clean in the editor and under `tsc` (§70). What the checker cannot see (a
-value handed where a place is taken, two references to one variable in one call, an `out<T>`
-parameter read before it is written) is the compiler's to say, `TS8073`, `TS8074` and `TS8075`,
-and the service shows its diagnostics with its own; TypeScript's TS2454 gives way to the
-compiler's `TS8075`, which knows that an `out<T>` argument assigns. A hover is the compiler's,
-and it spells the qualifier as the type an author writes, whichever form the file uses:
-`(parameter) v: inout<f32>` on the parameter, then that it names the caller's place and how
-WGSL and GLSL ES 3.00 take it, and `function bump(v: inout<f32>): void` on the function, where
-it is declared and where it is called. The call site carries no mark; an editor may show one as
+A qualifier is written before the parameter, `@inout v: f32` (§70, change 0137). TypeScript
+parses it and reads the parameter as its plain type, which the body reads and writes, so
+references, rename and completion stay TypeScript's; the service drops TypeScript's grammar
+report on the decorator (TS1206) on a parameter of a function at the top of the file or of a
+namespace, in every file, and where the compiler refuses the qualifier, so a program the
+compiler accepts is clean in the editor. A plain `tsc` reports TS1206 on each qualifier, a cost
+of the owner's decision OD-5. What the checker cannot see (a value handed where a place is
+taken, two references to one variable in one call, an `@out` parameter read before it is
+written) is the compiler's to say, `TS8073`, `TS8074` and `TS8075`, and the service shows its
+diagnostics with its own; TypeScript's TS2454 gives way to the compiler's `TS8075`, which knows
+that an `@out` argument assigns. A hover is the compiler's, and it spells the qualifier as an
+author writes it: `(parameter) @inout v: f32` on the parameter, then that it names the caller's
+place and how WGSL and GLSL ES 3.00 take it, and `function bump(@inout v: f32): void` on the
+function, where it is declared and where it is called; signature help shows the same
+`bump(@inout v: f32): void`. Go-to-definition, rename and prepare-rename at `@inout` answer
+nothing and do not throw. The ambient library keeps the types `inout<T>` and `out<T>`, each of
+which means `T`, only so that TypeScript adds no diagnostic beside the compiler's `TS8028` on
+the refused type form, and completion offers neither in a type position. The call site carries no mark; an editor may show one as
 an inlay hint, from the qualifier on the declaration. `src/compiler/ts/reference-parameters.test.ts`
 reads each program and each refusal in both halves.
 
@@ -6586,8 +6595,8 @@ arrays are not copyable value parameters.
 
 A write through such a parameter (`r.origin = …` on `r: Ray`) is `TS8018`, and its message
 names a local copy to change; in a function that may take a reference, one declared at the top
-of the file or of a namespace, it names the second remedy too, `r: inout<Ray>`, to change the
-caller's value (§70). A parameter declared `inout<T>` takes no copy: `p = v` writes the caller's
+of the file or of a namespace, it names the second remedy too, `@inout r: Ray`, to change the
+caller's value (§70). A parameter declared `@inout` takes no copy: `p = v` writes the caller's
 place, which is the difference its qualifier makes, as GLSL's `inout` makes it from `in`.
 
 **Three more that now say what is wrong.**
@@ -8019,7 +8028,7 @@ The host cannot check such a loop's writes before it runs, since it does not kno
 a write past an array's end is dropped on every tier, so `out.length` after it is still the
 array's length, and the call throws no `TypeError` for it. A loop whose range reads only the
 arrays' `.length` and the scalars keeps the check below. In this version a loop over such a range
-that pushes or reduces, stores into a texture, writes an array through an `inout<T>` argument, or
+that pushes or reduces, stores into a texture, writes an array through an `@inout` argument, or
 writes an array the statements before it read, and such a range in a function that takes a `Map`
 or a `Set`, run the whole function on the CPU, and the view's comment says why:
 `It runs on the CPU: loop 1 reduces "s" over a trip count it reads from an array, and the call
@@ -8146,7 +8155,7 @@ masked, so every lane of the workgroup runs the same control flow: a workgroup w
 returned before heavy loops hung the D3D12 device of `docs/hardware-notes.md` A1, and this form
 completed there. Where the extra lane would read what another lane writes in the same dispatch (a
 loop that reads back what it writes, one that loads a texel it stores, one that writes through an
-`inout<T>` argument, a fused group with an edge), it skips the iteration under the same flag instead.
+`@inout` argument, a fused group with an edge), it skips the iteration under the same flag instead.
 The results do not change: the masked lane writes nothing, a reduction takes the identity from it,
 a push counts nothing for it, and the CPU tier runs the function as written.
 
@@ -9783,14 +9792,15 @@ const program = rt.load(brick, { console: true }); // recorded, though the build
 
 The runtime runs on WebGPU and on WebGL2 (change 0054); the CPU tier stays the call layer's (§67).
 
-## 70. Parameter qualifiers: `inout<T>` and `out<T>`
+## 70. Parameter qualifiers: `@inout` and `@out`
 
-A function changes its caller's variable when the parameter is declared `inout<T>` or `out<T>`,
-GLSL's qualifiers written as the parameter's type, and the call passes the variable itself (Rule
-8.25, changes 0040 and 0111). Each type means `T` to TypeScript, which reads an assignment to
-the parameter as local; that the write reaches the caller is a divergence Rule 7.2 records. The
-decorated form, `@inout a: f32` and `@out c: f32`, stays accepted until the release after the
-migration release (change 0111, D5). Inside the function the parameter is the caller's variable: reading it reads that
+A function changes its caller's variable when the parameter is declared `@inout` or `@out`,
+GLSL's qualifiers written before the parameter, `@inout a: f32` and `@out c: f32`, and the call
+passes the variable itself (Rule 8.25, changes 0040 and 0137). To TypeScript the parameter is
+its written type, and an assignment to it is local; that the write reaches the caller is a
+divergence Rule 7.2 records. The type form of change 0111, `a: inout<f32>` and `c: out<f32>`, is
+refused with `TS8028` wherever a type is written, naming the attribute form and `tshc migrate`,
+which rewrites it on a parameter (change 0137). Inside the function the parameter is the caller's variable: reading it reads that
 place, and assigning to it, or to a field, component or element of it, writes it. There is no
 `*` and no `&`, and a field is reached as `r.origin`, the way a method reaches `this.origin`
 (§26).
@@ -9804,17 +9814,17 @@ class Ray {
 }
 declare const rays: storage<array<Ray>, "read_write">;
 
-function swap(a: inout<f32>, b: inout<f32>): void {
+function swap(@inout a: f32, @inout b: f32): void {
   const t = a;
   a = b;
   b = t;
 }
 
-function add(a: f32, b: f32, c: out<f32>): void {
+function add(a: f32, b: f32, @out c: f32): void {
   c = a + b;
 }
 
-function advance(r: inout<Ray>, t: f32): void {
+function advance(@inout r: Ray, t: f32): void {
   r.origin = r.origin + r.dir * t;
 }
 
@@ -9829,7 +9839,7 @@ export const main = compute([64, 1, 1], function main(id: builtin<"global_invoca
 ```
 
 GLSL's third qualifier, `in`, is the value every parameter already is: a parameter with no
-qualifier is GLSL's `in`, and there is no `in<T>`.
+qualifier is GLSL's `in`, and there is no `@in`.
 A struct or an array parameter with no qualifier is still read in place when its argument is a
 place, as a method reads its object (Rule 8.28, §26): `function area(r: Rect)` called as
 `area(box)` on a `let` local is `fn area(r: ptr<function, Rect>)` and `area(&box)` on WGSL, and
@@ -9838,22 +9848,22 @@ cannot write it, so the argument may be any value; a value that is no place is c
 A method that hands a place of its object to a qualified parameter, `bump(this.n)`, writes its
 object, and takes it by reference (§26).
 
-**`out<T>`.** An `out<T>` parameter starts with no value in the function, as GLSL's does: the body
+**`@out`.** An `@out` parameter starts with no value in the function, as GLSL's does: the body
 writes it, whole, before it reads it or a field, component or element of it, and writes it on
 every path before it returns. Each of those is `TS8075`:
 
 ```ts
-function f(c: out<f32>): void { c = c + 1.; } // TS8075: read before f writes it
-function g(c: out<f32>, k: bool): void { if (k) { c = 1.; } } // TS8075: returns without writing c
+function f(@out c: f32): void { c = c + 1.; } // TS8075: read before f writes it
+function g(@out c: f32, k: bool): void { if (k) { c = 1.; } } // TS8075: returns without writing c
 ```
 
-Under that rule `out<T>` and `inout<T>` give one result on every target, so the IR keeps one mode
-for both. The argument of an `out<T>` parameter assigns the caller's variable, so a local declared
+Under that rule `@out` and `@inout` give one result on every target, so the IR keeps one mode
+for both. The argument of an `@out` parameter assigns the caller's variable, so a local declared
 with no value may be handed to one and read after the call (Rule 7.6). Declare that local with
 TypeScript's definite assignment, `let s!: f32;`, as the program above does: a plain
 `tsc --strict` accepts it, and without the `!` it reports TS2454 at the call (change 0111, D8).
 The compiler reads both spellings alike, and refuses a read of the local that no assignment and
-no `out<T>` argument comes before (`TS8075`).
+no argument of an `@out` parameter comes before (`TS8075`).
 
 **What each target writes.** The IR marks the parameter as one the callee writes through,
 which is what a method that changes its object already is, and each target spells it its own
@@ -9915,7 +9925,7 @@ place by value while it only reads it, and by reference once it writes it. Insid
 parameter is the caller's place, handed on as itself.
 
 ```ts
-function scaleBoth(a: inout<f32>, b: inout<f32>, k: f32): void {
+function scaleBoth(@inout a: f32, @inout b: f32, k: f32): void {
   const scale = (): void => {
     a = a * k;
     b = b * k;
@@ -9932,7 +9942,7 @@ references in the check above, so `scaleBoth(x, x, 2.)` is `TS8074`.
 declared `never` in the host view, with the reason; a function of the module calls it.
 
 **Later, on the same model.** Change 0040 lists what may follow: a local reference, a read-only
-reference, a slice of an array, and `this` restated as an `inout<T>` parameter. None of a
+reference, a slice of an array, and `this` restated as an `@inout` parameter. None of a
 reference stored, returned, compared or offset follows, since no GPU target has it.
 
 ## 71. A chain of kernel calls in one dispatch: `fuse`
@@ -10754,7 +10764,7 @@ decision D2; `src/compiler/ts/narrowing.ts`), so a program the editor accepts co
 - a member path is cleared by an assignment to a prefix of the path or to the root (`h = …`,
   `h.a = …`), by a compound assignment, `++` or `--` on the path, a prefix or the root, and by
   a call that takes the root by reference: `f(h)` where `f` is a function of the file whose
-  parameter at that index is `inout<T>` or `out<T>` (§70), and `h.m()` where `m` is a method of a
+  parameter at that index is `@inout` or `@out` (§70), and `h.m()` where `m` is a method of a
   class of the file that writes through `this` (§26) or a setter; after one the path reads
   un-narrowed.
 

@@ -64,7 +64,7 @@ describe('module variables and parameters occupy distinct IR slots (#1009)', () 
   it('keeps an inout parameter distinct', () => {
     check(
       `${voice}
-      function adjust(Voice_count: inout<u32>): u32 {
+      function adjust(@inout Voice_count: u32): u32 {
         Voice_count += 2;
         Voice.count += 1;
         return Voice_count + Voice.count;

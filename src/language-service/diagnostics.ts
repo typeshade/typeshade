@@ -5,7 +5,7 @@ import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts
 import { TS_CODES } from '../compiler/ts/codes.js';
 import { fileDeclaresType } from '../compiler/ts/type-map.js';
 import { isRemovedCall } from '../compiler/ts/removed-names.js';
-import { usesDecoratedForm } from '../compiler/ts/decorated-form.js';
+import { QUALIFIER_DECORATORS, usesDecoratedForm } from '../compiler/ts/decorated-form.js';
 import {
   foreignNameReport,
   refusedVars,
@@ -98,6 +98,31 @@ function isDecoratorOnTopLevelFunction(
     return isTopLevelFunctionDeclaration(decorated.parent);
   }
   return false;
+}
+
+/**
+ * Whether TS1206 sits on a parameter qualifier, `@inout` or `@out`, on a parameter of a function
+ * declared at the top of the file or of a namespace, overloads included: the language's form
+ * (Rule 8.25, change 0137), whatever else the file writes. TypeScript parses it and keeps the
+ * parameter's type, references and rename; only its grammar report goes. The compiler checks
+ * the qualifier itself (`TS8073`, `TS8074`, `TS8075`, and `TS8028` on an overload signature),
+ * so no second checker reads it (Rule 1.7).
+ */
+function isQualifierOnModuleFunction(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): boolean {
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.start ?? 0);
+  while (node !== undefined && !ts.isDecorator(node)) node = node.parent;
+  if (node === undefined || !ts.isIdentifier(node.expression)) return false;
+  if (!QUALIFIER_DECORATORS.has(node.expression.text)) return false;
+  const parameter = node.parent;
+  return (
+    parameter !== undefined &&
+    ts.isParameter(parameter) &&
+    parameter.parent !== undefined &&
+    isTopLevelFunctionDeclaration(parameter.parent)
+  );
 }
 
 /** TypeScript treats the second argument of `array<T, N>` as a type, while TypeShade also
@@ -1153,6 +1178,16 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
       usesDecoratedForm(context.sourceFile) && isDecoratorOnTopLevelFunction(context, diagnostic),
   },
   {
+    code: 1206,
+    reason:
+      "A parameter qualifier, @inout or @out, on a parameter of a top-level or a namespace's " +
+      "function is the language's form (Rule 8.25, change 0137), in every file: TypeScript " +
+      "parses it and keeps the parameter's type, references and rename, and the compiler checks " +
+      "it (TS8073, TS8074, TS8075). Legacy decorators forbid a function's parameter as a target, " +
+      'and no compiler option relaxes that.',
+    when: isQualifierOnModuleFunction,
+  },
+  {
     code: 2564,
     reason:
       'In a file that still writes the decorated form of change 0111, a struct class field has no ' +
@@ -1299,7 +1334,7 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
     reason:
       "The compiler reads a local before its assignment itself, by TypeScript's rule, and " +
       'reports TS8075 where it does (Rule 7.6, proposal 0043), with one difference TypeScript ' +
-      'cannot see: an argument an `out<T>` parameter takes assigns the variable, so `let s: f32; ' +
+      'cannot see: an argument an `@out` parameter takes assigns the variable, so `let s: f32; ' +
       'add(a, b, s); return s;` reads an assigned `s`. A module variable may be declared with ' +
       'no initializer, and it then starts at zero on every target (surface §24), where ' +
       "TypeScript 5.7 and later report every read. So TypeScript's TS2454 is dropped, and the " +
@@ -2646,12 +2681,14 @@ function isAboutRefusedOperation(
 
 /** The codes the compiler refuses a whole decorator with: `TS8028` for a name nothing reads
  *  there, `TS8024` for a malformed builtin argument, `TS8010` for `@align` or `@std140` it does
- *  not apply, `TS8035` for one on a method. */
+ *  not apply, `TS8035` for one on a method, and `TS8073` for a qualifier, `@inout` or `@out`,
+ *  where a parameter takes its value only (an entry, a local function; Rule 8.25, change 0137). */
 const DECORATOR_REFUSALS: ReadonlySet<string> = new Set([
   TS_CODES.BUILTIN_NAME,
   TS_CODES.ATTRIBUTE_NAME,
   TS_CODES.STRUCT_FIELD,
   TS_CODES.CLASS_MEMBER,
+  TS_CODES.REFERENCE,
 ]);
 
 /** The code the compiler refuses every decorator of a method with, at the first. */

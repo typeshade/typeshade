@@ -101,7 +101,7 @@ describe('a read before an assignment is refused as TypeScript refuses it (Rule 
   });
 
   it('takes an argument an @out parameter takes as an assignment, which TypeScript cannot', () => {
-    const body = `function add(a: f32, b: f32, c: out<f32>): void { c = a + b; }
+    const body = `function add(a: f32, b: f32, @out c: f32): void { c = a + b; }
 export function run(): f32 { let s!: f32; add(1., 2., s); return s; }`;
     expect(compilerReads(body)).toEqual([]);
     const source = `"use typeshade";\n${body}\n${FRAGMENT}`;
