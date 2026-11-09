@@ -187,6 +187,23 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   41,217 (+385) and split total 162,180 to 162,582 (+402). The CPU backend and the rasterizer
   are in no bundle. The floors and the other subpaths do not change.
 
+- **The call layer's full-screen draw runs through the program runtime** (change 0120, milestone
+  M4, part 2a). A draw of a `@fragment` entry (Rule 8.24) loads the entry and a full-screen vertex
+  entry as a `Program` of a manifest the call layer makes from the entry's record, takes its
+  render pipeline and records one pass into the canvas: through `RuntimeImpl` on WebGPU and on
+  the CPU tier, and through the WebGL2 tier's `GlRuntimeImpl` over the canvas's context. The
+  tiers, their order, the frames, the refusals and the console lines do not change, and the API
+  does not change. A draw that repeats its shapes takes its buffers from the runtime's pool and
+  its bind groups from its cache, so after the first draw it makes no buffer, bind group,
+  pipeline or sampler on WebGPU and the CPU tier; the `_fp64` guard is the runtime's one texture,
+  not one for each draw. The program runtime's CPU frame now rejects with the error its code
+  threw, and its buffer pool takes back the buffers of a rejected submit. The draw brings the
+  program runtime into the closure of every host face, so caps of `scripts/bundle-budget.json`
+  take the measured gzip sizes: `typeshade/runtime` single file 160,575 to 160,602 (+27), split
+  initial 41,217 to 41,242 (+25) and split total 162,582 to 162,623 (+41); `typeshade/algorithms`
+  52,189 to 52,999 (+810) and `typeshade/random` 33,557 to 34,309 (+752), single file. Their split
+  caps, the floors, `typeshade/emit` and `typeshade/fuse` do not change.
+
 - **A constant argument reaches a function under a numerical contract** (#850 N5; Rule 11.22).
   At `-O2`, a call that passes a scalar literal to a function opted in with `numerics(...)` calls
   a copy of it with the literal in place, so `finite-math` folds what the literal decides:
