@@ -17,7 +17,9 @@ rules:
   - '11.17'
 surface:
   - 64
+  - 65
   - 67
+  - 69
   - 71
 exports:
   - zeros
@@ -29,6 +31,10 @@ exports:
   - node
   - inspect
   - fuse
+  - Buffer
+  - Texture
+  - Uniform
+  - Node
 exports-removed: []
 codes: []
 examples: []
@@ -114,25 +120,41 @@ host what it means in TypeScript.** The host learns five concepts and four layer
 - **R1. Every exported function is a node.** Called with values, it runs. Called inside a
   graph, it is recorded. Its parameters are its inputs and its return value its outputs; a
   returned struct gives one output for each field.
-- **R2. A GPU node returns a resource and does not block.** A call of a kernel, a `@compute`
-  entry or a render composition records and submits, and returns a resource at once. The host
-  awaits only `x.read()`. A helper that runs on the CPU tier returns its value as today
-  (Rule 8.21).
+- **R2. A GPU node called on a resource returns a resource and does not block.** A call of a
+  kernel, a `@compute` entry or a render composition whose arguments include a resource, or that
+  is made inside a graph, records and submits, and returns a resource at once. The host awaits
+  only `x.read()`. A call with plain data only (numbers, arrays, typed arrays, objects; Rule
+  8.21) keeps today's meaning: it is awaited, writes its in-place arguments (Rule 8.23) and
+  returns plain data. So the plain-data path of `docs/dx.md` principle 1 stays the primary path,
+  and today's host code keeps working while the new forms arrive. A helper that runs on the CPU
+  tier returns its value as today. A non-blocking call that fails records its call site when it
+  is made, and the error thrown at the next `read()`, `show` or call names that line
+  (`docs/dx.md` principle 3).
 - **R3. Data decides the device.** A resource belongs to one device. A node runs on the device
   of its input resources. With plain JavaScript values alone it runs on the default device. A
   call that mixes devices is a `TypeError`. `using _ = device('cpu')` (ECMAScript explicit
-  resource management) sets the default device for a block.
+  resource management) sets the default device for a block. An exported binding (R10) belongs to
+  no one device: its value lies once in the region of R17, and each device that runs a node that
+  reads it uploads the same dirty range.
 - **R4. A graph is `fuse(fn)`.** `fuse` takes a TypeScript function and returns a node. The
   function's parameters are the graph's inputs and its return value the outputs. A graph called
   inside another graph is inlined, and the planner plans across the boundary. Intermediate data
-  is the planner's (no `scratch`, no output arrays). Today's immediate form stays as
-  `await fuse(fn)()`.
+  is the planner's (no `scratch`, no output arrays). Tracing: `fn` runs once for each new graph
+  shape, with node placeholders for its resource parameters, and again only when the shape key
+  changes. The shape key is the graph's parameter types, the host values its control flow
+  reads (R12) and the resource classes; a host number captured by `fn`'s closure or passed as a
+  scalar parameter is read at each call and bound as a uniform, never fixed at trace time. A
+  side effect of `fn` other than node calls runs only when it is traced, and the planner's
+  report warns of one. Today's `fuse((scope) => …)`, which runs once and returns a report,
+  stays until the deprecation of milestone 9 (Q1).
 - **R5. Rendering is composition.** Inside a graph or outside it, `fs(vs(vertices))` draws: the
   vertex node runs for each vertex, the fragment node for each pixel. The result is a texture of
   the fragment's output type; a struct output gives one texture for each field (`g.color`,
-  `g.normal`). A fragment node called on textures alone draws the full screen. Render state the
-  compiler cannot know is an option of the composition: `{ depth, blend, cull, samples, size,
-over }`.
+  `g.normal`). A fragment node called on textures and scalars alone draws the full screen. What
+  the draw covers is an option of the vertex call: `vs(vertices, { count, instances, indices,
+topology })`; with a `Buffer<T>` argument and no `count`, one vertex for each element. Render
+  state the compiler cannot know is an option of the fragment call: `{ depth, blend, cull,
+samples, size, over }`.
 - **R6. An image reaches a canvas through `show(image, canvas)`.** The planner sees the call
   before submission and draws into the canvas directly where it can.
 - **R7. Uniform and storage data live in typed-array views.** For each resource, the compiler
@@ -164,13 +186,17 @@ over }`.
   shape is planned once and cached. An `if` whose condition is a GPU value (`Node<bool>`) is
   rewritten by the Vite plugin and `tshc` into a condition node that the GPU decides, with no
   read back. A count that changes from frame to frame stays on the GPU (indirect dispatch and
-  draw) and does not change the graph's shape.
+  draw) and does not change the graph's shape. A `Node<bool>` reached without the rewrite (a
+  file run by `tsc`, Bun or Vitest outside the plugin) throws from its `valueOf` and
+  `Symbol.toPrimitive`, with a message that names the line, so it is never silently truthy.
+  Whether the rewrite may reach host code is open question Q11.
 - **R13. State across calls is a module field.** A graph that assigns a resource to a field of
   the module that owns it (`this.history = aa`) gives the next call that resource. A texture read
   and written by the same graph is held as two textures used in turn.
 - **R14. A functional update runs in place.** `ps = integrate(ps, dt)` reads as a new value. When
-  nothing reads the old value afterwards, the planner writes in place. The planner's report
-  names each copy it could not avoid.
+  nothing reads the old value afterwards, and the planner's facts show that each invocation
+  reads only the elements it writes (Rule 11.13), the planner writes in place. Otherwise it
+  writes a new resource. The planner's report names each copy it could not avoid.
 - **R15. The encoder layer.** `device.createCommandEncoder()`, `beginRenderPass`,
   `beginComputePass`, `end`, `finish` and `queue.submit` have WebGPU's names and order.
   `device.createRenderPipeline({ vertex: vs, fragment: fs, blend, depth })` takes nodes, not
@@ -182,8 +208,15 @@ over }`.
   a render composition) is compiled to a WebAssembly module at build time by the Vite plugin and
   `tshc`, beside today's generated JavaScript. `f32` arithmetic is WebAssembly's own `f32`, and a
   vector may use SIMD128 where the runtime has it. Where WebAssembly cannot run, the generated
-  JavaScript runs, and both give the CPU oracle's bits (Rule 11.7). The runtime instantiates the
-  module; it builds no code at run time (no `new Function`, Rule 11.7).
+  JavaScript runs, and both give the CPU oracle's bits (Rule 11.7). To hold the bits: relaxed
+  SIMD is not used; a NaN result is made canonical where WGSL leaves its bits open; `sin`,
+  `exp`, `pow` and the other functions WebAssembly has no instruction for call the same
+  routines the generated JavaScript calls; and the differential gate runs every CPU-tier
+  program on both and compares them bit for bit. The runtime instantiates a module the build
+  wrote; it builds no code at run time (no `new Function`, Rule 11.7). A page whose Content
+  Security Policy refuses WebAssembly (`'wasm-unsafe-eval'` absent) runs the generated
+  JavaScript, detected at the first instantiation. The conflict of this rule with Rule 11.7's
+  "the tier is the oracle and not a fourth implementation" is open question Q12.
 - **R17. Memory comes from one serialized region.** Every resource of R7 to R9 (a uniform, a
   storage array, a staging copy) is allocated from one global region: the linear memory of the
   WebAssembly module of R16, or one `ArrayBuffer` where WebAssembly cannot run. Each resource
@@ -192,34 +225,44 @@ over }`.
   to a GPU device is a `writeBuffer` or `bufferSubData` of the resource's dirty range of the
   region; and a read back lands in the same range. The runtime's allocator places, frees and
   compacts ranges; a resource is freed by `dispose()`, by `using`, or when the garbage collector
-  reclaims its owner (`FinalizationRegistry`).
+  reclaims its owner (`FinalizationRegistry`). A view is reached only through its field's
+  accessor (`get`, `set`), which re-reads the region after a growth or a compaction; a raw view
+  is never kept by the host, and an accessor of a freed resource throws a `TypeError` that
+  names it. So a freed range given to another resource cannot be written through a stale view.
+  A resource that lives only on a GPU device (an intermediate of a graph, today's `Resident`
+  with no host read) takes no range of the region.
 
 ### One example, before and after
 
 The same program: particles that move on the GPU and are drawn with a glow, then bloom.
 
-Before (`main` at `8635663c`; the program runtime for the draw, the call layer for the
-compute):
+Before (`main` at `8635663c`). The compute runs through the call layer with a `Resident`
+(`examples/hosts/loop-fuse/host.ts`); the draw runs through the program runtime
+(`examples/hosts/host-program/host.ts`); each module is loaded as a manifest:
 
 ```ts
-import { createRuntime } from 'typeshade/runtime';
-import program from './particles.shade.ts';
-import { step } from './particles.shade.ts';
+import { runtime, resident } from 'typeshade/runtime';
+import particles, { step } from './particles.shade.ts';   // default export: the manifest
+import post from './post.shade.ts';
 
-const rt = await createRuntime({ device: canvas.getContext('webgpu') ? undefined : undefined });
-const draw = await rt.load(program).render({ targets: ['bgra8unorm'] });
-const bloomPipe = await rt.load(program).render({ targets: ['bgra8unorm'] });
-let ps = new Float32Array(N * 8);
+const rt = await runtime();                                // WebGPU, or WebGL2
+const ADD = { color: { srcFactor: 'one', dstFactor: 'one' }, alpha: { srcFactor: 'one', dstFactor: 'one' } };
+const glow = await rt.load(particles).render({ targets: [{ format: 'rgba16float', blend: ADD }] });
+const bloom = await rt.load(post).render({ targets: ['bgra8unorm'] });
+const ps = resident(new Float32Array(N * 8));              // stays on the device
+const tmp = rt.texture({ size: [canvas.width, canvas.height], format: 'rgba16float' });
 
-async function tick() {
-  ps = await step(ps, 1 / 60);                            // awaited, read back each frame
+async function tick(now: number) {
+  await step(ps, 1 / 60);                                  // in place (Rule 8.23), awaited
   const frame = rt.frame();
-  const tmp = rt.texture({ size: [w, h], format: 'rgba16float' });
-  frame.pass({ color: [tmp] }, (p) => p.draw(draw, { ps, frame: { time } }, { count: 4, instances: N }));
-  frame.pass({ color: [canvas] }, (p) => p.draw(bloomPipe, { src: tmp, strength: 0.6 }, { count: 3 }));
+  frame.pass({ color: [tmp] }, (p) =>
+    p.draw(glow, { ps, frame: { time: now / 1000 } }, { count: 4, instances: N }));
+  frame.pass({ color: [canvas] }, (p) =>
+    p.draw(bloom, { src: tmp, strength: 0.6 }, { count: 3 }));
   await frame.submit();
   requestAnimationFrame(tick);
 }
+requestAnimationFrame(tick);
 ```
 
 After:
@@ -233,7 +276,7 @@ let ps = ts.zeros(Particle, N);
 
 const render = ts.fuse((ps: ts.Buffer<Particle>, dt: number) => {
   const next = step(ps, dt);
-  return [next, bloom(glow(dot(next), { blend: 'add' }), 0.6)] as const;
+  return [next, bloom(glow(dot(next, { count: 4, instances: N }), { blend: 'add' }), 0.6)] as const;
 });
 
 function tick(now: number) {
@@ -248,9 +291,12 @@ requestAnimationFrame(tick);
 
 ### Exclusions
 
-- The shader side does not change its spelling. `@vertex`, `@fragment` and `@compute` are as
-  proposal 0130 restores them (OD-2). R10 adds `export` to a binding declaration, and R11 gives a
-  class parameter a meaning; neither adds a name.
+- The shader side keeps its spelling. `@vertex`, `@fragment` and `@compute` are as proposal
+  0130 restores them (OD-2). No name is added. The shader side does change in meaning, and the
+  rules the front matter lists record it: R10 lets a binding declaration be exported (Rule
+  6.1); R11 lets an entry parameter of a class type carry no attribute (Rule 6.6); a full-screen
+  fragment node takes texture and scalar parameters (R5, Rule 6.6); a kernel may return a
+  `Buffer<T>` as well as a scalar (R2, R14, Rule 8.22).
 - A frame loop is the application's (`requestAnimationFrame`, a timer, an event, a worker). The
   runtime adds none.
 - A scene, a mesh loader, a camera controller and a material library are libraries above layer
@@ -355,8 +401,12 @@ buffers, barriers, uploads) the compiler and the runtime decide (OD-3).
   and state join the planner (R4, R5, R12, R13, R14).
 - **Rule 11.17.** The escape hatches become the encoder layer and `node((encoder, …) => …)`.
 - **Surface §64, §67, §71.** Calling a module, calling an entry and `fuse` are written again.
-- **Exports.** `zeros`, `array`, `uniform`, `texture`, `show`, `device`, `node`, `inspect` are
-  new in `typeshade/runtime`; `fuse` is reshaped. The removals (`createRuntime`, `runtime`, the
+- **Surface §65 and §69.** The manifest and `rt.load` stop being the host's entry point for a
+  draw.
+- **Exports.** `zeros`, `uniform`, `texture`, `show`, `device`, `node`, `inspect` and the types
+  `Buffer`, `Texture`, `Uniform` and `Node` are new in `typeshade/runtime`. `array` is reshaped:
+  it is a type export of `typeshade/runtime` today (`src/runtime.ts`) and becomes also a
+  function. `fuse` is reshaped and is exported by `typeshade/runtime` as well as `typeshade/fuse`. The removals (`createRuntime`, `runtime`, the
   bindings-object and canvas calls) are left to a later proposal after a deprecation release.
 
 **Relation to proposal 0120.** 0120's RHI, its three backends and the program runtime on them
@@ -419,26 +469,70 @@ Decisions that must be resolved before acceptance:
 - **Q7.** On WebGL2 and the CPU tier, a refusal with the reason or a slower path for indirect
   execution, MSAA and a GPU-value condition.
 - **Q8.** The names of the new exports (`zeros`, `array`, `uniform`, `texture`, `show`, `device`,
-  `node`, `inspect`). They are host exports, not author-facing names of a shader file.
+  `node`, `inspect`). They are host exports, not author-facing names of a shader file. The
+  overlaps to settle: `device()` beside `createDevice()`, `Device` and `configure`; `uniform()`
+  beside `resident()`; the host function `uniform` beside the shader type `uniform<T>`.
 - **Q9.** How the views of R17 survive a growth of the region. A WebAssembly `memory.grow` gives
   a new `ArrayBuffer` and detaches every view of the old one. Options: a region sized up front
   with a stated limit; views re-made on growth behind each field's accessor; or a resizable
-  `ArrayBuffer` where the runtime has one.
+  `ArrayBuffer` where the runtime has one. Also: a region shared with a worker (a
+  `SharedArrayBuffer` needs cross-origin isolation), a second realm, and wasm32's 4 GiB limit.
 - **Q10.** Whether a WebAssembly CPU tier (R16) replaces the generated JavaScript or stands
   beside it, how the CPU oracle's bits are held on both (Rule 11.7, Rule 11.8), and what the
-  bundle and the build cost.
+  bundle and the build cost. `scripts/bundle-boundary.ts` admits only local JavaScript assets
+  today and must admit a `.wasm` asset.
+- **Q11 (for the owner, a conflict).** Whether the rewrite of R12 may reach host code. OD-1
+  speaks of a `"use typeshade"` file; Rule 1.6 says host code is "written in TypeScript as
+  today". The proposal must not resolve this by itself. Costs of the rewrite: the type checker
+  runs inside the Vite transform (the condition's type decides), and values assigned in both
+  branches need the transform to join them. Without the plugin, R12's `valueOf` throws.
+- **Q12 (for the owner, a conflict).** Rule 11.7 says the CPU tier "is the oracle and not a
+  fourth implementation"; R16 adds a WebAssembly implementation. Costs: the differential gate
+  doubles its CPU leg; WebAssembly under a strict Content Security Policy needs
+  `'wasm-unsafe-eval'` (R16 falls back to JavaScript).
+- **Q13 (for the owner, a conflict).** `docs/dx.md` principle 1 says "There is no buffer type
+  and no device type on the primary path". R2 keeps the plain-data path primary for compute;
+  resources (`zeros`, `array`, `uniform`, `texture`, `Buffer<T>`) and `device()` are used for
+  rendering, graphs and exported bindings, which the owner decided (decisions 8 and 9). Whether
+  that reading holds, or principle 1 is amended, is the owner's.
+- **Q14.** Back-pressure: a non-blocking submit in a `requestAnimationFrame` loop can queue
+  frames faster than the GPU runs them. Whether `show` waits for the previous frame of its
+  canvas, or the runtime drops frames, or the host decides.
+- **Q15.** A canvas keeps the first context it hands out (Rule 8.24). What `show(image, canvas)`
+  does when the image is on another device than the canvas's first context.
+- **Q16.** The bit-equality baseline for the new graph features (Rule 11.13 holds a fused plan
+  to the same calls run apart): what "run apart" means for a composition, a condition node,
+  `show` into a canvas and an in-place update.
 
 ### Independent review record
 
-Not yet reviewed. Before the owner decides, an agent or a person that did not write this
-proposal reviews it against `README.md` (Independent review), and this section records the
-reviewer, the date, the revision reviewed, each finding and the answer to it.
+- **Reviewer.** An AI agent (Claude Code) that did not write this proposal, started by the
+  author's session on 2026-11-09 with the documents `README.md` (Independent review) names.
+- **Revision reviewed.** `501b32ba` (R16, R17, Q9 and Q10 included).
+- **Findings and answers.**
+
+| #   | Severity   | Finding                                                                                                                                                                                                              | Answer                                                                                                                                                                                                  |
+| --- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Blocking   | R16 conflicts with Rule 11.7 ("not a fourth implementation") and with a strict CSP; WebAssembly lacks `sin`/`exp`/`pow`, NaN bits are open, relaxed SIMD is not deterministic.                                       | Partly fixed in R16: no relaxed SIMD, canonical NaN, shared routines, the differential gate bit for bit, a JavaScript fallback under CSP. The conflict with Rule 11.7 is kept open for the owner (Q12). |
+| 2   | Blocking   | R17 can alias a freed range through a stale view; growth and compaction detach views; GPU-only intermediates would take a CPU copy.                                                                                  | Fixed in R17: views only through accessors that re-read the region; an accessor of a freed resource throws; device-only resources take no range. Workers, realms and the 4 GiB limit join Q9.           |
+| 3   | Blocking   | The `if` rewrite of R12 reaches host code, which OD-1 does not cover and Rule 1.6 keeps as TypeScript; without the plugin a `Node<bool>` is silently truthy.                                                         | Kept open for the owner (Q11), with its costs. Fixed: a `Node<bool>` throws from `valueOf` without the rewrite.                                                                                         |
+| 4   | Blocking   | Milestone 3 changes today's results (`await exposure(…)`), yet nothing is removed and no coexistence rule is stated.                                                                                                 | Fixed in R2: a call with plain data keeps today's meaning; a call on a resource or in a graph takes the new one. Removal stays for a later proposal after the deprecation of milestone 9.               |
+| 5   | Should-fix | The Before is not today's API (a no-op `createRuntime` argument, one module loaded twice, a kernel that returns an array, no `resident`, undefined names).                                                           | Fixed: the Before uses `runtime()`, two loaded modules, `resident`, an in-place `step` and defined names.                                                                                               |
+| 6   | Should-fix | R5 has no vertex count, instances, indices or topology; `dot(next)` cannot be drawn as written.                                                                                                                      | Fixed in R5: `vs(vertices, { count, instances, indices, topology })`; the After passes them.                                                                                                            |
+| 7   | Should-fix | The shader side changes in meaning (Rule 6.6, Rule 8.22, texture and scalar fragment parameters), against Exclusions; §65 and §69 are missing.                                                                       | Fixed: Exclusions declares each change; §65 and §69 are in `surface`.                                                                                                                                   |
+| 8   | Should-fix | Exports incomplete: `array` exists as a type, `fuse` moves, `Buffer`/`Node`/resource types missing; overlaps of `device`/`createDevice`/`configure`/`resident`; `uniform` names a host function and the shader type. | Fixed in the front matter and What it touches. The overlaps are kept for Q8, which now names them.                                                                                                      |
+| 9   | Should-fix | The tracing of `fuse(fn)` is not stated (when `fn` runs, captured numbers, cache key); helpers on node inputs amount to host arithmetic.                                                                             | Fixed in R4: shape key, captured numbers read at each call, side effects warned. A helper called inside a graph is a node like any export (R1); its arithmetic is in the shader file.                   |
+| 10  | Should-fix | The determinism guarantee of Rule 11.13 is not extended; R14 in place is exact only when each invocation reads what it writes.                                                                                       | Fixed in R14 (the planner's facts decide). The baseline for the new features is Q16.                                                                                                                    |
+| 11  | Should-fix | Unrecorded conflicts: R10 against R3; `docs/dx.md` principles 1 and 3; R4's "`await fuse(fn)()` stays" is not today's `fuse`.                                                                                        | Fixed: R3 states an exported binding's devices; R2 keeps errors at the author's line; R4 keeps today's `fuse` until milestone 9. Principle 1 is kept open for the owner (Q13).                          |
+| 12  | Note       | Q1 to Q10 miss items: draw count, coexistence, the device of exported bindings, back-pressure, error timing, tracing, the bit baseline, CSP, freeing, a canvas fixed by its first context.                           | Fixed: each is answered in a rule above or added as Q11 to Q16.                                                                                                                                         |
+
+The open findings for the owner are Q11, Q12 and Q13.
 
 ### Approval and plan record
 
 This record does not yet apply. Acceptance will require: the owner's decision in the
 conversation, or a review, and the merge of this file with `status: accepted`; the answers to
-Q1 to Q10; the approved scope and milestones; and the amendment to proposal 0120 named under
+Q1 to Q16; the approved scope and milestones; and the amendment to proposal 0120 named under
 What it touches.
 
 ### Configuration and validation record
