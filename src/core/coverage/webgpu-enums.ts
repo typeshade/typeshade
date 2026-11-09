@@ -158,13 +158,13 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUCompilationMessageType`',
     covers: ['GPUCompilationMessageType'],
-    evidence: 'docs/language-design.md:36, 1391-1395; src/core/host-draw.ts:518',
+    evidence: 'docs/language-design.md:36, 1391-1395; src/core/gl-compute.ts:131',
     note: '3 members.',
     webgpu: na(
       'the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)',
     ),
     webgl2: na(
-      'WebGL2 reports shader errors through getShaderInfoLog, a string with no message type (src/core/host-draw.ts:518)',
+      'WebGL2 reports shader errors through getShaderInfoLog, a string with no message type (src/core/gl-compute.ts:131)',
     ),
   },
   {

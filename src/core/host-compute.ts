@@ -55,7 +55,7 @@ import { runGlCompute, type GlComputeReport } from './gl-compute.js';
 import type { PlanRun } from './host-kernel.js';
 import type { GlComputeProgram } from './passes/gl-compute.js';
 import type { Tier } from './tiers.js';
-import { uploadImage } from './host-draw.js';
+import { uploadImage } from './gl-image.js';
 
 function checkArity(e: ComputeEntry, argc: number): void {
   if (argc !== 2 && argc !== 3)
