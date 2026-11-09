@@ -1,9 +1,29 @@
 # Repository operating rules
 
-Read `AGENTS.md` first: it is the architecture guide (one IR, three backends, the pass
+Read `docs/owner-decisions.md` before anything else: it records the owner's decisions about
+what TypeShade is, and it takes precedence over every other document here (The owner's
+decisions, below). Then read `AGENTS.md`: it is the architecture guide (one IR, three backends, the pass
 pipeline, the gates) and `src/AGENTS.md` the map of `src/`. This file is the shared source
 of operating rules for every agent working here. Claude-specific integrations are named
 explicitly below.
+
+## The owner's decisions
+
+`docs/owner-decisions.md` holds the owner's decisions, each in the owner's words with its date.
+An agent treats each entry as a constraint, not as one option among others.
+
+- Never propose, recommend or offer as an option a design that reverses an entry, unless the
+  owner asks for that in the conversation.
+- Before recommending anything, check it against every entry, and cite the entries it rests
+  on. A recommendation the owner accepts ("추천대로") must not reverse an entry.
+- A review finding, a measurement or a tool's behaviour that an entry makes costly is recorded
+  as a cost of the entry. It never becomes a reason to change the design against the entry.
+  Show the cost to the owner, who alone can change an entry.
+- Where another document can be read against an entry, follow the entry and fix the other
+  document in its own pull request.
+- When the owner states a new decision about what TypeShade is, record it as a new entry, in
+  the owner's words with the date, in a pull request that changes `docs/owner-decisions.md`
+  only.
 
 ## The language of the conversation
 
