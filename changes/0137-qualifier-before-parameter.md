@@ -41,7 +41,7 @@ downstream:
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity and status           | Proposal 0137, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the owner's direction, revised the same day to answer the independent review of `ff9963a5`. The date is the drafting date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the owner's direction, revised the same day to answer the independent review of `ff9963a5`, and again to record the owner's decision on the type form and the published artifacts that bundle the compiler. The date is the drafting date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-09, in Korean: "inout, in, out 이런건 지금 앞에 따로 쓰는데 왜 타입으로 바꿔야해?". The owner chose the form written before the parameter for a parameter qualifier and kept the type form for an entry's I/O. Recorded as `docs/owner-decisions.md` OD-5 (pull request #1120, merged as `583891d2`). No GitHub issue is recorded.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Applicability / effectivity   | Expected: `docs/language-design.md` Rules 1.7 (an interim sentence, if this proposal lands before change 0130), 6.6, 6.7, 7.2, 7.6, 8.22 and 8.25, and the texts change 0130 proposes for Rules 1.7, 1.8, 6.6, 6.7, 7.6 and 8.25, its editor items 3 and 4, its "proposed rules, in short" item 3 and its typecv downstream entry; `AUTHORING.md` (the section "A function that changes its caller's variable" and the GLSL table row); `reqs/`; `docs/use-typeshade-surface.md` §6, §7, §9, §14, §26, §49, §52, §65, §70 and §76; `docs/typescript-coverage.md`; `src/compiler/ts/decorated-form.ts`, `attribute-types.ts`, `lower/references.ts`, `lower/statement.ts`, `definite.ts`, `host-face.ts`, `narrowing.ts`; `src/cli/migrate.ts`; `src/language-service/ambient.ts`, `diagnostics.ts`, `navigation.ts`, `hover.ts`, `docs.ts`; `examples/reference-parameters.shade.ts`; `journeys/class-twins/units.shade.ts`; the tests listed under "What it touches"; `CHANGELOG.md`. No release version is assigned. |
 | Review baseline               | `main` at `583891d2` (merge of pull request #1120, OD-5), read on 2026-11-09. Every count and measurement below was taken on that commit unless the row says otherwise. Revision 2 merges `main` at `11b6d74e` (pull request #1127, the scope of OD-5) and answers the independent review of `ff9963a5`; its added measurements were taken on `11b6d74e`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -148,32 +148,34 @@ form; that test asserts no `split` text.
 
 ### Every form that changes
 
-| Form                                                                                                                                                                         | Today (`583891d2`)                                                                                                                                                                 | After                                                                                                                     |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `@inout a: T`, `@out c: T` on a parameter of a module function                                                                                                               | compiles, with a `TS8028` warning on each decorator: `"@inout" is the decorated form, which the next release refuses: write "a: inout<f32>", or run "tshc migrate" (change 0111).` | the language's form: compiles with no diagnostic in either half                                                           |
-| `a: inout<T>`, `c: out<T>`                                                                                                                                                   | the language's form                                                                                                                                                                | the decision for the owner below: (a) a `TS8028` warning for one release, then refused; (b) refused at once with `TS8028` |
-| a qualifier on a parameter of an entry, a method, a constructor, an accessor, a local function, a function written as an argument or a generic function                      | `TS8073`; on a local function the editor also shows TypeScript's TS1206 (measured)                                                                                                 | `TS8073` alone in both halves (Rule 12.4)                                                                                 |
-| two qualifiers on one parameter, `@inout a: inout<f32>`                                                                                                                      | `TS8028` warning and `TS8073` "`"a" carries inout<T> and inout<T>`"                                                                                                                | the type form's `TS8028` alone                                                                                            |
-| the messages of `TS8073`, `TS8075`, the `TS8018` remedy and the host view's `never` reason                                                                                   | name the type form: `"a" is inout<T>, and …`, `"c" is an out<T> parameter, …`, `declare "r: inout<Ray>"`                                                                           | name the attribute: `"a" is @inout, and …`, `"c" is an @out parameter, …`, `declare "@inout r: Ray"`                      |
-| hover on a qualified parameter                                                                                                                                               | `(parameter) a: inout<f32>`, and on the function `function swap(a: inout<f32>, b: inout<f32>): void`                                                                               | `(parameter) @inout a: f32`, and on the function `function swap(@inout a: f32, @inout b: f32): void`                      |
-| hover on `@inout`                                                                                                                                                            | "The decorated form of `p: inout<T>`: …"                                                                                                                                           | what the qualifier does, with no "decorated form" wording                                                                 |
-| signature help at a call of `swap`                                                                                                                                           | `swap(a: f32, b: f32): void` (measured on `11b6d74e`)                                                                                                                              | `swap(@inout a: f32, @inout b: f32): void`                                                                                |
-| go-to-definition, rename and prepare-rename on `@inout` or `@out`                                                                                                            | each throws `Debug Failure` (measured; a defect on `main` today)                                                                                                                   | answers, or answers nothing, and does not throw                                                                           |
-| `tshc migrate`                                                                                                                                                               | rewrites `@inout v: f32` to `v: inout<f32>`                                                                                                                                        | does not; under (a) or (b) it rewrites `v: inout<f32>` to `@inout v: f32`                                                 |
-| `inout<T>` or `out<T>` in any other type position: a local `let x: inout<f32>`, a return type, an alias `type R = inout<f32>` used as a parameter's type, a generic argument | compiles with no diagnostic (measured on `11b6d74e`); an alias used as a parameter's type is read as a qualifier                                                                   | `TS8028`, as on a parameter, in both halves                                                                               |
-| `@in a: f32`                                                                                                                                                                 | `TS8030 Expression expected.` (`in` is a keyword, so this is no decorator)                                                                                                         | unchanged: `in` is not written (OD-5)                                                                                     |
+| Form                                                                                                                                                                         | Today (`583891d2`)                                                                                                                                                                 | After                                                                                                |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `@inout a: T`, `@out c: T` on a parameter of a module function                                                                                                               | compiles, with a `TS8028` warning on each decorator: `"@inout" is the decorated form, which the next release refuses: write "a: inout<f32>", or run "tshc migrate" (change 0111).` | the language's form: compiles with no diagnostic in either half                                      |
+| `a: inout<T>`, `c: out<T>`                                                                                                                                                   | the language's form                                                                                                                                                                | refused at once with `TS8028` in both halves (the owner's decision of 2026-11-09)                    |
+| a qualifier on a parameter of an entry, a method, a constructor, an accessor, a local function, a function written as an argument or a generic function                      | `TS8073`; on a local function the editor also shows TypeScript's TS1206 (measured)                                                                                                 | `TS8073` alone in both halves (Rule 12.4)                                                            |
+| two qualifiers on one parameter, `@inout a: inout<f32>`                                                                                                                      | `TS8028` warning and `TS8073` "`"a" carries inout<T> and inout<T>`"                                                                                                                | the type form's `TS8028` alone                                                                       |
+| the messages of `TS8073`, `TS8075`, the `TS8018` remedy and the host view's `never` reason                                                                                   | name the type form: `"a" is inout<T>, and …`, `"c" is an out<T> parameter, …`, `declare "r: inout<Ray>"`                                                                           | name the attribute: `"a" is @inout, and …`, `"c" is an @out parameter, …`, `declare "@inout r: Ray"` |
+| hover on a qualified parameter                                                                                                                                               | `(parameter) a: inout<f32>`, and on the function `function swap(a: inout<f32>, b: inout<f32>): void`                                                                               | `(parameter) @inout a: f32`, and on the function `function swap(@inout a: f32, @inout b: f32): void` |
+| hover on `@inout`                                                                                                                                                            | "The decorated form of `p: inout<T>`: …"                                                                                                                                           | what the qualifier does, with no "decorated form" wording                                            |
+| signature help at a call of `swap`                                                                                                                                           | `swap(a: f32, b: f32): void` (measured on `11b6d74e`)                                                                                                                              | `swap(@inout a: f32, @inout b: f32): void`                                                           |
+| go-to-definition, rename and prepare-rename on `@inout` or `@out`                                                                                                            | each throws `Debug Failure` (measured; a defect on `main` today)                                                                                                                   | answers, or answers nothing, and does not throw                                                      |
+| `tshc migrate`                                                                                                                                                               | rewrites `@inout v: f32` to `v: inout<f32>`                                                                                                                                        | does not; it rewrites `v: inout<f32>` to `@inout v: f32`                                             |
+| `inout<T>` or `out<T>` in any other type position: a local `let x: inout<f32>`, a return type, an alias `type R = inout<f32>` used as a parameter's type, a generic argument | compiles with no diagnostic (measured on `11b6d74e`); an alias used as a parameter's type is read as a qualifier                                                                   | `TS8028`, as on a parameter, in both halves                                                          |
+| `@in a: f32`                                                                                                                                                                 | `TS8030 Expression expected.` (`in` is a keyword, so this is no decorator)                                                                                                         | unchanged: `in` is not written (OD-5)                                                                |
 
-### The type form `inout<T>` and `out<T>`: options for the owner
+### The type form `inout<T>` and `out<T>`: refused at once
 
-OD-5 says the type form "is not the language's form". It does not say when a written
-`inout<T>` stops compiling. Two options keep OD-5:
+The owner decided on 2026-11-09 that a written `inout<T>` or `out<T>` is refused at once ("바로
+거부"; Owner's decisions). `a: inout<f32>` is a `TS8028` error, in the compiler and in the
+editor, with the text `write "@inout a: f32", or run "tshc migrate" (change 0137)`, in every type
+position (below). `tshc migrate` rewrites it. One implementing step carries the change, and no
+release has a warning window.
 
-| Option                                | What an author sees                                                                                                                                                            | Cost                                                                                                                                                                                                                                                                                              |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| (a) warn for one release, then refuse | `a: inout<f32>` compiles with a `TS8028` warning, `write "@inout a: f32", or run "tshc migrate" (change 0137)`. The release after it refuses the type form with the same text. | Two implementing steps. The ambient library keeps `type inout<T>` and `type out<T>` for the warning release. The project has no published release (below), so the warning reaches only downstream repositories that pin a commit inside the window. One spelling in the end.                      |
-| (b) refuse at once                    | `a: inout<f32>` is a `TS8028` error with the same text, in the compiler and in the editor. `tshc migrate` rewrites it.                                                         | One implementing step. A downstream pin that moves past it must rewrite the type form in the same pull request. On `main` of the downstream repositories only typeshade.github.io writes it (below). `tshc migrate` reaches none of its matches, so each is edited by hand. One spelling at once. |
+The cost: a downstream pin that moves past the change must rewrite the type form in the same
+pull request. On `main` of the downstream repositories only typeshade.github.io writes it (What
+it owes downstream). `tshc migrate` reaches none of its matches, so each is edited by hand.
 
-**Measured facts for the choice** (2026-11-09):
+**Measured facts for the decision** (2026-11-09):
 
 - `npm view typeshade versions` lists only `0.0.0`. `npm view typeshade@0.0.0 description` is
   "TypeShade: typed shaders in TypeScript, compiled to WGSL and GLSL ES 3.00. Placeholder ahead
@@ -183,24 +185,30 @@ OD-5 says the type form "is not the language's form". It does not say when a wri
 - `CHANGELOG.md` has a heading `[0.1.0] - 2026-09-29`. No tag and no npm version carries it.
 - The type aliases `type inout<T> = T` and `type out<T> = T` entered the ambient library in
   `fef8133d` (2026-11-02), after that heading.
-- Inference: no published version carries `inout<T>` or `out<T>`. Rule 13.9 binds "a published
-  version", so it does not decide between the options. Rule 13.10 covers a program that keeps
-  compiling and computes something else, which no option does.
-- Change 0132 decision 5 is the precedent for (b): the owner chose on 2026-11-09 to refuse a
-  written `@diagnostic` at once, on the same facts.
+- Two published artifacts bundle the compiler:
+  - vscode-typeshade 0.3.0 on the Visual Studio Marketplace (published 2026-10-27), with the
+    compiler pin `3e1e8420` (2026-10-27). `git merge-base --is-ancestor fef8133d 3e1e8420` is
+    false. `git show 3e1e8420:src/language-service/ambient.ts` declares
+    `declare function inout(…)` and `declare function out(…)` and no `type inout<T>`. In the
+    downloaded `.vsix`, no file holds `type inout<` or `inout<T>`; 4 files hold `@inout` and 3
+    hold `declare function inout`.
+  - `@typeshade/mcp` 0.1.0 and 0.1.1 on npm (both 2026-09-23). Their `dist/index.js` bundles the
+    compiler. No file in either package holds `inout<T>`, `type inout<` or `@inout`: both
+    predate change 0040's implementation (`f637ae64`, 2026-10-05), so neither has a qualifier.
+- Inference: no published artifact carries `inout<T>` or `out<T>`. The decorated `@inout` is
+  published in vscode-typeshade 0.3.0, and it stays the language's form, so this proposal breaks
+  nothing published. Rule 13.9 binds "a published version", so it does not decide the timing.
+  Rule 13.10 covers a program that keeps compiling and computes something else, which this
+  change does not do.
+- Change 0132 decision 5 is the precedent: the owner chose on 2026-11-09 to refuse a written
+  `@diagnostic` at once, on the same kind of facts.
 
-**Recommendation: (b), refuse at once.** It rests on:
+The decision rests on OD-5 (the type form is not the language's form), OD-3 (one construct has
+one spelling) and OD-1 (the type form exists only so that a plain `tsc` accepts the file). The
+rejected alternatives, a warning for one release first and `inout<T>` kept as a second spelling,
+are under Alternatives.
 
-- OD-5: the type form is not the language's form.
-- OD-3: one construct has one spelling, and the author does not learn a second one.
-- OD-1: the type form exists only so that a plain `tsc` accepts the file, which OD-1 rejects.
-
-The cost of (b) is the downstream rewrite at the next pin move of typeshade.github.io, listed
-under "What it owes downstream". Under (a) the same rewrite happens one step later.
-
-Keeping `inout<T>` as a second spelling is not offered: it reverses OD-5 (Alternatives).
-
-**The type form in every type position.** Under (a) or (b), `TS8028` covers `inout<…>` and
+**The type form in every type position.** `TS8028` covers `inout<…>` and
 `out<…>` wherever a type is written, not only on a parameter: a local's type, a return type, a
 type alias and its uses, a generic argument and a field. Today each of these compiles with no
 diagnostic, and an alias `type R = inout<f32>` used as a parameter's type is silently read as a
@@ -305,8 +313,7 @@ Each text replaces the named part whole. A sentence that is not named stays.
     D5).") becomes: "To TypeScript the parameter is its written type `T`, and an assignment to it
     is local; that the write reaches the caller is a divergence Rule 7.2 records. The type form
     of change 0111, `a: inout<T>` and `a: out<T>`, must be refused with `TS8028`, which names the
-    attribute form and `tshc migrate`, wherever a type is written (change 0137)." Under option (a)
-    the text adds "after one release that warns".
+    attribute form and `tshc migrate`, wherever a type is written (change 0137)."
   - Its Rationale clause "written as the parameter's type, `inout<T>` or `out<T>`, which a plain
     `tsc --strict` accepts where it refuses a decorator on a parameter of a function (change
     0111)", and change 0130's replacement of it, become: "written before the parameter, `@inout`
@@ -388,7 +395,7 @@ The language service therefore:
    `@inout` and `@out` (`ATTRIBUTE_DOCS` in `docs.ts`) says what the qualifier does and no longer
    calls it "the decorated form of `p: inout<T>`". Signature help shows the same form,
    `swap(@inout a: f32, @inout b: f32): void`, with each parameter's label `@inout a: f32`.
-7. Under (a) or (b), shows the compiler's `TS8028` on a written `inout<T>` in any type position
+7. Shows the compiler's `TS8028` on a written `inout<T>` in any type position
    and no TypeScript diagnostic for the same mistake (Rule 12.4).
 
 A test reads both halves on each case, in the shape of
@@ -415,12 +422,12 @@ qualifier. The implementation:
 
 1. Stops that rewrite: `attributeTypeOf` no longer wraps a qualifier, and a qualifier decorator
    is left as written.
-2. Under (a) or (b), rewrites `v: inout<T>` to `@inout v: T` and `v: out<T>` to `@out v: T` on a
+2. Rewrites `v: inout<T>` to `@inout v: T` and `v: out<T>` to `@out v: T` on a
    parameter of a module function. A type form it cannot carry (no parameter, a type alias that
    wraps `inout<T>`) is left as written and named in `skipped`, as today.
 3. Leaves a template string as written, as today. It reads only `.ts` shader sources, so it
    reaches none of typeshade.github.io's matches (What it owes downstream). Each is edited by
-   hand at the next pin move under (a) or (b).
+   hand at the next pin move.
 
 ### Exclusions
 
@@ -443,12 +450,13 @@ call-site meaning. The attribute marks the parameter, not its value.
 
 ### Alternatives
 
-| Alternative                                          | Why it is not proposed                                                                                                                         |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Keep the type form as the language's form            | Reverses OD-5.                                                                                                                                 |
-| Keep `inout<T>` as a second spelling beside `@inout` | Reverses OD-5 ("the type form … is not the language's form"), so it is not offered as an option.                                               |
-| A keyword before the parameter (`inout a: f32`)      | TypeScript does not parse it, the language service cannot keep it as a form TypeScript parses (Rule 1.7), and the owner chose `@inout a: f32`. |
-| Infer the qualifier from the body's writes           | The compiler cannot know whether the author means the write to reach the caller ("Why the compiler cannot do it").                             |
+| Alternative                                           | Why it is not proposed                                                                                                                         |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Warn on the type form for one release, then refuse it | Rejected by the owner on 2026-11-09 ("바로 거부"): a second implementing step for a form no published artifact carries.                        |
+| Keep the type form as the language's form             | Reverses OD-5.                                                                                                                                 |
+| Keep `inout<T>` as a second spelling beside `@inout`  | Reverses OD-5 ("the type form … is not the language's form"), so it is not offered as an option.                                               |
+| A keyword before the parameter (`inout a: f32`)       | TypeScript does not parse it, the language service cannot keep it as a form TypeScript parses (Rule 1.7), and the owner chose `@inout a: f32`. |
+| Infer the qualifier from the body's writes            | The compiler cannot know whether the author means the write to reach the caller ("Why the compiler cannot do it").                             |
 
 ### Costs of the owner's decision
 
@@ -466,9 +474,13 @@ Recorded as costs of OD-5, not as reasons against it (`CLAUDE.md`, The owner's d
   or `@out c: f32`; `in` is not written; an entry's I/O stays in the type.
 - **OD-1** removes the only reason of change 0111 D4: a plain `tsc` accepting the file is not a
   criterion.
-- **OD-3** is the basis of the recommendation of option (b): one construct has one spelling.
-- **OD-4**: the before and after, the list of forms that change and the options with their costs
-  are shown above.
+- **OD-3**: one construct has one spelling, the basis of refusing the type form at once.
+- **The owner's decision of 2026-11-09 on this proposal** (in the Claude Code session, in
+  Korean): asked whether a written `inout<T>` or `out<T>` warns for one release or is refused at
+  once, the owner answered "바로 거부": refused at once with `TS8028`, which names `@inout a: f32`
+  and `tshc migrate`, in every type position and in both halves.
+- **OD-4**: the before and after, the list of forms that change, the timing options with their costs
+  and the owner's choice are shown above.
 - **OD-2** is untouched: this proposal changes no stage form.
 
 This proposal reverses no entry.
@@ -504,7 +516,7 @@ construct that the compiler could replace.
   sections) writes `@inout` or `@out`. §70's title becomes "Parameter qualifiers: `@inout` and
   `@out`".
 - **Codes**: none added, removed or renumbered. The messages of `TS8028` (the decorated-form
-  warning no longer covers a qualifier; under (a) or (b) a new message on the type form),
+  warning no longer covers a qualifier; a new message on the type form),
   `TS8073`, `TS8075`, the `TS8018` remedy and the host view's reason change, and the tests that
   assert their text follow (Rule 12.5).
 - **Examples**: none added or removed. `examples/reference-parameters.shade.ts` (17 type-form
@@ -539,7 +551,7 @@ Of the 36 files under `src/`, 21 are tests. The others are the compiler's reader
 `docs.ts`, `hover.ts`), `src/cli/migrate.ts`, `src/cli/run.ts`, `src/core/testing/compute-programs.ts`
 and `src/AGENTS.md`.
 
-Estimate: one implementing pull request under (b), two under (a). Duration and cost are not
+Estimate: one implementing pull request. Duration and cost are not
 estimated.
 
 Validation required at implementation:
@@ -548,19 +560,20 @@ Validation required at implementation:
 - The emit goldens of `reference-parameters` and of the class twins unchanged.
 - `src/compiler/ts/reference-parameters.test.ts` reads each case in both halves: the attribute
   form with no diagnostic, each refusal once, the hover, go-to-definition at `@inout` that does
-  not throw, and the type form under the chosen option.
-- `tshc migrate` tests: `@inout v: f32` stays; under (a) or (b), `v: inout<f32>` becomes
+  not throw, and the type form refused in each type position.
+- `tshc migrate` tests: `@inout v: f32` stays; `v: inout<f32>` becomes
   `@inout v: f32`.
 - `bun run docs:impact`, `bun run docs:refs`, `bun run reqs:sync` and
   `python scripts/doorstop-check.py -C`.
 
 ### Decisions for the owner
 
-1. The type form `inout<T>` and `out<T>`: option (a) or (b). Recommended: (b).
+None open. The one decision, the timing of the type form's refusal, was taken by the owner on
+2026-11-09 (Owner's decisions).
 
 ### Open questions for the owner
 
-None beyond decision 1. OD-5 settles the one conflict this proposal meets: change 0130's
+None. OD-5 settles the one conflict this proposal meets: change 0130's
 Rule 1.8 text says a parameter is part of its type, and OD-5 says a parameter qualifier is <!-- doc-refs: skip — Rule 1.8 is the rule change 0130 adds -->
 written before the parameter. No other two principles or rules point different ways for this
 change.
@@ -585,7 +598,7 @@ reviewer's facts. Each finding and its answer:
   `TS8075` Enforced by clause, and Rule 6.7's second sentence and Rationale on `main` (for the
   case where this proposal lands before change 0130) are replaced. `AUTHORING.md` is in
   Applicability and in What it touches, with `src/compiler/ts/doc-snippets.test.ts`.
-- **S2.** Under (b), `inout<…>` in another type position (a local, a return type, an alias used
+- **S2.** Under option (b), `inout<…>` in another type position (a local, a return type, an alias used
   as a parameter's type, a generic argument) compiles silently. Fixed: `TS8028` covers every
   type position in both halves; the ambient aliases stay so TypeScript adds no second
   diagnostic (Rule 12.4). Measured again on `11b6d74e`: the three forms tried give no diagnostic.
@@ -601,8 +614,10 @@ reviewer's facts. Each finding and its answer:
 - **S6.** Rule 1.7 on `main` requires projection to valid TypeScript. Fixed: an interim sentence
   for Rule 1.7 on `main` applies if this proposal lands before change 0130.
 - **N1.** OD-5 cites change 0111 D5 where D4 is the decision that moved the qualifier into the
-  type. Kept for the owner: only the owner changes an entry (`docs/owner-decisions.md`,
-  Precedence). This proposal cites D4 and D5 for what each decided.
+  type. Only the owner changes an entry (`docs/owner-decisions.md`, Precedence). The owner
+  approved the fix (D5 to D4) on 2026-11-09. The coordinator makes it in a separate pull request
+  that changes `docs/owner-decisions.md` only. This proposal cites D4 and D5 for what each
+  decided.
 - **N2.** `reference-parameters.test.ts` asserts only the `swap` text. Fixed: reworded.
 - **N3.** Quote the full npm description. Fixed.
 - **N5.** Pin a qualifier on an overload signature as a Rule 12.4 test. Fixed: in the list of
@@ -610,9 +625,11 @@ reviewer's facts. Each finding and its answer:
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision on decision 1, the
-independent review record with an answer to each finding, and the merge of this proposal's pull
-request with `status: accepted`.
+This record does not yet apply. The owner's decision on the type form is recorded (Owner's
+decisions), and the independent review record answers each finding. The proposal is ready for
+acceptance: it is accepted when pull request #1125 is merged with `status: accepted` on the
+owner's go-ahead in the conversation. That merge also adds the pointer sentence to change 0130
+(Amending change 0130 and change 0111).
 
 ### Configuration and validation record
 
