@@ -1,6 +1,6 @@
 ---
 id: '0139'
-title: A deprecation window is owed only for a meaning that an official release of the `typeshade` package carried; test builds and bundles do not count
+title: A deprecation window is owed only for a meaning that an official release of the `typeshade` package carried; bundles, prereleases and changelog headings do not count
 status: draft
 rules:
   - '13.9'
@@ -16,14 +16,14 @@ downstream: []
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                              |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0139, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                           |
-| Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the direction of the session's coordinator. The date is the drafting date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                               |
-| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-09, in Korean: "아직 정식 릴리즈 전이라 문제 없음 테스트용으로 한것뿐이라". Recorded as `docs/owner-decisions.md` OD-6 (pull request #1132). Proposal 0134 (decision Q9, review findings S4 to S6) leaves the OD-6 sentence of Rule 13.10 to its own change. This proposal is that change. |
-| Applicability / effectivity   | Expected: `docs/language-design.md` Rules 13.9 and 13.10, `reqs/rules/RULE-1309.md`, `reqs/rules/RULE-1310.md`, `RELEASING.md` §7 (prose that restates the two rules). No code, test, diagnostic, export, surface section or example changes. No release version is assigned.                                                                       |
-| Review baseline               | `main` at `089fe921` (merge of pull request #1132), read on 2026-11-09.                                                                                                                                                                                                                                                                             |
-| Review and revision authority | Pull request #1140 (draft). Git records the revisions of this file. The review and the merge of the proposal's pull request record the decision.                                                                                                                                                                                                    |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0139, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                        |
+| Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the direction of the session's coordinator, and revised the same day to answer the independent review and to record the owner's decision on prereleases. The date is the drafting date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                               |
+| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-09, in Korean: "아직 정식 릴리즈 전이라 문제 없음 테스트용으로 한것뿐이라". Recorded as `docs/owner-decisions.md` OD-6 (pull request #1132). Proposal 0134 (decision Q9, review findings S4 to S6) leaves the OD-6 sentence of Rule 13.10 to its own change. This proposal is that change.                              |
+| Applicability / effectivity   | Expected: `docs/language-design.md` Rules 13.9 and 13.10, `reqs/rules/RULE-1309.md`, `reqs/rules/RULE-1310.md`, `RELEASING.md` §7 (prose that restates the two rules), the header comment of `src/changelog.test.ts` (it quotes Rule 13.9's "a published version"). No code, test logic, diagnostic, export, surface section or example changes. No release version is assigned. |
+| Review baseline               | `main` at `089fe921` (merge of pull request #1132), read on 2026-11-09. Revision 2 merges `main` at `965d6d6e` (merge of pull request #1122).                                                                                                                                                                                                                                    |
+| Review and revision authority | Pull request #1140 (draft). Git records the revisions of this file. The review and the merge of the proposal's pull request record the decision.                                                                                                                                                                                                                                 |
 
 ## What changes
 
@@ -35,9 +35,10 @@ it in Rule 13.10.
 1. **Rule 13.9 defines an official release.** Proposed sentence, added after the first sentence:
 
    > An _official release_ is a version of the `typeshade` package published on npm, other than
-   > the placeholder `0.0.0`. A test build is not one, and neither is a published package that
-   > bundles the compiler (the `vscode-typeshade` extension, `@typeshade/mcp`) or a version
-   > heading of `CHANGELOG.md` with no such version on npm.
+   > the placeholder `0.0.0` and with no prerelease part (a version such as `1.0.0-rc.1` is not
+   > one). A published package that bundles the compiler (the `vscode-typeshade` extension,
+   > `@typeshade/mcp`) is not one, and neither is a version heading of `CHANGELOG.md`, a GitHub
+   > release or a tag with no such version on npm.
 
    The first sentence changes from "A published version must follow Semantic Versioning 2.0.0"
    to "An official release must follow Semantic Versioning 2.0.0". The definition of _breaking_
@@ -57,24 +58,30 @@ it in Rule 13.10.
 
    > A change that keeps a program compiling and makes it compute something other than what an
    > official release (Rule 13.9) computed for it must ship in two steps, and the second must come no
-   > earlier than the next breaking release after the first step's release was published (the
-   > next minor before `1.0.0`, the next major after it).
+   > earlier than the next breaking release after the first step's official release was published
+   > (the next minor before `1.0.0`, the next major after it).
 
    The second sentence changes "a published release must report" to "an official release must
    report". The fourth sentence changes "The window is counted in published releases." to "The
    window is counted in official releases. A meaning that no official release carried owes no
-   window." The rationale adds: "A test build reached its testers and no user (OD-6)."
+   window." The rationale adds: "The bundled builds were tests (OD-6)."
    "Derives from" adds `docs/owner-decisions.md` OD-6.
 
 What does not change: the two steps of the window, the opt-in deprecation option, the
 `### Changed` entry, the minor as the breaking position before `1.0.0`, and the duty of Rule
 13.9 that every breaking change carries a `CHANGELOG.md` entry with its migration edit.
 
-An example. Proposal 0134 changes the type of `let k = 7; let h = k / 2;` from `f32` to a refusal.
-Under the rules on `main`, a reader can count `@typeshade/mcp` 0.1.1 on npm as "a published
-release" that carried the `f32` meaning, and so owe a warning release first. After this change,
-no official release carried that meaning, so the change takes effect at once, with its
-`### Changed` entry (Rule 13.9).
+An example. Proposal 0134 ("Values that change") changes what `const C = 0.1;` carries beside an
+`f64`: today the `f32` value of 0.1, after it the full double, as the written `x * 0.1` does. The
+program still compiles and computes something else, so Rule 13.10 applies. Under the rules on
+`main`, a reader can count `@typeshade/mcp` 0.1.1 on npm as "a published release" that carried
+the old value, and so owe a warning release first. After this change, no official release
+carried that value, so the change takes effect at once, with its `### Changed` entry (Rule 13.9).
+
+A refusal is a breaking change under Rule 13.9, not a change of meaning under Rule 13.10. OD-6
+covers refusals through Rule 13.9: an official release is what a breaking change is counted
+against, and no official release exists. A refusal still carries its `CHANGELOG.md` entry with
+the migration edit (Rule 13.9).
 
 ## Why
 
@@ -108,6 +115,16 @@ This proposal rests on OD-6 (nothing is released yet; the bundled builds were te
 meaning or a refusal owes no warning release because of them; the `## [0.1.0]` heading does not
 make a release). It reverses no entry. It does not touch OD-1 to OD-5 or OD-7.
 
+The owner decided one more point for this proposal:
+
+- **Prereleases are not official releases.** Date: 2026-11-09. The owner's words, in the
+  session: "사전 버전 제외" (exclude prerelease versions). Asked whether a SemVer prerelease of
+  `typeshade` on npm (a version with a `-` part, such as `1.0.0-rc.1`) counts as an official
+  release, the owner chose that it does not. An official release is a version of `typeshade` on
+  npm other than `0.0.0` and with no prerelease part. The definition in item 1 carries this
+  decision. It replaces the draft's undefined phrase "A test build is not one" (review finding
+  S3).
+
 ## Why the compiler cannot do it
 
 Not applicable: this proposal adds no name, no diagnostic code and no surface form. It edits the
@@ -120,14 +137,21 @@ process rule, which no compiler work decides.
   its "Derives from". `reqs/rules/RULE-1309.md` follows through `bun run reqs:sync`.
 - **Rule 13.10**: the first, second and fourth sentences, the rationale and "Derives from".
   `reqs/rules/RULE-1310.md` follows. Proposal 0134 also edits Rule 13.10 ("Derives from" and
-  "Enforced by", for the retirement of `TS8053`). The two edits touch different sentences. The
-  later pull request merges `main` and keeps both.
+  "Enforced by", for the retirement of `TS8053`). Both proposals edit the "Derives from" line:
+  0134 removes #148 and its test, and 0139 adds OD-6. The other edits touch different sentences.
+  The later implementing pull request merges `main` and keeps both edits.
 - **`RELEASING.md` §7**: the prose that restates Rule 13.9 and Rule 13.10 says "official release"
   where the rules do. This is prose, not a criterion of `README.md`. The table of open windows
   (the `TS8053` row) belongs to proposal 0134 and is not edited here.
-- **`src/changelog.test.ts`** and **`src/compiler/ts/integer-literal-deprecation.test.ts`**:
-  no change. Their `Verifies:` tags stay. After `bun run reqs:sync`, Doorstop flags the two
-  items as changed, and a person reviews them (`reqs/README.md`).
+- **`src/changelog.test.ts`**: its header comment quotes Rule 13.9 ("a published version
+  follows Semantic Versioning 2.0.0") and says "official release" after this change. Its test
+  logic does not change.
+- **The tests tagged `Verifies: Rule 13.10`**: no change. On `main` at `965d6d6e` they are
+  `src/compiler/ts/integer-literal-deprecation.test.ts` and
+  `src/compiler/ts/field-literal-deprecation.test.ts`. Proposal 0134 deletes the first. The
+  tagged tests are whatever is on `main` when this change lands. After `bun run reqs:sync`,
+  Doorstop flags `RULE-1309` and `RULE-1310` as changed, and a person reviews them
+  (`reqs/README.md`).
 
 Not part of this change, listed as separate follow-ups:
 
@@ -137,16 +161,23 @@ Not part of this change, listed as separate follow-ups:
   repository was published to npm before **`0.1.0`, the first release**". `src/changelog.test.ts`
   reads every `## ` heading as `## [Unreleased]` or `## [X.Y.Z] - YYYY-MM-DD`, so the same pull
   request teaches it the one test-build heading. That correction needs no proposal (no criterion
-  of `README.md` applies), so it is its own pull request with `Change: none`. Whether
-  `package.json` keeps `"version": "0.1.0"` is a question for that pull request.
+  of `README.md` applies), so it is its own pull request with `Change: none`. It edits
+  `src/changelog.test.ts`, so it is not a documentation-only pull request: it waits for the
+  owner's "merge" unless it qualifies as a bug fix (`CLAUDE.md`, Merging). It also owns the
+  `[Unreleased]` sentences that count from `0.1.0`: "No published version had the construct (it
+  landed after `0.1.0`), so no migration release follows (Rules 13.9 and 13.10 bind a published
+  version)" (change 0131, about line 88), and "No published version had the filter … (Rules 13.9
+  and 13.10 bind a published version)" (change 0132, about line 1698). Whether `package.json`
+  keeps `"version": "0.1.0"` is a question for that pull request.
 - **The §14 row and the `RELEASING.md` open-windows row for `TS8053`**: proposal 0134 owns them.
-- **`docs/typeshade-plan.md` row P1** restates Rule 13.10 for the time before `1.0.0`. The
-  implementing pull request reads it and fixes it if the new text makes it false.
+- **Plan unit P1** (`docs/typeshade-plan.md`, row P1; change 0100 decision D2, "Rule 13.10 is
+  unit P1") is a separate change to Rule 13.10 for the time before `1.0.0`. This proposal neither
+  delivers P1 nor blocks it. Row P1 stays unchanged.
 
 ### Draft impact estimate
 
-Known: about ten changed lines in `docs/language-design.md`, the two `reqs/` items, and about six
-lines of `RELEASING.md` §7. No code, golden, test, export or diagnostic moves. No downstream
+Known: about ten changed lines in `docs/language-design.md`, the two `reqs/` items, about six
+lines of `RELEASING.md` §7, and two lines of the header comment of `src/changelog.test.ts`. No code, golden, test, export or diagnostic moves. No downstream
 repository names Rule 13.9, Rule 13.10 or "deprecation window" in its Markdown or TypeScript
 (grep on 2026-11-09: `vscode-typeshade` at `db3f417`, `radiance` at `3e4efb3`, `typeaudio` at
 `8bd1ab1`, `typenn` at `3a7d66c`, `typecv` at `5c3f8ce`, `web` at `990ec50`; 0 matches each). So
@@ -154,13 +185,43 @@ repository names Rule 13.9, Rule 13.10 or "deprecation window" in its Markdown o
 
 ### Independent review record
 
-Not yet done. Before the owner decides, an agent or a person that did not write this proposal
-reviews it against `README.md` (Independent review), and the findings and answers go here.
+Reviewer: an AI agent (Claude Code) that did not write this proposal, at the coordinator's
+request, on 2026-11-09. Revision reviewed: head `85170188` of pull request #1140. Answers are
+in revision 2.
+
+- **S1.** The worked example `let k = 7; let h = k / 2;` is wrong: proposal 0134 leaves that
+  local an `f32`, and a refusal falls under Rule 13.9, not Rule 13.10. Fixed: the example is
+  0134's `const C = 0.1;` beside an `f64` (a meaning change), and a paragraph says that OD-6
+  covers refusals through Rule 13.9.
+- **S2.** "A test build reached its testers and no user (OD-6)" claims more than OD-6 says.
+  Fixed: the rationale adds "The bundled builds were tests (OD-6)."
+- **S3.** "A test build is not one" uses an undefined term. Fixed: deleted. The owner's decision
+  on prereleases (Owner's decisions) replaces it, and the definition adds that a GitHub release
+  or a tag alone is not an official release.
+- **S4.** Proposal 0134 and this proposal both edit Rule 13.10's "Derives from" line, which the
+  draft did not say. Fixed: What it touches says so, and the later pull request keeps both.
+- **S5.** `src/compiler/ts/field-literal-deprecation.test.ts` also carries
+  `Verifies: Rule 13.10`, and 0134 deletes `integer-literal-deprecation.test.ts`. Fixed: both are
+  named, and the tagged tests are whatever is on `main` when this change lands.
+- **S6.** Row P1 of `docs/typeshade-plan.md` is plan unit P1 (change 0100 D2), not prose this
+  change makes false. Fixed: cited as P1 and 0100 D2. This proposal neither delivers nor blocks
+  P1, row P1 stays unchanged, and "fixes it if …" is deleted.
+- **N1.** The `CHANGELOG.md` follow-up also edits `src/changelog.test.ts`, so it is not
+  approved in advance. It also owns the `[Unreleased]` sentences that count from `0.1.0`. Fixed:
+  the follow-up says both, with change 0131's sentence (about line 88) and change 0132's (about
+  line 1698).
+- **N2.** The header comment of `src/changelog.test.ts` quotes Rule 13.9's "a published
+  version". Fixed: added to Applicability and to What it touches.
+- **N4.** The Rule 13.10 text mixed "release" and "official release". Fixed: "after the first
+  step's official release was published".
+
+No finding is open.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision on the proposal's
-pull request, the merge with `status: accepted`, and the approved revision. The implementing
+This record does not yet apply. With the owner's decision on prereleases recorded and no review
+finding open, the proposal is ready for acceptance on the owner's go-ahead. Acceptance will
+require the owner's decision on the proposal's pull request, the merge with `status: accepted`, and the approved revision. The implementing
 pull request will carry `Change: 0139`.
 
 ### Configuration and validation record
