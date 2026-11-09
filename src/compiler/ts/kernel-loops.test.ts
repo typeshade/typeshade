@@ -185,7 +185,7 @@ export function count(a: array<u32>) {
     'R5, a method that writes a module variable',
     `let calls: u32 = 0;
 class Voice {
-  phase!: f32;
+  phase: f32;
   bump(): u32 {
     calls += 1;
     return calls;
@@ -891,9 +891,9 @@ export function tex(t: texture_2d<f32>, uv: vec2i): vec4 {
 interface FsOut {
   color: location<0, vec4>;
 }
-export const fs = fragment(function fs(p: builtin<"position", vec4>): FsOut {
+@fragment export function fs(p: builtin<"position", vec4>): FsOut {
   return { color: tex(img, vec2i(p.xy)) };
-});`;
+}`;
     expect(compiled(body)).toEqual([]);
     expect(edited(body)).toEqual([]);
     const r = compile(module(body), { fileName: 'm.shade.ts' });
@@ -1052,9 +1052,9 @@ export function render(k: vec4, size: u32, out: array<f32>) {
   return s;
 }
 declare const data: storage<array<f32>, "read_write">;
-export const cs = compute([1], function cs() {
+@compute([1]) export function cs() {
   data[0] = total(data);
-});`;
+}`;
     const want =
       'error TS8099 "total" is a kernel function, which host code calls and whose arrays are the call\'s storage, so no function can call it. Move what the two share into a plain function and call that from both.';
     expect(compiled(body)).toEqual([want]);
@@ -1063,7 +1063,7 @@ export const cs = compute([1], function cs() {
 
   it('is exported: a function no host can call takes no array with no size (Rule 12.6)', () => {
     const [d] = compiled(
-      'function total(xs: array<f32>): f32 { return xs[0]; }\nexport const cs = compute([1], function cs() {});',
+      'function total(xs: array<f32>): f32 { return xs[0]; }\n@compute([1]) export function cs() {}',
     );
     expect(d).toMatch(/^error TS8020 Parameter "xs" is array<f32>, an array with no size/);
   });
@@ -1594,8 +1594,8 @@ describe('a loop that calls a method on an element is proved as the same loop wr
   // Both halves read each program (CLAUDE.md): `compile()` and the language service give the
   // same diagnostics, and the proof gives the same verdict and the same facts.
   const CLASS = `class Voice {
-  phase!: f32;
-  freq!: f32;
+  phase: f32;
+  freq: f32;
   tick(dt: f32): f32 {
     this.phase = this.phase + this.freq * dt;
     return this.phase;

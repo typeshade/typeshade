@@ -45,17 +45,17 @@ const editorOf = (src: string): string[] => {
 const unknownType = (name: string): string =>
   `${TS_CODES.UNKNOWN_TYPE} Unknown type "${name}". Declare it in this file, or import it from another shader module.`;
 
-const FS = `export const fs = fragment(function fs(): vec4 {
+const FS = `@fragment export function fs(): vec4 {
   return vec4(1.);
-});
+}
 `;
 
 /** A program whose `fs` returns `f()` in all four lanes, run on both CPU paths. */
 const runs = (head: string, expected: number): void => {
-  const r = compile(`"use typeshade";\n${head}export const fs = fragment(function fs(): vec4 {
+  const r = compile(`"use typeshade";\n${head}@fragment export function fs(): vec4 {
   const v = f();
   return vec4(v);
-});
+}
 `);
   expect(r.diagnostics).toEqual([]);
   expect(r.wgsl).toBeDefined();
@@ -199,9 +199,9 @@ describe('a type the file declares is the file’s, whatever the library calls i
       3,
     );
     const r =
-      compile(`"use typeshade";\ninterface Pick {\n  p: f32;\n}\ndeclare const u: uniform<Pick>;\nexport const fs = fragment(function fs(): vec4 {
+      compile(`"use typeshade";\ninterface Pick {\n  p: f32;\n}\ndeclare const u: uniform<Pick>;\n@fragment export function fs(): vec4 {
   return vec4(u.p);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct Pick');
@@ -424,9 +424,9 @@ ${FS}`;
 
   it('an interface declares no value, so the constant still reads through it', () => {
     const r =
-      compile(`"use typeshade";\ninterface TAU {\n  a: f32;\n}\nexport const fs = fragment(function fs(): vec4 {
+      compile(`"use typeshade";\ninterface TAU {\n  a: f32;\n}\n@fragment export function fs(): vec4 {
   return vec4(TAU);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('6.28318');
@@ -518,9 +518,9 @@ describe('a name nothing declares in a body no call lowers is said too', () => {
 
   it('once, where a body a call lowers says it as well', () => {
     expect(
-      diagnosticsOf(`"use typeshade";\nfunction mk<T>(x: T): f32 {\n  const d = window;\n  return 1.;\n}\nexport const fs = fragment(function fs(): vec4 {
+      diagnosticsOf(`"use typeshade";\nfunction mk<T>(x: T): f32 {\n  const d = window;\n  return 1.;\n}\n@fragment export function fs(): vec4 {
   return vec4(mk(1.) + mk(2));
-});
+}
 `),
     ).toEqual([`${TS_CODES.UNKNOWN_NAME} Unknown identifier "window".`]);
   });
@@ -619,10 +619,10 @@ describe('a type name nothing declares is TS8002 wherever it is written, once', 
     }
     // A class that holds a mixin applied is a base the file declares.
     const r =
-      compile(`"use typeshade";\nclass B {\n  a: f32 = 1.;\n}\nfunction Tinted<TBase extends AnyClass>(Base: TBase) {\n  return class extends Base {\n    t: f32 = 2.;\n  };\n}\nconst TB = Tinted(B);\nclass C extends TB {\n  c: f32 = 3.;\n}\nexport const fs = fragment(function fs(): vec4 {
+      compile(`"use typeshade";\nclass B {\n  a: f32 = 1.;\n}\nfunction Tinted<TBase extends AnyClass>(Base: TBase) {\n  return class extends Base {\n    t: f32 = 2.;\n  };\n}\nconst TB = Tinted(B);\nclass C extends TB {\n  c: f32 = 3.;\n}\n@fragment export function fs(): vec4 {
   const c = new C();
   return vec4(c.a, c.t, c.c, 1.);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
   });
@@ -638,19 +638,19 @@ describe('a type name nothing declares is TS8002 wherever it is written, once', 
 
   it('a name the library declares is no unknown name in a constraint', () => {
     const r =
-      compile(`"use typeshade";\nclass B {\n  a: f32 = 1.;\n}\nfunction Tinted<TBase extends AnyClass>(Base: TBase) {\n  return class extends Base {\n    t: f32 = 2.;\n  };\n}\nclass C extends Tinted(B) {}\nexport const fs = fragment(function fs(): vec4 {
+      compile(`"use typeshade";\nclass B {\n  a: f32 = 1.;\n}\nfunction Tinted<TBase extends AnyClass>(Base: TBase) {\n  return class extends Base {\n    t: f32 = 2.;\n  };\n}\nclass C extends Tinted(B) {}\n@fragment export function fs(): vec4 {
   const c = new C();
   return vec4(c.a, c.t, 0., 1.);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
   });
 
   it('once, in a generic body lowered for two type arguments', () => {
     expect(
-      diagnosticsOf(`"use typeshade";\nfunction mk<T>(x: T): f32 {\n  return fetch("x");\n}\nexport const fs = fragment(function fs(): vec4 {
+      diagnosticsOf(`"use typeshade";\nfunction mk<T>(x: T): f32 {\n  return fetch("x");\n}\n@fragment export function fs(): vec4 {
   return vec4(mk(1.) + mk(vec2f(1.)));
-});
+}
 `),
     ).toEqual([
       `${TS_CODES.UNKNOWN_FN} Unknown function "fetch". Declare it in this file, or import it from another shader module.`,

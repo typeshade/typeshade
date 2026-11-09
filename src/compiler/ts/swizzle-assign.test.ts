@@ -52,9 +52,9 @@ describe('a multi-component swizzle target (change 0106)', () => {
   e.yx *= vec2f(0.5, 2.);
   return vec4f(d, e);
 }
-export const fs = fragment(function fs(): vec4f {
+@fragment export function fs(): vec4f {
   return f();
-});`;
+}`;
 
   it('reads the old components before any write: d.xy *= d.yx is (6, 6), e.yx *= … is (4, 1.5)', () => {
     const { compiled, result } = bothHalves(REGRESSIONS);
@@ -142,11 +142,11 @@ export function f(): vec4f {
   it('writes through a storage<…, "read_write"> element and a workgroup vector', () => {
     const { compiled, result } = bothHalves(`declare const buf: storage<array<vec4f>, "read_write">;
 let shared: workgroup<vec2f>;
-export const main = compute([1], function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
   buf[gid.x].wy = vec2f(5., 6.);
   shared.yx = vec2f(1., 2.);
   buf[gid.x].xz += shared;
-});`);
+}`);
     expect(compiled).toEqual([]);
     const main = fnText(result.wgsl ?? '', 'fn main(');
     expect(main).toMatch(/buf\[(\w+)\]\.w = [^;]+;\s*buf\[\1\]\.y = /);
@@ -191,10 +191,10 @@ describe('what stays refused (change 0106)', () => {
     // read-only error before compile() runs (surface §7, TS2540 / TS2542).
     const result = compile(
       source(`declare const ro: storage<array<vec2f>>;
-export const main = compute([1], function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
   ro[gid.x].xx = vec2f(1.);
   ro[gid.x].xy = vec2f(1.);
-});`),
+}`),
       { fileName: 'sw.shade.ts' },
     );
     expect(result.diagnostics.map((d) => d.code)).toEqual([

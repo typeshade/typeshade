@@ -56,9 +56,9 @@ it('keeps symbolic outer array extents through flat and nested fp64 lowering (#7
     const result = compile(`"use typeshade";
 const WG: override<u32> = 64;
 let tile: workgroup<array<${nested ? 'array<f64, 3>' : 'f64'}, WG>>;
-export const main = compute([WG], function main(lid: builtin<"local_invocation_id", vec3u>): void {
+@compute([WG]) export function main(lid: builtin<"local_invocation_id", vec3u>): void {
   tile[lid.x]${nested ? '[0]' : ''} = f64(1);
-});
+}
 `);
     expect(result.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     for (const flavor of ['float', 'integer'] as const) {
@@ -283,10 +283,10 @@ function bump(i: u32): f64 {
 function half(x: f64): f64 {
   return x * 0.5;
 }
-export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   const x = f64(dst[gid.x]);
   dst[gid.x] = f32(bump(gid.x) * bump(gid.x)) + f32(half(x) * half(x));
-});
+}
 `);
     const wgsl = emitModule(m);
     // bump writes `dst`: two calls as written, two increments (the front end sequences each
@@ -408,10 +408,10 @@ export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_i
     const { module: m, diagnostics } = compile(`"use typeshade";
 const K = 1e38;
 const scale: override<f32> = 3e30;
-class U { c!: f64; pad!: vec2; }
+class U { c: f64; pad: vec2; }
 declare const u: uniform<U>;
 declare const dst: storage<array<f32>, "read_write">;
-export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   const k = 1e38;
   const t: f64 = u.c + f64(dst[gid.x]);
   dst[1] = f32(f64(k) * 4. + u.c);
@@ -423,7 +423,7 @@ export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_i
   dst[8] = f32(t * 4. + u.c);
   dst[9] = f32((t + u.c) * 4. + u.c);
   dst[10] = f32(f64(dst[gid.x]) * 4. + u.c);
-});
+}
 `);
     expect(diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     const shape = storeShapes(m, 'main_k');
@@ -491,7 +491,7 @@ function nextv(i: u32): vec3<f64> {
 function purev(x: f32): vec3<f64> {
   return vec3<f64>(f64(x), f64(x * 2.), f64(3.));
 }
-export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   const u = vec3<f64>(f64(dst[gid.x]), f64(dst[gid.y]), f64(dst[gid.z]));
   const w = vec3<f64>(f64(dst[gid.y]), f64(1.0), f64(2.0));
   const a = normalize(u * w) * f64(2.0);
@@ -500,7 +500,7 @@ export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_i
   const d = u * f64(2.0);
   const e = (u + w) * f64(0.5);
   dst[gid.x] = f32(a.x) + f32(b.y) + f32(c.z) + f32(d.x) + f32(e.y) + bump(gid.x);
-});
+}
 `);
     expect(diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     for (const wgsl of [emitModule(m), emitModuleAt(m, 'O0')]) {
@@ -528,10 +528,10 @@ function nextv(i: u32): vec3<f64> {
 function purev(x: f32): vec3<f64> {
   return vec3<f64>(f64(x), f64(x * 2.), f64(3.));
 }
-export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   dst[0] = f32(dot(nextv(gid.x), nextv(gid.x)));
   dst[1] = f32(dot(purev(dst[2]), purev(dst[2])));
-});
+}
 `);
     expect(diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     const shape = storeShapes(m, 'main_k');

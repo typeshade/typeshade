@@ -414,10 +414,10 @@ describe('backends', () => {
       interface Color {
         color: location<0, vec4>;
       }
-      export const fs = fragment(function fs(): Color {
+      @fragment export function fs(): Color {
         const base = vec4(1., 0.5, 0.25, 1.);
         return { color: base * 0.5 };
-      });
+      }
     `);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(c.wgsl).toMatch(/base \* 0\.5/);

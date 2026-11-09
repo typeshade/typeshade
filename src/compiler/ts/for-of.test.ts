@@ -32,13 +32,13 @@ describe('for-of over an array', () => {
     const src = `"use typeshade";
 declare const data: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
-export const sum = compute([64], function sum(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function sum(gid: builtin<"global_invocation_id", vec3u>) {
   let s = 0;
   for (const x of data) {
     s += x;
   }
   out[gid.x] = s;
-});
+}
 `;
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
@@ -58,8 +58,8 @@ export const sum = compute([64], function sum(gid: builtin<"global_invocation_id
 
   it('iterates a sized local array and an array of structs in a uniform', () => {
     const src = `"use typeshade";
-class Light { pos!: vec3; power!: f32; }
-class Scene { lights!: array<Light, 2>; }
+class Light { pos: vec3; power: f32; }
+class Scene { lights: array<Light, 2>; }
 declare const scene: uniform<Scene>;
 export function total(): f32 {
   const ws: array<f32, 3> = [1, 2, 3];
@@ -137,13 +137,13 @@ export function nested(): f32 {
   it('emits a sized array loop in GLSL ES 3.00 too', () => {
     const r = compile(`"use typeshade";
 const WEIGHTS: array<f32, 9> = [0.05, 0.09, 0.12, 0.15, 0.18, 0.15, 0.12, 0.09, 0.05];
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   let c = 0;
   for (const w of WEIGHTS) {
     c += w * p.x;
   }
   return vec4(c, 0, 0, 1);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     // Nine taps, more than the eight trips O2 unrolls, so the GLSL writer's entry path, which
@@ -186,7 +186,7 @@ export function f(): f32 { let s = 0; for (const x of make()) { s += x; } return
   it('a destructuring or `var` declaration, and `for-in`', () => {
     const inFor = (head: string): string[] =>
       errorsOf(`"use typeshade";
-class P { a!: f32; b!: f32; }
+class P { a: f32; b: f32; }
 export function f(): f32 {
   const ps: array<P, 1> = [{ a: 1, b: 2 }];
   const xs: array<f32, 1> = [1];

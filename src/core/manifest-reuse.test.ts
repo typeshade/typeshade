@@ -48,11 +48,11 @@ describe('reuse the validated default WGSL within a host compilation', () => {
     const fileName = 'reuse.shade.ts';
     const hostSource = `"use typeshade";
 declare const data: storage<array<f32>, "read_write">;
-export const main = compute([1], function main(): void {
+@compute([1]) export function main(): void {
   const x = f64(data[0]) * 1.000000001;
   console.log("x", f32(x));
   data[0] = f32(x);
-});
+}
 `;
     const face = hostFace(hostSource, { fileName, console: 'gpu', ir: true });
     expect(face.diagnostics.filter((d) => d.category === 'error')).toEqual([]);

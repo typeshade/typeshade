@@ -38,8 +38,8 @@ describe.each(['min', 'max'])('%s over a fixed array', (op) => {
     ['vec2b', 2, '', 'vec2b'],
     ['mat2', 2, '', 'mat2x2'],
     ['array<f32, 2>', 2, '', 'array<f32, 2>'],
-    ['S', 2, 'class S { value!: f32; }', 'S'],
-    ['S', 1, 'class S { value!: f32; }', 'S'],
+    ['S', 2, 'class S { value: f32; }', 'S'],
+    ['S', 1, 'class S { value: f32; }', 'S'],
   ] as const)('refuses %s elements at length %s once in both halves', (elem, size, decl, shown) => {
     const source = sourceOf(op, elem, size, decl);
     const { result, compiler, editor } = check(source);

@@ -422,12 +422,12 @@ describe('discard', () => {
     interface Color {
       color: location<0, vec4>;
     }
-    export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+    @fragment export function fs(p: builtin<"position", vec4>): Color {
       if (p.x > 0.5) {
         discard;
       }
       return { color: vec4(1., 0., 0., 1.) };
-    });
+    }
   `;
 
   it('lowers to the discard statement', () => {
@@ -467,19 +467,19 @@ describe('discard', () => {
   it('is rejected in a vertex or compute entry', () => {
     expect(
       diagnose(`
-        export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): vec4 {
+        @vertex export function vs(i: builtin<"vertex_index", u32>): vec4 {
           discard;
           return vec4(0.);
-        });
+        }
       `),
     ).toBe('"discard" is only valid in a fragment shader; "vs" is a vertex entry.');
     expect(
       diagnose(`
         declare const xs: storage<array<f32>, "read_write">
-        export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>) {
+        @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>) {
           discard;
           xs[gid.x] = 1.;
-        });
+        }
       `),
     ).toBe('"discard" is only valid in a fragment shader; "k" is a compute entry.');
   });
@@ -525,10 +525,10 @@ describe('the fragment-only rule follows calls, not just the entry body', () => 
       interface VsOut {
         pos: builtin<"position", vec4>;
       }
-      export const vs = vertex(function vs(): VsOut {
+      @vertex export function vs(): VsOut {
         const k = cut(1.);
         return { pos: vec4(k, 0., 0., 1.) };
-      });
+      }
     `);
     // The exact front-end sentence, with the chain in it. A loose match would pass without
     // the walk: the core's own `fragment-only-builtin` lint (SD0109) catches this at EMIT and
@@ -550,9 +550,9 @@ describe('the fragment-only rule follows calls, not just the entry body', () => 
         return inner(x) * 2.;
       }
       declare const out: storage<array<f32>, "read_write">;
-      export const k = compute([1, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>) {
+      @compute([1, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>) {
         out[gid.x] = outer(1.);
-      });
+      }
     `);
     expect(r.diagnostics[0]!.code).toBe('TS8099');
     expect(r.diagnostics[0]!.message).toBe(
@@ -574,9 +574,9 @@ describe('the fragment-only rule follows calls, not just the entry body', () => 
       interface VsOut {
         pos: builtin<"position", vec4>;
       }
-      export const vs = vertex(function vs(): VsOut {
+      @vertex export function vs(): VsOut {
         return { pos: vec4(0., 0., 0., 1.) };
-      });
+      }
     `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
   });
@@ -617,11 +617,11 @@ describe('the derivative stubs keep the shape their argument has', () => {
       interface Color {
         color: location<0, vec4>;
       }
-      export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+      @fragment export function fs(p: builtin<"position", vec4>): Color {
         const d = dpdx(p.xyz);
         const w = length(fwidth(p.xy));
         return { color: vec4(d.x, w, 0., 1.) };
-      });
+      }
     `);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(c.eval('fs', [[0.5, 0.5, 0.5, 1]])).toEqual({ color: [0, 0, 0, 1] });
@@ -690,10 +690,10 @@ describe('a function the file declares wins over a builtin of its name (Rule 9.5
         interface Color {
           color: location<0, vec4>
         }
-        export const fs = fragment(function fs(): Color {
+        @fragment export function fs(): Color {
           const v = ${name}(${args});
           return { color: vec4(v, v, v, 1.) };
-        });
+        }
       `);
       expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
       expect(c.glsl?.fragment).toContain(`float ${name}_(`);
@@ -750,10 +750,10 @@ describe('a function the file declares wins over a builtin of its name (Rule 9.5
           color: location<0, vec4>
         }
         export function ${decl}
-        export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+        @fragment export function fs(p: builtin<"position", vec4>): Color {
           const v = ${call};
           return { color: vec4(v, v, v, 1.) };
-        });
+        }
       `);
       expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
       expect(c.wgsl).toContain(wgsl);
@@ -773,9 +773,9 @@ describe('all(bool) and any(bool) return the bool on both targets', () => {
     return { wgsl: r.wgsl ?? '', glsl: r.glsl?.fragment ?? '' };
   };
   const FS = (body: string): string => `"use typeshade"
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
 ${body}
-});
+}
 `;
 
   it('lowers to the argument itself, so neither target spells a one-component reduction', () => {

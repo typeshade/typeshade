@@ -103,7 +103,7 @@ export function usesIdent(x: f32): f32 { return ident(x) + apply(helper, x); }
 export function bump(@inout v: f32): void { v += 1.; }
 export function usesBump(x: f32): f32 { let y = x; bump(y); return y; }
 
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 { return vec4(helper(uv.x), 0., 0., 1.); });
+@fragment export function fs(uv: location<0, vec2>): vec4 { return vec4(helper(uv.x), 0., 0., 1.); }
 `);
     const k = kinds(f.exports);
     expect(k.helper).toBe('function');
@@ -220,16 +220,16 @@ export function scale(x: f32): f32 {
 describe('the host view (Rule 8.21)', () => {
   it('types the default export with the bindings each entry reaches (change 0030)', () => {
     const f = face(`"use typeshade";
-class View { viewProj!: mat4x4; time!: f32; }
+class View { viewProj: mat4x4; time: f32; }
 interface VsOut { pos: builtin<"position", vec4>; uv: location<0, vec2>; }
 declare const view: uniform<View>;
 declare const cells: storage<array<vec2>>;
 declare const albedo: texture_2d<f32>;
 declare const samp: sampler;
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
   return { pos: view.viewProj * vec4(cells[i], 0., 1.), uv: cells[i] };
-});
-export const fs = fragment(function fs(v: VsOut): vec4 { return textureSample(albedo, samp, v.uv); });
+}
+@fragment export function fs(v: VsOut): vec4 { return textureSample(albedo, samp, v.uv); }
 `);
     const gpu = '{ readonly mapAsync: unknown; readonly getMappedRange: unknown }';
     const numbers = 'Float32Array | Int32Array | Uint32Array | Float64Array';
@@ -364,7 +364,7 @@ export function step(@builtin("global_invocation_id") gid: vec3u) {
 
   it('declares an export with no host face never, with the reason', () => {
     const f = face(`"use typeshade";
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 { return vec4(uv, 0., 1.); });
+@fragment export function fs(uv: location<0, vec2>): vec4 { return vec4(uv, 0., 1.); }
 `);
     expect(f.view).toContain(
       '/** Not callable from host code (Rule 8.20): parameter "uv" is what a vertex entry writes, and a draw has no vertex entry but its full-screen triangle; #204, the rendering design, adds a mesh. */\nexport declare const fs: never;',
@@ -403,7 +403,7 @@ export const fs = fragment(function fs(uv: location<0, vec2>): vec4 { return vec
 
   it('makes a call of an export with no host face a type error', async () => {
     const src = `"use typeshade";
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 { return vec4(uv, 0., 1.); });
+@fragment export function fs(uv: location<0, vec2>): vec4 { return vec4(uv, 0., 1.); }
 `;
     expect(
       await hostErrors(src, `import { fs } from './terrain.shade.ts';\nexport const c = fs();\n`),
@@ -853,9 +853,9 @@ export function read(p: Probe): f32 { return p.value; }
 declare const out: storage<array<u32>, "read_write">;
 
 /** Fills \`out\` with the index of each invocation. */
-export const fill = compute([64], function fill(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function fill(gid: builtin<"global_invocation_id", vec3u>) {
   out[gid.x] = gid.x;
-});
+}
 `);
     // The comment sits above the first of the two signatures, as the sentence did.
     expect(commentAbove(f.view, 'export declare function fill(')).toEqual([
@@ -891,9 +891,9 @@ export function scale(a: array<f32>, s: f32): void {
     const f = face(`"use typeshade";
 
 /** Paints the position. */
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   return p;
-});
+}
 `);
     expect(commentAbove(f.view, 'export declare function fs(')).toEqual([
       '/** Paints the position.',
@@ -1123,17 +1123,17 @@ export function total(a: array<f32>): f32 {
   return sum;
 }
 
-export const fill = compute([64], function fill(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function fill(gid: builtin<"global_invocation_id", vec3u>) {
   out[gid.x] = gid.x;
-});
+}
 
-export const sized = compute([8], function sized(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([8]) export function sized(gid: builtin<"global_invocation_id", vec3u>) {
   fixed[gid.x] = k;
-});
+}
 
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   return p;
-});
+}
 
 export function ident<T>(x: T): T {
   return x;
@@ -2418,7 +2418,7 @@ export function f(v: vec2, i: i32, u: u32, b: vec2b, s: S, xs: array<f32, 2>): f
 
   it('refuses a call of an export with no host face, with the reason', async () => {
     const m = await load(`"use typeshade";
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 { return vec4(uv, 0., 1.); });
+@fragment export function fs(uv: location<0, vec2>): vec4 { return vec4(uv, 0., 1.); }
 `);
     expect(() => (m.fs as () => unknown)()).toThrow(
       'fs cannot be called from host code: parameter "uv" is what a vertex entry writes',
@@ -2600,7 +2600,7 @@ export function seenEmpty(depth: f32, a: f32, b: f32, c: f32, d: f32, scale: f32
   it('generates code for the functions a host call reaches, and not an entry point', () => {
     const f = face(`"use typeshade";
 export function helper(x: f32): f32 { return x * 2.; }
-export const fs = fragment(function fs(): vec4 { return vec4(dpdx(1.)); });
+@fragment export function fs(): vec4 { return vec4(dpdx(1.)); }
 `);
     expect(f.code).toContain('"helper": function');
     expect(f.code).not.toContain('"fs": function');

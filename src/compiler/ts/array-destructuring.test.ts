@@ -10,7 +10,7 @@ import { typeKey } from '../../core/ir/types.js';
 const source = (body: string, head = '') => `"use typeshade";
 ${head}
 export function run(): f32 { ${body} }
-export const fs = fragment(function fs(): vec4 { return vec4(run()); });
+@fragment export function fs(): vec4 { return vec4(run()); }
 `;
 const errors = (body: string, head = '') =>
   compileTsSource(source(body, head)).diagnostics.filter((d) => d.category === 'error');
@@ -128,9 +128,9 @@ class P {
 
   it('reads readonly bindings into independently writable local copies', () => {
     const r = compile(`"use typeshade";
-class P { x!: f32; }
+class P { x: f32; }
 declare const xs: storage<array<P, 2>>;
-export const fs = fragment(function fs(): vec4 { let [{ x: copy }] = xs; copy = 9.; return vec4(copy, xs[0].x, 0., 1.); });
+@fragment export function fs(): vec4 { let [{ x: copy }] = xs; copy = 9.; return vec4(copy, xs[0].x, 0., 1.); }
 `);
     expect(r.diagnostics).toEqual([]);
     for (const make of [compileModule, compileModuleJs]) {
@@ -142,16 +142,16 @@ export const fs = fragment(function fs(): vec4 { let [{ x: copy }] = xs; copy = 
 
   it('copies a readonly uniform struct element and preserves reserved-name and shadow bindings', () => {
     const r = compile(`"use typeshade";
-class P { x!: f32; }
-class Frame { points!: array<P, 2>; }
+class P { x: f32; }
+class Frame { points: array<P, 2>; }
 declare const u: uniform<Frame>;
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   let [copy] = u.points;
   copy.x = 9.;
   const [_d, texture] = array(1., 2.);
   { const [texture] = [3.]; copy.x += texture; }
   return vec4(copy.x, u.points[0].x, _d, texture);
-});`);
+}`);
     expect(r.diagnostics).toEqual([]);
     for (const make of [compileModule, compileModuleJs]) {
       const cpu = make(r.module);
@@ -190,7 +190,7 @@ describe('array bindings preserve the existing limits', () => {
     const r = compileTsSource(`"use typeshade";
 const N: override<u32> = 2;
 let tile: workgroup<array<f32, N>>;
-export const main = compute([1], function main() { const [a] = tile; tile[0] = a; });`);
+@compute([1]) export function main() { const [a] = tile; tile[0] = a; }`);
     expect(r.diagnostics.filter((d) => d.category === 'error').map((d) => d.message)).toEqual([
       'An array pattern needs a fixed-length array. Read a vector by component, e.g. const x = v.x.',
     ]);

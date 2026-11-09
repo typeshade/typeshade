@@ -49,10 +49,10 @@ const FULL_SCREEN_WGSL = `@vertex fn vs(@builtin(vertex_index) i: u32) -> @built
   return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
 }`;
 
-const FULL_SCREEN_SHADE = `export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> {
+const FULL_SCREEN_SHADE = `@vertex export function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> {
   const p = vec2(f32((i << u32(1)) & u32(2)), f32(i & u32(2)));
   return vec4(p * 2. - vec2(1., 1.), 0., 1.);
-});`;
+}`;
 
 const FULL_SCREEN_GLSL = `#version 300 es
 void main() {
@@ -184,13 +184,13 @@ void main() { o = u.c; }
 `,
   shade: `"use typeshade";
 class U {
-  c!: vec4;
+  c: vec4;
 }
 declare const u: uniform<U>;
 ${FULL_SCREEN_SHADE}
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return u.c;
-});
+}
 `,
 };
 
@@ -215,15 +215,15 @@ void main() { gl_Position = vec4(q, 0.0, 1.0); }
   fragment: UNIFORM_COLOUR.fragment,
   shade: `"use typeshade";
 class U {
-  c!: vec4;
+  c: vec4;
 }
 declare const u: uniform<U>;
-export const vs = vertex(function vs(q: location<0, vec2>): builtin<"position", vec4> {
+@vertex export function vs(q: location<0, vec2>): builtin<"position", vec4> {
   return vec4(q, 0., 1.);
-});
-export const fs = fragment(function fs(): vec4 {
+}
+@fragment export function fs(): vec4 {
   return u.c;
-});
+}
 `,
 };
 
@@ -265,12 +265,12 @@ interface V {
   b: location<1, f32, { interpolate: "linear" }>;
   f: location<2, f32, { interpolate: "flat" }>;
 }
-export const vs = vertex(function vs(p: location<0, vec4>, v: location<1, vec3>): V {
+@vertex export function vs(p: location<0, vec4>, v: location<1, vec3>): V {
   return { p: p, a: v.x, b: v.y, f: v.z };
-});
-export const fs = fragment(function fs(i: V): vec4 {
+}
+@fragment export function fs(i: V): vec4 {
   return vec4(i.a, i.b, i.f, 1.);
-});
+}
 `,
 };
 
@@ -487,9 +487,9 @@ void main() { o = vec4(floor(gl_FragCoord.x) / 255.0, floor(gl_FragCoord.y) / 25
 `,
           shade: `"use typeshade";
 ${FULL_SCREEN_SHADE}
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   return vec4(floor(p.x) / 255., floor(p.y) / 255., 0., 1.);
-});
+}
 `,
         },
         [],
@@ -551,12 +551,12 @@ interface Out {
   p: builtin<"position", vec4>;
   c: location<0, vec4, { interpolate: "flat" }>;
 }
-export const vs = vertex(function vs(q: location<0, vec2>, k: builtin<"instance_index", u32>): Out {
+@vertex export function vs(q: location<0, vec2>, k: builtin<"instance_index", u32>): Out {
   return { p: vec4(q.x + f32(k), q.y, 0., 1.), c: colours[k] };
-});
-export const fs = fragment(function fs(c: location<0, vec4, { interpolate: "flat" }>): vec4 {
+}
+@fragment export function fs(c: location<0, vec4, { interpolate: "flat" }>): vec4 {
   return c;
-});
+}
 `,
         },
         [
@@ -656,9 +656,9 @@ void main() { o = texture(tex, gl_FragCoord.xy / 4.0); }
 declare const tex: texture_2d<f32>;
 declare const smp: sampler;
 ${FULL_SCREEN_SHADE}
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   return textureSample(tex, smp, p.xy / 4.);
-});
+}
 `,
         },
         [
@@ -739,17 +739,17 @@ void main() { o = u.c; }
 `,
           shade: `"use typeshade";
 class U {
-  c!: vec4;
-  z!: vec4;
+  c: vec4;
+  z: vec4;
 }
 declare const u: uniform<U>;
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> {
+@vertex export function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> {
   const p = vec2(f32((i << u32(1)) & u32(2)), f32(i & u32(2)));
   return vec4(p * 2. - vec2(1., 1.), u.z.x, 1.);
-});
-export const fs = fragment(function fs(): vec4 {
+}
+@fragment export function fs(): vec4 {
   return u.c;
-});
+}
 `,
         },
         [UNIFORM_ENTRY],
@@ -1029,9 +1029,9 @@ export const fs = fragment(function fs(): vec4 {
           device.caps.shaderLanguage === 'cpu'
             ? `"use typeshade";
 declare const d: storage<array<u32>, "read_write">;
-export const main = compute([4, 1, 1], function main(g: builtin<"global_invocation_id", vec3u>): void {
+@compute([4, 1, 1]) export function main(g: builtin<"global_invocation_id", vec3u>): void {
   d[g.x] = d[g.x] * u32(2) + u32(1);
-});
+}
 `
             : `@group(0) @binding(0) var<storage, read_write> d: array<u32>;
 @compute @workgroup_size(4) fn main(@builtin(global_invocation_id) g: vec3u) { d[g.x] = d[g.x] * 2u + 1u; }`,
@@ -1075,9 +1075,9 @@ export const main = compute([4, 1, 1], function main(g: builtin<"global_invocati
           device.caps.shaderLanguage === 'cpu'
             ? `"use typeshade";
 declare const d: storage<array<u32>, "read_write">;
-export const main = compute([2, 1, 1], function main(g: builtin<"global_invocation_id", vec3u>): void {
+@compute([2, 1, 1]) export function main(g: builtin<"global_invocation_id", vec3u>): void {
   d[g.x] = d[g.x] + u32(100);
-});
+}
 `
             : `@group(0) @binding(0) var<storage, read_write> d: array<u32>;
 @compute @workgroup_size(2) fn main(@builtin(global_invocation_id) g: vec3u) { d[g.x] = d[g.x] + 100u; }`,
@@ -1234,15 +1234,15 @@ layout(location = 0) out vec4 o;
 void main() { o = gl_FrontFacing ? vec4(1.0) : vec4(0.4, 0.4, 0.4, 1.0); }
 `,
           shade: `"use typeshade";
-export const vs = vertex(function vs(q: location<0, vec2>): builtin<"position", vec4> {
+@vertex export function vs(q: location<0, vec2>): builtin<"position", vec4> {
   return vec4(q, 0., 1.);
-});
-export const fs = fragment(function fs(f: builtin<"front_facing", bool>): vec4 {
+}
+@fragment export function fs(f: builtin<"front_facing", bool>): vec4 {
   if (f) {
     return vec4(1., 1., 1., 1.);
   }
   return vec4(0.4, 0.4, 0.4, 1.);
-});
+}
 `,
         },
         [],

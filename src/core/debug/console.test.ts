@@ -14,18 +14,18 @@ import { startDebugSessionFromConfig } from './config.js';
 import { startDebugSession } from './session.js';
 
 const KERNEL = `"use typeshade";
-export const main = compute([4], function main(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([4]) export function main(gid: builtin<"global_invocation_id", vec3u>): void {
   const x = f32(gid.x) * 1.5;
   console.log("i =", gid.x, x);
   if (gid.x > 1) {
     console.warn("big", vec2(x, 2.));
   }
-});
+}
 
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   console.info("pixel", p.xy);
   return vec4(1.);
-});`;
+}`;
 
 /** What `compile().eval` delivers for one call of `entry`. */
 function evalEvents(entry: string, args: readonly unknown[]): ConsoleEvent[] {
@@ -80,10 +80,10 @@ interface VsOut {
 interface Color {
   color: location<0, vec4>;
 }
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment export function fs(v: VsOut): Color {
   console.log("pixel", v.uv);
   return { color: vec4(v.uv, 0., 1.) };
-});`;
+}`;
     // On the GPU the recorded WGSL takes the invocation from the struct's position field.
     const recorded = compile(src, { console: 'gpu' });
     expect(recorded.diagnostics).toEqual([]);
@@ -133,9 +133,9 @@ export const fs = fragment(function fs(v: VsOut): Color {
 
   it('delivers a console.table of a matrix as its columns, as compile().eval does', () => {
     const src = `"use typeshade";
-export const t = compute([1], function t(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1]) export function t(gid: builtin<"global_invocation_id", vec3u>): void {
   console.table(mat2x2(1., 2., 3., f32(gid.x)));
-});`;
+}`;
     const expected: ConsoleEvent[] = [];
     compile(src, { consoleSink: (e) => expected.push(e) }).eval('t', [[5, 0, 0]]);
     expect(expected[0]!.args).toEqual([

@@ -13,14 +13,14 @@ import { Projection, planInsertions } from './projection.js';
 import { compileTsSource } from '../compiler/ts/source-file.js';
 
 const SOURCE = `"use typeshade";
-class Frame { time!: f32; scale!: f32; }
+class Frame { time: f32; scale: f32; }
 declare const frame: uniform<Frame>;
 function tint(c: vec2): f32 { return c.x; }
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   const uv = p.xy * frame.scale; const bad: i32 = 1.5;
   const t = tint(uv) + uv.x;
   return vec4(uv.x, uv.y, t, 1);
-});
+}
 `;
 const LINES = SOURCE.split('\n');
 const at = (line: number, text: string, plus = 0) => ({
@@ -144,7 +144,7 @@ function tint(c: vec2): f32 {
 function apply(f: (x: vec2) => vec2, v: vec2): vec2 {
   return f(v);
 }
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   const o = new Orbit();
   const half = (q: vec2) => q * 0.5;
   const k = 2.;
@@ -152,7 +152,7 @@ export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   const b = apply(function (x) { return x * k; }, uv);
   const t = glow(uv).x + tint(glow(uv)) + o.at(1.).y + o.twice.x + half(uv).x;
   return vec4(a.x + b.y + t, 0., 0., 1.);
-});
+}
 `;
 const RLINES = RETURNS.split('\n');
 const rat = (line: number, text: string, plus = 0) => ({
@@ -330,11 +330,11 @@ export function f(p: bool, q: bool, r: bool, u: u32): bool {
 function both(pa: bool, qa: bool): bool {
   return pa & qa;
 }
-export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   const p = gid.x > u32(2);
   const q = gid.x < u32(9);
   const r = (p | q) & both(p, q);
-});
+}
 `;
     const lines = src.split('\n');
     const service = open(src);
@@ -400,11 +400,11 @@ class Ring {
     return max(this.#width, Ring.MIN_WIDTH);
   }
 }
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   const ring = new Ring();
   const falloff = (d: f32) => 0.004 / (d * d + 0.002);
   return vec4(ring.period + ring.width() + falloff(uv.x), 0., 0., 1.);
-});
+}
 `;
 
   it('writes f32 after each unannotated scalar field and scalar return, and nothing else', () => {
@@ -451,15 +451,15 @@ describe('an array reduced from a literal (0015 class C)', () => {
   // reads `f`; the front end makes it an `f32`. The projection writes that type in as the type
   // argument, and the call is an `f32` in both halves.
   const src = `"use typeshade";
-class Light { pos!: vec2; power!: f32; }
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+class Light { pos: vec2; power: f32; }
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   const lights = array<Light, 2>({ pos: vec2(0.), power: 1. }, { pos: vec2(1.), power: 2. });
   const d = array(uv.x, uv.y, 1.);
   const glow = lights.reduce((sum, l) => sum + l.power / (1. + dot(l.pos - uv, l.pos - uv)), 0.);
   const total = d.reduce((a, s) => a + s, 0.);
   const near = d.reduce((a, b) => min(a, b));
   return vec4(glow, total, near, 1.);
-});
+}
 `;
 
   it('writes the running value type as the type argument of a reduce from a value only', () => {

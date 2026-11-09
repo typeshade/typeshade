@@ -17,10 +17,10 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 
 const FRAGMENT = `interface VsOut { pos: builtin<"position", vec4>; uv: location<0, vec2>; }
 interface Color { color: location<0, vec4>; }
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
-});
-export const fs = fragment(function fs(v: VsOut): Color { return { color: vec4(run(), v.uv.x, 0., 1.) }; });`;
+}
+@fragment export function fs(v: VsOut): Color { return { color: vec4(run(), v.uv.x, 0., 1.) }; }`;
 
 /** The editor's diagnostics on `source`, as `code message`. */
 function editor(source: string): string[] {
@@ -73,7 +73,7 @@ export function run(): f32 { let x: f32 = 1.; let y: f32 = 2.; swap(x, y); retur
 
   it("writes a struct's fields, an array's elements and a whole value through the place", () => {
     check(
-      `class Ray { origin!: vec3; dir!: vec3; }
+      `class Ray { origin: vec3; dir: vec3; }
 function advance(@inout r: Ray, t: f32): void { r.origin = r.origin + r.dir * t; }
 function bumpAll(@inout xs: array<f32, 3>): void { for (let i = 0; i < 3; i++) { xs[i] += 1.; } }
 function reset(@inout xs: array<f32, 3>): void { xs = array<f32, 3>(7., 8., 9.); }
@@ -92,7 +92,7 @@ export function run(): f32 {
 
   it('passes a field or an element, which is stored back on every CPU path', () => {
     check(
-      `class P { v!: f32; w!: f32; }
+      `class P { v: f32; w: f32; }
 function addOne(@inout v: f32): void { v += 1.; }
 function setP(@inout p: P): void { let q = new P(); q.v = 5.; p = q; }
 export function run(): f32 {
@@ -130,7 +130,7 @@ export function run(): f32 {
       `function bump(@inout v: f32): void { v += 1.; }
 function grow(@inout c: C): void { c.n += 10.; }
 class C {
-  n!: f32;
+  n: f32;
   constructor() { this.n = 1.; bump(this.n); }
   tick(): void { bump(this.n); }
   later(): void { const f = (): void => { bump(this.n); }; f(); }
@@ -148,7 +148,7 @@ export function run(): f32 { let c = new C(); c.tick(); c.later(); c.whole(); c.
   it('writes a result into a local that has no value yet through @out (Rule 7.6)', () => {
     const r = check(
       `function add(a: f32, b: f32, @out c: f32): void { c = a + b; }
-export function run(): f32 { let s!: f32; add(1., 2., s); return s; }`,
+export function run(): f32 { let s: f32; add(1., 2., s); return s; }`,
       3,
     );
     expect(r.wgsl).toContain('fn add(a: f32, b: f32, c: ptr<function, f32>)');
@@ -181,7 +181,7 @@ export function run(): f32 { let x: f32 = 1.; twice(x); return x; }`,
 
   it('writes a module variable through a reference, and a `const` that built its value', () => {
     check(
-      `class P { v!: f32; }
+      `class P { v: f32; }
 let total: f32 = 1.;
 function addOne(@inout v: f32): void { v += 1.; }
 export function run(): f32 { const p = new P(); addOne(p.v); addOne(total); return p.v * 10. + total; }`,
@@ -202,10 +202,10 @@ export function run(): f32 { let x: f32 = 1.; const f = (): f32 => { x += 1.; re
 
   it('takes a reference to a storage element as a pointer into storage on WGSL', () => {
     const r = compile(`"use typeshade";
-class Ray { origin!: vec3; dir!: vec3; }
+class Ray { origin: vec3; dir: vec3; }
 declare const rays: storage<array<Ray>, "read_write">;
 function advance(@inout r: Ray, t: f32): void { r.origin = r.origin + r.dir * t; }
-export const main = compute([64, 1, 1], function main(id: builtin<"global_invocation_id", vec3u>): void { advance(rays[id.x], 2.); });`);
+@compute([64, 1, 1]) export function main(id: builtin<"global_invocation_id", vec3u>): void { advance(rays[id.x], 2.); }`);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('fn advance(r: ptr<storage, Ray, read_write>, t: f32)');
     expect(r.wgsl).toContain('advance(&rays[id.x], 2.0);');
@@ -289,7 +289,7 @@ export function run(): f32 { let x: f32 = 2.; g(x); return x; }`,
       7,
     );
     check(
-      `class R { o!: f32; d!: f32; step(): void { this.o += this.d; } }
+      `class R { o: f32; d: f32; step(): void { this.o += this.d; } }
 function g(@inout r: R): void { const f = (): void => { r.step(); r.o += 1.; }; f(); }
 export function run(): f32 { let r = new R(); r.d = 2.; g(r); return r.o; }`,
       3,
@@ -310,7 +310,7 @@ export function run(): f32 { let x: f32 = 1.; g(x); return x; }`,
     const r = compile(`"use typeshade";
 declare const buf: storage<array<f32>, "read_write">;
 function g(@inout p: f32): void { const f = (): void => { p += 1.; }; f(); }
-export const main = compute([1, 1, 1], function main(): void { g(buf[0]); });`);
+@compute([1, 1, 1]) export function main(): void { g(buf[0]); }`);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('fn g_f(p: ptr<storage, f32, read_write>)');
     expect(r.wgsl).toContain('g(&buf[0]);');
@@ -338,7 +338,7 @@ export function run(): f32 { let x: f32 = 1.; g(x); return x; }
 });
 
 describe('what an @inout or @out parameter may not take', () => {
-  const pre = `class Ob { a!: f32; b!: f32; }
+  const pre = `class Ob { a: f32; b: f32; }
 declare const src: storage<array<f32>>;
 function swap(@inout a: f32, @inout b: f32): void { const t = a; a = b; b = t; }
 function bump(@inout v: f32): void { v += 1.; }
@@ -504,7 +504,7 @@ function add(a: f32, b: f32, @out c: f32): void { c = a + b; }
   it('accepts two references to one variable when the callee writes neither', () => {
     // Measured on Tint: `f(&o.a, &o.b)` with `f` reading both compiles (references.ts).
     check(
-      `class Ob { a!: f32; b!: f32; }
+      `class Ob { a: f32; b: f32; }
 function addUp(@inout a: f32, @inout b: f32): f32 { return a + b; }
 export function run(): f32 { let o = new Ob(); o.a = 1.; o.b = 2.; return addUp(o.a, o.b); }`,
       3,
@@ -556,17 +556,17 @@ export function r(): f32 { let x: f32 = 1.; let y: f32 = 2.; swap(x, y); let s: 
     ],
     [
       'out<T> on a parameter, of a struct',
-      `class Ray { o!: vec3; } function put(r: out<Ray>): void { r = new Ray(); }`,
+      `class Ray { o: vec3; } function put(r: out<Ray>): void { r = new Ray(); }`,
       onParameter('out<Ray>', '@out r: Ray'),
     ],
     [
       "on an entry's parameter, as the one diagnostic",
-      `export const m = compute([1, 1, 1], function m(x: inout<f32>): void { });`,
+      `@compute([1, 1, 1]) export function m(x: inout<f32>): void { }`,
       onParameter('inout<f32>', '@inout x: f32'),
     ],
     [
       "on a method's parameter, as the one diagnostic",
-      `class C { v!: f32; m(p: inout<f32>): void { p = 1.; } }`,
+      `class C { v: f32; m(p: inout<f32>): void { p = 1.; } }`,
       onParameter('inout<f32>', '@inout p: f32'),
     ],
     [
@@ -596,7 +596,7 @@ export function r(): f32 { let x: f32 = 1.; let y: f32 = 2.; swap(x, y); let s: 
     ],
     [
       'on a field',
-      `class C { x!: inout<f32>; } export function q(): f32 { let c = new C(); return c.x; }`,
+      `class C { x: inout<f32>; } export function q(): f32 { let c = new C(); return c.x; }`,
       elsewhere('inout<f32>', 'inout', 'f32'),
     ],
   ];
@@ -609,7 +609,7 @@ export function r(): f32 { let x: f32 = 1.; let y: f32 = 2.; swap(x, y); let s: 
   const refusedQualifiers: readonly (readonly [string, string, string])[] = [
     [
       'an entry',
-      `export const m = compute([1, 1, 1], function m(@out x: f32): void { x = 1.; });`,
+      `@compute([1, 1, 1]) export function m(@out x: f32): void { x = 1.; }`,
       'TS8073 "x" is @out, and an entry, whose parameters the pipeline supplies, takes its parameters by value. A parameter that names the caller\'s place belongs to a function declared at the top of the file or of a namespace (Rule 8.25): move the code that changes the caller\'s value into one, or take the value and return the result.',
     ],
     [
@@ -619,7 +619,7 @@ export function r(): f32 { let x: f32 = 1.; let y: f32 = 2.; swap(x, y); let s: 
     ],
     [
       'a constructor',
-      `class C { v!: f32; constructor(@inout p: f32) { this.v = p; } }`,
+      `class C { v: f32; constructor(@inout p: f32) { this.v = p; } }`,
       'TS8073 "p" is @inout, and "new C", a member of a class, takes its parameters by value. A parameter that names the caller\'s place belongs to a function declared at the top of the file or of a namespace (Rule 8.25): move the code that changes the caller\'s value into one, or take the value and return the result.',
     ],
     [

@@ -714,9 +714,9 @@ const SOURCE_WITNESSES: Readonly<Partial<Record<Capability, string>>> = {
   subgroups: `"use typeshade";
 declare const src: storage<array<u32>>;
 declare const out: storage<array<u32>, "read_write">;
-export const cs = compute([64], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   out[gid.x] = subgroupAdd(src[gid.x]);
-});
+}
 `,
   // The three #146 added (§50) are each derived from a `@builtin(...)` id or an attribute an
   // author WRITES, so all three are reachable and belong here rather than on the list below.
@@ -727,18 +727,18 @@ interface Clip {
   pos: builtin<"position", vec4>;
   cd: builtin<"clip_distances", array<f32, 4>>;
 }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
   return { pos: vec4(0., 0., 0., 1.), cd: array<f32, 4>(1., 1., 1., 1.) };
-});
+}
 `,
   primitiveIndex: `"use typeshade";
 interface V {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
 }
-export const fs = fragment(function fs(v: V, pi: builtin<"primitive_index", u32>): vec4 {
+@fragment export function fs(v: V, pi: builtin<"primitive_index", u32>): vec4 {
   return vec4(f32(pi), 0., 0., 1.);
-});
+}
 `,
   // Not a builtin id but an ATTRIBUTE pair: two `@location(0)` outputs distinguished by
   // `@blend_src`, which is the shape WGSL gives dual-source blending (#158, §53).
@@ -751,10 +751,10 @@ interface V {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
 }
-export const fs = fragment(function fs(v: V): Dual {
+@fragment export function fs(v: V): Dual {
   const c = vec4(v.uv, 0., 1.);
   return { a: c, b: c };
-});
+}
 `,
   // Both arrived with #164 and both are reachable, so they are witnesses rather than entries on
   // the list below: measured, `reflect().requiredFeatures` is exactly `["packed4x8Dot"]` for the
@@ -769,30 +769,30 @@ interface V {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
 }
-export const fs = fragment(function fs(v: V): vec4 {
+@fragment export function fs(v: V): vec4 {
   const d = dot4U8Packed(u.a, u.b);
   return vec4(f32(d), 0., 0., 1.);
-});
+}
 `,
   // The format is part of the TYPE, so the capability is reached by declaring the binding —
   // there is no builtin to call for it.
   bgra8unormStorage: `"use typeshade";
 declare const dst: texture_storage_2d<"bgra8unorm", "write">;
-export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.));
-});
+}
 `,
   storageBuffer: `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   out[gid.x] = 1.;
-});
+}
 `,
   compute: `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   out[gid.x] = 1.;
-});
+}
 `,
   msaaTextureLoad: `"use typeshade";
 declare const ms: texture_multisampled_2d<f32>;
@@ -800,15 +800,15 @@ interface V {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
 }
-export const fs = fragment(function fs(v: V): vec4 {
+@fragment export function fs(v: V): vec4 {
   return textureLoad(ms, vec2i(0, 0), 0);
-});
+}
 `,
   storageTexture: `"use typeshade";
 declare const dst: texture_storage_2d<"rgba8unorm", "write">;
-export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.));
-});
+}
 `,
   texture1d: `"use typeshade";
 declare const ramp: texture_1d<f32>;
@@ -817,9 +817,9 @@ interface V {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
 }
-export const fs = fragment(function fs(v: V): vec4 {
+@fragment export function fs(v: V): vec4 {
   return textureSampleLevel(ramp, smp, v.uv.x, 0.);
-});
+}
 `,
   textureCubeArray: `"use typeshade";
 declare const envs: texture_cube_array<f32>;
@@ -828,9 +828,9 @@ interface V {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
 }
-export const fs = fragment(function fs(v: V): vec4 {
+@fragment export function fs(v: V): vec4 {
   return textureSampleLevel(envs, smp, vec3(0., 0., 1.), 0, 0.);
-});
+}
 `,
   textureGather: `"use typeshade";
 declare const atlas: texture_2d<f32>;
@@ -839,9 +839,9 @@ interface V {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
 }
-export const fs = fragment(function fs(v: V): vec4 {
+@fragment export function fs(v: V): vec4 {
   return textureGather(0, atlas, smp, v.uv);
-});
+}
 `,
 };
 

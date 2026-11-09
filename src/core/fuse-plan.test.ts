@@ -19,8 +19,8 @@ import type { KernelFace } from './host-kernel.js';
 // ─── the two forms ───────────────────────────────────────────────────────────────────────────
 
 const CLASS = `class Voice {
-  phase!: f32;
-  freq!: f32;
+  phase: f32;
+  freq: f32;
   tick(dt: f32): f32 {
     this.phase = this.phase + this.freq * dt;
     return this.phase;

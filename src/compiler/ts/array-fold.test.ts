@@ -64,13 +64,13 @@ describe('reduce / min / max / fill / some', () => {
   // 'abstract-float' to type 'u32'"). This one reads the emit and both CPU paths.
   it('types its value to the element, on every target (#498)', () => {
     const r = compile(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   let s: array<u32, 4> = fill<u32, 4>(0);
   s[1] = 7;
   const t = fill<i32, 3>(-1);
   const w = fill<vec2, 2>(vec2(1., 2.));
   return vec4(f32(s[0] + s[1]), f32(t[2]), w[1].y, 1.);
-});
+}
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('array<u32, 4>(0u, 0u, 0u, 0u)');

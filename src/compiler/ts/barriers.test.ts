@@ -25,7 +25,7 @@ const REDUCE = `"use typeshade";
 declare const src: storage<array<f32>>;
 declare const sums: storage<array<f32>, "read_write">;
 let tile: workgroup<array<f32, 64>>;
-export const reduce = compute([64, 1, 1], function reduce(
+@compute([64, 1, 1]) export function reduce(
   gid: builtin<"global_invocation_id", vec3u>,
   lid: builtin<"local_invocation_id", vec3u>,
   wid: builtin<"workgroup_id", vec3u>,
@@ -41,7 +41,7 @@ export const reduce = compute([64, 1, 1], function reduce(
   if (lid.x === 0) {
     sums[wid.x] = tile[0];
   }
-});
+}
 `;
 
 const errorsOf = (src: string) =>
@@ -69,9 +69,9 @@ declare const out: storage<array<f32>, "read_write">;
 `;
 const kernel = (
   body: string,
-) => `${HEAD}export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
+) => `${HEAD}@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
 ${body}
-});
+}
 `;
 
 describe('barriers: the WGSL', () => {
@@ -116,7 +116,7 @@ describe('barriers: dispatch runs a workgroup in lockstep', () => {
     const src = `"use typeshade";
 declare const out: storage<array<u32>, "read_write">;
 declare const last: storage<u32, "read_write">;
-export const k = compute([4, 1, 1], function k(
+@compute([4, 1, 1]) export function k(
   gid: builtin<"global_invocation_id", vec3u>,
   lid: builtin<"local_invocation_id", vec3u>,
   li: builtin<"local_invocation_index", u32>,
@@ -126,7 +126,7 @@ export const k = compute([4, 1, 1], function k(
   out[gid.x] = lid.x * 1000 + li * 100 + wid.x * 10 + n.x;
   storageBarrier();
   last = gid.x;
-});
+}
 `;
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
@@ -149,7 +149,7 @@ declare const img: storage<array<u32>>;
 declare const out: storage<array<u32>, "read_write">;
 declare const ids: storage<array<u32>, "read_write">;
 let tile: workgroup<array<u32, 4>>;
-export const box = compute([2, 2], function box(
+@compute([2, 2]) export function box(
   gid: builtin<"global_invocation_id", vec3u>,
   lid: builtin<"local_invocation_id", vec3u>,
   li: builtin<"local_invocation_index", u32>,
@@ -160,7 +160,7 @@ export const box = compute([2, 2], function box(
   workgroupBarrier();
   out[p] = tile[0] + tile[1] + tile[2] + tile[3];
   ids[p] = wid.y * 1000 + wid.x * 100 + lid.y * 10 + lid.x;
-});
+}
 `;
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
@@ -226,7 +226,7 @@ export const box = compute([2, 2], function box(
   it('dispatch takes a compute entry only', () => {
     const cm = compileModule(
       compile(`"use typeshade";
-export const fs = fragment(function fs(): vec4 { return vec4(1.); });
+@fragment export function fs(): vec4 { return vec4(1.); }
 `).module,
     );
     expect(() => cm.dispatch('fs', 1)).toThrow('dispatch runs a @compute entry; "fs" is fragment');
@@ -279,24 +279,24 @@ describe('barriers: where one may stand', () => {
     const uniform = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
 declare const k: uniform<f32>;
-export const g = compute([64, 1, 1], function g(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function g(gid: builtin<"global_invocation_id", vec3u>): void {
   if (k > 0.5) {
     workgroupBarrier();
   }
   out[gid.x] = 1.;
-});
+}
 `;
     expect(errorsOf(uniform)).toEqual([]);
     // `@builtin("workgroup_id")` is one of the four WGSL declares uniform, so a branch on it
     // is the same answer for every invocation of the group.
     const byGroup = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-export const g = compute([64, 1, 1], function g(wg: builtin<"workgroup_id", vec3u>, id: builtin<"local_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function g(wg: builtin<"workgroup_id", vec3u>, id: builtin<"local_invocation_id", vec3u>): void {
   if (wg.x > u32(1)) {
     workgroupBarrier();
   }
   out[id.x] = 1.;
-});
+}
 `;
     expect(errorsOf(byGroup)).toEqual([]);
   });
@@ -309,19 +309,19 @@ export const g = compute([64, 1, 1], function g(wg: builtin<"workgroup_id", vec3
       errorsOf(`${HEAD}function sync(): void {
   workgroupBarrier()
 }
-export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
   sync()
-});
+}
 `),
     ).toEqual([]);
   });
 
   it('not in a vertex or fragment entry, not as a value, not with an argument', () => {
     expect(
-      errorsOf(`${HEAD}export const fs = fragment(function fs(): vec4 {
+      errorsOf(`${HEAD}@fragment export function fs(): vec4 {
   workgroupBarrier()
   return vec4(1.)
-});
+}
 `),
     ).toEqual([
       `${TS_CODES.BARRIER_PLACEMENT} workgroupBarrier() belongs in a compute entry or a function it calls; a fragment entry has no workgroup to wait for.`,
@@ -338,25 +338,23 @@ export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_
     // No branch surrounds either barrier, so "move it out of the branch" pointed at nothing
     // the author could find (Rule 12.1). Each remedy named compiles on Tint: the barrier above
     // the `if (…) { return; }`, and a loop bound every invocation shares.
-    const lid = `${HEAD}export const k = compute([64, 1, 1], function k(lid: builtin<"local_invocation_id", vec3u>): void {
+    const lid = `${HEAD}@compute([64, 1, 1]) export function k(lid: builtin<"local_invocation_id", vec3u>): void {
 `;
-    expect(
-      errorsInBoth(`${lid}  if (lid.x > 2) { return; }\n  workgroupBarrier();\n});\n`),
-    ).toEqual([
+    expect(errorsInBoth(`${lid}  if (lid.x > 2) { return; }\n  workgroupBarrier();\n}\n`)).toEqual([
       `${TS_CODES.UNIFORMITY} workgroupBarrier() is reached after a return taken under "lid" (@builtin(local_invocation_id)), and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it above the return, or return on a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).`,
     ]);
-    expect(
-      errorsInBoth(`${lid}  workgroupBarrier();\n  if (lid.x > 2) { return; }\n});\n`),
-    ).toEqual([]);
+    expect(errorsInBoth(`${lid}  workgroupBarrier();\n  if (lid.x > 2) { return; }\n}\n`)).toEqual(
+      [],
+    );
     const inLoop = `${TS_CODES.UNIFORMITY} workgroupBarrier() is reached in a loop whose condition reads "lid" (@builtin(local_invocation_id)), and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it out of the loop, or bound the loop by a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).`;
     expect(
       errorsInBoth(
-        `${lid}  let i: u32 = lid.x;\n  while (i < 8) {\n    workgroupBarrier();\n    i++;\n  }\n});\n`,
+        `${lid}  let i: u32 = lid.x;\n  while (i < 8) {\n    workgroupBarrier();\n    i++;\n  }\n}\n`,
       ),
     ).toEqual([inLoop]);
     expect(
       errorsInBoth(
-        `${lid}  for (let i: u32 = 0; i < lid.x; i++) {\n    workgroupBarrier();\n  }\n});\n`,
+        `${lid}  for (let i: u32 = 0; i < lid.x; i++) {\n    workgroupBarrier();\n  }\n}\n`,
       ),
     ).toEqual([inLoop]);
   });
@@ -365,9 +363,9 @@ export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_
     const r = compileTsSource(`${HEAD}function workgroupBarrier(): void {
   out[0] = 1.
 }
-export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
   workgroupBarrier()
-});
+}
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('fn workgroupBarrier_() {');
@@ -383,9 +381,9 @@ describe('a call that returns nothing is not a value', () => {
       errorsOf(`${HEAD}function store(i: u32): void {
   out[i] = 1.
 }
-export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
   const x = store(1)
-});
+}
 `),
     ).toEqual([
       `${TS_CODES.TYPE_MISMATCH} "store(1)" returns nothing, so it cannot initialize "x"; call it on its own line.`,
@@ -405,9 +403,9 @@ describe("textureBarrier and workgroupUniformLoad carry a barrier's rules", () =
   const CS = (decls: string, body: string): string => `"use typeshade"
 declare const o: storage<array<u32>, "read_write">
 ${decls}
-export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
 ${body}
-});
+}
 `;
 
   it('emits textureBarrier bare, and names the language feature it belongs to', () => {
@@ -426,10 +424,10 @@ ${body}
     // called from uniform control flow". Both are said here first, in the author's own file.
     expect(
       errorsOf(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   textureBarrier();
   return vec4(0.);
-});
+}
 `)[0],
     ).toBe(
       'textureBarrier() belongs in a compute entry or a function it calls; a fragment entry ' +
@@ -493,9 +491,9 @@ export const fs = fragment(function fs(): vec4 {
     expect(
       errorsOf(`"use typeshade";
 let w: workgroup<u32>;
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(f32(workgroupUniformLoad(w)) * 0., 0., 0., 1.);
-});
+}
 `)[0],
     ).toBe(
       '"w" is workgroup memory, which only a compute entry has; a fragment entry cannot read ' +
@@ -517,9 +515,9 @@ declare const k: uniform<f32>;
 let w: workgroup<u32>;
 `;
   const load = (body: string, helpers = ''): string =>
-    `${LOAD_HEAD}${helpers}export const cs = compute([64, 1, 1], function cs(lid: builtin<"local_invocation_id", vec3u>, wid: builtin<"workgroup_id", vec3u>): void {
+    `${LOAD_HEAD}${helpers}@compute([64, 1, 1]) export function cs(lid: builtin<"local_invocation_id", vec3u>, wid: builtin<"workgroup_id", vec3u>): void {
 ${body}
-});
+}
 `;
   const refusal = (reached: string, move: string, on: string): string =>
     `${TS_CODES.UNIFORMITY} workgroupUniformLoad() is reached ${reached}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. ${move}, or ${on} a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).`;
@@ -745,7 +743,7 @@ ${body}
       'in an arm of a struct ?: on it',
       load(
         '  const z = new P2(0, 0);\n  const a = lid.x > 2 ? workgroupUniformLoad(ps) : z;\n  o[lid.x] = a.x;',
-        'class P2 {\n  x!: u32;\n  y!: u32;\n  constructor(x: u32, y: u32) {\n    this.x = x;\n    this.y = y;\n  }\n}\nlet ps: workgroup<P2>;\n',
+        'class P2 {\n  x: u32;\n  y: u32;\n  constructor(x: u32, y: u32) {\n    this.x = x;\n    this.y = y;\n  }\n}\nlet ps: workgroup<P2>;\n',
       ),
       refusal(
         `in an arm of a ?: whose condition reads ${LID}`,
@@ -816,9 +814,9 @@ describe('a jump and workgroupUniformLoad read the same in the editor', () => {
   const kernel = (body: string, decls = ''): string => `"use typeshade";
 declare const o: storage<array<u32>, "read_write">;
 let w: workgroup<u32>;
-${decls}export const cs = compute([64, 1, 1], function cs(lid: builtin<"local_invocation_id", vec3u>, wid: builtin<"workgroup_id", vec3u>): void {
+${decls}@compute([64, 1, 1]) export function cs(lid: builtin<"local_invocation_id", vec3u>, wid: builtin<"workgroup_id", vec3u>): void {
 ${body}
-});
+}
 `;
   const LID = '"lid" (@builtin(local_invocation_id))';
   const said = (callee: string, reached: string, move: string, on: string): string =>

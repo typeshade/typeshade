@@ -104,19 +104,19 @@ afterAll(() => {
  *  an atomic: what a dispatch must run as the call layer's CPU tier runs it. */
 const SCAN = `"use typeshade";
 class Params {
-  scale!: f32;
-  bias!: i32;
+  scale: f32;
+  bias: i32;
 }
 class Cell {
-  sum!: f32;
-  at!: vec4u;
+  sum: f32;
+  at: vec4u;
 }
 declare const params: uniform<Params>;
 declare const src: storage<array<f32>>;
 declare const cells: storage<array<Cell>, "read_write">;
 declare const count: storage<array<atomic<u32>>, "read_write">;
 let tile: workgroup<array<f32, 4>>;
-export const scan = compute([4, 2, 1], function scan(
+@compute([4, 2, 1]) export function scan(
   gid: builtin<"global_invocation_id", vec3u>,
   lid: builtin<"local_invocation_id", vec3u>,
   li: builtin<"local_invocation_index", u32>,
@@ -128,7 +128,7 @@ export const scan = compute([4, 2, 1], function scan(
   cells[i].sum = tile[lid.x] + f32(params.bias);
   cells[i].at = vec4u(li, wid.x, wid.y, nwg.x * u32(10) + nwg.y);
   atomicAdd(count[0], u32(1));
-});
+}
 `;
 
 /** The call layer's module for `source`, through the generated host module (Rule 11.7). */
@@ -225,10 +225,10 @@ describe('a dispatch on the CPU backend', () => {
 
 // ─── refusals ────────────────────────────────────────────────────────────────────────────────
 
-const FULL = `export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> {
+const FULL = `@vertex export function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> {
   const p = vec2(f32((i << u32(1)) & u32(2)), f32(i & u32(2)));
   return vec4(p * 2. - vec2(1., 1.), 0., 1.);
-});`;
+}`;
 
 /** A render pipeline description of `module`'s `vs` and `fs` into one `rgba8unorm` target. */
 const pipelineDesc = (device: RhiDevice, program: CpuProgram, extra: object = {}) => ({
@@ -245,9 +245,9 @@ const pipelineDesc = (device: RhiDevice, program: CpuProgram, extra: object = {}
 describe('what the CPU backend refuses', () => {
   const plain = cpuProgramOf(`"use typeshade";
 ${FULL}
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(1., 0., 0., 1.);
-});
+}
 `);
 
   it('refuses shader text, and a GPU backend refuses a CPU program', () => {
@@ -302,9 +302,9 @@ export const fs = fragment(function fs(): vec4 {
 declare const tex: texture_2d<f32>;
 declare const smp: sampler;
 ${FULL}
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   return textureSample(tex, smp, p.xy);
-});
+}
 `);
     await expect(
       device.createRenderPipeline(pipelineDesc(device, sampled) as never),
@@ -313,9 +313,9 @@ export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
     );
     const derivative = cpuProgramOf(`"use typeshade";
 ${FULL}
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   return vec4(dpdx(p.x), 0., 0., 1.);
-});
+}
 `);
     await expect(
       device.createRenderPipeline(pipelineDesc(device, derivative) as never),
@@ -354,9 +354,9 @@ describe('a pass into a canvas', () => {
     expect(device.toNative(canvas)).toBe(context);
     const program = cpuProgramOf(`"use typeshade";
 ${FULL}
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   return vec4(floor(p.x) / 255., floor(p.y) / 255., 0.2, 1.);
-});
+}
 `);
     const pipeline = await device.createRenderPipeline(pipelineDesc(device, program) as never);
     const encoder = device.createCommandEncoder();

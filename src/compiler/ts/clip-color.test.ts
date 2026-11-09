@@ -12,13 +12,13 @@ interface Color {
   color: location<0, vec4>;
 }
 
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
   return { pos: vec4(0., 0., 0., 1.) };
-});
+}
 
-export const fs = fragment(function fs(): Color {
+@fragment export function fs(): Color {
   return { color: vec4(1., 0., 0., 1.) };
-});
+}
 `;
 
 describe('week1 Clip / Color', () => {

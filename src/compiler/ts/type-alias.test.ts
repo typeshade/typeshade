@@ -19,9 +19,9 @@ const errorsOf = (src: string) =>
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => `${d.code} ${d.message}`);
 
-const FS = (body: string) => `export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+const FS = (body: string) => `@fragment export function fs(uv: location<0, vec2>): vec4 {
 ${body}
-});
+}
 `;
 const file = (head: string, body: string) => `"use typeshade"\n${head}${FS(body)}`;
 

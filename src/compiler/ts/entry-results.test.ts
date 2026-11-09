@@ -47,12 +47,12 @@ const VS_OUT = `interface VsOut {
 describe('an entry with no return type returns what its body says (Rule 8.19)', () => {
   it('emits a bare vec4 vertex result as the position, and a bare fragment result at location 0', () => {
     const src = `"use typeshade";
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>) {
+@vertex export function vs(vi: builtin<"vertex_index", u32>) {
   return vec4(f32(vi), 0., 0., 1.);
-});
-export const fs = fragment(function fs() {
+}
+@fragment export function fs() {
   return vec3(1., 0., 0.);
-});
+}
 `;
     expect(errorsOf(src)).toEqual([]);
     expect(editorErrorsOf(src)).toEqual([]);
@@ -70,17 +70,17 @@ export const fs = fragment(function fs() {
   it('takes a struct value as its result, and a literal the struct its names match', () => {
     const src = `"use typeshade";
 ${VS_OUT}
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>) {
+@vertex export function vs(vi: builtin<"vertex_index", u32>) {
   const x = f32(vi);
   return { pos: vec4(x, x, 0., 1.), uv: vec2(x, x) };
-});
-export const vs2 = vertex(function vs2(vi: builtin<"vertex_index", u32>) {
+}
+@vertex export function vs2(vi: builtin<"vertex_index", u32>) {
   const o: VsOut = { pos: vec4(0., 0., 0., 1.), uv: vec2(f32(vi), 0.) };
   return o;
-});
-export const fs = fragment(function fs(v: VsOut): vec4 {
+}
+@fragment export function fs(v: VsOut): vec4 {
   return vec4(v.uv, 0., 1.);
-});
+}
 `;
     expect(errorsOf(src)).toEqual([]);
     expect(editorErrorsOf(src)).toEqual([]);
@@ -119,9 +119,9 @@ export const fs = fragment(function fs(v: VsOut): vec4 {
     const frame = `"use typeshade";
 interface Frame { steps: i32; depth: i32 }
 declare const frame: uniform<Frame>;
-export const fs = fragment(function fs() {
+@fragment export function fs() {
   return { steps: frame.steps, depth: 1 };
-});
+}
 `;
     const refusal =
       'TS8022 Object literal { steps, depth } matches no struct an entry can return, so the ' +
@@ -162,9 +162,9 @@ export function f(x: f32): f32 {
 interface P { a: location<0, vec4>; b: location<1, vec4> }
 interface Q { a: location<0, vec4>; b: location<1, vec4> }
 function first(p: P): vec4 { return p.a; }
-export const fs = fragment(function fs() {
+@fragment export function fs() {
   return { a: first({ a: vec4(1.), b: vec4(0.) }), b: vec4(0.) };
-});
+}
 `;
     const refusal =
       'TS8022 Object literal { a, b } matches "P" and "Q" alike, so the entry\'s result is not ' +
@@ -177,18 +177,18 @@ export const fs = fragment(function fs() {
     // A vertex entry that returns nothing has no position: one diagnostic, not the three the
     // missing return type gave before (issue #1129).
     const nothing = `"use typeshade";
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>) {
+@vertex export function vs(vi: builtin<"vertex_index", u32>) {
   const x = f32(vi);
-});
+}
 `;
     expect(errorsOf(nothing)).toEqual([
       'TS8020 "vs" is a vertex entry, so it returns the position: a vec4, which is the position on its own, or a struct with a field typed builtin<"position", vec4>. It returns nothing.',
     ]);
     // A compute entry returns nothing.
     const compute = `"use typeshade";
-export const k = compute([64], function k(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function k(gid: builtin<"global_invocation_id", vec3u>) {
   return f32(gid.x);
-});
+}
 `;
     const said =
       'TS8021 Entry function "k" is a compute entry, and a compute entry returns nothing (WGSL): it returns f32. Write the value to a storage binding.';

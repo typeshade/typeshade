@@ -25,13 +25,13 @@ let tile: workgroup<array<array<f32, 2>, SCRATCH>>;
 let gain: f32 = 0.;
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
-export const scale = compute([WORK, HEIGHT], function scale(gid: builtin<"global_invocation_id", vec3u>, lid: builtin<"local_invocation_id", vec3u>, li: builtin<"local_invocation_index", u32>, nw: builtin<"num_workgroups", vec3u>) {
+@compute([WORK, HEIGHT]) export function scale(gid: builtin<"global_invocation_id", vec3u>, lid: builtin<"local_invocation_id", vec3u>, li: builtin<"local_invocation_index", u32>, nw: builtin<"num_workgroups", vec3u>) {
   gain = GAIN;
   const i = gid.x + WORK * nw.x * gid.y;
   if (i >= src.length) return;
   tile[li][1] = src[i] * gain;
   dst[i] = ENABLED == true ? tile[li][0] + tile[li][1] + f32(li) : -1.;
-});
+}
 `;
 type Call = (...args: unknown[]) => Promise<void>;
 async function load(source = SOURCE) {
@@ -142,7 +142,7 @@ describe('entry-call constants on generated CPU closures (0084)', () => {
     );
     await expect(scale({ src, dst }, 1, null)).rejects.toThrow('options takes');
     const fixed = await load(
-      `"use typeshade"; declare const dst: storage<array<f32>, "read_write">; export const scale = compute([1], function scale() { dst[0] = 1.; });`,
+      `"use typeshade"; declare const dst: storage<array<f32>, "read_write">; @compute([1]) export function scale() { dst[0] = 1.; }`,
     );
     await expect(fixed.scale({ dst }, 1, { constants: { WORK: 8 } })).rejects.toThrow(
       'its overrides are none',

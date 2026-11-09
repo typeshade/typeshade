@@ -65,9 +65,9 @@ describe('declare uniform / storage', () => {
       const r = compileTsSource(`
         "use typeshade";
         declare let counts: storage<array<u32>>;
-        export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
+        @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
           counts[gid.x] = 1;
-        });
+        }
       `);
       expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
         'TS8099 "counts" is a storage binding, and a binding is declared const: write ' +
@@ -148,9 +148,9 @@ describe('declare uniform / storage', () => {
       const r = compileTsSource(`
         "use typeshade";
         declare const dst: storage<array<f32>, "write">;
-        export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
+        @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
           dst[gid.x] = 1.;
-        });
+        }
       `);
       expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
         'TS8002 storage<T, Access> Access is "read" or "read_write"; got "write". A storage ' +
@@ -223,9 +223,9 @@ describe('declare uniform / storage', () => {
     const r = compileTsSource(`
       "use typeshade";
       declare const src: storage<array<f32>>;
-      export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
+      @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
         src[gid.x] = 1.;
-      });
+      }
     `);
     expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
       'TS8005 Cannot assign to "src" — it is a read-only resource. Write "declare const src: ' +
@@ -261,9 +261,9 @@ describe('a binding is a module-scope var, not a const (#14)', () => {
     const GAIN: f32 = 2.;
     declare const input: storage<array<f32>>;
     declare const output: storage<array<f32>, "read_write">;
-    export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
+    @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
       output[gid.x] = input[gid.x] * GAIN;
-    });
+    }
   `;
 
   it('lowers a binding read to varref and a module const read to constref', () => {

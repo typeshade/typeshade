@@ -14,10 +14,10 @@ import type { TypeshadeDiagnostic } from './types.js';
 const FILE = '/output.shade.ts';
 const TARGETS = ['wgsl', 'glsl-vertex', 'glsl-fragment'] as const;
 const GLSL = ['glsl-vertex', 'glsl-fragment'] as const;
-const RENDER = `export const fs = fragment(function fs(): location<0, vec4> {
+const RENDER = `@fragment export function fs(): location<0, vec4> {
   return vec4(0., 0., 0., 1.);
-});`;
-const COMPUTE = 'export const cs = compute([1], function cs(): void {});';
+}`;
+const COMPUTE = '@compute([1]) export function cs(): void {}';
 const ARRAY = 'declare const U: uniform<array<vec4, 2>>;';
 const source = (body: string) => `"use typeshade";\n${body}`;
 const paneDiagnostic = (d: TypeshadeDiagnostic) => ({
@@ -41,7 +41,7 @@ describe('compiled output backend diagnostics', () => {
     ['fragment', `${ARRAY}\n${RENDER.replace('vec4(0., 0., 0., 1.)', 'U[0]')}`],
     [
       'vertex',
-      `${ARRAY}\nexport const vs = vertex(function vs(): builtin<"position", vec4> { return U[0]; });`,
+      `${ARRAY}\n@vertex export function vs(): builtin<"position", vec4> { return U[0]; }`,
     ],
     [
       'render and compute',
@@ -102,11 +102,11 @@ describe('compiled output backend diagnostics', () => {
       'render reading compute storage',
       `declare const img: storage<array<f32>, "read_write">;
 declare const acc: storage<array<atomic<u32>, 1>, "read_write">;
-export const fs = fragment(function fs(): location<0, vec4> { return vec4(img[0]); });
-export const cs = compute([1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@fragment export function fs(): location<0, vec4> { return vec4(img[0]); }
+@compute([1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   atomicAdd(acc[0], 1);
   img[gid.x] = 2.;
-});`,
+}`,
     ],
   ])('prints the compiler output for valid %s', (_name, body) => {
     const text = source(body);
@@ -177,10 +177,10 @@ export const cs = compute([1], function cs(gid: builtin<"global_invocation_id", 
     // through the service's analysis seam and compare the actual portable GLSL writer.
     const text = source(`declare const count: uniform<vec4u>;
 declare const result: storage<array<u32>, "read_write">;
-export const cs = compute([1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= count.x) return;
   result[gid.x] = gid.x;
-});`);
+}`);
     const compiled = compile(text, { fileName: FILE });
     expect(compiled.diagnostics).toEqual([]);
     const expected = emitGlslStages({

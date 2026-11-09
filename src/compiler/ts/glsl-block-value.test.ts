@@ -46,11 +46,11 @@ const VS = `interface VsOut {
   uv: location<0, vec2>;
 }
 
-export const vs = vertex(function vs(idx: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(idx: builtin<"vertex_index", u32>): VsOut {
   const x = f32(idx & 1) * 4. - 1.;
   const y = f32(idx >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
-});`;
+}`;
 
 const program = (decls: string, body: string): string => `"use typeshade";
 
@@ -58,14 +58,14 @@ ${decls}
 
 ${VS}
 
-export const fs = fragment(function fs(v: VsOut): vec4 {
+@fragment export function fs(v: VsOut): vec4 {
 ${body}
-});
+}
 `;
 
 const U = `class U {
-  a!: f32;
-  b!: vec2;
+  a: f32;
+  b: vec2;
 }
 
 declare const u: uniform<U>;`;
@@ -110,8 +110,8 @@ function f(x: U): f32 {
     'a method called on the uniform',
     program(
       `class U {
-  a!: f32;
-  b!: vec2;
+  a: f32;
+  b: vec2;
   sum(): f32 {
     return this.a + this.b.y;
   }
@@ -130,8 +130,8 @@ declare const u: uniform<U>;`,
     'a method that writes its object, on a local copy',
     program(
       `class U {
-  a!: f32;
-  b!: vec2;
+  a: f32;
+  b: vec2;
   bump(): void {
     this.a = this.a + 1.;
   }
@@ -149,8 +149,8 @@ declare const u: uniform<U>;`,
       `${U}
 
 class W {
-  inner!: U;
-  k!: f32;
+  inner: U;
+  k: f32;
 }
 
 declare const w: uniform<W>;`,
@@ -225,8 +225,8 @@ describe('the twin and its name', () => {
     const r = compile(
       program(
         `class U {
-  a!: f32;
-  b!: vec2;
+  a: f32;
+  b: vec2;
   value(): f32 {
     return this.a;
   }
@@ -248,7 +248,7 @@ declare const u: uniform<U>;`,
     const r = compile(
       program(
         `class Pad_ {
-  a!: f32;
+  a: f32;
 }
 
 declare const u: uniform<Pad_>;
@@ -275,9 +275,9 @@ function f(x: U): f32 {
 
 ${VS.replace('return {', 'let c: U = u;\n  return {').replace('uv: vec2(x, y)', 'uv: vec2(x, y * f(c))')}
 
-export const fs = fragment(function fs(v: VsOut): vec4 {
+@fragment export function fs(v: VsOut): vec4 {
   return vec4(v.uv, u.a, 1.);
-});
+}
 `;
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
@@ -301,8 +301,8 @@ describe('a call on the block itself reads it by name (Rule 8.28, change 0103)',
     const r = compile(
       program(
         `class U {
-  a!: f32;
-  b!: vec2;
+  a: f32;
+  b: vec2;
   sum(): f32 {
     return this.a + this.b.y;
   }

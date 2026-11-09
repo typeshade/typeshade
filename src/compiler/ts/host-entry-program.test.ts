@@ -42,13 +42,13 @@ declare const xs: storage<array<f32>>;
 declare const ys: storage<array<f32>, "read_write">;
 declare const pts: storage<array<vec2>, "read_write">;
 
-export const scale = compute([8], function scale(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([8]) export function scale(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x >= xs.length) {
     return;
   }
   ys[gid.x] = xs[gid.x] * k;
   pts[gid.x] = vec2(f32(gid.x), xs[gid.x]);
-});
+}
 `;
 
 /** The methods of the CPU backend that make an object on the device. */
@@ -109,7 +109,7 @@ declare const b: storage<array<f32>, "read_write">;
 declare const c: storage<array<f32>, "read_write">;
 declare const d: storage<array<f32>, "read_write">;
 
-export const fill = compute([4], function fill(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function fill(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x >= a.length) {
     return;
   }
@@ -117,7 +117,7 @@ export const fill = compute([4], function fill(gid: builtin<"global_invocation_i
   b[gid.x] = 2.0;
   c[gid.x] = 3.0;
   d[gid.x] = 4.0;
-});
+}
 `);
     const arrays = { a: new Float32Array(4), b: new Float32Array(4) };
     await (wide.fill as (b: unknown, w: unknown) => Promise<void>)(
@@ -145,12 +145,12 @@ export const fill = compute([4], function fill(gid: builtin<"global_invocation_i
 declare const xs: storage<array<f64>>;
 declare const ys: storage<array<f64>, "read_write">;
 
-export const twice = compute([4], function twice(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function twice(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x >= xs.length) {
     return;
   }
   ys[gid.x] = xs[gid.x] * f64(2);
-});
+}
 `);
     const xs = Float64Array.of(0.1, 1 / 3, Math.PI, 1e-300);
     const ys = new Float64Array(4);

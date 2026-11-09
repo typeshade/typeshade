@@ -19,9 +19,9 @@ const errorsOf = (src: string) =>
     .map((d) => `${d.code} ${d.message}`);
 
 const file = (head: string, body: string) => `"use typeshade"
-${head}export const fs = fragment(function fs(): vec4 {
+${head}@fragment export function fs(): vec4 {
 ${body}
-});
+}
 `;
 const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
   for (const make of [compileModule, compileModuleJs]) {
@@ -57,12 +57,12 @@ const K = 3. as const
     const r = compile(
       `"use typeshade";
 class P {
-  x!: f32;
+  x: f32;
 }
 declare const u: uniform<P>;
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(u!.x, 0., 0., 1.);
-});
+}
 `,
     );
     expect(r.diagnostics).toEqual([]);

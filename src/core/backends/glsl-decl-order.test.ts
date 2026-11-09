@@ -12,11 +12,11 @@ interface VsOut {
   pos: builtin<"position", vec4>
   uv: location<0, vec2>
 }
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.
   const y = f32(vi >> u32(1)) * 4. - 1.
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) }
-});`;
+}`;
 
 /** Every struct declaration comes before the first line that names the struct otherwise. */
 function declaredBeforeUse(glsl: string, struct: string): void {
@@ -30,17 +30,17 @@ describe('GLSL: a struct is declared before a module constant or variable of its
   it('a constant array of structs (a scene table)', () => {
     const r = compile(`"use typeshade"
 class Sphere {
-  center!: vec3
-  radius!: f32
+  center: vec3
+  radius: f32
 }
 const SPHERES: array<Sphere, 2> = [
   { center: vec3(0.), radius: 1. },
   { center: vec3(1.), radius: 0.5 },
 ]
 ${STAGES}
-export const fs = fragment(function fs(v: VsOut): vec4 {
+@fragment export function fs(v: VsOut): vec4 {
   return vec4(SPHERES[i32(v.uv.x > 0.)].radius)
-});`);
+}`);
     expect(r.diagnostics).toEqual([]);
     for (const glsl of [r.glsl!.vertex, r.glsl!.fragment]) declaredBeforeUse(glsl, 'Sphere');
   });
@@ -53,11 +53,11 @@ interface Cursor {
 }
 let cur: Cursor
 ${STAGES}
-export const fs = fragment(function fs(v: VsOut): vec4 {
+@fragment export function fs(v: VsOut): vec4 {
   cur.hits = cur.hits + 1
   cur.at = v.uv
   return vec4(f32(cur.hits), cur.at.x, 0., 1.)
-});`);
+}`);
     expect(r.diagnostics).toEqual([]);
     // Both stages: the variable is emitted into the vertex shader too, although only the
     // fragment entry reads it, so its struct has to be declared there as well.

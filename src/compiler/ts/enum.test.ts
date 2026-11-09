@@ -20,9 +20,9 @@ const errorsOf = (src: string) =>
     .map((d) => `${d.code} ${d.message}`);
 
 const file = (head: string, body: string) => `"use typeshade"
-${head}export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+${head}@fragment export function fs(uv: location<0, vec2>): vec4 {
 ${body}
-});
+}
 `;
 /** Both CPU paths on the module, which must agree with each other and with `expected`. */
 const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {

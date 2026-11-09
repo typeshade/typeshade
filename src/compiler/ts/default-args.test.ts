@@ -21,9 +21,9 @@ const errorsOf = (src: string) =>
     .map((d) => `${d.code} ${d.message}`);
 
 const file = (head: string, body: string) => `"use typeshade"
-${head}export const fs = fragment(function fs(): vec4 {
+${head}@fragment export function fs(): vec4 {
 ${body}
-});
+}
 `;
 
 /** Both CPU paths on the module's entry, which is what proves the fill is in the IR and not in
@@ -163,9 +163,9 @@ function g(): f32 {
 function f(a: f32 = g()): f32 {
   return a * 2.;
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(g(), 0., 0., 1.);
-});
+}
 `),
     ).toEqual([
       `${TS_CODES.RECURSION} Recursive call: "g" -> "g". WGSL has no call stack, so a function must not take part in a call cycle.`,
@@ -222,9 +222,9 @@ function f(a: f32, p: P = { a: 7. }): f32 {
   it('an entry parameter, which comes from the pipeline', () => {
     expect(
       errorsOf(`"use typeshade";
-export const fs = fragment(function fs(uv: location<0, vec2> = vec2(0.)): vec4 {
+@fragment export function fs(uv: location<0, vec2> = vec2(0.)): vec4 {
   return vec4(uv, 0., 1.);
-});
+}
 `),
     ).toEqual([
       `${TS_CODES.FUNCTION_SHAPE} An entry's parameters come from the pipeline, not from a call, so "uv" cannot have a default.`,

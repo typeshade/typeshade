@@ -22,18 +22,18 @@ import { compileModuleJs } from './cpu-codegen.js';
 
 const RAYS = `"use typeshade";
 class Ray {
-  o!: vec3;
-  d!: vec3;
+  o: vec3;
+  d: vec3;
   constructor(o: vec3) {
     this.o = o;
   }
 }
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   const r1 = new Ray(vec3(1., 0., 0.));
   const r2 = new Ray(vec3(0., 1., 0.));
   const r = p.x > 0.5 ? r1 : r2;
   return vec4(r.o, 1.);
-});
+}
 `;
 
 describe('a conditional on a struct becomes a slot and an if, on both targets', () => {
@@ -68,12 +68,12 @@ describe('a conditional on a struct becomes a slot and an if, on both targets', 
 
 describe('an array conditional, which the same driver refuses the same way', () => {
   const ARRAYS = `"use typeshade";
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   const xs: array<f32, 2> = [1., 2.];
   const ys: array<f32, 2> = [3., 4.];
   const zs = p.x > 0.5 ? xs : ys;
   return vec4(zs[0], zs[1], 0., 1.);
-});
+}
 `;
 
   it('hoists into a slot of its own type on both targets', () => {
@@ -89,11 +89,11 @@ export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
 describe('what is left alone', () => {
   it('a scalar and a vector conditional keep the operator each target has', () => {
     const r = compile(`"use typeshade";
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   const a = p.x > 0.5 ? 1. : 2.;
   const v = p.y > 0.5 ? vec3(1., 0., 0.) : vec3(0., 1., 0.);
   return vec4(v * a, 1.);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('select(2.0, 1.0, (p.x > 0.5))');
@@ -104,19 +104,19 @@ export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   it('two composite conditionals each get their own slot', () => {
     const r = compile(`"use typeshade";
 class Ray {
-  o!: vec3;
-  d!: vec3;
+  o: vec3;
+  d: vec3;
   constructor(o: vec3) {
     this.o = o;
   }
 }
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   const r1 = new Ray(vec3(1., 0., 0.));
   const r2 = new Ray(vec3(0., 1., 0.));
   const a = p.x > 0.5 ? r1 : r2;
   const b = p.y > 0.5 ? r2 : r1;
   return vec4(a.o + b.o, 1.);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('var _sel0: Ray;');
@@ -128,8 +128,8 @@ describe('the CPU backends need none of it', () => {
   it('a struct conditional is an ordinary choice there', () => {
     const r = compile(`"use typeshade";
 class Ray {
-  o!: vec3;
-  d!: vec3;
+  o: vec3;
+  d: vec3;
   constructor(o: vec3) {
     this.o = o;
   }
@@ -140,9 +140,9 @@ export function probe(c: bool): vec3 {
   const r = c ? r1 : r2;
   return r.o;
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(probe(true), 1.);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     // The IR the oracle reads still carries the `select`; the hoist is a spelling, made for

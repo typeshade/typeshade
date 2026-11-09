@@ -26,17 +26,17 @@ const errorsOf = (src: string) =>
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => `${d.code} ${d.message}`);
 
-const FS = `export const fs = fragment(function fs(): vec4 {
+const FS = `@fragment export function fs(): vec4 {
   return vec4(1.)
-});
+}
 `;
 
 describe('a vertex entry returns the position, alone or in a struct', () => {
   it('alone, and on both targets', () => {
     const r = compile(`"use typeshade"
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex export function vs(vi: builtin<"vertex_index", u32>): vec4 {
   return vec4(f32(vi), 0., 0., 1.)
-});
+}
 ${FS}`);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('-> @builtin(position) vec4<f32> {');
@@ -54,12 +54,12 @@ interface Out {
   color: location<1, vec3>;
   w: location<2, f32>;
 }
-export const vs = vertex(function vs(): Out {
+@vertex export function vs(): Out {
   return { pos: vec4(1.), uv: vec2(0.), color: vec3(1.), w: 2. };
-});
-export const fs = fragment(function fs(v: Out): vec4 {
+}
+@fragment export function fs(v: Out): vec4 {
   return vec4(v.color, v.w);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.glsl?.vertex).toContain('out vec3 color;');
@@ -67,9 +67,9 @@ export const fs = fragment(function fs(v: Out): vec4 {
 
   it('and with no parameters at all', () => {
     const r = compile(`"use typeshade"
-export const vs = vertex(function vs(): vec4 {
+@vertex export function vs(): vec4 {
   return vec4(0., 0., 0., 1.)
-});
+}
 ${FS}`);
     expect(r.diagnostics).toEqual([]);
     expect(r.glsl?.vertex).toContain('gl_Position = ');
@@ -86,9 +86,9 @@ describe('a fragment entry returns one value of any width, or a struct of target
     // Only the vec4 case got the attribute before this; the other three emitted WGSL with no
     // entry-point IO attribute on the return, which Tint refuses.
     const r = compile(`"use typeshade"
-export const fs = fragment(function fs(): ${type} {
+@fragment export function fs(): ${type} {
   return ${value}
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain(`-> ${attr} {`);
@@ -101,9 +101,9 @@ interface Targets {
   albedo: location<0, vec4>;
   normal: location<1, vec4>;
 }
-export const fs = fragment(function fs(): Targets {
+@fragment export function fs(): Targets {
   return { albedo: vec4(1.), normal: vec4(0., 1., 0., 1.) };
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.glsl?.fragment).toContain('layout(location = 1) out vec4 normal;');
@@ -134,16 +134,16 @@ export function fs(v: Out): vec4 {
   it('returning nothing, or a type that is not a vec4, says what a position is', () => {
     expect(
       errorsOf(`"use typeshade"
-export const vs = vertex(function vs(): void {});
+@vertex export function vs(): void {}
 ${FS}`)[0],
     ).toBe(
       `${TS_CODES.FUNCTION_SHAPE} "vs" is a vertex entry, so it returns the position: a vec4, which is the position on its own, or a struct with a field typed builtin<"position", vec4>. It returns nothing.`,
     );
     expect(
       errorsOf(`"use typeshade"
-export const vs = vertex(function vs(): f32 {
+@vertex export function vs(): f32 {
   return 1.
-});
+}
 ${FS}`)[0],
     ).toBe(
       `${TS_CODES.FUNCTION_SHAPE} "vs" is a vertex entry, so it returns the position: a vec4, which is the position on its own, or a struct with a field typed builtin<"position", vec4>. It returns f32.`,

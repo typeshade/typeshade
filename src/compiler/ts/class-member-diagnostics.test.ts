@@ -58,7 +58,7 @@ function diagnostics(result: ReturnType<typeof compile>) {
 describe('class-member refusal sentences', () => {
   it('pins the index signature sentence and its whole signature span', () => {
     const source = shader(
-      'class A { x!: f32; [k: string]: f32 } export function f(a: A): f32 { return a.x; }',
+      'class A { x: f32; [k: string]: f32 } export function f(a: A): f32 { return a.x; }',
     );
     expect(diagnostics(paired(source))).toEqual([
       at(
@@ -105,7 +105,7 @@ export function f(a: A): f32 { return a.y; }`);
   });
 
   it('keeps the generic property declaration origin', () => {
-    const source = shader(`class A<T> { y!: T; constructor(@location(0) public x: T) {} }
+    const source = shader(`class A<T> { y: T; constructor(@location(0) public x: T) {} }
 export function f(a: A<f32>): f32 { return a.y; }`);
     expect(diagnostics(paired(source))).toEqual([
       at(source, '@location(0)', propertyMessage('A<f32>')),

@@ -21,11 +21,11 @@ const ZERO = (divisor: string) =>
 
 const fs = (body: string, consts = '') => `"use typeshade"
 ${consts}
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   let x: f32 = uv.x
   ${body}
   return vec4(x, 0., 0., 1.)
-});
+}
 `;
 
 describe('division by a constant zero (#68)', () => {
@@ -34,7 +34,7 @@ describe('division by a constant zero (#68)', () => {
 const A: vec3 = vec3(1., 2., 3.);
 const Z: vec3 = vec3(1., 0., 1.);
 const Y: vec3 = A / -Z;
-export const fs = fragment(function fs(): vec4 { return vec4(Y, 1.); });
+@fragment export function fs(): vec4 { return vec4(Y, 1.); }
 `);
     expect(errors[0]).toBe(ZERO('-Z'));
   });
@@ -44,7 +44,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(Y, 1.); });
 const SIZE: vec3 = vec3(4., 0., 4.);
 const STEP: vec3 = SIZE * 0.5;
 const Q: vec3 = vec3(1., 2., 3.) / STEP;
-export const fs = fragment(function fs(): vec4 { return vec4(Q, 1.); });
+@fragment export function fs(): vec4 { return vec4(Q, 1.); }
 `);
     expect(errors[0]).toBe(ZERO('STEP'));
   });
@@ -54,7 +54,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(Q, 1.); });
     expect(
       errorsOf(`"use typeshade";
 const Z: vec3 = vec3(1., 0., 1.);
-export const fs = fragment(function fs(): vec4 { return vec4(vec3(1., 2., 3.) / Z, 1.); });
+@fragment export function fs(): vec4 { return vec4(vec3(1., 2., 3.) / Z, 1.); }
 `),
     ).toEqual([ZERO('Z')]);
   });
@@ -71,7 +71,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(vec3(1., 2., 3.) / 
     // division by zero; the initializer is what the folder reads now.
     const r = compile(`"use typeshade";
 const Z: vec3 = vec3(1., 2., 4.);
-export const fs = fragment(function fs(): vec4 { return vec4(vec3(1., 2., 3.) / Z, 1.); });
+@fragment export function fs(): vec4 { return vec4(vec3(1., 2., 3.) / Z, 1.); }
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.eval('fs', [])).toEqual([1, 1, 0.75, 1]);
@@ -87,7 +87,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(vec3(1., 2., 3.) / 
     const src = `"use typeshade";
 const K: f32 = 2.;
 function g(K: f32): f32 { return K + 1.; }
-export const fs = fragment(function fs(): vec4 { return vec4(g(1.), 0., 0., 1.); });
+@fragment export function fs(): vec4 { return vec4(g(1.), 0., 0., 1.); }
 `;
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);

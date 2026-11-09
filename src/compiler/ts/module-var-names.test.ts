@@ -11,9 +11,9 @@ import { describeRead } from './kernel-loops.js';
 const voice = 'class Voice { static count: u32 = 3; }';
 
 function check(body: string, value: number): ReturnType<typeof compile> {
-  const source = `"use typeshade";\n${body}\nexport const fs = fragment(function fs(): vec4 {
+  const source = `"use typeshade";\n${body}\n@fragment export function fs(): vec4 {
     return vec4(f32(run(7)), 0., 0., 1.);
-  });`;
+  }`;
   const r = compile(source, { fileName: 'names.shade.ts' });
   expect(r.diagnostics).toEqual([]);
   const service = createTypeshadeLanguageService();

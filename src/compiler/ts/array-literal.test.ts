@@ -50,11 +50,11 @@ describe('the call form types its elements', () => {
 interface Out {
   color: location<0, vec4>;
 }
-export const fs = fragment(function fs(): Out {
+@fragment export function fs(): Out {
   const xs = array<i32, 3>(1, 2, 3);
   const us = array<u32, 2>(4, 5);
   return { color: vec4(f32(xs[0]), f32(xs[2]), f32(us[1]), 1.) };
-});`);
+}`);
     expect(c.diagnostics).toEqual([]);
     expect(c.wgsl).toContain('array<i32, 3>(1, 2, 3)');
     expect(c.wgsl).toContain('array<u32, 2>(4u, 5u)');
@@ -119,10 +119,10 @@ describe('a list initializes a local array', () => {
 interface Out {
   color: location<0, vec4>;
 }
-export const fs = fragment(function fs(): Out {
+@fragment export function fs(): Out {
   const xs: array<f32, 3> = [1., 2., 3.];
   return { color: vec4(xs[0], xs[1], xs[2], 1.) };
-});`);
+}`);
     expect(c.diagnostics).toEqual([]);
     expect(c.glsl?.fragment).toContain('float[3](1.0, 2.0, 3.0)');
   });
@@ -318,9 +318,9 @@ describe('the missing-return-type warning', () => {
   it('is not raised for an entry function, which wants no return type', () => {
     const r = compileTsSource(`"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-export const sum = compute([64, 1, 1], function sum(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64, 1, 1]) export function sum(gid: builtin<"global_invocation_id", vec3u>) {
   out[gid.x] = 1.;
-});`);
+}`);
     expect(r.diagnostics).toEqual([]);
   });
 });

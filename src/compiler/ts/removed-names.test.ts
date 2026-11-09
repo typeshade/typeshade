@@ -23,9 +23,9 @@ import {
 /** One entry-point program, with `decl` at module scope and `body` inside a fragment entry. */
 const FS = (decl: string, body: string): string => `"use typeshade";
 ${decl}
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
 ${body}
-});
+}
 `;
 
 const XS = '  const xs: array<f32, 3> = [1., 2., 3.];\n';
@@ -263,12 +263,12 @@ describe('each replacement is clean on both halves and computes what the removed
     const kernel = (read: string): string => `"use typeshade";
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
-export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= ${read}) {
     return;
   }
   dst[gid.x] = src[gid.x] * 2.;
-});
+}
 `;
     clean(kernel('src.length'));
     expect(compile(kernel('src.length')).wgsl).toContain('if ((gid.x >= arrayLength(&src))) {');

@@ -14,11 +14,11 @@ import { f32T } from '../../core/ir/types.js';
 import type { Expr, Stmt } from '../../core/ir/nodes.js';
 
 const SRC = `"use typeshade";
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   let x: f32 = uv.x;
   x %= 0.7;
   return vec4(x, 0., 0., 1.);
-});
+}
 `;
 
 describe('a float %= on GLSL ES 3.00 (#20)', () => {
@@ -44,11 +44,11 @@ describe('a float %= on GLSL ES 3.00 (#20)', () => {
 
   it('an integer %= stays the native operator on WGSL, and takes _irem on GLSL', () => {
     const r = compile(`"use typeshade";
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   let i: i32 = i32(uv.x);
   i %= 3;
   return vec4(f32(i), 0., 0., 1.);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('i %= 3;');

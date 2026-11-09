@@ -22,10 +22,10 @@ const DRAW = `"use typeshade";
 interface VsIn { pos: location<0, vec2>; }
 interface VsOut { p: builtin<"position", vec4>; }
 interface Color { c: location<0, vec4>; }
-class Tint { c!: vec4; }
+class Tint { c: vec4; }
 declare const tint: uniform<Tint>;
-export const vs = vertex(function vs(v: VsIn): VsOut { return { p: vec4(v.pos, 0., 1.) }; });
-export const fs = fragment(function fs(v: VsOut): Color { return { c: tint.c }; });
+@vertex export function vs(v: VsIn): VsOut { return { p: vec4(v.pos, 0., 1.) }; }
+@fragment export function fs(v: VsOut): Color { return { c: tint.c }; }
 `;
 
 const manifest = () => {

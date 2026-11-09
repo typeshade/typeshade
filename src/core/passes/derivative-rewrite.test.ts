@@ -21,15 +21,15 @@ interface VsOut {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
 }
-export const vs = vertex(function vs(): VsOut {
+@vertex export function vs(): VsOut {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
-});
+}
 `;
 
 const frag = (body: string, before = ''): string =>
-  `${HEAD}${before}export const fs = fragment(function fs(v: VsOut): vec4 {
+  `${HEAD}${before}@fragment export function fs(v: VsOut): vec4 {
 ${body}
-});`;
+}`;
 
 /** The TS8052 sentences of each half, which must agree (Rule 12.7). */
 function uniformity(source: string) {
@@ -198,10 +198,10 @@ function near(uv: vec2): vec4 { return textureSample(t, s, uv); }
   it('textureSampleCompare: the whole call recomputed before the branch', () => {
     const { wgsl } = reached(`declare const shadowMap: texture_depth_2d;
 declare const shadowSmp: sampler_comparison;
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   if (p.x > 0.5) { return vec4(textureSampleCompare(shadowMap, shadowSmp, p.xy * 0.01, 0.5)); }
   return vec4(0.);
-});`);
+}`);
     expect(wgsl).toMatch(
       /let hoist_r_h\d+ = textureSampleCompare\(shadowMap, shadowSmp, \(p\.xy \* 0\.01\), 0\.5\);/,
     );
@@ -251,11 +251,18 @@ export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
     // once (TS8028, in both halves), and the same source without it is rewritten.
     const src = frag(`  if (v.uv.x > 0.5) { return textureSample(t, s, v.uv); }
   return vec4(0.);`);
-    const filtered = src.replace(
-      /\n\}\);$/,
+    // The filter was an option of the stage call of change 0111, which compiles until the
+    // refusing pull request of change 0140, so the filtered module is written with that call.
+    const called = src.replace(
+      '@fragment export function fs(',
+      'export const fs = fragment(function fs(',
+    );
+    expect(called).not.toBe(src);
+    const filtered = called.replace(
+      /\n\}$/,
       '\n}, { diagnostic: ["warning", "derivative_uniformity"] });',
     );
-    expect(filtered).not.toBe(src);
+    expect(filtered).not.toBe(called);
     const { c, said } = uniformity(filtered);
     expect(said).toEqual([]);
     const service = createTypeshadeLanguageService();
@@ -329,10 +336,10 @@ describe('the calls the rewrite cannot reach keep TS8052, with the reason', () =
 export function hold(uv: vec2): void { held = uv; }
 declare const shadowMap: texture_depth_2d;
 declare const shadowSmp: sampler_comparison;
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   if (p.x > 0.5) { return vec4(textureSampleCompare(shadowMap, shadowSmp, held, 0.5)); }
   return vec4(0.);
-});`);
+}`);
     expect(said).toHaveLength(1);
     expect(said[0]).toContain(
       'textureSampleCompare() is reached under "p" (@builtin(position)), which WGSL\'s derivative_uniformity rule refuses',
@@ -365,10 +372,10 @@ describe('the CPU oracle reads the rewritten IR (change 0132, decision 2)', () =
   const src = `"use typeshade";
 declare const t: texture_2d<f32>;
 declare const s: sampler;
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   if (p.x > 0.5) { return textureSample(t, s, p.xy); }
   return vec4(0., 0., 1., 1.);
-});`;
+}`;
 
   it('gives the same placeholder with gpuStubs on both sides of the branch', () => {
     const r = compile(src);

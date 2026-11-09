@@ -92,7 +92,7 @@ describe('a phased dispatch holds a barrier for the whole workgroup (change 0054
   const LATE = `"use typeshade";
 declare const out: storage<array<u32>, "read_write">;
 let mark: workgroup<array<u32, 8>>;
-export const main = compute([4, 1, 1], function main(li: builtin<"local_invocation_index", u32>): void {
+@compute([4, 1, 1]) export function main(li: builtin<"local_invocation_index", u32>): void {
   if (li === 0) {
     for (let k: u32 = 0; k < 6; k++) {
       mark[k] = k + 1;
@@ -102,7 +102,7 @@ export const main = compute([4, 1, 1], function main(li: builtin<"local_invocati
   }
   workgroupBarrier();
   out[li] = mark[5] * 10 + mark[li];
-});
+}
 `;
 
   it('releases a barrier only when every invocation of the workgroup has reached it', () => {
@@ -129,10 +129,10 @@ describe('a pass reads memory as it began (change 0054, a data race)', () => {
     const src = `"use typeshade";
 declare const flag: storage<array<u32>, "read_write">;
 declare const seen: storage<array<u32>, "read_write">;
-export const main = compute([4, 1, 1], function main(li: builtin<"local_invocation_index", u32>): void {
+@compute([4, 1, 1]) export function main(li: builtin<"local_invocation_index", u32>): void {
   flag[li] = li + 1;
   seen[li] = flag[(li + 1) % 4] * 10 + flag[li];
-});
+}
 `;
     const flag = new Array<number>(4).fill(0);
     const seen = new Array<number>(4).fill(0);

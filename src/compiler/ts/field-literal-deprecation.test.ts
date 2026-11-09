@@ -38,7 +38,7 @@ function paired(source: string, deprecations = true) {
 function fragment(declarations: string, value: string) {
   return `"use typeshade";
 ${declarations}
-export const fs = fragment(function fs(): location<0, vec4> { return vec4(${value}); });`;
+@fragment export function fs(): location<0, vec4> { return vec4(${value}); }`;
 }
 
 describe('integer-default deprecations on class fields', () => {

@@ -130,7 +130,7 @@ describe('module-variable mistakes have one diagnostic (#321 control#18)', () =>
   });
 
   it.each([
-    'let tile: workgroup<array<f32, 4>>; export const main = compute([1], function main() { tile[0] = 1.; });',
+    'let tile: workgroup<array<f32, 4>>; @compute([1]) export function main() { tile[0] = 1.; }',
     'let seed: u32 = 7; export function f(): u32 { return seed; }',
   ])('keeps valid module variables accepted: %s', (body) => {
     const { compiler, editor } = both(shader(body));

@@ -381,13 +381,13 @@ describe('the editor gives every expression the type the compiler gives it (Rule
     // overload of `array` exists for. Before it, each lost its count, and a mix of a typed value and
     // a literal its element as well.
     const text = `"use typeshade";
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   const a = array(uv.x, uv.y, 1.);
   const b = array(vec2(uv.x), uv);
   const c = array<vec4, 2>(vec4(uv, 0., 1.), vec4(1.));
   const i = array(i32(uv.x), i32(uv.y));
   return c[1] * (a[2] + b[0].x + f32(i[0]));
-});
+}
 `;
     const probe = [{ uri: '/probe/array.shade.ts', text }];
     const service = createTypeshadeLanguageService();

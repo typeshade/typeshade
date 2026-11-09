@@ -12,7 +12,7 @@ describe('function lexical shadowing (#429)', () => {
 interface Frame { resolution: vec2; }
 declare const u: uniform<Frame>;
 function noise(p: vec2): f32 { const u: vec2 = p; return u.x; }
-export const fs = fragment(function fs(): vec4 { return vec4(noise(vec2(3., 4.)), 0., 0., 1.); });
+@fragment export function fs(): vec4 { return vec4(noise(vec2(3., 4.)), 0., 0., 1.); }
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.module.funcs.find((fn) => fn.name === 'noise')!.body[0]).toMatchObject({
@@ -32,7 +32,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(noise(vec2(3., 4.))
 ${moduleValue}
 function param(x: f32): f32 { return x + 1.; }
 function local(): f32 { const x = 3.; return x; }
-export const fs = fragment(function fs(): vec4 { return vec4(param(2.) + local(), 0., 0., 1.); });
+@fragment export function fs(): vec4 { return vec4(param(2.) + local(), 0., 0., 1.); }
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.module.funcs.find((fn) => fn.name === 'param')!.params[0]!.name).toBe('x');
@@ -152,9 +152,9 @@ class Voice {
 function g(Voice_OFFSET: u32): f32 {
   return f32(Voice_OFFSET) + f32(Voice.OFFSET);
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(g(7), 0., 0., 1.);
-});
+}
 `,
       args: [7],
       value: 8,
@@ -179,9 +179,9 @@ function g(Voice_OFFSET: u32): f32 {
   Voice_OFFSET = Voice_OFFSET + 1;
   return f32(Voice_OFFSET) + f32(Voice.OFFSET);
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(g(7), 0., 0., 1.);
-});
+}
 `,
       args: [7],
       value: 9,
@@ -207,9 +207,9 @@ class Voice {
     return f32(Voice_OFFSET) + f32(this.OFFSET);
   }
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(Voice.at(7), 0., 0., 1.);
-});
+}
 `,
       args: [7],
       value: 8,
@@ -231,9 +231,9 @@ class Voice {
 function g(Voice_ORIGIN: vec2): f32 {
   return Voice_ORIGIN.x + Voice.ORIGIN.y;
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(g(vec2(10., 20.)), 0., 0., 1.);
-});
+}
 `,
       args: [[10, 20]],
       value: 12,
@@ -257,9 +257,9 @@ enum E {
 function g(E_A: f32): f32 {
   return E_A + f32(E.A);
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(g(10.), 0., 0., 1.);
-});
+}
 `,
       args: [10],
       value: 13,
@@ -275,9 +275,9 @@ namespace Ns {
 function g(Ns_K: f32): f32 {
   return Ns_K + Ns.K;
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(g(10.), 0., 0., 1.);
-});
+}
 `,
       args: [10],
       value: 13,
@@ -315,9 +315,9 @@ function g(): f32 {
   const Voice_OFFSET: u32 = 5;
   return f32(Voice_OFFSET) + f32(Voice.OFFSET);
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(g(), 0., 0., 1.);
-});
+}
 `;
     const r = compile(source, { fileName: 'm.shade.ts' });
     expect(r.diagnostics).toEqual([]);
@@ -354,9 +354,9 @@ class Voice {
 function g(Voice_count: u32): f32 {
   return f32(Voice_count) + f32(Voice.count);
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(g(7), 0., 0., 1.);
-});
+}
 `;
       expect(messages(source)).toEqual([]);
       expect(edited(source)).toEqual([]);
@@ -373,10 +373,10 @@ class Voice {
     Voice.count += 1.;
   }
 }
-export const fs = fragment(function fs(Voice_count: location<0, f32>): vec4 {
+@fragment export function fs(Voice_count: location<0, f32>): vec4 {
   Voice.bump();
   return vec4(Voice_count + Voice.count, 0., 0., 1.);
-});
+}
 `;
       expect(messages(source)).toEqual([]);
       expect(edited(source)).toEqual([]);
@@ -409,9 +409,9 @@ describe('a read of a static field, an enum member or a namespace constant in an
 class Voice {
   static OFFSET: f32 = 1.;
 }
-export const fs = fragment(function fs(Voice_OFFSET: location<0, f32>): vec4 {
+@fragment export function fs(Voice_OFFSET: location<0, f32>): vec4 {
   return vec4(Voice_OFFSET + Voice.OFFSET, 0., 0., 1.);
-});
+}
 `,
       args: [3],
       value: [4, 0, 0, 1],
@@ -432,9 +432,9 @@ export const fs = fragment(function fs(Voice_OFFSET: location<0, f32>): vec4 {
 class Voice {
   static ORIGIN: vec2 = vec2(1., 2.);
 }
-export const fs = fragment(function fs(Voice_ORIGIN: location<0, vec2>): vec4 {
+@fragment export function fs(Voice_ORIGIN: location<0, vec2>): vec4 {
   return vec4(Voice_ORIGIN + Voice.ORIGIN, 0., 1.);
-});
+}
 `,
       args: [[10, 20]],
       value: [11, 22, 0, 1],
@@ -455,9 +455,9 @@ export const fs = fragment(function fs(Voice_ORIGIN: location<0, vec2>): vec4 {
 enum E {
   A = 3,
 }
-export const fs = fragment(function fs(E_A: location<0, f32>): vec4 {
+@fragment export function fs(E_A: location<0, f32>): vec4 {
   return vec4(E_A + f32(E.A), 0., 0., 1.);
-});
+}
 `,
       args: [10],
       value: [13, 0, 0, 1],
@@ -474,9 +474,9 @@ export const fs = fragment(function fs(E_A: location<0, f32>): vec4 {
 namespace Ns {
   export const K: f32 = 3.;
 }
-export const fs = fragment(function fs(Ns_K: location<0, f32>): vec4 {
+@fragment export function fs(Ns_K: location<0, f32>): vec4 {
   return vec4(Ns_K + Ns.K, 0., 0., 1.);
-});
+}
 `,
       args: [10],
       value: [13, 0, 0, 1],
@@ -496,9 +496,9 @@ class Voice {
 function g(Voice_OFFSET: f32): f32 {
   return Voice_OFFSET + Voice.OFFSET;
 }
-export const fs = fragment(function fs(Voice_OFFSET: location<0, f32>): vec4 {
+@fragment export function fs(Voice_OFFSET: location<0, f32>): vec4 {
   return vec4(g(Voice_OFFSET) + Voice.OFFSET, 0., 0., 1.);
-});
+}
 `,
       args: [3],
       value: [5, 0, 0, 1],
@@ -540,15 +540,15 @@ class Voice {
   static OFFSET: u32 = 1;
 }
 declare const data: storage<array<u32>, "read_write">;
-export const fill = compute([4], function fill(Voice_OFFSET: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function fill(Voice_OFFSET: builtin<"global_invocation_id", vec3u>) {
   data[Voice_OFFSET.x] = Voice_OFFSET.x + Voice.OFFSET;
-});
-export const vs = vertex(function vs(Voice_OFFSET: location<0, vec2>): vec4 {
+}
+@vertex export function vs(Voice_OFFSET: location<0, vec2>): vec4 {
   return vec4(Voice_OFFSET + vec2(f32(Voice.OFFSET)), 0., 1.);
-});
-export const idle = compute([4], function idle(Voice_OFFSET: builtin<"global_invocation_id", vec3u>) {
+}
+@compute([4]) export function idle(Voice_OFFSET: builtin<"global_invocation_id", vec3u>) {
   data[Voice_OFFSET.x] = 0;
-});
+}
 `;
     const r = compile(source, { fileName: 'm.shade.ts' });
     expect(r.diagnostics).toEqual([]);
@@ -577,9 +577,9 @@ describe('a call of a function in a function that has a parameter or a local nam
   // be called instead, and the program would not compile. The writers respell a parameter or a
   // local that hides a function its function calls, as they do for a builtin (Proposal 0070,
   // D-C10-1) and for a constant (#999). The oracle keeps the authored names.
-  const FS = (arg: string) => `export const fs = fragment(function fs(): vec4 {
+  const FS = (arg: string) => `@fragment export function fs(): vec4 {
   return vec4(f32(g(${arg})), 0., 0., 1.);
-});
+}
 `;
   const CASES: readonly {
     name: string;
@@ -827,9 +827,9 @@ class Voice {
 function g(Voice_shift: u32): u32 {
   return Voice_shift + 1;
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(f32(g(7) + Voice.shift(1)), 0., 0., 1.);
-});
+}
 `;
     const r = compile(source, { fileName: 'm.shade.ts' });
     expect(r.diagnostics).toEqual([]);
@@ -848,9 +848,9 @@ class Voice {
     return k + 1.;
   }
 }
-export const fs = fragment(function fs(Voice_shift: location<0, f32>): vec4 {
+@fragment export function fs(Voice_shift: location<0, f32>): vec4 {
   return vec4(Voice.shift(3.) + Voice_shift, 0., 0., 1.);
-});
+}
 `;
     const r = compile(source, { fileName: 'm.shade.ts' });
     expect(r.diagnostics).toEqual([]);
@@ -881,13 +881,13 @@ interface VsOut {
   pos: builtin<"position", vec4>;
   Voice_shift: location<0, f32>;
 }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
   const x = f32(i) * 0.5;
   return { pos: vec4(x, x, 0., 1.), Voice_shift: x };
-});
-export const fs = fragment(function fs(Voice_shift: location<0, f32>): vec4 {
+}
+@fragment export function fs(Voice_shift: location<0, f32>): vec4 {
   return vec4(Voice.shift(3.) + Voice_shift, 0., 0., 1.);
-});
+}
 `;
     const r = compile(source, { fileName: 'm.shade.ts' });
     expect(r.diagnostics).toEqual([]);

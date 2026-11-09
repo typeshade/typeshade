@@ -301,16 +301,16 @@ export function bias(out: array<f32>, x: array<f32>): void {
   }
 }
 // Kernel functions that declare their workgroup size (proposal 0067, F7).
-export const triple = workgroup_size([128], function triple(out: array<f32>, x: array<f32>): void {
+@workgroup_size([128]) export function triple(out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * 3.;
   }
-});
-export const quad = workgroup_size([64], function quad(out: array<f32>, x: array<f32>): void {
+}
+@workgroup_size([64]) export function quad(out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * 4.;
   }
-});
+}
 `;
 
 interface Loaded {

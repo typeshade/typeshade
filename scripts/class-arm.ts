@@ -645,7 +645,7 @@ function twinSource(
     };
     lines.push(
       '',
-      `export const twin_${tag} = compute([64], function twin_${tag}(gid: builtin<"global_invocation_id", vec3u>): void {`,
+      `@compute([64]) export function twin_${tag}(gid: builtin<"global_invocation_id", vec3u>): void {`,
       '  const i = gid.x;',
       `  if (i >= ${tag}_xs.length) {`,
       '    return;',
@@ -655,7 +655,7 @@ function twinSource(
         ? `  ${tag}_out[i] = ${call('o', `${tag}_args`)};`
         : `  ${call('o', `${tag}_args`)};`,
       `  ${tag}_xs[i] = o;`,
-      '});',
+      '}',
       '',
       `export function loop_${tag}(${[
         ...(t.result !== undefined ? [`out: array<${authorTypeText(t.result)}>`] : []),

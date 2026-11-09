@@ -46,7 +46,7 @@ declare const pairs: storage<array<vec2f64>, "read_write">;
 declare const triples: storage<array<vec3f64>, "read_write">;
 declare const quads: storage<array<vec4f64>, "read_write">;
 declare const checks: storage<array<f32>, "read_write">;
-export const main = compute([4], function main(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([4]) export function main(gid: builtin<"global_invocation_id", vec3u>): void {
   const i = gid.x;
   const x = f64(1.) + f64(0.000000007450580596923828125) * f64(f32(i + 1));
   scalar[i] = x;
@@ -59,7 +59,7 @@ export const main = compute([4], function main(gid: builtin<"global_invocation_i
   const v = triples[i].zyx;
   pairs[i] = vec2f64(v.x, v.z);
   checks[i * 2 + 1] = f32((scalar[i] - f64(1.)) * f64(134217728.));
-});
+}
 `,
   textured: `"use typeshade";
 
@@ -72,7 +72,7 @@ function lum(c: vec4f): f32 {
   return c.x * 0.25 + c.y * 0.5 + c.z * 0.25;
 }
 
-export const blurRow = compute([8, 1, 1], function blurRow(li: builtin<"local_invocation_index", u32>): void {
+@compute([8, 1, 1]) export function blurRow(li: builtin<"local_invocation_index", u32>): void {
   const dims = textureDimensions(photo);
   for (let y: u32 = 0; y < dims.y; y++) {
     row[li] = lum(textureLoad(photo, vec2i(i32(li), i32(y)), 0));
@@ -82,7 +82,7 @@ export const blurRow = compute([8, 1, 1], function blurRow(li: builtin<"local_in
     out[y * 8 + li] = row[(li + 7) % 8] * 100. + right + f32(dims.x * 1000);
     workgroupBarrier();
   }
-});
+}
 `,
   twiddle: `"use typeshade";
 
@@ -93,10 +93,10 @@ function rotation(k: u32, n: u32): vec2f {
   return vec2f(f32(cos(angle)), f32(sin(angle)));
 }
 
-export const twiddle = compute([64, 1, 1], function twiddle(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function twiddle(gid: builtin<"global_invocation_id", vec3u>): void {
   const w = rotation(gid.x, 64);
   data[gid.x] = data[gid.x] * w.x + w.y;
-});
+}
 `,
   butterfly: `"use typeshade";
 
@@ -108,7 +108,7 @@ function rotation(k: u32, n: u32): vec2f {
   return vec2f(f32(cos(angle)), f32(sin(angle)));
 }
 
-export const butterfly = compute([64, 1, 1], function butterfly(li: builtin<"local_invocation_index", u32>): void {
+@compute([64, 1, 1]) export function butterfly(li: builtin<"local_invocation_index", u32>): void {
   tile[li] = data[li];
   workgroupBarrier();
   const k = li % 32;
@@ -118,14 +118,14 @@ export const butterfly = compute([64, 1, 1], function butterfly(li: builtin<"loc
   } else {
     data[li] = tile[k] - tile[k + 32] * w.y;
   }
-});
+}
 `,
   across: `"use typeshade";
 
 declare const data: storage<array<f32>, "read_write">;
 let tile: workgroup<array<f32, 64>>;
 
-export const across = compute([64, 1, 1], function across(li: builtin<"local_invocation_index", u32>): void {
+@compute([64, 1, 1]) export function across(li: builtin<"local_invocation_index", u32>): void {
   const k = li % 32;
   const angle: f64 = f64(-6.283185307179586) * f64(f32(k)) / f64(64.);
   const w = vec2f64(cos(angle), sin(angle));
@@ -136,7 +136,7 @@ export const across = compute([64, 1, 1], function across(li: builtin<"local_inv
   } else {
     data[li] = tile[k] - tile[k + 32] * f32(w.y);
   }
-});
+}
 `,
 } as const;
 
@@ -208,7 +208,7 @@ declare const smp: sampler;
 declare const cmp: sampler_comparison;
 declare const out: storage<array<f32>, "read_write">;
 
-export const handles = compute([64, 1, 1], function handles(li: builtin<"local_invocation_index", u32>): void {
+@compute([64, 1, 1]) export function handles(li: builtin<"local_invocation_index", u32>): void {
   const x = i32(li % 4);
   const y = i32((li / 4) % 4);
   const z = i32(li / 16);
@@ -230,7 +230,7 @@ export const handles = compute([64, 1, 1], function handles(li: builtin<"local_i
   const e = textureSampleCompareLevel(cascades, cmp, uv, z % 2, ref);
   const dims = textureDimensions(vol);
   out[li] = a.x + a.y * 2. + c.z * 4. + f32(b.x + b.w) * 8. + d * 16. + e * 32. + f32(dims.z) * 64.;
-});
+}
 `,
     entry: 'handles',
     workgroups: 1,
@@ -252,7 +252,7 @@ declare const img: texture_storage_2d<"rgba8unorm", "write">;
 declare const ids: texture_storage_2d<"r32uint", "write">;
 let row: workgroup<array<f32, 8>>;
 
-export const paint = compute([8, 1, 1], function paint(lid: builtin<"local_invocation_id", vec3u>, wid: builtin<"workgroup_id", vec3u>): void {
+@compute([8, 1, 1]) export function paint(lid: builtin<"local_invocation_id", vec3u>, wid: builtin<"workgroup_id", vec3u>): void {
   const at = vec2i(i32(lid.x), i32(wid.x));
   const seen = textureLoad(acc, at).x;
   row[lid.x] = seen;
@@ -262,7 +262,7 @@ export const paint = compute([8, 1, 1], function paint(lid: builtin<"local_invoc
   const dims = textureDimensions(img);
   textureStore(img, vec2u(lid.x, wid.x), vec4f(f32(lid.x) / 7., f32(wid.x) / 7., left / 7., 1.));
   textureStore(ids, at, vec4u(lid.x + wid.x * dims.x, u32(0), u32(0), u32(0)));
-});
+}
 `,
     entry: 'paint',
     workgroups: 8,

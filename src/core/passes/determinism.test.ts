@@ -51,12 +51,12 @@ function shade(x: f32, y: f32): f32 {
   return sin(x) / y + fma(x, y, 1.);
 }
 
-export const fs = fragment(function fs(uv: location<0, vec2>): Color {
+@fragment export function fs(uv: location<0, vec2>): Color {
   const s: f32 = shade(uv.x, uv.y) + Math.sin(uv.x);
   const d: f32 = dpdx(uv.x);
   const t: vec4 = textureSample(tex, smp, uv);
   return { color: t * s + d };
-});`);
+}`);
     // Pre-order over each statement's expression: the outer `/` is met before the `sin`
     // inside it, and `shade` (a call to the module's own helper) is not a row.
     expect(rows(r)).toEqual([
@@ -392,9 +392,9 @@ describe('the pack and quantize rows say what the emitted code actually does', (
     }
     // The report lists only what may differ, so a bitcast is never one of its rows.
     const r = compile(`"use typeshade";
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   return vec4(bitcast<f32>(bitcast<u32>(uv.x)), 0., 0., 1.);
-});
+}
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(determinismReport(r.module).filter((e) => e.op.startsWith('bitcast'))).toEqual([]);
@@ -408,12 +408,12 @@ export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
     // the fix, this module reported an EMPTY list.
     const r = moduleOf(`"use typeshade";
 declare const out: storage<array<u32>, "read_write">;
-export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   out[0] = pack4x8unorm(vec4(0.5, 0.5, 0.5, 0.5));
   out[1] = pack4x8snorm(vec4(0.5, 0.5, 0.5, 0.5));
   out[2] = pack2x16unorm(vec2(0.5, 0.5));
   out[3] = pack2x16snorm(vec2(0.5, 0.5));
-});`);
+}`);
     expect(r.determinism.map((e) => [e.op, e.elem, e.kind])).toEqual([
       ['pack4x8unorm', 'f32', 'target'],
       ['pack4x8snorm', 'f32', 'target'],
@@ -443,9 +443,9 @@ export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation
 declare const tex: texture_2d<u32>;
 declare const smp: sampler;
 declare const out: storage<array<u32>, "read_write">;
-export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   out[0] = textureGather(0, tex, smp, vec2(0.5, 0.5)).x;
-});`);
+}`);
     expect(r.determinism).toEqual([
       {
         op: 'textureGather',
@@ -588,10 +588,10 @@ describe('a textureGather on an integer texture is listed under the float it rea
 declare const tex: ${texture};
 declare const smp: ${sampler};
 declare const out: storage<array<${elem}>, "read_write">;
-export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   const g = ${call};
   out[0] = g.x;
-});`;
+}`;
 
   const service = createTypeshadeLanguageService();
   let opened = 0;
@@ -661,10 +661,10 @@ function pick(uv: vec2): u32 {
   return textureGather(1, ids, smp, uv).y;
 }
 
-export const fs = fragment(function fs(uv: location<0, vec2>): Color {
+@fragment export function fs(uv: location<0, vec2>): Color {
   const c: vec4 = textureGather(0, colors, smp, uv);
   return { color: c * f32(pick(uv)) };
-});`);
+}`);
     // The helper is declared first, so it is named first; the fragment stage lists too.
     expect(r.determinism).toEqual([row('textureGather', 2, ['pick', 'fs'])]);
   });
@@ -675,10 +675,10 @@ export const fs = fragment(function fs(uv: location<0, vec2>): Color {
     const r = moduleOf(`"use typeshade";
 declare const ids: texture_2d<u32>;
 declare const out: storage<array<u32>, "read_write">;
-export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   const t = textureLoad(ids, vec2i(0, 0), 0);
   out[0] = (t.x / 3) % 5 + dot(t.xy, vec2u(3, 4)) + u32(f32(t.z) * 0.5);
-});`);
+}`);
     expect(r.determinism).toEqual([]);
   });
 
@@ -690,9 +690,9 @@ export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation
 declare const tex: texture_2d<u32>;
 declare const smp: sampler_comparison;
 declare const out: storage<array<f32>, "read_write">;
-export const cs = compute([1, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   out[0] = textureGatherCompare(tex, smp, vec2(0.5, 0.5), 0.5).x;
-});`;
+}`;
     const text =
       'textureGatherCompare compares against a depth texture; "texture_2d<u32>" is a sampled colour texture with no depth to compare. textureGather reads its channels.';
     expect(
@@ -720,9 +720,9 @@ function a(x: f32): f32 {
 function b(x: f32): f32 {
   return x - x;
 }
-export const fs = fragment(function fs(p: builtin<"position", vec4f>): vec4f {
+@fragment export function fs(p: builtin<"position", vec4f>): vec4f {
   return vec4f(a(p.x), b(p.y), 0., 1.);
-});
+}
 `,
       { fileName: 'c.shade.ts' },
     );

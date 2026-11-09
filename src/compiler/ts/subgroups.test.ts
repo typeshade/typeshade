@@ -40,7 +40,7 @@ interface V {
 `;
 
 /** Every subgroup function once, in a fragment entry, with the two fragment built-in values. */
-const EVERY = `${HEAD}export const fs = fragment(function fs(v: V, lane: builtin<"subgroup_invocation_id", u32>, size: builtin<"subgroup_size", u32>): vec4 {
+const EVERY = `${HEAD}@fragment export function fs(v: V, lane: builtin<"subgroup_invocation_id", u32>, size: builtin<"subgroup_size", u32>): vec4 {
   const x = v.uv.x;
   const u = u32(x * 8.);
   const a = subgroupAdd(x) + subgroupMul(x) + subgroupMin(x) + subgroupMax(x);
@@ -51,7 +51,7 @@ const EVERY = `${HEAD}export const fs = fragment(function fs(v: V, lane: builtin
   const ballot = subgroupBallot(x > 0.5);
   const votes = select(0., 1., subgroupAll(x > 0.)) + select(0., 1., subgroupAny(x > 2.)) + select(0., 1., subgroupElect());
   return vec4(a + f32(b) + c + d + e.x, f32(ballot.x), votes, f32(size + lane));
-});
+}
 `;
 
 const editorErrors = (source: string): string[] => {
@@ -101,12 +101,12 @@ describe('WGSL: the calls, behind the directive the use derives (§50)', () => {
   const source = `"use typeshade";
 declare const src: storage<array<u32>>;
 declare const bins: storage<array<atomic<u32>>, "read_write">;
-export const cs = compute([64], function cs(gid: builtin<"global_invocation_id", vec3u>, sg: builtin<"subgroup_id", u32>, n: builtin<"num_subgroups", u32>): void {
+@compute([64]) export function cs(gid: builtin<"global_invocation_id", vec3u>, sg: builtin<"subgroup_id", u32>, n: builtin<"num_subgroups", u32>): void {
   const v = subgroupAdd(src[gid.x]);
   if (subgroupElect()) {
     atomicAdd(bins[sg % n], v);
   }
-});
+}
 `;
   it('emits enable subgroups;, the calls as WGSL spells them, and a u32 lane', () => {
     const c = compile(source);
@@ -162,14 +162,14 @@ describe('GLSL ES 3.00 and the CPU oracle: a subgroup of one invocation (Rule 11
     // `autoVars` materialises an assigned binding by the identity of its expressions, after this
     // rewrite; a clone of an untouched expression would orphan every later read (the GLSL would
     // read the initializer forever).
-    const c = compile(`${HEAD}export const fs = fragment(function fs(v: V): vec4 {
+    const c = compile(`${HEAD}@fragment export function fs(v: V): vec4 {
   let acc = vec2(-1., -1.);
   if (v.uv.x > 0.5) {
     acc = vec2(3., -1.);
   }
   const sum = subgroupAdd(acc.x);
   return vec4(acc, sum, 1.);
-});
+}
 `);
     const glsl = emitGlslModule(c.module, 'fragment');
     expect(glsl).toContain('acc = vec2(3.0, -1.0);');
@@ -188,9 +188,9 @@ describe('GLSL ES 3.00 and the CPU oracle: a subgroup of one invocation (Rule 11
     expect(out[3]).toBe(1);
     const compute = compile(`"use typeshade";
 declare const out: storage<array<u32>, "read_write">;
-export const cs = compute([8, 2, 1], function cs(i: builtin<"local_invocation_index", u32>, sg: builtin<"subgroup_id", u32>, n: builtin<"num_subgroups", u32>, lane: builtin<"subgroup_invocation_id", u32>, size: builtin<"subgroup_size", u32>): void {
+@compute([8, 2, 1]) export function cs(i: builtin<"local_invocation_index", u32>, sg: builtin<"subgroup_id", u32>, n: builtin<"num_subgroups", u32>, lane: builtin<"subgroup_invocation_id", u32>, size: builtin<"subgroup_size", u32>): void {
   out[i] = sg * 1000 + n * 100 + lane * 10 + size;
-});
+}
 `);
     const cmc = compileModule(compute.module, { precision: 'f32' });
     const words = new Array<number>(16).fill(0);
@@ -273,11 +273,10 @@ describe('the refusals the front end states (Rule 12.6)', () => {
   });
 
   it('a vertex entry, which has no subgroup to fold', () => {
-    const errors =
-      errorsOf(`${HEAD}export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): V {
+    const errors = errorsOf(`${HEAD}@vertex export function vs(i: builtin<"vertex_index", u32>): V {
   const s = subgroupAdd(f32(i));
   return { pos: vec4(s), uv: vec2(0., 0.) };
-});`);
+}`);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain(
       'WGSL allows a subgroup built-in function in a fragment or compute stage only.',
@@ -286,11 +285,11 @@ describe('the refusals the front end states (Rule 12.6)', () => {
 
   it('a call reached under a value the invocations do not share (§54), and not under a uniform', () => {
     const under =
-      errorsOf(`${HEAD}export const cs = compute([64], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+      errorsOf(`${HEAD}@compute([64]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x > 4) {
     const s = subgroupAdd(f32(gid.x));
   }
-});`);
+}`);
     expect(under).toHaveLength(1);
     expect(under[0]).toContain(
       'subgroupAdd() is reached under "gid" (@builtin(global_invocation_id)), and every invocation of the subgroup has to reach it together',
@@ -298,17 +297,17 @@ describe('the refusals the front end states (Rule 12.6)', () => {
     expect(
       errorsOf(`${HEAD}class U { k: f32; }
 declare const u: uniform<U>;
-export const cs = compute([64], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   if (u.k > 0.5) {
     const s = subgroupAdd(f32(gid.x));
   }
-});`),
+}`),
     ).toEqual([]);
   });
 
   it('the compute-only built-in values on a fragment entry', () => {
     const errors = errorsOf(
-      `${HEAD}export const fs = fragment(function fs(v: V, s: builtin<"subgroup_id", u32>): vec4 { return vec4(f32(s)); });`,
+      `${HEAD}@fragment export function fs(v: V, s: builtin<"subgroup_id", u32>): vec4 { return vec4(f32(s)); }`,
     );
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('subgroup_id');

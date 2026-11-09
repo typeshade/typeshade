@@ -847,9 +847,9 @@ export function run(k: f32): f32 {
 });
 
 describe('a function handed over that reads a variable whose declaration was refused (Rule 12.4, #967)', () => {
-  /** `body` with an entry that calls `run(2.)`, written as a stage call. */
+  /** `body` with an entry that calls `run(2.)`, written with its stage attribute. */
   const STAGED = (body: string): string =>
-    `"use typeshade";\n${body}\nexport const fs = fragment(function fs(): vec4 {\n  return vec4(run(2.), 0., 0., 1.);\n});\n`;
+    `"use typeshade";\n${body}\n@fragment export function fs(): vec4 {\n  return vec4(run(2.), 0., 0., 1.);\n}\n`;
   /** The shape of #967, now refused for an actual range error: 0123 permits its original value. */
   const DOUBLE = `const TAU_DOUBLE: f64 = f64(1e38) * 4;\n`;
   const REFUSED = `${TS_CODES.TYPE_MISMATCH} Module const "TAU_DOUBLE" is f64, but its value cannot be represented by two finite f32 words. Use a finite value within the emulated double's f32 range.`;
@@ -1074,9 +1074,9 @@ export function run(k: f32): f32 {
   const hit = xs.some((x) => x > k) || !xs.some((x) => x < 0.);
   return fold3((a, b) => a * b, k, 3., 4.) + s + z.reduce((a, b) => a + b) + min(xs) + max(xs) + (hit ? 1. : 0.);
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(run(2.), 0., 0., 1.);
-});
+}
 `,
     );
     expect(

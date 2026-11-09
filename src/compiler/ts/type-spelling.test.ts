@@ -122,7 +122,7 @@ describe('a message names a class by the name the author gave it', () => {
         [
           'class In { p: location<0, vec3> = vec3(0.); }',
           'class VO { pos: builtin<"position", vec4> = vec4(0.); b: location<0, In> = new In(); }',
-          'export const vs = vertex(function vs(): VO { return new VO(); });',
+          '@vertex export function vs(): VO { return new VO(); }',
         ].join('\n'),
       ),
     ).toEqual([
@@ -191,7 +191,7 @@ describe('a message names a vector, a matrix and an array as the author writes t
       said(
         [
           'declare const tex: texture_storage_2d<"rgba8unorm", "write">;',
-          'export const main = compute([1, 1, 1], function main() { textureStore(tex, vec3i(0, 0, 0), vec4(1.)); });',
+          '@compute([1, 1, 1]) export function main() { textureStore(tex, vec3i(0, 0, 0), vec4(1.)); }',
         ].join('\n'),
       ),
     ).toEqual([
@@ -262,10 +262,10 @@ describe('a message names a class in a namespace, and a generic one, as written'
     '"use typeshade";',
     'namespace N {',
     '  export class P { x: f32 = 0.; }',
-    '  export class Pair<T> { v!: T; constructor(v: T) { this.v = v; } }',
+    '  export class Pair<T> { v: T; constructor(v: T) { this.v = v; } }',
     '}',
     'namespace A.B { export class Q { x: f32 = 0.; } }',
-    'class Slot<T> { v!: T; constructor(v: T) { this.v = v; } }',
+    'class Slot<T> { v: T; constructor(v: T) { this.v = v; } }',
     '',
   ].join('\n');
   const saidOf = (body: string): string[] =>
@@ -310,7 +310,7 @@ describe('a message names a class in a namespace, and a generic one, as written'
           'namespace S {',
           '  export class VOut { pos: builtin<"position", vec4> = vec4(0.); uv: vec2 = vec2(0.); }',
           '}',
-          'export const vs = vertex(function vs(): S.VOut { return new S.VOut(); });',
+          '@vertex export function vs(): S.VOut { return new S.VOut(); }',
           '',
         ].join('\n'),
       ).diagnostics.map((d) => `${d.code} ${d.message}`),
@@ -353,7 +353,7 @@ describe('the messages round one left on the key', () => {
         [
           'declare const dt: texture_depth_2d;',
           'declare const smp: sampler;',
-          `export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 { return ${call}; });`,
+          `@fragment export function fs(p: builtin<"position", vec4>): vec4 { return ${call}; }`,
         ].join('\n'),
       );
     expect(fragment('vec4(textureSampleCompare(dt, p.xy, p.xy, 0.5))')).toEqual([
@@ -373,8 +373,8 @@ describe('the messages round one left on the key', () => {
         [
           out,
           'class FIn { uv: location<0, vec2> = vec2(0.); }',
-          `export const vs = vertex(function vs(): ${vs} { return new ${vs}(); });`,
-          'export const fs = fragment(function fs(i: FIn): vec4 { return vec4(i.uv, 0., 1.); });',
+          `@vertex export function vs(): ${vs} { return new ${vs}(); }`,
+          '@fragment export function fs(i: FIn): vec4 { return vec4(i.uv, 0., 1.); }',
         ].join('\n'),
       );
     const vout = '{ pos: builtin<"position", vec4> = vec4(0.); uv: location<0, vec3> = vec3(0.); }';
@@ -404,10 +404,10 @@ describe('the messages round one left on the key', () => {
       said(
         [
           'declare const at: storage<array<atomic<u32>>, "read_write">;',
-          'export const cs = compute([1, 1, 1], function cs(): void {',
+          '@compute([1, 1, 1]) export function cs(): void {',
           '  const r = atomicCompareExchangeWeak(at[0], u32(0), u32(1));',
           '  if (r) { return; }',
-          '});',
+          '}',
         ].join('\n'),
       ),
     ).toEqual(['TS8003 if condition must be bool, got { old_value: u32; exchanged: bool }.']);
@@ -420,7 +420,7 @@ describe('the messages round one left on the key', () => {
       const messages = said(
         [
           'declare const vh: storage<array<vec2h>, "read_write">;',
-          `export const cs = compute([1, 1, 1], function cs(): void { const y = ${read}; });`,
+          `@compute([1, 1, 1]) export function cs(): void { const y = ${read}; }`,
         ].join('\n'),
       );
       expect(messages).toEqual(['TS8002 Unknown type "vec2h". Did you mean "vec2"?']);
@@ -435,7 +435,7 @@ describe('a class named while the structs are collected, and a sentence about a 
     '  export class P { x: f32 = 0.; y: f32 = 0.; }',
     '  export class In { p: vec3 = vec3(0.); }',
     '}',
-    'class Slot<T> { v!: T; constructor(v: T) { this.v = v; } }',
+    'class Slot<T> { v: T; constructor(v: T) { this.v = v; } }',
     '',
   ].join('\n');
   const saidOf = (body: string): string[] =>
@@ -471,7 +471,7 @@ describe('a class named while the structs are collected, and a sentence about a 
           '  b: location<0, N.In> = new N.In();',
           '  c: location<1, Slot<f32>> = new Slot<f32>(1.);',
           '}',
-          'export const vs = vertex(function vs(): VO { return new VO(); });',
+          '@vertex export function vs(): VO { return new VO(); }',
         ].join('\n'),
       ),
     ).toEqual([
@@ -485,7 +485,7 @@ describe('a class named while the structs are collected, and a sentence about a 
       saidOf(
         [
           'class VO { pos: builtin<"position", N.In> = new N.In(); }',
-          'export const vs = vertex(function vs(): VO { return new VO(); });',
+          '@vertex export function vs(): VO { return new VO(); }',
         ].join('\n'),
       ),
     ).toEqual(['TS8003 Builtin "position" is "vec4"; this declares it "N.In".']);
@@ -505,7 +505,7 @@ describe('a class named while the structs are collected, and a sentence about a 
       saidOf(
         [
           'namespace S { export class VOut { uv: location<0, vec2> = vec2(0.); } }',
-          'export const vs = vertex(function vs(): S.VOut { return new S.VOut(); });',
+          '@vertex export function vs(): S.VOut { return new S.VOut(); }',
         ].join('\n'),
       ),
     ).toEqual([
@@ -531,7 +531,7 @@ describe('a class named while the structs are collected, and a sentence about a 
         ].join('\n'),
       ).diagnostics.map((d) => `${d.code} ${d.message}`),
     ).toEqual(['TS8035 "N.P.m" is static, so a value of N.P does not have it.']);
-    const box = 'class Box<T> { #h: f32 = 0.; v!: T; constructor(v: T) { this.v = v; } }';
+    const box = 'class Box<T> { #h: f32 = 0.; v: T; constructor(v: T) { this.v = v; } }';
     expect(
       saidOf(`${box}\nexport function k(): f32 { const b: Box<f32> = { v: 1. }; return b.v; }`),
     ).toEqual([
@@ -546,7 +546,7 @@ describe('a class named while the structs are collected, and a sentence about a 
     expect(
       saidOf(
         [
-          'class Two<T> { #v: f32 = 0.; w!: T; constructor(w: T) { this.w = w; } }',
+          'class Two<T> { #v: f32 = 0.; w: T; constructor(w: T) { this.w = w; } }',
           'class D extends Two<f32> { #v: f32 = 1.; }',
           'export function k(d: D): f32 { return d.w; }',
         ].join('\n'),
@@ -568,12 +568,12 @@ describe('a class named while the structs are collected, and a sentence about a 
           '    uv: location<0, vec2> = vec2(0.);',
           '    c: location<0, vec2> = vec2(0.);',
           '  }',
-          '  export class L { xs!: array<f32>; n: u32 = 0; }',
+          '  export class L { xs: array<f32>; n: u32 = 0; }',
           '}',
           'declare const b: storage<S.L, "read_write">;',
           'export function k(e: S.E): f32 { return 1.; }',
-          'export const vs = vertex(function vs(): S.VOut { return new S.VOut(); });',
-          'export const cs = compute([1, 1, 1], function cs(): void { b.n = 1; });',
+          '@vertex export function vs(): S.VOut { return new S.VOut(); }',
+          '@compute([1, 1, 1]) export function cs(): void { b.n = 1; }',
         ].join('\n'),
       ),
     ).toEqual([
@@ -588,7 +588,7 @@ describe('a class named while the structs are collected, and a sentence about a 
           '"use typeshade";',
           '"enable dual_source_blending";',
           'namespace S { export class FOut { c: location<0, vec4, { blend_src: 0 }> = vec4(0.); } }',
-          'export const fs = fragment(function fs(): S.FOut { return new S.FOut(); });',
+          '@fragment export function fs(): S.FOut { return new S.FOut(); }',
           '',
         ].join('\n'),
       ).diagnostics.map((d) => `${d.code} ${d.message}`),
@@ -616,7 +616,7 @@ describe('a class named while the structs are collected, and a sentence about a 
       return compiled;
     };
     const slot = (members: string): string =>
-      `class Slot<T> { v!: T; ${members} constructor(v: T) { this.v = v; } }`;
+      `class Slot<T> { v: T; ${members} constructor(v: T) { this.v = v; } }`;
     // A second constructor is said once where the class is written, whatever instantiates it
     // (memberShapeSentences), so it names the class as its declaration writes it.
     expect(one(slot('constructor() {}'), 's: Slot<f32>')).toEqual([
@@ -710,7 +710,7 @@ describe('a class named while the structs are collected, and a sentence about a 
       'b.ts TS8003 Function "f1" return type mismatch: declared f32, got N.P.',
     ]);
     expect(
-      twice('class Slot<T> { v!: T; constructor(v: T) { this.v = v; } }', 's: Slot<f32>', 's'),
+      twice('class Slot<T> { v: T; constructor(v: T) { this.v = v; } }', 's: Slot<f32>', 's'),
     ).toEqual(['b.ts TS8003 Function "f1" return type mismatch: declared f32, got Slot<f32>.']);
   });
 
@@ -721,13 +721,13 @@ describe('a class named while the structs are collected, and a sentence about a 
       'declare const mnd: storage<mat2x3<f64>, "read_write">;',
       'declare const vh: storage<array<vec2h>, "read_write">;',
       'declare const o: storage<array<f32>, "read_write">;',
-      'export const cs = compute([1, 1, 1], function cs(): void {',
+      '@compute([1, 1, 1]) export function cs(): void {',
       '  mnd = mat2x3();',
       '  mnd *= 2.;',
       '  vh++;',
       '  let m = mnd;',
       '  o[0] = f32(m[0].x);',
-      '});',
+      '}',
     ].join('\n');
     const expected = [
       // Document order, the editor's (Rule 12.7): `mnd` is declared above `vh`.
@@ -766,11 +766,7 @@ describe('a class named while the structs are collected, and a sentence about a 
       ['const g = () => vh[0].x;', 'o[0] = g();'],
       ['class K { w: f32 = 0.; get() { return vh[0].x; } }', 'o[0] = new K().get() + 1.;'],
     ] as const) {
-      const lines = [
-        bindings,
-        body,
-        `export const cs = compute([1, 1, 1], function cs(): void { ${call} });`,
-      ];
+      const lines = [bindings, body, `@compute([1, 1, 1]) export function cs(): void { ${call} }`];
       expect(said(lines.join('\n'))).toEqual([vec2h, mat2x3]);
       // The editor's list is the compiler's (Rule 12.7). TypeScript's own TS2315 on
       // `mat2x3<f64>` is not this file's to judge.
@@ -789,7 +785,7 @@ describe('a class named while the structs are collected, and a sentence about a 
     // `Slot.m` is the class's, not the instance's, and was "Slot<f32>" has no method "m". The
     // call it names compiles; `Slot<f32>.m()` would be TS1477.
     const slot =
-      'class Slot<T> { v!: T; constructor(v: T) { this.v = v; } static m(): f32 { return 1.; } }';
+      'class Slot<T> { v: T; constructor(v: T) { this.v = v; } static m(): f32 { return 1.; } }';
     const source = (body: string): string =>
       `"use typeshade";\n${slot}\nexport function k(s: Slot<f32>): f32 { return ${body}; }\n`;
     expect(compile(source('s.m()')).diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
@@ -811,7 +807,7 @@ describe('a class named while the structs are collected, and a sentence about a 
           'const L: Slot<f32> = sin(1.);',
           'const M: vec3u = sin(1.);',
           'const Q: mat3x3<f64> = sin(1.);',
-          'class Slot<T> { v!: T; constructor(v: T) { this.v = v; } }',
+          'class Slot<T> { v: T; constructor(v: T) { this.v = v; } }',
           'export function k(): f32 { return 1.; }',
         ].join('\n'),
       ),

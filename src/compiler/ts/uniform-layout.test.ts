@@ -43,7 +43,7 @@ function diagnose(source: string): { code?: string; message: string } {
 
 const SCALAR_ARRAY = `interface U { xs: array<f32, 4>; k: f32 }
 declare const U_: uniform<U>
-export const fs = fragment(function fs(): vec4 { return vec4(U_.xs[1] * U_.k) });`;
+@fragment export function fs(): vec4 { return vec4(U_.xs[1] * U_.k) }`;
 
 describe('a uniform array is padded to a 16-byte element stride', () => {
   it('pads a scalar array in a uniform to stride 16 and reflect() agrees', () => {
@@ -70,7 +70,7 @@ describe('a uniform array is padded to a 16-byte element stride', () => {
     // Chromium 141's own layout note, which is what reflect has always said.
     const c = compiled(`interface U { k: f32; xs: array<f32, 3> }
 declare const U_: uniform<U>
-export const fs = fragment(function fs(): vec4 { return vec4(U_.k * U_.xs[2]) });`);
+@fragment export function fs(): vec4 { return vec4(U_.k * U_.xs[2]) }`);
     expect(c.wgsl).toContain('@align(16) xs: array<_Pad16_f32, 3>,');
     const u = reflect(c.module).uniforms[0]!;
     expect(u.fields.map((f) => [f.name, f.offset])).toEqual([
@@ -90,7 +90,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(U_.k * U_.xs[2]) })
     const flat = compiled(`interface P { a: f32; b: f32 }
 interface U { ps: array<P, 3>; k: f32 }
 declare const U_: uniform<U>
-export const fs = fragment(function fs(): vec4 { return vec4(U_.ps[1].a * U_.k) });`);
+@fragment export function fs(): vec4 { return vec4(U_.ps[1].a * U_.k) }`);
     expect(flat.wgsl).toContain('@size(16) v: P,');
     expect(flat.wgsl).toContain('@align(16) ps: array<_Pad16_struct_P, 3>,');
     expect(flat.wgsl).toContain('U_.ps[1].v.a');
@@ -103,7 +103,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(U_.ps[1].a * U_.k) 
     const nested = compiled(`interface Item { xs: array<f32, 2>; n: f32 }
 interface U { items: array<Item, 2>; k: f32 }
 declare const U_: uniform<U>
-export const fs = fragment(function fs(): vec4 { return vec4(U_.items[1].xs[0] * U_.k) });`);
+@fragment export function fs(): vec4 { return vec4(U_.items[1].xs[0] * U_.k) }`);
     expect(nested.wgsl).toContain('items: array<Item, 2>,');
     expect(nested.wgsl).not.toContain('_Pad16_struct_Item');
     expect(nested.wgsl).toContain('@align(16) xs: array<_Pad16_f32, 2>,');
@@ -124,7 +124,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(U_.items[1].xs[0] *
     const c = compiled(`interface P { a: f32; b: f32; c: f32; d: f32 }
 interface U { k: f32; ps: array<P, 2> }
 declare const U_: uniform<U>
-export const fs = fragment(function fs(): vec4 { return vec4(U_.k * U_.ps[1].a) });`);
+@fragment export function fs(): vec4 { return vec4(U_.k * U_.ps[1].a) }`);
     expect(c.wgsl).toContain('@align(16) ps: array<P, 2>,');
     expect(c.wgsl).not.toContain('_Pad16');
     const u = reflect(c.module).uniforms[0]!;
@@ -144,7 +144,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(U_.k * U_.ps[1].a) 
     const c = compiled(`interface In { a: f32 }
 interface U { k: f32; inner: In; w: f32 }
 declare const U_: uniform<U>
-export const fs = fragment(function fs(): vec4 { return vec4(U_.k + U_.inner.a + U_.w) });`);
+@fragment export function fs(): vec4 { return vec4(U_.k + U_.inner.a + U_.w) }`);
     expect(c.wgsl).toContain('@align(16) @size(16) inner: In,');
     const u = reflect(c.module).uniforms[0]!;
     expect(u.fields.map((f) => [f.name, f.offset])).toEqual([
@@ -160,7 +160,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(U_.k + U_.inner.a +
     const c = compiled(`interface Affine { k: f64; shift: vec2f64 }
 declare const A: uniform<Affine>
 declare const out: storage<array<f64>, "read_write">
-export const m = compute([1], function m() { out[0] = A.k + A.shift.x });`);
+@compute([1]) export function m() { out[0] = A.k + A.shift.x }`);
     expect(c.wgsl).toContain('@align(16) shift: DF64Vec2,');
     const u = reflect(c.module).uniforms[0]!;
     expect(u.fields.map((f) => [f.name, f.offset])).toEqual([
@@ -177,7 +177,7 @@ interface In { a: f32 }
 interface U { k: f32; inner: In }
 declare const U_: uniform<U>;
 declare const S: storage<U, "read_write">;
-export const m = compute([1], function m() { S.k = U_.k + U_.inner.a; });`);
+@compute([1]) export function m() { S.k = U_.k + U_.inner.a; }`);
     expect(c.wgsl).toBeUndefined();
     expect(c.diagnostics.map((d) => [d.code, d.message])).toEqual([
       [
@@ -196,7 +196,7 @@ export const m = compute([1], function m() { S.k = U_.k + U_.inner.a; });`);
     const c = compiled(`interface Q { a: vec2 }
 interface U { qs: array<Q, 2>; k: f32 }
 declare const U_: uniform<U>
-export const fs = fragment(function fs(): vec4 { return vec4(U_.qs[1].a.x * U_.k) });`);
+@fragment export function fs(): vec4 { return vec4(U_.qs[1].a.x * U_.k) }`);
     const wgsl = c.wgsl!;
     expect(wgsl).toContain('@size(16) v: Q,');
     expect(wgsl.indexOf('struct Q {')).toBeLessThan(wgsl.indexOf('struct _Pad16_struct_Q {'));
@@ -235,7 +235,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(U_.qs[1].a.x * U_.k
     // everything in sight.
     const c = compiled(`interface U { ws: array<vec2, 3>; vs: array<vec4, 2> }
 declare const U_: uniform<U>
-export const fs = fragment(function fs(): vec4 { return U_.vs[1] * U_.ws[2].x });`);
+@fragment export function fs(): vec4 { return U_.vs[1] * U_.ws[2].x }`);
     expect(c.wgsl).toContain('struct _Pad16_vec2_f32_ {\n  @size(16) v: vec2<f32>,\n}');
     expect(c.wgsl).toContain('@align(16) ws: array<_Pad16_vec2_f32_, 3>,');
     // A vec4 is already 16-aligned, so its array carries no wrapper AND no `@align`: the
@@ -253,7 +253,7 @@ export const fs = fragment(function fs(): vec4 { return U_.vs[1] * U_.ws[2].x })
     // host packs for no reason. The rule is the uniform address space's alone.
     const c = compiled(`interface S { xs: array<f32, 4> }
 declare const S_: storage<S>
-export const fs = fragment(function fs(): vec4 { return vec4(S_.xs[1]) });`);
+@fragment export function fs(): vec4 { return vec4(S_.xs[1]) }`);
     expect(c.wgsl).toContain('xs: array<f32, 4>,');
     expect(c.wgsl).not.toContain('_Pad16');
     expect(reflect(c.module).storage[0]!.size).toBe(16);
@@ -262,7 +262,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(S_.xs[1]) });`);
   it('leaves a uniform with no array byte-identical', () => {
     const c = compiled(`interface U { k: f32; v: vec4 }
 declare const U_: uniform<U>
-export const fs = fragment(function fs(): vec4 { return U_.v * U_.k });`);
+@fragment export function fs(): vec4 { return U_.v * U_.k }`);
     expect(c.wgsl).not.toContain('_Pad16');
     expect(c.wgsl).toContain('struct U {\n  k: f32,\n  v: vec4<f32>,\n}');
   });
@@ -284,17 +284,17 @@ declare const U_: uniform<U>`;
   it.each([
     [
       'an alias',
-      `export const fs = fragment(function fs(): vec4 { const w = U_.xs; return vec4(w[1] * U_.k) });`,
+      `@fragment export function fs(): vec4 { const w = U_.xs; return vec4(w[1] * U_.k) }`,
     ],
     [
       'a helper argument',
       `export function pick(a: array<f32, 4>): f32 { return a[2] }
-export const fs = fragment(function fs(): vec4 { return vec4(pick(U_.xs) * U_.k) });`,
+@fragment export function fs(): vec4 { return vec4(pick(U_.xs) * U_.k) }`,
     ],
     [
       'a helper return',
       `export function grab(): array<f32, 4> { return U_.xs }
-export const fs = fragment(function fs(): vec4 { return vec4(grab()[1] * U_.k) });`,
+@fragment export function fs(): vec4 { return vec4(grab()[1] * U_.k) }`,
     ],
   ])('materialises the array where it is used as a value: %s', (_what, body) => {
     // The member's ELEMENT type changed, so the padded array must not leak into a local, an
@@ -310,7 +310,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(grab()[1] * U_.k) }
     const c = compiled(`interface U { k: f32; xs: array<f32, 2> }
 declare const U_: uniform<U>
 export function mk(): U { return { k: 1., xs: [0., 1.] } }
-export const fs = fragment(function fs(): vec4 { return vec4(mk().xs[1] + U_.k) });`);
+@fragment export function fs(): vec4 { return vec4(mk().xs[1] + U_.k) }`);
     expect(c.wgsl).toContain('_Pad16_f32(');
     expect(c.wgsl).toContain('mk().xs[1].v');
   });
@@ -322,13 +322,13 @@ describe('what the padding cannot reach is refused, not emitted', () => {
       'a list of lists',
       `interface U { g: array<array<f32, 2>, 3> }
 declare const U_: uniform<U>
-export const fs = fragment(function fs(): vec4 { return vec4(U_.g[1][0]) });`,
+@fragment export function fs(): vec4 { return vec4(U_.g[1][0]) }`,
       /list of lists would need that at both levels/,
     ],
     [
       'a bare list as the whole uniform',
       `declare const U_: uniform<array<f32, 4>>
-export const fs = fragment(function fs(): vec4 { return vec4(U_[1]) });`,
+@fragment export function fs(): vec4 { return vec4(U_[1]) }`,
       /a bare list has no member to carry that/,
     ],
     [
@@ -336,7 +336,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(U_[1]) });`,
       `interface U { xs: array<f32, 4> }
 declare const A_: uniform<U>
 declare const B_: storage<U>
-export const fs = fragment(function fs(): vec4 { return vec4(A_.xs[1] + B_.xs[2]) });`,
+@fragment export function fs(): vec4 { return vec4(A_.xs[1] + B_.xs[2]) }`,
       /bound as a uniform AND as storage/,
     ],
   ])('refuses %s', (_what, source, match) => {
@@ -353,7 +353,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(A_.xs[1] + B_.xs[2]
     // A list of vec4 is already 16 bytes an element, bare or in a struct, so none of the
     // refusals above may fire for it — that is what keeps them from being a blanket ban.
     const bare = compiled(`declare const U_: uniform<array<vec4, 4>>
-export const fs = fragment(function fs(): vec4 { return U_[1] });`);
+@fragment export function fs(): vec4 { return U_[1] }`);
     expect(bare.wgsl).toContain('var<uniform> U_: array<vec4<f32>, 4>;');
     expect(bare.wgsl).not.toContain('_Pad16');
   });
@@ -365,7 +365,7 @@ describe('the rules a struct hides from the type map', () => {
       'a bool in a uniform struct',
       `interface U { flag: bool; k: f32 }
 declare const U_: uniform<U>
-export const fs = fragment(function fs(): vec4 { return vec4(U_.k) });`,
+@fragment export function fs(): vec4 { return vec4(U_.k) }`,
       TS_CODES.LAYOUT,
       '"U.flag" is a bool; a uniform struct holds numeric scalars only ' +
         "(WGSL's host-shareable rule). Use u32.",
@@ -374,9 +374,9 @@ export const fs = fragment(function fs(): vec4 { return vec4(U_.k) });`,
       'a bool in a storage struct',
       `interface S { flag: bool }
 declare const S_: storage<array<S>, "read_write">
-export const cs = compute([64], function cs(g: builtin<"global_invocation_id", vec3u>): void {
+@compute([64]) export function cs(g: builtin<"global_invocation_id", vec3u>): void {
   S_[g.x].flag = true
-});`,
+}`,
       TS_CODES.LAYOUT,
       '"S.flag" is a bool; a storage struct holds numeric scalars only ' +
         "(WGSL's host-shareable rule). Use u32.",
@@ -386,9 +386,9 @@ export const cs = compute([64], function cs(g: builtin<"global_invocation_id", v
     // space 'uniform' as it is non-host-shareable`. Only the scalar was refused here.
     [
       'a vector of bools in a uniform struct',
-      `class U { a!: f32; b!: vec3b }
+      `class U { a: f32; b: vec3b }
 declare const U_: uniform<U>
-export const fs = fragment(function fs(): vec4 { return vec4(U_.a) });`,
+@fragment export function fs(): vec4 { return vec4(U_.a) }`,
       TS_CODES.LAYOUT,
       '"U.b" is a vec3b; a uniform binding holds no bool, alone or in a vector ' +
         "(WGSL's host-shareable rule). Use vec3u.",
@@ -396,7 +396,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(U_.a) });`,
     [
       'a vector of bools as a runtime array element in storage',
       `declare const xs: storage<array<vec2b>>
-export const fs = fragment(function fs(): vec4 { return vec4(0.) });`,
+@fragment export function fs(): vec4 { return vec4(0.) }`,
       TS_CODES.LAYOUT,
       '"xs[]" is a vec2b; a storage binding holds no bool, alone or in a vector ' +
         "(WGSL's host-shareable rule). Use vec2u.",
@@ -404,7 +404,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(0.) });`,
     [
       'a vector of bools as the whole uniform',
       `declare const u: uniform<vec4b>
-export const fs = fragment(function fs(): vec4 { return vec4(0.) });`,
+@fragment export function fs(): vec4 { return vec4(0.) }`,
       TS_CODES.LAYOUT,
       '"u" is a vec4b; a uniform binding holds no bool, alone or in a vector ' +
         "(WGSL's host-shareable rule). Use vec4u.",
@@ -413,7 +413,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(0.) });`,
       'a runtime array that is not last',
       `interface S { xs: array<f32>; k: f32 }
 declare const S_: storage<S>
-export const fs = fragment(function fs(): vec4 { return vec4(S_.k) });`,
+@fragment export function fs(): vec4 { return vec4(S_.k) }`,
       TS_CODES.LAYOUT,
       '"S.xs" is a list of no fixed length and is not the last field of "S": nothing after ' +
         'it has an offset. Move it last, or give it a length.',
@@ -422,7 +422,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(S_.k) });`,
       'a runtime array in a uniform',
       `interface U { xs: array<f32> }
 declare const U_: uniform<U>
-export const fs = fragment(function fs(): vec4 { return vec4(U_.xs[0]) });`,
+@fragment export function fs(): vec4 { return vec4(U_.xs[0]) }`,
       TS_CODES.LAYOUT,
       '"U.xs" is a list of no fixed length, which a uniform cannot hold: a uniform buffer ' +
         'has one size. Give it a length, array<T, N>, or declare "U_" as storage<T>.',
@@ -431,7 +431,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(U_.xs[0]) });`,
       'an empty list',
       `interface U { xs: array<f32, 0> }
 declare const U_: uniform<U>
-export const fs = fragment(function fs(): vec4 { return vec4(U_.xs[0]) });`,
+@fragment export function fs(): vec4 { return vec4(U_.xs[0]) }`,
       TS_CODES.UNKNOWN_TYPE,
       "array<T, 0> is not a list. A list's length is a whole number of 1 or more; a list " +
         'whose length the shader does not know is array<T> in storage.',
@@ -448,21 +448,21 @@ export const fs = fragment(function fs(): vec4 { return vec4(U_.xs[0]) });`,
     const c = compiled(`interface S { k: f32; xs: array<f32> }
 declare const S_: storage<S>
 export function pick(on: bool): f32 { return on ? 1. : 0. }
-export const fs = fragment(function fs(): vec4 { const on = S_.k > 0.; return vec4(pick(on) * S_.xs[0]) });`);
+@fragment export function fs(): vec4 { const on = S_.k > 0.; return vec4(pick(on) * S_.xs[0]) }`);
     expect(c.wgsl).toContain('xs: array<f32>,');
   });
 
   it('keeps a vector of bools where it holds no host-shared byte, and its remedy', () => {
     // Workgroup memory, a module variable and a local are not host-shareable spaces, and the
     // vec3u the refusal names is what the binding holds instead.
-    const c = compiled(`class U { a!: f32; b!: vec3u }
+    const c = compiled(`class U { a: f32; b: vec3u }
 declare const U_: uniform<U>
 let seen: vec3b = vec3b(false)
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const m = vec3f(U_.a) > vec3f(0.)
   seen = m
   return vec4(select(0., 1., all(seen) && U_.b.x > 0))
-});`);
+}`);
     expect(c.wgsl).toContain('b: vec3<u32>,');
     expect(c.wgsl).toContain('var<private> seen: vec3<bool>');
   });
@@ -472,10 +472,10 @@ export const fs = fragment(function fs(): vec4 {
     service.openDocument(
       'a.ts',
       `"use typeshade";
-class U { a!: f32; b!: vec3b; }
+class U { a: f32; b: vec3b; }
 declare const U_: uniform<U>;
 declare const xs: storage<array<vec2b>>;
-export const fs = fragment(function fs(): vec4 { return vec4(U_.a); });`,
+@fragment export function fs(): vec4 { return vec4(U_.a); }`,
     );
     expect(service.getDiagnostics('a.ts').map((d) => [d.source, d.code, d.message])).toEqual([
       [
@@ -501,16 +501,16 @@ describe('the padding and the matrix layout rule compose (#149 × §51)', () => 
     // The leaf numbers come from `reflect.ts`'s own layout engine rather than a second copy,
     // which is what keeps this true after #149 rewrote that arm.
     const c = compiled(`class U {
-  count!: f32
-  weights!: array<f32, 3>
-  m!: mat3x3
-  n!: mat2x4
+  count: f32
+  weights: array<f32, 3>
+  m: mat3x3
+  n: mat2x4
 }
 declare const u: uniform<U>
-export const vs = vertex(function vs(): vec4 { return vec4(u.count, 0., 0., 1.) });
-export const fs = fragment(function fs(): vec4 {
+@vertex export function vs(): vec4 { return vec4(u.count, 0., 0., 1.) }
+@fragment export function fs(): vec4 {
   return vec4(u.weights[1] + u.m[0].x + u.n[0].x, 0., 0., 1.)
-});`);
+}`);
     expect(c.wgsl).toContain('@size(16) v: f32,');
     expect(c.wgsl).toContain('@align(16) weights: array<_Pad16_f32, 3>,');
     expect(c.wgsl).toContain('  m: mat3x3<f32>,');
@@ -522,10 +522,10 @@ export const fs = fragment(function fs(): vec4 {
   });
 
   it('leaves an ARRAY of matrices alone for the same reason', () => {
-    const c = compiled(`class U { ms!: array<mat3x4, 2> }
+    const c = compiled(`class U { ms: array<mat3x4, 2> }
 declare const u: uniform<U>
-export const vs = vertex(function vs(): vec4 { return vec4(u.ms[0][0].x, 0., 0., 1.) });
-export const fs = fragment(function fs(): vec4 { return vec4(u.ms[1][0].x, 0., 0., 1.) });`);
+@vertex export function vs(): vec4 { return vec4(u.ms[0][0].x, 0., 0., 1.) }
+@fragment export function fs(): vec4 { return vec4(u.ms[1][0].x, 0., 0., 1.) }`);
     expect(c.wgsl).toContain('ms: array<mat3x4<f32>, 2>,');
     expect(c.wgsl).not.toContain('_Pad16_');
   });
@@ -542,10 +542,10 @@ describe('a two-row matrix in a uniform is refused (Rule 4.8, surface §40)', ()
     `field and every field after it; carry it as mat${c}x4 (measured: both targets stride 16) ` +
     `or as ${c} vec2 fields.`;
   const RENDER = (field: string): string => `"use typeshade"
-class U { ${field}; k!: f32 }
+class U { ${field}; k: f32 }
 declare const u: uniform<U>
-export const vs = vertex(function vs(): vec4 { return vec4(u.k, 0., 0., 1.) });
-export const fs = fragment(function fs(): vec4 { return vec4(u.k, 0., 0., 1.) });`;
+@vertex export function vs(): vec4 { return vec4(u.k, 0., 0., 1.) }
+@fragment export function fs(): vec4 { return vec4(u.k, 0., 0., 1.) }`;
 
   it('refuses mat2x2, mat3x2, mat4x2 and mat2 with an error, and emits neither target', () => {
     for (const [field, cols] of [
@@ -572,7 +572,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(u.k, 0., 0., 1.) })
     );
     expect(
       diagnose(`declare const m: uniform<mat2x2>
-export const cs = compute([64], function cs() { let x = m[0].x; });`).message,
+@compute([64]) export function cs() { let x = m[0].x; }`).message,
     ).toBe(`"m" is in a uniform: ${REMEDY(2)}`);
   });
 
@@ -583,9 +583,9 @@ export const cs = compute([64], function cs() { let x = m[0].x; });`).message,
       expect(c.wgsl, field).toBeDefined();
     }
     const s = compile(`"use typeshade";
-class S { m!: mat2x2; }
+class S { m: mat2x2; }
 declare const s: storage<S, "read_write">;
-export const cs = compute([64], function cs() { s.m = mat2x2(1., 0., 0., 1.); });`);
+@compute([64]) export function cs() { s.m = mat2x2(1., 0., 0., 1.); }`);
     expect(s.diagnostics.filter((d) => d.code === TS_CODES.LAYOUT)).toEqual([]);
   });
 });

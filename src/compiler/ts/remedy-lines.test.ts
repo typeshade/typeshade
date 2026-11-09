@@ -163,9 +163,9 @@ const write = (decl: string, body: string): string =>
   `"use typeshade"
 interface Params { scale: f32 }
 ${decl}
-export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
   ${body}
-});
+}
 `;
 
 describe('the type a remedy spells is the one an author writes', () => {
@@ -304,9 +304,9 @@ class Acc {
   add(x: f32): void { this.total = this.total + x; }
 }
 declare const acc: storage<Acc>;
-export const k = compute([64, 1, 1], function k(): void {
+@compute([64, 1, 1]) export function k(): void {
   acc.add(1.);
-});
+}
 `,
     },
     {
@@ -392,9 +392,9 @@ export const k = compute([64, 1, 1], function k(): void {
       program: `"use typeshade";
 declare const tex: texture_2d<f32>;
 declare const smp: uniform<sampler>;
-export const f = fragment(function f(pos: builtin<"position", vec4>): vec4 {
+@fragment export function f(pos: builtin<"position", vec4>): vec4 {
   return textureSample(tex, smp, pos.xy);
-});
+}
 `,
     },
     {
@@ -402,9 +402,9 @@ export const f = fragment(function f(pos: builtin<"position", vec4>): vec4 {
       site: 'module-vars.ts lowerPlain',
       program: `"use typeshade";
 let src: storage<array<f32>>;
-export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
   let n = src[gid.x];
-});
+}
 `,
       names: 'declare const src: storage<array<f32>, "read_write">',
     },
@@ -419,9 +419,9 @@ export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_
       site: 'module-vars.ts lowerPlain, the access mode the keyword asked for',
       program: `"use typeshade";
 let dst: storage<array<f32>>;
-export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
   dst[gid.x] = 1.;
-});
+}
 `,
       names: 'declare const dst: storage<array<f32>, "read_write">',
     },
@@ -433,9 +433,9 @@ export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_
       site: 'module-vars.ts lowerPlain, quoting the author back',
       program: `"use typeshade";
 let src: storage<array<f32>, "read">;
-export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
   let n = src[gid.x];
-});
+}
 `,
       names: 'declare const src: storage<array<f32>, "read">',
     },
@@ -444,9 +444,9 @@ export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_
       site: 'module-vars.ts lowerPlain',
       program: `"use typeshade";
 let gain: uniform<f32>;
-export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
   let n = gain * 2.;
-});
+}
 `,
       names: 'declare const gain: uniform<f32>',
     },

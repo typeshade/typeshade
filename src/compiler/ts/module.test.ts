@@ -229,23 +229,23 @@ interface VsOut {
   uv: location<0, vec2>;
 }
 
-export const vs = vertex(function vs(p: location<0, vec2>): VsOut {
+@vertex export function vs(p: location<0, vec2>): VsOut {
   const o: VsOut = { pos: vec4(p, 0., 1.), uv: p * 0.5 + 0.5 };
   return o;
-});
+}
 `;
   const TEXTURE = `"use typeshade";
 declare const atlas: texture_2d<f32>;
 declare const smp: sampler;
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   return textureSample(atlas, smp, uv);
-});
+}
 `;
   const STORAGE = `"use typeshade";
 declare const heights: storage<array<f32>, "read_write">;
-export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   heights[gid.x] = 1.;
-});
+}
 `;
   const errors = (r: { diagnostics: readonly { category: string; message: string }[] }) =>
     r.diagnostics.filter((d) => d.category === 'error').map((d) => d.message);
@@ -296,10 +296,10 @@ export function make(p: vec2): VsOut {
           fileName: 'main.ts',
           source: `"use typeshade";
 import { make } from "./types";
-export const fs = fragment(function fs(p: location<0, vec2>): vec4 {
+@fragment export function fs(p: location<0, vec2>): vec4 {
   const o = make(p);
   return vec4(o.uv, 0., 1.);
-});
+}
 `,
         },
       ],
@@ -328,7 +328,7 @@ export function tap(uv: vec2): vec4 { return textureSample(atlas, smp, uv); }
 declare const lut: texture_2d<f32>;
 declare const smp2: sampler;
 import { tap } from "./a";
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 { return tap(uv) + textureSample(lut, smp2, uv); });
+@fragment export function fs(uv: location<0, vec2>): vec4 { return tap(uv) + textureSample(lut, smp2, uv); }
 `,
       },
     ]);

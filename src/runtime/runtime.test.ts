@@ -256,16 +256,16 @@ function fakeDevice(
 }
 
 const SCALE = `"use typeshade";
-class Params { scale!: f32; }
+class Params { scale: f32; }
 declare const params: uniform<Params>;
 declare const xs: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
-export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
   const i = gid.x;
   if (i >= xs.length) { return; }
   out[i] = xs[i] * params.scale;
   console.log("i", i);
-});
+}
 `;
 
 const DRAW = `"use typeshade";
@@ -273,8 +273,8 @@ interface VsIn { pos: location<0, vec2>; }
 interface VsOut { p: builtin<"position", vec4>; }
 interface Color { c: location<0, vec4>; }
 declare const tint: uniform<vec4>;
-export const vs = vertex(function vs(v: VsIn): VsOut { return { p: vec4(v.pos, 0., 1.) }; });
-export const fs = fragment(function fs(v: VsOut): Color { return { c: tint }; });
+@vertex export function vs(v: VsIn): VsOut { return { p: vec4(v.pos, 0., 1.) }; }
+@fragment export function fs(v: VsOut): Color { return { c: tint }; }
 `;
 
 /** A multisampled colour texture and its depth, loaded texel by texel, beside a texture a
@@ -285,13 +285,13 @@ declare const depthMs: texture_depth_multisampled_2d;
 declare const photo: texture_2d<f32>;
 declare const smp: sampler;
 interface Color { c: location<0, vec4>; }
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex export function vs(vi: builtin<"vertex_index", u32>): vec4 {
   return vec4(f32(vi), 0., 0., 1.);
-});
-export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+}
+@fragment export function fs(p: builtin<"position", vec4>): Color {
   const c: vec2i = vec2i(p.xy);
   return { c: textureLoad(msaa, c, 0) * textureLoad(depthMs, c, 0) + textureSample(photo, smp, p.xy) };
-});
+}
 `;
 
 /** A vertex entry and a fragment entry that logs the pixel's x: the console buffer is the fragment
@@ -299,24 +299,24 @@ export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
 const PIXELS = `"use typeshade";
 interface VsOut { p: builtin<"position", vec4>; }
 interface Color { c: location<0, vec4>; }
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   return { p: vec4(f32(vi), 0., 0., 1.) };
-});
-export const fs = fragment(function fs(v: VsOut): Color {
+}
+@fragment export function fs(v: VsOut): Color {
   console.log("at", v.p.x);
   return { c: vec4(1.) };
-});
+}
 `;
 
 /** A compute entry that makes two calls: a `console.log` and a `console.table`, which prints as
  *  two calls of the host's console and is one line. */
 const TABLES = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
   console.log("i", gid.x);
   console.table(vec2(1., 2.));
   out[gid.x] = 1.;
-});
+}
 `;
 
 /** One override of each type, read by a compute entry and by the stages of a render pair: the
@@ -332,25 +332,25 @@ declare const xs: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
 interface VsOut { p: builtin<"position", vec4>; }
 interface Color { c: location<0, vec4>; }
-export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
   const i = gid.x;
   if (i >= xs.length) { return; }
   out[i] = xs[i] * gain;
-});
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+}
+@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   return { p: vec4(f32(vi) * gain, 0., 0., 1.) };
-});
-export const fs = fragment(function fs(v: VsOut): Color {
+}
+@fragment export function fs(v: VsOut): Color {
   return { c: vec4(f32(rounds), f32(bins), dim ? 1. : 0., 1.) };
-});
+}
 `;
 
 const WORKGROUP_OVERRIDE = `"use typeshade";
 const WG_SIZE: override<u32> = 64;
 let scratch: workgroup<array<f32, WG_SIZE>>;
-export const main = compute([WG_SIZE], function main(lid: builtin<"local_invocation_index", u32>) {
+@compute([WG_SIZE]) export function main(lid: builtin<"local_invocation_index", u32>) {
   scratch[lid] = f32(lid);
-});
+}
 `;
 
 const manifest = (src: string, console = false) => {
@@ -819,19 +819,19 @@ declare const shadow: texture_depth_2d;
 declare const smp: sampler;
 declare const cmp: sampler_comparison;
 interface Color { c: location<0, vec4>; }
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex export function vs(vi: builtin<"vertex_index", u32>): vec4 {
   return vec4(f32(vi), 0., 0., 1.);
-});
-export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+}
+@fragment export function fs(p: builtin<"position", vec4>): Color {
   const at = vec2i(p.xy);
   const held = f32(textureLoad(ids, at, 0).x) + f32(textureLoad(deltas, at, 0).x);
   const lit = textureSampleCompare(shadow, cmp, p.xy, 0.5);
   return { c: textureLoad(level, at, 0) + textureLoad(msaa, at, 0) + textureSample(photo, smp, p.xy) + vec4(held + lit) };
-});
+}
 declare const sink: storage<array<f32>, "read_write">;
-export const probe = compute([64], function probe(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function probe(gid: builtin<"global_invocation_id", vec3u>) {
   sink[gid.x] = textureLoad(level, vec2i(gid.xy), 0).x;
-});
+}
 `;
 
 describe("a texture's sample type (change 0028 item 2, Rule 11.11)", () => {
@@ -1830,14 +1830,14 @@ describe('the load-time emitter as the runtime plug-in (change 0025 step 6, Rule
  *  of that emulation reads the `_fp64` guard, a binding the manifest lists, and the `'integer'`
  *  flavor reads none. It logs, so the recorded variant has a `_console` buffer beside the guard. */
 const DOUBLES = `"use typeshade";
-class Zoom { cx!: f64; scale!: f64; }
+class Zoom { cx: f64; scale: f64; }
 declare const zoom: uniform<Zoom>;
 declare const out: storage<array<f32>, "read_write">;
-export const main = compute([4], function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
   const x: f64 = zoom.cx + f64(f32(gid.x)) * zoom.scale;
   console.log("x", f32(x));
   out[gid.x] = f32(fract(x * 1000));
-});
+}
 `;
 
 describe('a program packed under emit options (change 0028 item 4, Rule 11.11)', () => {
@@ -2451,9 +2451,9 @@ describe('the WebGL2 tier of the program runtime (change 0054 decision 2, Rule 1
 declare const photo: texture_2d<f32>;
 declare const smp: sampler;
 declare const out: storage<array<f32>, "read_write">;
-export const main = compute([1], function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
   out[gid.x] = textureLoad(photo, vec2i(0), 0).x + textureSampleLevel(photo, smp, vec2f(0.5), 0.).y;
-});
+}
 `);
     const sampled = textured.gl?.computes?.['main'];
     expect(sampled !== undefined && !('none' in sampled) && sampled.textures).toEqual([
@@ -2462,9 +2462,9 @@ export const main = compute([1], function main(gid: builtin<"global_invocation_i
     // A storage texture is a memory root of the pass program (change 0054, fifth amendment).
     const stored = manifest(`"use typeshade";
 declare const img: texture_storage_2d<"r32float", "write">;
-export const main = compute([1], function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
   textureStore(img, vec2i(i32(gid.x), 0), vec4f(1.));
-});
+}
 `);
     const root = stored.gl?.computes?.['main'];
     expect(root !== undefined && !('none' in root) && root.storageTextures).toEqual([
@@ -2473,9 +2473,9 @@ export const main = compute([1], function main(gid: builtin<"global_invocation_i
     // One it writes that WebGL2 cannot render to: the call layer's words (`host-face.ts`, `glTier`).
     const snorm = manifest(`"use typeshade";
 declare const img: texture_storage_2d<"rgba8snorm", "write">;
-export const main = compute([1], function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
   textureStore(img, vec2i(i32(gid.x), 0), vec4f(1.));
-});
+}
 `);
     expect(snorm.gl?.computes?.['main']).toEqual({
       none: 'it reaches the texture_storage_2d<rgba8snorm, write> "img", whose format WebGL2 cannot render to',
@@ -2548,16 +2548,16 @@ export const main = compute([1], function main(gid: builtin<"global_invocation_i
     // Vertex pulling: a read-only storage array is a data texture the runtime uploads.
     const pulled = manifest(`"use typeshade";
 declare const verts: storage<array<vec4>>;
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 { return verts[vi]; });
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 { return vec4(1.); });
+@vertex export function vs(vi: builtin<"vertex_index", u32>): vec4 { return verts[vi]; }
+@fragment export function fs(p: builtin<"position", vec4>): vec4 { return vec4(1.); }
 `);
     const pv = pulled.gl?.vertices?.['vs'];
     expect(pv !== undefined && 'vertex' in pv && pv.data).toEqual(['verts']);
     // A storage array a fragment entry writes has no GLSL ES 3.00 form.
     const writes = manifest(`"use typeshade";
 declare const hits: storage<array<u32>, "read_write">;
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 { return vec4(0.); });
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 { hits[0] = u32(1); return vec4(1.); });
+@vertex export function vs(vi: builtin<"vertex_index", u32>): vec4 { return vec4(0.); }
+@fragment export function fs(p: builtin<"position", vec4>): vec4 { hits[0] = u32(1); return vec4(1.); }
 `);
     expect(writes.gl?.draws?.['fs']).toEqual({
       none: 'it reaches the storage binding "hits", and GLSL ES 3.00 has no storage buffer',
@@ -2570,9 +2570,9 @@ export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 { hit
       .load(
         manifest(`"use typeshade";
 declare const img: texture_storage_2d<"r32float", "write">;
-export const main = compute([1], function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
   textureStore(img, vec2i(i32(gid.x), 0), vec4f(1.));
-});
+}
 `),
       )
       .compute('main');
@@ -2623,9 +2623,9 @@ function wave(i: u32): f32 {
   const k: f64 = f64(f32(i));
   return f32(sin(k * 0.7853981633974483));
 }
-export const twiddle = compute([4], function twiddle(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function twiddle(gid: builtin<"global_invocation_id", vec3u>) {
   data[gid.x] = data[gid.x] + wave(gid.x);
-});
+}
 `);
     // The entry reaches the guard, which the host view gives no value and the host never passes.
     expect(packed.entries.find((e) => e.name === 'twiddle')?.bindings).toContainEqual({
@@ -2714,12 +2714,12 @@ export const twiddle = compute([4], function twiddle(gid: builtin<"global_invoca
 const FRAG_DEPTH = `"use typeshade";
 interface VsOut { p: builtin<"position", vec4>; }
 interface Depth { depth: builtin<"frag_depth", f32>; }
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   return { p: vec4(f32(vi), 0., 0., 1.) };
-});
-export const fs = fragment(function fs(v: VsOut): Depth {
+}
+@fragment export function fs(v: VsOut): Depth {
   return { depth: 0.5 };
-});
+}
 `;
 
 /** The message a call throws, or 'no refusal'. A refusal is a TypeError; a test asserts the whole. */
@@ -4493,8 +4493,8 @@ describe('attachments and the read-only checks on WebGPU (proposal 0064, PR-3)',
 interface VsOut { p: builtin<"position", vec4>; }
 interface Color { c: location<0, vec4>; }
 declare const photo: texture_2d<f32>;
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut { return { p: vec4(f32(vi), 0., 0., 1.) }; });
-export const fs = fragment(function fs(v: VsOut): Color { return { c: textureLoad(photo, vec2i(0), 0) }; });
+@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut { return { p: vec4(f32(vi), 0., 0., 1.) }; }
+@fragment export function fs(v: VsOut): Color { return { c: textureLoad(photo, vec2i(0), 0) }; }
 `;
     const sampled = await rt
       .load(manifest(SAMPLED))
@@ -4762,11 +4762,11 @@ describe('the device limits the runtime requests (change 0051)', () => {
     // The log makes the program one that records, so its recorded variant holds `_console`.
     return `"use typeshade";
 ${decls}
-export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
   const i = gid.x;
 ${writes}
   console.log("i", i);
-});
+}
 `;
   };
 

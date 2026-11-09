@@ -630,15 +630,15 @@ interface VsOut {
 interface Color {
   color: location<0, vec4>;
 }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
   const x = f32(i) * 0.25;
   return { pos: vec4(fract(x), sqrt(x), 0., 1.), uv: vec2(exp2(x), x) };
-});
-export const fs = fragment(function fs(v: VsOut): Color {
+}
+@fragment export function fs(v: VsOut): Color {
   const a = fract(v.uv.x) + sqrt(v.uv.y) + exp2(v.uv.x);
   const h = random(v.uv.x) + Math.sqrt(v.uv.y);
   return { color: vec4(a, h, f32(3), 1.) };
-});
+}
 `;
 
 /** `declared-names`, judged as an example is. */
@@ -747,21 +747,21 @@ const sumLines = (calls: readonly string[]): string =>
  *  modes, its texel formats, its atomics, textures and builtin functions. */
 const COMPUTE_SUBJECT = `"use typeshade";
 class Body {
-  at!: vec2;
-  vel!: vec2;
+  at: vec2;
+  vel: vec2;
   step(dt: f32): void {
     this.at = this.at + this.vel * dt;
   }
 }
 class Summary {
-  count!: atomic<u32>;
+  count: atomic<u32>;
 }
 class Params {
-  world!: mat4;
-  tint!: vec4;
-  scale!: f32;
-  steps!: i32;
-  flags!: u32;
+  world: mat4;
+  tint: vec4;
+  scale: f32;
+  steps: i32;
+  flags: u32;
 }
 declare const params: uniform<Params>;
 declare const src: storage<array<f32>>;
@@ -777,7 +777,7 @@ let calls: u32;
 function ${SUBJECT_FN}(x: f32): f32 {
   return x + 0.5;
 }
-export const main = compute([64, 1, 1], function main(
+@compute([64, 1, 1]) export function main(
   gid: builtin<"global_invocation_id", vec3u>,
   lid: builtin<"local_invocation_id", vec3u>,
 ): void {
@@ -803,7 +803,7 @@ export const main = compute([64, 1, 1], function main(
   total = total + f32(calls) + (flag ? 1. : 0.);
 ${sumLines([...FLOAT_CALLS, ...COMPUTE_CALLS])}
   dst[gid.x] = total;
-});
+}
 `;
 
 /** A vertex and a fragment entry written on what both targets have, so GLSL ES 3.00 has a program
@@ -821,19 +821,19 @@ interface VsOut {
 interface Color {
   color: location<0, vec4>;
 }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
   const x = f32(i) * 0.25;
   let s = ${SUBJECT_FN}(x);
   s = s + abs(x) + sin(x) + fract(x) + mix(x, 1., 0.5);
   return { pos: vec4(s, 0., 0., 1.), uv: vec2(x, x) };
-});
-export const fs = fragment(function fs(v: VsOut): Color {
+}
+@fragment export function fs(v: VsOut): Color {
   const x = v.uv.x;
   const y = v.uv.y;
   let total = ${SUBJECT_FN}(0.25);
 ${sumLines([...FLOAT_CALLS, ...GRAPHICS_CALLS])}
   return { color: vec4(total, total, total, 1.) };
-});
+}
 `;
 
 /** `m` with its function `from` named `to`, and every call through it (`declRef`) with it. A call
@@ -942,15 +942,15 @@ interface VsOut {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
 }
-export const ${vs} = vertex(function ${vs}(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function ${vs}(i: builtin<"vertex_index", u32>): VsOut {
   const x = f32(i) * 0.5;
 ${stage === 'vertex' ? '  if (i > u32(2)) {\n    return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };\n  }' : ''}
   return { pos: vec4(x, x, 0., 1.), uv: vec2(x, x) };
-});
-export const ${fs} = fragment(function ${fs}(uv: location<0, vec2>): vec4 {
+}
+@fragment export function ${fs}(uv: location<0, vec2>): vec4 {
 ${stage === 'fragment' ? '  if (uv.x > 0.5) {\n    return vec4(1., 0., 0., 1.);\n  }' : ''}
   return ${helper ? 'fs_impl(uv)' : 'vec4(0., 0., 1., 1.)'};
-});
+}
 `;
 };
 
@@ -1041,10 +1041,10 @@ interface VsOut {
   pos: builtin<"position", vec4>;
 ${parts.varying ?? '  uv: location<0, vec2>;'}
 }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
   const x = f32(i) * 0.5;
   return { pos: vec4(x, x, 0., 1.), ${parts.varying === undefined ? 'uv: vec2(x, x)' : 'Voice_shift: x'} };
-});
+}
 ${parts.fragment}
 `;
 
@@ -1062,9 +1062,9 @@ const SHADOWED_CALL_SOURCES: readonly { readonly id: string; readonly source: st
 function g(Voice_shift: f32): f32 {
   return Voice.shift(3.) + Voice_shift;
 }`,
-      fragment: `export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+      fragment: `@fragment export function fs(uv: location<0, vec2>): vec4 {
   return vec4(g(uv.x), 0., 0., 1.);
-});`,
+}`,
     }),
   },
   {
@@ -1075,9 +1075,9 @@ function g(a: f32): f32 {
   const Voice_shift: f32 = a + 5.;
   return Voice.shift(3.) + Voice_shift;
 }`,
-      fragment: `export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+      fragment: `@fragment export function fs(uv: location<0, vec2>): vec4 {
   return vec4(g(uv.x), 0., 0., 1.);
-});`,
+}`,
     }),
   },
   {
@@ -1089,9 +1089,9 @@ function g(a: f32): f32 {
 function g(Ns_f: f32): f32 {
   return Ns.f(3.) + Ns_f;
 }`,
-      fragment: `export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+      fragment: `@fragment export function fs(uv: location<0, vec2>): vec4 {
   return vec4(g(uv.x), 0., 0., 1.);
-});`,
+}`,
     }),
   },
   {
@@ -1099,9 +1099,9 @@ function g(Ns_f: f32): f32 {
     source: shadowedCallSource({
       declarations: SHADOWED_CALL_CLASS,
       varying: '  Voice_shift: location<0, f32>;',
-      fragment: `export const fs = fragment(function fs(Voice_shift: location<0, f32>): vec4 {
+      fragment: `@fragment export function fs(Voice_shift: location<0, f32>): vec4 {
   return vec4(Voice.shift(3.) + Voice_shift, 0., 0., 1.);
-});`,
+}`,
     }),
   },
   {
@@ -1112,9 +1112,9 @@ function h(): f32 {
   return Voice.shift(3.);
 }`,
       varying: '  Voice_shift: location<0, f32>;',
-      fragment: `export const fs = fragment(function fs(Voice_shift: location<0, f32>): vec4 {
+      fragment: `@fragment export function fs(Voice_shift: location<0, f32>): vec4 {
   return vec4(h() + Voice_shift, 0., 0., 1.);
-});`,
+}`,
     }),
   },
 ];
@@ -1138,10 +1138,10 @@ interface VsOut {
 }
 interface Frame { n: i32; m: u32 }
 declare const frame: uniform<Frame>;
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>) {
+@vertex export function vs(i: builtin<"vertex_index", u32>) {
   const x = f32(i) * 0.5;
   return { pos: vec4(x, x, 0., 1.), uv: vec2(x, x) };
-});
+}
 function empty(r0: f32): f32 {
   let r = r0;
   for (;;) { r = r * 0.5; if (r < 0.01) { break; } }
@@ -1195,10 +1195,10 @@ function steps(): f32 {
   for (let i = 0; i < 4; v.x += 1.) { a += v.x; if (v.x > 2.) { break; } }
   return a;
 }
-export const fs = fragment(function fs(uv: location<0, vec2>) {
+@fragment export function fs(uv: location<0, vec2>) {
   const s = empty(uv.x) + floats() + two() + assigned() + noUpdate() + moved(frame.n);
   return vec4(s + flag() + joined() + steps(), uv.y, 0., 1.);
-});
+}
 `;
 
 /** `open-loop/shapes`, judged as an example is. */
@@ -1222,11 +1222,11 @@ interface VsOut {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
 }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
   const x = f32(i) * 0.5;
   return { pos: vec4(x, x, 0., 1.), uv: vec2(x, x) };
-});
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+}
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   let y: f32 = uv.x;
   y = y + 2. ** 0.5 + 10. ** 2. + y ** 2. + 10. ** 2.;
   y = y + (-0.) ** 2. + 0. ** 2. + sqrt(-0.) + sqrt(0.);
@@ -1240,7 +1240,7 @@ export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
   y = y + 2. ** 127.;
   y = y / sqrt(0.);
   return vec4(y, 0., 0., 1.);
-});
+}
 `;
 
 /** `const-call/neighbours`, judged as an example is. */
@@ -2815,7 +2815,7 @@ const VALUE_CASES: readonly ValueCase[] = [
     source: `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
 function fract(x: f32): f32 { return x - floor(x) + 0.5; }
-export const main = compute([1], function main() { out[0] = fract(out[1]); out[2] = fract(1.25); });
+@compute([1]) export function main() { out[0] = fract(out[1]); out[2] = fract(1.25); }
 `,
     initial: [0, 1.25, 0],
     // The declaration, for the run-time argument and for the literal: the builtin is 0.25.
@@ -2829,14 +2829,14 @@ function fract(x: f32): f32 { return 99.; }
 function sqrt(x: f32): f32 { return x + 100.; }
 function exp2(x: f32): f32 { return x * 3.; }
 function f32(x: f32): f32 { return 7.; }
-export const main = compute([1], function main() {
+@compute([1]) export function main() {
   const x = out[1];
   out[0] = fract(x);
   out[2] = sqrt(x) + Math.sqrt(x);
   out[3] = exp2(x);
   out[4] = random(x);
   out[5] = f32(3);
-});
+}
 `,
     initial: [0, 1.25, 0, 0, 0, 0],
     // The declarations, the builtin `sqrt` a `Math.sqrt` is (the root of 1.25), `random()` reaching the
@@ -2850,7 +2850,7 @@ declare const out: storage<array<f32>, "read_write">;
 const V = vec4(-1., 3., -3., 4294967296.);
 const U = vec4(-1., 3., 4294967296., -3.);
 const T = vec2(0.5, -2.);
-export const main = compute([1], function main() {
+@compute([1]) export function main() {
   const x = u32(out[1]);
   const q = vec2u(x, x + 1) / vec2u(V.xy);
   out[0] = f32(x / u32(V.x));
@@ -2865,7 +2865,7 @@ export const main = compute([1], function main() {
   out[10] = f32(i32(x) / i32(U.z));
   out[11] = f32(i32(x) / sign(i32(T.x)));
   out[12] = f32(i32(x) / sign(i32(T.y)));
-});
+}
 `,
     initial: [0, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     // For x = 7. A float constant below 0 converts to 0 (`V.x`, `V.z`, `U.x`, `U.w`). WGSL gives
@@ -2885,13 +2885,13 @@ export const main = compute([1], function main() {
     id: 'cbrt',
     source: `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-export const main = compute([1], function main() {
+@compute([1]) export function main() {
   out[5] = Math.cbrt(out[0]);
   out[6] = Math.cbrt(out[1]);
   out[7] = Math.cbrt(out[2]);
   out[8] = Math.cbrt(out[3]);
   out[9] = Math.cbrt(out[4]);
-});
+}
 `,
     initial: [-8, -1, 0, 1, 8, 0, 0, 0, 0, 0],
     means: [-8, -1, 0, 1, 8, -2, -1, 0, 1, 2],
@@ -3025,11 +3025,11 @@ function fract(x: f32): f32 { return x - floor(x) + 0.5; }
 interface Color {
   color: location<0, vec4>;
 }
-export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position", vec4>): Color {
   const a = fract(p.x);
   const b = fract(1.25);
   return { color: vec4(a, b, 0., 1.) };
-});
+}
 `;
 
 /** The colour of the pixel at (0, 0) as the CPU oracle gives it, in bytes: `p` is the pixel's

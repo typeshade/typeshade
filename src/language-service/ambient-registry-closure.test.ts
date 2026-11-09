@@ -158,8 +158,8 @@ const DECLARATION_FORMS: readonly string[] = [
   // parameter (change 0137), which the witness's `bump` and `put` take.
   'inout',
   'out',
-  // A kernel function's stage call (change 0111, amendment 1), which the witness's `scale` takes;
-  // `vertex`, `fragment` and `compute` are its stage calls too, and both spellings compile.
+  // A kernel function's size attribute (Rule 8.22, change 0130), which the witness's `scale`
+  // takes; `vertex`, `fragment` and `compute` are the stage attributes of its entries.
   'workgroup_size',
 ];
 
@@ -178,26 +178,26 @@ interface Dual {
   a: location<0, vec4, { blend_src: 0 }>;
   b: location<0, vec4, { blend_src: 1 }>;
 }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): V {
+@vertex export function vs(i: builtin<"vertex_index", u32>): V {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.), id: i };
-});
-export const fs = fragment(function fs(v: V): Dual {
+}
+@fragment export function fs(v: V): Dual {
   const c = vec4(un.k, 0., 0., 1.);
   return { a: c, b: c };
-});
+}
 function bump(@inout v: f32): void {
   v += un.k;
 }
 function put(@out v: f32): void {
   v = un.k;
 }
-export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   put(out[gid.x]);
   bump(out[gid.x]);
-});
-export const scale = workgroup_size([128], function scale(xs: array<f32>): void {
+}
+@workgroup_size([128]) export function scale(xs: array<f32>): void {
   for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * un.k; }
-});
+}
 `;
 
 const LOWERABLE: ReadonlySet<string> = new Set([

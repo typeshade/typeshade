@@ -111,7 +111,7 @@ describe('misplaced loop control has one diagnostic (#321 control#21 and control
 
   it('keeps an independent TypeScript constraint error', () => {
     const source = shader(`type HostOnly<N extends "good"> = f32;
-class Host<T> { value!: HostOnly<"bad">; }
+class Host<T> { value: HostOnly<"bad">; }
 export function f(): f32 { break; return 1.; }`);
     const { compiler, editor } = both(source);
     expect(compiler.diagnostics.map(({ code, message }) => ({ code, message }))).toEqual([

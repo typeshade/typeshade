@@ -137,11 +137,11 @@ export function sized(out: array<f32>, x: array<f32>): u32 {
   }
   return out.length;
 }
-export const triple128 = workgroup_size([128], function triple128(out: array<f32>, x: array<f32>) {
+@workgroup_size([128]) export function triple128(out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * 3.;
   }
-});
+}
 export function doubleTotal(out: array<f32>, xs: array<f32>): f32 {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = xs[i] * 2.;
@@ -168,28 +168,28 @@ export function uadd(out: array<u32>, a: array<u32>, b: array<u32>) {
   }
 }
 declare const sink: storage<array<f32>, "read_write">;
-export const fill = compute([64], function fill(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function fill(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x >= sink.length) {
     return;
   }
   sink[gid.x] = 1.;
-});
+}
 interface Color {
   color: location<0, vec4>;
 }
-export const shade = fragment(function shade(p: builtin<"position", vec4>): Color {
+@fragment export function shade(p: builtin<"position", vec4>): Color {
   return { color: vec4(p.x, p.y, 0., 1.) };
-});
+}
 declare const data: storage<array<f32>>;
-export const show = fragment(function show(p: builtin<"position", vec4>): vec4 {
+@fragment export function show(p: builtin<"position", vec4>): vec4 {
   return vec4(data[u32(p.x)], 0., 0., 1.);
-});
-export const copyData = compute([64], function copyData(gid: builtin<"global_invocation_id", vec3u>) {
+}
+@compute([64]) export function copyData(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x >= sink.length) {
     return;
   }
   sink[gid.x] = data[gid.x] + 1.;
-});
+}
 `;
 
 type Call = (...a: unknown[]) => Promise<unknown>;
@@ -5207,7 +5207,7 @@ declare const c: storage<array<f32>, "read_write">;
 declare const n: uniform<u32>;
 let ta: workgroup<array<f32, 256>>;
 let tb: workgroup<array<f32, 256>>;
-export const tiled = compute([16, 16, 1], function tiled(
+@compute([16, 16, 1]) export function tiled(
   gid: builtin<"global_invocation_id", vec3u>,
   lid: builtin<"local_invocation_id", vec3u>,
 ): void {
@@ -5222,7 +5222,7 @@ export const tiled = compute([16, 16, 1], function tiled(
     workgroupBarrier();
   }
   c[gid.y * n + gid.x] = acc;
-});
+}
 `;
 
 describe('an entry call in a fuse scope (proposal 0069)', () => {
@@ -5651,12 +5651,12 @@ export function vlanes(xs: array<vec4f>): vec4f {
   return s;
 }
 declare const sink: storage<array<f32>, "read_write">;
-export const fill = compute([64], function fill(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function fill(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x >= sink.length) {
     return;
   }
   sink[gid.x] = 1.;
-});
+}
 `;
 type Vec4Ops = {
   vadd: (...a: unknown[]) => Promise<void>;
@@ -5960,17 +5960,17 @@ const COUNTED = `"use typeshade";
 declare const marks: storage<array<u32>, "read_write">;
 declare const words: storage<array<u32>>;
 declare const table: storage<array<u32>, "read_write">;
-export const mark = compute([2], function mark(
+@compute([2]) export function mark(
   gid: builtin<"global_invocation_id", vec3u>,
   nw: builtin<"num_workgroups", vec3u>,
 ) {
   if (gid.x < marks.length) {
     marks[gid.x] = nw.x + words[0];
   }
-});
-export const peek = compute([1], function peek(gid: builtin<"global_invocation_id", vec3u>) {
+}
+@compute([1]) export function peek(gid: builtin<"global_invocation_id", vec3u>) {
   marks[gid.x] = table[gid.x];
-});
+}
 `;
 const generatedCounted = hostFace(COUNTED, { fileName: '/app/counted.shade.ts', runtime: RUNTIME });
 expect(generatedCounted.diagnostics.filter((d) => d.category === 'error')).toEqual([]);

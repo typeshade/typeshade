@@ -40,7 +40,7 @@ interface Params { gain: f32; }
 declare const unused: uniform<Params>;
 declare const live: uniform<Params>;
 function uncalled(): f32 { return 3.; }
-export const fs = fragment(function fs(): vec4 { return vec4(live.gain); });
+@fragment export function fs(): vec4 { return vec4(live.gain); }
 `,
     );
     const direct = checked(files, TARGET);
@@ -249,9 +249,9 @@ const secret: f32 = 3.;
 const tuning: override<f32> = 2.;
 let state: f32 = 0.;
 function helper(): f32 { state += 1.; return secret + tuning + state; }
-const hidden = compute([1], function hidden(): void { helper(); });
+@compute([1]) function hidden(): void { helper(); }
 export function answer(): f32 { return fromDependency(); }
-export const fs = fragment(function fs(): vec4 { return vec4(live.gain + explicit.gain); });
+@fragment export function fs(): vec4 { return vec4(live.gain + explicit.gain); }
 `,
     );
     files['/project/new/dep.shade.ts'] =

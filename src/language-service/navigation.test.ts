@@ -4,19 +4,19 @@ import { createTypeshadeLanguageService } from './service.js';
 const SOURCE =
   '"use typeshade";\n' +
   'class Camera {\n' +
-  '  position!: vec4\n' +
+  '  position: vec4\n' +
   '}\n' +
   'const camera = uniform<Camera>(0, 0)\n' +
   'function scale(x: f32): f32 {\n' +
   '  return x\n' +
   '}\n' +
-  'export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): vec4 {\n' +
+  '@vertex export function vs(i: builtin<"vertex_index", u32>): vec4 {\n' +
   '  const s = scale(1.0)\n' +
   '  return vec4(s, s, s, 1.0)\n' +
-  '});\n' +
-  'export const fs = fragment(function fs(): vec4 {\n' +
+  '}\n' +
+  '@fragment export function fs(): vec4 {\n' +
   '  return camera.position\n' +
-  '});\n';
+  '}\n';
 
 describe('getDefinition', () => {
   it('finds the definition of a user function from its call site', () => {
@@ -38,7 +38,7 @@ describe('getDefinition', () => {
     const position = service.positionAt('a.ts', offset);
     const defs = service.getDefinition('a.ts', position);
     expect(defs.length).toBe(1);
-    const fieldOffset = SOURCE.indexOf('position!: vec4');
+    const fieldOffset = SOURCE.indexOf('position: vec4');
     expect(service.offsetAt('a.ts', defs[0]!.range.start)).toBe(fieldOffset);
   });
 
