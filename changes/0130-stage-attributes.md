@@ -3,6 +3,7 @@ id: '0130'
 title: A stage and a function's other attributes are written as the language's own attributes, `@vertex`, `@fragment`, `@compute([…])`, `@workgroup_size([…])`, `@diagnostic(…)` and `@numerics([…])`, not as calls of fixed function names
 status: draft
 rules:
+  - '1.8'
   - '6.6'
   - '6.7'
   - '8.1'
@@ -190,10 +191,28 @@ This proposal replaces decision D1 of change 0111 and the matching spelling of c
 (Amendment 2). It keeps the rest of change 0111: `builtin<N, T>` and `location<I, T>` (D2),
 `inout<T>` and `out<T>` (D4), and no uninitialized field (D8).
 
-**The principle.** A `"use typeshade"` file is a program in the TypeShade language. Its own
-compiler and language service read it. An attribute of a function is a language attribute,
-written with `@` as WGSL writes it. It is not a call of a function that the author must know by
-name. A plain `tsc` does not define what the language can write.
+**The principle, a new Rule 1.8.** <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds --> The proposed text, for `docs/language-design.md` §1.8 after
+Rule 1.7:
+
+> **Rule 1.8.** <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds --> A construct of the language is written in the language's own syntax: the
+> directive, a type of the surface, or an attribute `@name` or `@name(…)` on the declaration it
+> marks. A construct must not be written as a call of a function whose only role is to carry it.
+> An attribute that WGSL writes on a function (`@vertex`, `@fragment`, `@compute`,
+> `@workgroup_size`, `@diagnostic`) and one this language adds on a function (`@numerics`) are
+> written as attributes. Whether a plain `tsc` accepts a form is not a criterion for the surface.
+>
+> - Rationale: a `"use typeshade"` file is a program in the TypeShade language. Its own
+>   compiler and language service read it (Rule 3.1). A call of a fixed function name presents a
+>   construct as a library API: the author must know the name, the name takes a place in the value
+>   namespace, and the declaration is wrapped. Change 0111 D1 measured the surface against a
+>   plain `tsc`, a tool that does not read the language, and replaced `@vertex` with
+>   `vertex(f)`; this rule prevents that criterion. The types of an entry's inputs and outputs
+>   (`builtin<N, T>`, `location<I, T>`, `inout<T>`, `out<T>`) mark a value and stay types (Rule 6.6,
+>   Rule 8.25). The editor keeps TypeScript's checker by its projection of an attribute
+>   (Rule 1.7, Rule 12.7).
+> - Derives from: `changes/0130-stage-attributes.md`; the owner's direction of 2026-11-09.
+> - Enforced by: review (Rule 13.1); `TS8028 ATTRIBUTE_NAME` on a call form after the migration
+>   release.
 
 **Before (change 0111 D1, change 0107 Amendment 2):**
 
@@ -275,6 +294,9 @@ as it did before change 0111.
 
 ## What it touches
 
+- <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds -->
+  **Rule 1.8** (new): a construct of the language is written in its own syntax, never as a call
+  of a function whose only role is to carry it; a plain `tsc` is not a criterion for the surface.
 - **Rule 6.6**: the TS1206 note for entries says the stage attribute's TS1206 is filtered by the
   language service; parameters and fields keep the types.
 - **Rule 6.7**: the list of attribute places says that a stage, `workgroup_size`, `diagnostic`
