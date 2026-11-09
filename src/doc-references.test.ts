@@ -11,7 +11,7 @@
 // 2026-09-23 (693 files; path 582, rule 351, code 283, section 65, script 42, anchor 26), and
 // feed it a document with one dead reference of every kind, which it must report.
 
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -28,6 +28,8 @@ import {
   changedRules,
   declaredNames,
   isProposal,
+  isRecord,
+  isWaived,
   nameMentions,
   reshapedExports,
   surface,
@@ -148,6 +150,22 @@ describe('the impact reader', () => {
     expect(isProposal('changes/README.md')).toBe(false);
     expect(isProposal('changes/TEMPLATE.md')).toBe(false);
     expect(isProposal('docs/language-design.md')).toBe(false);
+  });
+
+  it("takes the owner's decisions for a record too, and honours a skip marker", () => {
+    // `docs/owner-decisions.md` names `numerics` as what change 0131 removes, in a file only the
+    // owner changes; surface §78 keeps its title under a skip marker (change 0131, decision 2).
+    expect(isRecord('docs/owner-decisions.md')).toBe(true);
+    expect(isRecord('changes/0131-remove-numerics.md')).toBe(true);
+    expect(isRecord('docs/language-design.md')).toBe(false);
+    const doc = readFileSync(join(ROOT, 'docs/use-typeshade-surface.md'), 'utf8').split('\n');
+    const title = doc.findIndex((l) => l.startsWith('## 78. '));
+    expect(isWaived({ file: 'docs/use-typeshade-surface.md', line: title + 1, text: '' })).toBe(
+      true,
+    );
+    expect(isWaived({ file: 'docs/use-typeshade-surface.md', line: title + 5, text: '' })).toBe(
+      false,
+    );
   });
 
   it('reads the surface bake: names from the fences, shapes by definition key', () => {

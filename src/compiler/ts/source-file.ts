@@ -62,7 +62,6 @@ import {
   collectDiagnosticDirectives,
   derivativeUniformitySeverity,
 } from './diagnostic-directive.js';
-import { collectNumerics } from './numerics.js';
 import { uniformityViolations, type UniformityViolation } from '../../core/passes/uniformity.js';
 import {
   reasonKey,
@@ -299,8 +298,6 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   // The file's `"enable <extension>";` directives (§50), before anything that could emit.
   const enables = collectEnables(sourceFile, diagnostics);
   const directives = collectDiagnosticDirectives(sourceFile, diagnostics);
-  // The numerical contracts (change 0107), read once before any function is lowered.
-  collectNumerics(sourceFile, diagnostics);
   const structs = collectStructs(sourceFile, diagnostics, symbols);
   // The structs, so a buffer binding's host-shareable rules can be read through its struct
   // type (§51) — collected first, which this order already guaranteed.

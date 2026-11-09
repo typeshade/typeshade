@@ -1,7 +1,7 @@
 ---
 id: '0107'
 title: An author can opt a function or module into named floating-point rewrites that the default O2 refuses, each with a stated domain and a measured error bound
-status: implemented
+status: archived
 rules:
   - '6.7'
   - '9.6'
@@ -25,13 +25,13 @@ downstream:
     what: Add numerics(...), the numerics option and TS8078 to the plugin skill's attribute and diagnostics references, and record 0107 in compiler-changes.md
 ---
 
-<!-- doc-refs: skip-file — an accepted proposal names the rule and the code its implementation adds, which this tree does not have yet -->
+<!-- doc-refs: skip-file — an archived proposal names the code and the files its implementation added and change 0131 removed -->
 
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0107, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved it on 2026-11-02 (see Approval and plan record); #936 and #941 delivered it (see Configuration and validation record).                                                                                                                                                                                |
+| Identity and status           | Proposal 0107, `status: archived`. The front matter is the identity and lifecycle authority. The owner approved it on 2026-11-02 (see Approval and plan record); #936 and #941 delivered it (see Configuration and validation record). Change 0131 (`changes/0131-remove-numerics.md`) removed the construct, and its implementing pull request archived this change (decision 5 of change 0131).                        |
 | Date and attribution          | Drafted 2026-11-01, Asia/Seoul, by an AI agent at the maintainer's request. The date is the drafting date. It is not an approval date. The maintainer owns every decision this proposal leaves open. Git authorship of the containing commit is not an approval signature.                                                                                                                                               |
 | Request source                | Issue [#852](https://github.com/typeshade/typeshade/issues/852), split out of [#841](https://github.com/typeshade/typeshade/issues/841) (body section 3). The comments on [#850](https://github.com/typeshade/typeshade/issues/850) (N5, N8) and issue [#851](https://github.com/typeshade/typeshade/issues/851) (N9, N10) name this contract as their prerequisite.                                                     |
 | Applicability / effectivity   | Expected: `src/core/passes/opt/algebraic.ts`, `src/core/passes/opt/optimize.ts` (`OptLevel`, `LEVEL_PASSES`), the `"use typeshade"` front end if an annotation is chosen, `src/core/passes/determinism.ts`, `docs/language-design.md` §11, `docs/use-typeshade-surface.md` §38 and §69, and the emit goldens. The default `'O2'` output does not change. The CPU oracle does not change. No release version is assigned. |

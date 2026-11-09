@@ -1,6 +1,18 @@
+// Verifies: Rule 11.22 (docs/language-design.md; traced in reqs/).
+
 import { describe, it, expect } from 'vitest';
 import { algebraicSimplify, fixpoint } from './index.js';
-import { module, fn, f32T, i32T, i32, u32, vec2uT, type ReadonlyNode } from '../../ir/index.js';
+import {
+  module,
+  fn,
+  f32T,
+  i32T,
+  i32,
+  u32,
+  vec2uT,
+  mix,
+  type ReadonlyNode,
+} from '../../ir/index.js';
 
 type NodeF = ReadonlyNode<'f32'>;
 type NodeI = ReadonlyNode<'i32'>;
@@ -101,9 +113,16 @@ describe('optimize — algebraic identities vs gcc -O2', () => {
     it('select(c, x, x) -> x', () => expect(F((x) => x.gt(1).select(x, x))).toBe('x'));
   });
 
+  // Rule 11.22 (change 0131): no source construct opts a function into a rewrite that a NaN, an
+  // infinity or the sign of a zero can observe, and the optimizer applies none it cannot prove
+  // exact. No value-domain proof exists yet, so all four are kept.
   describe('REFUSES what gcc -O2 refuses without -ffast-math', () => {
     it('keeps x * 0.0 (NaN * 0 is NaN)', () => expect(F((x) => x.mul(0))).toBe('(x * 0.0)'));
     it('keeps x - x (Inf - Inf is NaN)', () => expect(F((x) => x.sub(x))).toBe('(x - x)'));
+    it('keeps mix(x, y, 0.0) (y = Inf gives NaN)', () =>
+      expect(F((x, y) => mix(x, y, 0))).toBe('mix(x, y, 0.0)'));
+    it('keeps mix(x, y, 1.0) (x = Inf gives NaN)', () =>
+      expect(F((x, y) => mix(x, y, 1))).toBe('mix(x, y, 1.0)'));
     it('keeps x / 3.0 (1/3 is not exact)', () => expect(F((x) => x.div(3))).toBe('(x / 3.0)'));
     it('keeps x / 0.1 (1/0.1 is not exact in binary)', () =>
       expect(F((x) => x.div(0.1))).toBe('(x / 0.1)'));

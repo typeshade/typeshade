@@ -3,18 +3,14 @@ active: true
 derived: false
 level: 78
 links:
-- RULE-0103: akRqHkhM2TbYRm6Y7TBU24_hbeTbogccAUNSfNjxViY=
-- RULE-0404: ONWpyTwbxPxCzEsp04Mf1KkF4QxeOEgzUeq3nP1SP4o=
-- RULE-0607: i-6K6HapXvgUPvcEEfbZHCCfnqdyI1vx_T867Ps1X2I=
-- RULE-1120: xToEY27JoFqnUJixM5F0Crd92ru3ELEhuwsS0iYlwMw=
-- RULE-1122: hMdSjlEto3ACAQDZA-GnebnpinNaAbOEESXKSdNNX8Y=
-- RULE-1207: pcKPtS5lNH8XqVgsb1R7Dkld1HT_liLX7DrGfrpIi9I=
+- RULE-1122: nwx5rIJLmy6dnWlPUr6iBujW_5A-6wD-6W47z5vwgrI=
+- RULE-1207: 40ZVZI3e_efF_Q5kLY-A0TxnP3DldhQvxDomyqXJ3B4=
 normative: true
 ref: ''
-reviewed: b8xeGrMEwLdzSdJ9P-z9SoaR6SrNAYzPqOOcr_8iGzU=
+reviewed: cSCDFfUVt0I0EInWMfOXICisMx0rDb-8p-2qEGNgeec=
 source: docs/use-typeshade-surface.md §78
 ---
 
 # A numerical contract: `numerics(["finite-math"], f)`
 
-docs/use-typeshade-surface.md §78, "A numerical contract: `numerics(["finite-math"], f)`": the surface section that explains Rule 1.3, Rule 4.4, Rule 6.7, Rule 11.20, Rule 11.22, Rule 12.7.
+docs/use-typeshade-surface.md §78, "A numerical contract: `numerics(["finite-math"], f)`": the surface section that explains Rule 11.22, Rule 12.7.

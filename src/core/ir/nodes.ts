@@ -577,12 +577,6 @@ export interface ExternVarDecl {
  *  copies of the package loaded side by side. */
 export const ASSEMBLED_AS = Symbol.for('typeshade.assembledAs');
 
-/** A class of floating-point rewrite a function can opt into (Rule 11.22, surface §78, change
- *  0107). `finite-math` assumes finite, non-NaN operands (`x * 0` is `0`); `reassociate`
- *  reorders `f32` arithmetic, and holds no rewrite until each one enters with its measured
- *  bound. */
-export type NumericsClass = 'finite-math' | 'reassociate';
-
 /** A `ModuleDecl.funcs` entry: a WGSL/GLSL function, either an ordinary helper or a
  *  pipeline entry point (`stage` set). This is the object {@link fn} builds: the
  *  {@link FnHandle} it returns mixes these fields onto itself, so it is at once a typed
@@ -672,15 +666,6 @@ export interface FuncDecl {
    *  Structured only, with no `attrs` spelling (like `portable` above): it is not a WGSL
    *  attribute and changes nothing in the emitted source. */
   readonly opaque?: boolean;
-  /** The numerical contracts this function opted into (Rule 11.22, change 0107): the classes of
-   *  floating-point rewrite the default optimizer refuses and this function's author accepted,
-   *  written `numerics(["finite-math"], function f(…) { … })` or as a stage call's `numerics`
-   *  option. Absent is the exact default. Every pass that copies a function carries it, and no
-   *  pass inlines a function that has it into another, or another into it, so a rewrite stays in
-   *  the function whose author asked for it.
-   *
-   *  Structured only, with no `attrs` spelling: it is not a WGSL attribute. */
-  readonly numerics?: readonly NumericsClass[];
   /** Where this function was declared in its authored `"use typeshade"` source: the whole
    *  declaration, from the first decorator or the `export` keyword through the closing brace.
    *  Absent on an EDSL-authored or pass-synthesised function. Read it with

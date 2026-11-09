@@ -1652,15 +1652,13 @@ type inout<T> = T
 ${renderJSDoc(ATTRIBUTE_TYPE_DOCS.out!)}
 type out<T> = T
 ${renderJSDoc(STAGE_CALL_DOCS.vertex!)}
-declare function vertex<F extends (...args: never[]) => unknown>(entry: F, options?: { readonly diagnostic?: readonly [severity: string, rule: string]; readonly numerics?: unknown }): F
+declare function vertex<F extends (...args: never[]) => unknown>(entry: F, options?: { readonly diagnostic?: readonly [severity: string, rule: string] }): F
 ${renderJSDoc(STAGE_CALL_DOCS.fragment!)}
-declare function fragment<F extends (...args: never[]) => unknown>(entry: F, options?: { readonly diagnostic?: readonly [severity: string, rule: string]; readonly numerics?: unknown }): F
+declare function fragment<F extends (...args: never[]) => unknown>(entry: F, options?: { readonly diagnostic?: readonly [severity: string, rule: string] }): F
 ${renderJSDoc(STAGE_CALL_DOCS.compute!)}
-declare function compute<F extends (...args: never[]) => unknown>(workgroupSize: readonly [x: number, y?: number, z?: number], entry: F, options?: { readonly diagnostic?: readonly [severity: string, rule: string]; readonly numerics?: unknown }): F
+declare function compute<F extends (...args: never[]) => unknown>(workgroupSize: readonly [x: number, y?: number, z?: number], entry: F, options?: { readonly diagnostic?: readonly [severity: string, rule: string] }): F
 ${renderJSDoc(STAGE_CALL_DOCS.workgroup_size!)}
-declare function workgroup_size<F extends (...args: never[]) => unknown>(size: readonly [x: number], kernel: F, options?: { readonly numerics?: unknown }): F
-${renderJSDoc(STAGE_CALL_DOCS.numerics!)}
-declare function numerics<F extends (...args: never[]) => unknown>(classes: unknown, fn: F): F
+declare function workgroup_size<F extends (...args: never[]) => unknown>(size: readonly [x: number], kernel: F): F
 ${renderJSDoc(ATTRIBUTE_DOCS.vertex)}
 declare function vertex(target: Function, context?: unknown): void
 ${renderJSDoc(ATTRIBUTE_DOCS.fragment)}

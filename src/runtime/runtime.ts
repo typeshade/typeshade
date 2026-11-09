@@ -526,7 +526,12 @@ class FrameImpl implements Frame {
     const error = this.rt.rhi.popValidationScope();
     this.rt.pool.release(done);
     const e = await error;
-    if (e !== null) throw new Error(`The frame did not validate: ${e}`);
+    if (e !== null) {
+      // On the CPU backend the error is what the frame's code threw: the frame rejects with it,
+      // as a CPU-tier call does (change 0120, M4).
+      if (this.rt.rhi.backend === 'cpu') await done;
+      throw new Error(`The frame did not validate: ${e}`);
+    }
     const rows = read === undefined ? [] : await read();
     await done;
     return { console: rows };
