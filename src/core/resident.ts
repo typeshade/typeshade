@@ -45,6 +45,7 @@ import type { CallOwner } from './owner.js';
 import { checkLimitValues } from './device-limits.js';
 import { automaticFp64Flavor } from './device-info.js';
 import { fuseSlot } from './fuse-scope.js';
+import { warnDeprecated } from './deprecation.js';
 import { TIERS, tierNames, type Tier } from './tiers.js';
 import type { Fp64Flavor } from './passes/fp64-lower.js';
 
@@ -577,6 +578,9 @@ export type ZeroedArray<E extends ZeroedElement> = E extends 'f32'
  *
  * Exported from `typeshade` and `typeshade/runtime`.
  *
+ * @deprecated Write `array(value)` or `array(length, element)` from `typeshade/runtime`, which make
+ *   the same `Resident` (change 0138, Amendment A1). The first call prints one warning.
+ *
  * @param value - a number, a tuple, a `Float32Array`, `Int32Array`, `Uint32Array` or
  *   `Float64Array`, an array, or an object for a struct.
  * @param element - with a length: `'f32'`, `'i32'` or `'u32'`, the element of the zeros.
@@ -592,18 +596,28 @@ export function resident<E extends ZeroedElement>(
   element: E,
 ): Resident<ZeroedArray<E>>;
 export function resident(...args: unknown[]): Resident<unknown> {
-  if (args.length < 2) return handleOf(hostState(args[0]));
-  return handleOf(zeroedState(args[0], args[1]));
+  warnDeprecated(
+    'resident()',
+    'Write array(value) or array(length, element) instead; it makes the same Resident.',
+  );
+  return makeResident('resident()', args);
+}
+
+/** What `resident()` and `array()` make from their arguments, with `at` naming the function in
+ *  each refusal. Not API: `array()` of `typeshade/runtime` calls it (change 0138, Amendment A1). */
+export function makeResident(at: string, args: readonly unknown[]): Resident<unknown> {
+  if (args.length < 2) return handleOf(hostState(args[0], at));
+  return handleOf(zeroedState(args[0], args[1], at));
 }
 
 /** The state of a `resident(value)` handle: a host value, copied. */
-function hostState(value: unknown): ResidentArrayState {
+function hostState(value: unknown, at = 'resident()'): ResidentArrayState {
   const not = notHostValue(value);
   if (not !== undefined)
     throw new TypeError(
-      `resident(): takes a host value (a number, a tuple, a typed array, an array or an object), not ${not}.`,
+      `${at}: takes a host value (a number, a tuple, a typed array, an array or an object), not ${not}.`,
     );
-  return new ResidentArrayState(copyOf(value, 'resident()'));
+  return new ResidentArrayState(copyOf(value, at));
 }
 
 /** How a refused argument of `resident()` reads in its message. */
@@ -616,18 +630,18 @@ function argumentKind(v: unknown): string {
 }
 
 /** The state of a `resident(length, element)` handle, after the three refusals R1 to R3. */
-function zeroedState(length: unknown, element: unknown): ZeroedState {
+function zeroedState(length: unknown, element: unknown, at = 'resident()'): ZeroedState {
   if (typeof length !== 'number')
     throw new TypeError(
-      `resident(): with an element, the first argument is the length, a whole number; got ${argumentKind(length)}.`,
+      `${at}: with an element, the first argument is the length, a whole number; got ${argumentKind(length)}.`,
     );
   if (!Number.isInteger(length) || length < 1 || length > MOST_ZEROED)
     throw new TypeError(
-      `resident(): a zeroed Resident takes a length that is a whole number from 1 to ${MOST_ZEROED}; got ${length}.`,
+      `${at}: a zeroed Resident takes a length that is a whole number from 1 to ${MOST_ZEROED}; got ${length}.`,
     );
   if (element !== 'f32' && element !== 'i32' && element !== 'u32')
     throw new TypeError(
-      `resident(): a zeroed Resident takes the element 'f32', 'i32' or 'u32'; got ${typeof element === 'string' ? `'${element}'` : String(element)}.`,
+      `${at}: a zeroed Resident takes the element 'f32', 'i32' or 'u32'; got ${typeof element === 'string' ? `'${element}'` : String(element)}.`,
     );
   return new ZeroedState(length, element);
 }
@@ -772,6 +786,9 @@ export function checkFp64Flavor(at: string, v: unknown): 'auto' | Fp64Flavor {
  *
  * Exported from `typeshade` and `typeshade/runtime`.
  *
+ * @deprecated Open a device with `createDevice()`, which takes the same options (change 0138,
+ *   Amendment A1). The first call prints one warning.
+ *
  * @param options - `prefer`, a non-empty list of `'webgpu'`, `'webgl2'` and `'cpu'`; `runtime`,
  *   a runtime or `null`; `limits`, WebGPU limits by name; `features`, WebGPU feature names;
  *   `fp64Flavor`, `'auto'`, `'float'` or `'integer'`. `configure({})` restores the default order
@@ -788,6 +805,7 @@ export function configure(options: {
   readonly features?: readonly string[];
   readonly fp64Flavor?: 'auto' | Fp64Flavor;
 }): void {
+  warnDeprecated('configure()', 'Open a device with createDevice() and pass its options there.');
   // Every check comes before the first change, so a refused call changes nothing.
   if (options.fp64Flavor !== undefined)
     checkFp64Flavor('configure({ fp64Flavor })', options.fp64Flavor);

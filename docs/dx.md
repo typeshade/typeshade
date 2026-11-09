@@ -127,10 +127,11 @@ Three conclusions follow.
 
 Each principle comes with the question a reviewer asks of a new public API.
 
-1. **The unit is the function call. The data is plain data.** A caller passes `number`,
-   `boolean`, arrays and objects (a vector is a tuple, `[x, y]`, and a `Float32Array` is taken
-   too), and receives the same (Rule 8.21). There is no buffer type and no device type on the
-   primary path.
+1. **The unit is the function call.** Data is a resource typed by the shader's own declarations
+   (a class, a uniform, a storage array, a texture), laid out by the compiler, set and read
+   through typed views. Plain data is accepted and uploaded. (Change 0138, Amendment A1: the
+   owner's text of 2026-11-09. `uniform()`, `zeros()` and `array()` of `typeshade/runtime` make
+   the resources, Rule 8.21; a call takes plain data as before.)
    Where a value lives is inferred by default. Where inference cannot keep a value on the device
    from one call to the next, `explain` says so and what it costs. One word then keeps the value
    there. That word is the only device vocabulary a compute program may need, and it is the same
