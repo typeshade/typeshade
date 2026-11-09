@@ -14,7 +14,6 @@ import type {
   RhiBindGroupLayout,
   RhiBuffer,
   RhiCommandEncoder,
-  RhiDepthStencilAttachment,
   RhiDevice,
   RhiRenderPass,
   RhiTextureView,
@@ -24,6 +23,7 @@ import {
   BufferPool,
   blendConstantOf,
   checkManifest,
+  depthStencilAttachmentOf,
   passOf,
   ProgramImpl,
   scissorOf,
@@ -33,7 +33,6 @@ import {
   type Geometry,
   type PassFit,
   type PassHost,
-  type PassPlan,
   type PassState,
   type Program,
   type RenderPipeline,
@@ -540,29 +539,6 @@ const passHost = (rhi: RhiDevice): PassHost => ({
   isCanvas: (t) => rhi.fromNative('canvas', t) !== undefined,
   formatOf: (t) => (t as { format?: string }).format,
 });
-
-/** The `depthStencilAttachment` of a plan. A read-only aspect names only its read-only flag, since
- *  WebGPU refuses a load, a store or a clear on it. An aspect that is not read-only names its load,
- *  its store and its clear. WebGPU requires the stencil operations of a stencil format, and it
- *  refuses them on a depth-only one. */
-function depthStencilAttachmentOf(
-  view: RhiTextureView,
-  d: NonNullable<PassPlan['depth']>,
-): RhiDepthStencilAttachment {
-  const a = d.depth;
-  const s = d.stencil;
-  return {
-    view,
-    ...(a.readOnly
-      ? { depthReadOnly: true }
-      : { depthLoadOp: a.load, depthStoreOp: a.store, depthClearValue: a.clear }),
-    ...(s === undefined
-      ? {}
-      : s.readOnly
-        ? { stencilReadOnly: true }
-        : { stencilLoadOp: s.load, stencilStoreOp: s.store, stencilClearValue: s.clear }),
-  };
-}
 
 /** The pass a frame records into on WebGPU: its encoder's pass, with the calls that check their
  *  arguments (proposal 0064) and the state a draw needs to restore the pass value. A draw records

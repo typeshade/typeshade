@@ -13,10 +13,17 @@
 // programs the manifest carries, and passes recorded into a frame. A frame has no
 // `GPUCommandEncoder`, a pass no `GPURenderPassEncoder`, and `submit(encoders)` takes none; each
 // is a `TypeError` that says so.
+//
+// The render hardware interface (change 0120, M2). The runtime holds the WebGL2 backend of
+// `src/rhi/webgl2.ts` and calls no WebGL2 function itself. A dispatch still runs through the call
+// layer's executor (`core/gl-compute.ts`), handed the backend's context and the native objects of
+// its handles; milestone M4 moves the call layer onto the program runtime.
 
 import { describe, byteSize, Misfit, pack, readInto, type Layout } from '../core/host-entry.js';
 import { runGlCompute } from '../core/gl-compute.js';
 import { deviceInfo, type DeviceInfo } from '../core/device-info.js';
+import type { RhiDevice, RhiSampler } from '../rhi/rhi.js';
+import { webgl2Device } from '../rhi/webgl2.js';
 import {
   layoutFromPack,
   type Pack,
@@ -61,22 +68,36 @@ export class GlRuntimeImpl implements Runtime<WebGL2RenderingContext> {
   /** WebGL2 has no WebGPU limits: an empty frozen record (change 0051). */
   readonly limits: Readonly<Record<string, number>> = Object.freeze({});
 
-  #drawing: GlDrawing | undefined;
+  /** The WebGL2 backend of the RHI over the runtime's context. */
+  readonly rhi: RhiDevice;
+  /** What the runtime's textures, pipelines and passes share. */
+  readonly drawing: GlDrawing;
+  #nearest: RhiSampler | undefined;
 
   constructor(
-    readonly gl: WebGL2RenderingContext,
+    gl: WebGL2RenderingContext,
     private readonly owned: boolean,
   ) {
+    this.rhi = webgl2Device(gl);
+    this.drawing = new GlDrawing(this.rhi);
     this.info = deviceInfo('webgl2', gl);
   }
 
-  /** What the runtime's textures, pipelines and passes share on its context. */
-  get drawing(): GlDrawing {
-    return (this.#drawing ??= new GlDrawing(this.gl));
+  get device(): WebGL2RenderingContext {
+    return this.rhi.native as WebGL2RenderingContext;
   }
 
-  get device(): WebGL2RenderingContext {
-    return this.gl;
+  /** The sampler a dispatch reads a texture paired with none through: nearest, clamped, which a
+   *  texture of integers needs to be complete at all. */
+  get nearest(): RhiSampler {
+    return (this.#nearest ??= this.rhi.createSampler({
+      magFilter: 'nearest',
+      minFilter: 'nearest',
+      mipmapFilter: 'nearest',
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge',
+      addressModeW: 'clamp-to-edge',
+    }));
   }
 
   load<E extends PackBindings>(program: Pack<E>, options: LoadOptions = {}): Program<E> {
@@ -93,7 +114,7 @@ export class GlRuntimeImpl implements Runtime<WebGL2RenderingContext> {
   }
 
   sampler(options?: SamplerOptions | object): Sampler {
-    return new GlSamplerImpl(this.gl, options);
+    return new GlSamplerImpl(this.rhi, options);
   }
 
   frame(): Frame {
@@ -109,8 +130,7 @@ export class GlRuntimeImpl implements Runtime<WebGL2RenderingContext> {
   }
 
   destroy(): void {
-    if (this.owned)
-      (this.gl.getExtension('WEBGL_lose_context') as { loseContext(): void } | null)?.loseContext();
+    if (this.owned) this.rhi.destroy();
   }
 }
 
@@ -187,14 +207,14 @@ class GlProgramImpl implements Program {
 type Given =
   | { readonly kind: 'words'; readonly words: Uint32Array }
   | { readonly kind: 'uniform'; readonly value: unknown }
-  | { readonly kind: 'texture'; readonly texture: WebGLTexture }
+  | { readonly kind: 'texture'; readonly texture: object }
   | {
       readonly kind: 'storage';
-      readonly texture: WebGLTexture;
+      readonly texture: object;
       readonly width: number;
       readonly height: number;
     }
-  | { readonly kind: 'sampler'; readonly sampler: WebGLSampler }
+  | { readonly kind: 'sampler'; readonly sampler: object }
   | {
       readonly kind: 'resident';
       readonly state: ResidentArrayState;
@@ -237,14 +257,17 @@ class GlComputePipelineImpl implements ComputePipeline {
       }
       // A texture takes the sampler its calls pass it; one only loaded or measured is read
       // nearest and clamped, which a texture of integers needs to be complete at all.
+      const rt = this.program.rt;
       const textures: Record<string, { texture: WebGLTexture; sampler: WebGLSampler }> = {};
       for (const t of this.gl.textures ?? []) {
         const tex = given.get(t.name);
         const smp = t.sampler === null ? undefined : given.get(t.sampler);
         if (tex?.kind !== 'texture') continue;
         textures[t.name] = {
-          texture: tex.texture,
-          sampler: smp?.kind === 'sampler' ? smp.sampler : this.program.rt.drawing.nearest,
+          texture: tex.texture as WebGLTexture,
+          sampler: (smp?.kind === 'sampler'
+            ? smp.sampler
+            : rt.rhi.toNative(rt.nearest)) as WebGLSampler,
         };
       }
       const storageTextures: Record<
@@ -253,9 +276,10 @@ class GlComputePipelineImpl implements ComputePipeline {
       > = {};
       for (const t of this.gl.storageTextures ?? []) {
         const g = given.get(t.name);
-        if (g?.kind === 'storage') storageTextures[t.name] = g;
+        if (g?.kind === 'storage')
+          storageTextures[t.name] = { ...g, texture: g.texture as WebGLTexture };
       }
-      await runGlCompute(this.program.rt.gl, this.gl, {
+      await runGlCompute(rt.device, this.gl, {
         workgroups: wg,
         memory,
         uniforms,
@@ -321,7 +345,8 @@ class GlComputePipelineImpl implements ComputePipeline {
           throw new TypeError(
             `${where} takes a WebGLTexture made for ${GL_TARGET[dim] ?? dim}: a Texture of the WebGL2 runtime is 2D.`,
           );
-        out.set(b.name, { kind: 'texture', texture: textureOf(v, where) });
+        const rhi = this.program.rt.rhi;
+        out.set(b.name, { kind: 'texture', texture: rhi.toNative(textureOf(rhi, v, where)) });
         continue;
       }
       if (b.resource.resourceKind === 'storage-texture') {
@@ -329,7 +354,8 @@ class GlComputePipelineImpl implements ComputePipeline {
         continue;
       }
       if (b.resource.resourceKind === 'sampler') {
-        out.set(b.name, { kind: 'sampler', sampler: samplerOf(v, where) });
+        const rhi = this.program.rt.rhi;
+        out.set(b.name, { kind: 'sampler', sampler: rhi.toNative(samplerOf(rhi, v, where)) });
         continue;
       }
       if (b.layout === undefined)
@@ -372,7 +398,7 @@ function storageOf(
   v: unknown,
   b: PackBinding,
   where: string,
-): { kind: 'storage'; texture: WebGLTexture; width: number; height: number } {
+): { kind: 'storage'; texture: object; width: number; height: number } {
   if (b.resource.textureDim === '2d-array')
     throw new TypeError(
       `${where} is an array, and a Texture of the WebGL2 runtime is 2D: the WebGL2 tier binds a texture_storage_2d_array to no texture yet.`,
@@ -385,7 +411,7 @@ function storageOf(
     throw new TypeError(
       `${where} takes a ${b.resource.storageFormat ?? '?'} texture; this one is ${v.format}.`,
     );
-  return { kind: 'storage', texture: v.texture as WebGLTexture, width: v.width, height: v.height };
+  return { kind: 'storage', texture: v.texture, width: v.width, height: v.height };
 }
 
 /** The WebGL2 target a texture of each dimension other than 2D is made for. */

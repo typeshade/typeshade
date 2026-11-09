@@ -40,10 +40,12 @@ import type {
   RhiBufferUsage,
   RhiComputePass,
   RhiComputePipeline,
+  RhiDepthStencilAttachment,
   RhiDevice,
   RhiRenderPass,
   RhiRenderPipeline,
   RhiShaderModule,
+  RhiTextureView,
 } from '../rhi/rhi.js';
 import { needOfEntry, PIPELINE_LIMITS, selectBindings } from './limits.js';
 import { SamplerImpl, TextureImpl } from './resources.js';
@@ -1188,6 +1190,29 @@ const writesStencil = (s: PlanStencil | undefined, cull: 'none' | 'front' | 'bac
   s !== undefined &&
   s.writeMask !== 0 &&
   ((cull !== 'front' && changesStencil(s.front)) || (cull !== 'back' && changesStencil(s.back)));
+
+/** The `depthStencilAttachment` of a plan. A read-only aspect names only its read-only flag, since
+ *  WebGPU refuses a load, a store or a clear on it. An aspect that is not read-only names its load,
+ *  its store and its clear. WebGPU requires the stencil operations of a stencil format, and it
+ *  refuses them on a depth-only one. */
+export function depthStencilAttachmentOf(
+  view: RhiTextureView,
+  d: NonNullable<PassPlan['depth']>,
+): RhiDepthStencilAttachment {
+  const a = d.depth;
+  const s = d.stencil;
+  return {
+    view,
+    ...(a.readOnly
+      ? { depthReadOnly: true }
+      : { depthLoadOp: a.load, depthStoreOp: a.store, depthClearValue: a.clear }),
+    ...(s === undefined
+      ? {}
+      : s.readOnly
+        ? { stencilReadOnly: true }
+        : { stencilLoadOp: s.load, stencilStoreOp: s.store, stencilClearValue: s.clear }),
+  };
+}
 
 /** The viewport of `setViewport`, checked against the tier's viewport limit `limit` (L). A `TypeError`
  *  names the first argument out of its range. Depths default to 0 and 1. */
