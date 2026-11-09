@@ -219,8 +219,8 @@ export function foreignNameRemedy(name: string): string | undefined {
   }
   switch (row.kind) {
     case 'attribute':
-      // The stage call and the attribute type an author writes (change 0111).
-      return `${whose} is ${row.name === 'compute' ? 'compute([x, y, z], f)' : `${row.name}<…>`} here.`;
+      // The stage attribute and the attribute type an author writes (changes 0111 and 0130).
+      return `${whose} is ${row.name === 'compute' ? '@compute([x, y, z])' : `${row.name}<…>`} here.`;
     case 'address space':
       return `${whose} is the ${row.name} address space here: let x: ${row.name}<T>.`;
     case 'builtin': {

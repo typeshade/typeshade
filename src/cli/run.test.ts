@@ -272,7 +272,7 @@ describe('tshc (the directory walk and .gitignore)', () => {
     expect(runCli(['sync', '--check'], m.host, info)).toBe(0);
     expect(run(['migrate', '--check'], project)).toMatchObject({
       status: 0,
-      stdout: '2 files already in the plain form.\n',
+      stdout: "2 files already in the language's form.\n",
     });
   });
 

@@ -80,9 +80,8 @@ function checked(c: Case) {
   const service = createTypeshadeLanguageService();
   service.openDocument(fileName, source);
   const diagnostics = service.getDiagnostics(fileName);
-  if (c.name === 'decorator')
-    expect(diagnostics).toMatchObject([{ code: 'TS8028', severity: 'warning' }]);
-  else expect(diagnostics).toEqual([]);
+  // A stage attribute is the entry's form (change 0130), with no warning, as a stage call has none.
+  expect(diagnostics).toEqual([]);
   service.closeDocument(fileName);
   const e = f.exports!.find((e) => e.name === 'fs');
   if (e?.kind !== 'fragment') throw new Error(`${c.name}: fs is ${e?.kind}`);

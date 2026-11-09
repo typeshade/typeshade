@@ -66,12 +66,13 @@ the module (the Vite plugin rewrites them as modules change). Run it before tsc 
 a clean checkout; its home is the "prepare" script. With --check it writes
 nothing and fails when a view is missing or stale.
 
-migrate rewrites each *.shade.ts from the decorated form to plain TypeScript
-(change 0111): a stage call for each entry, an attribute type for each @builtin
-or @location, "!" on a struct field and on a local an @out argument fills first.
-It keeps a qualifier before its parameter and rewrites "v: inout<T>" to
-"@inout v: T" (change 0137). It keeps every other byte and names, by line, a form
-it leaves as written. With --check it writes nothing and fails when a file would
+migrate rewrites each *.shade.ts to the language's own forms (changes 0130 and
+0137): a stage attribute for each stage call ("@vertex export function vs" for
+"export const vs = vertex(function vs"), a named entry for an "export default"
+one, an attribute type for each @builtin or @location, "@inout v: T" for
+"v: inout<T>", and no "!" on a field or a local. It keeps every other byte and
+names, by line, a form it leaves as written. With --check it writes nothing and
+fails when a file would
 change.
 
 init configures a Vite project explicitly, preserves unrelated settings and comments,
@@ -357,8 +358,9 @@ function sync(files: readonly string[], host: CliHost, check: boolean): number {
 }
 
 /**
- * `tshc migrate`: rewrite each file from the decorated form to the stage calls and attribute
- * types of change 0111, or with `check`, name each file that would change and write nothing.
+ * `tshc migrate`: rewrite each file to the language's own forms, the stage attributes of change
+ * 0130 and the attribute types of change 0111, or with `check`, name each file that would change
+ * and write nothing.
  * A form the rewrite leaves as written is printed with its line; it does not fail the command.
  */
 function migrate(files: readonly string[], host: CliHost, check: boolean): number {
@@ -374,7 +376,7 @@ function migrate(files: readonly string[], host: CliHost, check: boolean): numbe
     for (const why of result.skipped) host.stderr(`${shown}: ${why}; left as written.\n`);
     if (result.text === text) continue;
     changed++;
-    if (check) host.stderr(`${shown} is in the decorated form; run tshc migrate.\n`);
+    if (check) host.stderr(`${shown} writes a form tshc migrate rewrites; run tshc migrate.\n`);
     else {
       host.writeFile(path, result.text);
       host.stdout(`migrated ${shown}\n`);
@@ -383,7 +385,7 @@ function migrate(files: readonly string[], host: CliHost, check: boolean): numbe
   const s = (n: number): string => (n === 1 ? '' : 's');
   if (check) {
     if (changed > 0) return 1;
-    host.stdout(`${files.length} file${s(files.length)} already in the plain form.\n`);
+    host.stdout(`${files.length} file${s(files.length)} already in the language's form.\n`);
     return 0;
   }
   host.stdout(`${changed} file${s(changed)} migrated, ${files.length - changed} unchanged.\n`);

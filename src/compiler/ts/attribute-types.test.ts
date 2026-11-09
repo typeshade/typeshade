@@ -99,12 +99,13 @@ describe('an attribute type compiles as the decorator it stands for (change 0111
     it(`entry IO declared as a ${struct}: the same WGSL and GLSL ES 3.00, and no diagnostic`, () => {
       const a = compiled(DECORATED);
       const b = compiled(TYPED(struct));
-      // The decorated form warns once on each of its decorators (TS8028, change 0111,
-      // milestone 4), and says nothing else; a qualifier is the language's form and does not
-      // warn (change 0137).
+      // The decorated form warns once on each decorator of a parameter or a field (TS8028,
+      // change 0111, milestone 4), and says nothing else; a stage attribute (change 0130) and a
+      // qualifier (change 0137) are the language's forms, with no warning.
       expect(a.diagnostics.filter((d) => !isDecoratedFormWarning(d))).toEqual([]);
       expect(a.diagnostics).toHaveLength(
-        DECORATED.match(/@\w+/g)!.filter((d) => d !== '@inout' && d !== '@out').length,
+        DECORATED.match(/@\w+/g)!.filter((d) => !/^@(vertex|fragment|compute|inout|out)$/.test(d))
+          .length,
       );
       expect(b.diagnostics).toEqual([]);
       expect(b.wgsl).toBe(a.wgsl);

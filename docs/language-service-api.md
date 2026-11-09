@@ -554,15 +554,15 @@ hand-written declarations (see the Playground audit): TS2304 (`builtin` not foun
 - The bundled ambient lib (`SHADE_DTS`, §9) declares the attributes as decorator factories and
   the GPU types as nominal branded types, so TS2304 and TS2349 disappear (the lib is compiled
   with `lib: []` so DOM globals never enter the program).
-- The program is created with `strict: true`, which keeps `strictPropertyInitialization`, and
-  `experimentalDecorators: true`. A file in the form of change 0111 writes `!` on a struct
-  field, and gets TS2564 where it does not, as a plain `tsc --strict` does. A file that still
-  writes the decorated form of the migration release has its TS2564 dropped by the filter
-  (Amendment 2 of change 0111), until the release after it refuses that form.
-- TS1206 cannot be configured away for decorators on function declarations. In a file that still
-  writes the decorated form, the service drops it when the decorated node is a function declared
-  at the top level or directly in a namespace's body (exported or not), or a parameter of one,
-  because the migration release reads the decorated form there: the compiler reads every decorator there
+- The program is created with `strict: true`, `strictPropertyInitialization: false` and
+  `experimentalDecorators: true`. A struct field needs no initializer and no `!`, so TS2564 never
+  appears: an entry I/O field is filled by the stage that produces it, and a struct field is zero
+  until written (change 0130, D3).
+- TS1206 cannot be configured away for decorators on function declarations. The service drops it
+  on a stage attribute or `@workgroup_size` on a function declared at the top level or directly
+  in a namespace's body (exported or not), in every file, since that is the language's form of an
+  entry (change 0130). It drops it on a decorator of such a function's parameter only in a file
+  that still writes the decorated form of change 0111, while the compiler warns on it: the compiler reads every decorator there
   (`@fragment` on `namespace N`'s `fs` emits `@fragment fn N_fs`) and refuses one the place does
   not apply (`TS8028`). A decorator anywhere else is one nothing reads, which the compiler
   refuses (`TS8028`, or `TS8035` on a method), and the merge keeps its sentence alone (§5); on

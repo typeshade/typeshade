@@ -60,16 +60,13 @@ export function total(xs: array<f32>): f32 {
 }`;
 
 describe('a kernel function declares its workgroup size (proposal 0067)', () => {
-  it("accepts a literal, and a typed module constant, with the decorated form's warning alone in either half", () => {
-    // The decorated form warns once (TS8028, change 0111, milestone 4), naming the stage call.
-    const warned = (size: string): string[] => [
-      `warning TS8028 "@workgroup_size(${size})" is the decorated form, which the next release refuses: write "export const scale = workgroup_size(${size}, function scale(…) { … })", or run "tshc migrate" (change 0111).`,
-    ];
-    expect(compiled(module(SCALE))).toEqual(warned('[128]'));
-    expect(edited(module(SCALE))).toEqual(warned('[128]'));
+  it('accepts a literal, and a typed module constant, with no diagnostic in either half', () => {
+    // `@workgroup_size([n])` is the language's form of a kernel's size (Rule 8.22, change 0130).
+    expect(compiled(module(SCALE))).toEqual([]);
+    expect(edited(module(SCALE))).toEqual([]);
     const konst = module(`const TILE: u32 = 128;\n${SCALE.replace('[128]', '[TILE]')}`);
-    expect(compiled(konst)).toEqual(warned('[TILE]'));
-    expect(edited(konst)).toEqual(warned('[TILE]'));
+    expect(compiled(konst)).toEqual([]);
+    expect(edited(konst)).toEqual([]);
     const called = module(
       'export const scale = workgroup_size([128], function scale(out: array<f32>, a: array<f32>, k: f32): void {\n' +
         '  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = a[i] * k;\n  }\n});',
@@ -127,31 +124,31 @@ describe('a refusal of @workgroup_size reads the same in compile() and the langu
       'TS8028, an entry keeps its refusal and its text',
       module('@compute @workgroup_size(64)\nexport function main(): void {}'),
       TS_CODES.ATTRIBUTE_NAME,
-      '"@workgroup_size" is WGSL\'s attribute, written here as compute\'s first argument: compute([64], f) or compute([8, 8], f).',
+      '"@workgroup_size" is WGSL\'s attribute, written here as @compute\'s argument: @compute([64]) or @compute([8, 8]); on a kernel function, @workgroup_size([n]).',
     ],
     [
       'TS8037, one extent is the grammar: two extents are refused',
       module(SCALE.replace('[128]', '[8, 8]')),
       TS_CODES.WORKGROUP_ARG,
-      'workgroup_size takes an array of one whole number before its function, as "workgroup_size([64], f)", or a module constant in it, as "workgroup_size([TILE], f)"; "[8, 8]" is not one.',
+      'workgroup_size takes an array of one whole number, as "@workgroup_size([64])", or a module constant in it, as "@workgroup_size([TILE])"; "[8, 8]" is not one.',
     ],
     [
       'TS8037, a bare number is not an array',
       module(SCALE.replace('[128]', '128')),
       TS_CODES.WORKGROUP_ARG,
-      'workgroup_size takes an array of one whole number before its function, as "workgroup_size([64], f)", or a module constant in it, as "workgroup_size([TILE], f)"; "128" is not one.',
+      'workgroup_size takes an array of one whole number, as "@workgroup_size([64])", or a module constant in it, as "@workgroup_size([TILE])"; "128" is not one.',
     ],
     [
       'TS8037, an untyped module constant is not one (as @compute)',
       module(`const TILE = 128;\n${SCALE.replace('[128]', '[TILE]')}`),
       TS_CODES.WORKGROUP_ARG,
-      'workgroup_size takes an array of one whole number before its function, as "workgroup_size([64], f)", or a module constant in it, as "workgroup_size([TILE], f)"; "[TILE]" is not one.',
+      'workgroup_size takes an array of one whole number, as "@workgroup_size([64])", or a module constant in it, as "@workgroup_size([TILE])"; "[TILE]" is not one.',
     ],
     [
       'TS8037, an override is not an extent in v1 (decision D2)',
       module(`declare const TILE: override<u32>;\n${SCALE.replace('[128]', '[TILE]')}`),
       TS_CODES.WORKGROUP_ARG,
-      'workgroup_size takes an array of one whole number before its function, as "workgroup_size([64], f)", or a module constant in it, as "workgroup_size([TILE], f)"; "[TILE]" is not one.',
+      'workgroup_size takes an array of one whole number, as "@workgroup_size([64])", or a module constant in it, as "@workgroup_size([TILE])"; "[TILE]" is not one.',
     ],
   ];
 
@@ -178,6 +175,6 @@ describe('the editor shows the declared shape (Rule 12.7)', () => {
     const at = service.positionAt('m.shade.ts', src.indexOf('workgroup_size') + 2);
     const hover = service.getHover('m.shade.ts', at)?.contents ?? '';
     expect(hover).toContain('workgroup_size');
-    expect(hover).toContain('workgroup_size([128], f)');
+    expect(hover).toContain('@workgroup_size([128]) export function scale');
   });
 });

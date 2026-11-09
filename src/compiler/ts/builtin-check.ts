@@ -207,8 +207,8 @@ export const WGSL_MEMBER_ATTRIBUTES: readonly string[] = ['size', 'align'];
 export const WGSL_ATTRIBUTES_ELSEWHERE: ReadonlyMap<string, string> = new Map(
   Object.entries({
     workgroup_size:
-      '"@workgroup_size" is WGSL\'s attribute, written here as compute\'s first argument: ' +
-      'compute([64], f) or compute([8, 8], f).',
+      '"@workgroup_size" is WGSL\'s attribute, written here as @compute\'s argument: ' +
+      '@compute([64]) or @compute([8, 8]); on a kernel function, @workgroup_size([n]).',
     size:
       '"@size" is WGSL\'s attribute, and is not applied: a field takes the size WGSL\'s layout ' +
       'gives its type, which reflect() reports. Add a field where you need padding.',
