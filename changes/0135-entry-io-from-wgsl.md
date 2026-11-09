@@ -50,7 +50,7 @@ built-in value but one (`WGSL_BUILTIN_TYPES` in `src/core/sot.ts`: 17 of the 18 
 (`checkBuiltinType`, `src/compiler/ts/builtin-check.ts`). The IR builder already omits it:
 `builtin('vertex_index')` in `src/core/sot.ts` reads the type from the same table.
 
-Proposed (decision D1.2, recommended):
+Proposed (decision D1.2, decided by the owner on 2026-11-09, "경고 후 거부"):
 
 - `builtin<N>` means the value WGSL defines for `N`, of the type WGSL gives it.
   `vi: builtin<"vertex_index">` is a `u32` to the compiler and to the editor.
@@ -76,7 +76,7 @@ The owner decided on 2026-11-09 that `OD-5` allows this item ("Owner's decisions
 `uv: vec2` with no `location<…>` is allowed, and `location<n, T>` stays for a fixed number or an
 option.
 
-Proposed (decision D2.1, recommended):
+Proposed (decision D2.1, decided by the owner on 2026-11-09, "모두 컴파일러"):
 
 - An entry input or output that carries no `builtin<…>` is a user-defined input or output, and the
   compiler gives it its location, unless `location<n, T>` writes one. A written `n` is always the
@@ -108,7 +108,7 @@ Proposed (decision D2.1, recommended):
 numbers after this change. If the author drops the number on `A.n`, `A.n` is 1 (the lowest number
 no written field of `A` holds), and `B.n` stays 0, as written. If `B` is a fragment input and the
 author drops the number on `B.n` too, `B.n` takes the location `n` has in the vertex results; with
-`A` the only one, that is 1. A program-wide number per name (decision D2.1b, not recommended) would
+`A` the only one, that is 1. A program-wide number per name (decision D2.1b, rejected) would
 instead give one number to `n` everywhere, and a written `B.n` at 0 would collide with `A.uv`.
 
 ### The example: `examples/hello-vsout.shade.ts`
@@ -193,7 +193,7 @@ location in GLSL ES 3.00; the linker matches it by name.
 | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `builtin<N>` for every `N` but `clip_distances`                                                  | `TS8002` and TypeScript TS2707                                                                         | accepted, the type WGSL gives `N`                                                                                                               |
 | `builtin<N, O>`, an options object second (`builtin<"position", { invariant: true }>`)           | `TS8002 Unsupported type syntax "{ invariant: true }".` and TypeScript TS2741 (measured on `583891d2`) | accepted                                                                                                                                        |
-| `builtin<N, T>` or `builtin<N, T, O>` with WGSL's `T`, `N` not `clip_distances`                  | accepted                                                                                               | D1.2: accepted with a `TS8028` warning in the migration release, refused after it. D1.1: accepted                                               |
+| `builtin<N, T>` or `builtin<N, T, O>` with WGSL's `T`, `N` not `clip_distances`                  | accepted                                                                                               | accepted with a `TS8028` warning in the migration release, refused after it (D1.2)                                                              |
 | `builtin<N, T>` with another `T`                                                                 | `TS8003`                                                                                               | `TS8003`, the same sentence                                                                                                                     |
 | `builtin<"clip_distances">`                                                                      | `TS8002` and TS2707                                                                                    | `TS8003`, a new sentence naming `array<f32, N>`; the editor shows it alone                                                                      |
 | `builtin<"clip_distances", array<f32, N>>`                                                       | accepted                                                                                               | accepted, unchanged                                                                                                                             |
@@ -246,34 +246,44 @@ vec2): vec4` compiles to `fn vs(p: vec2<f32>)`, which WGSL refuses, with a `TS80
 
 ### Alternatives
 
-Each item has a decision with options; each option names its cost. No option reverses an entry of
-`docs/owner-decisions.md`.
+Each item had a decision with options; each option names its cost. The owner decided both on
+2026-11-09 ("Owner's decisions"). The options not chosen are kept below as rejected alternatives.
+No option reverses an entry of `docs/owner-decisions.md`.
 
 **D1. A built-in value's type.**
 
-- D1.2 (recommended). `T` is omitted; a written `T` that WGSL fixes is a migration form, warned
+- D1.2 (decided). `T` is omitted; a written `T` that WGSL fixes is a migration form, warned
   for one release and refused after it; an option moves to the second argument. Cost: about 197
   example lines, typeaudio's 19 lines, the site's pages and every downstream source that writes a
   type migrate before the refusing release (`tshc migrate` rewrites them); one warning sentence is
-  added (Rule 12.5). Benefit: one spelling. `OD-3` says "A construct that the compiler could
+  added (Rule 12.5). Benefit: one spelling. Two published artifacts bundle a compiler:
+  vscode-typeshade 0.3.0 on the Visual Studio Marketplace (compiler pin `3e1e8420`, 2026-10-27)
+  and `@typeshade/mcp` 0.1.0 and 0.1.1 on npm (2026-09-23). Each keeps the compiler it bundles, so
+  a source its users write keeps compiling there; when an artifact moves its pin past this change,
+  the one release of warnings reaches its users before the refusal does. The migration does not
+  rest on nothing having been published. `OD-3` says "A construct that the compiler could
   replace is removed", and the written type is such a construct.
-- D1.1. `T` is optional, and a written `T` stays accepted for good with no warning. Cost: two
+- D1.1 (rejected). `T` is optional, and a written `T` stays accepted for good with no warning. Cost: two
   spellings for one value (`builtin<"vertex_index">` and `builtin<"vertex_index", u32>`), which
   `OD-3`'s "is removed" does not allow for a construct the compiler can replace. Benefit: no
   migration and no refusal of a source that compiles today. The first revision of this proposal
   recommended D1.1; the review (finding 8) showed the tension with `OD-3`, and this revision
-  recommends D1.2.
+  recommended D1.2, which the owner chose.
 - D1.3 (inside D1.2). Where an option goes. Under D1.2 the type is gone, so an option is the second
   argument. Measured: the editor can tell an options object from a built-in type in that position.
   In the language service, a scratch alias `K<A> = A extends { readonly invariant?: true } ?
 "options" : "type"` gave `"type"` for `vec4`, `u32`, `f32`, `vec3u` and `array<f32, 4>`, and
-  `"options"` for `{ invariant: true }`; `bool` gave `"options"`, so the alias tests `boolean`
-  first. Under D1.1 an option stays third and the type is written with it.
-- D1.0 (no change). Cost: the author keeps copying a table the compiler holds (`OD-3`).
+  `"options"` for `{ invariant: true }`; `bool` gave `"options"`. With `boolean` tested first,
+  `K<A> = A extends boolean ? "type" : A extends { readonly invariant?: true } ? "options" : "type"`,
+  all seven gave the right answer, `bool` included (measured on this branch merged with `main` at
+  `77e19b5a`). The ambient `builtin` type uses that order, so
+  `builtin<"front_facing">` and, in the migration release, `builtin<"front_facing", bool>` read as
+  a `bool` value and not as options.
+- D1.0 (no change, rejected). Cost: the author keeps copying a table the compiler holds (`OD-3`).
 
 **D2. A user-defined input's or output's location.**
 
-- D2.1 (recommended). The compiler gives every user-defined input and output its location by the
+- D2.1 (decided). The compiler gives every user-defined input and output its location by the
   table of item 2: per entry for a vertex attribute and a render target, per struct for a vertex
   result, by name from the vertex results for any other fragment input. `location<n, T>` stays
   accepted, and a written `n` holds. Cost: reordering the fields of a vertex input struct or a
@@ -283,7 +293,7 @@ Each item has a decision with options; each option names its cost. No option rev
   output (`targetsOf`, `src/runtime/program.ts`). A host that builds its own `GPUVertexState` or
   colour attachments must read `reflect()`. The runtime and the compile gate already read
   `a.location` from the layout.
-- D2.1b (a variant of D2.1, not recommended). One location per name across the program. Cost,
+- D2.1b (a variant of D2.1, rejected). One location per name across the program. Cost,
   measured on typeplot `shaders/data.shade.ts` <!-- doc-refs: skip — a path in the typeplot repository --> at `9f20c12`: two vertex
   entries (`surfaceVertex` returns `Surface { uv@0 }`, `textVertex` returns `Letter { local@0,
 code@1, size@2 }`) and nine fragment entries, each reading the struct its vertex entry returns.
@@ -291,17 +301,17 @@ code@1, size@2 }`) and nine fragment entries, each reading the struct its vertex
   inter-stage locations (`maxInterStageShaderVariables`) where each pair needs at most 3. It also
   collides in the mixed case above. Per struct (D2.1), `Letter` keeps 0, 1, 2 and the limit is
   per pair.
-- D2.2. The compiler gives a location only to a value between stages. A vertex attribute and a
+- D2.2 (rejected). The compiler gives a location only to a value between stages. A vertex attribute and a
   render target keep a required `location<n, T>`, since a host binds each by its number. Cost: the
   author learns two rules by position, and still numbers each field of a fragment result struct
   (about 20 example files write `color: location<0, vec4>` in a `Color` struct). Benefit: a
   host-facing number never moves when the author reorders fields.
-- D2.0 (no change). Cost: the author numbers what the compiler counts, and the compiler refuses
+- D2.0 (no change, rejected). Cost: the author numbers what the compiler counts, and the compiler refuses
   the program when the number and the name disagree (`OD-3`).
 - Not proposed: remove `location` entirely. A sampling option (`interpolate: ["perspective",
 "centroid"]`), a dual-source pair (`blend_src`) and a render target with a gap (locations 0 and 2)
   would need a new name to carry them, against `OD-3`.
-- D2.3 (sub-decision). An option without a number. Recommended: an option is written on
+- D2.3 (inside D2.1, with it). An option without a number: an option is written on
   `location<n, T, O>`, with its number. Measured: a location form without a number,
   `location<T, O>`, cannot be told apart from `location<n, T>` in the editor. In a scratch
   `tsc --strict` check, `type location<A, B = never, C = {}> = A extends number ? B : A` read
@@ -355,15 +365,25 @@ The points below were checked against the owner's decision on `OD-5` of 2026-11-
 
 - `OD-3` is the entry this proposal rests on. Both items remove what the author writes for the
   compiler: a type the compiler reads from WGSL's table, and a number the compiler can count and
-  already checks against a name. D1.2 is recommended because `OD-3` says "A construct that the
-  compiler could replace is removed".
+  already checks against a name. D1.2 follows `OD-3`'s "A construct that the compiler could
+  replace is removed".
 - `OD-5`, and the owner's decision on it. `OD-5` reads: "An entry's built-in values and
   inter-stage values stay in the type: `builtin<…>` and `location<…>`." On 2026-11-09, in the
   Claude Code session, the owner chose reading A ("생략 허용 (A)"): `OD-5` chose the type form over
   the decorated form; `uv: vec2` with no `location<…>` is allowed, and `location<n, T>` stays for a
   fixed number or an option. By the same reading, item 1 is within `OD-5`: `builtin<"position">`
   without its type is still the built-in value written in the type. The question this proposal
-  asked (question 3 of the first revision) is closed.
+  asked (question 3 of the first revision) is closed. The register records the same scope under
+  `OD-5` since `11b6d74e` (pull request #1127).
+- Decisions on this proposal, by the owner, on 2026-11-09, in the Claude Code session, in Korean:
+  - D1: "경고 후 거부" (D1.2). A written type that WGSL fixes gets a `TS8028` warning for one
+    release and is refused after it; an option moves to the second argument,
+    `builtin<"position", { invariant: true }>`; `builtin<"clip_distances", array<f32, N>>` keeps
+    its type. D1.1 and D1.0 are rejected.
+  - D2: "모두 컴파일러" (D2.1). The compiler numbers every user-defined input and output, vertex
+    attributes and render targets included, per entry and per struct as item 2 says;
+    `location<n, T>` stays to fix a number or to carry an option. D2.1b, D2.2 and D2.0 are
+    rejected.
 - `OD-1`: TypeShade's source is not WGSL; the emitted WGSL keeps WGSL's explicit attributes, and
   the source needs only what the author must state.
 - `OD-2`: not touched. The entries keep `@vertex`, `@fragment` and `@compute([…])` (change 0130).
@@ -378,11 +398,12 @@ surface form. It makes two type arguments optional (a default for `T` in `builti
 unattributed form of a user-defined input or output). The section's question is answered in
 reverse under "Why": the compiler can do both, so the author stops doing them.
 
-The one place where the author still states something is answered here, since the owner decides
-D2. A host binds a vertex attribute and a render target by its number (`targets[i]` in
+The one place where the author still states something is answered here, since the owner decided
+D2 on that question. A host binds a vertex attribute and a render target by its number (`targets[i]` in
 `RenderState`, `shaderLocation` in a `GPUVertexState`). The compiler can choose that number. It
 cannot know whether a host outside the runtime has fixed one. D2.1 lets the declaration order fix
-it and keeps `location<n, T>` for a host that needs a fixed number; D2.2 keeps it required.
+it and keeps `location<n, T>` for a host that needs a fixed number; the owner chose D2.1 (D2.2,
+which kept the number required, is rejected).
 
 ## What it touches
 
@@ -444,7 +465,7 @@ Every row was measured on 2026-11-09 with Bun 1.4.4, on `main` at `2cc98b8f` unl
 | Fact              | A bare fragment result already takes `@location(0)` and a bare `vec4` vertex result `@builtin(position)` (`src/compiler/ts/lower/function.ts`, the entry signature): the compiler gives those attributes today.                                                                                                                                                |
 | Fact (`583891d2`) | `compute([64], function c(x: u32) {})`: no diagnostic; the WGSL has `fn c(x: u32) {`.                                                                                                                                                                                                                                                                          |
 | Fact              | Editor projection under `tsc --strict`: `type builtin<N, T = (N extends "vertex_index" ? u32 : …), O = {}> = T` accepts `builtin<"vertex_index">` and `builtin<"position", vec4, { invariant: true }>`; `location<T, O>` cannot be told from `location<n, T>` (D2.3).                                                                                          |
-| Fact (`583891d2`) | In the language service, `A extends { readonly invariant?: true }` is false for `vec4`, `u32`, `f32`, `vec3u` and `array<f32, 4>`, true for `{ invariant: true }` and true for `bool` (D1.3).                                                                                                                                                                  |
+| Fact (`583891d2`) | In the language service, `A extends { readonly invariant?: true }` is false for `vec4`, `u32`, `f32`, `vec3u` and `array<f32, 4>`, true for `{ invariant: true }` and true for `bool`; with `boolean` tested first, every one of the seven reads right (measured on this branch merged with `main` at `77e19b5a`) (D1.3).                                      |
 | Fact              | A `clip_distances` field with no type, under `tsc --strict`, and a body that writes `o.cd[0] = 1.` and reads `o.cd[1]`: a default of `never` gives `TS2322 Type 'number' is not assignable to type 'never'.` on the write; a default of `unknown` gives `TS18046 'o.cd' is of type 'unknown'.` on both.                                                        |
 | Fact (`583891d2`) | Downstream multi-entry modules: typeplot `scene-composite.shade.ts` (1 vertex, 2 fragment entries, compiled) and typeplot `data.shade.ts` (2 vertex, 9 fragment entries, read from source). No other multi-entry render module in typecv, radiance, typeaudio, typenn or web among those that compile (6 of 13, 40 of 42, 5 of 6, 19 of 21, 10 of 10, 1 of 2). |
 | Inference         | After the change, the WGSL and GLSL of every example are byte for byte the same as before, since the numbers the compiler gives equal the written ones in every example. The implementation proves it with `bun run bake:goldens` changing no golden.                                                                                                          |
@@ -499,18 +520,12 @@ Every row was measured on 2026-11-09 with Bun 1.4.4, on `main` at `2cc98b8f` unl
   compile gate (`bun run gate:compile`) green; a test for each row of "Every form that changes" in
   both halves; `bun run reqs:sync` and `python scripts/doorstop-check.py -C`; `bun run docs:impact`
   and `bun run docs:refs`.
-- Decisions to resolve before acceptance: D1 (D1.2 or D1.1) and D2 (D2.1 or D2.2).
+- Decisions to resolve before acceptance: none. The owner decided D1 and D2 on 2026-11-09.
 
 ### Open questions for the owner
 
-1. D2: is a render target's index and a vertex attribute's index something the author states, or
-   the compiler's? D2.1 (recommended) lets declaration order decide and keeps `location<n, T>` as
-   an explicit form. D2.2 keeps the number required for these two positions.
-2. D1: a written built-in type that WGSL fixes: warned for one release and then refused (D1.2,
-   recommended under `OD-3`), or accepted for good (D1.1)?
-
-The question on `OD-5` (question 3 of the first revision) was answered by the owner on 2026-11-09
-and is closed. No two principles or rules were found that point different ways on this proposal.
+None. Every question was answered by the owner on 2026-11-09: question 3 of the first revision
+(`OD-5`, reading A), D1 (D1.2) and D2 (D2.1); "Owner's decisions" records each. No two principles or rules were found that point different ways on this proposal.
 
 ### Independent review record
 
@@ -535,9 +550,10 @@ written in the revision that follows.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision on D1 and D2, the
-independent review record above with each finding answered, and the merge of this file with
-`status: accepted`.
+This record does not yet apply. Every open question is decided ("Owner's decisions") and every
+review finding is answered. The proposal is ready for acceptance once this revision is merged with
+`status: accepted` on the owner's go-ahead. That merge will record the decision; the approved
+scope will be D1.2 and D2.1 as written here.
 
 ### Configuration and validation record
 
