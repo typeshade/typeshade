@@ -91,3 +91,16 @@ and every person reads this file before any other document of this repository.
   - Change 0130 adds a rule after Rule 1.7 that says a construct that describes a value that
     flows in or out, a parameter included, is part of its type. For a parameter qualifier this
     entry holds, and that rule text is fixed in its own pull request.
+
+### OD-6. Nothing is released yet: the bundled builds were tests
+
+- Date: 2026-11-09.
+- The owner's words: "아직 정식 릴리즈 전이라 문제 없음 테스트용으로 한것뿐이라". The owner said this when
+  asked whether the two published builds that bundle the compiler, vscode-typeshade 0.3.0 on the
+  Marketplace and `@typeshade/mcp` 0.1.0 and 0.1.1 on npm, count as releases for Rule 13.10.
+- What it means:
+  - TypeShade has no official release yet. The `typeshade` package on npm holds only the
+    placeholder `0.0.0`.
+  - The bundled builds were for testing. A change of meaning or a refusal owes no warning release
+    because of them (Rules 13.9 and 13.10).
+  - The `## [0.1.0]` heading of `CHANGELOG.md` does not make a release.
