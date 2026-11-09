@@ -1,6 +1,6 @@
 ---
 id: '0130'
-title: A stage and a function's other attributes are written as the language's own attributes, `@vertex`, `@fragment`, `@compute([…])`, `@workgroup_size([…])`, `@diagnostic(…)` and `@numerics([…])`, not as calls of fixed function names
+title: A stage and a function's other attributes are written as the language's own attributes, `@vertex`, `@fragment`, `@compute([…])`, `@workgroup_size([…])` and `@diagnostic(…)`, not as calls of fixed function names
 status: draft
 rules:
   - '1.8'
@@ -9,8 +9,6 @@ rules:
   - '8.1'
   - '8.7'
   - '8.22'
-  - '9.6'
-  - '11.22'
 surface:
   - 1
   - 2
@@ -63,7 +61,6 @@ exports: []
 exports-removed: []
 codes:
   - TS8028
-  - TS8078
 examples:
   - array-length
   - array-literal-ramp
@@ -161,7 +158,7 @@ examples:
   - workgroup-tile-2d
 downstream:
   - repo: typeshade.github.io
-    what: Every page, example card, Playground starter (`playground-host-default.ts`) and generated host text that shows a stage call, `workgroup_size(…)` or `numerics(…)` is written again with the attribute, in English and in Korean; `compiler-changes.md` records 0130 when the pin moves.
+    what: Every page, example card, Playground starter (`playground-host-default.ts`) and generated host text that shows a stage call or `workgroup_size(…)` is written again with the attribute, in English and in Korean; `compiler-changes.md` records 0130 when the pin moves.
   - repo: vscode-typeshade
     what: Snippets, the skill's references and the grammar's attribute highlighting follow the attribute form; the editor's TS1206 filter covers the stage attributes; `compiler-changes.md` records 0130 when the pin moves.
   - repo: radiance
@@ -176,19 +173,18 @@ downstream:
 
 **Document control**
 
-| Field                         | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0130, `status: draft` (front matter).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Date and attribution          | Authored 2026-11-09 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                   |
-| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-09, in Korean, said that the examples' change from `@vertex` to `vertex(…)` was not intended. The owner said that TypeShade is a language, not a library, and that fixed function names such as `vertex`, `fragment` and `compute` do not belong in it; a `"use typeshade"` file already has its own directive and its own compiler. The owner judged the rest of change 0111 appropriate. No GitHub issue is recorded.                                                                |
-| Applicability / effectivity   | `docs/language-design.md` Rules 6.6, 6.7, 8.1, 8.7, 8.22, 9.6 and 11.22, `reqs/`, `docs/use-typeshade-surface.md` (every section that shows an entry), the front end's entry detection (`src/compiler/ts/stage-call.ts`, `src/compiler/ts/numerics.ts` and their callers), the ambient library and the diagnostic filter (`src/language-service/`), the host face, `tshc migrate`, `examples/plain-typescript.test.ts`, every `examples/**/*.shade.ts` that declares an entry, and the downstream repositories. No release version is assigned. |
-| Review baseline               | `main` at `415b276a7408936cb483d05ca8bb39e797b05966` (#1092), read on 2026-11-09.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Review and revision authority | Pull request #1094. Git records the revisions of this file; the review and merge of #1094 record the decision. An earlier revision on #1094 proposed `vertex<T>` return types; the owner rejected it because those are fixed names too.                                                                                                                                                                                                                                                                                                         |
+| Field                         | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0130, `status: draft` (front matter).                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Date and attribution          | Authored 2026-11-09 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                 |
+| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-09, in Korean, said that the examples' change from `@vertex` to `vertex(…)` was not intended. The owner said that TypeShade is a language, not a library, and that fixed function names such as `vertex`, `fragment` and `compute` do not belong in it; a `"use typeshade"` file already has its own directive and its own compiler. The owner judged the rest of change 0111 appropriate. No GitHub issue is recorded.                              |
+| Applicability / effectivity   | `docs/language-design.md` Rules 1.8 (new), 6.6, 6.7, 8.1, 8.7 and 8.22, `reqs/`, `docs/use-typeshade-surface.md` (every section that shows an entry), the front end's entry detection (`src/compiler/ts/stage-call.ts` and its callers), the ambient library and the diagnostic filter (`src/language-service/`), the host face, `tshc migrate`, `examples/plain-typescript.test.ts`, every `examples/**/*.shade.ts` that declares an entry, and the downstream repositories. No release version is assigned. |
+| Review baseline               | `main` at `415b276a7408936cb483d05ca8bb39e797b05966` (#1092), read on 2026-11-09.                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Review and revision authority | Pull request #1094. Git records the revisions of this file; the review and merge of #1094 record the decision. An earlier revision on #1094 proposed `vertex<T>` return types; the owner rejected it because those are fixed names too.                                                                                                                                                                                                                                                                       |
 
 ## What changes
 
-This proposal replaces decision D1 of change 0111 and the matching spelling of change 0107
-(Amendment 2). It keeps the rest of change 0111: `builtin<N, T>` and `location<I, T>` (D2),
+This proposal replaces decision D1 of change 0111. It keeps the rest of change 0111: `builtin<N, T>` and `location<I, T>` (D2),
 `inout<T>` and `out<T>` (D4), and no uninitialized field (D8).
 
 **The principle, a new Rule 1.8.** <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds --> The proposed text, for `docs/language-design.md` §1.8 after
@@ -198,8 +194,10 @@ Rule 1.7:
 > directive, a type of the surface, or an attribute `@name` or `@name(…)` on the declaration it
 > marks. A construct must not be written as a call of a function whose only role is to carry it.
 > An attribute that WGSL writes on a function (`@vertex`, `@fragment`, `@compute`,
-> `@workgroup_size`, `@diagnostic`) and one this language adds on a function (`@numerics`) are
-> written as attributes. Whether a plain `tsc` accepts a form is not a criterion for the surface.
+> `@workgroup_size`, `@diagnostic`) is written as an attribute. A construct is added only for
+> what the author must state and the compiler cannot know; what the compiler can decide (an
+> optimization, a numerical relaxation, a tuning parameter) is the compiler's work and never an
+> author-facing construct. Whether a plain `tsc` accepts a form is not a criterion for the surface.
 >
 > - Rationale: a `"use typeshade"` file is a program in the TypeShade language. Its own
 >   compiler and language service read it (Rule 3.1). A call of a fixed function name presents a
@@ -216,7 +214,7 @@ Rule 1.7:
 > - Enforced by: review (Rule 13.1); `TS8028 ATTRIBUTE_NAME` on a call form after the migration
 >   release.
 
-**Before (change 0111 D1, change 0107 Amendment 2):**
+**Before (change 0111 D1):**
 
 ```ts
 export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut { … });
@@ -224,7 +222,6 @@ export const fs = fragment(function fs(i: VsOut): location<0, vec4> { … }, {
   diagnostic: ["off", "derivative_uniformity"],
 });
 export const main = compute([8, 8], function main(id: builtin<"global_invocation_id", vec3u>) { … });
-const f = numerics(["finite-math"], function f(x: f32): f32 { … });
 ```
 
 **After:**
@@ -239,8 +236,6 @@ export function fs(i: VsOut): location<0, vec4> { … }
 @compute([8, 8])
 export function main(id: builtin<"global_invocation_id", vec3u>) { … }
 
-@numerics(["finite-math"])
-function f(x: f32): f32 { … }
 ```
 
 The proposed rules, in short:
@@ -249,17 +244,21 @@ The proposed rules, in short:
    stage attribute: `@vertex`, `@fragment` or `@compute([x, y?, z?])` (Rule 8.1). A bare
    `@compute` takes the default size, 64 (Rule 8.7).
 2. A kernel's workgroup size is `@workgroup_size([n])` on its function declaration (Rule 8.22).
-3. `@diagnostic(severity, rule)` is written on an entry (Rule 6.7). `@numerics([…])` is written
-   on a function of the file or an entry (Rule 11.22).
-4. These are the forms that change 0111 had before D1, and the spelling 0107 first accepted.
+3. `@diagnostic(severity, rule)` is written on an entry (Rule 6.7).
+4. These are the forms that change 0111 had before D1.
    The front end and the editor already read them during 0111's migration period.
 5. Entry inputs and outputs keep the types of change 0111: no decorator on a parameter or a
    field (Rule 6.6).
-6. The calls `vertex(f)`, `fragment(f)`, `compute([…], f)`, `workgroup_size([…], f)` and
-   `numerics([…], f)` give a warning that names the attribute, for one migration release, and are
+6. The calls `vertex(f)`, `fragment(f)`, `compute([…], f)` and `workgroup_size([…], f)` give a
+   warning that names the attribute, for one migration release, and are
    refused after it (D2). `tshc migrate` rewrites them.
 7. The ambient library stops declaring the call forms after the migration release, so no fixed
    function name remains for an attribute.
+8. `numerics` is not in this proposal. The owner directed on 2026-11-09 that it be removed, not
+   respelled, because a numerical relaxation is the compiler's work (Rule 1.8). <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds --> A separate
+   proposal removes the `numerics(…)` call, the stage calls' `numerics` option, Rule 11.22 and
+   `TS8078`. That proposal is accepted before this one's call forms are refused, so that no entry
+   is left with an option it cannot write.
 
 The emitted WGSL and GLSL ES 3.00 do not change for a migrated program.
 
@@ -312,17 +311,15 @@ as it did before change 0111.
   of a function whose only role is to carry it; a plain `tsc` is not a criterion for the surface.
 - **Rule 6.6**: the TS1206 note for entries says the stage attribute's TS1206 is filtered by the
   language service; parameters and fields keep the types.
-- **Rule 6.7**: the list of attribute places says that a stage, `workgroup_size`, `diagnostic`
-  and `numerics` are attributes on a function declaration.
+- **Rule 6.7**: the list of attribute places says that a stage, `workgroup_size` and
+  `diagnostic` are attributes on a function declaration.
 - **Rule 8.1**: an entry point is a function declaration with a stage attribute.
 - **Rule 8.7**: the workgroup size is `@compute`'s argument; the call form is removed.
 - **Rule 8.22**: a kernel's size is `@workgroup_size([n])`.
-- **Rule 9.6** and **Rule 11.22**: `numerics` is `@numerics([…])`, as change 0107 first accepted.
 - **Surface sections**: every section that shows an entry. The list is change 0111's. It is
   confirmed by `tshc migrate`'s dry run at acceptance.
 - **codes**: `TS8028 ATTRIBUTE_NAME` gives the warning, and later the refusal, of the call forms,
-  and stops warning on the stage attributes. `TS8078` names `@numerics` in its message. No code
-  is added or removed.
+  and stops warning on the stage attributes. No code is added or removed.
 - **examples**: the 94 `examples/*.shade.ts` files that contain a stage call at the baseline.
   Seven more files in subdirectories of `examples/` contain one; `scripts/changes.ts` does not
   track them, and `tshc migrate` rewrites them.
@@ -345,9 +342,11 @@ before change 0111. Duration and cost are unknown.
 
 Decisions to resolve before acceptance (recommendations are the author's, not decisions):
 
-- **D1. Scope.** Recommended: `workgroup_size` and `numerics` return to attributes with the
-  stages, so that no attribute is a call of a fixed name. The alternative changes only the three
-  stages.
+- **D1. A kernel's `workgroup_size`.** A kernel's workgroup size is a tuning parameter, which
+  Rule 1.8 makes the compiler's. <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds --> Option A: the compiler chooses it and `workgroup_size([…], f)`
+  is removed, by a separate proposal with `numerics`. Option B: it returns to the attribute
+  `@workgroup_size([n])` in this proposal. No example uses it at the baseline. The author's
+  recommendation is A.
 - **D2. Migration.** Recommended: one migration release where the call forms compile with a
   `TS8028` warning naming the attribute, then refusal. Change 0111 was not released with a
   version, so the alternative refuses the call forms at once.
