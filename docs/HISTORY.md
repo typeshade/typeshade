@@ -22,8 +22,8 @@ reading it:
 - **It stops at the split.** Nothing after it is here; `CHANGELOG.md` at the repository root
   starts at that point and is maintained by hand.
 
-`@xgis/shader-dsl` was never published to npm. The first published release of this code is
-`typeshade@0.1.0`.
+`@xgis/shader-dsl` was never published to npm. No official release of this code exists yet: the
+`typeshade` package on npm holds only the placeholder `0.0.0` (`docs/owner-decisions.md` OD-6).
 
 ---
 
