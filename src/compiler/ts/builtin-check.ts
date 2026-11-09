@@ -46,9 +46,6 @@ export const ATTRIBUTE_NAMES: readonly string[] = [
   'interpolate',
   'invariant',
   'blend_src',
-  // §54: `@diagnostic("off", "derivative_uniformity")` on an entry, which becomes a
-  // module-scope `diagnostic(off, derivative_uniformity);`.
-  'diagnostic',
   // Change 0040: GLSL's parameter qualifiers, which make a parameter name the caller's place
   // (Rule 8.25). GLSL's third, `in`, is a reserved word TypeScript does not parse after `@`,
   // and is the value a parameter already is.
@@ -161,13 +158,12 @@ export type AttributeSite =
 /**
  * The attributes of {@link ATTRIBUTE_NAMES} each place that reads decorators applies. The
  * collector of that place drops any other, so {@link checkAttributeName} refuses it there: a
- * function is an entry by its stage, and `diagnostic-directive.ts` reads `@diagnostic` off a
- * top-level function only; an entry's parameter takes its IO, where `@invariant` has no effect
+ * function is an entry by its stage; an entry's parameter takes its IO, where `@invariant` has no effect
  * on the one input WGSL lets it mark (`position`) and is dropped; a struct field takes the IO of
  * an entry's struct. A class, and a parameter of a function that is not an entry, take none.
  */
 const SITE_ATTRIBUTES: Readonly<Partial<Record<AttributeSite, readonly string[]>>> = {
-  'a function': ['vertex', 'fragment', 'compute', 'diagnostic'],
+  'a function': ['vertex', 'fragment', 'compute'],
   "a namespace's function": ['vertex', 'fragment', 'compute'],
   // A qualifier is read on any parameter, and `parseParams` refuses it, with `TS8073`, where a
   // function takes its parameters by value (Rule 8.25).
@@ -224,6 +220,12 @@ export const WGSL_ATTRIBUTES_ELSEWHERE: ReadonlyMap<string, string> = new Map(
     must_use:
       '"@must_use" is WGSL\'s attribute, and is not applied: a call\'s result is not checked ' +
       'for use. Remove it.',
+    // Change 0132 removed the filter: the compiler rewrites what the filter switched off
+    // (Rule 8.5), and a written one names neither a severity nor a rule that is still read.
+    diagnostic:
+      '"@diagnostic(…)" is not a decorator the compiler reads (Rule 6.7). Delete it: the ' +
+      'compiler rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5) and ' +
+      'reports each other one with TS8052 and the reason. "tshc migrate" deletes it.',
     subgroup_size:
       '"@subgroup_size" is WGSL\'s attribute, and is not applied: a compute entry runs at the ' +
       'subgroup size the device chooses. Remove it.',
@@ -242,7 +244,6 @@ const ATTRIBUTE_TARGET: Readonly<Record<string, string>> = {
   interpolate: "an entry's input or output",
   invariant: "an entry's input or output",
   blend_src: "a field of a fragment entry's output",
-  diagnostic: 'a top-level function',
   inout: 'a parameter of a function',
   out: 'a parameter of a function',
 };

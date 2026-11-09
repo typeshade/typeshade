@@ -26,6 +26,7 @@ import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
 import { compileTsSource } from '../../compiler/ts/source-file.js';
 import { TS_CODES } from '../../compiler/ts/codes.js';
+import { WGSL_ATTRIBUTES_ELSEWHERE } from '../../compiler/ts/builtin-check.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { uniformityViolations } from './uniformity.js';
 import { withoutDecoratedForm } from '../testing/decorated-form.js';
@@ -304,8 +305,12 @@ describe('what stays legal', () => {
   });
 });
 
-describe('@diagnostic("off", "derivative_uniformity")', () => {
+// The filter until change 0132 removed it, with no warning release: every case that pinned
+// what it did now pins its refusal, `TS8028` once at each filter, in both halves (`errorsOf`
+// reads the editor too), and what the module gives without it.
+describe('@diagnostic("off", "derivative_uniformity") is refused (change 0132)', () => {
   const OFF = '@diagnostic("off", "derivative_uniformity")\n';
+  const REFUSAL = `TS8028 ${WGSL_ATTRIBUTES_ELSEWHERE.get('diagnostic')!}`;
   const SRC = frag(
     `  if (v.uv.x > 0.5) { return textureSample(t, s, v.uv) }
   return vec4(0., 0., 0., 1.)`,
@@ -314,9 +319,8 @@ describe('@diagnostic("off", "derivative_uniformity")', () => {
 
   it('is not offered by a call the rewrite could not reach, wherever the file could carry it', () => {
     // Change 0132: the compiler rewrites what it can reach, and a TS8052 for the rest names why
-    // and what the author can write instead; it no longer offers the filter, on a top-level
-    // entry or anywhere else. A file that writes one keeps it until a later step of 0132
-    // removes it: the decorated form's `@diagnostic` on a top-level helper is still read.
+    // and what the author can write instead; it never offers the filter, on a top-level entry or
+    // anywhere else. A file that writes one is refused at the filter.
     const ns = (top: string, attrs = '') => `declare const t: texture_2d<f32>
 declare const s: sampler
 ${attrs}${top}namespace N {
@@ -338,51 +342,47 @@ ${attrs}${top}namespace N {
       expect(compiled(ns(top)).wgsl, top).toContain('textureSampleGrad(t, s, p.xy,');
       expect(errorsOf(unreachable(ns(top))), top).toEqual([said]);
     }
-    expect(compiled(ns(helper, OFF)).wgsl).toContain('diagnostic(off, derivative_uniformity);');
+    // The decorated form's `@diagnostic` on a top-level helper was read until change 0132.
+    expect(errorsOf(ns(helper, OFF))).toEqual([REFUSAL]);
   });
 
-  it('emits the directive when asked, and takes the module as written', () => {
-    const c = compiled(SRC);
-    expect(c.wgsl).toContain('diagnostic(off, derivative_uniformity);');
-    // Before every other directive, and before the declarations.
-    expect(c.wgsl!.indexOf('diagnostic(off')).toBeLessThan(c.wgsl!.indexOf('struct '));
-    // GLSL ES 3.00 has no equivalent and needs none: an implicit derivative in non-uniform
-    // control flow is undefined there, not refused. The text does not move.
+  it('refuses the filter where it took the module as written, and rewrites the module without it', () => {
+    expect(errorsOf(SRC)).toEqual([REFUSAL]);
+    expect(compile(`"use typeshade"\n${SRC}`).wgsl).toBeUndefined();
+    const c = compiled(SRC.replace(OFF, ''));
+    expect(c.wgsl).not.toContain('diagnostic(');
+    expect(c.wgsl).toContain('textureSampleGrad(t, s, v.uv,');
+    // GLSL ES 3.00 reads the same rewritten IR: the gradient form, and no directive.
     expect(c.glsl!.fragment).not.toContain('diagnostic');
+    expect(c.glsl!.fragment).toContain('textureGrad(');
   });
 
-  it('leaves the emit byte-identical for a module that does not ask', () => {
+  it('refuses the filter on a module that does not need it, whose emit stays as it was', () => {
     const body = `  return textureSample(t, s, v.uv)`;
     const without = compiled(frag(body));
     expect(without.wgsl).not.toContain('diagnostic(');
-    // Byte for byte, not merely "no directive line": the whole point is that a module that
-    // asks for nothing emits what it always did.
-    const withOff = compiled(frag(body, OFF));
-    expect(withOff.wgsl).toBe(`diagnostic(off, derivative_uniformity);\n\n${String(without.wgsl)}`);
+    expect(without.wgsl).toContain('textureSample(t, s, v.uv)');
+    expect(errorsOf(frag(body, OFF))).toEqual([REFUSAL]);
   });
 
-  it('honours the severity rather than emitting one and ignoring it', () => {
-    // `warning` and `info` demote the rule; `error` is the default it already has. A directive
-    // the emit carried while the front end went on refusing would never reach a compiler —
-    // `wgsl` is `undefined` whenever a diagnostic is an error.
-    const src = frag(
-      `  if (v.uv.x > 0.5) { return textureSample(t, s, v.uv) }
+  it('reads no severity: each one is the same refusal, and no TS8052 is demoted', () => {
+    for (const severity of ['off', 'info', 'warning', 'error']) {
+      const src = frag(
+        `  if (v.uv.x > 0.5) { return textureSample(t, s, v.uv) }
   return vec4(0., 0., 0., 1.)`,
-      '@diagnostic("warning", "derivative_uniformity")\n',
-    );
-    const c = compile(`"use typeshade"\n${src}`);
-    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(c.diagnostics.filter((d) => d.category === 'warning').map((d) => d.code)).toContain(
-      TS_CODES.UNIFORMITY,
-    );
-    expect(c.wgsl).toContain('diagnostic(warning, derivative_uniformity);');
+        `@diagnostic("${severity}", "derivative_uniformity")\n`,
+      );
+      expect(errorsOf(src), severity).toEqual([REFUSAL]);
+      const c = compile(`"use typeshade"\n${src}`);
+      expect(c.diagnostics.map((d) => d.code)).not.toContain(TS_CODES.UNIFORMITY);
+    }
   });
 
   it('does not let the filter silence a BARRIER, which is not that rule', () => {
     // Measured: `workgroupBarrier` under a non-uniform condition is `'workgroupBarrier' must
     // only be called from uniform control flow` on Tint WITH `diagnostic(off,
-    // derivative_uniformity);` in the module. Silencing it here would hand the author a
-    // module that fails at createShaderModule instead of at the line.
+    // derivative_uniformity);` in the module. The filter is refused, and the barrier is still
+    // reported at the line.
     const errors = errorsOf(`declare const out: storage<array<f32>, "read_write">
 let tile: workgroup<array<f32, 64>>
 @diagnostic("off", "derivative_uniformity")
@@ -391,63 +391,46 @@ let tile: workgroup<array<f32, 64>>
   if (lid.x < u32(4)) { workgroupBarrier() }
   out[lid.x] = tile[lid.x]
 }`);
+    expect(errors).toContain(REFUSAL);
     expect(errors.join('\n')).toContain('workgroupBarrier() is reached under');
   });
 
-  it('refuses two directives that set one rule two ways, rather than emitting both', () => {
-    // WGSL takes one severity per rule per scope, so both lines in one module is
-    // `conflicting diagnostic directive` on Tint — and a module no driver accepts is exactly
-    // what §54 exists to catch at the line. Deduplicating on the (severity, rule) PAIR let
-    // this through: the two rows differ, so both were kept and both were written.
-    const conflict = errorsOf(
-      frag(
-        `  return textureSample(t, s, v.uv)`,
-        '@diagnostic("off", "derivative_uniformity")\n@diagnostic("error", "derivative_uniformity")\n',
-      ),
-    );
-    expect(conflict.join('\n')).toContain('conflicting diagnostic directive');
-    // ONE conflict, ONE diagnostic. Reporting it at both decorators with byte-identical text
-    // made a reader check whether two conflicts had been found.
-    expect(conflict).toHaveLength(1);
-    expect(conflict[0]).toContain('set to "off" by the diagnostic option of "fs"');
-    expect(conflict[0]).toContain('to "error" by the one of "fs"');
-    // The SAME severity written twice says one thing twice, which is not a conflict — and one
-    // directive is emitted, not two.
-    const twice = compiled(
-      frag(
-        `  return textureSample(t, s, v.uv)`,
-        '@diagnostic("off", "derivative_uniformity")\n@diagnostic("off", "derivative_uniformity")\n',
-      ),
-    );
-    expect(twice.wgsl!.match(/diagnostic\(off, derivative_uniformity\);/g)).toHaveLength(1);
+  it('refuses each of two filters on one rule once, with no conflict left to report', () => {
+    // Two severities for one rule were one "conflicting diagnostic directive" refusal, and the
+    // same severity twice was one directive. No directive is read now: each filter is one
+    // refusal, at its own decorator.
+    for (const second of ['error', 'off']) {
+      const errors = errorsOf(
+        frag(
+          `  return textureSample(t, s, v.uv)`,
+          `@diagnostic("off", "derivative_uniformity")\n@diagnostic("${second}", "derivative_uniformity")\n`,
+        ),
+      );
+      expect(errors, second).toEqual([REFUSAL, REFUSAL]);
+    }
   });
 
-  it('names the two FUNCTIONS when the conflicting directives sit on different ones', () => {
-    // The shape the message exists for: a directive on a helper and another on the entry.
-    // Naming "another @diagnostic in this file" left an author to search for the other one.
-    const errors = errorsOf(`${HEAD}@diagnostic("off", "derivative_uniformity")
+  it('refuses a filter on a helper and one on the entry, each at its own decorator', () => {
+    const source = `${HEAD}@diagnostic("off", "derivative_uniformity")
 export function helper(uv: vec2): vec4 { return textureSample(t, s, uv) }
 @diagnostic("error", "derivative_uniformity")
-@fragment export function fs(v: VsOut): vec4 { return helper(v.uv) }`);
-    // One diagnostic, on the SECOND directive — the one that introduced the disagreement —
-    // naming the function each side sits on so the other is findable without searching.
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain('set to "off" by the diagnostic option of "helper"');
-    expect(errors[0]).toContain('to "error" by the one of "fs"');
+@fragment export function fs(v: VsOut): vec4 { return helper(v.uv) }`;
+    expect(errorsOf(source)).toEqual([REFUSAL, REFUSAL]);
+    const at = compileTsSource(`"use typeshade"\n${source}`)
+      .diagnostics.filter((d) => d.category === 'error')
+      .map((d) => d.start);
+    expect(new Set(at).size).toBe(2);
   });
 
-  it('refuses a severity and a rule it does not know, and a wrong argument shape', () => {
-    for (const [attr, want] of [
-      ['@diagnostic("loud", "derivative_uniformity")\n', 'is not a diagnostic severity'],
-      ['@diagnostic("off", "made_up_rule")\n', 'is not a rule this compiler analyses'],
-      [
-        '@diagnostic("off")\n',
-        'diagnostic takes a severity and a rule, as strings: { diagnostic: ["off", "derivative_uniformity"] }.',
-      ],
-    ] as const) {
-      expect(errorsOf(frag(`  return textureSample(t, s, v.uv)`, attr)).join('\n'), attr).toContain(
-        want,
-      );
+  it('refuses a severity and a rule it does not know, and a wrong argument shape, the same way', () => {
+    // Each was a sentence about the severity, the rule or the shape. The filter is gone, so the
+    // one refusal names none of them.
+    for (const attr of [
+      '@diagnostic("loud", "derivative_uniformity")\n',
+      '@diagnostic("off", "made_up_rule")\n',
+      '@diagnostic("off")\n',
+    ]) {
+      expect(errorsOf(frag(`  return textureSample(t, s, v.uv)`, attr)), attr).toEqual([REFUSAL]);
     }
   });
 });

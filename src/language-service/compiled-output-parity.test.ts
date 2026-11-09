@@ -47,13 +47,16 @@ const readExample = (name: string): string | undefined => {
 };
 
 describe("getCompiledOutput prints compile()'s WGSL and GLSL", () => {
-  it('reads a corpus with an override and a diagnostic directive in it (the instrument)', () => {
+  // The corpus held a `diagnostic(off, …)` directive until change 0132 removed the filter; the
+  // rewritten sample that took its place is what the pane must print now.
+  it('reads a corpus with an override and a rewritten sample in it (the instrument)', () => {
     const texts = shadeExamples.map((e) =>
       compile(readExample(e.file)!, { fileName: e.file, readDocument: readExample }),
     );
     expect(shadeExamples.length).toBeGreaterThan(50);
     expect(texts.some((r) => /^override /m.test(r.wgsl ?? ''))).toBe(true);
-    expect(texts.some((r) => /^diagnostic\(off, /m.test(r.wgsl ?? ''))).toBe(true);
+    expect(texts.some((r) => /textureSampleGrad\(/.test(r.wgsl ?? ''))).toBe(true);
+    expect(texts.some((r) => /^diagnostic\(/m.test(r.wgsl ?? ''))).toBe(false);
   });
 
   for (const example of shadeExamples) {
