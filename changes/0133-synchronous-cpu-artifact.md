@@ -1,5 +1,5 @@
 ---
-id: '0122'
+id: '0133'
 title: Emit a synchronous CPU kernel artifact for preallocated host buffers
 status: draft
 rules:
@@ -17,7 +17,7 @@ codes: []
 examples: []
 downstream:
   - repo: typeaudio
-    what: Replace the private graph code-generator adapter, preserve shared reproduction fixtures, record 0122 in compiler-changes.md when the compiler pin advances, and verify immediate output and state continuity.
+    what: Replace the private graph code-generator adapter, preserve shared reproduction fixtures, record 0133 in compiler-changes.md when the compiler pin advances, and verify immediate output and state continuity.
   - repo: typeshade.github.io
     what: Update the imported host-kernel reference in typeshade/web and retire the TypeAudio studio's build-only CPU adapter after its engine adapter adopts this contract.
   - repo: vscode-typeshade
@@ -30,7 +30,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                               |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0122, draft. Front matter is the lifecycle authority.                                                                                                       |
+| Identity and status           | Proposal 0133, draft. Front matter is the lifecycle authority.                                                                                                       |
 | Date and attribution          | Authored 2026-11-06 UTC by Codex at the owner's direction to connect Web, TypeAudio and TypeShade feedback. This date records authorship, not acceptance.            |
 | Applicability                 | Source compilation, CPU code generation and generated-module loading. No release version is assigned.                                                                |
 | Review baseline               | TypeShade `324251dfe7755f78041eb44a1bfe85e4294e12dd`; TypeAudio baseline `575b42baa13ee666cc050b25da1e63720dfbf6e4`; Web `769f3e7818329e1cc936048afb56e8724f34a9d3`. |
@@ -122,7 +122,7 @@ The proposal must merge as accepted before a public API implementation begins.
 
 ### Configuration and validation record
 
-This record does not yet apply. No compiler implementation or downstream adoption of proposal 0122 is claimed.
+This record does not yet apply. No compiler implementation or downstream adoption of proposal 0133 is claimed.
 Delivery requires the accepted revision, implementation PR, compiler commit, executed checks and remaining deviations.
 The engine and website pins, regression artifacts and browser results must then identify the adopted implementation separately.
 
