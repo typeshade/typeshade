@@ -247,6 +247,13 @@ downstream:                # the work each downstream repository will owe
 name, a known status, known downstream repositories, and rule and section numbers that exist
 once the proposal is implemented.
 
+Two branches can claim the same next number in parallel, and each passes that test on its own.
+On a pull request, `scripts/changes.ts` (`idCollisions`) therefore fails when the diff adds or
+renames a proposal whose number or `id` the tip of the base branch gives to another file. To fix
+it, renumber the proposal to the next number that is free on the base branch and in the open
+pull requests. Earlier commits keep their `Change:` lines; the pull request says which number
+they meant.
+
 `names` lists each author-facing name the change adds, spelled as `src/__api__/author-names.md`
 spells it: `abs` for a declared name, `Math.fround` for a member of a standard object and
 `Array.prototype.map` for an array method. A proposal written before this field existed omits

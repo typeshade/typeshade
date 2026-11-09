@@ -44,6 +44,10 @@
 // construct, and a proposal whose answer is "the compiler can" is not needed. src/changes.test.ts
 // applies `compilerFirstProblems` to every proposal on disk.
 //
+// ONE ID, ONE PROPOSAL. A pull request that adds a proposal (or renames one) under an id the tip of
+// the base branch gives to another file fails: two branches that claimed the same next number
+// in parallel each pass src/changes.test.ts alone (`idCollisions`; 0122, #1037 and #1044).
+//
 // Where it runs: the shared commit policy (scripts/precommit.ts), the Claude hook
 // (scripts/doc-impact.ts --hook), and CI on every pull request.
 // A proposal's own shape (front matter, ids, status) is held by src/changes.test.ts.
@@ -189,6 +193,46 @@ export function owedDownstream(
       p.downstream.some((d) => d.repo === repo) &&
       !handled.has(p.id),
   );
+}
+
+// ─── one id, one proposal ──────────────────────────────────────────────────────────────────
+
+/** The proposal files a diff adds on the head side: an added file, or the new name of a rename. */
+export function addedProposalFiles(diff: Pick<Diff, 'added' | 'renamed'>): string[] {
+  return [...diff.added, ...diff.renamed.map(([, to]) => to)].filter(
+    (f) => f.startsWith(`${DIR}/`) && FILE.test(f.slice(DIR.length + 1)),
+  );
+}
+
+/**
+ * What stops a pull request that adds a proposal under an id the base branch already gives to
+ * another file. src/changes.test.ts holds the ids of one tree unique; this holds two trees apart:
+ * two branches that each claim the next free number pass on their own, and the second to merge
+ * would collide (0122, #1037 and #1044). `added` is each added file with its head-side text;
+ * `onBase` is the proposals at the tip of the base branch, not at the merge base, since the
+ * number was taken after the branch left it. Both the file-name number and the `id` count.
+ */
+export function idCollisions(
+  added: readonly { readonly file: string; readonly text: string }[],
+  onBase: readonly Proposal[],
+): string[] {
+  const problems: string[] = [];
+  for (const { file, text } of added) {
+    const ids = new Set([FILE.exec(file.slice(DIR.length + 1))?.[1] ?? '']);
+    try {
+      ids.add(parseProposal(file, text).id);
+    } catch {
+      // A malformed front matter is src/changes.test.ts's to report; the file name still counts.
+    }
+    for (const p of onBase) {
+      if (p.file === file || !ids.has(p.id)) continue;
+      problems.push(
+        `${file} claims proposal id ${p.id}, which the base branch already gives to ${p.file}; ` +
+          'renumber it to the next id free on the base branch and in the open pull requests.',
+      );
+    }
+  }
+  return problems;
 }
 
 // ─── why the compiler cannot do it ─────────────────────────────────────────────────────────
@@ -538,6 +582,9 @@ if (import.meta.main) {
   const baseAt = args.indexOf('--base');
   let base = 'HEAD';
   let messages = '';
+  // The tip of the base branch, where a proposal id another pull request took after this branch
+  // left the merge base is found.
+  const baseTip = baseAt >= 0 ? args[baseAt + 1]! : 'origin/main';
   if (baseAt >= 0) {
     base = git('merge-base', args[baseAt + 1]!, 'HEAD').trim();
     messages = git('log', '--format=%B', `${base}..HEAD`);
@@ -547,8 +594,13 @@ if (import.meta.main) {
   }
   // CI passes the pull request's description too, where the template asks for the Change line.
   messages += `\n${process.env.PR_BODY ?? ''}`;
-  const touched = touchedBy(readDiff(base, staged));
+  const diff = readDiff(base, staged);
+  const touched = touchedBy(diff);
   const verdict = judge(touched, messages, proposalsAt(base));
+  const collisions = idCollisions(
+    addedProposalFiles(diff).map((file) => ({ file, text: atHead(diff, file) })),
+    proposalsAt(baseTip),
+  );
   if (nothingTouched(touched))
     console.log(
       'This change touches no rule, export or downstream-visible surface: no proposal needed.',
@@ -559,8 +611,8 @@ if (import.meta.main) {
       `It removes the author-facing name ${[...touched.namesRemoved].join(', ')} ` +
         '(no proposal needed; a reviewer reads the removal in src/__api__/author-names.md).',
     );
-  for (const p of verdict.problems) console.log(`  ✗ ${p}`);
+  for (const p of [...verdict.problems, ...collisions]) console.log(`  ✗ ${p}`);
   if (verdict.pending.length)
     console.log(`  still to do under the proposal: ${verdict.pending.join('; ')}`);
-  process.exit(verdict.problems.length ? 1 : 0);
+  process.exit(verdict.problems.length + collisions.length ? 1 : 0);
 }
