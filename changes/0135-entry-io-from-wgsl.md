@@ -17,27 +17,29 @@ examples: []
 names: []
 downstream:
   - repo: typeshade.github.io
-    what: Rewrite the TS8029 page of src/lib/error-codes.ts (its "neither builtin nor location" case leaves; the compute case stays), the TS8003 entry for a built-in value's type, and the guide and reference pages that say every entry I/O field must carry builtin<…> or location<…>; regenerate the example pages; record 0135 in compiler-changes.md
+    what: Rewrite the TS8029 page of src/lib/error-codes.ts (its "neither builtin nor location" case leaves; the compute case stays and gains the bare parameter), the TS8003 and TS8010 entries for the new sentences, and the guide and reference pages that say every entry I/O field must carry builtin<…> or location<…>; regenerate the example pages; record 0135 in compiler-changes.md
+  - repo: typeaudio
+    what: Only under decision D1.2, run tshc migrate on the 19 lines that write builtin<N, T> with a type WGSL fixes before the release that refuses the written type; nothing under D1.1
   - repo: vscode-typeshade
     what: Rewrite the skill's references/language.md (line 420 at db3f417, every IO field carries a location or a builtin) and references/diagnostics.md (the TS8029 row) to the inferred forms, and record 0135 in compiler-changes.md when the pin moves
 ---
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0135, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the owner's direction. The date is the drafting date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-09, in Korean. The owner asked which parts of the supported surface push onto the author work that the language or the compiler should do, judged against `OD-3`. From an audit of the surface, the owner chose two items of entry I/O for this proposal: the type written in `builtin<"vertex_index", u32>`, and the number written in `location<0, vec2>`. No GitHub issue is recorded.                                                                                                                                                                                                                                                                                       |
-| Applicability / effectivity   | Expected: `docs/language-design.md` Rules 6.6, 6.8 and 8.2 and §2.3 (prose, not a rule), `docs/use-typeshade-surface.md` §3, §7 and §53, `reqs/`, `src/compiler/ts/attribute-types.ts`, `src/compiler/ts/builtin-check.ts`, `src/compiler/ts/structs.ts`, `src/compiler/ts/lower/function.ts` (the entry I/O checks and `checkStructBuiltinFields`), `src/compiler/ts/source-file.ts` (the interstage check), `src/core/passes/lint/rules/interstage-io.ts`, `src/language-service/ambient.ts` (the `builtin` type), `src/cli/migrate.ts`, `CHANGELOG.md`, and the examples (edited, none added or removed). The emitted WGSL, the emitted GLSL ES 3.00, `reflect()` and the manifest keep their shapes. No release version is assigned. |
-| Review baseline               | `main` at `2cc98b8f` (merge of pull request #1113), 2026-11-09. Every count and every measurement below was made on that commit unless the row says otherwise. Change 0130 is `accepted` and not yet implemented on this commit.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| Review and revision authority | Pull request #1123 (draft). Git records the revisions of this file. The merge of that pull request with `status: accepted` will record the decision.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0135, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the owner's direction, and revised the same day after the independent review and the owner's decision on `OD-5` (both recorded below). The dates are drafting and revision dates. They are not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-09, in Korean. The owner asked which parts of the supported surface push onto the author work that the language or the compiler should do, judged against `OD-3`. From an audit of the surface, the owner chose two items of entry I/O for this proposal: the type written in `builtin<"vertex_index", u32>`, and the number written in `location<0, vec2>`. No GitHub issue is recorded.                                                                                                                                                                                                                                                                                                                                                              |
+| Applicability / effectivity   | Expected: `docs/language-design.md` Rules 6.6, 6.8 and 8.2, §2.3 (prose, not a rule) and Appendix B's Rule 6.6 row, `docs/use-typeshade-surface.md` §3, §7 and §53, `reqs/`, `src/compiler/ts/attribute-types.ts`, `src/compiler/ts/builtin-check.ts`, `src/compiler/ts/structs.ts`, `src/compiler/ts/lower/function.ts` (the entry I/O checks and `checkStructBuiltinFields`), `src/compiler/ts/source-file.ts` (the interstage check), `src/core/passes/lint/rules/interstage-io.ts`, `src/language-service/ambient.ts` (the `builtin` type) and the language service's diagnostic merge, `src/cli/migrate.ts`, `CHANGELOG.md`, and the examples (edited, none added or removed). The emitted WGSL, the emitted GLSL ES 3.00, `reflect()` and the manifest keep their shapes. No release version is assigned. |
+| Review baseline               | `main` at `583891d2` (merge of pull request #1120, which records `OD-5`), 2026-11-09. The measurements of the compiler were made on `2cc98b8f`, the commit before it; `583891d2` changes no file under `src/compiler/`, `src/core/` or `src/language-service/` that they read (it adds `OD-5` and part 2b of change 0120 in `src/runtime/` and the call layer). The revision after the review re-ran the new measurements on `583891d2`. Change 0130 is `accepted` and not yet implemented.                                                                                                                                                                                                                                                                                                                     |
+| Review and revision authority | Pull request #1123 (draft). Git records the revisions of this file. The merge of that pull request with `status: accepted` will record the decision.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ## What changes
 
 The examples in this proposal are written in the final form of change 0130 (accepted, not yet
-implemented on `2cc98b8f`): an entry is `@vertex export function vs(…)`, and a field of an I/O
-struct takes no `!`. Only the entry I/O types differ between "before" and "after".
+implemented): an entry is `@vertex export function vs(…)`, and a field of an I/O struct takes no
+`!`. Only the entry I/O types differ between "before" and "after".
 
 ### Item 1: a built-in value takes its type from WGSL
 
@@ -48,16 +50,21 @@ built-in value but one (`WGSL_BUILTIN_TYPES` in `src/core/sot.ts`: 17 of the 18 
 (`checkBuiltinType`, `src/compiler/ts/builtin-check.ts`). The IR builder already omits it:
 `builtin('vertex_index')` in `src/core/sot.ts` reads the type from the same table.
 
-Proposed:
+Proposed (decision D1.2, recommended):
 
 - `builtin<N>` means the value WGSL defines for `N`, of the type WGSL gives it.
   `vi: builtin<"vertex_index">` is a `u32` to the compiler and to the editor.
-- `builtin<N, T>` stays accepted. `T` is checked as today, with the same `TS8003` sentence.
-- `clip_distances` is the one name whose type the author chooses (`array<f32, N>`, N from 1 to 8),
-  so it keeps its second argument. `builtin<"clip_distances">` is refused with `TS8003`, in a new
-  sentence: `Builtin "clip_distances" has no single type: write builtin<"clip_distances", array<f32, N>> with N from 1 to 8.`
-- An options argument stays the third argument. A built-in value that takes an option writes its
-  type: `builtin<"position", vec4, { invariant: true }>` (decision D1.3).
+- An option is the second argument: `builtin<"position", { invariant: true }>`.
+- `clip_distances` is the one name whose type the author chooses (`array<f32, N>`, N from 1 to 8).
+  It keeps its type argument: `builtin<"clip_distances", array<f32, 4>>`. `builtin<"clip_distances">`
+  is refused with `TS8003`, in a new sentence:
+  `Builtin "clip_distances" has no single type: write builtin<"clip_distances", array<f32, N>> with N from 1 to 8.`
+- For every other name, a written type (`builtin<N, T>`, `builtin<N, T, O>`) is a migration form.
+  In the release that ships this change it compiles, with a `TS8028` warning that names the short
+  form and `tshc migrate`:
+  `"vertex_index" has the type WGSL gives it, u32: write builtin<"vertex_index">, or run "tshc migrate".`
+  A written type that is not WGSL's stays `TS8003` with today's sentence. The release after it
+  refuses a written type, as change 0111 D5 does for its migration forms.
 
 ### Item 2: a user-defined input or output takes its location from the compiler
 
@@ -65,22 +72,27 @@ Today every field of an entry I/O struct, and every user-defined entry parameter
 `location<n, T>`; a field without it is `TS8029` (`STRUCT_FIELD_MISSING_ATTR`):
 `Struct "VsOut" field "uv" is used as a vertex output but has neither a builtin<…> nor a location<…> type: WGSL requires every entry output struct member to declare one.`
 
-Proposed:
+The owner decided on 2026-11-09 that `OD-5` allows this item ("Owner's decisions", below):
+`uv: vec2` with no `location<…>` is allowed, and `location<n, T>` stays for a fixed number or an
+option.
+
+Proposed (decision D2.1, recommended):
 
 - An entry input or output that carries no `builtin<…>` is a user-defined input or output, and the
-  compiler gives it its location. `uv: vec2` in a vertex output struct is a value passed between
-  stages.
-- Where it stands decides what it is, as WGSL already decides:
+  compiler gives it its location, unless `location<n, T>` writes one. A written `n` is always the
+  location, as today.
+- Where the value stands decides what it is, as WGSL already decides, and how it is numbered:
 
-  | Where the value stands                                  | What it is             | Its location (decision D2)                                                     |
-  | ------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------ |
-  | A vertex entry's parameter, or a field of one           | A vertex attribute     | Its index in declaration order: the order Rule 6.8 already packs the buffer in |
-  | A vertex entry's result field, a fragment entry's input | A value between stages | One location for each name in the program, chosen by the compiler              |
-  | A fragment entry's result, or a field of it             | A render target        | Its index in declaration order (a bare result is location 0, as today)         |
-  | A compute entry's parameter or a field of one           | Refused, as today      | none: `TS8029`, `a compute shader reads its work from resources …` (kept)      |
+  | Where the value stands                                                                      | What it is             | Its location when none is written                                                                                                                                                         |
+  | ------------------------------------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | A vertex entry's parameter, or a field of one                                               | A vertex attribute     | The lowest number no written location of that entry holds, in declaration order (the order Rule 6.8 already packs the buffer in)                                                          |
+  | A field of a struct that a vertex entry returns                                             | A value between stages | The lowest number no written location of that struct holds, in declaration order. The scope is the struct, so a struct has one set of locations wherever it is used                       |
+  | A fragment entry's input (a field of a struct no vertex entry returns, or a bare parameter) | A value between stages | The location the field of the same name has in the vertex results of the program. Refused (`TS8010`, new sentence) when no vertex result has the name, or two give it different locations |
+  | A fragment entry's result, or a field of it                                                 | A render target        | The lowest number no written location of that entry holds, in declaration order; a bare result is location 0, as today                                                                    |
+  | A compute entry's parameter or a field of one                                               | Refused, as today      | none: `TS8029`, `a compute shader reads its work from resources …`, now also for a bare parameter, which no check reports today                                                           |
 
-- `location<n, T>` stays accepted. A written `n` is the location. The values the compiler numbers
-  take the lowest locations that no written `n` holds, in the order above.
+- A fragment input that is a field of the same struct the vertex entry returns has that struct's
+  locations; this is the common case (67 of 69 pairs in the examples).
 - A value between stages is linked by its name. GLSL ES 3.00 already links a varying by name, and
   the compiler already refuses two names at one location for that reason
   (`interstageMismatches`, `src/core/passes/lint/rules/interstage-io.ts`). The number adds nothing
@@ -89,6 +101,15 @@ Proposed:
   writes its location (decision D2.3).
 - `reflect()` (`vertex.attributes[].location`, `entries[].io`) and the manifest report each
   location, written or given, in the fields they report today.
+
+**The mixed case.** Today these two structs compile together (two entries of each stage):
+`interface A { pos: builtin<"position", vec4>; uv: location<0, vec2>; n: location<1, vec3> }` and
+`interface B { pos: builtin<"position", vec4>; n: location<0, vec3> }`. Each keeps its written
+numbers after this change. If the author drops the number on `A.n`, `A.n` is 1 (the lowest number
+no written field of `A` holds), and `B.n` stays 0, as written. If `B` is a fragment input and the
+author drops the number on `B.n` too, `B.n` takes the location `n` has in the vertex results; with
+`A` the only one, that is 1. A program-wide number per name (decision D2.1b, not recommended) would
+instead give one number to `n` everywhere, and a written `B.n` at 0 would collide with `A.uv`.
 
 ### The example: `examples/hello-vsout.shade.ts`
 
@@ -166,19 +187,28 @@ location in GLSL ES 3.00; the linker matches it by name.
 
 ### Every form that changes
 
-| Form                                                                               | Today                                                              | After                                                               |
-| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| `builtin<N>` for every `N` but `clip_distances`                                    | `TS8002` and TypeScript TS2707                                     | accepted, the type WGSL gives `N`                                   |
-| `builtin<N, T>` with WGSL's `T`                                                    | accepted                                                           | accepted, unchanged                                                 |
-| `builtin<N, T>` with another `T`                                                   | `TS8003`                                                           | `TS8003`, the same sentence                                         |
-| `builtin<"clip_distances">`                                                        | `TS8002` and TS2707                                                | `TS8003`, a new sentence naming `array<f32, N>`                     |
-| `builtin<"position", vec4, { invariant: true }>`                                   | accepted                                                           | accepted, unchanged (D1.3)                                          |
-| an entry I/O struct field with no attribute type, in a vertex or fragment entry    | `TS8029`                                                           | accepted, a user-defined input or output                            |
-| a bare vertex entry parameter with no attribute type (`vs(p: vec2)`)               | no front-end word; WGSL that Tint refuses; a GLSL `TS8015` warning | accepted, a vertex attribute                                        |
-| a bare fragment entry parameter with no attribute type (`fs(uv: vec2)`)            | as above                                                           | accepted, a value between stages linked by its name                 |
-| such a field or parameter of a type that cannot cross (`bool`, a matrix, a struct) | `TS8029`                                                           | `TS8003`, the sentence a `location<n, bool>` has today              |
-| such a field or parameter on a compute entry                                       | `TS8029`, "neither … nor …"                                        | `TS8029`, the compute sentence that a `location<…>` there has today |
-| `location<n, T>` and `location<n, T, O>`                                           | accepted                                                           | accepted, unchanged; `n` is the location                            |
+"Valid WGSL today" below means that the source compiles and its WGSL passes Tint.
+
+| Form                                                                                             | Today                                                                                                  | After                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `builtin<N>` for every `N` but `clip_distances`                                                  | `TS8002` and TypeScript TS2707                                                                         | accepted, the type WGSL gives `N`                                                                                                               |
+| `builtin<N, O>`, an options object second (`builtin<"position", { invariant: true }>`)           | `TS8002 Unsupported type syntax "{ invariant: true }".` and TypeScript TS2741 (measured on `583891d2`) | accepted                                                                                                                                        |
+| `builtin<N, T>` or `builtin<N, T, O>` with WGSL's `T`, `N` not `clip_distances`                  | accepted                                                                                               | D1.2: accepted with a `TS8028` warning in the migration release, refused after it. D1.1: accepted                                               |
+| `builtin<N, T>` with another `T`                                                                 | `TS8003`                                                                                               | `TS8003`, the same sentence                                                                                                                     |
+| `builtin<"clip_distances">`                                                                      | `TS8002` and TS2707                                                                                    | `TS8003`, a new sentence naming `array<f32, N>`; the editor shows it alone                                                                      |
+| `builtin<"clip_distances", array<f32, N>>`                                                       | accepted                                                                                               | accepted, unchanged                                                                                                                             |
+| an entry I/O struct field with no attribute type, in a vertex or fragment entry                  | `TS8029`                                                                                               | accepted, numbered as the table of item 2 says                                                                                                  |
+| a bare vertex entry parameter with no attribute type (`vs(p: vec2)`)                             | no front-end word; WGSL that Tint refuses; a GLSL `TS8015` warning                                     | accepted, a vertex attribute                                                                                                                    |
+| a bare fragment entry parameter with no attribute type (`fs(uv: vec2)`)                          | as above                                                                                               | accepted when a vertex result has a field `uv`; otherwise `TS8010` (next row)                                                                   |
+| a fragment input with no number whose name no vertex result has, or two give different locations | `TS8029` (field) or nothing (bare parameter)                                                           | `TS8010`, new sentence: `"FsIn.n" has no location and the vertex results give "n" none (or 0 in "A" and 1 in "C"): write location<n, T> on it.` |
+| such a field or parameter of a type that cannot cross (`bool`, a matrix, a struct)               | `TS8029`                                                                                               | `TS8003`, the sentence a `location<n, bool>` has today                                                                                          |
+| such a field on a compute entry                                                                  | `TS8029`, "neither … nor …"                                                                            | `TS8029`, the compute sentence that a `location<…>` there has today                                                                             |
+| a bare compute entry parameter with no attribute type (`compute([64], function c(x: u32) {})`)   | no diagnostic; emits `fn c(x: u32)`, which Tint refuses                                                | `TS8029`, the compute sentence                                                                                                                  |
+| `location<n, T>` and `location<n, T, O>`                                                         | accepted                                                                                               | accepted, unchanged; `n` is the location                                                                                                        |
+
+No source that compiles to valid WGSL today is refused, under D1.1. Under D1.2 the release after
+the migration release refuses a written built-in type that WGSL fixes. The bare compute parameter is
+refused at once; today it compiles without a word to WGSL that Tint refuses.
 
 ### Exclusions
 
@@ -210,9 +240,9 @@ Both items are values the compiler knows and the author must still write.
   So the author writes the link twice, once as a name and once as a number, and the compiler
   refuses the program when the two disagree.
 - Item 2 (fact). A bare entry parameter with no attribute is not checked at the front end today
-  (Rule 6.6, "Enforced by": `nothing at the front end for a bare parameter`). Measured: `@vertex
-export function vs(p: vec2): vec4` compiles to `fn vs(p: vec2<f32>)`, which WGSL refuses, with a
-  `TS8015` GLSL warning only. After this proposal the same source is a valid vertex attribute.
+  (Rule 6.6, "Enforced by", and its Appendix B row). Measured: `@vertex export function vs(p:
+vec2): vec4` compiles to `fn vs(p: vec2<f32>)`, which WGSL refuses, with a `TS8015` GLSL warning
+  only; `compute([64], function c(x: u32) {})` compiles to `fn c(x: u32)` with no diagnostic at all.
 
 ### Alternatives
 
@@ -221,32 +251,46 @@ Each item has a decision with options; each option names its cost. No option rev
 
 **D1. A built-in value's type.**
 
-- D1.1 (recommended). `T` is optional; a written `T` stays accepted with no warning; the examples,
-  the surface document and `tshc migrate` write the short form. Cost: one name has two spellings
-  (`builtin<"vertex_index">` and `builtin<"vertex_index", u32>`). Nothing is refused that compiles
-  today.
-- D1.2. `T` is optional; a written `T` gets a warning that names the short form, and a later
-  release refuses it. Cost: about 197 example lines, the downstream repositories' entries and the
-  site's pages migrate before that release; a warning message is added (Rule 12.5). Benefit: one
-  spelling in the end, which `OD-3` ("가능한 다 없애는게 맞아요") favours.
-- D1.3 (sub-decision). Where the options argument goes when `T` is omitted. Recommended: an author
-  who writes an option writes `T` (`builtin<"position", vec4, { invariant: true }>`). Cost: one
-  example line keeps `vec4`. The alternative, options in the second position
-  (`builtin<"position", { invariant: true }>`), needs the editor to tell a type from an options
-  object; the same test for `location` failed (D2.3), and it is not proposed.
+- D1.2 (recommended). `T` is omitted; a written `T` that WGSL fixes is a migration form, warned
+  for one release and refused after it; an option moves to the second argument. Cost: about 197
+  example lines, typeaudio's 19 lines, the site's pages and every downstream source that writes a
+  type migrate before the refusing release (`tshc migrate` rewrites them); one warning sentence is
+  added (Rule 12.5). Benefit: one spelling. `OD-3` says "A construct that the compiler could
+  replace is removed", and the written type is such a construct.
+- D1.1. `T` is optional, and a written `T` stays accepted for good with no warning. Cost: two
+  spellings for one value (`builtin<"vertex_index">` and `builtin<"vertex_index", u32>`), which
+  `OD-3`'s "is removed" does not allow for a construct the compiler can replace. Benefit: no
+  migration and no refusal of a source that compiles today. The first revision of this proposal
+  recommended D1.1; the review (finding 8) showed the tension with `OD-3`, and this revision
+  recommends D1.2.
+- D1.3 (inside D1.2). Where an option goes. Under D1.2 the type is gone, so an option is the second
+  argument. Measured: the editor can tell an options object from a built-in type in that position.
+  In the language service, a scratch alias `K<A> = A extends { readonly invariant?: true } ?
+"options" : "type"` gave `"type"` for `vec4`, `u32`, `f32`, `vec3u` and `array<f32, 4>`, and
+  `"options"` for `{ invariant: true }`; `bool` gave `"options"`, so the alias tests `boolean`
+  first. Under D1.1 an option stays third and the type is written with it.
 - D1.0 (no change). Cost: the author keeps copying a table the compiler holds (`OD-3`).
 
 **D2. A user-defined input's or output's location.**
 
-- D2.1 (recommended). The compiler gives every user-defined input and output its location: a
-  vertex attribute and a render target by declaration order, a value between stages by name.
-  `location<n, T>` stays accepted, and a written `n` holds. Cost: reordering the fields of a vertex
-  input struct or a fragment result struct renumbers them. For the vertex input, reordering already
-  moves every offset (Rule 6.8, `VertexAttr` in `src/core/reflect.ts`: "Reordering inputs can
-  change their offsets"). For the fragment result, it moves which `targets[i]` the runtime pairs
-  with each output (`targetsOf`, `src/runtime/program.ts`). A host that builds its own
-  `GPUVertexState` or colour attachments must read `reflect()`. The runtime and the compile gate
-  already read `a.location` from the layout.
+- D2.1 (recommended). The compiler gives every user-defined input and output its location by the
+  table of item 2: per entry for a vertex attribute and a render target, per struct for a vertex
+  result, by name from the vertex results for any other fragment input. `location<n, T>` stays
+  accepted, and a written `n` holds. Cost: reordering the fields of a vertex input struct or a
+  fragment result struct renumbers them. For the vertex input, reordering already moves every
+  offset (Rule 6.8, `VertexAttr` in `src/core/reflect.ts`: "Reordering inputs can change their
+  offsets"). For the fragment result, it moves which `targets[i]` the runtime pairs with each
+  output (`targetsOf`, `src/runtime/program.ts`). A host that builds its own `GPUVertexState` or
+  colour attachments must read `reflect()`. The runtime and the compile gate already read
+  `a.location` from the layout.
+- D2.1b (a variant of D2.1, not recommended). One location per name across the program. Cost,
+  measured on typeplot `shaders/data.shade.ts` <!-- doc-refs: skip — a path in the typeplot repository --> at `9f20c12`: two vertex
+  entries (`surfaceVertex` returns `Surface { uv@0 }`, `textVertex` returns `Letter { local@0,
+code@1, size@2 }`) and nine fragment entries, each reading the struct its vertex entry returns.
+  Per name, `Letter` would move to 1, 2 and 3, and the program would spend 4 of WebGPU's 16
+  inter-stage locations (`maxInterStageShaderVariables`) where each pair needs at most 3. It also
+  collides in the mixed case above. Per struct (D2.1), `Letter` keeps 0, 1, 2 and the limit is
+  per pair.
 - D2.2. The compiler gives a location only to a value between stages. A vertex attribute and a
   render target keep a required `location<n, T>`, since a host binds each by its number. Cost: the
   author learns two rules by position, and still numbers each field of a fragment result struct
@@ -265,14 +309,15 @@ Each item has a decision with options; each option names its cost. No option rev
   TypeScript. Cost: an author states a number to state a sampling; 1 example line
   (`examples/id-pick.shade.ts:33`) writes one.
 
-**How the compiler numbers a value between stages (inside D2.1, the compiler's choice).**
-One location per name across the program, so every vertex and fragment pair a host can draw links:
-a program is one module (surface §68: "The file a compile starts from and every shader file it
-imports … are one program"), and the runtime pairs entries of one program by name (`RenderState`,
-`src/runtime/program.ts`). The numbers are the compiler's choice and the same for the same source;
-`reflect()` reports them. A program whose distinct names exceed the target's inter-stage limit is
-refused in one sentence that names the limit. Estimate: no example is near it (the highest written
-location in the examples is 1).
+**What an author learns after D2.1.** Today: write `location<n, T>` on every user-defined value,
+and keep the two sides of a link at one number and one name. After: write nothing, and know where a
+value stands (a vertex parameter is an attribute, a vertex result field and a fragment input are
+values between stages, a fragment result is a render target), which WGSL already decides. An
+author who needs a number to stay fixed (a host that binds by hand, a gap between render targets)
+or an option writes `location<n, T>`, and must know that the given numbers fill the places no
+written one holds, in declaration order. `reflect()` and, if adopted, the editor's hover show every
+number. The cost is three placement rules and one numbering rule, against one rule written on every
+field today.
 
 ### Assumptions
 
@@ -281,41 +326,47 @@ location in the examples is 1).
   and `scripts/compile-gate.ts:382`, which read `a.location` or `input.location`). A downstream host
   that hard-codes a `shaderLocation` was not found (0 files in typeaudio, typenn, typecv, typeplot,
   radiance and vscode-typeshade, at the local commits named under "What it owes downstream").
-- No example has more than one vertex entry or one fragment entry (measured: 0 of 114). The
-  per-name numbering is chosen so that this does not matter.
+- No example has more than one vertex entry or one fragment entry (measured: 0 of 114). Downstream
+  (measured on the local clones named under "What it owes downstream"): typeplot `data.shade.ts`
+  (2 vertex, 9 fragment entries, read from the source; it does not compile on `583891d2`, since it
+  calls `pow`, which change 0112 removed) and typeplot `scene-composite.shade.ts` (1 vertex, 2
+  fragment entries, compiled). In both, every fragment entry reads the struct its vertex entry
+  returns, so the per-struct numbering of D2.1 gives the written numbers.
 
 ### Conflicts
 
-One question goes to the owner (Open questions for the owner, question 3): `OD-5`, recorded on
-`main` at `583891d2` after the first revision of this draft, can be read two ways against item 2.
-The other points below were checked and are not conflicts.
+The points below were checked against the owner's decision on `OD-5` of 2026-11-09 (reading A,
+"Owner's decisions"). None stays open.
 
 - Rule 6.6 derives from WGSL's requirement that "each user-defined input and output must have an
   explicitly specified IO location". The emitted WGSL keeps an explicit location on each one. The
-  requirement binds the emitted module, not the TypeShade source (Rule 1.1 lets a rule record the
-  difference, and `OD-1`: TypeShade is a language of its own).
-- Rule 6.6's rationale, "an implicit stage input hides a dependency", stays true: the input is
-  still an explicit parameter or field. Only its number becomes the compiler's.
-- Change 0130's Rule 1.8 says that a construct that describes a value flowing in or out is part of <!-- doc-refs: skip — Rule 1.8 is the rule change 0130 adds, not yet on main -->
-  its type. A built-in value keeps its `builtin<N>` type. A user-defined value carries no construct
-  at all, which the same rule allows ("A construct exists only for what the author must state and
-  the compiler cannot know or prove").
+  requirement binds the emitted module, not the TypeShade source. Resolved by `OD-1` (TypeShade is
+  a language of its own) and by the owner's reading A of `OD-5` (`uv: vec2` with no `location<…>`
+  is allowed). Rule 1.1 lets Rule 6.6 record the difference.
+- Change 0130 rewrites Rule 6.6's rationale as "An input or an output is a value that flows in or
+  out, so its attribute is part of its type (Rule 1.8)." With this change a user-defined value may <!-- doc-refs: skip — Rule 1.8 is the rule change 0130 adds, not yet on main -->
+  carry no attribute. Resolved by the owner's reading A: the sentence says where an attribute is
+  written, not that one must be written. This proposal's Rule 6.6 text, applied after 0130's,
+  reads "so its attribute, when it is written, is part of its type".
+- Rule 6.6's other rationale sentence, "an implicit stage input hides a dependency", stays true:
+  the input is still an explicit parameter or field. Only its number becomes the compiler's.
 
 ## Owner's decisions
 
 - `OD-3` is the entry this proposal rests on. Both items remove what the author writes for the
   compiler: a type the compiler reads from WGSL's table, and a number the compiler can count and
-  already checks against a name.
+  already checks against a name. D1.2 is recommended because `OD-3` says "A construct that the
+  compiler could replace is removed".
+- `OD-5`, and the owner's decision on it. `OD-5` reads: "An entry's built-in values and
+  inter-stage values stay in the type: `builtin<…>` and `location<…>`." On 2026-11-09, in the
+  Claude Code session, the owner chose reading A ("생략 허용 (A)"): `OD-5` chose the type form over
+  the decorated form; `uv: vec2` with no `location<…>` is allowed, and `location<n, T>` stays for a
+  fixed number or an option. By the same reading, item 1 is within `OD-5`: `builtin<"position">`
+  without its type is still the built-in value written in the type. The question this proposal
+  asked (question 3 of the first revision) is closed.
 - `OD-1`: TypeShade's source is not WGSL; the emitted WGSL keeps WGSL's explicit attributes, and
   the source needs only what the author must state.
 - `OD-2`: not touched. The entries keep `@vertex`, `@fragment` and `@compute([…])` (change 0130).
-- `OD-5` (recorded 2026-11-09, `main` at `583891d2`): "An entry's built-in values and inter-stage
-  values stay in the type: `builtin<…>` and `location<…>`." Item 1 keeps `builtin<…>` in the
-  type. Item 2 keeps `location<n, T>` as a type, accepted, and adds a field that writes no
-  attribute at all. The owner's question behind `OD-5` was the type form against the decorated
-  form (`@location(0) uv: vec2`). This proposal does not decide whether `OD-5` also requires the
-  number to be written; that is question 3 below. If it does, D2.0 is the only option that keeps
-  `OD-5`, and D2.1 and D2.2 are withdrawn.
 - `OD-4`: the example above and the options with their costs are shown before the owner decides.
 
 This proposal reverses no entry.
@@ -336,70 +387,93 @@ it and keeps `location<n, T>` for a host that needs a fixed number; D2.2 keeps i
 ## What it touches
 
 - `rules` 6.6: the sentence "every parameter and every field of an entry I/O struct must carry its
-  attribute in its type" becomes "a built-in value carries `builtin<N>`, whose type WGSL gives, or
-  `builtin<N, T>`; every other input or output is user-defined, and the compiler gives it its
-  location, which `location<n, T>` may state"; the position table above, the numbering of D2 and
-  the options sentence (D1.3, D2.3) are added; "Derives from" adds change `0135`; "Enforced by"
-  loses the `TS8029` "neither … nor …" item and the "nothing at the front end for a bare
-  parameter" item, and gains the parity test (below).
+  attribute in its type" becomes "a built-in value carries `builtin<N>`, whose type WGSL gives
+  (`builtin<"clip_distances", array<f32, N>>` writes its type); every other input or output is
+  user-defined, and the compiler gives it its location, which `location<n, T>` may state"; the
+  table of item 2, the mixed-case rule and the options sentences (D1.3, D2.3) are added; the
+  rationale reads as under "Conflicts"; "Derives from" adds change `0135`; "Enforced by" loses the
+  `TS8029` "neither … nor …" item and the "nothing at the front end for a bare parameter" item, and
+  gains the parity tests (below).
 - `rules` 6.8: "its `@location` inputs tightly packed in the order written" adds "and numbered in
-  that order unless a `location<n, T>` states the number".
+  that order where no `location<n, T>` states the number".
 - `rules` 8.2: "a fragment entry returns one `location<0, T>` value, a struct of render targets, or
   nothing" becomes "returns one value at location 0, a struct of render targets, or nothing"; the
   vertex position sentence writes `builtin<"position">`.
 - `docs/language-design.md` §2.3 (prose, not a rule): adds that the type is WGSL's and is read from
   the same list.
+- `docs/language-design.md` Appendix B, Rule 6.6 row ("an entry parameter with neither `@builtin`
+  nor `@location` passes the front end … and a compute-only module gets no diagnostic"): removed,
+  since a bare vertex or fragment parameter becomes valid and a bare compute parameter becomes
+  `TS8029`.
 - `surface` 3: the entry I/O text and its examples, with the short forms.
-- `surface` 7: the diagnostics table: the `TS8029` "neither … nor …" row leaves; the
-  `clip_distances` sentence of `TS8003` is added.
+- `surface` 7: the diagnostics table: the `TS8029` "neither … nor …" row leaves; the bare compute
+  parameter, the `clip_distances` sentence of `TS8003`, the `TS8010` sentence and the `TS8028`
+  migration warning (D1.2) are added.
 - `surface` 53: the integer-varying text says that a field with no attribute is a varying too, and
   its examples write the short forms where no option is written.
-- `codes`: none added, removed or renumbered. Two sentences change (Rule 12.5): `TS8029` loses its
-  "neither … nor …" sentence (the compute sentence stays), and `TS8003` gains the
-  `clip_distances` sentence. `TS8002` stops being reached by `builtin<N>`.
+- `codes`: none added, removed or renumbered. Sentences change (Rule 12.5): `TS8029` loses its
+  "neither … nor …" sentence (the compute sentence stays and covers a bare parameter), `TS8003`
+  gains the `clip_distances` sentence, `TS8010` gains the fragment-input sentence, and `TS8028`
+  gains the migration warning (D1.2). `TS8002` stops being reached by `builtin<N>`.
 - `examples`: none added or removed. The implementation rewrites the I/O types of the examples to
   the short forms (estimate: about 197 lines in about 100 files for item 1, 106 lines in 72 files
-  for item 2).
+  for item 2, about 300 lines in all).
 - `exports`: none. `EntryIoField.location` and `VertexAttr.location` keep their types; their doc
   comments say "the location, written or given by the compiler".
 - `names`: none.
 
+**Approval of the implementation.** The implementing pull request changes how an author writes
+about 300 example lines. Under `CLAUDE.md` (Merging) it is therefore not approved in advance, even
+with this proposal accepted: its body shows one example before and after, and it waits for the
+owner to say "merge".
+
 ### Measured facts
 
-Every row was measured on `main` at `2cc98b8f`, on 2026-11-09, with Bun 1.4.4, unless the row
-says otherwise. Scratch scripts lived outside the tree.
+Every row was measured on 2026-11-09 with Bun 1.4.4, on `main` at `2cc98b8f` unless the row says
+`583891d2`. Scratch scripts lived outside the tree.
 
-| Fact or inference | What                                                                                                                                                                                                                                                                                                                |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Fact              | `builtin<"vertex_index">` today: compiler `TS8002 Type arguments are not supported yet (got "builtin<...>").`; editor TypeScript `2707 Generic type 'builtin' requires between 2 and 3 type arguments.` and the same `TS8002` (`createTypeshadeLanguageService().getDiagnostics`).                                  |
-| Fact              | `builtin<"vertex_index", f32>` and `builtin<"vertex_index", i32>`: `TS8003 Builtin "vertex_index" is "u32"; this declares it "f32".` (and `"i32"`) in both halves.                                                                                                                                                  |
-| Fact              | A `VsOut` field `uv: vec2` used by a vertex and a fragment entry: two `TS8029` diagnostics, one per use, in both halves.                                                                                                                                                                                            |
-| Fact              | Over 114 `examples/**/*.shade.ts`, every compile clean: 172 render entries; every written location equals its index in declaration order (0 of 226 entry I/O lists differ); 67 vertex and fragment pairs share one struct, 2 use a fragment struct that holds a subset (`clip-planes`, `capsule-corp-namek-class`). |
-| Fact              | Highest written location in the examples: 1 (4 lines); 107 code lines write `location<0`.                                                                                                                                                                                                                           |
-| Fact              | `examples/hello-vsin.shade.ts`: `reflect().vertex` is `{ attributes: [{ name: "position", location: 0, offset: 0 }, { name: "uv", location: 1, offset: 12 }], arrayStride: 20 }`, and `entries[].io` lists each input and output with `location` or `builtin`.                                                      |
-| Fact              | GLSL ES 3.00 emit of `hello-vsin`: vertex attributes are `layout(location = N) in`, the varying is `out vec2 uv;` / `in vec2 uv;` with no location, and the colour is `layout(location = 0) out vec4 color;`.                                                                                                       |
-| Fact              | A bare fragment result already takes `@location(0)` and a bare `vec4` vertex result `@builtin(position)` (`src/compiler/ts/lower/function.ts`, the entry signature): the compiler gives those attributes today.                                                                                                     |
-| Fact              | Editor projection: `type builtin<N, T = (N extends "vertex_index" ? u32 : …), O = {}> = T` accepts `builtin<"vertex_index">` and `builtin<"position", vec4, { invariant: true }>` under `tsc --strict`; `location<T, O>` cannot be told from `location<n, T>` (D2.3).                                               |
-| Inference         | After the change, the WGSL and GLSL of every example are byte for byte the same as before, since the numbers the compiler gives equal the written ones in every example (row 4). The implementation proves it with `bun run bake:goldens` changing no golden.                                                       |
-| Inference         | `reflect()` and the manifest keep their shapes and values for every example, for the same reason.                                                                                                                                                                                                                   |
-| Estimate          | Implementation: the attribute reader and the I/O checks in the front end, the numbering, one ambient type, the parity tests, the migration of the examples and documents. Duration and cost are unknown.                                                                                                            |
+| Fact or inference | What                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fact              | `builtin<"vertex_index">` today: compiler `TS8002 Type arguments are not supported yet (got "builtin<...>").`; editor TypeScript `2707 Generic type 'builtin' requires between 2 and 3 type arguments.` and the same `TS8002` (`createTypeshadeLanguageService().getDiagnostics`).                                                                             |
+| Fact              | `builtin<"vertex_index", f32>` and `builtin<"vertex_index", i32>`: `TS8003 Builtin "vertex_index" is "u32"; this declares it "f32".` (and `"i32"`) in both halves.                                                                                                                                                                                             |
+| Fact              | A `VsOut` field `uv: vec2` used by a vertex and a fragment entry: two `TS8029` diagnostics, one per use, in both halves.                                                                                                                                                                                                                                       |
+| Fact              | Over 114 `examples/**/*.shade.ts`, every compile clean: 172 render entries; every written location equals its index in declaration order (0 of 226 entry I/O lists differ); 67 vertex and fragment pairs share one struct, 2 use a fragment struct that holds a subset (`clip-planes`, `capsule-corp-namek-class`).                                            |
+| Fact              | Highest written location in the examples: 1 (4 lines); 107 code lines write `location<0`.                                                                                                                                                                                                                                                                      |
+| Fact              | `examples/hello-vsin.shade.ts`: `reflect().vertex` is `{ attributes: [{ name: "position", location: 0, offset: 0 }, { name: "uv", location: 1, offset: 12 }], arrayStride: 20 }`, and `entries[].io` lists each input and output with `location` or `builtin`.                                                                                                 |
+| Fact              | GLSL ES 3.00 emit of `hello-vsin`: vertex attributes are `layout(location = N) in`, the varying is `out vec2 uv;` / `in vec2 uv;` with no location, and the colour is `layout(location = 0) out vec4 color;`.                                                                                                                                                  |
+| Fact              | A bare fragment result already takes `@location(0)` and a bare `vec4` vertex result `@builtin(position)` (`src/compiler/ts/lower/function.ts`, the entry signature): the compiler gives those attributes today.                                                                                                                                                |
+| Fact (`583891d2`) | `compute([64], function c(x: u32) {})`: no diagnostic; the WGSL has `fn c(x: u32) {`.                                                                                                                                                                                                                                                                          |
+| Fact              | Editor projection under `tsc --strict`: `type builtin<N, T = (N extends "vertex_index" ? u32 : …), O = {}> = T` accepts `builtin<"vertex_index">` and `builtin<"position", vec4, { invariant: true }>`; `location<T, O>` cannot be told from `location<n, T>` (D2.3).                                                                                          |
+| Fact (`583891d2`) | In the language service, `A extends { readonly invariant?: true }` is false for `vec4`, `u32`, `f32`, `vec3u` and `array<f32, 4>`, true for `{ invariant: true }` and true for `bool` (D1.3).                                                                                                                                                                  |
+| Fact              | A `clip_distances` field with no type, under `tsc --strict`, and a body that writes `o.cd[0] = 1.` and reads `o.cd[1]`: a default of `never` gives `TS2322 Type 'number' is not assignable to type 'never'.` on the write; a default of `unknown` gives `TS18046 'o.cd' is of type 'unknown'.` on both.                                                        |
+| Fact (`583891d2`) | Downstream multi-entry modules: typeplot `scene-composite.shade.ts` (1 vertex, 2 fragment entries, compiled) and typeplot `data.shade.ts` (2 vertex, 9 fragment entries, read from source). No other multi-entry render module in typecv, radiance, typeaudio, typenn or web among those that compile (6 of 13, 40 of 42, 5 of 6, 19 of 21, 10 of 10, 1 of 2). |
+| Inference         | After the change, the WGSL and GLSL of every example are byte for byte the same as before, since the numbers the compiler gives equal the written ones in every example. The implementation proves it with `bun run bake:goldens` changing no golden.                                                                                                          |
+| Inference         | `reflect()` and the manifest keep their shapes and values for every example, for the same reason.                                                                                                                                                                                                                                                              |
+| Estimate          | Implementation: the attribute reader and the I/O checks in the front end, the numbering, one ambient type, the language service's merge, the parity tests, `tshc migrate`, the migration of the examples and documents. Duration and cost are unknown.                                                                                                         |
 
 ### The editor (Rule 12.7)
 
 - Today (fact): the ambient type is `type builtin<N extends …, T, O … = {}> = T`, so a missing `T`
   is TypeScript's TS2707. A field with no attribute type is plain TypeScript, and the editor shows
   the compiler's `TS8029` (the language service merges the compiler's diagnostics).
-- After: `builtin`'s `T` takes a default, the type WGSL gives `N`, generated from
-  `WGSL_BUILTIN_TYPES` as `WGSL_BUILTIN_NAMES` already is (no new declared name). For
-  `clip_distances` the default is `never`, and the compiler's `TS8003` is the one diagnostic.
-  Nothing is needed for a field with no attribute: TypeScript accepts it, and the compiler stops
+- After: `builtin`'s second parameter takes a default, the type WGSL gives `N`, generated from
+  `WGSL_BUILTIN_TYPES` as `WGSL_BUILTIN_NAMES` already is (no new declared name). A second argument
+  that is an options object (D1.3) gives the same value type. For `clip_distances` with no type the
+  default is `never`. TypeScript then reports `TS2322` on each write to the field (measured above);
+  the language service drops TypeScript's diagnostics on a field whose `builtin<"clip_distances">`
+  the compiler refused, so the compiler's `TS8003` is the one diagnostic (Rule 12.4, as the merge
+  already drops TypeScript's reports inside a refused decorator).
+- Nothing is needed for a field with no attribute: TypeScript accepts it, and the compiler stops
   reporting it.
 - Owed tests, both halves on the same source: `builtin<"vertex_index">` accepted with hover `u32`;
-  `builtin<"clip_distances">` refused with the one `TS8003`; a `VsOut` with `uv: vec2` accepted
-  and emitted as `@location(0)`; a bare `bool` field refused with `TS8003`; rows added to
+  `builtin<"position", { invariant: true }>` accepted with hover `vec4`; `builtin<"clip_distances">`
+  with a body that writes `out.cd[0]` refused with the one `TS8003`; a `VsOut` with `uv: vec2`
+  accepted and emitted as `@location(0)`; the mixed case above; a fragment input whose name no
+  vertex result has refused with the one `TS8010`; a bare `bool` field refused with `TS8003`; a bare
+  compute parameter refused with `TS8029`; the `TS8028` migration warning (D1.2); rows added to
   `src/language-service/ambient-parity.test.ts`.
 - Recommended, not required: hover on a user-defined field shows the location the compiler gave
-  it, so the author can see the number the host reads (`OD-4`'s spirit for authors).
+  it, so the author can see the number the host reads.
 
 ### Host-facing reports
 
@@ -411,10 +485,11 @@ says otherwise. Scratch scripts lived outside the tree.
 
 ### Draft impact estimate
 
-- Known: no source that compiles today is refused. No emit, report or code changes for a program
-  that writes every location and every type.
-- Known: rules 6.6, 6.8 and 8.2 and surface §3, §7 and §53 are rewritten; `reqs/` follows
-  (`bun run reqs:sync`).
+- Known: no source that compiles to valid WGSL today is refused under D1.1; under D1.2 a written
+  built-in type that WGSL fixes is warned in the migration release and refused in the release after
+  it. No emit, report or code changes for a program that writes every location.
+- Known: rules 6.6, 6.8 and 8.2, Appendix B's Rule 6.6 row and surface §3, §7 and §53 are
+  rewritten; `reqs/` follows (`bun run reqs:sync`).
 - Estimate: the front-end work is local to the attribute reader, the I/O checks and the
   interstage check; the backends and `reflect()` read the IR and do not change. Duration and cost
   are unknown.
@@ -424,30 +499,39 @@ says otherwise. Scratch scripts lived outside the tree.
   compile gate (`bun run gate:compile`) green; a test for each row of "Every form that changes" in
   both halves; `bun run reqs:sync` and `python scripts/doorstop-check.py -C`; `bun run docs:impact`
   and `bun run docs:refs`.
-- Decisions to resolve before acceptance: D1 (D1.1 or D1.2), D2 (D2.1 or D2.2), and the questions
-  below.
+- Decisions to resolve before acceptance: D1 (D1.2 or D1.1) and D2 (D2.1 or D2.2).
 
 ### Open questions for the owner
 
 1. D2: is a render target's index and a vertex attribute's index something the author states, or
    the compiler's? D2.1 (recommended) lets declaration order decide and keeps `location<n, T>` as
    an explicit form. D2.2 keeps the number required for these two positions.
-2. D1: a written `T` that WGSL fixes: accepted for good (D1.1, recommended), or warned and later
-   refused (D1.2)?
+2. D1: a written built-in type that WGSL fixes: warned for one release and then refused (D1.2,
+   recommended under `OD-3`), or accepted for good (D1.1)?
 
-3. `OD-5` against item 2. Reading A: `OD-5` decides where an entry's I/O attribute is written (in
-   the type, not as a decorator), and a value with no attribute is outside it; D2.1 or D2.2 then
-   keeps `OD-5`. Reading B: `OD-5` requires every inter-stage value to write `location<…>`; then
-   only D2.0 keeps it. One example: `uv: location<0, vec2>` (both readings accept it) against
-   `uv: vec2` (reading A accepts it, reading B refuses it with `TS8029` as today). This proposal
-   takes no side; the owner decides.
-
-Apart from question 3, no two principles or rules were found that point different ways.
+The question on `OD-5` (question 3 of the first revision) was answered by the owner on 2026-11-09
+and is closed. No two principles or rules were found that point different ways on this proposal.
 
 ### Independent review record
 
-Not yet performed. Before the owner decides, an agent or a person that did not write this proposal
-reviews it against `changes/README.md` (Independent review) and the record is written here.
+Reviewer: an AI agent (Claude Code) that did not write this proposal, at the direction of the
+coordinating session, on 2026-11-09. Revision reviewed: `d819c0a1`, the head of pull request #1123
+when the review was made. The coordinating session relayed the findings. The answers below were
+written in the revision that follows.
+
+| #   | Finding                                                                                                                                                                                                                                                                                         | Answer                                                                                                                                                                                                                                  |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | The text assumed reading A of `OD-5` before the owner was asked.                                                                                                                                                                                                                                | Fixed: the owner chose reading A on 2026-11-09 ("생략 허용 (A)"); item 2 and "Owner's decisions" cite the decision and its date.                                                                                                        |
+| 2   | Item 1 (`builtin<"position">` without its type) should be stated against `OD-5` too.                                                                                                                                                                                                            | Fixed: "Owner's decisions" states that by the same reading item 1 is within `OD-5`.                                                                                                                                                     |
+| 3   | Two conflicts were resolved by the proposal itself: 0130's rewritten Rule 6.6 rationale ("its attribute is part of its type (Rule 1.8)"), and WGSL's "explicitly specified IO location" binding only the emit. <!-- doc-refs: skip — Rule 1.8 is the rule change 0130 adds, not yet on main --> | Fixed: "Conflicts" records both as resolved by the owner's reading A and `OD-1`, and gives the rationale text that follows 0130's. Neither needs a further question in the author's view; the owner may still ask.                      |
+| 4   | The numbering is underspecified when written and given locations mix; with `A { uv@0, n@1 }` and `B { n@0 }`, dropping `A.n`'s number collides under one number per name.                                                                                                                       | Fixed: the table of item 2 sets the scope (per entry, per struct, by name for another fragment input), "The mixed case" works the example, and "Every form that changes" adds the `TS8010` refusal when a name has no single location.  |
+| 5   | typeplot `shaders/data.shade.ts` <!-- doc-refs: skip — a path in the typeplot repository --> has two vertex and nine fragment entries; one number per name renumbers `Letter` and spends the 16 inter-stage locations across unlinked pairs. Measure downstream; consider per-pair numbering.   | Fixed: measured (Assumptions, Measured facts); the recommendation is now per struct, which keeps typeplot's numbers and limits a pair to its own struct; one number per name is D2.1b with that cost.                                   |
+| 6   | A bare compute parameter gives no diagnostic today and becomes `TS8029`; qualify "no source that compiles today is refused"; list Appendix B's Rule 6.6 row.                                                                                                                                    | Fixed: the row is in "Every form that changes" (measured on `583891d2`); the claim reads "compiles to valid WGSL today"; Appendix B's row is under "What it touches".                                                                   |
+| 7   | The implementing pull request changes how authors write about 300 example lines, so it is not approved in advance.                                                                                                                                                                              | Fixed: stated under "What it touches" (Approval of the implementation).                                                                                                                                                                 |
+| 8   | D1.1 keeps two spellings against `OD-3` ("a construct the compiler could replace is removed").                                                                                                                                                                                                  | Fixed: the tension is shown, and the recommendation is now D1.2 (warn, then refuse a written type), with options in the second argument (measured feasible in the editor). D1.1 stays as an option with its cost.                       |
+| 9   | A default of `never` for `builtin<"clip_distances">` may cascade `TS2322` on writes; consider `unknown`; test a body writing `out.cd[0]`.                                                                                                                                                       | Fixed: measured; `never` cascades on writes and `unknown` on reads and writes. The proposal keeps `never` and has the language service drop TypeScript's diagnostics on that refused field, so `TS8003` stands alone; the test is owed. |
+| 10  | The baseline row names `2cc98b8f`, but the branch is on `583891d2`.                                                                                                                                                                                                                             | Fixed: the row names `583891d2` and says which measurements were made on `2cc98b8f` and why they still hold.                                                                                                                            |
+| 11  | State the learning cost after D2.1 (the placement rules).                                                                                                                                                                                                                                       | Fixed: "What an author learns after D2.1".                                                                                                                                                                                              |
 
 ### Approval and plan record
 
@@ -468,16 +552,16 @@ typeaudio `8bd1ab1`, radiance `3e4efb3`, vscode-typeshade `db3f417`, typeplot `9
 `DOWNSTREAM_REPOS`), web `990ec50` (`apps/typeshade` is the site, `typeshade.github.io` in
 `DOWNSTREAM_REPOS`).
 
-- typeshade.github.io: `src/lib/error-codes.ts` <!-- doc-refs: skip — a path in the site repository --> has entries for `TS8029` and `TS8003` whose text
-  changes; its guide and reference pages state the old requirement; the example pages are generated
-  from `examples/`. Record 0135 in `compiler-changes.md`.
-
+- typeshade.github.io: `src/lib/error-codes.ts` <!-- doc-refs: skip — a path in the site repository --> has entries for `TS8029`, `TS8003`, `TS8010` and
+  `TS8028` whose text changes; its guide and reference pages state the old requirement; the example
+  pages are generated from `examples/`. Record 0135 in `compiler-changes.md`.
 - vscode-typeshade: in the skill <!-- doc-refs: skip — paths in the editor repository -->
   `plugins/typeshade/skills/typeshade/references/language.md` <!-- doc-refs: skip — a path in the editor repository -->
   (line 420, every IO field carries a location or a builtin, `TS8029`) and
   `references/diagnostics.md` <!-- doc-refs: skip — a path in the editor repository --> (the `TS8029` row). Record 0135 in `compiler-changes.md` when the pin moves.
-- radiance, typenn, typecv, typeaudio: nothing owed. No source that compiles today is refused. Each
-  may drop the written types and numbers when it moves to change 0130's forms (typeaudio writes 19
-  `builtin<…>` lines; the others write the decorated form `@builtin(…)` on a pinned older
-  compiler).
-- typeplot (not in `DOWNSTREAM_REPOS`): nothing owed, for the same reason.
+- radiance, typenn, typecv, typeaudio: under D1.2, each source that writes `builtin<N, T>` with a
+  type WGSL fixes migrates before the refusing release (`tshc migrate`); typeaudio writes 19 such
+  lines, and the others write the decorated form `@builtin(…)` on a pinned older compiler, which
+  change 0130's migration already rewrites. Under D1.1 nothing is owed. Nothing is owed for item 2.
+- typeplot (not in `DOWNSTREAM_REPOS`): the same as above; its two multi-entry modules keep their
+  numbers under D2.1 (Assumptions).
