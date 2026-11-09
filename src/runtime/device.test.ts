@@ -646,7 +646,7 @@ describe('two owners', () => {
         void m.relu(x, z);
       }),
     ).rejects.toThrow(
-      'relu(): parameter "x" is a Resident of the default owner (configure(), resident()), and a call of Device #',
+      'relu(): parameter "x" is a Resident of the default owner (array()), and a call of Device #',
     );
     // An explicit default-owned Resident conflicts with a device-owned one (0085).
     await expect(m.relu(x, z)).rejects.toThrow('belongs to the default owner');
@@ -656,7 +656,7 @@ describe('two owners', () => {
       fuse(() => {
         void m.relu(x, z);
       }),
-    ).rejects.toThrow('and a call of the default owner (configure(), resident()) takes the arrays');
+    ).rejects.toThrow('and a call of the default owner (array()) takes the arrays');
     await a.dispose();
     await b.dispose();
   });
@@ -800,7 +800,7 @@ describe('an indirect workgroup count and its owner (change 0075)', () => {
         );
       }),
     ).rejects.toThrow(
-      `mark(): "workgroups.indirect" is a Resident of the default owner (configure(), resident()), and a call of ${label} takes the arrays of ${label} only.`,
+      `mark(): "workgroups.indirect" is a Resident of the default owner (array()), and a call of ${label} takes the arrays of ${label} only.`,
     );
     // Its own array runs, on its tier.
     const marks = dev.array(4, 'u32');
@@ -1011,7 +1011,7 @@ describe('the pool', () => {
       ),
     );
     expect(() => dev.release(resident(floats(1)))).toThrow(
-      'belongs to the default owner (configure(), resident())',
+      'belongs to the default owner (array())',
     );
     expect(() => dev.release({} as Resident<unknown>)).toThrow('takes a Resident this device made');
     await dev.dispose();

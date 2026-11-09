@@ -2013,7 +2013,7 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
         void m.bump(x);
         void m.relu(y, x);
       }),
-    ).rejects.toThrow('This Resident was destroyed; make a new one with resident().');
+    ).rejects.toThrow('This Resident was destroyed; make a new one with array().');
     expect(gpu.submits).toBe(submitted);
   });
 
@@ -2572,7 +2572,7 @@ ${local}  for (let i: u32 = 0; i < out.length; i++) {
         void m.add(t, a, b);
         void m.relu(out, t);
       }),
-    ).rejects.toThrow('This Resident was destroyed; make a new one with resident().');
+    ).rejects.toThrow('This Resident was destroyed; make a new one with array().');
     expect(gpu.submits).toBe(0);
   });
 
@@ -3628,9 +3628,9 @@ const reds = (c: FakeCanvas): number[] => [...c.pixels!].filter((_, i) => i % 4 
 
 describe('what a scratch array refuses', () => {
   const noRead =
-    'read(): this is a scratch array, which the host never reads. Make it with resident() to read it after the scope.';
+    'read(): this is a scratch array, which the host never reads. Make it with array() to read it after the scope.';
   const noWrite =
-    'write(): this is a scratch array, which the host never writes. Make it with resident() to write it.';
+    'write(): this is a scratch array, which the host never writes. Make it with array() to write it.';
 
   it('rejects read() at any time, inside the body, after it and after the plan', async () => {
     const m = await load();
@@ -6298,7 +6298,7 @@ describe('what an indirect workgroup count refuses (change 0075, item 9)', () =>
     counts.destroy();
     await expect(c.mark({ marks: marks(), words: words(0) }, { indirect: counts })).rejects.toThrow(
       new TypeError(
-        'mark(): "workgroups.indirect": this Resident was destroyed; make a new one with resident().',
+        'mark(): "workgroups.indirect": this Resident was destroyed; make a new one with array().',
       ),
     );
   });

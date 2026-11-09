@@ -61,6 +61,7 @@ import { TIERS, tierNames, type Tier } from '../core/tiers.js';
 import { TextureImpl, type Texture } from './resources.js';
 import { webgpuDevice } from '../rhi/webgpu.js';
 import { fitChunk, learnRate, type ChunkRate } from './chunk.js';
+import { endUse, pushUse } from './default-device.js';
 
 export type { ChunkRate } from './chunk.js';
 
@@ -246,6 +247,31 @@ export interface Device {
    *  and destroy the WebGPU device the owner requested. A `GPUDevice` or a runtime the host handed
    *  in is left as it is. A use after `dispose()` is a `TypeError`. */
   dispose(): Promise<void>;
+  /** Make this device the default of a block until the returned handle is disposed (change
+   *  0138, Amendment A2): `using _ = device.use()`. Uses nest, and the innermost is the default.
+   *  `texture()` makes its texture on the default device; the calls of a node follow it from
+   *  milestone 3 of change 0138 (R3). Where the `lib` declares no `Symbol.dispose`, call
+   *  `dispose()` on the handle.
+   *  @throws `TypeError` after `dispose()`. */
+  use(): DeviceUse;
+}
+
+/**
+ * What {@link Device.use} returns: the handle whose disposal ends the use. It is `Disposable`
+ * where the `lib` declares `Symbol.dispose` (ES2024's explicit resource management), so `using`
+ * takes it, and has `dispose()` everywhere. Not an export of its own: change 0138 declares
+ * `Device`, whose `use()` returns it.
+ */
+export type DeviceUse = Disposable & {
+  /** End the use: the device stops being the default. A second call does nothing. */
+  dispose(): void;
+};
+
+declare global {
+  /** The `lib`'s `Disposable` (`[Symbol.dispose](): void`) where it declares one, and nothing
+   *  where it does not, so a type that names it reads under every `lib` (change 0138). */
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  interface Disposable {}
 }
 
 /** A pooled element: the zeroed ones, and `f64`, which `resident(Float64Array)` holds. */
@@ -567,6 +593,16 @@ class DeviceImpl implements Device {
     await this.#fence();
   }
 
+  use(): DeviceUse {
+    this.#usable('use()');
+    const use = pushUse<Device>(this);
+    const end = (): void => endUse(use);
+    const handle = { dispose: end };
+    const key = (Symbol as { readonly dispose?: symbol }).dispose;
+    if (typeof key === 'symbol') Object.defineProperty(handle, key, { value: end });
+    return handle as DeviceUse;
+  }
+
   dispose(): Promise<void> {
     if (this.#disposing !== undefined) return this.#disposing;
     this.#disposing = (async () => {
@@ -738,7 +774,7 @@ class DeviceImpl implements Device {
       throw new TypeError(
         state.ownedBy === this.owner
           ? `${this.label}.${at}: this Resident was destroyed.`
-          : `${this.label}.${at}: this Resident belongs to ${state.ownedBy?.label ?? 'the default owner (configure(), resident())'}, not to ${this.label}.`,
+          : `${this.label}.${at}: this Resident belongs to ${state.ownedBy?.label ?? 'the default owner (array())'}, not to ${this.label}.`,
       );
     return slot;
   }

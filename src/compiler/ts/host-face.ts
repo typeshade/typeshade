@@ -321,14 +321,37 @@ interface ShapeExport {
   readonly fields: readonly (readonly [string, HostType | undefined])[];
 }
 
+/** A binding the module exports (change 0138, R10; Rule 6.1): a host resource of an exported
+ *  class, a `Uniform<T>` of a `uniform<T>` and a `Buffer<T>` of a `storage<array<T, N>>`, which
+ *  the generated module makes once and the host sets with `set` and reads with `get`. */
+interface ResourceExport {
+  readonly kind: 'resource';
+  readonly name: string;
+  /** The exported class whose layouts it reads, by the name the host imports. */
+  readonly cls: string;
+  /** A storage array's element count; absent for a uniform. */
+  readonly length?: number;
+}
+
+/** A binding the module exports, before the classes are known (`resourceFaces`). */
+interface BindingRef {
+  readonly kind: 'binding';
+  readonly name: string;
+  /** The binding's name in the module. */
+  readonly binding: string;
+}
+
 /** An export as the view and the module are built from it. */
-type FaceExport = HostExport | ClassExport | ShapeExport;
+type FaceExport = HostExport | ClassExport | ShapeExport | ResourceExport;
 
 /** An export as `HostFace.exports` reports it: a class as its struct, and a class whose struct
  *  has no host value as an export of a type alone. */
 function reported(e: FaceExport): HostExport {
   if (e.kind === 'class') return { kind: 'struct', name: e.name, type: e.type };
   if (e.kind === 'shape') return { kind: 'never', name: e.name, reason: e.reason, typeOnly: true };
+  // `HostExport` has no kind for a host resource yet (change 0138 declares no change to it), so
+  // the report keeps the binding's entry, and the view and the module carry the resource.
+  if (e.kind === 'resource') return { kind: 'never', name: e.name, reason: REASON.bindingExport };
   return e;
 }
 
@@ -359,6 +382,9 @@ const REASON = {
   fallback: 'the CPU tier cannot generate code for a function it reaches',
   notLowered: 'it was not lowered to one function of the module',
   bindingExport: 'it is a resource binding; pass it to the entry that uses it (Rule 8.24)',
+  /** An exported binding that is no host resource yet (change 0138, R10; Rule 6.1). */
+  bindingNoResource: (why: string) =>
+    `it is a resource binding, and ${why}, so it is no host resource yet; pass it to the entry that uses it (Rule 8.24)`,
   override: 'it is an override, which a pipeline sets; no proposal adds it yet',
   moduleVar: 'it is a module variable, which exists per invocation; no proposal adds it yet',
   namespace: 'it is a namespace; export what it holds from the top of the file instead',
@@ -891,7 +917,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     return undefined;
   };
 
-  const exports: FaceExport[] = [];
+  const faces: (FaceExport | BindingRef)[] = [];
   // The author's JSDoc of each export, which the view carries (change 0108).
   const docs = new Map<string, ExportDocs>();
   const declaredAt = topLevelDeclarations(faceSource);
@@ -901,7 +927,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
         ? undefined
         : exportDocs(ref.decl, faceSource, declaredAt, linked?.linked);
     if (written !== undefined) docs.set(ref.name, written);
-    exports.push(
+    faces.push(
       faceOf(ref, {
         sf: faceSource,
         symbols: faceSymbols,
@@ -931,6 +957,10 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
       }),
     );
   }
+
+  // An exported binding is a host resource of the class its type names (change 0138, R10), which
+  // is known once every class has its face.
+  const exports = resourceFaces(faces, m.bindings);
 
   // The CPU tier's code, for the functions the callable ones reach and nothing else, so an
   // entry point's GPU-only body is never generated and never shipped.
@@ -2151,7 +2181,7 @@ function isFunctionType(t: ts.TypeNode | undefined, sf: ts.SourceFile): boolean 
   return false;
 }
 
-function faceOf(ref: ExportRef, c: FaceCtx): FaceExport {
+function faceOf(ref: ExportRef, c: FaceCtx): FaceExport | BindingRef {
   const { name, decl } = ref;
   if (decl === undefined) return never(name, ref.missing ?? REASON.unknown);
 
@@ -2207,7 +2237,7 @@ function faceOf(ref: ExportRef, c: FaceCtx): FaceExport {
 
   if (ts.isVariableDeclaration(decl)) {
     const local = (decl.name as ts.Identifier).text;
-    if (c.bindingNames.has(local)) return never(name, REASON.bindingExport);
+    if (c.bindingNames.has(local)) return { kind: 'binding', name, binding: local };
     if (c.overrideNames.has(local)) return never(name, REASON.override);
     if (c.privateNames.has(local)) return never(name, REASON.moduleVar);
     const k = c.constsByName.get(local);
@@ -2252,6 +2282,58 @@ function faceOf(ref: ExportRef, c: FaceCtx): FaceExport {
 
   if (ts.isModuleDeclaration(decl)) return never(name, REASON.namespace);
   return never(name, REASON.unknown);
+}
+
+// ─── an exported binding (change 0138, R10) ──────────────────────────────────────────────────
+
+/**
+ * Each exported binding as a host resource (change 0138, R10; Rule 6.1), or as `never` with the
+ * reason it is none yet. A resource is laid out by an exported class's layouts, the ones
+ * `uniform()` and `zeros()` read: a `uniform<T>` of a class is a `Uniform<T>`, and a
+ * `storage<array<T, N>>` of one a `Buffer<T>` of `N` elements. A storage array with no size has
+ * no length to make, and a scalar, a vector, a struct no class declares, one `storage<T>`, a
+ * texture and a sampler have no resource of their own yet.
+ */
+function resourceFaces(
+  faces: readonly (FaceExport | BindingRef)[],
+  bindings: readonly BindingDecl[],
+): FaceExport[] {
+  const classes = faces.filter((e): e is ClassExport => e.kind === 'class');
+  /** The exported class of the struct `name` that a host resource can be made of, or why not. */
+  const classOf = (name: string, layout: 'u' | 's'): ClassExport | string => {
+    const cls = classes.find((e) => e.type.s === name);
+    if (cls === undefined) return `its type ${name} is no class the module exports`;
+    if (cls.abstract) return `its class ${cls.name} is abstract`;
+    const why = layout === 'u' ? cls.layouts.un : cls.layouts.sn;
+    if (why !== undefined) return why;
+    return cls;
+  };
+  return faces.map((e): FaceExport => {
+    if (e.kind !== 'binding') return e;
+    const b = bindings.find((x) => x.name === e.binding);
+    const t = b?.type;
+    const refuse = (why: string): FaceExport => never(e.name, REASON.bindingNoResource(why));
+    if (b === undefined || t === undefined) return never(e.name, REASON.bindingExport);
+    if (b.space === 'uniform' && t.kind === 'struct') {
+      const cls = classOf(t.name, 'u');
+      return typeof cls === 'string'
+        ? refuse(cls)
+        : { kind: 'resource', name: e.name, cls: cls.name };
+    }
+    if (b.space === 'storage' && t.kind === 'array' && t.elem.kind === 'struct') {
+      if (t.size === undefined || t.sizeOverride !== undefined)
+        return refuse('a storage array with no fixed size has no length a host resource takes');
+      const cls = classOf(t.elem.name, 's');
+      return typeof cls === 'string'
+        ? refuse(cls)
+        : { kind: 'resource', name: e.name, cls: cls.name, length: t.size };
+    }
+    if (b.space === 'uniform' || b.space === 'storage')
+      return refuse(
+        'only a uniform of a class and a storage array of a class with a fixed size are host resources at milestone 1 of change 0138',
+      );
+    return never(e.name, REASON.bindingExport);
+  });
 }
 
 // ─── an exported class (change 0109) ─────────────────────────────────────────────────────────
@@ -2824,6 +2906,16 @@ function viewText(
           `export declare function ${e.name}(target: HTMLCanvasElement | OffscreenCanvas, bindings${e.entry.bindings.every(isGuard) ? '?' : ''}: ${e.bindingsType}): Promise<void>;`,
         );
         break;
+      case 'resource': {
+        const type = e.length === undefined ? `Uniform<${e.cls}>` : `Buffer<${e.cls}>`;
+        out.push(
+          ...above(
+            `A binding of the module, a host resource (Rule 6.1, change 0138): set its fields with \`set\` and read them with \`get\`; each \`set\` writes only what changed and widens its dirty range. It lives as long as the module. An entry call still takes the binding's value in its bindings object (Rule 8.24).`,
+          ),
+          `export declare const ${e.name}: ${type};`,
+        );
+        break;
+      }
       case 'never': {
         out.push(...above(notCallable(e.reason)));
         if (e.typeOnly) out.push(`export type ${e.name} = never;`);
@@ -2873,6 +2965,9 @@ function viewImports(body: string, runtime: string): string[] {
     `import type { Pack } from ${from};`,
     // A texture binding also takes a program runtime's Texture, bound as it is (change 0025).
     ...(used.has('Texture') ? [`import type { Texture } from ${from};`] : []),
+    // An exported binding is a host resource (change 0138, R10).
+    ...(used.has('Uniform') ? [`import type { Uniform } from ${from};`] : []),
+    ...(used.has('Buffer') ? [`import type { Buffer } from ${from};`] : []),
   ];
 }
 
@@ -3161,6 +3256,7 @@ function moduleText(
       case 'struct':
       case 'class':
       case 'shape':
+      case 'resource':
         break;
       case 'compute': {
         const id = `__ts_e${t++}`;
@@ -3213,7 +3309,15 @@ function moduleText(
         break;
     }
   }
-  if (classes.length > 0) out.push(...classModule(classes, exports, bind));
+  const classIds = new Map<string, string>();
+  if (classes.length > 0) out.push(...classModule(classes, exports, bind, classIds));
+  // An exported binding is a host resource of its class's layouts, made once here, after the
+  // classes (change 0138, R10).
+  for (const e of exports)
+    if (e.kind === 'resource')
+      out.push(
+        `const ${bind(e.name)} = ${RT}.exportedBinding(${q(e.name)}, ${q(stem)}, ${classIds.get(e.cls)}${e.length !== undefined ? `, ${e.length}` : ''});`,
+      );
   if (bound.length > 0) out.push(`export { ${bound.join(', ')} };`);
   return `${out.join('\n')}\n`;
 }
@@ -3234,6 +3338,7 @@ function classModule(
   classes: readonly ClassExport[],
   exports: readonly FaceExport[],
   bind: (name: string) => string,
+  idOf: Map<string, string>,
 ): string[] {
   const q = (s: string): string => JSON.stringify(s);
   const out: string[] = ['const __ts_skip = {};'];
@@ -3323,6 +3428,7 @@ function classModule(
     body.push(`static [Symbol.for("typeshade.layout")] = ${JSON.stringify(e.layouts)};`);
     const id = bind(e.name);
     ids.set(e, id);
+    idOf.set(e.name, id);
     out.push(
       `const ${id} = { ${q(e.name)}: class${base !== undefined ? ` extends ${ids.get(base)}` : ''} {`,
       ...body.map((line) => `  ${line}`),

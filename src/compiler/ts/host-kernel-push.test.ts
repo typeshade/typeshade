@@ -629,7 +629,7 @@ describe('the refusals of a held length, before anything runs (change 0094)', ()
     gone.destroy();
     await expect(m.keepAbove!(xs, 0.5, { array: list, length: gone })).rejects.toThrow(
       new TypeError(
-        'keepAbove(): "list.length": this Resident was destroyed; make a new one with resident().',
+        'keepAbove(): "list.length": this Resident was destroyed; make a new one with array().',
       ),
     );
     // A refused call leaves its error on the length, which it writes, for read() to throw.
@@ -668,7 +668,7 @@ describe('the refusals of a held length, before anything runs (change 0094)', ()
         }),
       ).rejects.toThrow(
         new TypeError(
-          'keepAbove(): "list.length" is a scratch array of fuse(), which the host never reads. Make the length with resident() or device.array().',
+          'keepAbove(): "list.length" is a scratch array of fuse(), which the host never reads. Make the length with array() or device.array().',
         ),
       );
       // Inside a device's scope, a length of another owner is refused as the call is recorded.

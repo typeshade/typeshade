@@ -25,6 +25,9 @@ export { resident, configure, type Resident } from './resident.js';
 // The type of a module's default export, its manifest (Rule 11.10), which the host view names.
 export type { Pack } from './manifest-types.js';
 export type { Texture } from '../runtime/resources.js';
+// A binding the module exports is a host resource (change 0138, R10): the generated module makes
+// it with `exportedBinding`, and the view names its type.
+export { exportedBinding, type Buffer, type Uniform } from '../runtime/resource.js';
 // The host type family (change 0116), which the host view imports the names it spells from, as it
 // imports `Resident`, `Pack` and `Texture`.
 export type {

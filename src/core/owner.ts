@@ -63,7 +63,7 @@ export interface CallOwner {
  *  flavor. A bare call with no owned resource uses it, and so does a
  *  `fuse()` scope opened by `fuse` from `typeshade/fuse`. */
 export const defaultOwner: CallOwner = Object.freeze({
-  label: 'the default owner (configure(), resident())',
+  label: 'the default owner (array())',
   tiers: () => preferredTiers(),
   device: () => gpuDevice(),
   fp64Flavor: (native?: object) => configuredFp64Flavor(native),
@@ -86,7 +86,7 @@ export function resourceOwner(value: unknown, at?: string): CallOwner | undefine
   const state = residentState(value);
   if (state?.destroyed === true)
     throw new TypeError(
-      `${at === undefined ? 'This Resident' : `${at}: this Resident`} was destroyed; make a new one with resident().`,
+      `${at === undefined ? 'This Resident' : `${at}: this Resident`} was destroyed; make a new one with array().`,
     );
   return state === undefined ? textureOwners.get(value as object) : ownerOf(state);
 }
@@ -132,7 +132,7 @@ export function foreignOwner(
   return new TypeError(
     `${at} is a Resident of ${theirs.label}, and a call of ${owner.label} takes the arrays of ${owner.label} only. ${
       owner === defaultOwner
-        ? 'Make the call inside that device’s fuse(), or make the array with resident().'
+        ? 'Make the call inside that device’s fuse(), or make the array with array().'
         : 'Make the array with device.array(), or make the call outside device.fuse().'
     }`,
   );

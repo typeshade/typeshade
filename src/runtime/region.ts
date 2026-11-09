@@ -1,7 +1,7 @@
 // ═══ The one memory region every host resource is a range of (change 0138, R17) ═══
 //
 // Every uniform and storage array a host makes with `uniform()`, `zeros()` or `array(Class, data)`
-// is a byte range of one global region, laid out by Rule 6.8. At milestone 1 the region is one
+// is a byte range of one global region, laid out by Rule 6.8 (a host value of Rule 8.21). At milestone 1 the region is one
 // `ArrayBuffer`, resizable where the runtime has one (Amendment A1, the answer to Q9); milestone 2
 // makes it the linear memory of the WebAssembly CPU tier.
 //

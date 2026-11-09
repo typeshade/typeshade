@@ -37,6 +37,21 @@ init?)`, `zeros(Class, n)` and `array(Class, data)`, which make a `Uniform<T>` o
   (the one-time warning `resident()` and `configure()` import). The floors and the other caps do
   not change.
 
+- **Exported bindings, `device.use()` and `texture()`** (change 0138, milestone 1b). A shader
+  module's `export declare const camera: uniform<Camera>` is a host resource: a host that
+  imports `camera` gets a `Uniform<Camera>` and sets it with `camera.pos.set(0, 2, 5)`; an
+  `export declare const ps: storage<array<Particle, 64>>` is a `Buffer<Particle>` of 64
+  elements. The generated module makes each one once, from the exported class's layouts, and
+  refuses its `dispose()`. A storage array with no size, a binding of a type no exported class
+  declares, one `storage<T>`, a texture and a sampler stay `never` in the view, with the reason.
+  An entry call still takes the binding's value in its bindings object; binding the resource at
+  a call is milestone 3. `Device` gains `use()`, so `using _ = device.use()` makes a device the
+  default of a block (Amendment A2), and `typeshade/runtime` exports `texture(options)`, which
+  makes a texture on that device. Error messages that told a host to make an array with
+  `resident()` name `array()` now. The caps of `scripts/bundle-budget.json` take the measured gzip
+  sizes: `typeshade/runtime` single file 163,157 to 163,348 (+191), split initial 45,178 to
+  45,354 and split total 165,360 to 165,532. The floors and the other caps do not change.
+
 - **WebGPU scratch acquisition counts** (change 0128, #992). New fuse reports include
   `webgpuScratch` allocation and reuse counts and their buffer descriptor bytes. Empty scopes,
   fused locals and CPU or WebGL2 plans report zero. Older reports may omit the member;

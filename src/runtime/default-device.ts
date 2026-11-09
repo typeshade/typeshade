@@ -1,11 +1,12 @@
 // ═══ The default device of a block: `using _ = device.use()` (change 0138, Amendment A1) ═══
 //
+// Rule 11.8 states it.
+//
 // A device is opened only by `createDevice()`. `device.use()` makes it the default device until
 // the handle it returns is disposed, which `using` does at the end of the block; uses nest, and
 // the innermost one is the default. At milestone 1 of proposal 0138, `texture()` makes its
-// texture on the default device; the calls of a node follow it from milestone 3 (R3). Not
-// reachable from `typeshade/runtime` yet: `device.use()` changes the `Device` export, which the
-// proposal's front matter does not declare, so it waits for the proposal to list it.
+// texture on the default device; the calls of a node follow it from milestone 3 (R3).
+// `Device.use()` (`runtime/device.ts`) pushes and ends a use; Amendment A2 declares it.
 
 /** What `use()` holds: the device, and whether its handle was disposed. */
 export interface Use<D> {

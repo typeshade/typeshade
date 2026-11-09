@@ -2,7 +2,8 @@
 //
 // Amendment A1 of proposal 0138 deprecates `resident()` (replaced by `array()`) and `configure()`
 // (a device is opened only by `createDevice()`). Each still works as before; its first call in a
-// context prints one warning with the form that replaces it, and no later call prints again.
+// context prints one warning with the form that replaces it, and no later call prints again
+// (Rule 11.8).
 // Like the rest of `typeshade/runtime` it imports nothing.
 
 const warned = new Set<string>();

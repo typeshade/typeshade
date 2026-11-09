@@ -750,13 +750,14 @@ export function makeUniform(
   cls: unknown,
   init: unknown,
   at = 'uniform()',
+  label?: string,
 ): unknown {
   const l = layoutsOf(cls, at);
   if (l.u === undefined || l.u.k !== 'o')
     throw new TypeError(
       `${at}: ${l.name} has no uniform layout a host can write: ${l.un ?? 'it is no struct'}.`,
     );
-  const name = `Uniform<${l.name}>`;
+  const name = label ?? `Uniform<${l.name}>`;
   const Root = structClass(UniformRoot, l.u, ROOT_OWN, name);
   const core = new Core(region, l.u.sz, name, `uniform(${l.name})`);
   const root = new Root(core, 0, l.u, name);
@@ -775,6 +776,7 @@ export function makeBuffer(
   length: unknown,
   data: unknown,
   at: string,
+  label?: string,
 ): unknown {
   const l = layoutsOf(cls, at);
   if (l.s === undefined || l.s.e.k !== 'o')
@@ -785,7 +787,7 @@ export function makeBuffer(
     throw new TypeError(
       `${at}: takes a length that is a whole number from 0 to 4294967295, got ${describe(length)}.`,
     );
-  const name = `Buffer<${l.name}>`;
+  const name = label ?? `Buffer<${l.name}>`;
   const core = new Core(region, length * l.s.st, name, `zeros(${l.name}, ${length})`);
   const buffer = new BufferRoot(core, l.s, length, (cls as { prototype: object }).prototype);
   if (data !== undefined) {
@@ -874,12 +876,42 @@ export function array(...args: unknown[]): unknown {
 }
 
 /**
- * A texture of the block's default device (change 0138, Amendment A1): `using _ = device.use()`
+ * The resource of a binding a shader module exports (change 0138, R10; Rule 6.1):
+ * `export declare const camera: uniform<Camera>` is a `Uniform<Camera>` of the global region, and
+ * `export declare const ps: storage<array<Particle, 64>>` a `Buffer<Particle>` of 64 elements.
+ * The generated module makes it once, when the module is evaluated, under the name the module
+ * exports it as, which its errors name. It lives as long as its module: an import is a read-only
+ * binding, and a host that freed it could make no other, so `dispose()` is refused with a
+ * `TypeError`. Not API: what a generated module calls (`typeshade/runtime/internal`).
+ */
+export function exportedBinding(
+  name: string,
+  module: string,
+  cls: unknown,
+  length?: number,
+): unknown {
+  const at = `${name} of ${module}`;
+  const resource =
+    length === undefined
+      ? makeUniform(globalRegion(), cls, undefined, at, name)
+      : makeBuffer(globalRegion(), cls, length, undefined, at, name);
+  const refuse = (): never => {
+    throw new TypeError(
+      `${name}.dispose(): ${name} is a binding that ${module} exports, which lives as long as its module; it is not disposed.`,
+    );
+  };
+  Object.defineProperty(resource, 'dispose', { value: refuse });
+  if (typeof disposeKey === 'symbol')
+    Object.defineProperty(resource, disposeKey, { value: refuse });
+  return resource;
+}
+
+/**
+ * A texture of the block's default device (change 0138, Amendment A1; Rule 11.8): `using _ = device.use()`
  * names the device, and the texture is the one `device.texture(options)` makes. A texture lives
  * on its device only, so it takes no range of the region (R17).
  *
- * Not exported yet: `device.use()` changes the `Device` export, which proposal 0138's front
- * matter does not declare, so `texture()` and `use()` join `typeshade/runtime` once it does.
+ * Exported from `typeshade/runtime`.
  *
  * @param options - `size` and `format`, as `device.texture()` takes them.
  * @returns the device's texture.
