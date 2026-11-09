@@ -4,7 +4,8 @@
 //
 // WHY IT CANNOT BE VACUOUSLY GREEN (AGENTS.md#gate-discipline):
 //   1. Every case must run on WebGPU, and every case but the ones WebGL2 has no member for (a
-//      compute pass) on WebGL2: a floor of compared cases on each backend.
+//      compute pass) or names a reason for (`notOnWebgl2`) on WebGL2: a floor of compared cases on
+//      each backend.
 //   2. The suite run again on a WebGL2 device whose reads are perturbed must DIFFER in every case
 //      that it runs: each comparison is seen to fail.
 
@@ -35,8 +36,10 @@ export async function rhiConformanceBundle(): Promise<string> {
   return built.outputs[0]!.text();
 }
 
-/** The cases WebGL2 does not run: those that need a compute pass. */
-const NOT_ON_WEBGL2 = CONFORMANCE.filter((c) => c.covers.includes('beginComputePass')).length;
+/** The cases WebGL2 does not run: those that need a compute pass, and those that name why. */
+const NOT_ON_WEBGL2 = CONFORMANCE.filter(
+  (c) => c.covers.includes('beginComputePass') || c.notOnWebgl2 !== undefined,
+).length;
 
 /** Print the leg's verdicts; the number of failures. */
 export function rhiConformanceVerdicts(report: RhiConformanceReport): number {

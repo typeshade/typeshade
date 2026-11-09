@@ -1440,7 +1440,11 @@ class GlDevice implements RhiDevice {
     return handle;
   }
 
-  createShaderModule(code: string): RhiShaderModule {
+  createShaderModule(code: string | object): RhiShaderModule {
+    if (typeof code !== 'string')
+      throw new TypeError(
+        "The WebGL2 backend runs a GLSL ES 3.00 program's text; it got a module's CPU program.",
+      );
     return new GlModule(code);
   }
 

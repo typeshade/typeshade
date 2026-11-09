@@ -19,6 +19,7 @@ import type {
   RhiTextureView,
 } from '../rhi/rhi.js';
 import { gpuOf, webgpuDevice } from '../rhi/webgpu.js';
+import { cpuProgramOf } from './cpu-program.js';
 import {
   BufferPool,
   blendConstantOf,
@@ -260,6 +261,10 @@ export interface Runtime<D extends object = object> {
 
 const CONSOLE_BYTES = 1 << 20;
 
+/** The refusal of a manifest with no CPU program on the CPU tier (change 0120, O2 (a)). */
+export const NO_CPU_PROGRAM =
+  "load(): the CPU tier runs a module's CPU program, which this manifest does not carry; a manifest read from JSON or made by packModule() has none. Load the default export of the module's host import (change 0120, O2 (a)).";
+
 interface PendingConsole {
   readonly buffer: RhiBuffer;
   readonly log: ConsoleLog;
@@ -269,7 +274,6 @@ interface PendingConsole {
 
 export class RuntimeImpl implements Runtime {
   readonly info: DeviceInfo;
-  readonly tier = 'webgpu';
   readonly limits: Readonly<Record<string, number>>;
   readonly pool: BufferPool;
   readonly #sink: ConsoleSink | undefined;
@@ -291,7 +295,7 @@ export class RuntimeImpl implements Runtime {
     adapter: Readonly<Record<string, number>> = {},
   ) {
     this.pool = new BufferPool(rhi);
-    this.info = deviceInfo('webgpu', rhi.native);
+    this.info = deviceInfo(rhi.backend === 'cpu' ? 'cpu' : 'webgpu', rhi.native);
     this.limits = rhi.caps.limits;
     this.#sink = typeof options.console === 'function' ? options.console : undefined;
     this.#consoleBytes = options.consoleBytes ?? CONSOLE_BYTES;
@@ -308,12 +312,26 @@ export class RuntimeImpl implements Runtime {
     return 'Pass the program in createRuntime({ programs }), or raise the limit with createRuntime({ limits }).';
   }
 
+  /** `'webgpu'`; on the CPU backend (change 0120, M3) `'cpu'`, which `Runtime.tier` names from
+   *  milestone M4, when a `Device` reaches this tier. */
+  get tier(): RuntimeTier {
+    return (this.rhi.backend === 'cpu' ? 'cpu' : 'webgpu') as RuntimeTier;
+  }
+
+  /** The `GPUDevice`; on the CPU backend, which has no native device, the backend itself. */
   get device(): object {
-    return this.rhi.native;
+    return this.rhi.native ?? this.rhi;
   }
 
   load<E extends PackBindings>(program: Pack<E>, options: LoadOptions = {}): Program<E> {
     checkManifest(program);
+    if (this.rhi.backend === 'cpu') {
+      // The CPU tier runs the module's CPU program, which a manifest's JSON cannot carry
+      // (change 0120, O2 (a)). Its code delivers its own `console.*` calls, so no recorded variant
+      // is loaded.
+      if (cpuProgramOf(program) === undefined) throw new TypeError(NO_CPU_PROGRAM);
+      return new ProgramImpl(this, program, false) as unknown as Program<E>;
+    }
     for (const f of program.features)
       if (!this.rhi.caps.hasFeature(f))
         throw new TypeError(

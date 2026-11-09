@@ -1,6 +1,6 @@
 // The render hardware interface (change 0120, D1): the GPU surface the program runtime records
 // through, backend-agnostic. A backend implements `RhiDevice` over one native device: WebGPU
-// (`webgpu.ts`, milestone M1), WebGL2 (`webgl2.ts`, M2), and a CPU device at M3. The runtime calls
+// (`webgpu.ts`, milestone M1), WebGL2 (`webgl2.ts`, M2), and a CPU device (`cpu.ts`, M3). The runtime calls
 // no native function itself; it asks the device for each object and each command.
 //
 // The names follow X-GIS's `RhiDevice` (`@xgis/rhi`) where the meaning is the same, so that
@@ -18,6 +18,8 @@
 // render pipeline's fragment can name its own module. It has no command buffer, so its encoder
 // runs each command when it is recorded (`caps.immediate`); the runtime records a pass and submits
 // it in one go, so the order of the commands is the same on every backend.
+
+import type { CpuProgram } from './cpu-program.js';
 
 /** A buffer. `size` is its size in bytes. */
 export interface RhiBuffer {
@@ -337,8 +339,9 @@ export interface RhiCommandEncoder {
 export interface RhiCaps {
   /** How a compute dispatch runs: as a compute shader, or as a fragment pass (WebGL2). */
   readonly compute: 'native' | 'fragment-emulated';
-  /** The language of the programs the device runs. */
-  readonly shaderLanguage: 'wgsl' | 'glsl-es300';
+  /** The language of the programs the device runs: shader text, or on the CPU backend a module's
+   *  CPU program (`cpu-program.ts`, change 0120, O2). */
+  readonly shaderLanguage: 'wgsl' | 'glsl-es300' | 'cpu';
   /** Whether the encoder runs each command when it is recorded (WebGL2, which has no command
    *  buffer), rather than at the submit. */
   readonly immediate: boolean;
@@ -367,11 +370,11 @@ export interface RhiNativeKinds {
 
 /** A device: the objects it makes, the commands it runs, and its capabilities. */
 export interface RhiDevice {
-  readonly backend: 'webgpu' | 'webgl2';
+  readonly backend: 'webgpu' | 'webgl2' | 'cpu';
   readonly caps: RhiCaps;
-  /** The native device: a `GPUDevice` on WebGPU, a `WebGL2RenderingContext` on WebGL2. Escape
-   *  hatch (Rule 11.17). */
-  readonly native: object;
+  /** The native device: a `GPUDevice` on WebGPU, a `WebGL2RenderingContext` on WebGL2, and none
+   *  on the CPU backend. Escape hatch (Rule 11.17). */
+  readonly native: object | null;
 
   createBuffer(desc: RhiBufferDesc): RhiBuffer;
   writeBuffer(buffer: RhiBuffer, byteOffset: number, data: ArrayBuffer | ArrayBufferView): void;
@@ -398,7 +401,9 @@ export interface RhiDevice {
   currentTexture(canvas: RhiCanvas): RhiTexture;
 
   createSampler(desc: RhiSamplerDesc): RhiSampler;
-  createShaderModule(code: string): RhiShaderModule;
+  /** A program: WGSL text on WebGPU, one GLSL ES 3.00 stage on WebGL2, a module's CPU program on
+   *  the CPU backend. A backend refuses the other kinds. */
+  createShaderModule(code: string | CpuProgram): RhiShaderModule;
   createBindGroupLayout(entries: readonly RhiBindLayoutEntry[]): RhiBindGroupLayout;
   createBindGroup(layout: RhiBindGroupLayout, entries: readonly RhiBindEntry[]): RhiBindGroup;
   /** Rejects with the backend's error when the pipeline cannot be made. */
