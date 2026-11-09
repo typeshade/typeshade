@@ -1,6 +1,6 @@
 ---
 id: '0130'
-title: A stage and a function's other attributes are written as the language's own attributes, `@vertex`, `@fragment`, `@compute([…])`, `@workgroup_size([…])` and `@diagnostic(…)`, not as calls of fixed function names
+title: A stage and a function's other attributes are written as the language's own attributes, `@vertex`, `@fragment` and `@compute([…])`, not as calls of fixed function names
 status: draft
 rules:
   - '1.8'
@@ -193,10 +193,10 @@ Rule 1.7:
 > **Rule 1.8.** <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds --> A construct of the language is written in the language's own syntax: the
 > directive, a type of the surface, or an attribute `@name` or `@name(…)` on the declaration it
 > marks. A construct must not be written as a call of a function whose only role is to carry it.
-> An attribute that WGSL writes on a function (`@vertex`, `@fragment`, `@compute`,
-> `@workgroup_size`, `@diagnostic`) is written as an attribute. A construct is added only for
+> A stage (`@vertex`, `@fragment`, `@compute`) is written as an attribute. A construct is added only for
 > what the author must state and the compiler cannot know; what the compiler can decide (an
-> optimization, a numerical relaxation, a tuning parameter) is the compiler's work and never an
+> optimization, a numerical relaxation, a tuning parameter, a validation it can satisfy by
+> rewriting the program) is the compiler's work and never an
 > author-facing construct. Whether a plain `tsc` accepts a form is not a criterion for the surface.
 >
 > - Rationale: a `"use typeshade"` file is a program in the TypeShade language. Its own
@@ -218,9 +218,7 @@ Rule 1.7:
 
 ```ts
 export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut { … });
-export const fs = fragment(function fs(i: VsOut): location<0, vec4> { … }, {
-  diagnostic: ["off", "derivative_uniformity"],
-});
+export const fs = fragment(function fs(i: VsOut): location<0, vec4> { … });
 export const main = compute([8, 8], function main(id: builtin<"global_invocation_id", vec3u>) { … });
 ```
 
@@ -230,7 +228,7 @@ export const main = compute([8, 8], function main(id: builtin<"global_invocation
 @vertex
 export function vs(vi: builtin<"vertex_index", u32>): VsOut { … }
 
-@fragment @diagnostic("off", "derivative_uniformity")
+@fragment
 export function fs(i: VsOut): location<0, vec4> { … }
 
 @compute([8, 8])
@@ -243,9 +241,10 @@ The proposed rules, in short:
 1. An entry point is a function declaration at the top of the file or of a namespace with one
    stage attribute: `@vertex`, `@fragment` or `@compute([x, y?, z?])` (Rule 8.1). A bare
    `@compute` takes the default size, 64 (Rule 8.7).
-2. A kernel's workgroup size is `@workgroup_size([n])` on its function declaration (Rule 8.22).
-3. `@diagnostic(severity, rule)` is written on an entry (Rule 6.7).
-4. These are the forms that change 0111 had before D1.
+2. A kernel's workgroup size follows D1: the compiler chooses it, or `@workgroup_size([n])`
+   on its function declaration (Rule 8.22).
+3. `diagnostic` is not in this proposal (item 9).
+4. The stage attributes are the forms that change 0111 had before D1.
    The front end and the editor already read them during 0111's migration period.
 5. Entry inputs and outputs keep the types of change 0111: no decorator on a parameter or a
    field (Rule 6.6).
@@ -259,6 +258,13 @@ The proposed rules, in short:
    proposal removes the `numerics(…)` call, the stage calls' `numerics` option, Rule 11.22 and
    `TS8078`. That proposal is accepted before this one's call forms are refused, so that no entry
    is left with an option it cannot write.
+9. `diagnostic` is not in this proposal either. The owner directed on 2026-11-09 that it be
+   removed. Its one use, `derivative_uniformity`, accepts an implicit-LOD sample or a derivative
+   in non-uniform control flow. The compiler can satisfy that rule itself: it computes the
+   derivatives before the branch, in uniform flow, and samples with `textureSampleGrad` inside
+   it. A separate proposal removes the `diagnostic` option and the attribute, adds that rewrite,
+   and keeps `TS8052` for a case the rewrite cannot reach. It is accepted before this one's call
+   forms are refused, for the reason in item 8.
 
 The emitted WGSL and GLSL ES 3.00 do not change for a migrated program.
 
@@ -311,8 +317,8 @@ as it did before change 0111.
   of a function whose only role is to carry it; a plain `tsc` is not a criterion for the surface.
 - **Rule 6.6**: the TS1206 note for entries says the stage attribute's TS1206 is filtered by the
   language service; parameters and fields keep the types.
-- **Rule 6.7**: the list of attribute places says that a stage, `workgroup_size` and
-  `diagnostic` are attributes on a function declaration.
+- **Rule 6.7**: the list of attribute places says that a stage is an attribute on a function
+  declaration (and `workgroup_size` too under D1 option B).
 - **Rule 8.1**: an entry point is a function declaration with a stage attribute.
 - **Rule 8.7**: the workgroup size is `@compute`'s argument; the call form is removed.
 - **Rule 8.22**: a kernel's size is `@workgroup_size([n])`.
