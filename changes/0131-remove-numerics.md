@@ -1,7 +1,7 @@
 ---
 id: '0131'
 title: An author writes no numerical contract; the compiler applies a floating-point rewrite only where it proves the rewrite exact
-status: accepted
+status: implemented
 rules:
   - '6.7'
   - '9.6'
@@ -408,11 +408,10 @@ Open findings: none. Open decisions for the owner: none.
 
 ### Configuration and validation record
 
-Implementing pull request: #1114 (draft, branch `claude/clever-ramanujan-yrfjsq-impl-0131`, base
-`main` at `8d6bf255`), by an AI agent (Claude Code). Each commit carries `Change: 0131`. The first
-commit is `d8d545d7`; the commit that adds this record follows it on the same branch. The status
-stays `accepted` until the owner's merge (`CLAUDE.md`, Merging): the pull request removes an
-author-facing name and is not approved in advance.
+Implementing pull request: #1114 (branch `claude/clever-ramanujan-yrfjsq-impl-0131`), by an AI
+agent (Claude Code). Each commit carries `Change: 0131`: `d8d545d7`, `83d1ec8e` and the merge of
+`main` at `b4e4ccaf`, `5848a242`. Every required check passed on `5848a242`. The owner said
+"merge" in the session on 2026-11-09, and #1114 merged as `79d9bee4`.
 
 Delivered configuration (as declared): `numerics(...)`, the `numerics` option of a stage call,
 `TS8078` (retired, recorded as a gap), `FuncDecl.numerics`, `NumericsClass`, the `'contract'`
@@ -453,8 +452,8 @@ Deviations (open, recorded on #1114 for the reviewer):
 4. `src/language-service/diagnostics.ts` pairs TS2353 and TS2554 with `TS8028` (`SAME_MISTAKE`),
    the merge "What an author sees" requires, in a file the applicability row does not name.
 
-Pending: the compiler issue for the value-domain analysis (proposed item 8); closing #965
-unmerged (decision 4); `status: implemented` at the merge; the downstream work below.
+Closed: #1116 asks for the value-domain analysis (proposed item 8); #965 is closed unmerged
+(decision 4). The four deviations above stay open for review. Pending: the downstream work below.
 
 ## What it owes downstream
 
