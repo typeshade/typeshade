@@ -206,7 +206,9 @@ Rule 1.7:
 >   construct as a library API: the author must know the name, the name takes a place in the value
 >   namespace, and the declaration is wrapped. Change 0111 D1 measured the surface against a
 >   plain `tsc`, a tool that does not read the language, and replaced `@vertex` with
->   `vertex(f)`; this rule prevents that criterion. The types of an entry's inputs and outputs
+>   `vertex(f)`; a plain `tsc` still does not accept a shader file whole, since vector
+>   arithmetic is an operator TypeScript does not overload, and a host project's `tsc` reads the
+>   generated host view, not the source (surface §64). This rule prevents that criterion. The types of an entry's inputs and outputs
 >   (`builtin<N, T>`, `location<I, T>`, `inout<T>`, `out<T>`) mark a value and stay types (Rule 6.6,
 >   Rule 8.25). The editor keeps TypeScript's checker by its projection of an attribute
 >   (Rule 1.7, Rule 12.7).
@@ -269,9 +271,13 @@ API: the author must know a fixed name, the name occupies the value namespace, a
 carries its own name twice (`const vs = vertex(function vs …)`).
 
 Change 0111 chose the call because a plain `tsc` gives TS1206 on a decorator of a function
-declaration. That measures the file against a tool that does not read the language. The
-TypeShade language service is the editor for a `"use typeshade"` file, and it already filters
-TS1206 for these attributes (0111 milestone 4, #949).
+declaration. That measures the file against a tool that does not read the language, and the
+goal could not be reached: a plain `tsc` does not accept a shader file whole, because its vector
+arithmetic is an operator TypeScript does not overload (§64). A host project's `tsc` never reads
+the source; it reads the generated host view (§64). The TypeShade language service is the editor
+for a `"use typeshade"` file, and it already filters TS1206 for these attributes (0111
+milestone 4, #949). So change 0111 D1 gave up the language's attribute and gained no file that a
+plain `tsc` accepts.
 
 **Alternatives considered:**
 
@@ -285,8 +291,15 @@ TS1206 for these attributes (0111 milestone 4, #949).
 
 **Costs of the selected form.**
 
-- A project's plain `tsc --noEmit` reports TS1206 on each stage attribute, as before change 0111. A project type-checks a `"use typeshade"` file with the TypeShade tooling.
-- An editor without the TypeShade extension shows the attribute lines in red.
+- No new cost reaches a host project. Its `tsconfig.json` excludes `*.shade.ts`, and its `tsc`
+  reads the generated host view (`*.shade.typeshade.ts`) in place of the source
+  (`docs/use-typeshade-surface.md` §64). A shader project is checked with `tshc check`.
+- A plain `tsc` run directly over a shader source reports TS1206 on each function attribute.
+  It already reports errors on such a file without this change: §64 says that ordinary `tsc`
+  does not accept a shader file whole, because its vector arithmetic is an operator TypeScript
+  does not overload.
+- An editor without the TypeShade extension shows the attribute lines in red. It already shows
+  the vector arithmetic in red, for the same reason.
 
 **Assumptions.** The front end still reads the decorated forms, since 0111's migration period
 kept them (`src/compiler/ts/stage3.test.ts`). The host face reads the stage from the attribute
@@ -339,7 +352,8 @@ Decisions to resolve before acceptance (recommendations are the author's, not de
   `TS8028` warning naming the attribute, then refusal. Change 0111 was not released with a
   version, so the alternative refuses the call forms at once.
 - **D3. Plain `tsc`.** Recommended: `examples/plain-typescript.test.ts` allows TS1206 only on a
-  stage attribute line and keeps the rest of its check (D8 of change 0111).
+  function attribute line and keeps the rest of its check (D8 of change 0111). Surface §64's
+  sentence "its entry forms are plain TypeScript (change 0111)" is corrected with it.
 - **D4. Record of change 0111.** Recommended: 0111's record gains a note that D1 is replaced by
   0130, and its milestone 5 (refusal of the decorated form) is withdrawn.
 
