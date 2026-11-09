@@ -254,6 +254,7 @@ class WebGpuDevice implements RhiDevice {
     this.caps = {
       compute: 'native',
       shaderLanguage: 'wgsl',
+      immediate: false,
       get limits() {
         return copyLimits(gpu.limits);
       },
@@ -356,7 +357,12 @@ class WebGpuDevice implements RhiDevice {
   }
 
   createBindGroupLayout(entries: readonly RhiBindLayoutEntry[]): RhiBindGroupLayout {
-    return handle(this.native.createBindGroupLayout({ entries }));
+    // The names a backend that binds by name reads are no WebGPU members.
+    return handle(
+      this.native.createBindGroupLayout({
+        entries: entries.map(({ name: _n, label: _l, samplerBinding: _s, ...entry }) => entry),
+      }),
+    );
   }
 
   createBindGroup(layout: RhiBindGroupLayout, entries: readonly RhiBindEntry[]): RhiBindGroup {
@@ -408,7 +414,7 @@ class WebGpuDevice implements RhiDevice {
         ...(fragment !== undefined
           ? {
               fragment: {
-                module,
+                module: fragment.module === undefined ? module : native(fragment.module),
                 entryPoint: fragment.entryPoint,
                 targets: fragment.targets,
                 ...stage,

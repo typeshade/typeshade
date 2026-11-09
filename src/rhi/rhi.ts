@@ -1,7 +1,7 @@
 // The render hardware interface (change 0120, D1): the GPU surface the program runtime records
 // through, backend-agnostic. A backend implements `RhiDevice` over one native device: WebGPU
-// (`webgpu.ts`) at milestone M1, WebGL2 and a CPU device at M2 and M3. The runtime calls no
-// native function itself; it asks the device for each object and each command.
+// (`webgpu.ts`, milestone M1), WebGL2 (`webgl2.ts`, M2), and a CPU device at M3. The runtime calls
+// no native function itself; it asks the device for each object and each command.
 //
 // The names follow X-GIS's `RhiDevice` (`@xgis/rhi`) where the meaning is the same, so that
 // X-GIS can later move to this interface. The interface is internal (change 0120, O1 (a)): no
@@ -11,6 +11,13 @@
 // Handles are opaque. A backend makes them, and only that backend reads them. The descriptors
 // use WebGPU's vocabulary (`'uint32'`, `'clear'`, `'less-equal'`), as X-GIS's do; a backend that
 // is not WebGPU maps each name.
+//
+// WebGL2 differs from WebGPU in three ways the interface names. Its programs bind by name, so a
+// bind group layout entry can carry the name a program declares (`name`) and the sampler GLSL ES
+// 3.00 fuses with a texture (`samplerBinding`). It links a program from one module for each stage, so a
+// render pipeline's fragment can name its own module. It has no command buffer, so its encoder
+// runs each command when it is recorded (`caps.immediate`); the runtime records a pass and submits
+// it in one go, so the order of the commands is the same on every backend.
 
 /** A buffer. `size` is its size in bytes. */
 export interface RhiBuffer {
@@ -69,6 +76,10 @@ export type RhiBufferUsage =
 export interface RhiBufferDesc {
   readonly size: number;
   readonly usage: readonly RhiBufferUsage[];
+  /** The element type of a `'storage'` buffer: `'f32'` when omitted. WebGL2 has no storage buffer;
+   *  it gives a program the buffer as a data texture of 32-bit words of this type (change 0046),
+   *  as X-GIS's `elem` does. WebGPU does not read it. */
+  readonly elem?: 'f32' | 'i32' | 'u32';
 }
 
 /** What a texture is used for: `'sampled'` binds it as a texture, `'storage'` as a storage
@@ -119,8 +130,18 @@ export interface RhiSamplerDesc {
 export const STAGE = { vertex: 0x1, fragment: 0x2, compute: 0x4 } as const;
 
 /** One binding of a bind group layout: its number, the stages that reach it (`STAGE` bits) and
- *  the kind of resource it binds. */
-export type RhiBindLayoutEntry = { readonly binding: number; readonly visibility: number } & (
+ *  the kind of resource it binds. A backend whose programs bind by name (WebGL2) reads `name`: a
+ *  uniform buffer's block name, or the name of the sampler uniform of a texture or a storage
+ *  buffer's data texture. `label` names the binding in an error. `samplerBinding` is the binding
+ *  of the sampler a WebGL2 program reads a texture with: GLSL ES 3.00 fuses the two, and a texture with
+ *  none is read nearest and clamped. WebGPU reads none of the three. */
+export type RhiBindLayoutEntry = {
+  readonly binding: number;
+  readonly visibility: number;
+  readonly name?: string;
+  readonly label?: string;
+  readonly samplerBinding?: number;
+} & (
   | { readonly buffer: { readonly type: 'uniform' | 'storage' | 'read-only-storage' } }
   | { readonly sampler: { readonly type: 'filtering' | 'comparison' } }
   | {
@@ -210,8 +231,11 @@ export interface RhiComputePipelineDesc {
 }
 
 export interface RhiRenderPipelineDesc {
+  /** What the pipeline is, for an error: `the render pipeline of "vs" and "fs"`. */
+  readonly label?: string;
   /** The bind group layouts, by group index. */
   readonly layouts: readonly RhiBindGroupLayout[];
+  /** The vertex stage's module, and the fragment stage's unless it names its own. */
   readonly module: RhiShaderModule;
   readonly vertex: {
     readonly entryPoint: string;
@@ -221,6 +245,9 @@ export interface RhiRenderPipelineDesc {
   readonly fragment?: {
     readonly entryPoint: string;
     readonly targets: readonly RhiColorTarget[];
+    /** The fragment stage's own module: WebGL2 links a program from a vertex and a fragment
+     *  shader, each its own source. */
+    readonly module?: RhiShaderModule;
   };
   /** The override values each stage is made with, by the names (or ids) the program declares. */
   readonly constants?: Readonly<Record<string, number>>;
@@ -263,7 +290,7 @@ export interface RhiRenderPassDesc {
   readonly depthStencilAttachment?: RhiDepthStencilAttachment;
 }
 
-/** A render pass being recorded. */
+/** A render pass being recorded. On an immediate backend each call runs when it is made. */
 export interface RhiRenderPass {
   setPipeline(pipeline: RhiRenderPipeline): void;
   setBindGroup(index: number, group: RhiBindGroup): void;
@@ -312,10 +339,15 @@ export interface RhiCaps {
   readonly compute: 'native' | 'fragment-emulated';
   /** The language of the programs the device runs. */
   readonly shaderLanguage: 'wgsl' | 'glsl-es300';
-  /** The device's limits by their names in WebGPU's `GPUSupportedLimits`, copied at the read. Empty
-   *  for a device that has none. */
+  /** Whether the encoder runs each command when it is recorded (WebGL2, which has no command
+   *  buffer), rather than at the submit. */
+  readonly immediate: boolean;
+  /** The device's limits by their names in WebGPU's `GPUSupportedLimits`, copied at the read. A
+   *  WebGL2 device has none of them; it gives `maxViewportDimension`, the smaller of its
+   *  `MAX_VIEWPORT_DIMS`, read once. */
   readonly limits: Readonly<Record<string, number>>;
-  /** Whether the device has the WebGPU feature `name`. */
+  /** Whether the device has the WebGPU feature `name`; on WebGL2, the extension `name` (one the
+   *  backend asks for, such as `EXT_polygon_offset_clamp`). */
   hasFeature(name: string): boolean;
 }
 
@@ -335,9 +367,10 @@ export interface RhiNativeKinds {
 
 /** A device: the objects it makes, the commands it runs, and its capabilities. */
 export interface RhiDevice {
-  readonly backend: 'webgpu';
+  readonly backend: 'webgpu' | 'webgl2';
   readonly caps: RhiCaps;
-  /** The native device: a `GPUDevice` on WebGPU. Escape hatch (Rule 11.17). */
+  /** The native device: a `GPUDevice` on WebGPU, a `WebGL2RenderingContext` on WebGL2. Escape
+   *  hatch (Rule 11.17). */
   readonly native: object;
 
   createBuffer(desc: RhiBufferDesc): RhiBuffer;
@@ -375,7 +408,8 @@ export interface RhiDevice {
 
   createCommandEncoder(): RhiCommandEncoder;
   /** Hand the encoders' commands to the device, in order, before this returns. The promise
-   *  resolves once the device has run them. */
+   *  resolves once the device has run them; on an immediate backend they ran as they were
+   *  recorded, and a read waits for the device itself. */
   submit(encoders: readonly RhiCommandEncoder[]): Promise<void>;
   /** Collect the validation errors of what follows, up to `popValidationScope()`. */
   pushValidationScope(): void;
