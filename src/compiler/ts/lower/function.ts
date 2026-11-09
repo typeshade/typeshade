@@ -6,7 +6,6 @@ import { attributeDecoratorsOf } from '../attribute-types.js';
 import { variableRefused } from '../refused-names.js';
 import { moduleVarSourceName } from '../module-var-names.js';
 import { stageCallOf, stageCallOfDeclaration, stageDeclarationOf } from '../stage-call.js';
-import { numericsOf } from '../numerics.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import { moduleIndexConst } from '../index-bound.js';
 import { countPushedLengths, pushedParams } from './kernel-push.js';
@@ -22,7 +21,6 @@ import type {
   OverrideDecl,
   ModuleVarDecl,
   WorkgroupShape,
-  NumericsClass,
 } from '../../../core/ir/nodes.js';
 import { toWorkgroupShape, workgroupSizeAttr } from '../../../core/ir/workgroup.js';
 import { kernelWorkgroups } from '../../../core/kernel-workgroup.js';
@@ -2883,8 +2881,6 @@ export function parseSignature(
   (decl as { span?: SourceSpan }).span = spanOf(sourceFile, node);
   (decl as { nameSpan?: SourceSpan }).nameSpan = spanOf(sourceFile, node.name);
   if (stageInfo.stage) (decl as { stage?: FuncDecl['stage'] }).stage = stageInfo.stage;
-  if (stageInfo.numerics !== undefined)
-    (decl as { numerics?: FuncDecl['numerics'] }).numerics = stageInfo.numerics;
   const shape = stageInfo.workgroupShape;
   if (shape !== undefined) {
     (decl as { workgroupSize?: number }).workgroupSize = shape[0];
@@ -3855,15 +3851,12 @@ function parseStage(
   workgroupSizeExpressions?: readonly [string | undefined, string | undefined, string | undefined];
   /** A `@workgroup_size` on a function that is not an entry, settled by the caller. */
   kernelWorkgroup?: KernelWorkgroupAttr;
-  /** The numerical contracts the function opted into (change 0107). */
-  numerics?: readonly NumericsClass[];
 } {
   const decos = decoratorsOf(node);
   const isEntry = decos.some((d) => /^@(vertex|fragment|compute)\b/.test(d.getText(sourceFile)));
   let stage: FuncDecl['stage'] | undefined;
   let workgroupShape: WorkgroupShape | undefined;
   let kernelWorkgroup: KernelWorkgroupAttr | undefined;
-  let numerics: readonly NumericsClass[] | undefined;
   let workgroupSizeOverrides:
     [string | undefined, string | undefined, string | undefined] | undefined;
   let workgroupSizeExpressions:
@@ -3969,8 +3962,7 @@ function parseStage(
   if (sc !== undefined) {
     if (sc.callee === 'workgroup_size') kernelWorkgroup = kernelWorkgroupOf(sc.call, consts);
     else if (sc.callee === 'compute') readCompute(sc.size === undefined ? [] : [sc.size], sc.call);
-    else if (sc.callee !== 'numerics') stage = sc.callee;
-    numerics = numericsOf(sc);
+    else stage = sc.callee;
   }
   for (const d of decos) {
     // A function that is not an entry may be a kernel function, which takes one extent of
@@ -3998,7 +3990,6 @@ function parseStage(
     workgroupSizeOverrides,
     workgroupSizeExpressions,
     kernelWorkgroup,
-    numerics,
   };
 }
 

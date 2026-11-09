@@ -7,7 +7,6 @@
 //   export const fs = fragment((v: VsOut): vec4 => …);
 //   export const main = compute([64], function main(…) { … });
 //   export const scale = workgroup_size([128], function scale(xs: array<f32>) { … });
-//   const tick = numerics(["finite-math"], function tick(…) { … });   (change 0107)
 //
 // A plain `tsc --strict` accepts this form; it refuses a decorator on a function declaration
 // (TS1206). The front end reads the call here and hands the rest of the compiler a function
@@ -17,20 +16,12 @@
 import ts from 'typescript';
 
 /** The functions a stage call is spelled with, and what each makes of its function. */
-export const STAGE_CALLEES = [
-  'vertex',
-  'fragment',
-  'compute',
-  'workgroup_size',
-  'numerics',
-] as const;
+export const STAGE_CALLEES = ['vertex', 'fragment', 'compute', 'workgroup_size'] as const;
 export type StageCallee = (typeof STAGE_CALLEES)[number];
 
 /** Whether a stage call to `callee` declares an entry. `workgroup_size([…], f)` declares a
- *  kernel function, and `numerics([…], f)` a function under a numerical contract (Rule 11.22),
- *  which is no entry either. */
-export const declaresEntry = (callee: StageCallee): boolean =>
-  callee !== 'workgroup_size' && callee !== 'numerics';
+ *  kernel function, which is no entry. */
+export const declaresEntry = (callee: StageCallee): boolean => callee !== 'workgroup_size';
 
 /** One `const x = stage(…)` the file declares. */
 export interface StageCall {
@@ -42,8 +33,6 @@ export interface StageCall {
   readonly fn: ts.FunctionExpression | ts.ArrowFunction;
   /** The workgroup argument of `compute([…], f)` and `workgroup_size([…], f)`. */
   readonly size?: ts.Expression;
-  /** The class list of `numerics([…], f)` (change 0107). */
-  readonly classes?: ts.Expression;
   /** The options argument after the function, `{ diagnostic: [...] }`. */
   readonly options?: ts.Expression;
   readonly exported: boolean;
@@ -60,7 +49,6 @@ function partsOf(expr: ts.Expression):
       call: ts.CallExpression;
       fn: ts.FunctionExpression | ts.ArrowFunction;
       size?: ts.Expression;
-      classes?: ts.Expression;
       options?: ts.Expression;
     }
   | undefined {
@@ -68,7 +56,7 @@ function partsOf(expr: ts.Expression):
   const callee = expr.expression.text;
   if (!isCallee(callee)) return undefined;
   const sized = callee === 'compute' || callee === 'workgroup_size';
-  const at = sized || callee === 'numerics' ? 1 : 0;
+  const at = sized ? 1 : 0;
   const fn = expr.arguments[at];
   if (fn === undefined || !(ts.isFunctionExpression(fn) || ts.isArrowFunction(fn)))
     return undefined;
@@ -77,7 +65,6 @@ function partsOf(expr: ts.Expression):
     call: expr,
     fn,
     size: sized ? expr.arguments[0] : undefined,
-    classes: callee === 'numerics' ? expr.arguments[0] : undefined,
     options: expr.arguments[at + 1],
   };
 }

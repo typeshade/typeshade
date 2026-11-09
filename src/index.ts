@@ -203,7 +203,6 @@ export {
   type BindingDecl,
   type ExternVarDecl,
   type FuncDecl,
-  type NumericsClass,
   type Capability,
   ALL_CAPABILITIES,
   type DeclarableCapability,

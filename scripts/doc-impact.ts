@@ -36,7 +36,16 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { HISTORY_FILES, ROOT, extractRefs, git, markdownFiles, sourceFiles } from './doc-refs.js';
+import {
+  HISTORY_FILES,
+  ROOT,
+  SKIP_LINE,
+  extractRefs,
+  git,
+  markdownFiles,
+  outsideCode,
+  sourceFiles,
+} from './doc-refs.js';
 import { createRequire } from 'node:module';
 
 export interface Mention {
@@ -320,6 +329,28 @@ export function isProposal(file: string): boolean {
   return /^changes\/\d{4}-[^/]+\.md$/.test(file);
 }
 
+/** A record whose sentences a change does not rewrite: a proposal, and the owner's decisions
+ *  (`docs/owner-decisions.md`), which hold the owner's words and name the proposals that apply
+ *  them, and which only the owner changes. A removed name either mentions is no must-fix. */
+export function isRecord(file: string): boolean {
+  return isProposal(file) || file === 'docs/owner-decisions.md';
+}
+
+/** Whether a mention sits on a line that carries `<!-- doc-refs: skip — reason -->`, or right
+ *  under one: a sentence that must name something absent, as `doc-refs.ts` reads the marker. A
+ *  Markdown heading carries it on the first line under it instead, which belongs to its own
+ *  section (surface §78 keeps its title, change 0131). A removed name such a line mentions is no
+ *  must-fix. */
+export function isWaived(m: Mention): boolean {
+  const lines = linesOf(m.file);
+  const marked = (i: number): boolean => SKIP_LINE.test(outsideCode(lines[i] ?? ''));
+  if (marked(m.line - 1) || (m.line > 1 && marked(m.line - 2))) return true;
+  if (!/^#{1,6} /.test(lines[m.line - 1] ?? '')) return false;
+  let below = m.line;
+  while (below < lines.length && lines[below]!.trim() === '') below++;
+  return marked(below);
+}
+
 export function impactOf(diff: Diff): Impact[] {
   const impacts: Impact[] = [];
   const untouched = (m: Mention): boolean => !diff.touched.get(m.file)?.has(m.line);
@@ -354,7 +385,9 @@ export function impactOf(diff: Diff): Impact[] {
       // declared all the same: the library the editor reads is the one to ask.
       if (new RegExp(`^declare function ${escape(name)}\\b`, 'm').test(shadeDts())) continue;
       if (name.length < 3) continue;
-      const mentions = nameMentions(name).filter((m) => untouched(m) && !isProposal(m.file));
+      const mentions = nameMentions(name).filter(
+        (m) => untouched(m) && !isRecord(m.file) && !isWaived(m),
+      );
       if (mentions.length) impacts.push({ subject, severity: 'must-fix', mentions });
     }
   }

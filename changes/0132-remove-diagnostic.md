@@ -616,7 +616,7 @@ Not in the front matter, and changed:
   `src/compiler/ts/host-kernel.test.ts` 2, `src/vite.test.ts` 2 (the test at lines 468-485 keeps
   the directive in the manifest; it is rewritten to assert no directive and a
   `textureSampleGrad`), `src/compiler/ts/io-name-cascades.test.ts` 1,
-  `src/language-service/ambient-registry-closure.test.ts` 1, and `src/compiler/ts/numerics.test.ts`
+  `src/language-service/ambient-registry-closure.test.ts` 1, and `src/compiler/ts/numerics.test.ts` <!-- doc-refs: skip — a measurement on 79c76d48; change 0131 deleted the file -->
   line 122 (the `TS8028` text).
 
 The compiler's own `@diagnostic(off, subgroup_uniformity)` in `src/core/passes/kernel-lower.ts`,

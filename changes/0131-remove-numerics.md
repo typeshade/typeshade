@@ -26,6 +26,8 @@ downstream:
     what: Confirm that the plugin skill names no numerics(...), numerics option or TS8078 (none found at db3f417) and record 0131 in compiler-changes.md when the pin moves
 ---
 
+<!-- doc-refs: skip-file — an accepted proposal names the code and the files its implementation removes, which this tree no longer has -->
+
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |

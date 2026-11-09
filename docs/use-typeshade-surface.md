@@ -327,15 +327,17 @@ export const fs = fragment(function fs(
   texel per invocation and has no workgroup to give `y` and `z` to.
 - `compute({ workgroup: [64, 1, 1] }, f)` is refused (`TS8037`):
   `compute takes an array of one to three whole numbers before its function, "compute([64, 1, 1], f)"; "{ workgroup: [64, 1, 1] }" is not a workgroup shape.`
-- A stage call takes two options after the function, `diagnostic` (§54) and `numerics` (§78):
+- A stage call takes one option after the function, `diagnostic` (§54):
   `fragment(f, { diagnostic: ["off", "derivative_uniformity"] })`. Another option is refused
-  (`TS8028`).
+  (`TS8028`); change 0131 removed `numerics` (§78).
 - A kernel function (§65) takes one extent in the same spelling as an entry:
   `export const scale = workgroup_size([128], function scale(xs: array<f32>) { … })`. Its loops
   that do not reduce run at that size on WebGPU, and at 64 without it. `workgroup_size([8, 8], f)`
   is refused (`TS8037`), since a loop of a kernel function runs on the x index alone. On a
   function that is neither a kernel function nor an entry it is refused (`TS8028`):
   `"workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Declare "f" without it.`
+  `workgroup_size` takes no options; a third argument is refused (`TS8028`):
+  `"workgroup_size" takes two arguments, the workgroup size and the kernel function, and no options.`
 
 **The decorated form.** In the migration release (change 0111, Amendment 2, D5), the compiler
 also accepts the decorated form, reads it as the stage call, and warns once on each decorator
@@ -4940,7 +4942,6 @@ the grouping is computed in integers, or in values no step rounds.
 | `emulated`  | an `f64` operation: f32 pairs whose error terms hold while the driver neither reassociates nor fuses them                                  | every arithmetic operator, `floor`, and every bounded builtin on `f64`, `vecNf64` and `matNf64`                                            |
 | `order`     | a floating-point reduction of a kernel function's loop (§65): one answer on every tier, the tree of Rule 7.2, which is not the loop's sequential order | `s += x` and `s *= x` on `f32` or `f64`, listed under the kernel function after its own operations                                          |
 | `order`     | an `f32` scatter with `+=` at a computed index (§65): one answer on the CPU tier, the tree of Rule 7.2 over the iterations; no GPU tier lowers it yet, so the answer holds only where it runs | `g[idx[i]] += x[i]` on an `f32` parameter array, listed under the kernel function after its own operations                                                     |
-| `contract`  | a numerical contract a function opted into (§78, Rule 11.22): the GPU tiers apply its rewrites and the CPU oracle does not; one row per class, its `op` the class and its `where` the functions under it | `finite-math`, listed after every other row; its `accuracy` names the folds and the inputs on which the oracle differs |
 
 **What is not listed.** Integer arithmetic, comparisons and the bit builtins, which have a correct
 result. A reduction by `min` or `max`, or on integers, which is exact in any order, and one in a
@@ -11010,12 +11011,41 @@ gallery, since it is a compute entry over storage buffers.
 
 ## 78. A numerical contract: `numerics(["finite-math"], f)`
 
-Change 0107 lets an author opt one function into floating-point rewrites that the default
-optimizer refuses. The default `-O2` folds only the float identities that hold for every value,
-NaN and infinities included (`x * 1`, `x / 1`, `-(-x)`); it keeps `x * 0`, `x - x` and
-`mix(a, b, 0.0)`, because each of them is NaN when an operand is NaN or infinite. A function whose
-author knows its values are finite says so, and the compiler drops that work in that function and
-in no other (Rule 11.22).
+<!-- doc-refs: skip — the title above, which change 0131 keeps (decision 2), names the construct it removed -->
+
+Change 0131 removed the numerical contract of change 0107. No source construct opts a function
+into a floating-point rewrite (Rule 11.22): the `numerics(...)` call, the `numerics` option of a
+stage call and `TS8078` are gone. The section keeps its number and its title, so that change 0107 <!-- doc-refs: skip — a retired code, named as retired -->
+and change 0131 cite a section that exists.
+
+**The rule.** The default `-O2` folds only the float identities that hold for every value, NaN and
+infinities included (`x * 1`, `x / 1`, `-(-x)`), and `x + 0` and `0 + x` to `x`, which ignores the
+sign of a zero, as WGSL §15.7.2 permits (decision 4 of change 0107). The optimizer applies a
+rewrite that a NaN, an infinity or the sign of a zero can observe only where it proves that the
+operands are in the domain where the rewrite gives the CPU oracle's bits. It applies no rewrite
+that changes the rounding of `f32` arithmetic (reassociation, distribution, factoring).
+
+**The rewrites a proof can admit.** Five rewrites on `f32` give the oracle's bits when every
+operand is finite and not NaN, apart from the sign of a zero. The compiler may apply each one once
+it can prove that domain. No value-domain analysis exists yet, so it applies none of them today:
+
+| Rewrite             | Result | What breaks it                    |
+| ------------------- | ------ | --------------------------------- |
+| `x * 0`             | `0`    | `x` NaN or infinite               |
+| `0 * x`             | `0`    | `x` NaN or infinite               |
+| `x - x`             | `0`    | `x` NaN or infinite               |
+| `mix(a, b, 0)`      | `a`    | `b` NaN or infinite               |
+| `mix(a, b, 1)`      | `b`    | `a` NaN or infinite               |
+
+**Before and after.** Before change 0131, an author wrote:
+
+```ts
+const tick = numerics(["finite-math"], function tick(base: vec3f, x: vec3f, spread: f32): vec3f {
+  return mix(base, x, 0.0).add(spread * hash12(base.xy));
+});
+```
+
+After it, the same function is written with no wrapper:
 
 ```ts
 "use typeshade";
@@ -11024,67 +11054,20 @@ function hash(p: vec2f): f32 {
   return fract(sin(dot(p, vec2f(12.9898, 78.233))) * 43758.5453);
 }
 
-const tick = numerics(["finite-math"], function tick(base: vec3f, x: vec3f, spread: f32): vec3f {
-  return mix(base, x, 0.) + spread * hash(base.xy) + (x - x);
-});
-
-export const fs = fragment(
-  function fs(p: builtin<"position", vec4f>): vec4f {
-    return vec4f(tick(p.xyz, p.zyx, 0.5), 1.);
-  },
-  { numerics: ["finite-math"] },
-);
-```
-
-```wgsl
-fn tick(base: vec3<f32>, x: vec3<f32>, spread: f32) -> vec3<f32> {
-  return ((base + (spread * hash(base.xy))) + vec3<f32>(0.0, 0.0, 0.0));
+function tick(base: vec3f, x: vec3f, spread: f32): vec3f {
+  return mix(base, x, 0.) + spread * hash(base.xy);
 }
+
+export const fs = fragment(function fs(p: builtin<"position", vec4f>): vec4f {
+  return vec4f(tick(p.xyz, p.zyx, 0.5), 1.);
+});
 ```
 
-**The spelling.** A function of the file is wrapped in a call to `numerics`, in the form change
-0111 gives every attribute (§3): `const f = numerics([...], function f(…) { … })`. An entry or a
-kernel function names its classes as its stage call's `numerics` option, beside `diagnostic`:
-`fragment(f, { numerics: ["finite-math"] })`, `workgroup_size([128], f, { numerics: [...] })`. The
-name is TypeShade's (§9.3, the "contracts" family); nothing in the emitted text names it.
+The emitted `mix(base, x, 0.0)` stays until the compiler proves `base` and `x` finite. An author
+who knows the operands are finite and wants the fold now writes `base` in the source.
 
-**The classes.** Each element of the list names one class. No class is on by default, and there is
-no catch-all.
-
-| Class | Assumes | Rewrites | Against the oracle |
-| --- | --- | --- | --- |
-| `finite-math` | every operand is finite and not NaN | `x * 0` and `0 * x` to `0`, `x - x` to `0`, `mix(a, b, 0)` to `a`, `mix(a, b, 1)` to `b` | bit for bit on finite inputs, apart from the sign of a zero |
-| `reassociate` | the function tolerates a change of rounding | none yet: each reassociation enters with its measured ulp bound | within each rewrite's recorded bound |
-
-Each rewrite is recorded with its domain and its bound where it is defined
-(`src/core/passes/finite-math.ts`). A rewrite matches `f32` operands only, scalar or vector: an
-`f64` operand is never matched, so no rewrite reaches the emulated double, whose error terms a
-rewrite would cancel (Rule 4.4). An operand the rewrite would drop is kept when it has an effect: a
-call that writes a binding, or an atomic.
-
-**The boundary.** A rewrite stays in the function whose author asked for it. No pass inlines an
-opted-in function into another function, and none inlines another function into it, the `inline()`
-plugin of `typeshade/emit-prod` included. A caller's own expressions stay exact, and so does a
-helper the opted-in function calls. The rewrites run at `-O2`, after the calls are specialized and
-before any `f64` is lowered; `O0` and `O1` emit the function as written.
-
-**The oracle.** The CPU oracle does not apply a contract: it keeps the meaning of the source, so a
-NaN or an infinity still reads there as the source says (Rule 1.3). A common module (Rule 11.20)
-does not opt in, since it promises the oracle's bits on every tier.
-
-**What is refused.** `TS8078` refuses a wrong list and a misplaced call, in `compile()` and in the
-editor alike (Rule 12.7):
-
-- `"fast" is not a numerics class. The classes are "finite-math" and "reassociate".`
-- `"finite-math" is named twice in this numerics list. Name each class once.`
-- `An empty numerics list opts into nothing. Name a class: "finite-math" or "reassociate".`
-- `numerics takes an array of class names, as strings: const f = numerics(["finite-math"], function f(…) { … }).`
-- a `numerics(...)` call inside a function, inside a namespace, or anywhere but as a top-level
-  `const`'s initializer: `numerics(...) wraps a function declared at the top of the file: …`
-
-A `@numerics` decorator is `TS8028`, as any decorator outside Rule 6.7's list is.
-
-The determinism report (§38) lists each class a function opted into as a `contract` row, after
-every other row: its `op` is the class, its `where` the functions under it, and its `accuracy` the
-folds and the inputs on which the GPU tiers and the oracle differ. `reassociate` is listed too,
-with no rewrite yet.
+**What an author sees.** A leftover `numerics(...)` call is an unknown function: `TS8004` in
+`compile()` and in the editor alike (Rule 12.7), with the cascade any unknown function gives. A
+leftover `{ numerics: [...] }` on `vertex`, `fragment` or `compute` is one `TS8028`, as any other
+option is (§3). `workgroup_size` takes no options, so a third argument to it is one `TS8028`. The
+determinism report (§38) has no `contract` row.

@@ -5,7 +5,7 @@ level: 49
 links:
 - RULE-0702: aMOE9178T8VwoRmUdH2Du74apGdNk0pkL7kvkijCD1I=
 - RULE-0710: 3lGjzZUWGw-ZKwJftj0FW4dk59DA_93RfSYdpPpXAkA=
-- RULE-1207: pcKPtS5lNH8XqVgsb1R7Dkld1HT_liLX7DrGfrpIi9I=
+- RULE-1207: 40ZVZI3e_efF_Q5kLY-A0TxnP3DldhQvxDomyqXJ3B4=
 normative: true
 ref: ''
 reviewed: uiMU_LV15wmSV33OF1RFU2TcWnil6IrKD8vHpyrn0Mw=

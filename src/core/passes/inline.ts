@@ -13,7 +13,6 @@
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../ir/index.js';
 import { mapExpr, mapStmt } from './opt/ir-transform.js';
-import { outsideContracts } from './contract-boundary.js';
 
 /** Substitute param/varref names in `e` with their mapped argument expr. */
 function substParams(e: Expr, subst: ReadonlyMap<string, Expr>): Expr {
@@ -34,11 +33,6 @@ function callsFn(body: readonly Stmt[], name: string): boolean {
 }
 
 export function inlineFn(m: ModuleDecl, fnName: string): ModuleDecl {
-  // A function under a numerical contract is held out of it (change 0107, `contract-boundary.ts`).
-  return outsideContracts(m, (rest) => inlineFnOf(rest, fnName));
-}
-
-function inlineFnOf(m: ModuleDecl, fnName: string): ModuleDecl {
   const target = m.funcs.find((f) => f.name === fnName);
   if (!target) return m;
   const only = target.body.length === 1 ? target.body[0] : undefined;

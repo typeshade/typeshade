@@ -1,7 +1,7 @@
 // Stable diagnostic codes (Phase 10 / 12). Messages stay readable.
 //
 // Numbering: `TS8` + a zero-padded sequential number, assigned in the order a code was added.
-// A gap (8011 and 8012 are retired) is never reused. `UNSUPPORTED` (TS8099) is the one deliberate
+// A gap (8011, 8012 and 8078 are retired) is never reused. `UNSUPPORTED` (TS8099) is the one deliberate
 // exception to "sequential": it is the catch-all for a diagnostic whose site does not yet
 // deserve its own code, so it stays parked past the sequential range instead of at its head.
 //
@@ -263,11 +263,8 @@ export const TS_CODES = {
    *  an attribute that asks for another size cannot be honored; the message names the function and
    *  the remedy. */
   KERNEL_WORKGROUP_REDUCES: 'TS8077',
-  /** A refused numerical contract (Rule 11.22, Rule 6.7, surface §78, change 0107): a
-   *  `numerics([...], f)` call or a stage call's `numerics` option whose list is empty, is not an
-   *  array of string literals, names a class the compiler does not know or names one twice; and a
-   *  `numerics(...)` call anywhere but as the initializer of a `const` at the top of the file. */
-  NUMERICS: 'TS8078',
+  // TS8078 was the refused numerical contract of change 0107 (`numerics`). Change 0131 removed
+  // the construct and retired the code, and a retired code is never reused.
   UNSUPPORTED: 'TS8099',
 } as const;
 

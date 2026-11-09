@@ -131,6 +131,19 @@ function directiveSources(
     const sc = stageCallOf(stmt);
     if (sc !== undefined) {
       if (sc.options === undefined) continue;
+      // `workgroup_size` takes no options: change 0131 removed `numerics`, its only one.
+      if (sc.callee === 'workgroup_size') {
+        diagnostics.push(
+          makeDiagnostic(
+            sourceFile,
+            sc.options,
+            `"workgroup_size" takes two arguments, the workgroup size and the kernel function, ` +
+              `and no options.`,
+            TS_CODES.ATTRIBUTE_NAME,
+          ),
+        );
+        continue;
+      }
       const fnName = sc.declaration.name.text;
       if (!ts.isObjectLiteralExpression(sc.options)) {
         diagnostics.push(
@@ -150,14 +163,12 @@ function directiveSources(
           (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))
             ? prop.name.text
             : undefined;
-        // `numerics` is the numerical contract's option (change 0107), which `numerics.ts` reads.
-        if (key === 'numerics' && ts.isPropertyAssignment(prop)) continue;
         if (key !== 'diagnostic' || !ts.isPropertyAssignment(prop)) {
           diagnostics.push(
             makeDiagnostic(
               sourceFile,
               prop,
-              `A stage call takes two options, "diagnostic" and "numerics"; ` +
+              `A stage call takes one option, "diagnostic"; ` +
                 `"${prop.getText(sourceFile)}" is not one.`,
               TS_CODES.ATTRIBUTE_NAME,
             ),

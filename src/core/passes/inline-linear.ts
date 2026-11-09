@@ -54,7 +54,6 @@ import { mapExpr } from './opt/ir-transform.js';
 import { bodyHasRaw } from './opt/dce.js';
 import { fixpoint, LEVEL_PASSES, type OptPass } from './opt/optimize.js';
 import { inlineFn } from './inline.js';
-import { outsideContracts } from './contract-boundary.js';
 
 const isEntry = (f: FuncDecl): boolean => stageOf(f) !== undefined;
 
@@ -486,11 +485,6 @@ const CLEANUP: readonly OptPass[] = LEVEL_PASSES.O1;
  *  same temp name, and the module comes out with an unbound reference — `unbound _inl1_ret`
  *  from the CPU oracle, caught by the df64 known-answer arms rather than by anything static. */
 export function inlineLinearAll(m: ModuleDecl, counter: { n: number } = { n: 0 }): ModuleDecl {
-  // A function under a numerical contract is held out of it (change 0107, `contract-boundary.ts`).
-  return outsideContracts(m, (rest) => inlineLinearAllOf(rest, counter));
-}
-
-function inlineLinearAllOf(m: ModuleDecl, counter: { n: number }): ModuleDecl {
   if (m.funcs.some((f) => bodyHasRaw(f.body))) return m;
   let cur = m;
   // Each step removes exactly one helper, so the fn count bounds the loop.

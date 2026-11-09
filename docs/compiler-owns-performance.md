@@ -269,7 +269,8 @@ Each needs the owner's decision before a proposal is drafted on it.
 1. Whether the principle of section 1 becomes a design rule.
 2. Whether the canonical tree becomes the adjacent pairwise tree, and when (section 3).
 3. Which strict mode: `exact`, `reproducible`, both, or neither yet, and how the `fast` mode
-   relates to #852's numerical contract (section 3).
+   relates to Rule 11.22, which refuses a rewrite the compiler cannot prove exact and from which
+   `fast` is excluded until a proposal amends the rule (change 0131; section 3).
 4. Whether a variant is selected by vendor signals or by a probe (section 6).
 5. How the direction of section 7 relates to change 0117, which keeps an author's
    `"enable subgroups"` and makes the subgroup functions authorable.

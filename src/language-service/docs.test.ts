@@ -11,7 +11,6 @@ import {
   DOCUMENTED_MATH_MEMBER_NAMES,
   TYPE_DOCS,
   DOCUMENTED_TYPE_NAMES,
-  STAGE_CALL_DOCS,
 } from './docs.js';
 import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js';
 
@@ -118,11 +117,7 @@ describe('ambient lib JSDoc', () => {
     // Derived from ATTRIBUTE_DOCS rather than listed again: a hand-written copy of its keys is a
     // second list to keep in step, and §53 adding `@interpolate`, `@invariant` and `@blend_src`
     // is exactly the update that gets forgotten.
-    // A stage call (change 0111) and `numerics` (change 0107) are documented in STAGE_CALL_DOCS.
-    const attributeDecorators = new Set([
-      ...Object.keys(ATTRIBUTE_DOCS),
-      ...Object.keys(STAGE_CALL_DOCS),
-    ]);
+    const attributeDecorators = new Set(Object.keys(ATTRIBUTE_DOCS));
     for (const name of declaredNames) {
       if (!attributeDecorators.has(name)) {
         expect(
