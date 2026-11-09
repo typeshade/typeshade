@@ -1,7 +1,7 @@
 ---
 id: '0131'
 title: An author writes no numerical contract; the compiler applies a floating-point rewrite only where it proves the rewrite exact
-status: draft
+status: accepted
 rules:
   - '6.7'
   - '9.6'
@@ -30,7 +30,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0131, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Identity and status           | Proposal 0131, `status: accepted`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the owner's direction. Revised 2026-11-09 (UTC) by an AI agent (Claude Code) after the independent review and the owner's decisions recorded below. The dates are drafting and revision dates. They are not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Request source                | The owner (Seungup) set the direction in the Claude Code session on 2026-11-09: TypeShade is a language, not a library; the language gains as little as possible; what the compiler can decide is compiler work and is never pushed onto the author; what the author does not need to learn is removed. The owner directed this removal in the same session. Draft proposal 0130 (pull request #1094) proposes the principle as a design rule and leaves this removal to its own proposal.                                                                                                                                                                                                                                                                                                                   |
 | Applicability / effectivity   | Expected: `src/compiler/ts/numerics.ts` and its test, `src/compiler/ts/stage-call.ts`, `src/compiler/ts/lower/function.ts`, `src/compiler/ts/lower/expression-call.ts`, `src/compiler/ts/source-file.ts`, `src/compiler/ts/diagnostic-directive.ts`, `src/compiler/ts/codes.ts`, `src/core/ir/nodes.ts`, `src/core/emit.ts`, `src/core/passes/` (five files deleted, seven edited, `opt/algebraic.ts` and its test among them), `src/common-modules.test.ts`, `src/language-service/ambient.ts`, `docs.ts` and `diagnostics.ts`, `docs/language-design.md`, `docs/use-typeshade-surface.md`, `docs/compiler-owns-performance.md`, `CHANGELOG.md`, `reqs/`. The default `'O2'` output of a program that writes no `numerics` does not change. The CPU oracle does not change. No release version is assigned. |
@@ -391,8 +391,18 @@ Open findings: none. Open decisions for the owner: none.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision on this pull
-request, the approved revision and the review record. Decisions 0 to 5 are decided.
+- **Decision.** Accepted by the owner (Seungup) on 2026-11-09, in the Claude Code session, by the
+  answer "병합" (merge) to the question whether to merge pull request #1104 as accepted. The
+  owner cannot approve their own pull request on GitHub, so this go-ahead is the review
+  (`CLAUDE.md`, Merging). The merge of #1104 with `status: accepted` records the decision.
+- **Approved revision and scope.** This file as merged by #1104: decisions 0 to 5 as recorded
+  above, and the rules, surface sections, exports, codes and downstream work in the front matter.
+- **Evidence read at acceptance.** The independent review record above (revision `2dd2e26b`,
+  every finding fixed) and the measurements in Draft impact estimate.
+- **Responsibilities.** Implementation is not yet assigned. Each implementing pull request carries
+  `Change: 0131`.
+- **Milestones.** One implementing pull request, in the order of Interaction with 0130 and 0132:
+  0131 before 0132. Duration and cost are not estimated.
 
 ### Configuration and validation record
 
