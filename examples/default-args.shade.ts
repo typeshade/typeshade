@@ -37,15 +37,17 @@ function bands(uv: vec2, tint: vec3 = WARM, count: f32 = 6.): vec3 {
   return tint * t;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
   return { pos: vec4(p, 0., 1.), uv: p };
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): vec4 {
+@fragment
+export function fs(v: VsOut): vec4 {
   // Every argument written, one omitted, all the optional ones omitted.
   const cool = bands(v.uv, vec3(0.38, 0.6, 1.), 10.);
   const warm = bands(v.uv);
@@ -53,4 +55,4 @@ export const fs = fragment(function fs(v: VsOut): vec4 {
   // Annotated for the editor: the ambient lib types vector arithmetic loosely.
   const lit: vec3 = mixed * vignette(v.uv);
   return vec4(grade(lit), 1.);
-});
+}

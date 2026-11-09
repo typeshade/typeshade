@@ -17,8 +17,8 @@
 // has no source-language counterpart. Every fullscreen twin repeats it.
 
 class Uniforms {
-  time!: f32;
-  resolution!: vec2;
+  time: f32;
+  resolution: vec2;
 }
 
 declare const U: uniform<Uniforms>;
@@ -28,13 +28,15 @@ interface VsOut {
   uv: location<0, vec2>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-});
+}
 
-export const fs = fragment(function fs(vo: VsOut): vec4 {
+@fragment
+export function fs(vo: VsOut): vec4 {
   const t = U.time;
   const uv = vo.uv;
   // three interfering sine waves — the classic plasma
@@ -45,4 +47,4 @@ export const fs = fragment(function fs(vo: VsOut): vec4 {
   // (issue #43). Emit-neutral: the WGSL and GLSL are byte-identical without it.
   const col: vec3 = vec3(sin(v), sin(v + 2.094), sin(v + 4.188)) * 0.5 + 0.5;
   return vec4(col, 1.);
-});
+}

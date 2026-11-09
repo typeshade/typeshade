@@ -35,14 +35,16 @@ declare const shadowSmp: sampler_comparison;
 // A cascade: one depth texture per distance band, the layer picked per fragment.
 declare const cascades: texture_depth_2d_array;
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   return vec4(xs[i], ys[i], 0., 1.);
-});
+}
 
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment
+export function fs(p: builtin<"position", vec4>): vec4 {
   const uv: vec2 = fract(p.xy * 0.004);
   // A stand-in for the light-space depth of this fragment.
   const depthHere = 0.5 + 0.25 * sin(uv.x * 6.2831);
@@ -59,4 +61,4 @@ export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   const texel = 1. / f32(size.x);
   const shade = mix(0.15, 1., lit * 0.6 + litFar * 0.4);
   return vec4(shade * (0.9 - texel), shade * 0.8, shade * 0.6, 1.);
-});
+}

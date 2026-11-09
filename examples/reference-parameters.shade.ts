@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Parameters that write back: @inout and @out",
-  "blurb": "Functions that change their caller's variables: a parameter written `@inout a: T` names the caller's place, and the call passes the variable itself (§70). `swap` and `order` exchange two locals, `advance` moves a struct in place, `shrink` scales a matrix's column, `liftAll` bends an array's elements one at a time through a local function that captures the array's reference, and `project` writes its result through `@out` into a local declared `let q!: T`, which has no value yet. WGSL spells each reference as a pointer, `swap(&a, &b)` with `*a = *b` in the body, and GLSL ES 3.00 as an `inout` parameter, the model a method that changes its object already has (§26).",
+  "blurb": "Functions that change their caller's variables: a parameter written `@inout a: T` names the caller's place, and the call passes the variable itself (§70). `swap` and `order` exchange two locals, `advance` moves a struct in place, `shrink` scales a matrix's column, `liftAll` bends an array's elements one at a time through a local function that captures the array's reference, and `project` writes its result through `@out` into a local declared `let q: T`, which has no value yet. WGSL spells each reference as a pointer, `swap(&a, &b)` with `*a = *b` in the body, and GLSL ES 3.00 as an `inout` parameter, the model a method that changes its object already has (§26).",
   "renderable": true
 }
 */
@@ -33,8 +33,8 @@ interface Color {
 }
 
 class Ray {
-  origin!: vec2;
-  dir!: vec2;
+  origin: vec2;
+  dir: vec2;
 }
 
 /** Exchange the values of two of the caller's variables. */
@@ -82,15 +82,17 @@ function shrink(@inout column: vec2, k: f32): void {
   column = column * k;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
   return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment
+export function fs(v: VsOut): Color {
   let a = v.uv.x;
   let b = v.uv.y;
   order(a, b);
@@ -102,7 +104,7 @@ export const fs = fragment(function fs(v: VsOut): Color {
   liftAll(w, 0.25);
   let basis = mat2(1., 0., 0., 1.);
   shrink(basis[1], 0.5);
-  let q!: vec2;
+  let q: vec2;
   project(basis, v.uv - vec2(0.5, 0.5), q);
   return { color: vec4(fract(r.origin.x * 3.), w[0] * w[1], w[2] * (1. - length(q)), 1.) };
-});
+}

@@ -36,7 +36,8 @@ declare const out: storage<array<u32>, "read_write">;
 let leader: workgroup<u32>;
 let tile: workgroup<array<u32, 64>>;
 
-export const cs = compute([64, 1, 1], function cs(
+@compute([64, 1, 1])
+export function cs(
   gid: builtin<"global_invocation_id", vec3u>,
   lid: builtin<"local_invocation_id", vec3u>,
 ): void {
@@ -65,4 +66,4 @@ export const cs = compute([64, 1, 1], function cs(
   textureBarrier();
 
   out[gid.x] = tile[lid.x] + agreed + claim.old_value;
-});
+}

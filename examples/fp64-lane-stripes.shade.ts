@@ -35,9 +35,9 @@
 
 class Uniforms {
   // One vec2<f32> slot on both targets; the host writes splitF64(origin) into it.
-  origin!: f64;
+  origin: f64;
   // World units swept across the screen.
-  span!: f32;
+  span: f32;
 }
 
 declare const u: uniform<Uniforms>;
@@ -49,11 +49,12 @@ interface VsOut {
   // this declaration, and the fragment stage reads `u.origin` instead.
 }
 
-export const vs = vertex(function vs(idx: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(idx: builtin<"vertex_index", u32>): VsOut {
   const x = f32(idx & 1) * 4. - 1.;
   const y = f32(idx >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-});
+}
 
 // The whole numeric core, as a plain function so the CPU oracle can call it directly: the
 // fragment stage below is the same expression with the uniform read inlined. That is what
@@ -69,7 +70,8 @@ export function stripeAt(origin: f64, offset: f32): f64 {
   return fract(world / stripe);
 }
 
-export const fs = fragment(function fs(vo: VsOut): vec4 {
+@fragment
+export function fs(vo: VsOut): vec4 {
   // The uniform, read in the stage that needs it. A literal beside a scalar f64 is lifted to
   // an f64 literal carrying the full double, so the pass splits 2.5 rather than widening the
   // f32 rounding of it.
@@ -94,4 +96,4 @@ export const fs = fragment(function fs(vo: VsOut): vec4 {
   // where f32 still holds the coordinate, and up to half a stripe once it cannot.
   const drift = abs(narrowed.z - flat);
   return vec4(shade, drift, fract(narrowed.y * 0.5), 1.);
-});
+}

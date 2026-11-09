@@ -22,8 +22,8 @@
 // one after another, so its atomics are plain reads and writes in that order.
 
 class Summary {
-  count!: atomic<u32>;
-  maxBin!: atomic<i32>;
+  count: atomic<u32>;
+  maxBin: atomic<i32>;
 }
 
 declare const src: storage<array<f32>>;
@@ -33,7 +33,8 @@ declare const firstValue: storage<atomic<u32>, "read_write">;
 
 const BINS: f32 = 8.;
 
-export const histogram = compute([64, 1, 1], function histogram(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1])
+export function histogram(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= src.length) {
     return;
   }
@@ -47,4 +48,4 @@ export const histogram = compute([64, 1, 1], function histogram(gid: builtin<"gl
     atomicStore(firstValue, u32(src[gid.x] * 1000.));
   }
   atomicMax(summary.maxBin, i32(bin));
-});
+}

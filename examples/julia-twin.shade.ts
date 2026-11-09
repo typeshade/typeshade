@@ -28,11 +28,12 @@ interface VsOut {
   uv: location<0, vec2>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-});
+}
 
 // Iridescent cosine palette: 0.5 + 0.5·cos(2π(t + phase)). The scalar t broadcasts over the
 // phase vector; cos() is component-wise.
@@ -41,7 +42,8 @@ function palette(t: f32): vec3 {
   return vec3(0.5) + cos((t + ph) * 6.283) * 0.5;
 }
 
-export const fs = fragment(function fs(vo: VsOut): vec4 {
+@fragment
+export function fs(vo: VsOut): vec4 {
   const uv = vo.uv;
   // centre the plane, scale by the zoom uniform
   // `z` is annotated for the EDITOR, not the compiler: TypeScript types `vec2 * scalar` as
@@ -67,4 +69,4 @@ export const fs = fragment(function fs(vo: VsOut): vec4 {
   // outside points (never escaped) → black core; escaped → palette by iteration
   const col = palette(it / 96. + U.time * 0.05);
   return vec4(col * (it / 96.), 1.);
-});
+}

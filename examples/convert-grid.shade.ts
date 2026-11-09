@@ -28,7 +28,8 @@ interface Color {
   color: location<0, vec4>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   // vec2<u32> → vec2<f32>: WGSL `vec2<f32>(v)`, GLSL `vec2(v)`.
   const bits = vec2u(vi & u32(1), vi >> u32(1));
   const corner = vec2(bits);
@@ -37,9 +38,10 @@ export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
   // A declared type is the shape its TS2322 arm already covers.
   const p: vec2 = corner * 4. - vec2(1., 1.);
   return { pos: vec4(p, 0., 1.), uv: corner };
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment
+export function fs(v: VsOut): Color {
   // f32 → u32 (saturating, which is the rule this item documents) and straight back, so the
   // fragment reads the cell index of a 4×4 grid as a float again.
   const scaled = v.uv * 4.;
@@ -47,4 +49,4 @@ export const fs = fragment(function fs(v: VsOut): Color {
   const back = vec2(cell);
   const shade = (back.x + back.y) / 6.;
   return { color: vec4(shade, 1. - shade, 0.35, 1.) };
-});
+}

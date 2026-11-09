@@ -16,7 +16,7 @@
 // and the compile gate runs both targets, so the two spellings agree about the picture.
 
 class Frame {
-  m!: mat4;
+  m: mat4;
 }
 
 declare const frame: uniform<Frame>;
@@ -26,15 +26,17 @@ interface VsOut {
   uv: location<0, vec2>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
   return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): vec4 {
+@fragment
+export function fs(v: VsOut): vec4 {
   // A bump whose normal tilts away from the centre, lit from the upper left, seen head on.
   const c: vec2 = v.uv - vec2(0.5, 0.5);
   const n: vec3 = normalize(vec3(c.x, c.y, 0.6));
@@ -90,4 +92,4 @@ export const fs = fragment(function fs(v: VsOut): vec4 {
   const color: vec3 = mix(base, vec3(1., 1., 1.), edge);
   const out: vec3 = color + shine;
   return vec4(out, 1.);
-});
+}

@@ -36,7 +36,7 @@
 // undefined.
 
 class Tint {
-  rgb!: vec4;
+  rgb: vec4;
 }
 
 declare const albedo: texture_2d<f32>;
@@ -48,11 +48,12 @@ interface VsOut {
   uv: location<0, vec2>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-});
+}
 
 // The two samples the branch below chooses between. Both are called from uniform control flow
 // inside this helper; what is not uniform is the branch in the entry that picks one.
@@ -65,7 +66,8 @@ function wide(uv: vec2): vec4 {
   return textureSample(albedo, smp, inner);
 }
 
-export const fs = fragment(function fs(v: VsOut): vec4 {
+@fragment
+export function fs(v: VsOut): vec4 {
   // The sample under a NON-uniform condition — `v.uv` is a `location<…>` input, so the two sides
   // of this branch are taken by different invocations of the same quad. The compiler computes
   // each helper's coordinate and its gradients before the `if`, and samples with them inside.
@@ -83,4 +85,4 @@ export const fs = fragment(function fs(v: VsOut): vec4 {
     return vec4(base.xyz * tint.rgb.xyz + warm.xyz * 0.25, 1.);
   }
   return vec4(base.xyz * tint.rgb.xyz, 1.);
-});
+}

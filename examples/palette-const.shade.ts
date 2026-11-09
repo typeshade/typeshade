@@ -38,14 +38,16 @@ interface Color {
   color: location<0, vec4>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   // UP.y is 1., so this is the same triangle with the constant read once per vertex.
   return { pos: vec4(x, y * UP.y, 0., 1.), uv: vec2(x, y) };
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment
+export function fs(v: VsOut): Color {
   const t = v.uv.x * HALF + HALF;
   let band: vec4 = SKY;
   if (t > STOPS[0]) {
@@ -59,4 +61,4 @@ export const fs = fragment(function fs(v: VsOut): Color {
   }
   const tinted: vec3 = band.rgb * HALF + GREY * HALF;
   return { color: vec4(tinted, 1.) };
-});
+}

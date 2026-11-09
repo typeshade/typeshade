@@ -32,15 +32,17 @@ interface VsOut {
 }
 
 // Oversized fullscreen triangle — 3 verts, no vertex buffer.
-export const vs = vertex(function vs(idx: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(idx: builtin<"vertex_index", u32>): VsOut {
   const x = f32(idx & 1) * 4. - 1.;
   const y = f32(idx >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-});
+}
 
 // A checkerboard: TILES sets the frequency, PHASE shifts which square is lit, GAMMA shapes
 // the vertical ramp, INVERT flips the two shades.
-export const fs = fragment(function fs(vo: VsOut): vec4 {
+@fragment
+export function fs(vo: VsOut): vec4 {
   const cx = u32(vo.uv.x * f32(TILES));
   const cy = u32(vo.uv.y * f32(TILES));
   const parity = (cx + cy + u32(PHASE + 8)) & 1;
@@ -48,4 +50,4 @@ export const fs = fragment(function fs(vo: VsOut): vec4 {
   const dark = ramp * 0.25;
   const v = parity === 0 ? (INVERT ? dark : ramp) : (INVERT ? ramp : dark);
   return vec4(v, v, v, 1.);
-});
+}
