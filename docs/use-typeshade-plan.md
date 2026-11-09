@@ -216,8 +216,9 @@ named as WGSL's attribute that is not applied (§51), and `@offset` / `@ignore` 
 
 **Status:** done (`lower/control.ts`, `loop-bound.ts`, `index-bound.ts`;
 `control-flow.test.ts`, `for-loop.test.ts`, `loop-bound.test.ts`, `switch-array.test.ts`,
-`index-bound.test.ts`). Unbounded and non-inductive loops are rejected
-(`TS8006`–`TS8008`), `break` outside a loop or a `switch` is `TS8009`.
+`index-bound.test.ts`). Unbounded and non-inductive loops were rejected
+(`TS8006`–`TS8008`); since change 0136 a `for` that is not counted is an open loop, and only a
+loop proved never to end is refused. `break` outside a loop or a `switch` is `TS8009`.
 
 ### Phase 10 — Diagnostics + Source Mapping 🟨 partial
 

@@ -1665,6 +1665,8 @@ ${renderJSDoc(ATTRIBUTE_DOCS.compute)}
 declare function compute(workgroupSize: readonly number[]): (target: Function, context?: unknown) => void
 ${renderJSDoc(ATTRIBUTE_DOCS.compute)}
 declare function compute(target: Function, context?: unknown): void
+${renderJSDoc(ATTRIBUTE_DOCS.workgroup_size)}
+declare function workgroup_size(size: readonly [x: number]): (target: Function, context?: unknown) => void
 
 // The whole \`Array\` a \`"use typeshade"\` program has: \`lib: []\` means \`lib.es5.d.ts\` is never
 // in the program, so this is the standard-library declaration the file restates (design rule

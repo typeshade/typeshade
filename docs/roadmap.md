@@ -56,7 +56,9 @@ one only a compiler with a reference implementation can play.
 ## Three rules
 
 **Ordinary TypeScript first.** What a TypeScript developer already writes is the surface, and
-finding the GPU meaning is the compiler's job. `perInvocation<T>` is where this was learned: the
+finding the GPU meaning is the compiler's job. It means TypeScript's way of writing, what a
+TypeScript developer already writes; it does not mean that TypeScript's toolchain accepts the
+file, since TypeShade is a language of its own (`docs/language-design.md` §1.8). `perInvocation<T>` is where this was learned: the
 address space of a module variable was spelled by the author because that is how WGSL spells it,
 and then a plain top-level `let` turned out to carry the same information, so the compiler reads
 it from the syntax and the wrapper was removed: keeping it as an alternative spelling left one

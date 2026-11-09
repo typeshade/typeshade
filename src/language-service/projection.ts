@@ -51,6 +51,8 @@ import type { ShaderType } from '../core/ir/types.js';
 import { compileTsSource } from '../compiler/ts/source-file.js';
 import type { ImportHooks } from '../compiler/ts/link.js';
 import { inferredReturnAt } from '../compiler/ts/symbols.js';
+import { authorTypeText } from '../compiler/ts/context.js';
+import { stageDeclarationOfFunction } from '../compiler/ts/stage-call.js';
 import { clampPosition } from './positions.js';
 import type { TypeshadePosition } from './types.js';
 import { optionalInner } from '../compiler/ts/optional.js';
@@ -250,8 +252,15 @@ export function planInsertions(text: string, fileName: string, imports?: ImportH
   }
   const sf = analysis.sourceFile;
   for (const fn of functionCandidates(sf)) {
-    const type = inferredReturnAt(sf, fn.getStart(sf));
-    const spelled = type === undefined ? undefined : memberSpelling(type);
+    // A stage call's function is lowered as the declaration it stands for (change 0111).
+    const lowered = stageDeclarationOfFunction(fn) ?? fn;
+    const type = inferredReturnAt(sf, lowered.getStart(sf));
+    // An entry's struct result is named as the author wrote the struct (change 0136).
+    const spelled =
+      type === undefined
+        ? undefined
+        : (memberSpelling(type) ??
+          (type.kind === 'struct' && isEntryFunction(fn) ? authorTypeText(type) : undefined));
     if (spelled === undefined) continue;
     const close = fn.getChildren(sf).find((c) => c.kind === ts.SyntaxKind.CloseParenToken);
     if (close !== undefined) {
@@ -339,8 +348,29 @@ function returnedValues(fn: FunctionCandidate): ts.Expression[] {
   return out;
 }
 
+/** Whether `fn` is an entry's function: the function a stage call wraps (`vertex(function vs()
+ *  { … })`), or a function with a stage decorator. */
+function isEntryFunction(fn: FunctionCandidate): boolean {
+  const parent = fn.parent;
+  if (
+    (ts.isFunctionExpression(fn) || ts.isArrowFunction(fn)) &&
+    ts.isCallExpression(parent) &&
+    ts.isIdentifier(parent.expression) &&
+    ['vertex', 'fragment'].includes(parent.expression.text)
+  )
+    return true;
+  return (
+    ts.isFunctionDeclaration(fn) &&
+    (fn.modifiers ?? []).some(
+      (m) => ts.isDecorator(m) && /^@(vertex|fragment)\b/.test(m.getText(fn.getSourceFile())),
+    )
+  );
+}
+
 /** Every function TypeScript may type wrongly: one that writes no return type and returns a
- *  value that applies such an operator (Rule 8.19). */
+ *  value that applies such an operator (Rule 8.19), and an entry that writes none and returns a
+ *  value, whose result the front end names (change 0136): an object literal it returns builds a
+ *  struct, which TypeScript would read as an object type of its own. */
 function functionCandidates(sourceFile: ts.SourceFile): FunctionCandidate[] {
   const out: FunctionCandidate[] = [];
   const visit = (node: ts.Node): void => {
@@ -351,7 +381,8 @@ function functionCandidates(sourceFile: ts.SourceFile): FunctionCandidate[] {
         ts.isArrowFunction(node) ||
         ts.isFunctionExpression(node)) &&
       node.type === undefined &&
-      returnedValues(node).some(hasOperator)
+      (returnedValues(node).some(hasOperator) ||
+        (isEntryFunction(node) && returnedValues(node).length > 0))
     ) {
       out.push(node);
     }

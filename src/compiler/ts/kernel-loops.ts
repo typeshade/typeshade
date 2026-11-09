@@ -172,7 +172,7 @@ class Wording {
     switch (r.rule) {
       case 'R1':
         return r.why === 'while'
-          ? `${why} it is a while loop, whose trip count is known only when it ends. A for loop over a count runs on the GPU.`
+          ? `${why} it is an open loop, a while or a for that is not counted, whose trip count is known only when it ends. A counted for loop runs on the GPU.`
           : `${why} "${this.text(r.at) ?? 'its step'}" does not step through a range of indices. Step by adding a constant.`;
       case 'R2':
         return r.why === 'return'
@@ -212,8 +212,8 @@ class Wording {
         if (r.why === 'console')
           return `${why} ${this.line(r.at)} calls ${r.name}, whose lines would print in another order on the GPU. Log after the loop.`;
         if (r.why === 'barrier')
-          return `${why} ${this.line(r.at)} calls ${r.name}(), and an iteration of a loop is not a workgroup. Write a compute([…], f) entry to use a barrier.`;
-        return `${why} ${this.line(r.at)} reads "${this.value(r.name)}", which is workgroup memory, and an iteration of a loop is not a workgroup. Write a compute([…], f) entry to use it.`;
+          return `${why} ${this.line(r.at)} calls ${r.name}(), and an iteration of a loop is not a workgroup. Write an @compute([…]) entry to use a barrier.`;
+        return `${why} ${this.line(r.at)} reads "${this.value(r.name)}", which is workgroup memory, and an iteration of a loop is not a workgroup. Write an @compute([…]) entry to use it.`;
     }
   }
 

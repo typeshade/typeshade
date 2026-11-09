@@ -56,10 +56,10 @@ const NO_LIB_URI = 'typeshade:no-lib.d.ts';
 /**
  * The compiler options every `TypeshadeHost` program uses (design doc §6). `lib: []` with
  * `SHADE_DTS` supplying the vocabulary keeps the program from ever seeing a DOM or Node global;
- * `experimentalDecorators` reads the decorated form of the migration release. `strict` keeps
- * `strictPropertyInitialization`, as a plain `tsc --strict` does (change 0111, Amendment 2): a
- * file that still writes the decorated form has its TS2564 dropped by the diagnostic filter
- * (`diagnostics.ts`), and a file in the new form writes `!` on a struct field.
+ * `experimentalDecorators` parses a stage attribute on a function declaration (change 0130) and
+ * the decorated form of the migration release. `strictPropertyInitialization` is off: an entry
+ * I/O field is filled by the stage that produces it and a struct field is zero until written, not
+ * set by an initializer, so a field needs no `!` (Rule 6.6, change 0130 D3).
  */
 export function typeshadeCompilerOptions(): ts.CompilerOptions {
   return {
@@ -69,6 +69,7 @@ export function typeshadeCompilerOptions(): ts.CompilerOptions {
     lib: [],
     types: [],
     strict: true,
+    strictPropertyInitialization: false,
     experimentalDecorators: true,
     noEmit: true,
     skipLibCheck: false,

@@ -121,10 +121,15 @@ describe('a stage call compiles as the decorated entry does (change 0111, D1)', 
       const a = compiled(decorated);
       const b = compiled(called);
       expect(b.diagnostics).toEqual([]);
-      // The decorated form warns once on each of its decorators (TS8028, change 0111,
-      // milestone 4), and says nothing else.
+      // The decorated form warns once on each decorator of a parameter or a field (TS8028,
+      // change 0111, milestone 4), and says nothing else; a stage attribute is the entry's form
+      // (change 0130), with no warning.
       expect(a.diagnostics.filter((d) => !isDecoratedFormWarning(d))).toEqual([]);
-      expect(a.diagnostics).toHaveLength(decorated.match(/@\w+/g)!.length);
+      expect(a.diagnostics).toHaveLength(
+        decorated
+          .match(/@\w+/g)!
+          .filter((d) => !/^@(vertex|fragment|compute|workgroup_size)$/.test(d)).length,
+      );
       expect(b.wgsl).toBe(a.wgsl);
       expect(JSON.stringify(b.glsl)).toBe(JSON.stringify(a.glsl));
     });

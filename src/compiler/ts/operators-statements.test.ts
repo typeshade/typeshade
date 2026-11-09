@@ -496,11 +496,13 @@ export const cs = compute([64, 1, 1], function cs() { _ = g(1.); });`);
     ]) {
       expect(compiled(src).wgsl, src).toContain('var a_1: i32 = a;');
     }
-    // The loop's update must still advance its own declared counter.
+    // A loop's update that writes the parameter writes the same copy; the loop is an open one
+    // (change 0136), where it was refused as an update of another variable.
     expect(
-      diagnose('export function f(a: i32): i32 { for (let i = 0; i < 3; a += 1) {} return a }')
-        .code,
-    ).toBe(TS_CODES.LOOP_INDUCTION);
+      compiled(
+        'export function f(a: i32): i32 { for (let i = 0; i < 3; a += 1) { if (a > 5) { break; } } return a }',
+      ).wgsl,
+    ).toContain('a_1 += 1');
     // A local counter is untouched.
     expect(compiled('export function f(): i32 { let i: i32 = 0; i++; return i }').wgsl).toContain(
       'i = (i + 1);',

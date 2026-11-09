@@ -189,13 +189,6 @@ function readCond(cond: Expr, name: string, scope: LoweringScope): ExitCompare |
   return undefined;
 }
 
-/** Whether `cond` is the exit a counted loop reads: the induction variable, by its IR name,
- *  compared to a bound (Rule 7.5). `lowerFor` asks it of each clause of an `&&` exit, to name
- *  the clause that is not one. */
-export function comparesToBound(cond: Expr, name: string, scope: LoweringScope): boolean {
-  return readCond(cond, name, scope) !== undefined;
-}
-
 /** Whether `e` reads the IR name `name` anywhere. `i < i * 2` compares the induction variable
  *  to itself, which is not a bound. */
 function mentions(e: Expr, name: string): boolean {
@@ -284,7 +277,10 @@ export interface CountedLoop {
   readonly trips?: number;
 }
 
-type Refusal = { ok: false; message: string; code: TsCode };
+/** Why a header is not counted. `endless` marks the one kind kept as a refusal (Rule 7.5,
+ *  change 0136): a constant header whose step never moves the counter, never reaches the bound
+ *  or leaves the counter's type first. Every other reason makes the `for` an open loop. */
+type Refusal = { ok: false; message: string; code: TsCode; endless: boolean };
 
 export function analyzeCountedFor(
   init: Stmt,
@@ -297,6 +293,7 @@ export function analyzeCountedFor(
       ok: false,
       message: 'for-init must be `let i: i32 = <start>` or `let i: u32 = <start>`.',
       code: TS_CODES.LOOP_INDUCTION,
+      endless: false,
     };
   }
   const k = typeKey(init.type);
@@ -305,6 +302,7 @@ export function analyzeCountedFor(
       ok: false,
       message: `for induction must be i32 or u32, got ${authorTypeText(init.type)}.`,
       code: TS_CODES.LOOP_INDUCTION,
+      endless: false,
     };
   }
   // Messages name the counter as the author spelled it; the IR name a second `i` carries is
@@ -319,13 +317,19 @@ export function analyzeCountedFor(
       ok: false,
       message:
         `for exit must compare "${shown}" to a bound (e.g. ${shown} < 16, or ${shown} < n). ` +
-        `A loop that ends some other way is a while loop.`,
+        `A loop that ends some other way is an open loop.`,
       code: TS_CODES.LOOP_BOUND,
+      endless: false,
     };
   }
   const step = readStep(update, init.name, scope);
   if (step === undefined) {
-    return { ok: false, message: forUpdateRefusal(shown), code: TS_CODES.LOOP_INDUCTION };
+    return {
+      ok: false,
+      message: forUpdateRefusal(shown),
+      code: TS_CODES.LOOP_INDUCTION,
+      endless: false,
+    };
   }
   const stall = stalls(step);
   if (stall) {
@@ -333,6 +337,7 @@ export function analyzeCountedFor(
       ok: false,
       message: `for step "${stepText(shown, step)}" never advances "${shown}": ${stall}`,
       code: TS_CODES.LOOP_INFINITE,
+      endless: start !== undefined && exit.value !== undefined,
     };
   }
   if (start === undefined || exit.value === undefined) {
@@ -353,8 +358,14 @@ export function analyzeCountedFor(
           ok: false,
           message: `${header} walks "${shown}" outside the range of ${k} before the condition fails.`,
           code: TS_CODES.LOOP_BOUND,
+          endless: true,
         }
-      : { ok: false, message: `${header} does not exit.`, code: TS_CODES.LOOP_INFINITE };
+      : {
+          ok: false,
+          message: `${header} does not exit.`,
+          code: TS_CODES.LOOP_INFINITE,
+          endless: true,
+        };
   }
   // No ceiling on the count (Rule 7.5, #203): a trip count is a fact about the program, and
   // neither target limits it. The exact count is what the unroller and a reader get.
@@ -437,6 +448,7 @@ function runtimeHeader(
         `for exit "${shown} ${cop} <bound>" with a runtime bound exits only if "${text}" lands ` +
         `on it exactly. Compare with <, <=, > or >=.`,
       code: TS_CODES.LOOP_BOUND,
+      endless: false,
     };
   }
   const goingUp = cop === '<' || cop === '<=';
@@ -446,6 +458,7 @@ function runtimeHeader(
         ok: false,
         message: `for step "${text}" moves "${shown}" away from a bound it compares with ${cop}, so the loop does not exit once it starts.`,
         code: TS_CODES.LOOP_INFINITE,
+        endless: false,
       };
     }
     return undefined;
@@ -455,6 +468,7 @@ function runtimeHeader(
       ok: false,
       message: `for step "${text}" with a runtime start or bound needs a whole factor of 2 or more, so its direction is known.`,
       code: TS_CODES.LOOP_BOUND,
+      endless: false,
     };
   }
   if (goingUp !== (step.op === 'mul')) {
@@ -462,6 +476,7 @@ function runtimeHeader(
       ok: false,
       message: `for step "${text}" moves "${shown}" away from a bound it compares with ${cop}, so the loop does not exit once it starts.`,
       code: TS_CODES.LOOP_INFINITE,
+      endless: false,
     };
   }
   if (step.op === 'mul' && start !== undefined && start <= 0) {
@@ -472,6 +487,7 @@ function runtimeHeader(
           ? `for step "${text}" never advances "${shown}": multiplying pins it at 0.`
           : `for step "${text}" from ${start} moves "${shown}" away from a bound it compares with ${cop}.`,
       code: TS_CODES.LOOP_INFINITE,
+      endless: false,
     };
   }
   return undefined;
@@ -656,19 +672,20 @@ function exactOperand(e: Expr, scope: LoweringScope): number | undefined {
  * iterative solver are written this way, and both targets accept it. What is refused is the
  * one open loop that certainly never ends: a condition that is constantly true, with no
  * `break` or `return` in the body to leave it by. `hasExit` answers the second half, since
- * that is a question about the source body and not the condition. `written` is the condition
- * as the author wrote it, `true` or a constant that holds it (`ON`), which the sentence names.
+ * that is a question about the source body and not the condition. `loop` is the loop's head
+ * as the author wrote it, `while (true)`, `while (ON)` or `for (;;)`, which the sentence names.
+ * A `for` that is not counted is an open loop too, and the same rule refuses it (change 0136).
  */
 export function openLoopError(
   cond: Expr,
   scope: LoweringScope,
   hasExit: boolean,
-  written: string,
+  loop: string,
 ): { message: string; code: TsCode } | undefined {
   if (foldConstCond(cond, scope) !== true || hasExit) return undefined;
   return {
     message:
-      `while (${written}) has no break or return in its body, so it never ends. Leave it ` +
+      `${loop} has no break or return in its body, so it never ends. Leave it ` +
       'with a break, or write the exit into the condition.',
     code: TS_CODES.LOOP_INFINITE,
   };

@@ -302,7 +302,7 @@ export function run(): f32 { let b = new B(); b.bump(); return b.x }${TAIL}`);
       `${M} "C.f" has two bodies; a method has one body, with overload signatures above it for each shape it takes.`,
     );
     expect(only(C('  @fragment\n  f(): vec4 { return vec4(1.) }'))).toBe(
-      `${M} A decorator has no place on "C.f"; an entry is a top-level const that a stage call initializes, "export const vs = vertex(function vs(…) { … })".`,
+      `${M} A decorator has no place on "C.f"; an entry is a function declaration with a stage attribute, "@vertex export function vs(…) { … }".`,
     );
   });
 

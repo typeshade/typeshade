@@ -61,7 +61,7 @@ const REQUIRED_EXAMPLES = [
  *  each `TS8070` as the compiler does (Rule 12.7). */
 const EXPECTED_WARNINGS: Readonly<Record<string, readonly string[]>> = {
   'loop-on-cpu.shade.ts': [
-    'typeshade TS8070: This loop runs on the CPU because it is a while loop',
+    'typeshade TS8070: This loop runs on the CPU because it is an open loop',
     'typeshade TS8070: This loop runs on the CPU because line 32 returns from inside it',
     'typeshade TS8070: This loop runs on the CPU because line 43 writes "nearest"',
     'typeshade TS8070: This loop runs on the CPU because line 52 reads "out[i - 1]"',

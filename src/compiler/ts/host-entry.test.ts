@@ -165,7 +165,7 @@ describe('the host view of an entry', () => {
     expect(f.view).toContain(
       'export declare function scale(bindings: { readonly k: f32; readonly xs: array<f32>; readonly ys: array<f32>; readonly pts: array<vec2> }, workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): Promise<void>;',
     );
-    expect(f.view).toContain('A `compute([8, 1, 1], f)` entry:');
+    expect(f.view).toContain('An `@compute([8, 1, 1])` entry:');
   });
 
   it('takes a Resident for a storage array with no size, and only queues when every written binding is one (Rule 11.8)', () => {

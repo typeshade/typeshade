@@ -1,33 +1,46 @@
-// === `tshc migrate`: the decorated form of a "use typeshade" file to plain TypeScript ===
+// === `tshc migrate`: a "use typeshade" file to the language's own forms ===
 //
-// Change 0111, milestone 2 (amendment 2). The rewrite is textual and keeps every byte it does
-// not need to change, so a file reads as its author wrote it:
+// Change 0130 (with change 0140): an entry's stage is an attribute on its function declaration,
+// and the stage calls of change 0111 are rewritten to it. The rewrite is textual and keeps every
+// byte it does not need to change, so a file reads as its author wrote it:
 //
-//   @vertex export function vs(@builtin("vertex_index") i: u32): VsOut { … }
-//     → export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut { … });
-//   @compute([64]) export function main(…) { … }   → export const main = compute([64], function main(…) { … });
-//   @workgroup_size([128]) export function k(…) { … } → export const k = workgroup_size([128], function k(…) { … });
-//   @fragment @diagnostic("off", "derivative_uniformity") export function fs(…) { … }
-//     → export const fs = fragment(function fs(…) { … });
-//   export const fs = fragment(function fs(…) { … }, { diagnostic: ["off", "derivative_uniformity"] });
-//     → export const fs = fragment(function fs(…) { … });
+//   export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut { … });
+//     → @vertex
+//       export function vs(i: builtin<"vertex_index", u32>): VsOut { … }
+//   export const main = compute([64], function main(…) { … });   → @compute([64]) on main
+//   export const k = workgroup_size([128], function k(…) { … }); → @workgroup_size([128]) on k
+//   export const fs = fragment((v: VsOut): vec4 => v.c);
+//     → @fragment
+//       export function fs(v: VsOut): vec4 { return v.c; }
+//   @compute([8]) export default function k(…) { … }   → @compute([8]) export function k(…) { … }
+//   class VsOut { pos!: builtin<"position", vec4>; }    → class VsOut { pos: builtin<"position", vec4>; }
+//   let q!: f32; put(q);                                → let q: f32; put(q);
+//
+// The `!` on a field or a local is not written (change 0130, D3): an entry I/O field is filled by
+// the stage that produces it, a struct field is zero until written, and a local an `out<T>`
+// argument fills first is read as assigned (Rule 7.6).
+//
+// The decorated form of change 0111 on a parameter or a field is still rewritten to the
+// attribute type that replaces it (change 0130, Migration order step 3):
+//
 //   @location(1) @interpolate("flat") id: u32        → id: location<1, u32, { interpolate: "flat" }>
 //   @builtin("position") @invariant pos: vec4        → pos: builtin<"position", vec4, { invariant: true }>
-//   v: inout<f32>, w: out<f32>                       → @inout v: f32, @out w: f32
-//   class VsOut { @builtin("position") pos: vec4; }  → interface VsOut { pos: builtin<"position", vec4>; }
-//   let q: f32; put(q);   (put's parameter is @out)  → let q!: f32; put(q);
 //
 // A parameter qualifier is written before the parameter, `@inout v: f32` (Rule 8.25, change
 // 0137): the rewrite leaves a written `@inout` or `@out` as it is, and rewrites the type form of
-// change 0111 back to it on a parameter of a module function.
+// change 0111 back to it on a parameter of a module function:
+//
+//   v: inout<f32>, w: out<f32>                       → @inout v: f32, @out w: f32
+//
 // The diagnostic filter is deleted, wherever it is written (change 0132, item 7): the compiler
 // rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5), and refuses a
 // written filter (`TS8028`).
 //
 // A form the rewrite cannot carry is left as written and named in `skipped`, with its line,
 // so the author finishes it by hand: an entry with no body, an attribute on a parameter with
-// no type, a decorated class that is more than its fields, a type form of a qualifier that is no
-// parameter's type of a module function.
+// no type, a stage call whose function has a name of its own or options beyond the filter, an
+// `export default` entry with no name, a type form of a qualifier that is no parameter's type of
+// a module function.
 
 import ts from 'typescript';
 import {
@@ -37,6 +50,7 @@ import {
   decoratorParts,
   isQualifierTypeForm,
 } from '../compiler/ts/decorated-form.js';
+import { stageCallOf, type StageCall } from '../compiler/ts/stage-call.js';
 
 export interface MigrateResult {
   /** The rewritten text; the input itself when nothing changed. */
@@ -55,7 +69,7 @@ interface Edit {
 
 // The vocabulary and the attribute type are the compiler's, which names the same text in its
 // warning on the decorated form (`TS8028`, change 0111, milestone 4).
-const STAGES = new Set(['vertex', 'fragment', 'compute']);
+const STAGES = new Set(['vertex', 'fragment', 'compute', 'workgroup_size']);
 const ATTRIBUTES = ATTRIBUTE_DECORATORS;
 const QUALIFIERS = QUALIFIER_DECORATORS;
 const partsOf = decoratorParts;
@@ -87,6 +101,80 @@ function decoratorRange(decorators: readonly ts.Decorator[], sf: ts.SourceFile):
   return { pos: start, end };
 }
 
+/** Whether `options`, the argument after a stage call's function, holds the diagnostic filter
+ *  of change 0132 and nothing else, which the rewrite deletes. */
+function filterOnly(options: ts.Expression, sf: ts.SourceFile): boolean {
+  return (
+    ts.isObjectLiteralExpression(options) &&
+    options.properties.length > 0 &&
+    options.properties.every((p) => p.name?.getText(sf) === 'diagnostic')
+  );
+}
+
+/**
+ * The edits that turn a stage call into the function declaration it stands for: the text before
+ * the wrapped function's parameters becomes the attribute on a line of its own and
+ * `export function name`, an arrow function's `=>` goes and its expression body becomes
+ * `{ return expr; }`, and the text after the function (`);`, and a filter of change 0132) goes.
+ * The parameters, the return type and the body keep their text, so the other edits of the
+ * rewrite inside them still apply. A reason instead for a call the rewrite leaves as written.
+ */
+function stageCallEdits(sc: StageCall, sf: ts.SourceFile): { edits: Edit[] } | { why: string } {
+  const name = sc.declaration.name.text;
+  const fn = sc.fn;
+  if (ts.isFunctionExpression(fn) && fn.name !== undefined && fn.name.text !== name)
+    return {
+      why: `the function "${fn.name.text}" that "${name}" wraps has a name of its own; an entry takes one name`,
+    };
+  if (ts.isFunctionExpression(fn) && fn.asteriskToken !== undefined)
+    return { why: `the function "${name}" wraps is a generator` };
+  if (fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) === true)
+    return { why: `the function "${name}" wraps is async` };
+  if (sc.options !== undefined && !filterOnly(sc.options, sf))
+    return { why: `the options of "${sc.callee}" hold more than the diagnostic filter` };
+  const known = (sc.size === undefined ? 1 : 2) + (sc.options === undefined ? 0 : 1);
+  if (sc.call.arguments.length > known)
+    return { why: `"${sc.callee}" takes more arguments than the rewrite knows` };
+  const text = sf.text;
+  const stmtStart = sc.statement.getStart(sf);
+  // The indentation of the statement's line, so the attribute and the declaration line up.
+  let lineStart = stmtStart;
+  while (lineStart > 0 && /[ \t]/.test(text[lineStart - 1]!)) lineStart--;
+  const indent = text.slice(lineStart, stmtStart);
+  const size = sc.size === undefined ? '' : `(${sc.size.getText(sf)})`;
+  const head = `@${sc.callee}${size}\n${indent}${sc.exported ? 'export ' : ''}function ${name}`;
+  const edits: Edit[] = [];
+  if (ts.isFunctionExpression(fn)) {
+    // `function vs(` or `function (`: up to the name, or the keyword, and its whitespace.
+    const keyword = fn.getChildren(sf).find((c) => c.kind === ts.SyntaxKind.FunctionKeyword)!;
+    let at = fn.name?.getEnd() ?? keyword.getEnd();
+    while (at < text.length && /\s/.test(text[at]!)) at++;
+    edits.push({ start: stmtStart, end: at, text: head });
+  } else {
+    const at = fn.getStart(sf);
+    edits.push({ start: stmtStart, end: at, text: head });
+    const children = fn.getChildren(sf);
+    if (!children.some((c) => c.kind === ts.SyntaxKind.OpenParenToken)) {
+      // `x => …`: one parameter with no parentheses.
+      const p = fn.parameters[0]!;
+      edits.push({ start: p.getStart(sf), end: p.getStart(sf), text: '(' });
+      edits.push({ start: p.getEnd(), end: p.getEnd(), text: ')' });
+    }
+    // From the end of the return type, or of the parameters, to the body: ` => ` becomes ` `.
+    const arrow = fn.equalsGreaterThanToken;
+    let from = arrow.getStart(sf);
+    while (from > 0 && /\s/.test(text[from - 1]!)) from--;
+    edits.push({ start: from, end: fn.body.getStart(sf), text: ' ' });
+    if (!ts.isBlock(fn.body)) {
+      edits.push({ start: fn.body.getStart(sf), end: fn.body.getStart(sf), text: '{ return ' });
+      edits.push({ start: fn.body.getEnd(), end: fn.body.getEnd(), text: '; }' });
+    }
+  }
+  // `);`, and a filter after the function, go.
+  edits.push({ start: fn.getEnd(), end: sc.statement.getEnd(), text: '' });
+  return { edits };
+}
+
 /** Rewrites one file. Pure: the text in, the text out. */
 export function migrateSource(text: string, fileName = 'a.shade.ts'): MigrateResult {
   const sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
@@ -95,23 +183,6 @@ export function migrateSource(text: string, fileName = 'a.shade.ts'): MigrateRes
   let changes = 0;
   const line = (n: ts.Node): number => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
   const skip = (n: ts.Node, why: string): void => void skipped.push(`line ${line(n)}: ${why}`);
-
-  // The functions with an `@out` parameter, by name, and the index of each: a local such a
-  // call fills first takes `!` (decision D8).
-  const outParams = new Map<string, Set<number>>();
-  const visitOut = (n: ts.Node): void => {
-    if (ts.isFunctionDeclaration(n) && n.name) {
-      n.parameters.forEach((p, i) => {
-        if (decoratorsOf(p).some((d) => partsOf(d, sf).name === 'out')) {
-          const at = outParams.get(n.name!.text) ?? new Set<number>();
-          at.add(i);
-          outParams.set(n.name!.text, at);
-        }
-      });
-    }
-    ts.forEachChild(n, visitOut);
-  };
-  visitOut(sf);
 
   // Attributes on a parameter or a field: the decorators go, the type carries them. A qualifier
   // stays before the parameter (change 0137).
@@ -210,198 +281,93 @@ export function migrateSource(text: string, fileName = 'a.shade.ts'): MigrateRes
   };
   visitQualifierTypes(sf);
 
-  // `let q: T;` filled first by an `@out` argument takes `!`.
-  const visitCalls = (n: ts.Node): void => {
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
-      const at = outParams.get(n.expression.text);
-      for (const i of at ?? []) {
-        const arg = n.arguments[i];
-        if (arg === undefined || !ts.isIdentifier(arg)) continue;
-        const decl = localDeclaration(arg);
-        if (
-          decl !== undefined &&
-          decl.initializer === undefined &&
-          decl.exclamationToken === undefined &&
-          decl.type !== undefined &&
-          ts.isIdentifier(decl.name) &&
-          !edits.some((e) => e.start === decl.name.getEnd() && e.text === '!')
-        ) {
-          edits.push({ start: decl.name.getEnd(), end: decl.name.getEnd(), text: '!' });
-          changes++;
-        }
+  // Fields: a decorated field's attributes go into its type, and the `!` on a field is not
+  // written (change 0130, D3). A class stays a class.
+  const visitFields = (n: ts.Node): void => {
+    if (ts.isPropertyDeclaration(n) && ts.isClassLike(n.parent)) {
+      let changed = rewriteMember(n, `field "${n.name.getText(sf)}"`);
+      if (n.exclamationToken !== undefined) {
+        const bang = n.exclamationToken;
+        edits.push({ start: bang.getStart(sf), end: bang.getEnd(), text: '' });
+        changed = true;
       }
+      if (changed) changes++;
     }
-    ts.forEachChild(n, visitCalls);
+    ts.forEachChild(n, visitFields);
   };
-  visitCalls(sf);
+  visitFields(sf);
 
-  // Classes whose every member is a field: attributes in the field types, and the class an
-  // interface, since a plain `tsc --strict` refuses a class field with no initializer (TS2564).
-  // A class something builds with `new` stays a class: an interface has no constructor. So
-  // does a class nothing names (below).
-  const built = new Set<string>();
-  const visitNew = (n: ts.Node): void => {
-    if (ts.isNewExpression(n) && ts.isIdentifier(n.expression)) built.add(n.expression.text);
-    ts.forEachChild(n, visitNew);
-  };
-  visitNew(sf);
-  // A class the file names nowhere but in its own declaration stays a class: the compiler emits
-  // a class as a struct, and checks it, whether or not an entry uses it, and an interface only
-  // when something names it. So an unused class keeps its emit as an interface would not.
-  const named = new Map<string, number>();
-  const visitNames = (n: ts.Node): void => {
-    if (ts.isIdentifier(n)) named.set(n.text, (named.get(n.text) ?? 0) + 1);
-    ts.forEachChild(n, visitNames);
-  };
-  visitNames(sf);
-  // A field a class keeps takes `!`, which tells a plain `tsc --strict` that it is assigned
-  // (TS2564): a struct's field is zero until something writes it.
-  const definite = (m: ts.PropertyDeclaration): void => {
-    if (
-      m.initializer === undefined &&
-      m.questionToken === undefined &&
-      m.exclamationToken === undefined
-    )
-      edits.push({ start: m.name.getEnd(), end: m.name.getEnd(), text: '!' });
-  };
-  const visitClasses = (n: ts.Node): void => {
-    // A mixin's class expression, `return class extends Base { tint: vec3; }`, has no
-    // attribute; its fields take `!` as a declared class's do.
-    if (ts.isClassExpression(n)) {
-      for (const m of n.members) {
-        if (
-          ts.isPropertyDeclaration(m) &&
-          !(m.modifiers ?? []).some((x) => x.kind === ts.SyntaxKind.StaticKeyword) &&
-          m.initializer === undefined &&
-          m.questionToken === undefined &&
-          m.exclamationToken === undefined &&
-          m.type !== undefined
-        ) {
-          definite(m);
-          changes++;
-        }
-      }
+  // `let q!: T;` is `let q: T;`: a read before an assignment is the compiler's TS8075 either
+  // way, and an `out<T>` argument assigns the variable (Rule 7.6, change 0130 D3).
+  const visitLocals = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) && n.exclamationToken !== undefined) {
+      const bang = n.exclamationToken;
+      edits.push({ start: bang.getStart(sf), end: bang.getEnd(), text: '' });
+      changes++;
     }
-    if (ts.isClassDeclaration(n) && n.name) {
-      const decorated = n.members.some(
-        (m) => ts.isPropertyDeclaration(m) && decoratorsOf(m).length > 0,
-      );
-      // A struct class with no attribute: each field with no initializer takes `!` (TS2564).
-      if (!decorated) {
-        let any = false;
-        for (const m of n.members) {
-          if (
-            ts.isPropertyDeclaration(m) &&
-            !(m.modifiers ?? []).some((x) => x.kind === ts.SyntaxKind.StaticKeyword) &&
-            m.initializer === undefined &&
-            m.questionToken === undefined &&
-            m.exclamationToken === undefined &&
-            m.type !== undefined
-          ) {
-            definite(m);
-            any = true;
-          }
-        }
-        if (any) changes++;
-      }
-      if (decorated) {
-        const plain =
-          !built.has(n.name.text) &&
-          (named.get(n.name.text) ?? 0) > 1 &&
-          n.heritageClauses === undefined &&
-          n.typeParameters === undefined &&
-          decoratorsOf(n).length === 0 &&
-          n.members.every(
-            (m) =>
-              ts.isPropertyDeclaration(m) &&
-              m.initializer === undefined &&
-              m.questionToken === undefined &&
-              (m.modifiers ?? []).every(ts.isDecorator),
-          );
-        if (!plain) {
-          for (const m of n.members) {
-            if (!ts.isPropertyDeclaration(m)) continue;
-            rewriteMember(m, `field "${m.name.getText(sf)}"`);
-            if (!(m.modifiers ?? []).some((x) => x.kind === ts.SyntaxKind.StaticKeyword))
-              definite(m);
-          }
-          changes++;
-        } else {
-          const keyword = n.getChildren(sf).find((c) => c.kind === ts.SyntaxKind.ClassKeyword);
-          if (keyword)
-            edits.push({ start: keyword.getStart(sf), end: keyword.getEnd(), text: 'interface' });
-          for (const m of n.members)
-            if (ts.isPropertyDeclaration(m)) rewriteMember(m, `field "${m.name.getText(sf)}"`);
-          changes++;
-        }
-      }
-    }
-    ts.forEachChild(n, visitClasses);
+    ts.forEachChild(n, visitLocals);
   };
-  visitClasses(sf);
+  visitLocals(sf);
 
-  // Entries and kernel functions: the decorator becomes the stage call around the function.
-  // A `@diagnostic(…)` among the decorators is deleted with them (change 0132).
+  // Stage calls, at the top of the file and in a namespace: each becomes the function
+  // declaration with its stage attribute (change 0130, D1).
+  const visitStatements = (statements: readonly ts.Statement[]): void => {
+    for (const stmt of statements) {
+      if (ts.isModuleDeclaration(stmt)) {
+        let body = stmt.body;
+        while (body !== undefined && ts.isModuleDeclaration(body)) body = body.body;
+        if (body !== undefined && ts.isModuleBlock(body)) visitStatements(body.statements);
+        continue;
+      }
+      const sc = stageCallOf(stmt);
+      if (sc === undefined) continue;
+      const made = stageCallEdits(sc, sf);
+      if ('why' in made) {
+        skip(stmt, made.why);
+        continue;
+      }
+      edits.push(...made.edits);
+      changes++;
+    }
+  };
+  visitStatements(sf.statements);
+
+  // Entries written with the attribute: `export default` is not written, since an entry takes
+  // its declaration's name (Rule 8.1, change 0130). A `@diagnostic(…)` among the decorators is
+  // deleted (change 0132).
   const visitFunctions = (n: ts.Node): void => {
-    if (ts.isFunctionDeclaration(n) && n.name) {
+    if (ts.isFunctionDeclaration(n)) {
       const decorators = decoratorsOf(n);
       const parts = decorators.map((d) => partsOf(d, sf));
-      const stage = parts.find((p) => STAGES.has(p.name) || p.name === 'workgroup_size');
-      const filters = parts.filter((p) => p.name === 'diagnostic');
-      if (stage === undefined) {
-        if (filters.length > 0 && filters.length === parts.length) {
+      const stage = parts.find((p) => STAGES.has(p.name));
+      const filters = decorators.filter((d) => partsOf(d, sf).name === 'diagnostic');
+      if (filters.length > 0) {
+        if (filters.length === parts.length && stage === undefined) {
           const range = decoratorRange(decorators, sf);
           edits.push({ start: range.pos, end: range.end, text: '' });
           changes++;
-        } else if (filters.length > 0) {
-          skip(n, `"${n.name.text}" carries a decorator the rewrite does not know`);
-        }
-      } else if (n.body === undefined) {
-        skip(n, `entry "${n.name.text}" has no body`);
-      } else if (parts.length !== 1 + filters.length) {
-        skip(n, `entry "${n.name.text}" carries a decorator the rewrite does not know`);
-      } else {
-        const name = n.name.text;
-        const range = decoratorRange(decorators, sf);
-        edits.push({ start: range.pos, end: range.end, text: '' });
-        // `export function vs` → `export const vs = vertex(function vs`
-        const fnKeyword = n.getChildren(sf).find((c) => c.kind === ts.SyntaxKind.FunctionKeyword)!;
-        const size =
-          stage.name === 'compute' || stage.name === 'workgroup_size'
-            ? `${stage.args[0] ?? '[64]'}, `
-            : '';
-        edits.push({
-          start: fnKeyword.getStart(sf),
-          end: fnKeyword.getStart(sf),
-          text: `const ${name} = ${stage.name}(${size}`,
-        });
-        edits.push({ start: n.body.getEnd(), end: n.body.getEnd(), text: ');' });
-        changes++;
-      }
-    }
-    // A stage call's `{ diagnostic: [...] }` option: the argument is deleted when the filter is
-    // all it holds, and named for the author to finish otherwise.
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && STAGES.has(n.expression.text)) {
-      const at = n.expression.text === 'compute' ? 1 : 0;
-      const fn = n.arguments[at];
-      const options = n.arguments[at + 1];
-      if (
-        fn !== undefined &&
-        options !== undefined &&
-        n.arguments.length === at + 2 &&
-        ts.isObjectLiteralExpression(options) &&
-        options.properties.some((p) => p.name?.getText(sf) === 'diagnostic')
-      ) {
-        if (options.properties.every((p) => p.name?.getText(sf) === 'diagnostic')) {
-          // From the end of the function to the end of the options, with a trailing comma.
-          let end = options.getEnd();
-          const close = n.getEnd() - 1;
-          const rest = sf.text.slice(end, close);
-          if (/^\s*,\s*$/.test(rest)) end = close;
-          edits.push({ start: fn.getEnd(), end, text: '' });
+        } else if (parts.every((p) => STAGES.has(p.name) || p.name === 'diagnostic')) {
+          for (const d of filters) {
+            const range = decoratorRange([d], sf);
+            edits.push({ start: range.pos, end: range.end, text: '' });
+          }
           changes++;
         } else {
-          skip(n, `the options of "${n.expression.text}" hold more than the diagnostic filter`);
+          skip(
+            n,
+            `"${n.name?.text ?? 'the function'}" carries a decorator the rewrite does not know`,
+          );
+        }
+      }
+      const defaultKeyword = n.modifiers?.find((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
+      if (stage !== undefined && defaultKeyword !== undefined) {
+        if (n.name === undefined) {
+          skip(n, 'an "export default" entry has no name; write "export function k"');
+        } else {
+          let end = defaultKeyword.getEnd();
+          while (end < sf.text.length && /[ \t]/.test(sf.text[end]!)) end++;
+          edits.push({ start: defaultKeyword.getStart(sf), end, text: '' });
+          changes++;
         }
       }
     }
@@ -416,27 +382,4 @@ export function migrateSource(text: string, fileName = 'a.shade.ts'): MigrateRes
   let out = text;
   for (const e of ordered) out = out.slice(0, e.start) + e.text + out.slice(e.end);
   return { text: out, changes, skipped };
-}
-
-/** The `let` or `var` declaration in the enclosing function an identifier names, found by its
- *  name. Good enough for a migration: a shadowed name is left for the compiler to report. */
-function localDeclaration(id: ts.Identifier): ts.VariableDeclaration | undefined {
-  let scope: ts.Node | undefined = id.parent;
-  while (scope !== undefined && !ts.isFunctionLike(scope) && !ts.isSourceFile(scope))
-    scope = scope.parent;
-  if (scope === undefined) return undefined;
-  let found: ts.VariableDeclaration | undefined;
-  const visit = (n: ts.Node): void => {
-    if (found) return;
-    if (
-      ts.isVariableDeclaration(n) &&
-      ts.isIdentifier(n.name) &&
-      n.name.text === id.text &&
-      n.getStart() < id.getStart()
-    )
-      found = n;
-    ts.forEachChild(n, visit);
-  };
-  visit(scope);
-  return found;
 }
