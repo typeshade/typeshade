@@ -541,9 +541,12 @@ applies.
    recommended), then "승인" (approved). The compiler rewrites what it can reach; `TS8052`
    remains for the rest. This is a decision on the direction of the draft, not the acceptance of
    the proposal.
-2. **Open.** A rewritten sample is not proved exact. Is a rewrite that makes a refused (or
-   indeterminate) program defined held to the standard of "proved exact" (0130, 0131), or
-   accepted as defined? And what does the CPU oracle do? See the question below.
+2. **Decided 2026-11-09: accepted as defined, and the oracle reads the rewritten IR.** A
+   rewritten sample is not proved exact; the owner chose, in the conversation's question form,
+   "A. 허용" (allow) for the rewrite and "예외 허용" (accept the exceptions) for the oracle: the
+   oracle consumes the same rewritten IR (Rule 11.1 unchanged), and a run without `gpuStubs`
+   throws on invocations that skipped the branch before. "Proved exact" (0130, 0131) applies to
+   rewrites of a defined program; this rewrite makes a refused, indeterminate program defined.
 3. **Open.** The Namek fallback: if the rewrite cannot reach its six calls at first, hoist them
    in the example's source by hand (shown to the owner before merge), or keep the option until
    the rewrite reaches them.
