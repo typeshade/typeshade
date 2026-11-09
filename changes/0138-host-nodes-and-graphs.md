@@ -125,8 +125,9 @@ host what it means in TypeScript.** The host learns five concepts and four layer
   is made inside a graph, records and submits, and returns a resource at once. The host awaits
   only `x.read()`. A call with plain data only (numbers, arrays, typed arrays, objects; Rule
   8.21) keeps today's meaning: it is awaited, writes its in-place arguments (Rule 8.23) and
-  returns plain data. So the plain-data path of `docs/dx.md` principle 1 stays the primary path,
-  and today's host code keeps working while the new forms arrive. A helper that runs on the CPU
+  returns plain data. Resources are the primary path (owner's decision 15, which amends
+  `docs/dx.md` principle 1); the plain-data call stays so that today's host code keeps working
+  while the new forms arrive. A helper that runs on the CPU
   tier returns its value as today. A non-blocking call that fails records its call site when it
   is made, and the error thrown at the next `read()`, `show` or call names that line
   (`docs/dx.md` principle 3).
@@ -183,13 +184,14 @@ samples, size, over }`.
   `instance_index` reads. The author writes no group.
 - **R12. Control flow in a graph is ordinary TypeScript.** An `if`, `switch` or `for` on a host
   value runs when the graph is built: only the taken branch enters the graph, and each graph
-  shape is planned once and cached. An `if` whose condition is a GPU value (`Node<bool>`) is
-  rewritten by the Vite plugin and `tshc` into a condition node that the GPU decides, with no
-  read back. A count that changes from frame to frame stays on the GPU (indirect dispatch and
-  draw) and does not change the graph's shape. A `Node<bool>` reached without the rewrite (a
-  file run by `tsc`, Bun or Vitest outside the plugin) throws from its `valueOf` and
-  `Symbol.toPrimitive`, with a message that names the line, so it is never silently truthy.
-  Whether the rewrite may reach host code is open question Q11.
+  shape is planned once and cached. A graph whose control flow depends on a GPU value
+  (`Node<bool>`) is written in a `"use typeshade"` file, as an exported function that calls
+  other nodes; there the compiler turns its `if` into a condition node that the GPU decides,
+  with no read back (owner's decision 13, OD-1). Host code imports such a graph as a node and
+  calls it. A count that changes from frame to frame stays on the GPU (indirect dispatch and
+  draw) and does not change the graph's shape. In a host `fuse(fn)`, a `Node<bool>` used as a
+  condition throws from its `valueOf` and `Symbol.toPrimitive`, with a message that names the
+  line and says to move the graph into a `"use typeshade"` file, so it is never silently truthy.
 - **R13. State across calls is a module field.** A graph that assigns a resource to a field of
   the module that owns it (`this.history = aa`) gives the next call that resource. A texture read
   and written by the same graph is held as two textures used in turn.
@@ -203,20 +205,17 @@ samples, size, over }`.
   shader modules. A pass `setPipeline(p)` returns a pass typed by `p`, so `tsc` checks
   `setVertexBuffer`, `setBindings` and `draw` against it. Bind group layouts, pipeline layouts,
   vertex buffer layouts, padding and `getCurrentTexture()` do not appear.
-- **R16. What runs on the CPU is WebAssembly where it can be.** The code a host runs on the CPU
-  from an import (a helper of Rule 8.20, the CPU tier of a node, the CPU tier of a graph and of
-  a render composition) is compiled to a WebAssembly module at build time by the Vite plugin and
-  `tshc`, beside today's generated JavaScript. `f32` arithmetic is WebAssembly's own `f32`, and a
-  vector may use SIMD128 where the runtime has it. Where WebAssembly cannot run, the generated
-  JavaScript runs, and both give the CPU oracle's bits (Rule 11.7). To hold the bits: relaxed
-  SIMD is not used; a NaN result is made canonical where WGSL leaves its bits open; `sin`,
-  `exp`, `pow` and the other functions WebAssembly has no instruction for call the same
-  routines the generated JavaScript calls; and the differential gate runs every CPU-tier
-  program on both and compares them bit for bit. The runtime instantiates a module the build
-  wrote; it builds no code at run time (no `new Function`, Rule 11.7). A page whose Content
-  Security Policy refuses WebAssembly (`'wasm-unsafe-eval'` absent) runs the generated
-  JavaScript, detected at the first instantiation. The conflict of this rule with Rule 11.7's
-  "the tier is the oracle and not a fourth implementation" is open question Q12.
+- **R16. The CPU tier is the oracle compiled to WebAssembly.** The code a host runs on the CPU
+  from an import (a helper of Rule 8.20, the CPU tier of a node, of a graph and of a render
+  composition) is the oracle's meaning compiled to a WebAssembly module at build time by the
+  Vite plugin and `tshc`, in place of today's generated JavaScript (owner's decision 14). It
+  stays one implementation (Rule 11.7): the WebAssembly module is the oracle's executable form,
+  not a fourth tier. `f32` arithmetic is WebAssembly's own `f32`; a vector may use SIMD128. To
+  give the oracle's bits: relaxed SIMD is not used; a NaN result is made canonical where WGSL
+  leaves its bits open; `sin`, `exp`, `pow` and the other functions WebAssembly has no
+  instruction for are routines the same lowering writes. The runtime instantiates a module the
+  build wrote; it builds no code at run time. A page whose Content Security Policy refuses
+  WebAssembly (`'wasm-unsafe-eval'` absent) needs a path: open question Q12.
 - **R17. Memory comes from one serialized region.** Every resource of R7 to R9 (a uniform, a
   storage array, a staging copy) is allocated from one global region: the linear memory of the
   WebAssembly module of R16, or one `ArrayBuffer` where WebAssembly cannot run. Each resource
@@ -365,6 +364,15 @@ Decisions the owner took in the conversation of 2026-11-09, in the owner's words
     wasm으로 나오는게 나을 것 같은데 성능적으로" (R16).
 12. Memory from one global, serialized region: "각 메모리는 전역 메모리로 가능하면 직렬화된
     영역에서 할당받아서 사용하게하고" (R17).
+13. On Q11, asked whether a GPU-value `if` may be rewritten in host code: "그래프는 shade 파일에".
+    A graph that branches on a GPU value is written in a `"use typeshade"` file (R12). Rule 1.6
+    does not change.
+14. On Q12, asked how a WebAssembly CPU tier fits Rule 11.7: "WASM을 오라클 형태로". The
+    WebAssembly module is the oracle's executable form, in place of the generated JavaScript, so
+    the CPU tier stays one implementation (R16).
+15. On Q13, asked whether resources on the primary path conflict with `docs/dx.md` principle 1:
+    "원칙 1을 고침". Principle 1 is amended: resources (`zeros`, `array`, `uniform`, `texture`,
+    `Buffer<T>`) are on the primary path (R2).
 
 ## Why the compiler cannot do it
 
@@ -393,7 +401,9 @@ buffers, barriers, uploads) the compiler and the runtime decide (OD-3).
   write a parameter in place; R14 states when a functional update is in place.
 - **Rule 8.24.** An entry is a node; the bindings-object call and the canvas call are replaced
   by R1, R5 and R6.
-- **Rule 11.7.** The CPU tier runs graphs, render compositions and the views of R7 to R9.
+- **Rule 11.7.** The CPU tier runs graphs, render compositions and the views of R7 to R9, as the
+  oracle compiled to WebAssembly (R16, decision 14).
+- **`docs/dx.md` principle 1.** Amended: resources are on the primary path (decision 15).
 - **Rule 11.8.** The device of a call is decided by its data (R3); `configure` and `using`.
 - **Rule 11.11.** The program runtime becomes the executor of nodes and graphs; the manifest is
   an internal artifact, not the host's entry point.
@@ -477,24 +487,17 @@ Decisions that must be resolved before acceptance:
   with a stated limit; views re-made on growth behind each field's accessor; or a resizable
   `ArrayBuffer` where the runtime has one. Also: a region shared with a worker (a
   `SharedArrayBuffer` needs cross-origin isolation), a second realm, and wasm32's 4 GiB limit.
-- **Q10.** Whether a WebAssembly CPU tier (R16) replaces the generated JavaScript or stands
-  beside it, how the CPU oracle's bits are held on both (Rule 11.7, Rule 11.8), and what the
-  bundle and the build cost. `scripts/bundle-boundary.ts` admits only local JavaScript assets
+- **Q10.** What the WebAssembly CPU tier (R16) costs the bundle and the build, and how the
+  differential gate holds its bits to the oracle's tree walk (Rule 11.7, Rule 11.8). `scripts/bundle-boundary.ts` admits only local JavaScript assets
   today and must admit a `.wasm` asset.
-- **Q11 (for the owner, a conflict).** Whether the rewrite of R12 may reach host code. OD-1
-  speaks of a `"use typeshade"` file; Rule 1.6 says host code is "written in TypeScript as
-  today". The proposal must not resolve this by itself. Costs of the rewrite: the type checker
-  runs inside the Vite transform (the condition's type decides), and values assigned in both
-  branches need the transform to join them. Without the plugin, R12's `valueOf` throws.
-- **Q12 (for the owner, a conflict).** Rule 11.7 says the CPU tier "is the oracle and not a
-  fourth implementation"; R16 adds a WebAssembly implementation. Costs: the differential gate
-  doubles its CPU leg; WebAssembly under a strict Content Security Policy needs
-  `'wasm-unsafe-eval'` (R16 falls back to JavaScript).
-- **Q13 (for the owner, a conflict).** `docs/dx.md` principle 1 says "There is no buffer type
-  and no device type on the primary path". R2 keeps the plain-data path primary for compute;
-  resources (`zeros`, `array`, `uniform`, `texture`, `Buffer<T>`) and `device()` are used for
-  rendering, graphs and exported bindings, which the owner decided (decisions 8 and 9). Whether
-  that reading holds, or principle 1 is amended, is the owner's.
+- **Q11.** Decided by the owner on 2026-11-09 (decision 13): a GPU-value graph is written in a
+  `"use typeshade"` file.
+- **Q12.** Decided by the owner on 2026-11-09 (decision 14): WebAssembly is the oracle's
+  executable form. Left open: the path for a page whose Content Security Policy refuses
+  WebAssembly (a refusal with the reason, or a JavaScript form written by the same lowering),
+  and the conversion of today's generated JavaScript and its tests.
+- **Q13.** Decided by the owner on 2026-11-09 (decision 15): `docs/dx.md` principle 1 is
+  amended; its new text is written with milestone 1.
 - **Q14.** Back-pressure: a non-blocking submit in a `requestAnimationFrame` loop can queue
   frames faster than the GPU runs them. Whether `show` waits for the previous frame of its
   canvas, or the runtime drops frames, or the host decides.
@@ -511,22 +514,22 @@ Decisions that must be resolved before acceptance:
 - **Revision reviewed.** `501b32ba` (R16, R17, Q9 and Q10 included).
 - **Findings and answers.**
 
-| #   | Severity   | Finding                                                                                                                                                                                                              | Answer                                                                                                                                                                                                  |
-| --- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Blocking   | R16 conflicts with Rule 11.7 ("not a fourth implementation") and with a strict CSP; WebAssembly lacks `sin`/`exp`/`pow`, NaN bits are open, relaxed SIMD is not deterministic.                                       | Partly fixed in R16: no relaxed SIMD, canonical NaN, shared routines, the differential gate bit for bit, a JavaScript fallback under CSP. The conflict with Rule 11.7 is kept open for the owner (Q12). |
-| 2   | Blocking   | R17 can alias a freed range through a stale view; growth and compaction detach views; GPU-only intermediates would take a CPU copy.                                                                                  | Fixed in R17: views only through accessors that re-read the region; an accessor of a freed resource throws; device-only resources take no range. Workers, realms and the 4 GiB limit join Q9.           |
-| 3   | Blocking   | The `if` rewrite of R12 reaches host code, which OD-1 does not cover and Rule 1.6 keeps as TypeScript; without the plugin a `Node<bool>` is silently truthy.                                                         | Kept open for the owner (Q11), with its costs. Fixed: a `Node<bool>` throws from `valueOf` without the rewrite.                                                                                         |
-| 4   | Blocking   | Milestone 3 changes today's results (`await exposure(…)`), yet nothing is removed and no coexistence rule is stated.                                                                                                 | Fixed in R2: a call with plain data keeps today's meaning; a call on a resource or in a graph takes the new one. Removal stays for a later proposal after the deprecation of milestone 9.               |
-| 5   | Should-fix | The Before is not today's API (a no-op `createRuntime` argument, one module loaded twice, a kernel that returns an array, no `resident`, undefined names).                                                           | Fixed: the Before uses `runtime()`, two loaded modules, `resident`, an in-place `step` and defined names.                                                                                               |
-| 6   | Should-fix | R5 has no vertex count, instances, indices or topology; `dot(next)` cannot be drawn as written.                                                                                                                      | Fixed in R5: `vs(vertices, { count, instances, indices, topology })`; the After passes them.                                                                                                            |
-| 7   | Should-fix | The shader side changes in meaning (Rule 6.6, Rule 8.22, texture and scalar fragment parameters), against Exclusions; §65 and §69 are missing.                                                                       | Fixed: Exclusions declares each change; §65 and §69 are in `surface`.                                                                                                                                   |
-| 8   | Should-fix | Exports incomplete: `array` exists as a type, `fuse` moves, `Buffer`/`Node`/resource types missing; overlaps of `device`/`createDevice`/`configure`/`resident`; `uniform` names a host function and the shader type. | Fixed in the front matter and What it touches. The overlaps are kept for Q8, which now names them.                                                                                                      |
-| 9   | Should-fix | The tracing of `fuse(fn)` is not stated (when `fn` runs, captured numbers, cache key); helpers on node inputs amount to host arithmetic.                                                                             | Fixed in R4: shape key, captured numbers read at each call, side effects warned. A helper called inside a graph is a node like any export (R1); its arithmetic is in the shader file.                   |
-| 10  | Should-fix | The determinism guarantee of Rule 11.13 is not extended; R14 in place is exact only when each invocation reads what it writes.                                                                                       | Fixed in R14 (the planner's facts decide). The baseline for the new features is Q16.                                                                                                                    |
-| 11  | Should-fix | Unrecorded conflicts: R10 against R3; `docs/dx.md` principles 1 and 3; R4's "`await fuse(fn)()` stays" is not today's `fuse`.                                                                                        | Fixed: R3 states an exported binding's devices; R2 keeps errors at the author's line; R4 keeps today's `fuse` until milestone 9. Principle 1 is kept open for the owner (Q13).                          |
-| 12  | Note       | Q1 to Q10 miss items: draw count, coexistence, the device of exported bindings, back-pressure, error timing, tracing, the bit baseline, CSP, freeing, a canvas fixed by its first context.                           | Fixed: each is answered in a rule above or added as Q11 to Q16.                                                                                                                                         |
+| #   | Severity   | Finding                                                                                                                                                                                                              | Answer                                                                                                                                                                                                                                        |
+| --- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Blocking   | R16 conflicts with Rule 11.7 ("not a fourth implementation") and with a strict CSP; WebAssembly lacks `sin`/`exp`/`pow`, NaN bits are open, relaxed SIMD is not deterministic.                                       | Partly fixed in R16: no relaxed SIMD, canonical NaN, shared routines, the differential gate bit for bit, a JavaScript fallback under CSP. The owner decided the conflict with Rule 11.7: WebAssembly is the oracle's form (decision 14, R16). |
+| 2   | Blocking   | R17 can alias a freed range through a stale view; growth and compaction detach views; GPU-only intermediates would take a CPU copy.                                                                                  | Fixed in R17: views only through accessors that re-read the region; an accessor of a freed resource throws; device-only resources take no range. Workers, realms and the 4 GiB limit join Q9.                                                 |
+| 3   | Blocking   | The `if` rewrite of R12 reaches host code, which OD-1 does not cover and Rule 1.6 keeps as TypeScript; without the plugin a `Node<bool>` is silently truthy.                                                         | The owner decided: such a graph is written in a `"use typeshade"` file (decision 13, R12). A `Node<bool>` in a host `fuse` throws from `valueOf`.                                                                                             |
+| 4   | Blocking   | Milestone 3 changes today's results (`await exposure(…)`), yet nothing is removed and no coexistence rule is stated.                                                                                                 | Fixed in R2: a call with plain data keeps today's meaning; a call on a resource or in a graph takes the new one. Removal stays for a later proposal after the deprecation of milestone 9.                                                     |
+| 5   | Should-fix | The Before is not today's API (a no-op `createRuntime` argument, one module loaded twice, a kernel that returns an array, no `resident`, undefined names).                                                           | Fixed: the Before uses `runtime()`, two loaded modules, `resident`, an in-place `step` and defined names.                                                                                                                                     |
+| 6   | Should-fix | R5 has no vertex count, instances, indices or topology; `dot(next)` cannot be drawn as written.                                                                                                                      | Fixed in R5: `vs(vertices, { count, instances, indices, topology })`; the After passes them.                                                                                                                                                  |
+| 7   | Should-fix | The shader side changes in meaning (Rule 6.6, Rule 8.22, texture and scalar fragment parameters), against Exclusions; §65 and §69 are missing.                                                                       | Fixed: Exclusions declares each change; §65 and §69 are in `surface`.                                                                                                                                                                         |
+| 8   | Should-fix | Exports incomplete: `array` exists as a type, `fuse` moves, `Buffer`/`Node`/resource types missing; overlaps of `device`/`createDevice`/`configure`/`resident`; `uniform` names a host function and the shader type. | Fixed in the front matter and What it touches. The overlaps are kept for Q8, which now names them.                                                                                                                                            |
+| 9   | Should-fix | The tracing of `fuse(fn)` is not stated (when `fn` runs, captured numbers, cache key); helpers on node inputs amount to host arithmetic.                                                                             | Fixed in R4: shape key, captured numbers read at each call, side effects warned. A helper called inside a graph is a node like any export (R1); its arithmetic is in the shader file.                                                         |
+| 10  | Should-fix | The determinism guarantee of Rule 11.13 is not extended; R14 in place is exact only when each invocation reads what it writes.                                                                                       | Fixed in R14 (the planner's facts decide). The baseline for the new features is Q16.                                                                                                                                                          |
+| 11  | Should-fix | Unrecorded conflicts: R10 against R3; `docs/dx.md` principles 1 and 3; R4's "`await fuse(fn)()` stays" is not today's `fuse`.                                                                                        | Fixed: R3 states an exported binding's devices; R2 keeps errors at the author's line; R4 keeps today's `fuse` until milestone 9. The owner amended principle 1 (decision 15).                                                                 |
+| 12  | Note       | Q1 to Q10 miss items: draw count, coexistence, the device of exported bindings, back-pressure, error timing, tracing, the bit baseline, CSP, freeing, a canvas fixed by its first context.                           | Fixed: each is answered in a rule above or added as Q11 to Q16.                                                                                                                                                                               |
 
-The open findings for the owner are Q11, Q12 and Q13.
+The owner decided the three conflicts on 2026-11-09 (decisions 13 to 15). No finding is open.
 
 ### Approval and plan record
 
