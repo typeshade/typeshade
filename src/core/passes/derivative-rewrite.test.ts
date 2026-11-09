@@ -141,7 +141,7 @@ describe('the shapes the rewrite reaches', () => {
     expect(glsl).toMatch(/hoist_d_h\d+ = dFdy\(/);
   });
 
-  it('a helper: specialized with the gradients as extra parameters, the original dropped', () => {
+  it('a helper: specialized with the gradients as extra parameters, the original kept', () => {
     const { wgsl } = reached(
       frag(
         `  let base: vec4 = vec4(0.);
@@ -158,7 +158,8 @@ function near(uv: vec2): vec4 { return textureSample(t, s, uv); }
     expect(wgsl).toMatch(
       /fn wide_grad\(uv: vec2<f32>, hoist_gx_h\d+: vec2<f32>, hoist_gy_h\d+: vec2<f32>\)/,
     );
-    expect(wgsl).not.toMatch(/fn wide\(/);
+    // The original stays, for host code that may call an exported one.
+    expect(wgsl).toMatch(/fn wide\(uv: vec2<f32>\)/);
     // The slice is recomputed in the caller: the helper's own local, with a fresh name.
     expect(wgsl).toMatch(/let inner_h\d+ = \(uv_h\d+ \* 0\.5\);/);
     // A helper called under uniform control flow keeps its implicit-LOD sample.

@@ -6815,8 +6815,8 @@ recomputes, then derives:
    `textureSampleCompare`, and a sample of a `texture_1d`, have no gradient form, so the whole
    call is recomputed at the hoist point and its value used inside.
 5. A helper between the hoist point and the call is specialized: a copy takes the gradients as
-   extra parameters, and the call site that needs them calls the copy. A helper nothing else
-   calls leaves the module.
+   extra parameters, and the call site that needs them calls the copy. The original stays,
+   for its other callers and for host code that calls an exported one.
 
 ```wgsl
 fn sharp_grad(uv: vec2<f32>, hoist_gx_h0: vec2<f32>, hoist_gy_h1: vec2<f32>) -> vec4<f32> {

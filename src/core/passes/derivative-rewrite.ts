@@ -23,7 +23,8 @@
 //     `textureSampleBias` multiplies both gradients by `exp2(clamp(bias, -16.0, 15.99))`.
 //   • Helpers. A helper between the hoist point and the call is SPECIALIZED: a copy of it takes
 //     the gradients as extra parameters, and the call site that needed them calls the copy. The
-//     original stays for its other callers, and leaves the module when nothing calls it.
+//     original stays, for its other callers and for the host code that may call an exported
+//     one; a copy the rewrite made and then left uncalled leaves the module.
 //
 // The rewrite cannot reach a call whose slice cannot be recomputed at the hoist point. The
 // reasons (change 0132, item 4), which `TS8052` names:
@@ -41,7 +42,6 @@
 // barrier and a subgroup call are never rewritten.
 
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
-import { stageOf } from '../ir/nodes.js';
 import type { ShaderType } from '../ir/types.js';
 import { eachExpr, mapChildren } from '../ir/visit.js';
 import { isAtomicIntrinsic, isKnownIntrinsic } from '../intrinsics.js';
@@ -312,7 +312,6 @@ export function rewriteDerivatives(
   const unreached = new Map<string, DerivativeRewriteReason>();
   /** The calls the rewrite gave up on, so a round does not try them again. */
   const given = new Set<string>();
-  const originallyCalled = calledNames(m);
   const clones = new Set<string>();
   let cur = m;
   for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -335,7 +334,7 @@ export function rewriteDerivatives(
     cur = next;
   }
   if (cur === m) return { module: m, builtIfs, unreached };
-  return { module: withoutDeadFunctions(cur, originallyCalled, clones), builtIfs, unreached };
+  return { module: withoutDeadCopies(cur, clones), builtIfs, unreached };
 }
 
 /** Every function name a call in `m` names. */
@@ -396,24 +395,13 @@ function walkExprs(stmts: readonly Stmt[], visit: (e: Expr) => void): void {
   stmts.forEach(stmt);
 }
 
-/** `m` without the functions the rewrite left uncalled: a copy it made, or a helper only the
- *  rewritten call sites called. A function nothing called before stays, as do entries and
- *  kernel functions. */
-function withoutDeadFunctions(
-  m: ModuleDecl,
-  originallyCalled: ReadonlySet<string>,
-  clones: ReadonlySet<string>,
-): ModuleDecl {
+/** `m` without the copies the rewrite made and then left uncalled (a copy of a copy replaces
+ *  it when a later round specializes it again). Every function of the input stays. */
+function withoutDeadCopies(m: ModuleDecl, clones: ReadonlySet<string>): ModuleDecl {
   let funcs = m.funcs;
   for (;;) {
     const called = calledNames({ ...m, funcs });
-    const keep = funcs.filter(
-      (f) =>
-        stageOf(f) !== undefined ||
-        f.kernel === true ||
-        called.has(f.name) ||
-        (!originallyCalled.has(f.name) && !clones.has(f.name)),
-    );
+    const keep = funcs.filter((f) => !clones.has(f.name) || called.has(f.name));
     if (keep.length === funcs.length) break;
     funcs = keep;
   }
