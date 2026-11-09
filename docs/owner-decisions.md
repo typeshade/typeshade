@@ -76,8 +76,8 @@ and every person reads this file before any other document of this repository.
   the type form (`pos: builtin<"position", vec4>`, `uv: location<0, vec2>`).
 - What it means:
   - A parameter that the function writes back to its caller is written `@inout a: f32` or
-    `@out c: f32`. The type form `inout<T>` and `out<T>` of change 0111 D5 is not the
-    language's form. Change 0111 D5 moved the qualifier into the type only so that a plain
+    `@out c: f32`. The type form `inout<T>` and `out<T>` of change 0111 D4 is not the
+    language's form. Change 0111 D4 moved the qualifier into the type only so that a plain
     `tsc` accepts the file, which OD-1 rejects.
   - `in` is not written: every parameter is passed by value unless it carries `@inout` or
     `@out`.
@@ -91,3 +91,31 @@ and every person reads this file before any other document of this repository.
   - Change 0130 adds a rule after Rule 1.7 that says a construct that describes a value that
     flows in or out, a parameter included, is part of its type. For a parameter qualifier this
     entry holds, and that rule text is fixed in its own pull request.
+
+### OD-6. Nothing is released yet: the bundled builds were tests
+
+- Date: 2026-11-09.
+- The owner's words: "아직 정식 릴리즈 전이라 문제 없음 테스트용으로 한것뿐이라". The owner said this when
+  asked whether the two published builds that bundle the compiler, vscode-typeshade 0.3.0 on the
+  Marketplace and `@typeshade/mcp` 0.1.0 and 0.1.1 on npm, count as releases for Rule 13.10.
+- What it means:
+  - TypeShade has no official release yet. The `typeshade` package on npm holds only the
+    placeholder `0.0.0`.
+  - The bundled builds were for testing. A change of meaning or a refusal owes no warning release
+    because of them (Rules 13.9 and 13.10).
+  - The `## [0.1.0]` heading of `CHANGELOG.md` does not make a release.
+
+### OD-7. A number's type is inferred from its uses; there is no default type to learn
+
+- Date: 2026-11-09.
+- The owner's words: "자동추론으로", confirmed as: the compiler infers a number's type from every
+  place it reaches (a function's result from the places that call it, a value passed on from the
+  place that receives it), and where nothing decides, the compiler chooses without asking the
+  author. Asked whether to record this as an entry, the owner said "기록".
+- What it means:
+  - An author writes a number as a number. The compiler gives it the type its uses need.
+  - No default type is part of the language for an author to learn. Where no use decides, the
+    compiler's choice is `f32` (the owner's choice, 2026-11-09, proposal 0134 question 5).
+  - A value that one use makes an integer and that `/` divides is refused, not silently divided
+    as integers (the owner's choice, 2026-11-09, proposal 0134 question 6).
+  - Proposal 0134 records the full design.
