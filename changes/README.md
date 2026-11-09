@@ -48,8 +48,10 @@ compiler asks for compiler work first. It does not ask for a language change.
 4. State the need, the workaround and the measurement (device, commit, result) in the issue.
 
 The compiler side decides how to meet the need. What the compiler can decide is compiler work:
-an optimization, a lowering, a numerical relaxation, a tuning parameter or a report. That work
-adds no author-facing construct, and the criteria above give it no proposal.
+an optimization the compiler can prove exact, a lowering, a tuning parameter or a report. That
+work adds no author-facing construct, and the criteria above give it no proposal. A numerical
+relaxation is not compiler work: it changes results, and the GPU computes what the CPU oracle
+computes (`docs/dx.md`).
 
 A language change is the last resort. A proposal that adds an author-facing name, rule,
 diagnostic code or form for a downstream need links the issue. Its
@@ -67,8 +69,8 @@ does not record where a request came from.
    name and downstream repository in the front matter. A proposal that adds to the language (an
    author-facing name, a rule, a diagnostic code or a surface form) says in
    `## Why the compiler cannot do it` what the author must write that the compiler cannot
-   decide. What the compiler can decide (an optimization, a numerical relaxation, a tuning
-   parameter) is the compiler's work. When the compiler can do it, the proposal is not needed:
+   decide. What the compiler can decide (an optimization it can prove exact, a tuning
+   parameter) is the compiler's work; a numerical relaxation changes results and is not. When the compiler can do it, the proposal is not needed:
    the work is an implementation change with no proposal, or no change. Rule links in `reqs/` (`reqs/README.md`) and searches of the
    site and editor establish those impacts. Review starts with a proposal-only PR and `status: draft`.
    Before the owner decides, the proposal passes an independent review (below).
