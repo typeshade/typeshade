@@ -1,7 +1,7 @@
 ---
 id: '0139'
 title: A deprecation window is owed only for a meaning that an official release of the `typeshade` package carried; bundles, prereleases and changelog headings do not count
-status: draft
+status: accepted
 rules:
   - '13.9'
   - '13.10'
@@ -219,10 +219,13 @@ No finding is open.
 
 ### Approval and plan record
 
-This record does not yet apply. With the owner's decision on prereleases recorded and no review
-finding open, the proposal is ready for acceptance on the owner's go-ahead. Acceptance will
-require the owner's decision on the proposal's pull request, the merge with `status: accepted`, and the approved revision. The implementing
-pull request will carry `Change: 0139`.
+Accepted. The owner (Seungup) approved acceptance in the Claude Code session on 2026-11-09, in
+Korean ("승인"), after the new Rule 13.9 definition and the Rule 13.10 change were shown (OD-4).
+The approval is recorded by the merge of pull request #1140 with `status: accepted`; the approved
+revision is this file as merged. The implementing pull request will carry `Change: 0139`. It
+changes rule text only, adds no author-facing name and changes no example, so it is approved in
+advance once every required check is green (`CLAUDE.md`, Merging). Duration and cost are not
+estimated.
 
 ### Configuration and validation record
 
