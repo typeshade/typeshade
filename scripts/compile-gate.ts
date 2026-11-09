@@ -112,6 +112,16 @@
 // parameter's name linked across the two stages. Their instrument is the unfixed text, which
 // Tint and ANGLE refused when it was measured (the pull request of #1010), and the cut arm.
 //
+// THE OPEN-LOOP LEG (change 0136, Rules 7.5, 8.19, 13.3). A `for` that is not counted is an open
+// loop, and an entry that writes no return type returns what its body says. The examples hold
+// every loop counted and every return type written, so `OPEN_LOOP_SOURCE` holds the new shapes:
+// one helper for each `for` header the change accepts (an empty header with a `break`, an `f32`
+// counter, two declarations and comma updates with a `continue`, an assignment as the
+// initializer, no initializer, no update, a bound the body writes, a condition that is not a
+// comparison, an exit joined with another test, `!=` against a runtime bound, an update that is
+// not a constant step, a shift, a member as the update), and entries with no return type, a
+// struct literal and a bare result. They are judged as examples are, on Tint and on ANGLE.
+//
 // THE CONST-CALL LEG (#613, Rule 13.3). WGSL evaluates a builtin call whose arguments are all
 // constant when it creates the shader, and Tint refuses one outside the builtin's domain or past
 // the range of f32. The front end refuses those (`src/compiler/ts/lower/const-call.ts`) and must
@@ -1117,6 +1127,90 @@ const SHADOWED_CALL_EXAMPLES = SHADOWED_CALL_SOURCES.map(({ id, source }) => {
   return { id, module: c.module, renderable: true };
 });
 
+// ── The open-loop leg (change 0136, Rules 7.5, 8.19, 13.3) ──
+
+/** A render pair whose fragment entry calls one helper per open `for` header, both entries with
+ *  no return type. */
+const OPEN_LOOP_SOURCE = `"use typeshade";
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
+}
+interface Frame { n: i32; m: u32 }
+declare const frame: uniform<Frame>;
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>) {
+  const x = f32(i) * 0.5;
+  return { pos: vec4(x, x, 0., 1.), uv: vec2(x, x) };
+});
+function empty(r0: f32): f32 {
+  let r = r0;
+  for (;;) { r = r * 0.5; if (r < 0.01) { break; } }
+  return r;
+}
+function floats(): f32 {
+  let a = 0.;
+  for (let x = 0.; x < 1.; x += 0.25) { a += x; }
+  return a;
+}
+function two(): f32 {
+  let a = 0.;
+  for (let i = 0, j = 10; i < j; i++, j--) { if (i == 2) { continue; } a += f32(j); }
+  return a;
+}
+function assigned(): f32 {
+  let a = 0.;
+  let k: i32 = 0;
+  for (k = 2; k < 6; k++) { a += f32(k); }
+  for (; k < 9; k++) { a += 1.; }
+  return a;
+}
+function noUpdate(): f32 {
+  let a = 0.;
+  for (let i = 0; i < 6;) { i += 2; a += 1.; }
+  return a;
+}
+function moved(n0: i32): f32 {
+  let a = 0.;
+  let n = n0;
+  for (let i = 0; i < n; i++) { n -= 1; a += 1.; }
+  return a;
+}
+function flag(): f32 {
+  let a = 0.;
+  let done = false;
+  for (let i = 0; !done; i++) { a += 1.; if (i > 4) { done = true; } }
+  return a;
+}
+function joined(): f32 {
+  let a = 0.;
+  for (let i = 0; i < frame.n && a < 3.; i++) { a += 1.; }
+  for (let i = 0; i != frame.n; i++) { a += 1.; }
+  return a;
+}
+function steps(): f32 {
+  let a = 0.;
+  for (let i = 1; i < 100; i = i * 3 + 1) { if (i == 4) { continue; } a += f32(i); }
+  for (let i = frame.m; i !== 0; i >>= 1) { a += 1.; }
+  let v = vec2(0., 0.);
+  for (let i = 0; i < 4; v.x += 1.) { a += v.x; if (v.x > 2.) { break; } }
+  return a;
+}
+export const fs = fragment(function fs(uv: location<0, vec2>) {
+  const s = empty(uv.x) + floats() + two() + assigned() + noUpdate() + moved(frame.n);
+  return vec4(s + flag() + joined() + steps(), uv.y, 0., 1.);
+});
+`;
+
+/** `open-loop/shapes`, judged as an example is. */
+const OPEN_LOOP_EXAMPLES = ((): { id: string; module: ModuleDecl; renderable: boolean }[] => {
+  const c = compile(OPEN_LOOP_SOURCE);
+  const errors = c.diagnostics.filter((d) => d.category === 'error');
+  if (errors.length > 0) {
+    throw new Error(`the open-loop shapes do not compile: ${errors[0]!.message}`);
+  }
+  return [{ id: 'open-loop/shapes', module: c.module, renderable: true }];
+})();
+
 // ── The const-call leg (#613, Rule 13.3) ──
 
 /** A render pair whose fragment entry makes the calls Tint accepts beside the ones it refuses:
@@ -1584,6 +1678,7 @@ function jobs(): Job[] {
     ...ENTRY_WRAPPER_EXAMPLES,
     ...SHADOWED_CALL_EXAMPLES,
     ...CONST_CALL_EXAMPLES,
+    ...OPEN_LOOP_EXAMPLES,
   ]
     .map((ex) => {
       const cut = ex.id === CUT;

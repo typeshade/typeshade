@@ -48,7 +48,18 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
     i++;
   }
 }`,
-    'This loop runs on the CPU because it is a while loop, whose trip count is known only when it ends. A for loop over a count runs on the GPU.',
+    'This loop runs on the CPU because it is an open loop, a while or a for that is not counted, whose trip count is known only when it ends. A counted for loop runs on the GPU.',
+  ],
+  [
+    // A `for` that is not counted is a candidate loop the proof refuses as it refuses a
+    // `while` (Rule 8.22 R1, change 0136): it was refused before the proof ran.
+    'R1, a for that is not counted',
+    `export function fill(a: array<f32>) {
+  for (let i: u32 = 0; i < a.length && a[i] < 2.; i++) {
+    a[i] = 1.;
+  }
+}`,
+    'This loop runs on the CPU because it is an open loop, a while or a for that is not counted, whose trip count is known only when it ends. A counted for loop runs on the GPU.',
   ],
   [
     'R1, a multiplicative step',

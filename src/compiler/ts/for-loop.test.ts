@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
+import { compile } from './compile.js';
 
 describe('Phase 9 for', () => {
   it('lowers for (let i: i32 = 0; i < 16; i++)', () => {
@@ -43,8 +44,10 @@ describe('Phase 9 for', () => {
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
   });
 
-  it('rejects a runtime bound the body writes (Rule 7.5)', () => {
-    const r = compileTsSource(`
+  it('takes a runtime bound the body writes as an open loop (Rule 7.5, change 0136)', () => {
+    // This was `TS8006 for bound reads "n", which the loop body writes, so it does not bound
+    // the loop. Read it into a const before the loop, or write the loop as a while.`
+    const src = `
       "use typeshade";
       export function f(n0: i32): i32 {
         let s: i32 = 0;
@@ -52,14 +55,11 @@ describe('Phase 9 for', () => {
         for (let i: i32 = 0; i < n; i++) { s = s + i; n = n - 1; }
         return s;
       }
-    `);
-    expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual([
-      [
-        'TS8006',
-        'for bound reads "n", which the loop body writes, so it does not bound the loop. ' +
-          'Read it into a const before the loop, or write the loop as a while.',
-      ],
-    ]);
+    `;
+    const r = compileTsSource(src);
+    expect(r.diagnostics).toEqual([]);
+    // i = 0, 1, 2 against n = 6, 5, 4: the bound moves, and the loop ends where it meets it.
+    expect(compile(src).eval('f', [6])).toBe(3);
   });
 
   it('rejects i-- against i < 8', () => {

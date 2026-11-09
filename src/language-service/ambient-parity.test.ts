@@ -501,6 +501,46 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
     'optional: f32 | null',
     FS('function f(x: f32 | null): f32 { return 0.; }', '  return vec4(uv, 0., 1.)'),
     'accept',
+  ], // Change 0136: every `for` TypeScript accepts compiles but one proved never to end, and an
+  // entry's result is inferred where its body says it.
+  [
+    'for (;;) with a break',
+    FS(
+      '',
+      '  let a = 0.;\n  for (;;) { a += 1.; if (a > 3.) { break; } }\n  return vec4(a, uv, 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'for with an f32 counter',
+    FS(
+      '',
+      '  let a = 0.;\n  for (let x = 0.; x < 1.; x += 0.25) { a += x; }\n  return vec4(a, uv, 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'for with two declarations and a comma update',
+    FS(
+      '',
+      '  let a = 0.;\n  for (let i = 0, j = 10; i < j; i++, j--) { a += f32(j); }\n  return vec4(a, uv, 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'for (;;) with no way out',
+    FS('', '  let a = 0.;\n  for (;;) { a += 1.; }\n  return vec4(a, uv, 1.)'),
+    'refuse',
+  ],
+  [
+    "an entry's inferred struct result",
+    `"use typeshade"\ninterface Color { color: location<0, vec4> }\nexport const fs = fragment(function fs(uv: location<0, vec2>) {\n  return { color: vec4(uv, 0., 1.) };\n});\n`,
+    'accept',
+  ],
+  [
+    "an entry's literal two structs match",
+    `"use typeshade"\ninterface P { a: location<0, vec4> }\ninterface Q { a: location<0, vec4> }\nexport const fs = fragment(function fs(uv: location<0, vec2>) {\n  return { a: vec4(uv, 0., 1.) };\n});\n`,
+    'refuse',
   ],
 ];
 

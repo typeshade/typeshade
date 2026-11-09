@@ -67,13 +67,27 @@ describe('constant loop bounds', () => {
     expect(r.diagnostics[0]!.message).toMatch(/^while \(true\) has no break or return/);
   });
 
-  it('rejects for (;;)', () => {
-    const r = compileTsSource(`
+  it('takes for (;;) with a break, and refuses one with no way out (change 0136)', () => {
+    const open = compileTsSource(`
       "use typeshade";
       export function f(): void {
         for (;;) { break; }
       }
     `);
-    expect(r.diagnostics.some((d) => /exit condition|infinite/i.test(d.message))).toBe(true);
+    expect(open.diagnostics).toEqual([]);
+    const never = compileTsSource(`
+      "use typeshade";
+      export function f(): void {
+        let a = 0.;
+        for (;;) { a += 1.; }
+      }
+    `);
+    expect(never.diagnostics.map((d) => [d.code, d.message])).toEqual([
+      [
+        'TS8007',
+        'for (;;) has no break or return in its body, so it never ends. Leave it with a ' +
+          'break, or write the exit into the condition.',
+      ],
+    ]);
   });
 });

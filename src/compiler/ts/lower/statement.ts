@@ -244,14 +244,12 @@ function lowerStatementKind(
     }
     // The declared return type is the context an object literal needs: `return { pos, uv }`
     // in a function declared VsOut builds a VsOut, even when another struct has the same
-    // fields (#8 A11).
-    const expr = lowerExpression(
-      node.expression,
-      sourceFile,
-      scope,
-      diagnostics,
-      scope.returnType(),
-    );
+    // fields (#8 A11). An entry that writes none takes the one struct the literal's names match
+    // (Rule 8.19, surface §16, change 0136).
+    const contextual =
+      scope.returnType() ?? entryResultStruct(node.expression, sourceFile, scope, diagnostics);
+    if (contextual === null) return undefined;
+    const expr = lowerExpression(node.expression, sourceFile, scope, diagnostics, contextual);
     if (!expr) {
       // A refused optional return already has a diagnostic. Preserve its control-flow exit
       // during recovery so it does not also become a missing-return error. No erroneous
@@ -414,15 +412,29 @@ function lowerVariableStatement(
 ): Stmt | Stmt[] | undefined {
   // A `var` is semantic.ts's refusal (TS8013), and is lowered as the `let` it would have been,
   // so the names it declares stay bound and their uses say nothing more (Rule 12.4).
-  const isConst = (node.declarationList.flags & ts.NodeFlags.Const) !== 0;
+  return lowerDeclarationList(node.declarationList, node, sourceFile, scope, diagnostics);
+}
+
+/** The declarations of one list, `let a = 1, b = 2`, whether a statement holds it or a `for`
+ *  header does (Rule 7.5): `statement` is the node whose span a single declarator takes. */
+export function lowerDeclarationList(
+  list: ts.VariableDeclarationList,
+  statement: ts.Node,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+  /** The declarators lowered, all of the list's when not given. */
+  declarations: readonly ts.VariableDeclaration[] = list.declarations,
+): Stmt | Stmt[] | undefined {
+  const isConst = (list.flags & ts.NodeFlags.Const) !== 0;
   // One declarator is the overwhelmingly common case, and there the statement IS the
   // declaration: stamping the declarator alone gives a span starting after the `const`/`let`
   // keyword, so a breakpoint on that line points mid-statement. Several declarators genuinely
   // lower to several IR statements, and there each must span its own, or stepping through
   // `const a = 1, b = 2` highlights the whole line twice.
-  const single = node.declarationList.declarations.length === 1;
+  const single = declarations.length === 1;
   const results: Stmt[] = [];
-  for (const decl of node.declarationList.declarations) {
+  for (const decl of declarations) {
     // The node whose span the lowered statement takes, decided here because only this level
     // knows how many declarators there are.
     const one = lowerVariableDeclaration(
@@ -431,7 +443,7 @@ function lowerVariableStatement(
       sourceFile,
       scope,
       diagnostics,
-      single ? node : decl,
+      single ? statement : decl,
     );
     if (Array.isArray(one)) results.push(...one);
     else if (one) results.push(one);
@@ -1366,7 +1378,7 @@ export function lowerVoidArrowBody(
 }
 
 /** `expr` as a statement standing alone, `node` the source a message about it points at. */
-function lowerExpressionAsStatement(
+export function lowerExpressionAsStatement(
   expr: ts.Expression,
   node: ts.Node,
   sourceFile: ts.SourceFile,
@@ -2129,6 +2141,48 @@ function staticRootOf(
  *  root binding must be writable, and a swizzle target names each component once; it names
  *  one component except under `=` and `op=`, which {@link splitSwizzleWrite} lowers to one
  *  write per component (change 0106). */
+/**
+ * The struct an object literal builds when an entry that writes no return type returns it
+ * (Rule 8.19, surface §16, change 0136): the one struct whose fields are the literal's names,
+ * among the structs the program declares that no binding, module variable or workgroup memory
+ * holds. Undefined when the position is another one or the literal is not plain names, and
+ * null, having said so, when no struct or several match.
+ */
+function entryResultStruct(
+  expression: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): ShaderType | null | undefined {
+  if (scope.inferredReturn() === undefined || scope.currentStage() === undefined) return undefined;
+  const literal = unwrapParens(expression);
+  if (!ts.isObjectLiteralExpression(literal)) return undefined;
+  const names: string[] = [];
+  for (const p of literal.properties) {
+    if (
+      (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) &&
+      ts.isIdentifier(p.name)
+    ) {
+      names.push(p.name.text);
+    } else return undefined;
+  }
+  const found = scope.entryResultMatches(names);
+  if (found.length === 1) return { kind: 'struct', name: found[0]!.name };
+  const which =
+    found.length === 0
+      ? 'no struct an entry can return'
+      : `${found.map((f) => `"${authorTypeText({ kind: 'struct', name: f.name })}"`).join(' and ')} alike`;
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    literal,
+    `Object literal { ${[...new Set(names)].join(', ')} } matches ${which}, so the entry's result ` +
+      `is not known: write the return type.`,
+    TS_CODES.UNKNOWN_NAME,
+  );
+  return null;
+}
+
 function unwrapParens(node: ts.Expression): ts.Expression {
   return ts.isParenthesizedExpression(node) ? unwrapParens(node.expression) : node;
 }

@@ -19,6 +19,17 @@ repository is an official release yet: the `typeshade` package on npm holds only
 
 ### Added
 
+- **Every `for` loop, and an entry's inferred result** (change 0136). A `for` that is not
+  counted compiles as an open loop, as a `while` does (Rule 7.5): `for (;;)` with a `break`, an
+  `f32` counter, a bound the body writes, an exit with another test, a header with no
+  initializer or update, two declarations and comma updates. A loop proved never to end stays
+  refused, and the kept sentences no longer say to write a `while`. An entry that writes no
+  return type returns what its body says (Rule 8.19): a bare result takes its stage's default
+  attribute, and a returned object literal takes the one declared struct whose fields are its
+  names, a resource struct excluded (surface §16). A kernel function's open `for` runs on the
+  CPU with `TS8070`, whose R1 sentence now names an open loop (Rule 8.22). No source that
+  compiled before changes its emit.
+
 - **Host resources** (change 0138, milestone 1). `typeshade/runtime` exports `uniform(Class,
 init?)`, `zeros(Class, n)` and `array(Class, data)`, which make a `Uniform<T>` or a
   `Buffer<T>` of a class a shader module exports. Each uniform and storage array is a byte range
