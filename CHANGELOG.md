@@ -216,8 +216,8 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   texture, a sampler, a derivative or a barrier (change 0120, item 4 and O6 (a)). The conformance
   suite gains a `"use typeshade"` form of each program, a CPU leg in Vitest, and five cases that
   every backend runs (interpolation, flat interpolation, clipping, the fill rule and
-  `front_facing`); WebGL2 does not run the flat case, since GLSL ES 3.00 takes a flat value from
-  the last vertex. The program runtime has a CPU tier on it, internal until milestone M4
+  `front_facing`); WebGL2 did not run the flat case until the fix below, since GLSL ES 3.00
+  takes a flat value from the last vertex. The program runtime has a CPU tier on it, internal until milestone M4
   (`src/runtime/cpu.ts`; no public option reaches it): `load()` takes a
   program's CPU code from the manifest's `CPU_PROGRAM` key (O2 (a)) and refuses with a `TypeError`
   a manifest that carries none, one read from JSON or made by `packModule()`; its dispatches and
@@ -1788,6 +1788,27 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `docs/ir-builder.md` describes the builder for engines and tools.
 
 ### Fixed
+
+- **A flat value comes from the first vertex on WebGL2, as on WebGPU** (Rules 1.6 and 11.5; the
+  open item of change 0120, M3). The WebGL2 backend of the render hardware interface
+  (`src/rhi/webgl2.ts`) took a `flat` interstage value from the last vertex of a primitive, as
+  GLSL ES 3.00 does. WebGPU and the CPU backend take it from the first, so one program gave other
+  pixels on WebGL2 where the vertices of a primitive carry different values. A pipeline whose
+  vertex program declares a `flat` output now takes the first vertex. With
+  `WEBGL_provoking_vertex` the pass sets the first-vertex convention at its first such draw and
+  gives the host's convention back at its end. Without the extension a `triangle-list` or a
+  `triangle-strip` draws through an element buffer of the backend's own that names each
+  triangle's first vertex last (`firstVertexLast`): the same triangles, wound the same way. A
+  `line-list` or `line-strip` pipeline with a flat value is refused there with a `TypeError` that
+  names `WEBGL_provoking_vertex`, since a line turned round covers other pixels at its ends. A
+  pipeline with no flat value, and a `point-list`, draw as before. The conformance suite's flat
+  case now runs on WebGL2, and two cases join it: an indexed list whose triangles share
+  vertices, and a triangle strip. The compile gate's Chromium (SwiftShader) has no
+  `WEBGL_provoking_vertex`, so the gate holds the element-buffer way and says so in its output;
+  `src/rhi/webgl2.test.ts` holds both ways on a fake context. The caps of `typeshade/runtime` in
+  `scripts/bundle-budget.json` take the measured gzip sizes: the single file 163,157 to 164,037
+  (+880) and the split total 165,360 to 166,221 (+861). The split initial cap, the floors and
+  the other subpaths do not change.
 
 - **A call that repeats its shapes makes no bind group, whatever the pool holds** (#1133). The
   program runtime's buffer pool gave its buffers back first in, first out. When the pool held

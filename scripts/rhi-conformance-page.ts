@@ -11,6 +11,8 @@ import { webgpuDevice } from '../src/rhi/webgpu.js';
 
 export interface RhiConformanceReport {
   readonly adapter: string;
+  /** Whether the WebGL2 context has `WEBGL_provoking_vertex`: which way its flat cases ran. */
+  readonly provokingVertex: boolean;
   readonly webgpu: readonly CaseResult[];
   readonly webgl2: readonly CaseResult[];
   /** The suite on a WebGL2 device whose reads are perturbed: every case must differ. */
@@ -66,6 +68,7 @@ async function run(): Promise<RhiConformanceReport> {
   const instrument = await runConformance(perturbed(webgl2Device(glContext())));
   return {
     adapter: adapter.info?.description ?? 'unknown',
+    provokingVertex: glContext().getExtension('WEBGL_provoking_vertex') !== null,
     webgpu,
     webgl2,
     perturbed: instrument,

@@ -21,6 +21,14 @@
 // (`caps.immediate`), as X-GIS's WebGL2 encoder does. A pass is begun, drawn and ended at its
 // record, and `submit` has nothing left to run. A read of a texture waits on a fence.
 //
+// Flat values. WebGPU takes a `flat` interstage value from the first vertex of a primitive, and
+// GLSL ES 3.00 from the last. A pipeline whose vertex program declares a `flat out` draws with the
+// first vertex: with `WEBGL_provoking_vertex` where the context has it, set for the pass and given
+// back at its end, and otherwise through an element buffer of its own that names each triangle's
+// first vertex last (`firstVertexLast`), which draws the same triangles. A line has no such form,
+// since a line turned round covers other pixels at its ends, so without the extension a line
+// pipeline with a flat value is refused.
+//
 // Binding by name. A program reads a uniform block, a texture or a data texture by the name it
 // declares, which a bind group layout entry carries (`name`), and GLSL ES 3.00 fuses a texture with
 // one sampler (`samplerBinding`). The pipeline gives each binding its block binding point or texture unit
@@ -246,6 +254,8 @@ class GlState {
   readonly maxColorAttachments: number;
   /** `EXT_polygon_offset_clamp`, requested once, or null when the context lacks it (A1). */
   readonly polygonOffsetClamp: PolygonOffsetClamp | null;
+  /** `WEBGL_provoking_vertex`, requested once, or null when the context lacks it. */
+  readonly provokingVertex: ProvokingVertex | null;
   /** The extensions the context gave when they were asked for. */
   readonly extensions = new Set<string>();
   #screen: { tex: WebGLTexture; w: number; h: number } | undefined;
@@ -268,6 +278,8 @@ class GlState {
       'EXT_polygon_offset_clamp',
     ) as PolygonOffsetClamp | null;
     if (this.polygonOffsetClamp !== null) this.extensions.add('EXT_polygon_offset_clamp');
+    this.provokingVertex = gl.getExtension('WEBGL_provoking_vertex') as ProvokingVertex | null;
+    if (this.provokingVertex !== null) this.extensions.add('WEBGL_provoking_vertex');
     gl.samplerParameteri(this.nearest, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.samplerParameteri(this.nearest, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.samplerParameteri(this.nearest, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -305,6 +317,9 @@ class GlBuffer implements RhiBuffer {
   padded = -1;
   /** The data texture a program reads a storage buffer from. */
   texture: WebGLTexture | undefined;
+  /** The element buffer that names each triangle of this index buffer's with its first vertex
+   *  last, and the draw it was made for (`key`, empty once the bytes have changed). */
+  first: { readonly native: WebGLBuffer; key: string; count: number } | undefined;
 
   constructor(
     readonly size: number,
@@ -412,7 +427,53 @@ class GlPipeline implements RhiRenderPipeline {
     readonly state: DrawState,
     readonly vao: WebGLVertexArrayObject,
     readonly buffers: readonly RhiVertexBufferLayout[],
+    /** Whether the vertex program declares a `flat` output: its draws take the first vertex. */
+    readonly flat: boolean,
   ) {}
+}
+
+/** `WEBGL_provoking_vertex` as a context gives it. */
+interface ProvokingVertex {
+  readonly FIRST_VERTEX_CONVENTION_WEBGL: number;
+  readonly PROVOKING_VERTEX_WEBGL: number;
+  provokingVertexWEBGL(mode: number): void;
+}
+
+/** The indices of a triangle list that draws the triangles of a draw of `count` vertices, each
+ *  with its first vertex last, where GLSL ES 3.00 takes a `flat` value. The triangles are the
+ *  draw's own, wound the same way: a list's `a b c` is `b c a`, and a strip's triangle `i` is
+ *  `i+1 i+2 i`, or `i+2 i+1 i` when `i` is odd. `source` is the draw's index buffer, absent for a
+ *  draw with none, and `restart` the index that starts a new primitive in it, as WebGL2 reads it
+ *  in every topology. */
+export function firstVertexLast(
+  count: number,
+  strip: boolean,
+  source?: ArrayLike<number>,
+  restart = -1,
+): Uint32Array {
+  const out = new Uint32Array(strip ? Math.max(0, count - 2) * 3 : count - (count % 3));
+  let n = 0;
+  // The vertices since the start or the last restart, and the two before this one.
+  let k = 0;
+  let a = 0;
+  let b = 0;
+  for (let i = 0; i < count; i++) {
+    const v = source === undefined ? i : source[i]!;
+    if (v === restart) {
+      k = 0;
+      continue;
+    }
+    k += 1;
+    if (strip ? k >= 3 : k % 3 === 0) {
+      const odd = strip && k % 2 === 0;
+      out[n++] = odd ? v : b;
+      out[n++] = odd ? b : v;
+      out[n++] = a;
+    }
+    a = b;
+    b = v;
+  }
+  return out.subarray(0, n);
 }
 
 /** The bindings of each group a WebGL2 pipeline's program reads, in the order of their units. A
@@ -931,6 +992,9 @@ class GlRenderPass implements RhiRenderPass {
   readonly #vertices: (GlBuffer | undefined)[] = [];
   #index: { buffer: GlBuffer; type: number } | undefined;
   #reference = 0;
+  /** The host's provoking vertex convention, read at the pass's first draw of a flat value with
+   *  `WEBGL_provoking_vertex`, which the pass gives back at its end. */
+  #provoking: number | undefined;
 
   constructor(
     private readonly device: GlDevice,
@@ -1080,8 +1144,19 @@ class GlRenderPass implements RhiRenderPass {
     });
     if (index !== undefined) gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, index.buffer.native!);
     setState(gl, p.state, this.#reference, this.s.polygonOffsetClamp);
-    if (index === undefined) gl.drawArraysInstanced(p.state.mode, 0, count, instances);
-    else gl.drawElementsInstanced(p.state.mode, count, index.type, 0, instances);
+    // A flat value comes from the first vertex of its primitive, as on WebGPU.
+    const ext = this.s.provokingVertex;
+    const mode = p.state.mode;
+    if (p.flat && ext !== null && this.#provoking === undefined) {
+      this.#provoking = gl.getParameter(ext.PROVOKING_VERTEX_WEBGL) as number;
+      ext.provokingVertexWEBGL(ext.FIRST_VERTEX_CONVENTION_WEBGL);
+    }
+    if (p.flat && ext === null && (mode === gl.TRIANGLES || mode === gl.TRIANGLE_STRIP)) {
+      const first = this.device.firstVertexLast(mode === gl.TRIANGLE_STRIP, count, index);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, first.native);
+      gl.drawElementsInstanced(gl.TRIANGLES, first.count, gl.UNSIGNED_INT, 0, instances);
+    } else if (index === undefined) gl.drawArraysInstanced(mode, 0, count, instances);
+    else gl.drawElementsInstanced(mode, count, index.type, 0, instances);
     gl.bindVertexArray(null);
   }
 
@@ -1169,6 +1244,7 @@ class GlRenderPass implements RhiRenderPass {
     this.#colour.forEach((c, i) => {
       if (c.tex === 'screen') blitScreen(s, i, 'out');
     });
+    if (this.#provoking !== undefined) s.provokingVertex!.provokingVertexWEBGL(this.#provoking);
     const host = this.#host;
     gl.viewport(host.viewport[0]!, host.viewport[1]!, host.viewport[2]!, host.viewport[3]!);
     gl.depthRange(host.range[0]!, host.range[1]!);
@@ -1224,6 +1300,11 @@ class GlDevice implements RhiDevice {
   #state: GlState | undefined;
   #limits: Readonly<Record<string, number>> | undefined;
   readonly #canvas = new GlCanvas();
+  /** The element buffers of {@link GlDevice.firstVertexLast} for a draw with no index buffer: a
+   *  list's, then a strip's. */
+  readonly #plain: ({ native: WebGLBuffer; count: number } | undefined)[] = [];
+  /** The element buffer of {@link GlDevice.firstVertexLast} for a host's own index buffer. */
+  #hosts: WebGLBuffer | undefined;
   readonly #views = new WeakMap<GlTexture, GlView>();
   /** The handle of each native object: the ones the device made, and a host's it was given. */
   readonly #handles = new WeakMap<object, RhiBuffer | RhiTexture | RhiSampler>();
@@ -1263,6 +1344,61 @@ class GlDevice implements RhiDevice {
     gl.bufferData(target, b.bytes, gl.STATIC_DRAW);
     gl.bindBuffer(target, null);
     b.staleBuffer = false;
+  }
+
+  /** The element buffer that draws the triangles of a draw of `count` vertices, each with its
+   *  first vertex last ({@link firstVertexLast}), and the number of its indices. Called with the
+   *  pipeline's vertex array bound. A draw with no index buffer shares one buffer for each of the
+   *  two topologies, which grows; an index buffer the device made keeps its own until its bytes
+   *  change; a host's own buffer is read back for each draw into one buffer. */
+  firstVertexLast(
+    strip: boolean,
+    count: number,
+    index: { buffer: GlBuffer; type: number } | undefined,
+  ): { native: WebGLBuffer; count: number } {
+    const gl = this.native;
+    const fill = (native: WebGLBuffer, indices: Uint32Array): void => {
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, native);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+    };
+    if (index === undefined) {
+      const plain = (this.#plain[strip ? 1 : 0] ??= { native: gl.createBuffer()!, count: 0 });
+      if (plain.count < count) {
+        fill(plain.native, firstVertexLast(count, strip));
+        plain.count = count;
+      }
+      return {
+        native: plain.native,
+        count: strip ? Math.max(0, count - 2) * 3 : count - (count % 3),
+      };
+    }
+    const b = index.buffer;
+    const wide = index.type === gl.UNSIGNED_INT;
+    const width = wide ? 4 : 2;
+    const restart = wide ? 0xffffffff : 0xffff;
+    if (b.bytes === undefined) {
+      // A host's own buffer may change with no word to the device: read back for each draw.
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, b.native!);
+      const size = gl.getBufferParameter(gl.ELEMENT_ARRAY_BUFFER, gl.BUFFER_SIZE) as number;
+      const n = Math.min(count, Math.floor(size / width));
+      const source = wide ? new Uint32Array(n) : new Uint16Array(n);
+      gl.getBufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, source);
+      const indices = firstVertexLast(n, strip, source, restart);
+      fill((this.#hosts ??= gl.createBuffer()!), indices);
+      return { native: this.#hosts, count: indices.length };
+    }
+    const key = `${String(strip)} ${String(wide)} ${String(count)}`;
+    if (b.first?.key === key) return b.first;
+    const n = Math.min(count, Math.floor(b.size / width));
+    const source = wide
+      ? new Uint32Array(b.bytes.buffer, 0, n)
+      : new Uint16Array(b.bytes.buffer, 0, n);
+    const indices = firstVertexLast(n, strip, source, restart);
+    const first = (b.first ??= { native: gl.createBuffer()!, key, count: 0 });
+    fill(first.native, indices);
+    first.key = key;
+    first.count = indices.length;
+    return first;
   }
 
   /** The data texture of a storage buffer, made again when its bytes have changed. */
@@ -1306,6 +1442,7 @@ class GlDevice implements RhiDevice {
     }
     b.bytes.set(bytes, byteOffset);
     b.staleBuffer = b.staleTexture = true;
+    if (b.first !== undefined) b.first.key = '';
   }
 
   readBuffer(buffer: RhiBuffer): Promise<ArrayBuffer> {
@@ -1320,6 +1457,8 @@ class GlDevice implements RhiDevice {
     if (b.owned && b.native !== undefined) this.native.deleteBuffer(b.native);
     if (b.texture !== undefined) this.native.deleteTexture(b.texture);
     b.texture = undefined;
+    if (b.first !== undefined) this.native.deleteBuffer(b.first.native);
+    b.first = undefined;
   }
 
   createTexture(desc: RhiTextureDesc): RhiTexture {
@@ -1477,10 +1616,23 @@ class GlDevice implements RhiDevice {
       desc.fragment === undefined
         ? NO_COLOUR
         : ((desc.fragment.module ?? desc.module) as GlModule).code;
+    const flat = /\bflat\s+out\b/.test(vertex);
+    const topology = desc.primitive.topology;
+    if (flat && this.state().provokingVertex === null && /^line/.test(topology))
+      throw new TypeError(
+        `${desc.label ?? 'A render pipeline'}: a flat interstage value on a ${topology} needs WEBGL_provoking_vertex on WebGL2, and this context lacks it. WebGPU takes a flat value from the first vertex of a line and GLSL ES 3.00 from the last, and a line turned round covers other pixels at its ends.`,
+      );
     const program = compile(gl, vertex, fragment, desc.label ?? 'a render pipeline');
     const slots = this.#slots(program, desc.layouts as readonly GlLayout[]);
     const state = drawStateOf(gl, desc);
-    return new GlPipeline(program, slots, state, gl.createVertexArray()!, desc.vertex.buffers);
+    return new GlPipeline(
+      program,
+      slots,
+      state,
+      gl.createVertexArray()!,
+      desc.vertex.buffers,
+      flat,
+    );
   }
 
   /** Each binding the program reads, at its block binding point or texture unit, set on `program`
