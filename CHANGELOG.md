@@ -216,7 +216,7 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   as before. The render hardware interface's compute pass gains `dispatchWorkgroupsIndirect`
   and buffers the `'indirect'` usage, with a conformance case; the WebGPU backend takes a device
   with no `createComputePipelineAsync` or `onSubmittedWorkDone`, as the call layer did; the
-  program runtime's buffer pool gives its buffers back first in, first out, and a bind group
+  program runtime's buffer pool gives its buffers back last in, first out (#1133), and a bind group
   over a pooled buffer is keyed by the size it binds. The caps of `typeshade/runtime` in
   `scripts/bundle-budget.json` take the measured gzip sizes, measured after `main` with change
   0131: single file 159,268 to 159,626 (+358), split initial 41,242 to 41,557 (+315) and split
@@ -1739,6 +1739,16 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `docs/ir-builder.md` describes the builder for engines and tools.
 
 ### Fixed
+
+- **A call that repeats its shapes makes no bind group, whatever the pool holds** (#1133). The
+  program runtime's buffer pool gave its buffers back first in, first out. When the pool held
+  more buffers of a shape than a call took, each repeat took a set turned round from the last,
+  and the bind group cache made a new group for each set. On the CPU tier a scale entry made 3
+  bind groups in 4 repeats after an entry of four storage arrays. The pool now gives back last
+  in, first out, with the first buffer a frame took on top, so a repeat takes the same buffers.
+  The split caps of `typeshade/runtime` in `scripts/bundle-budget.json` take the measured gzip
+  sizes: initial 41,557 to 41,562 (+5) and total 161,753 to 161,758 (+5). The single-file cap,
+  the floors and the other subpaths do not change.
 
 - **Conservative uniformity for helper conditions** (#180, #1088). Restored the previous
   `unknown` floor for every user call. The single-return helper proof could accept a barrier

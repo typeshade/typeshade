@@ -3,9 +3,9 @@
     "bytes": 159626,
     "floor": 17600,
     "split": {
-      "initial": 41557,
+      "initial": 41562,
       "floor": 18000,
-      "total": 161753
+      "total": 161758
     }
   },
   "typeshade/emit": {
