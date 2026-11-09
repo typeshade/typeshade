@@ -2,24 +2,20 @@ import { pinOverrides, glslOverrideNames } from '../core/gl-overrides.js';
 export { pinOverrides, glslOverrideNames } from '../core/gl-overrides.js';
 
 // The program runtime's draws on WebGL2 (change 0054 decision 2, Rule 11.11): textures, samplers,
-// render pipelines and passes on a WebGL2 context, from the vertex and fragment programs the
-// manifest carries (`Pack.gl.vertices`, `Pack.gl.draws`). It builds no program itself, so like
-// the rest of the runtime it imports no compiler.
+// render pipelines and passes, from the vertex and fragment programs the manifest carries
+// (`Pack.gl.vertices`, `Pack.gl.draws`). It builds no program itself, so like the rest of the
+// runtime it imports no compiler.
 //
-// WebGPU's conventions, kept. A vertex program's position is flipped in y and its depth moved
-// from WebGPU's 0..w to GL's -w..w, so a texture's row 0 is the top row a WebGPU pass draws, a
-// fragment's `position` is WebGPU's, and a depth value is the one WebGPU stores. The flip turns
-// the winding round, so `frontFace: 'ccw'` is GL's clockwise. A texture uploaded or read back
-// keeps WebGPU's row order with no copy turned over; only a pass into the canvas is turned over,
-// once, as it is copied to the screen.
+// The render hardware interface (change 0120, M2). Every object and command goes through the
+// WebGL2 backend of `src/rhi/webgl2.ts`, which keeps WebGPU's conventions (row 0 at the top,
+// `position`, depth, `frontFace`) and turns a pass into the canvas over onto the screen. This file
+// checks what a host gives, binds it by name, and records; it calls no WebGL2 function.
 //
 // Order. A pass is recorded into a frame and runs at `submit()`, and a texture's `read()` runs
 // where it is called, each after every call, frame and read before it (`core/resident.ts`), so a
 // read reads what was submitted before it, as on WebGPU.
 
 import { byteSize, describe, Misfit, pack, type Layout } from '../core/host-entry.js';
-import { glUniformBytes } from '../core/gl-uniform-bytes.js';
-import { compile, gpuDone } from '../core/gl-compute.js';
 import {
   layoutFromPack,
   type Pack,
@@ -33,6 +29,7 @@ import {
   at,
   blendConstantOf,
   checkPassFit,
+  depthStencilAttachmentOf,
   entryOf,
   passOf,
   planOf,
@@ -43,12 +40,9 @@ import {
   type CompareFunction,
   type Geometry,
   type PassFit,
-  type PassPlan,
   type RenderPipeline,
   type RenderPlan,
-  type PlanFace,
   type RenderState,
-  type StencilOperation,
 } from './program.js';
 import {
   layoutOf,
@@ -58,8 +52,29 @@ import {
   type TextureOptions,
 } from './resources.js';
 import type { PassTargets, RenderPass } from './runtime.js';
-
-type GL = WebGL2RenderingContext;
+import {
+  STAGE,
+  type RhiBindGroupLayout,
+  type RhiBindLayoutEntry,
+  type RhiBindResource,
+  type RhiBuffer,
+  type RhiColorAttachment,
+  type RhiColorTarget,
+  type RhiDevice,
+  type RhiRenderPass,
+  type RhiRenderPipeline,
+  type RhiSampler,
+  type RhiTexture,
+  type RhiTextureView,
+} from '../rhi/rhi.js';
+import {
+  GL_BLEND_FACTOR,
+  GL_BLEND_OPERATION,
+  GL_TOPOLOGY,
+  glReadBindings,
+  textureKindOf,
+  type GlTextureKind,
+} from '../rhi/webgl2.js';
 
 // ─── overrides ───────────────────────────────────────────────────────────────────────────────
 
@@ -69,232 +84,54 @@ export const glslNameOf = (b: {
   readonly emittedGlsl?: string;
 }): string => b.emittedGlsl ?? b.emitted;
 
-// ─── formats ─────────────────────────────────────────────────────────────────────────────────
+// ─── the drawing state of one runtime ────────────────────────────────────────────────────────
 
-/** How a `GPUTextureFormat` lives on WebGL2: its sized internal format, the format and type
- *  `texImage2D` and `readPixels` speak, its channels, and how its texels are cleared and read. */
-interface GlFormat {
-  readonly internal: number;
-  readonly format: number;
-  readonly type: number;
-  readonly channels: number;
-  /** How a clear and a read take it: a float or normalized colour, an integer one, or depth. */
-  readonly kind: 'float' | 'uint' | 'sint' | 'depth';
-  /** Blue first: WebGL2 has no BGRA texture, so the texels are RGBA and a read swaps them. */
-  readonly bgra?: boolean;
-}
-
-const NAMED = /^(r|rg|rgba|bgra)(8|16|32)(unorm|snorm|uint|sint|float)(-srgb)?$/;
-
-/** `name` on `gl`, or undefined for a format WebGL2 has no texture of. */
-function formatOf(gl: GL, name: string): GlFormat | undefined {
-  switch (name) {
-    case 'depth16unorm':
-      return depth(gl.DEPTH_COMPONENT16, gl.DEPTH_COMPONENT, gl.UNSIGNED_SHORT);
-    case 'depth24plus':
-      return depth(gl.DEPTH_COMPONENT24, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT);
-    case 'depth32float':
-      return depth(gl.DEPTH_COMPONENT32F, gl.DEPTH_COMPONENT, gl.FLOAT);
-    case 'depth24plus-stencil8':
-      return depth(gl.DEPTH24_STENCIL8, gl.DEPTH_STENCIL, gl.UNSIGNED_INT_24_8);
-    case 'depth32float-stencil8':
-      return depth(gl.DEPTH32F_STENCIL8, gl.DEPTH_STENCIL, gl.FLOAT_32_UNSIGNED_INT_24_8_REV);
-    case 'rgb10a2unorm':
-      return {
-        internal: gl.RGB10_A2,
-        format: gl.RGBA,
-        type: gl.UNSIGNED_INT_2_10_10_10_REV,
-        channels: 4,
-        kind: 'float',
-      };
-    case 'rgb10a2uint':
-      return {
-        internal: gl.RGB10_A2UI,
-        format: gl.RGBA_INTEGER,
-        type: gl.UNSIGNED_INT_2_10_10_10_REV,
-        channels: 4,
-        kind: 'uint',
-      };
-    case 'rg11b10ufloat':
-      return {
-        internal: gl.R11F_G11F_B10F,
-        format: gl.RGB,
-        type: gl.UNSIGNED_INT_10F_11F_11F_REV,
-        channels: 3,
-        kind: 'float',
-      };
-  }
-  const m = NAMED.exec(name);
-  if (m === null) return undefined;
-  const [, ch, bitsText, kind, srgb] = m as unknown as [string, string, string, string, string?];
-  const bits = Number(bitsText);
-  const channels = ch === 'r' ? 1 : ch === 'rg' ? 2 : 4;
-  const bgra = ch === 'bgra';
-  const C = ch === 'bgra' ? 'RGBA' : ch.toUpperCase();
-  const g = gl as unknown as Record<string, number | undefined>;
-  const base = channels === 1 ? 'RED' : channels === 2 ? 'RG' : 'RGBA';
-  if (kind === 'unorm' && bits === 8) {
-    if (srgb !== undefined)
-      return channels === 4
-        ? {
-            internal: gl.SRGB8_ALPHA8,
-            format: gl.RGBA,
-            type: gl.UNSIGNED_BYTE,
-            channels,
-            kind: 'float',
-            bgra,
-          }
-        : undefined;
-    return {
-      internal: g[`${C}8`]!,
-      format: g[base]!,
-      type: gl.UNSIGNED_BYTE,
-      channels,
-      kind: 'float',
-      bgra,
-    };
-  }
-  if (srgb !== undefined) return undefined;
-  if (kind === 'snorm' && bits === 8)
-    return {
-      internal: g[`${C}8_SNORM`]!,
-      format: g[base]!,
-      type: gl.BYTE,
-      channels,
-      kind: 'float',
-    };
-  if (kind === 'float' && bits !== 8)
-    return {
-      internal: g[`${C}${bits}F`]!,
-      format: g[base]!,
-      type: bits === 16 ? gl.HALF_FLOAT : gl.FLOAT,
-      channels,
-      kind: 'float',
-    };
-  if (kind === 'uint' || kind === 'sint') {
-    const u = kind === 'uint';
-    const type =
-      bits === 8
-        ? u
-          ? gl.UNSIGNED_BYTE
-          : gl.BYTE
-        : bits === 16
-          ? u
-            ? gl.UNSIGNED_SHORT
-            : gl.SHORT
-          : u
-            ? gl.UNSIGNED_INT
-            : gl.INT;
-    const internal = g[`${C}${bits}${u ? 'UI' : 'I'}`];
-    return internal === undefined
-      ? undefined
-      : { internal, format: g[`${base}_INTEGER`]!, type, channels, kind };
-  }
-  return undefined;
-}
-
-function depth(internal: number, format: number, type: number): GlFormat {
-  return { internal, format, type, channels: 1, kind: 'depth' };
-}
-
-// ─── the drawing state of one context ────────────────────────────────────────────────────────
-
-/** What every texture, pipeline and pass of one runtime shares on its context. */
+/** What every texture, pipeline and pass of one runtime shares: its device, and what a
+ *  `Resident` uploaded last. */
 export class GlDrawing {
-  readonly fbo: WebGLFramebuffer;
-  readonly blitFbo: WebGLFramebuffer;
-  /** Where a texture paired with no sampler is read from: nearest, clamped. */
-  readonly nearest: WebGLSampler;
-  /** The context's `MAX_COLOR_ATTACHMENTS`, read once: a pass detaches the attachments below it
-   *  that it does not use. An attachment at or above it is `INVALID_ENUM`, an error that stays on
-   *  the context until the next `getError()`, which may be another layer's. */
-  readonly maxColorAttachments: number;
-  /** `EXT_polygon_offset_clamp`, requested once, or null when the context lacks it (A1). */
-  readonly polygonOffsetClamp: PolygonOffsetClamp | null;
-  #guard: WebGLTexture | undefined;
-  #screen: { tex: WebGLTexture; w: number; h: number } | undefined;
-  /** What a `Resident` uploaded last, by what it became: a buffer or a data texture. */
+  #guard: RhiTextureView | undefined;
+  /** What a `Resident` uploaded last, by what it became: a vertex, index or storage buffer. */
   readonly uploads = new WeakMap<
     ResidentArrayState,
-    Map<string, { obj: object; version: number }>
+    Map<string, { buffer: RhiBuffer; version: number }>
   >();
 
-  constructor(readonly gl: GL) {
-    // A float target (`rgba16float`, `r32float`) and a filtered `f32` texture each need the
-    // extension that allows them; one the context lacks leaves such a texture incomplete, and
-    // its draw is refused by WebGL2 where WebGPU would refuse its format.
-    for (const ext of [
-      'EXT_color_buffer_float',
-      'EXT_color_buffer_half_float',
-      'OES_texture_float_linear',
-    ])
-      gl.getExtension(ext);
-    this.fbo = gl.createFramebuffer()!;
-    this.blitFbo = gl.createFramebuffer()!;
-    this.nearest = gl.createSampler()!;
-    this.maxColorAttachments = gl.getParameter(gl.MAX_COLOR_ATTACHMENTS) as number;
-    this.polygonOffsetClamp = gl.getExtension(
-      'EXT_polygon_offset_clamp',
-    ) as PolygonOffsetClamp | null;
-    gl.samplerParameteri(this.nearest, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.samplerParameteri(this.nearest, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.samplerParameteri(this.nearest, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.samplerParameteri(this.nearest, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  }
+  constructor(readonly rhi: RhiDevice) {}
 
   /** The `_fp64` guard: a 1 × 1 texture that holds 1.0. */
-  guard(): WebGLTexture {
+  guard(): RhiTextureView {
     if (this.#guard === undefined) {
-      const gl = this.gl;
-      this.#guard = gl.createTexture()!;
-      gl.bindTexture(gl.TEXTURE_2D, this.#guard);
-      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 1, 1);
-      gl.texSubImage2D(
-        gl.TEXTURE_2D,
-        0,
-        0,
-        0,
-        1,
-        1,
-        gl.RGBA,
-        gl.UNSIGNED_BYTE,
-        new Uint8Array([255, 255, 255, 255]),
-      );
-      gl.bindTexture(gl.TEXTURE_2D, null);
+      const t = this.rhi.createTexture({
+        size: [1, 1, 1],
+        format: 'rgba8unorm',
+        usage: ['sampled', 'copy-dst'],
+      });
+      this.rhi.writeTexture(t, new Uint8Array([255, 255, 255, 255]), 4, 1, 1);
+      this.#guard = this.rhi.createView(t);
     }
     return this.#guard;
   }
 
-  /** The texture a pass into the canvas draws into, the drawing buffer's size, turned over onto
-   *  the screen once the pass is done. */
-  screen(): { tex: WebGLTexture; w: number; h: number } {
-    const gl = this.gl;
-    const w = gl.drawingBufferWidth;
-    const h = gl.drawingBufferHeight;
-    if (this.#screen === undefined || this.#screen.w !== w || this.#screen.h !== h) {
-      if (this.#screen !== undefined) gl.deleteTexture(this.#screen.tex);
-      const tex = gl.createTexture()!;
-      gl.bindTexture(gl.TEXTURE_2D, tex);
-      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, w, h);
-      gl.bindTexture(gl.TEXTURE_2D, null);
-      this.#screen = { tex, w, h };
-    }
-    return this.#screen;
-  }
-
-  /** The upload of `state` as `as`, made again only when its host copy has changed. */
-  uploaded<T extends object>(
+  /** The buffer `state` was uploaded into as `as`, written again only when its host copy has
+   *  changed, and made again when its size has. */
+  uploaded(
     state: ResidentArrayState,
     as: string,
-    make: (old: T | undefined) => T,
-  ): T {
+    bytes: ArrayBufferView,
+    make: (size: number) => RhiBuffer,
+  ): RhiBuffer {
     let byKind = this.uploads.get(state);
     if (byKind === undefined) this.uploads.set(state, (byKind = new Map()));
     const hit = byKind.get(as);
-    if (hit !== undefined && hit.version === state.version) return hit.obj as T;
-    const obj = make(hit?.obj as T | undefined);
-    byKind.set(as, { obj, version: state.version });
-    return obj;
+    if (hit !== undefined && hit.version === state.version) return hit.buffer;
+    let buffer = hit?.buffer;
+    if (buffer === undefined || buffer.size !== bytes.byteLength) {
+      if (buffer !== undefined) this.rhi.destroyBuffer(buffer);
+      buffer = make(bytes.byteLength);
+    }
+    this.rhi.writeBuffer(buffer, 0, bytes);
+    byKind.set(as, { buffer, version: state.version });
+    return buffer;
   }
 }
 
@@ -302,10 +139,11 @@ export class GlDrawing {
 
 /** A texture of the WebGL2 tier: a sampled texture and a render target at once. */
 export class GlTextureImpl implements Texture {
-  #tex: WebGLTexture;
+  #tex: RhiTexture;
   #w: number;
   #h: number;
-  readonly #fmt: GlFormat;
+  readonly #kind: GlTextureKind;
+  readonly #storage: boolean;
 
   constructor(
     private readonly d: GlDrawing,
@@ -331,10 +169,11 @@ export class GlTextureImpl implements Texture {
       );
     // `storage: true` asks for nothing more here: a compute entry's storage texture is a memory
     // root of its pass program, drawn back into this texture after the dispatch (change 0054).
-    const fmt = formatOf(d.gl, o.format);
-    if (fmt === undefined) throw new TypeError(`texture(): WebGL2 has no ${o.format} texture.`);
+    const kind = textureKindOf(o.format);
+    if (kind === undefined) throw new TypeError(`texture(): WebGL2 has no ${o.format} texture.`);
     this.format = o.format;
-    this.#fmt = fmt;
+    this.#kind = kind;
+    this.#storage = o.storage === true;
     this.#w = o.size[0];
     this.#h = o.size[1];
     this.#tex = this.#make();
@@ -342,16 +181,25 @@ export class GlTextureImpl implements Texture {
 
   readonly format: string;
 
-  #make(): WebGLTexture {
-    const gl = this.d.gl;
-    const t = gl.createTexture()!;
-    gl.bindTexture(gl.TEXTURE_2D, t);
-    gl.texStorage2D(gl.TEXTURE_2D, 1, this.#fmt.internal, this.#w, this.#h);
-    gl.bindTexture(gl.TEXTURE_2D, null);
-    return t;
+  #make(): RhiTexture {
+    return this.d.rhi.createTexture({
+      size: [this.#w, this.#h, 1],
+      format: this.format,
+      usage: [
+        'render',
+        'sampled',
+        'copy-src',
+        'copy-dst',
+        ...(this.#storage ? ['storage' as const] : []),
+      ],
+    });
   }
 
   get texture(): object {
+    return this.d.rhi.toNative(this.#tex);
+  }
+  /** The device's texture now: a resize replaces it. */
+  get handle(): RhiTexture {
     return this.#tex;
   }
   get width(): number {
@@ -361,8 +209,8 @@ export class GlTextureImpl implements Texture {
     return this.#h;
   }
   /** How the texels are cleared and read. */
-  get gl(): GlFormat {
-    return this.#fmt;
+  get kind(): GlTextureKind {
+    return this.#kind;
   }
 
   resize(width: number, height: number): void {
@@ -372,7 +220,7 @@ export class GlTextureImpl implements Texture {
     this.#h = height;
     this.#tex = this.#make();
     // A frame submitted before the resize still draws into the texture it named.
-    kernelQueue.whenIdle(() => this.d.gl.deleteTexture(old));
+    kernelQueue.whenIdle(() => this.d.rhi.destroyTexture(old));
   }
 
   read(): Promise<Uint8Array> {
@@ -403,7 +251,7 @@ export class GlTextureImpl implements Texture {
    *  where it is called, so it reads what was submitted before the call. */
   #read(who: string): Promise<Uint8Array> {
     const layout = layoutOf(this.format);
-    if (layout === undefined || (this.#fmt.kind === 'depth' && this.format !== 'depth32float'))
+    if (layout === undefined || (this.#kind === 'depth' && this.format !== 'depth32float'))
       throw new TypeError(
         `${who}() cannot copy a ${this.format} texture back; it copies every uncompressed colour format and depth32float.`,
       );
@@ -412,100 +260,65 @@ export class GlTextureImpl implements Texture {
         `${who}(): WebGL2 renders into no ${this.format} texture, and reads none back.`,
       );
     const tex = this.#tex;
-    const w = this.#w;
-    const h = this.#h;
-    return kernelQueue.run(() =>
-      readTexels(this.d, tex, this.format, this.#fmt, w, h, layout.bytes),
-    );
+    return kernelQueue.run(() => this.d.rhi.readTexture(tex, layout.bytes));
   }
 
   destroy(): void {
     const t = this.#tex;
-    kernelQueue.whenIdle(() => this.d.gl.deleteTexture(t));
+    kernelQueue.whenIdle(() => this.d.rhi.destroyTexture(t));
   }
 }
+
+/** The comparisons WebGPU names. Typed by CompareFunction: a new member is a compile error here. */
+const COMPARISONS: Record<CompareFunction, true> = {
+  never: true,
+  less: true,
+  equal: true,
+  'less-equal': true,
+  greater: true,
+  'not-equal': true,
+  'greater-equal': true,
+  always: true,
+};
 
 /** A sampler of the WebGL2 tier. */
 export class GlSamplerImpl implements Sampler {
-  readonly #s: WebGLSampler;
-  constructor(gl: GL, options: SamplerOptions | object | undefined) {
-    const o = (options ?? {}) as SamplerOptions;
-    if (typeof WebGLSampler !== 'undefined' && options instanceof WebGLSampler) {
-      this.#s = options;
+  readonly handle: RhiSampler;
+  constructor(
+    private readonly rhi: RhiDevice,
+    options: SamplerOptions | object | undefined,
+  ) {
+    const host = options === undefined ? undefined : rhi.fromNative('sampler', options);
+    if (host !== undefined) {
+      this.handle = host;
       return;
     }
-    const s = gl.createSampler()!;
-    const filter = (o.filter ?? 'linear') === 'nearest' ? gl.NEAREST : gl.LINEAR;
-    const wrap =
+    const o = (options ?? {}) as SamplerOptions;
+    // A name a sampler gives that is not a comparison is refused in WebGPU's sentence.
+    if (o.compare !== undefined && !(o.compare in COMPARISONS))
+      throw new TypeError(
+        `"${String(o.compare)}" is not a comparison; WebGPU's are less, less-equal, greater, greater-equal, equal, not-equal, always and never.`,
+      );
+    const filter = (o.filter ?? 'linear') === 'nearest' ? 'nearest' : 'linear';
+    const address =
       o.address === 'repeat'
-        ? gl.REPEAT
+        ? 'repeat'
         : o.address === 'mirror'
-          ? gl.MIRRORED_REPEAT
-          : gl.CLAMP_TO_EDGE;
-    gl.samplerParameteri(s, gl.TEXTURE_MIN_FILTER, filter);
-    gl.samplerParameteri(s, gl.TEXTURE_MAG_FILTER, filter);
-    gl.samplerParameteri(s, gl.TEXTURE_WRAP_S, wrap);
-    gl.samplerParameteri(s, gl.TEXTURE_WRAP_T, wrap);
-    gl.samplerParameteri(s, gl.TEXTURE_WRAP_R, wrap);
-    if (o.compare !== undefined) {
-      gl.samplerParameteri(s, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
-      gl.samplerParameteri(s, gl.TEXTURE_COMPARE_FUNC, compareOf(gl, o.compare));
-    }
-    this.#s = s;
+          ? 'mirror-repeat'
+          : 'clamp-to-edge';
+    this.handle = rhi.createSampler({
+      magFilter: filter,
+      minFilter: filter,
+      mipmapFilter: filter,
+      addressModeU: address,
+      addressModeV: address,
+      addressModeW: address,
+      ...(o.compare !== undefined ? { compare: o.compare } : {}),
+    });
   }
   get sampler(): object {
-    return this.#s;
+    return this.rhi.toNative(this.handle);
   }
-}
-
-function compareOf(gl: GL, c: string): number {
-  // Typed by CompareFunction: a new member is a compile error here. A name a sampler gives that is
-  // not one of them is refused below, in WebGPU's sentence.
-  const table: Record<CompareFunction, number> = {
-    never: gl.NEVER,
-    less: gl.LESS,
-    equal: gl.EQUAL,
-    'less-equal': gl.LEQUAL,
-    greater: gl.GREATER,
-    'not-equal': gl.NOTEQUAL,
-    'greater-equal': gl.GEQUAL,
-    always: gl.ALWAYS,
-  };
-  const f = (table as Partial<Record<string, number>>)[c];
-  if (f === undefined)
-    throw new TypeError(
-      `"${c}" is not a comparison; WebGPU's are less, less-equal, greater, greater-equal, equal, not-equal, always and never.`,
-    );
-  return f;
-}
-
-/** The GL operation of a stencil operation. Typed by StencilOperation: a new member is a compile
- *  error here. `increment-clamp` is INCR and `decrement-clamp` is DECR. The wrap forms are their own. */
-function stencilOpOf(gl: GL, op: StencilOperation): number {
-  const table: Record<StencilOperation, number> = {
-    keep: gl.KEEP,
-    zero: gl.ZERO,
-    replace: gl.REPLACE,
-    invert: gl.INVERT,
-    'increment-clamp': gl.INCR,
-    'decrement-clamp': gl.DECR,
-    'increment-wrap': gl.INCR_WRAP,
-    'decrement-wrap': gl.DECR_WRAP,
-  };
-  return table[op];
-}
-
-/** The GL stencil test of one face: its function and its three operations. */
-interface DrawFace {
-  readonly func: number;
-  readonly fail: number;
-  readonly zfail: number;
-  readonly zpass: number;
-}
-
-/** `EXT_polygon_offset_clamp`: `polygonOffsetClampEXT(factor, units, clamp)`. */
-interface PolygonOffsetClamp {
-  polygonOffsetClampEXT(factor: number, units: number, clamp: number): void;
 }
 
 /** The depth formats whose constant and slope bias the WebGL2 tier takes (A1). A format joins
@@ -535,263 +348,7 @@ function refuseBias(
     );
 }
 
-// ─── reading texels back ─────────────────────────────────────────────────────────────────────
-
-/** Read `tex` back as the bytes of `format`, as WebGPU's copy gives them. */
-async function readTexels(
-  d: GlDrawing,
-  tex: WebGLTexture,
-  format: string,
-  fmt: GlFormat,
-  w: number,
-  h: number,
-  bytes: number,
-): Promise<Uint8Array> {
-  const gl = d.gl;
-  let source = tex;
-  let scratch: WebGLTexture | undefined;
-  if (fmt.kind === 'depth') {
-    // WebGL2 reads no depth back: a pass copies it into an r32float texture first.
-    scratch = depthToColour(d, tex, w, h);
-    source = scratch;
-  }
-  // `readPixels` takes each class in one format and type: RGBA bytes, RGBA floats, RGBA
-  // integers, or the packed 10-10-10-2 word.
-  const cls: 'bytes' | 'float' | 'uint' | 'sint' | 'packed' =
-    fmt.kind === 'depth'
-      ? 'float'
-      : fmt.kind === 'uint'
-        ? 'uint'
-        : fmt.kind === 'sint'
-          ? 'sint'
-          : format === 'rgb10a2unorm'
-            ? 'packed'
-            : fmt.type === gl.UNSIGNED_BYTE
-              ? 'bytes'
-              : 'float';
-  const texels = w * h;
-  const lanes = cls === 'packed' ? 1 : 4;
-  const size = texels * lanes * (cls === 'bytes' ? 1 : 4);
-  const buffer = gl.createBuffer()!;
-  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
-  gl.bufferData(gl.PIXEL_PACK_BUFFER, size, gl.STREAM_READ);
-  gl.bindFramebuffer(gl.READ_FRAMEBUFFER, d.blitFbo);
-  gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, source, 0);
-  gl.readBuffer(gl.COLOR_ATTACHMENT0);
-  gl.pixelStorei(gl.PACK_ALIGNMENT, 1);
-  const [f, t] =
-    cls === 'bytes'
-      ? [gl.RGBA, gl.UNSIGNED_BYTE]
-      : cls === 'float'
-        ? [gl.RGBA, gl.FLOAT]
-        : cls === 'uint'
-          ? [gl.RGBA_INTEGER, gl.UNSIGNED_INT]
-          : cls === 'sint'
-            ? [gl.RGBA_INTEGER, gl.INT]
-            : [gl.RGBA, gl.UNSIGNED_INT_2_10_10_10_REV];
-  gl.readPixels(0, 0, w, h, f, t, 0);
-  gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, null, 0);
-  gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
-  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-  if (scratch !== undefined) gl.deleteTexture(scratch);
-  await gpuDone(gl);
-  const raw = new ArrayBuffer(size);
-  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
-  gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, new Uint8Array(raw));
-  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-  gl.deleteBuffer(buffer);
-  return texelBytes(raw, cls, format, fmt, texels, bytes);
-}
-
-/** The RGBA read of `texels` texels as the bytes WebGPU's copy of `format` gives. */
-function texelBytes(
-  raw: ArrayBuffer,
-  cls: 'bytes' | 'float' | 'uint' | 'sint' | 'packed',
-  format: string,
-  fmt: GlFormat,
-  texels: number,
-  bytes: number,
-): Uint8Array {
-  const out = new Uint8Array(texels * bytes);
-  if (cls === 'packed') {
-    out.set(new Uint8Array(raw));
-    return out;
-  }
-  const c = fmt.channels;
-  const order = fmt.bgra === true ? [2, 1, 0, 3] : [0, 1, 2, 3];
-  if (cls === 'bytes') {
-    const src = new Uint8Array(raw);
-    for (let i = 0; i < texels; i++)
-      for (let k = 0; k < c; k++) out[i * c + k] = src[i * 4 + order[k]!]!;
-    return out;
-  }
-  if (format === 'rgb10a2uint') {
-    const src = new Uint32Array(raw);
-    const words = new Uint32Array(out.buffer);
-    for (let i = 0; i < texels; i++)
-      words[i] =
-        (src[i * 4]! |
-          (src[i * 4 + 1]! << 10) |
-          (src[i * 4 + 2]! << 20) |
-          (src[i * 4 + 3]! << 30)) >>>
-        0;
-    return out;
-  }
-  if (format === 'rg11b10ufloat') {
-    const src = new Float32Array(raw);
-    const words = new Uint32Array(out.buffer);
-    for (let i = 0; i < texels; i++)
-      words[i] =
-        (smallBits(src[i * 4]!, 6) |
-          (smallBits(src[i * 4 + 1]!, 6) << 11) |
-          (smallBits(src[i * 4 + 2]!, 5) << 22)) >>>
-        0;
-    return out;
-  }
-  const per = bytes / c;
-  const view = new DataView(out.buffer);
-  const src =
-    cls === 'float'
-      ? new Float32Array(raw)
-      : cls === 'uint'
-        ? new Uint32Array(raw)
-        : new Int32Array(raw);
-  for (let i = 0; i < texels; i++)
-    for (let k = 0; k < c; k++) {
-      const v = src[i * 4 + order[k]!]!;
-      const at = (i * c + k) * per;
-      if (cls === 'float') {
-        if (per === 4) view.setFloat32(at, v, true);
-        else view.setUint16(at, halfBits(v), true);
-      } else if (per === 4) view.setUint32(at, v >>> 0, true);
-      else if (per === 2) view.setUint16(at, v & 0xffff, true);
-      else view.setUint8(at, v & 0xff);
-    }
-  return out;
-}
-
-/** A number a half float holds, as the half float's bits. */
-function halfBits(v: number): number {
-  const sign = Object.is(v, -0) || v < 0 ? 0x8000 : 0;
-  return sign | smallBits(Math.abs(v), 10);
-}
-
-/** A non-negative number an unsigned float of a 5-bit exponent and `m` mantissa bits holds, as
- *  its bits. */
-function smallBits(v: number, m: number): number {
-  if (Number.isNaN(v)) return (31 << m) | 1;
-  if (v === Infinity) return 31 << m;
-  if (v <= 0) return 0;
-  let e = Math.floor(Math.log2(v));
-  if (e < -14) return Math.round(v / 2 ** (-14 - m));
-  let f = Math.round((v / 2 ** e - 1) * 2 ** m);
-  if (f === 2 ** m) {
-    f = 0;
-    e++;
-  }
-  return ((e + 15) << m) | f;
-}
-
-const BLIT_VS = `#version 300 es
-void main() {
-  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
-  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
-}
-`;
-
-const DEPTH_FS = `#version 300 es
-precision highp float;
-uniform highp sampler2D d;
-layout(location = 0) out vec4 o;
-void main() {
-  o = vec4(texelFetch(d, ivec2(gl_FragCoord.xy), 0).r, 0.0, 0.0, 1.0);
-}
-`;
-
-/** An r32float copy of the depth texture `tex`, texel for texel. */
-function depthToColour(d: GlDrawing, tex: WebGLTexture, w: number, h: number): WebGLTexture {
-  const gl = d.gl;
-  const out = gl.createTexture()!;
-  gl.bindTexture(gl.TEXTURE_2D, out);
-  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, w, h);
-  gl.bindTexture(gl.TEXTURE_2D, null);
-  const program = compile(gl, BLIT_VS, DEPTH_FS, 'the depth read-back');
-  gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, d.blitFbo);
-  gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, out, 0);
-  gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, null, 0);
-  gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
-  gl.viewport(0, 0, w, h);
-  gl.disable(gl.DEPTH_TEST);
-  gl.disable(gl.BLEND);
-  gl.disable(gl.CULL_FACE);
-  gl.disable(gl.SCISSOR_TEST);
-  gl.colorMask(true, true, true, true);
-  gl.useProgram(program);
-  gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.bindSampler(0, d.nearest);
-  gl.uniform1i(gl.getUniformLocation(program, 'd'), 0);
-  gl.bindVertexArray(null);
-  gl.drawArrays(gl.TRIANGLES, 0, 3);
-  gl.bindTexture(gl.TEXTURE_2D, null);
-  gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, null, 0);
-  gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
-  return out;
-}
-
 // ─── render pipelines ────────────────────────────────────────────────────────────────────────
-
-/** The trivial fragment program of a depth-only pipeline. */
-const NO_COLOUR = `#version 300 es
-precision highp float;
-void main() {}
-`;
-
-/** `vertex` with its position turned to GL's: y flipped, depth from 0..w to -w..w. */
-function toGlClip(vertex: string): string {
-  const renamed = vertex.replace(/\bvoid main\(\)/, 'void _ts_main()');
-  return `${renamed}
-void main() {
-  _ts_main();
-  gl_Position.y = -gl_Position.y;
-  gl_Position.z = 2.0 * gl_Position.z - gl_Position.w;
-}
-`;
-}
-
-const TOPOLOGY: Readonly<
-  Record<string, 'TRIANGLES' | 'TRIANGLE_STRIP' | 'LINES' | 'LINE_STRIP' | 'POINTS'>
-> = {
-  'triangle-list': 'TRIANGLES',
-  'triangle-strip': 'TRIANGLE_STRIP',
-  'line-list': 'LINES',
-  'line-strip': 'LINE_STRIP',
-  'point-list': 'POINTS',
-};
-
-const BLEND_FACTOR: Readonly<Record<string, string>> = {
-  zero: 'ZERO',
-  one: 'ONE',
-  src: 'SRC_COLOR',
-  'one-minus-src': 'ONE_MINUS_SRC_COLOR',
-  'src-alpha': 'SRC_ALPHA',
-  'one-minus-src-alpha': 'ONE_MINUS_SRC_ALPHA',
-  dst: 'DST_COLOR',
-  'one-minus-dst': 'ONE_MINUS_DST_COLOR',
-  'dst-alpha': 'DST_ALPHA',
-  'one-minus-dst-alpha': 'ONE_MINUS_DST_ALPHA',
-  'src-alpha-saturated': 'SRC_ALPHA_SATURATE',
-  constant: 'CONSTANT_COLOR',
-  'one-minus-constant': 'ONE_MINUS_CONSTANT_COLOR',
-};
-
-const BLEND_OP: Readonly<Record<string, string>> = {
-  add: 'FUNC_ADD',
-  subtract: 'FUNC_SUBTRACT',
-  'reverse-subtract': 'FUNC_REVERSE_SUBTRACT',
-  min: 'MIN',
-  max: 'MAX',
-};
 
 interface BlendComponent {
   readonly srcFactor?: string;
@@ -799,48 +356,31 @@ interface BlendComponent {
   readonly operation?: string;
 }
 
-/** What a pipeline sets before each draw. */
-interface DrawState {
-  readonly mode: number;
-  readonly depth?: { readonly func: number; readonly write: boolean };
-  readonly cull?: number;
-  readonly frontFace: number;
-  readonly blend?: {
-    readonly src: [number, number];
-    readonly dst: [number, number];
-    readonly op: [number, number];
-  };
-  readonly mask: readonly [boolean, boolean, boolean, boolean];
-  /** The stencil test, when the pipeline has `depth.stencil`. */
-  readonly stencil?: {
-    readonly front: DrawFace;
-    readonly back: DrawFace;
-    readonly readMask: number;
-    readonly writeMask: number;
-  };
-  /** The polygon offset: `polygonOffset(factor, units)`, or `polygonOffsetClampEXT` with a non-zero
-   *  clamp. Absent when the constant and the slope are 0. */
-  readonly offset?: { readonly factor: number; readonly units: number; readonly clamp: number };
-}
-
-/** One binding a pipeline's program reads, and where. */
+/** One binding a pipeline's programs read: its manifest binding, its number in the pipeline's
+ *  bind group, and how it is bound. */
 interface Slot {
   readonly binding: PackBinding;
+  /** Its entry in the pipeline's bind group layout. */
+  readonly index: number;
   readonly kind: 'block' | 'texture' | 'data';
-  /** The uniform block's binding point, or the texture unit. */
-  readonly unit: number;
-  /** The sampler binding a texture is read with, or null for none. */
-  readonly sampler?: string | null;
+  /** The sampler binding a texture is read with, by name and by its entry; none for none. */
+  readonly sampler?: { readonly name: string; readonly index: number };
   readonly layout?: Layout;
-  /** Allocation minimum of the linked uniform block; the logical layout stays unchanged. */
-  readonly minimum?: number;
+}
+
+/** A pipeline as the device made it: the bind group layout of its bindings, and the slots of the
+ *  bindings its programs read, in the order of their units. */
+interface Built {
+  readonly pipeline: RhiRenderPipeline;
+  readonly layout: RhiBindGroupLayout;
+  readonly slots: readonly Slot[];
 }
 
 /** The program of a load on WebGL2: its manifest's vertex and fragment programs. */
 export class GlRenderPrograms {
-  readonly #pipelines = new Map<string, GlRenderPipelineImpl>();
+  readonly #pipelines = new Map<string, Promise<GlRenderPipelineImpl>>();
   /** The built objects of each normalised state without its blend constant, by `gpuKey`. */
-  readonly #built = new Map<string, { program: WebGLProgram; slots: Slot[]; state: DrawState }>();
+  readonly #built = new Map<string, Promise<Built>>();
   readonly #bindings: ReadonlyMap<string, PackBinding>;
 
   constructor(
@@ -850,7 +390,8 @@ export class GlRenderPrograms {
     this.#bindings = new Map(manifest.bindings.map((b) => [b.name, b]));
   }
 
-  render(state: RenderState): RenderPipeline {
+  /** The pipeline of `state`. A state the tier refuses throws before anything is built. */
+  render(state: RenderState): Promise<RenderPipeline> {
     const m = this.manifest;
     const vs = entryOf(m, state.vertex, 'vertex');
     const fs =
@@ -858,40 +399,40 @@ export class GlRenderPrograms {
     // The checked state (proposal 0064, F1). Two levels, as on WebGPU: the wrapper by the whole
     // state, the built objects by the state without `blendConstant`.
     const plan = planOf(m, vs, fs, state);
-    let p = this.#pipelines.get(plan.key);
-    if (p === undefined) {
-      let built = this.#built.get(plan.gpuKey);
-      if (built === undefined) {
-        built = this.#build(vs, fs, plan);
-        this.#built.set(plan.gpuKey, built);
-      }
-      p = new GlRenderPipelineImpl(
-        this,
-        vs,
-        fs,
-        built.program,
-        built.slots,
-        built.state,
-        plan.blendConstant,
-        fs?.outputs?.some((o) => o.builtin === 'frag_depth') ?? false,
-        plan.depth,
-        plan.depth?.stencil?.reference,
-        plan.multisample.mask,
-        plan.writes,
-      );
-      this.#pipelines.set(plan.key, p);
+    const hit = this.#pipelines.get(plan.key);
+    if (hit !== undefined) return hit;
+    let built = this.#built.get(plan.gpuKey);
+    if (built === undefined) {
+      built = this.#build(vs, fs, plan);
+      this.#built.set(plan.gpuKey, built);
+      // A pipeline the device refused is built again by the next state that asks for it.
+      built.catch(() => this.#built.delete(plan.gpuKey));
     }
+    const p = built.then(
+      (b) =>
+        new GlRenderPipelineImpl(
+          this,
+          vs,
+          fs,
+          b,
+          plan.blendConstant,
+          fs?.outputs?.some((o) => o.builtin === 'frag_depth') ?? false,
+          plan.depth,
+          plan.depth?.stencil?.reference,
+          plan.multisample.mask,
+          plan.writes,
+        ),
+    );
+    this.#pipelines.set(plan.key, p);
+    p.catch(() => this.#pipelines.delete(plan.key));
     return p;
   }
 
-  /** The program, slots and state of a normalised state: compiled and linked once for each
-   *  `gpuKey`, so a state that differs only in its blend constant builds nothing. */
-  #build(
-    vs: PackEntry,
-    fs: PackEntry | undefined,
-    plan: RenderPlan,
-  ): { program: WebGLProgram; slots: Slot[]; state: DrawState } {
+  /** The pipeline of a normalised state: linked once for each `gpuKey`, so a state that differs
+   *  only in its blend constant builds nothing. Every refusal throws before the device is asked. */
+  #build(vs: PackEntry, fs: PackEntry | undefined, plan: RenderPlan): Promise<Built> {
     const m = this.manifest;
+    const rhi = this.d.rhi;
     const v = stageOf(m.gl?.vertices?.[vs.name], vs);
     const f = fs === undefined ? undefined : stageOf(m.gl?.draws?.[fs.name], fs);
     const prefix = `The render pipeline of "${(fs ?? vs).name}"${at(fs ?? vs)}`;
@@ -899,9 +440,8 @@ export class GlRenderPrograms {
       throw new TypeError(
         `${prefix}: the WebGL2 tier draws with one sample; a multisampled target is not here.`,
       );
-    // Before `compile`: a refused state leaves no GL program behind.
     if (plan.depth !== undefined)
-      refuseBias(prefix, plan.depth, this.d.polygonOffsetClamp !== null);
+      refuseBias(prefix, plan.depth, rhi.caps.hasFeature('EXT_polygon_offset_clamp'));
     // One combined texture uniform has one sampler state across both stages. A null
     // stage entry is load-only and imposes no state; it must not erase the other stage's.
     const samplers: Record<string, string | null> = { ...v.samplers };
@@ -913,158 +453,168 @@ export class GlRenderPrograms {
         );
       samplers[texture] = previous ?? sampler;
     }
+    checkState(plan, vs, fs);
     const pin = (src: string): string =>
       plan.constants === undefined ? src : pinOverrides(src, plan.constants, glslOverrideNames(m));
-    const vertex = toGlClip(pin((v as PackGlVertex).vertex));
-    const fragment = f === undefined ? NO_COLOUR : pin((f as PackGlDraw).fragment);
-    const gl = this.d.gl;
-    const program = compile(
-      gl,
-      vertex,
-      fragment,
-      `the render pipeline of "${vs.name}" and "${fs?.name ?? 'no fragment'}"`,
-    );
-    return {
-      program,
-      slots: this.#slots(program, v as PackGlVertex, f, samplers),
-      state: this.#state(plan, vs, fs),
-    };
+    const { entries, slots } = this.#layout(v as PackGlVertex, f, samplers);
+    const layout = rhi.createBindGroupLayout(entries);
+    const attributes = vs.vertex;
+    return rhi
+      .createRenderPipeline({
+        label: `the render pipeline of "${vs.name}" and "${fs?.name ?? 'no fragment'}"`,
+        layouts: [layout],
+        module: rhi.createShaderModule(pin((v as PackGlVertex).vertex)),
+        vertex: {
+          entryPoint: 'main',
+          buffers:
+            attributes === undefined
+              ? []
+              : [
+                  {
+                    arrayStride: attributes.arrayStride,
+                    attributes: attributes.attributes.map((a) => ({
+                      shaderLocation: a.location,
+                      offset: a.offset,
+                      format: a.format,
+                    })),
+                  },
+                ],
+        },
+        ...(f !== undefined
+          ? {
+              fragment: {
+                entryPoint: 'main',
+                targets: plan.targets as readonly RhiColorTarget[],
+                module: rhi.createShaderModule(pin((f as PackGlDraw).fragment)),
+              },
+            }
+          : {}),
+        primitive: plan.primitive,
+        ...(plan.depth !== undefined ? { depthStencil: plan.depth } : {}),
+        multisample: plan.multisample,
+      })
+      .then((pipeline) => {
+        // A uniform block the driver found inactive is read by no program, so no draw binds it.
+        const read = new Set(glReadBindings(pipeline)[0]);
+        return { pipeline, layout, slots: slots.filter((s) => read.has(s.index)) };
+      });
   }
 
-  /** Each binding the two programs read, at its block binding point or texture unit, set on
-   *  `program` once: the units are the same for every pipeline that links the same programs. */
-  #slots(
-    program: WebGLProgram,
+  /** The bind group layout of the two programs' bindings: the uniform blocks by binding name, then
+   *  the textures and the data textures each by name, then the samplers a texture is read with.
+   *  The blocks take their binding points, and the textures and data textures their units, in
+   *  this order. */
+  #layout(
     v: PackGlVertex,
     f: PackGlDraw | undefined,
     samplers: Readonly<Record<string, string | null>>,
-  ): Slot[] {
-    const gl = this.d.gl;
+  ): { entries: RhiBindLayoutEntry[]; slots: Slot[] } {
+    const visibility = STAGE.vertex | STAGE.fragment;
     const blocks = { ...v.blocks, ...f?.blocks };
-    const data = [...new Set([...(v.data ?? []), ...(f?.data ?? [])])];
+    const data = [...new Set([...(v.data ?? []), ...(f?.data ?? [])])].sort();
+    const entries: RhiBindLayoutEntry[] = [];
     const slots: Slot[] = [];
-    gl.useProgram(program);
-    Object.keys(blocks)
-      .sort()
-      .forEach((name) => {
-        const b = this.#bindings.get(name)!;
-        const index = gl.getUniformBlockIndex(program, blocks[name]!);
-        // Inactive after driver optimization: no size query and no binding point needed.
-        if (index === gl.INVALID_INDEX) return;
-        const minimum: unknown = gl.getActiveUniformBlockParameter(
-          program,
-          index,
-          gl.UNIFORM_BLOCK_DATA_SIZE,
-        );
-        if (typeof minimum !== 'number' || !Number.isSafeInteger(minimum) || minimum < 1)
-          throw new Error(`WebGL2 reports an invalid uniform block size for "${name}".`);
-        const unit = slots.length;
-        gl.uniformBlockBinding(program, index, unit);
-        slots.push({
-          binding: b,
-          kind: 'block',
-          unit,
-          minimum,
-          ...(b.layout !== undefined ? { layout: layoutFromPack(b.layout) } : {}),
-        });
-      });
-    const sampled = [...Object.keys(samplers).sort(), ...data.sort()];
-    sampled.forEach((name, unit) => {
+    const layoutOfBinding = (b: PackBinding): { layout?: Layout } =>
+      b.layout !== undefined ? { layout: layoutFromPack(b.layout) } : {};
+    for (const name of Object.keys(blocks).sort()) {
       const b = this.#bindings.get(name)!;
-      gl.uniform1i(gl.getUniformLocation(program, glslNameOf(b)), unit);
-      if (data.includes(name))
-        slots.push({
-          binding: b,
-          kind: 'data',
-          unit,
-          ...(b.layout !== undefined ? { layout: layoutFromPack(b.layout) } : {}),
-        });
-      else slots.push({ binding: b, kind: 'texture', unit, sampler: samplers[name] ?? null });
-    });
-    gl.useProgram(null);
-    return slots;
-  }
-
-  #state(plan: RenderPlan, vs: PackEntry, fs: PackEntry | undefined): DrawState {
-    const gl = this.d.gl;
-    const where = `The render pipeline of "${(fs ?? vs).name}"`;
-    const topology = TOPOLOGY[plan.primitive.topology];
-    if (topology === undefined)
-      throw new TypeError(
-        `${where}: "${String(plan.primitive.topology)}" is not a topology; WebGPU's are ${Object.keys(TOPOLOGY).join(', ')}.`,
-      );
-    // WebGL2 has one blend state and one write mask for every target.
-    const targets = plan.targets;
-    const first = targets[0];
-    for (const t of targets.slice(1))
-      if (
-        JSON.stringify(t.blend) !== JSON.stringify(first?.blend) ||
-        (t.writeMask ?? 15) !== (first?.writeMask ?? 15)
-      )
-        throw new TypeError(
-          `${where}: WebGL2 blends and masks every target alike; give its targets one blend and one writeMask.`,
+      const index = entries.length;
+      entries.push({
+        binding: index,
+        visibility,
+        name: blocks[name]!,
+        label: name,
+        buffer: { type: 'uniform' },
+      });
+      slots.push({ binding: b, index, kind: 'block', ...layoutOfBinding(b) });
+    }
+    const textures = Object.keys(samplers).sort();
+    // The samplers follow the textures and the data textures, one entry for each.
+    const samplerIndex = new Map<string, number>();
+    for (const name of textures) {
+      const sampler = samplers[name];
+      if (sampler != null && !samplerIndex.has(sampler))
+        samplerIndex.set(
+          sampler,
+          entries.length + textures.length + data.length + samplerIndex.size,
         );
-    const blend = first?.blend as { color?: BlendComponent; alpha?: BlendComponent } | undefined;
-    const factor = (f: string | undefined, d: string): number => {
-      const n = BLEND_FACTOR[f ?? d];
-      if (n === undefined) throw new TypeError(`${where}: "${String(f)}" is not a blend factor.`);
-      return (gl as unknown as Record<string, number>)[n]!;
-    };
-    const op = (o: string | undefined): number => {
-      const n = BLEND_OP[o ?? 'add'];
-      if (n === undefined)
-        throw new TypeError(`${where}: "${String(o)}" is not a blend operation.`);
-      return (gl as unknown as Record<string, number>)[n]!;
-    };
-    const mask = first?.writeMask ?? 15;
-    const cull = plan.primitive.cullMode;
-    const face = (f: PlanFace): DrawFace => ({
-      func: compareOf(gl, f.compare),
-      fail: stencilOpOf(gl, f.failOp),
-      zfail: stencilOpOf(gl, f.depthFailOp),
-      zpass: stencilOpOf(gl, f.passOp),
-    });
-    const stencil = plan.depth?.stencil;
-    const bias = plan.depth?.bias;
-    return {
-      mode: gl[topology],
-      ...(plan.depth !== undefined
-        ? {
-            depth: {
-              func: compareOf(gl, plan.depth.compare),
-              write: plan.depth.write,
-            },
-          }
-        : {}),
-      ...(stencil !== undefined
-        ? {
-            stencil: {
-              front: face(stencil.front),
-              back: face(stencil.back),
-              readMask: stencil.readMask,
-              writeMask: stencil.writeMask,
-            },
-          }
-        : {}),
-      // WebGPU's depthBiasSlopeScale is GL's factor, and depthBias is units.
-      ...(bias !== undefined && (bias.constant !== 0 || bias.slopeScale !== 0)
-        ? { offset: { factor: bias.slopeScale, units: bias.constant, clamp: bias.clamp } }
-        : {}),
-      ...(cull === 'none' ? {} : { cull: cull === 'front' ? gl.FRONT : gl.BACK }),
-      // The flip in y turns the winding round.
-      frontFace: plan.primitive.frontFace === 'ccw' ? gl.CW : gl.CCW,
-      ...(blend !== undefined
-        ? {
-            blend: {
-              src: [factor(blend.color?.srcFactor, 'one'), factor(blend.alpha?.srcFactor, 'one')],
-              dst: [factor(blend.color?.dstFactor, 'zero'), factor(blend.alpha?.dstFactor, 'zero')],
-              op: [op(blend.color?.operation), op(blend.alpha?.operation)],
-            },
-          }
-        : {}),
-      mask: [(mask & 1) !== 0, (mask & 2) !== 0, (mask & 4) !== 0, (mask & 8) !== 0],
-    };
+    }
+    for (const name of textures) {
+      const b = this.#bindings.get(name)!;
+      const index = entries.length;
+      const sampler = samplers[name];
+      const paired =
+        sampler == null ? undefined : { name: sampler, index: samplerIndex.get(sampler)! };
+      entries.push({
+        binding: index,
+        visibility,
+        name: glslNameOf(b),
+        label: name,
+        ...(paired !== undefined ? { samplerBinding: paired.index } : {}),
+        texture: { sampleType: 'float', viewDimension: '2d', multisampled: false },
+      });
+      slots.push({
+        binding: b,
+        index,
+        kind: 'texture',
+        ...(paired !== undefined ? { sampler: paired } : {}),
+      });
+    }
+    for (const name of data) {
+      const b = this.#bindings.get(name)!;
+      const index = entries.length;
+      entries.push({
+        binding: index,
+        visibility,
+        name: glslNameOf(b),
+        label: name,
+        buffer: { type: 'read-only-storage' },
+      });
+      slots.push({ binding: b, index, kind: 'data', ...layoutOfBinding(b) });
+    }
+    for (const [name, index] of samplerIndex)
+      entries.push({
+        binding: index,
+        visibility,
+        label: name,
+        sampler: { type: 'filtering' },
+      });
+    return { entries, slots };
   }
+}
+
+/** Refuse a state the WebGL2 tier cannot draw, in the sentences it has always used: a topology,
+ *  a blend factor or a blend operation it has no name for, and targets blended or masked apart. */
+function checkState(plan: RenderPlan, vs: PackEntry, fs: PackEntry | undefined): void {
+  const where = `The render pipeline of "${(fs ?? vs).name}"`;
+  if (GL_TOPOLOGY[plan.primitive.topology] === undefined)
+    throw new TypeError(
+      `${where}: "${String(plan.primitive.topology)}" is not a topology; WebGPU's are ${Object.keys(GL_TOPOLOGY).join(', ')}.`,
+    );
+  // WebGL2 has one blend state and one write mask for every target.
+  const targets = plan.targets;
+  const first = targets[0];
+  for (const t of targets.slice(1))
+    if (
+      JSON.stringify(t.blend) !== JSON.stringify(first?.blend) ||
+      (t.writeMask ?? 15) !== (first?.writeMask ?? 15)
+    )
+      throw new TypeError(
+        `${where}: WebGL2 blends and masks every target alike; give its targets one blend and one writeMask.`,
+      );
+  const blend = first?.blend as { color?: BlendComponent; alpha?: BlendComponent } | undefined;
+  if (blend === undefined) return;
+  for (const [f, d] of [
+    [blend.color?.srcFactor, 'one'],
+    [blend.alpha?.srcFactor, 'one'],
+    [blend.color?.dstFactor, 'zero'],
+    [blend.alpha?.dstFactor, 'zero'],
+  ] as const)
+    if (GL_BLEND_FACTOR[f ?? d] === undefined)
+      throw new TypeError(`${where}: "${String(f)}" is not a blend factor.`);
+  for (const o of [blend.color?.operation, blend.alpha?.operation])
+    if (GL_BLEND_OPERATION[o ?? 'add'] === undefined)
+      throw new TypeError(`${where}: "${String(o)}" is not a blend operation.`);
 }
 
 /** A stage's program from the manifest, or a `TypeError` that gives why it has none. */
@@ -1080,11 +630,18 @@ function stageOf<T>(p: T | { readonly none: string } | undefined, e: PackEntry):
   return p as T;
 }
 
-/** A draw as recorded: everything it binds, ready to run on the context, and the `Resident`s it
- *  reads, whose host copies the pass brings up to date first. */
+/** A draw as recorded: what it binds, ready to record into the pass when the pass runs, and the
+ *  `Resident`s it reads, whose host copies the pass brings up to date first. */
 interface DrawRun {
-  readonly run: (gl: GL) => void;
+  readonly run: (pass: RhiRenderPass) => void;
   readonly residents: readonly ResidentArrayState[];
+}
+
+/** One binding of a draw: its entry in the pipeline's bind group, and what it binds, made when the
+ *  pass runs. A buffer made for this draw alone goes into `made`, destroyed after the draw. */
+interface Bind {
+  readonly index: number;
+  readonly resource: (made: RhiBuffer[]) => RhiBindResource;
 }
 
 /** The WebGL2 tier refuses to sample the depth attachment of the pass that writes it: WebGL2 raises
@@ -1094,15 +651,11 @@ const SAMPLES_OWN_DEPTH =
 
 /** A render pipeline of the WebGL2 tier. */
 export class GlRenderPipelineImpl implements RenderPipeline {
-  readonly #vao: WebGLVertexArrayObject;
-
   constructor(
     private readonly programs: GlRenderPrograms,
     private readonly vs: PackEntry,
     private readonly fs: PackEntry | undefined,
-    private readonly program: WebGLProgram,
-    private readonly slots: readonly Slot[],
-    private readonly state: DrawState,
+    private readonly built: Built,
     /** The blend constant the pipeline declares, which a draw sets. */
     private readonly blendConstant: readonly [number, number, number, number] | undefined,
     /** Whether the fragment writes `frag_depth`: WebGL2 refuses a depth range other than 0 to 1 for it. */
@@ -1115,9 +668,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
     private readonly sampleMask: number,
     /** What a draw writes: a read-only aspect of the pass refuses a pipeline that writes it. */
     private readonly writes: RenderPlan['writes'],
-  ) {
-    this.#vao = programs.d.gl.createVertexArray()!;
-  }
+  ) {}
 
   get vertex(): string {
     return this.vs.name;
@@ -1150,17 +701,14 @@ export class GlRenderPipelineImpl implements RenderPipeline {
     // R32: a declared constant is set for this draw, and the pass value again after a draw that set
     // one. The pass value is copied now: a later setBlendConstant does not change this draw.
     // The pass bookkeeping changes only after `#record` accepts the draw: a refused draw sets nothing.
-    let blend: ((gl: GL) => void) | undefined;
-    if (this.blendConstant !== undefined) {
-      const c = this.blendConstant;
-      blend = (gl) => gl.blendColor(c[0], c[1], c[2], c[3]);
-    } else if (target.declared) {
-      const c = [...target.blend];
-      blend = (gl) => gl.blendColor(c[0]!, c[1]!, c[2]!, c[3]!);
-    }
+    let blend: readonly [number, number, number, number] | undefined;
+    if (this.blendConstant !== undefined) blend = this.blendConstant;
+    else if (target.declared) blend = [...target.blend] as unknown as typeof blend;
     // The reference is copied now: a later setStencilReference does not change this draw.
     const reference =
-      this.state.stencil === undefined ? 0 : (this.stencilReference ?? target.stencilReference);
+      this.depth?.stencil === undefined
+        ? undefined
+        : (this.stencilReference ?? target.stencilReference);
     const run = this.#record(entry, bindings, geometry, blend, reference, target);
     // A mask whose bit 0 is 0 drops the draw. It was checked and recorded above, so no refusal
     // changes, and a dropped draw sets no blend constant: the bookkeeping stays as it was.
@@ -1170,14 +718,14 @@ export class GlRenderPipelineImpl implements RenderPipeline {
   }
 
   /** Check and take what the draw binds, now, as WebGPU's `writeBuffer` takes a plain value when
-   *  the draw is recorded; the GL objects are made when the pass runs. `blend` sets the blend
-   *  constant the draw needs, before its state is set. */
+   *  the draw is recorded; the device's objects are made when the pass runs. `blend` is the blend
+   *  constant the draw sets, and `reference` its stencil reference. */
   #record(
     entry: PackEntry,
     values: Bindings,
     geometry: Geometry,
-    blend: ((gl: GL) => void) | undefined,
-    reference: number,
+    blend: readonly [number, number, number, number] | undefined,
+    reference: number | undefined,
     pass: GlPass,
   ): DrawRun {
     if (typeof values !== 'object' || values === null)
@@ -1185,6 +733,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
         `"${entry.name}"${at(entry)}: the bindings are ${describe(values)}, not an object.`,
       );
     const d = this.programs.d;
+    const rhi = d.rhi;
     const reached = new Set<string>();
     for (const e of [this.vs, this.fs]) for (const b of e?.bindings ?? []) reached.add(b.name);
     for (const name of Object.keys(values))
@@ -1197,30 +746,39 @@ export class GlRenderPipelineImpl implements RenderPipeline {
               .join(', ') || 'nothing'
           }.`,
         );
-    const steps: ((gl: GL, made: object[]) => void)[] = [];
+    const binds: Bind[] = [];
     const residents: ResidentArrayState[] = [];
-    for (const s of this.slots) {
+    for (const s of this.built.slots) {
       const b = s.binding;
       const where = `"${entry.name}"${at(entry)}, binding "${b.name}" (${b.type})`;
       if (b.name === '_fp64') {
-        steps.push((gl) => bindTexture(gl, s.unit, d.guard(), d.nearest));
+        binds.push({ index: s.index, resource: () => ({ view: d.guard() }) });
         continue;
       }
       const v = values[b.name];
       if (v === undefined) throw new TypeError(`${where} is not given.`);
       if (s.kind === 'texture') {
-        const tex = textureOf(v, where);
+        const tex = textureOf(rhi, v, where);
         if (pass.readsOwnDepth(v, tex)) throw new TypeError(SAMPLES_OWN_DEPTH);
-        const sv = s.sampler === null || s.sampler === undefined ? undefined : values[s.sampler];
-        const sampler =
-          sv === undefined
-            ? d.nearest
-            : samplerOf(sv, `"${entry.name}"${at(entry)}, binding "${s.sampler}"`);
-        steps.push((gl) => bindTexture(gl, s.unit, tex, sampler));
+        const view = rhi.createView(tex);
+        binds.push({ index: s.index, resource: () => ({ view }) });
+        const sv = s.sampler === undefined ? undefined : values[s.sampler.name];
+        if (sv !== undefined) {
+          const sampler = samplerOf(
+            rhi,
+            sv,
+            `"${entry.name}"${at(entry)}, binding "${s.sampler!.name}"`,
+          );
+          binds.push({ index: s.sampler!.index, resource: () => ({ sampler }) });
+        }
         continue;
       }
-      if (typeof WebGLBuffer !== 'undefined' && v instanceof WebGLBuffer && s.kind === 'block') {
-        steps.push((gl) => gl.bindBufferBase(gl.UNIFORM_BUFFER, s.unit, v));
+      const host =
+        s.kind === 'block' && typeof v === 'object' && v !== null
+          ? rhi.fromNative('buffer', v)
+          : undefined;
+      if (host !== undefined) {
+        binds.push({ index: s.index, resource: () => ({ buffer: host }) });
         continue;
       }
       if (s.layout === undefined)
@@ -1228,41 +786,32 @@ export class GlRenderPipelineImpl implements RenderPipeline {
           `${where} has no host value${b.noLayout !== undefined ? `: ${b.noLayout}` : ''}.`,
         );
       const layout = s.layout;
+      const elem = dataElemOf(b);
       const state = residentState(v);
       if (state !== undefined) {
         if (state.destroyed)
           throw new TypeError('This Resident was destroyed; make a new one with resident().');
         residents.push(state);
-        steps.push((gl, made) => {
-          const bytes = packed(layout, state.host, b.name, where);
-          if (s.kind === 'block') {
-            const buf = gl.createBuffer()!;
-            made.push(buf);
-            uploadBlock(gl, s.unit, buf, bytes, s.minimum!);
-          } else
-            bindTexture(
-              gl,
-              s.unit,
-              d.uploaded<WebGLTexture>(state, 'data', (old) => {
-                if (old !== undefined) gl.deleteTexture(old);
-                return dataTexture(gl, b, bytes);
-              }),
-              d.nearest,
-            );
+        binds.push({
+          index: s.index,
+          resource: (made) => {
+            const bytes = packed(layout, state.host, b.name, where);
+            if (s.kind === 'block') return { buffer: fresh(rhi, made, 'uniform', bytes) };
+            return {
+              buffer: d.uploaded(state, 'data', bytes, (size) =>
+                rhi.createBuffer({ size, usage: ['storage', 'copy-dst'], elem }),
+              ),
+            };
+          },
         });
         continue;
       }
       const bytes = packed(layout, v, b.name, where);
-      steps.push((gl, made) => {
-        if (s.kind === 'block') {
-          const buf = gl.createBuffer()!;
-          made.push(buf);
-          uploadBlock(gl, s.unit, buf, bytes, s.minimum!);
-        } else {
-          const t = dataTexture(gl, b, bytes);
-          made.push(t);
-          bindTexture(gl, s.unit, t, d.nearest);
-        }
+      binds.push({
+        index: s.index,
+        resource: (made) => ({
+          buffer: fresh(rhi, made, s.kind === 'block' ? 'uniform' : 'storage', bytes, elem),
+        }),
       });
     }
     const vertices = this.#vertices(geometry, entry);
@@ -1273,94 +822,104 @@ export class GlRenderPipelineImpl implements RenderPipeline {
     }
     const count = geometry.count;
     const instances = geometry.instances ?? 1;
-    const program = this.program;
-    const vao = this.#vao;
-    const st = this.state;
-    const run = (gl: GL): void => {
-      const made: object[] = [];
-      gl.useProgram(program);
-      for (const step of steps) step(gl, made);
-      gl.bindVertexArray(vao);
-      vertices?.(gl, made);
-      const index = indices?.(gl, made);
-      blend?.(gl);
-      setState(gl, st, reference, this.programs.d.polygonOffsetClamp);
-      if (index === undefined) gl.drawArraysInstanced(st.mode, 0, count, instances);
-      else gl.drawElementsInstanced(st.mode, count, index, 0, instances);
-      gl.bindVertexArray(null);
-      for (const o of made)
-        if (typeof WebGLBuffer !== 'undefined' && o instanceof WebGLBuffer) gl.deleteBuffer(o);
-        else gl.deleteTexture(o as WebGLTexture);
+    const { pipeline, layout } = this.built;
+    const run = (p: RhiRenderPass): void => {
+      const made: RhiBuffer[] = [];
+      p.setPipeline(pipeline);
+      p.setBindGroup(
+        0,
+        rhi.createBindGroup(
+          layout,
+          binds.map((x) => ({ binding: x.index, resource: x.resource(made) })),
+        ),
+      );
+      const vb = vertices?.(made);
+      if (vb !== undefined) p.setVertexBuffer(0, vb);
+      const ib = indices?.(made);
+      if (ib !== undefined) p.setIndexBuffer(ib.buffer, ib.format);
+      if (blend !== undefined) p.setBlendConstant(blend);
+      if (reference !== undefined) p.setStencilReference(reference);
+      if (ib === undefined) p.draw(count, instances);
+      else p.drawIndexed(count, instances);
+      for (const o of made) rhi.destroyBuffer(o);
     };
     return { run, residents };
   }
 
-  /** The vertex buffer's attributes, set when the draw runs. */
-  #vertices(geometry: Geometry, entry: PackEntry): ((gl: GL, made: object[]) => void) | undefined {
-    const layout = this.vs.vertex;
-    if (layout === undefined) return undefined;
+  /** The vertex buffer of the draw, made when the pass runs; none for a vertex entry that reads no
+   *  attribute. */
+  #vertices(geometry: Geometry, entry: PackEntry): ((made: RhiBuffer[]) => RhiBuffer) | undefined {
+    if (this.vs.vertex === undefined) return undefined;
     const v = geometry.vertices;
     if (v === undefined)
       throw new TypeError(
         `"${this.vs.name}"${at(this.vs)} reads vertex attributes; the geometry gives no vertices.`,
       );
-    const d = this.programs.d;
-    const source = bufferSource(d, v, 'vertices', entry);
-    return (gl, made) => {
-      const buffer = source(gl, made, gl.ARRAY_BUFFER);
-      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-      for (const a of layout.attributes) {
-        const [kind, n] = a.format.split('x') as [string, string?];
-        const size = Number(n ?? 1);
-        gl.enableVertexAttribArray(a.location);
-        if (kind === 'float32')
-          gl.vertexAttribPointer(a.location, size, gl.FLOAT, false, layout.arrayStride, a.offset);
-        else
-          gl.vertexAttribIPointer(
-            a.location,
-            size,
-            kind === 'uint32' ? gl.UNSIGNED_INT : gl.INT,
-            layout.arrayStride,
-            a.offset,
-          );
-      }
-      gl.bindBuffer(gl.ARRAY_BUFFER, null);
-    };
+    return bufferSource(this.programs.d, v, 'vertices', entry);
   }
 
-  /** The index buffer, bound when the draw runs; the index type, or undefined for none. */
-  #indices(geometry: Geometry, entry: PackEntry): ((gl: GL, made: object[]) => number) | undefined {
+  /** The index buffer and its format, made when the pass runs; none for a draw with no indices. */
+  #indices(
+    geometry: Geometry,
+    entry: PackEntry,
+  ): ((made: RhiBuffer[]) => { buffer: RhiBuffer; format: 'uint16' | 'uint32' }) | undefined {
     const idx = geometry.indices;
     if (idx === undefined) return undefined;
     const d = this.programs.d;
     if (residentState(idx) !== undefined || ArrayBuffer.isView(idx)) {
-      const wide = residentState(idx) !== undefined || idx instanceof Uint32Array;
+      const format =
+        residentState(idx) !== undefined || idx instanceof Uint32Array ? 'uint32' : 'uint16';
       const source = bufferSource(d, idx, 'indices', entry);
-      return (gl, made) => {
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, source(gl, made, gl.ELEMENT_ARRAY_BUFFER));
-        return wide ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
-      };
+      return (made) => ({ buffer: source(made), format });
     }
     const host = idx as { readonly buffer: object; readonly format: 'uint16' | 'uint32' };
-    if (typeof WebGLBuffer === 'undefined' || !(host.buffer instanceof WebGLBuffer))
+    const buffer =
+      typeof host.buffer === 'object' && host.buffer !== null
+        ? d.rhi.fromNative('buffer', host.buffer)
+        : undefined;
+    if (buffer === undefined)
       throw new TypeError(
         `"${entry.name}"${at(entry)}: the geometry's indices on WebGL2 take a typed array, a Resident or { buffer: WebGLBuffer, format }.`,
       );
-    return (gl) => {
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, host.buffer as WebGLBuffer);
-      return host.format === 'uint32' ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
-    };
+    const format = host.format === 'uint32' ? 'uint32' : 'uint16';
+    return () => ({ buffer, format });
   }
 }
 
-/** Where a draw's vertices or indices come from: a typed array, copied now and uploaded when the
- *  draw runs; a `Resident`, uploaded when its host copy has changed; or the host's buffer. */
+/** The element type of a storage binding's data texture, as the manifest gives its format. */
+const dataElemOf = (b: PackBinding): 'f32' | 'i32' | 'u32' => {
+  const format = b.dataTexture?.format ?? 'r32float';
+  return format === 'r32uint' ? 'u32' : format === 'r32sint' ? 'i32' : 'f32';
+};
+
+/** A buffer of `bytes` made for one draw, destroyed after it. */
+function fresh(
+  rhi: RhiDevice,
+  made: RhiBuffer[],
+  kind: 'uniform' | 'storage' | 'vertex' | 'index',
+  bytes: ArrayBufferView,
+  elem?: 'f32' | 'i32' | 'u32',
+): RhiBuffer {
+  const b = rhi.createBuffer({
+    size: bytes.byteLength,
+    usage: [kind, 'copy-dst'],
+    ...(kind === 'storage' && elem !== undefined ? { elem } : {}),
+  });
+  made.push(b);
+  rhi.writeBuffer(b, 0, bytes);
+  return b;
+}
+
+/** Where a draw's vertices or indices come from: a typed array, copied now and made into a buffer
+ *  when the draw runs; a `Resident`, uploaded when its host copy has changed; or the host's
+ *  buffer. */
 function bufferSource(
   d: GlDrawing,
   v: unknown,
   field: 'vertices' | 'indices',
   entry: PackEntry,
-): (gl: GL, made: object[], target: number) => WebGLBuffer {
+): (made: RhiBuffer[]) => RhiBuffer {
+  const usage = field === 'indices' ? 'index' : 'vertex';
   const state = residentState(v);
   if (state !== undefined) {
     const host = state.view();
@@ -1376,27 +935,17 @@ function bufferSource(
             : 'vertices take a Resident of a Float32Array, an Int32Array or a Uint32Array'
         }.`,
       );
-    return (gl, _made, target) =>
-      d.uploaded<WebGLBuffer>(state, field, (old) => {
-        const b = old ?? gl.createBuffer()!;
-        gl.bindBuffer(target, b);
-        gl.bufferData(target, state.host as ArrayBufferView, gl.STATIC_DRAW);
-        gl.bindBuffer(target, null);
-        return b;
-      });
+    return () =>
+      d.uploaded(state, field, state.host as ArrayBufferView, (size) =>
+        d.rhi.createBuffer({ size, usage: [usage, 'copy-dst'] }),
+      );
   }
   if (ArrayBuffer.isView(v)) {
     const copy = new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength));
-    return (gl, made, target) => {
-      const b = gl.createBuffer()!;
-      made.push(b);
-      gl.bindBuffer(target, b);
-      gl.bufferData(target, copy, gl.STREAM_DRAW);
-      gl.bindBuffer(target, null);
-      return b;
-    };
+    return (made) => fresh(d.rhi, made, usage, copy);
   }
-  if (typeof WebGLBuffer !== 'undefined' && v instanceof WebGLBuffer) return () => v;
+  const host = typeof v === 'object' && v !== null ? d.rhi.fromNative('buffer', v) : undefined;
+  if (host !== undefined) return () => host;
   throw new TypeError(
     `"${entry.name}"${at(entry)}: the geometry's ${field} on WebGL2 take a typed array, a Resident or a WebGLBuffer; got ${describe(v)}.`,
   );
@@ -1414,114 +963,24 @@ function packed(layout: Layout, v: unknown, name: string, where: string): Uint8A
   }
 }
 
-/** A uniform block's unchanged bytes, padded for both the driver and the 16-byte policy. */
-function uploadBlock(
-  gl: GL,
-  unit: number,
-  buf: WebGLBuffer,
-  bytes: Uint8Array,
-  minimum: number,
-): void {
-  const data = glUniformBytes(bytes, minimum);
-  gl.bindBuffer(gl.UNIFORM_BUFFER, buf);
-  gl.bufferData(gl.UNIFORM_BUFFER, data, gl.STREAM_DRAW);
-  gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-  gl.bindBufferBase(gl.UNIFORM_BUFFER, unit, buf);
-}
-
-/** The widest row a data texture takes. */
-const DATA_WIDTH = 2048;
-
-/** A read-only storage array as the data texture GLSL ES 3.00 reads it from: its std430 words,
- *  one a texel, in rows of {@link DATA_WIDTH}. */
-function dataTexture(gl: GL, b: PackBinding, bytes: Uint8Array): WebGLTexture {
-  const format = b.dataTexture?.format ?? 'r32float';
-  const words = Math.max(1, Math.ceil(bytes.byteLength / 4));
-  const w = Math.min(words, DATA_WIDTH);
-  const h = Math.ceil(words / w);
-  const data = new Uint8Array(w * h * 4);
-  data.set(bytes);
-  const [internal, fmt, type, view] =
-    format === 'r32uint'
-      ? [gl.R32UI, gl.RED_INTEGER, gl.UNSIGNED_INT, new Uint32Array(data.buffer)]
-      : format === 'r32sint'
-        ? [gl.R32I, gl.RED_INTEGER, gl.INT, new Int32Array(data.buffer)]
-        : [gl.R32F, gl.RED, gl.FLOAT, new Float32Array(data.buffer)];
-  const t = gl.createTexture()!;
-  gl.bindTexture(gl.TEXTURE_2D, t);
-  gl.texStorage2D(gl.TEXTURE_2D, 1, internal, w, h);
-  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, fmt, type, view);
-  gl.bindTexture(gl.TEXTURE_2D, null);
-  return t;
-}
-
-function bindTexture(gl: GL, unit: number, tex: WebGLTexture, sampler: WebGLSampler): void {
-  gl.activeTexture(gl.TEXTURE0 + unit);
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.bindSampler(unit, sampler);
-}
-
-/** The texture a binding names, taken now: the WebGL2 texture a resize after the draw does not
+/** The texture a binding names, taken now: the device's texture a resize after the draw does not
  *  move. */
-export function textureOf(v: unknown, where: string): WebGLTexture {
-  if (v instanceof GlTextureImpl) return v.texture as WebGLTexture;
-  if (typeof WebGLTexture !== 'undefined' && v instanceof WebGLTexture) return v;
+export function textureOf(rhi: RhiDevice, v: unknown, where: string): RhiTexture {
+  if (v instanceof GlTextureImpl) return v.handle;
+  const host = typeof v === 'object' && v !== null ? rhi.fromNative('texture', v) : undefined;
+  if (host !== undefined) return host;
   throw new TypeError(
     `${where} takes a Texture of the runtime or a WebGLTexture; got ${describe(v)}.`,
   );
 }
 
-export function samplerOf(v: unknown, where: string): WebGLSampler {
-  if (v instanceof GlSamplerImpl) return v.sampler as WebGLSampler;
-  if (typeof WebGLSampler !== 'undefined' && v instanceof WebGLSampler) return v;
+export function samplerOf(rhi: RhiDevice, v: unknown, where: string): RhiSampler {
+  if (v instanceof GlSamplerImpl) return v.handle;
+  const host = typeof v === 'object' && v !== null ? rhi.fromNative('sampler', v) : undefined;
+  if (host !== undefined) return host;
   throw new TypeError(
     `${where} takes a Sampler of the runtime or a WebGLSampler; got ${describe(v)}.`,
   );
-}
-
-function setState(
-  gl: GL,
-  s: DrawState,
-  reference: number,
-  clampExtension: PolygonOffsetClamp | null,
-): void {
-  if (s.depth === undefined) gl.disable(gl.DEPTH_TEST);
-  else {
-    gl.enable(gl.DEPTH_TEST);
-    gl.depthFunc(s.depth.func);
-    gl.depthMask(s.depth.write);
-  }
-  if (s.cull === undefined) gl.disable(gl.CULL_FACE);
-  else {
-    gl.enable(gl.CULL_FACE);
-    gl.cullFace(s.cull);
-  }
-  gl.frontFace(s.frontFace);
-  if (s.blend === undefined) gl.disable(gl.BLEND);
-  else {
-    gl.enable(gl.BLEND);
-    gl.blendFuncSeparate(s.blend.src[0], s.blend.dst[0], s.blend.src[1], s.blend.dst[1]);
-    gl.blendEquationSeparate(s.blend.op[0], s.blend.op[1]);
-  }
-  gl.colorMask(...s.mask);
-  if (s.stencil === undefined) gl.disable(gl.STENCIL_TEST);
-  else {
-    const t = s.stencil;
-    gl.enable(gl.STENCIL_TEST);
-    gl.stencilFuncSeparate(gl.FRONT, t.front.func, reference, t.readMask);
-    gl.stencilFuncSeparate(gl.BACK, t.back.func, reference, t.readMask);
-    gl.stencilOpSeparate(gl.FRONT, t.front.fail, t.front.zfail, t.front.zpass);
-    gl.stencilOpSeparate(gl.BACK, t.back.fail, t.back.zfail, t.back.zpass);
-    gl.stencilMaskSeparate(gl.FRONT, t.writeMask);
-    gl.stencilMaskSeparate(gl.BACK, t.writeMask);
-  }
-  if (s.offset === undefined) gl.disable(gl.POLYGON_OFFSET_FILL);
-  else {
-    gl.enable(gl.POLYGON_OFFSET_FILL);
-    if (s.offset.clamp === 0) gl.polygonOffset(s.offset.factor, s.offset.units);
-    else clampExtension!.polygonOffsetClampEXT(s.offset.factor, s.offset.units, s.offset.clamp);
-  }
 }
 
 // ─── passes ──────────────────────────────────────────────────────────────────────────────────
@@ -1539,11 +998,10 @@ export class GlPass implements RenderPass, PassFit {
   range: [number, number] = [0, 1];
   /** The pass value of the stencil reference: 0 at the pass start. */
   stencilReference = 0;
-  #limitValue: number | undefined;
 
   constructor(
     private readonly info: {
-      readonly gl: GL;
+      readonly rhi: RhiDevice;
       readonly width: number;
       readonly height: number;
       /** The format of the depth attachment, or undefined when the pass has none. */
@@ -1554,8 +1012,8 @@ export class GlPass implements RenderPass, PassFit {
       readonly stencilReadOnly: boolean;
       /** The depth attachment as the host named it. */
       readonly depthTarget?: object;
-      /** The WebGL2 texture of the depth attachment, taken when the pass is recorded. */
-      readonly depthTexture?: WebGLTexture;
+      /** The device's texture of the depth attachment, taken when the pass is recorded. */
+      readonly depthTexture?: RhiTexture;
     },
   ) {}
 
@@ -1580,8 +1038,12 @@ export class GlPass implements RenderPass, PassFit {
 
   /** Whether a binding of a draw is the depth attachment of this pass: the `Texture` the host gave,
    *  or the `WebGLTexture` it holds. */
-  readsOwnDepth(value: unknown, texture: WebGLTexture): boolean {
-    return value === this.info.depthTarget || texture === this.info.depthTexture;
+  readsOwnDepth(value: unknown, texture: RhiTexture): boolean {
+    const own = this.info.depthTexture;
+    return (
+      value === this.info.depthTarget ||
+      (own !== undefined && this.info.rhi.toNative(texture) === this.info.rhi.toNative(own))
+    );
   }
 
   /** Set the pass value. No step is recorded: each stencil draw passes it to its own call. */
@@ -1591,16 +1053,6 @@ export class GlPass implements RenderPass, PassFit {
 
   add(run: DrawRun): void {
     this.steps.push(run);
-  }
-
-  /** The viewport limit of this context, read on the first `setViewport` (the smaller of the two
-   *  entries of `MAX_VIEWPORT_DIMS`): WebGL2's own limit, where WebGPU has `maxTextureDimension2D`. */
-  #limit(): number {
-    if (this.#limitValue === undefined) {
-      const dims = this.info.gl.getParameter(this.info.gl.MAX_VIEWPORT_DIMS) as Int32Array;
-      this.#limitValue = Math.min(dims[0]!, dims[1]!);
-    }
-    return this.#limitValue;
   }
 
   draw<B>(pipeline: RenderPipeline<B>, bindings: NoInfer<B>, geometry: Geometry): void {
@@ -1615,106 +1067,82 @@ export class GlPass implements RenderPass, PassFit {
     minDepth?: number,
     maxDepth?: number,
   ): void {
-    const v = viewportOf(x, y, width, height, minDepth, maxDepth, this.#limit());
+    // WebGL2's own limit, the smaller of `MAX_VIEWPORT_DIMS`, where WebGPU has
+    // `maxTextureDimension2D`.
+    const limit = this.info.rhi.caps.limits.maxViewportDimension!;
+    const v = viewportOf(x, y, width, height, minDepth, maxDepth, limit);
     this.range = [v.minDepth, v.maxDepth];
     this.add({
       residents: [],
-      run: (gl) => {
-        gl.viewport(...v.rect);
-        gl.depthRange(v.minDepth, v.maxDepth);
-      },
+      run: (p) => p.setViewport(...v.rect, v.minDepth, v.maxDepth),
     });
   }
 
   setScissorRect(x: number, y: number, width: number, height: number): void {
     const r = scissorOf(x, y, width, height, { width: this.info.width, height: this.info.height });
-    this.add({
-      residents: [],
-      run: (gl) => {
-        gl.enable(gl.SCISSOR_TEST);
-        gl.scissor(...r);
-      },
-    });
+    this.add({ residents: [], run: (p) => p.setScissorRect(...r) });
   }
 
   setBlendConstant(color: ArrayLike<number>): void {
     const c = blendConstantOf(color);
     this.blend = c;
     this.declared = false;
-    this.add({ residents: [], run: (gl) => gl.blendColor(c[0], c[1], c[2], c[3]) });
+    this.add({ residents: [], run: (p) => p.setBlendConstant(c) });
   }
 }
 
-/** One colour attachment as recorded: a texture, or the canvas the runtime draws to. */
-interface Attachment {
-  readonly tex: WebGLTexture | 'screen';
-  readonly kind: GlFormat['kind'];
-  readonly clear: readonly number[];
-  readonly load: 'clear' | 'load';
-  readonly store: 'store' | 'discard';
-  readonly w: number;
-  readonly h: number;
-}
-
 /** Record a pass: its attachments checked and taken now, its draws as `record` records them. The
- *  run draws them when the frame is submitted. */
+ *  run records them into a pass of the device when the frame is submitted. */
 export function recordPass(
   d: GlDrawing,
   targets: PassTargets,
   record: (pass: RenderPass) => void,
 ): () => Promise<void> {
-  const gl = d.gl;
+  const rhi = d.rhi;
   // Check the targets first: a refused pass records nothing.
   const plan = passOf(targets, {
     isTexture: (t) => t instanceof GlTextureImpl,
-    isCanvas: (t) => t === gl || t === gl.canvas,
+    isCanvas: (t) => rhi.fromNative('canvas', t) !== undefined,
     formatOf: (t) => (t instanceof GlTextureImpl ? t.format : undefined),
   });
-  const colour: Attachment[] = plan.color.map((c, i) => {
-    const t = c.target;
-    const common = { clear: c.clear, load: c.load, store: c.store } as const;
-    if (t instanceof GlTextureImpl) {
-      if (t.gl.kind === 'depth')
-        throw new TypeError(
-          `pass(): colour target ${i} is a ${t.format} texture, which holds depth.`,
-        );
-      return {
-        tex: t.texture as WebGLTexture,
-        kind: t.gl.kind,
-        w: t.width,
-        h: t.height,
-        ...common,
-      };
-    }
-    if (t === gl || t === gl.canvas)
-      return {
-        tex: 'screen',
-        kind: 'float',
-        w: gl.drawingBufferWidth,
-        h: gl.drawingBufferHeight,
-        ...common,
-      };
-    throw new TypeError(
-      `pass(): a colour target on WebGL2 is a Texture of the runtime, or its context for the canvas; got ${describe(t)}.`,
-    );
-  });
-  const pd = plan.depth;
-  let depth:
-    | {
-        tex: WebGLTexture;
-        target: object;
-        plan: NonNullable<PassPlan['depth']>;
-        w: number;
-        h: number;
+  const colour: { attachment: RhiColorAttachment; w: number; h: number }[] = plan.color.map(
+    (c, i) => {
+      const t = c.target;
+      const common = { clearValue: c.clear, loadOp: c.load, storeOp: c.store } as const;
+      if (t instanceof GlTextureImpl) {
+        if (t.kind === 'depth')
+          throw new TypeError(
+            `pass(): colour target ${i} is a ${t.format} texture, which holds depth.`,
+          );
+        return {
+          attachment: { view: rhi.createView(t.handle), ...common },
+          w: t.width,
+          h: t.height,
+        };
       }
-    | undefined;
+      const canvas = rhi.fromNative('canvas', t);
+      if (canvas !== undefined) {
+        const screen = rhi.currentTexture(canvas);
+        return {
+          attachment: { view: rhi.createView(screen), ...common },
+          w: screen.width,
+          h: screen.height,
+        };
+      }
+      throw new TypeError(
+        `pass(): a colour target on WebGL2 is a Texture of the runtime, or its context for the canvas; got ${describe(t)}.`,
+      );
+    },
+  );
+  const pd = plan.depth;
+  let depth: { tex: RhiTexture; target: object; w: number; h: number } | undefined;
   if (pd !== undefined) {
     const t = pd.target;
-    if (!(t instanceof GlTextureImpl) || t.gl.kind !== 'depth')
+    if (!(t instanceof GlTextureImpl) || t.kind !== 'depth')
       throw new TypeError(
         `pass(): the depth target on WebGL2 is a depth Texture of the runtime; got ${describe(t)}.`,
       );
-    depth = { tex: t.texture as WebGLTexture, target: t, plan: pd, w: t.width, h: t.height };
+    depth = { tex: t.handle, target: t, w: t.width, h: t.height };
   }
   const sizes = [...colour, ...(depth === undefined ? [] : [depth])];
   const w = sizes[0]?.w ?? 0;
@@ -1722,123 +1150,35 @@ export function recordPass(
   if (sizes.some((a) => a.w !== w || a.h !== h))
     throw new TypeError('pass(): every attachment of a pass has one size.');
   const pass = new GlPass({
-    gl,
+    rhi,
     width: w,
     height: h,
-    depthFormat: depth?.plan.format,
-    depthReadOnly: depth?.plan.depth.readOnly ?? false,
-    stencilReadOnly: depth?.plan.stencil?.readOnly ?? false,
+    depthFormat: pd?.format,
+    depthReadOnly: pd?.depth.readOnly ?? false,
+    stencilReadOnly: pd?.stencil?.readOnly ?? false,
     depthTarget: depth?.target,
     depthTexture: depth?.tex,
   });
   record(pass);
   const steps = pass.steps;
+  const colorAttachments = colour.map((c) => c.attachment);
+  const depthStencilAttachment =
+    pd === undefined || depth === undefined
+      ? undefined
+      : depthStencilAttachmentOf(rhi.createView(depth.tex), pd);
   return async () => {
     // A Resident a WebGPU call wrote is read back first, and a zeroed one that no host copy holds
     // makes its zeros first: the draws read the host copy.
     for (const step of steps)
       for (const state of step.residents)
         if (state.fresh === 'device' || state.host === undefined) await state.sync();
-    const screen = colour.some((a) => a.tex === 'screen') ? d.screen() : undefined;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, d.fbo);
-    const buffers: number[] = [];
-    colour.forEach((a, i) => {
-      const tex = a.tex === 'screen' ? screen!.tex : a.tex;
-      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, tex, 0);
-      buffers.push(gl.COLOR_ATTACHMENT0 + i);
+    const encoder = rhi.createCommandEncoder();
+    const p = encoder.beginRenderPass({
+      colorAttachments,
+      ...(depthStencilAttachment !== undefined ? { depthStencilAttachment } : {}),
     });
-    for (let i = colour.length; i < d.maxColorAttachments; i++)
-      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, null, 0);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.TEXTURE_2D, null, 0);
-    if (depth !== undefined)
-      gl.framebufferTexture2D(
-        gl.FRAMEBUFFER,
-        depth.plan.stencil !== undefined ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT,
-        gl.TEXTURE_2D,
-        depth.tex,
-        0,
-      );
-    // The scissor is off for the blit and the clears: a scissor still on would clip them (E4).
-    gl.disable(gl.SCISSOR_TEST);
-    // A pass that loads the canvas starts from what the screen shows, turned over.
-    colour.forEach((a, i) => {
-      if (a.tex === 'screen' && a.load === 'load') blitScreen(d, i, 'in');
-    });
-    // The host's viewport, depth range and blend constant, which the pass gives back at its end.
-    const host = {
-      viewport: Array.from(gl.getParameter(gl.VIEWPORT) as Int32Array),
-      range: Array.from(gl.getParameter(gl.DEPTH_RANGE) as Float32Array),
-      blend: Array.from(gl.getParameter(gl.BLEND_COLOR) as Float32Array),
-    };
-    // The pass state of its start: the whole target, the depth range 0 to 1, a blend constant of 0.
-    gl.viewport(0, 0, w, h);
-    gl.depthRange(0, 1);
-    gl.blendColor(0, 0, 0, 0);
-    gl.drawBuffers(buffers.length > 0 ? buffers : [gl.NONE]);
-    gl.colorMask(true, true, true, true);
-    gl.depthMask(true);
-    gl.stencilMask(0xffffffff);
-    colour.forEach((a, i) => {
-      if (a.load !== 'clear') return;
-      if (a.kind === 'uint') gl.clearBufferuiv(gl.COLOR, i, new Uint32Array(pad(a.clear)));
-      else if (a.kind === 'sint') gl.clearBufferiv(gl.COLOR, i, new Int32Array(pad(a.clear)));
-      else gl.clearBufferfv(gl.COLOR, i, new Float32Array(pad(a.clear)));
-    });
-    // The depth, then the stencil apart from it. A read-only aspect loads, so it is never cleared.
-    if (depth !== undefined && depth.plan.depth.load === 'clear')
-      gl.clearBufferfv(gl.DEPTH, 0, new Float32Array([depth.plan.depth.clear]));
-    if (depth?.plan.stencil !== undefined && depth.plan.stencil.load === 'clear')
-      gl.clearBufferiv(gl.STENCIL, 0, new Int32Array([depth.plan.stencil.clear]));
-    for (const step of steps) step.run(gl);
-    gl.useProgram(null);
-    gl.disable(gl.SCISSOR_TEST);
-    gl.colorMask(true, true, true, true);
-    gl.depthMask(true);
-    gl.stencilMask(0xffffffff);
-    // A discarded attachment is cleared to 0 at the end, by the clear of its kind: colour by index,
-    // then depth, then stencil. No invalidation call is made.
-    colour.forEach((a, i) => {
-      if (a.store !== 'discard') return;
-      if (a.kind === 'uint') gl.clearBufferuiv(gl.COLOR, i, new Uint32Array(4));
-      else if (a.kind === 'sint') gl.clearBufferiv(gl.COLOR, i, new Int32Array(4));
-      else gl.clearBufferfv(gl.COLOR, i, new Float32Array(4));
-    });
-    if (depth !== undefined && depth.plan.depth.store === 'discard')
-      gl.clearBufferfv(gl.DEPTH, 0, new Float32Array([0]));
-    if (depth?.plan.stencil !== undefined && depth.plan.stencil.store === 'discard')
-      gl.clearBufferiv(gl.STENCIL, 0, new Int32Array([0]));
-    colour.forEach((a, i) => {
-      if (a.tex === 'screen') blitScreen(d, i, 'out');
-    });
-    gl.viewport(host.viewport[0]!, host.viewport[1]!, host.viewport[2]!, host.viewport[3]!);
-    gl.depthRange(host.range[0]!, host.range[1]!);
-    gl.blendColor(host.blend[0]!, host.blend[1]!, host.blend[2]!, host.blend[3]!);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    for (const step of steps) step.run(p);
+    p.end();
+    await rhi.submit([encoder]);
   };
-}
-
-const pad = (v: readonly number[]): number[] => [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0, v[3] ?? 0];
-
-/** Copy the canvas's texture onto the screen (`out`), or the screen into it (`in`), turned over
- *  in y: the texture's row 0 is the top, and the screen's is the bottom. */
-function blitScreen(d: GlDrawing, attachment: number, way: 'in' | 'out'): void {
-  const gl = d.gl;
-  const { w, h } = d.screen();
-  const fbo = d.fbo;
-  if (way === 'out') {
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fbo);
-    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
-    gl.readBuffer(gl.COLOR_ATTACHMENT0 + attachment);
-  } else {
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
-    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fbo);
-    gl.readBuffer(gl.BACK);
-    // Only the canvas's attachment takes the copy.
-    const only = Array.from({ length: attachment + 1 }, (_, k) =>
-      k === attachment ? gl.COLOR_ATTACHMENT0 + attachment : gl.NONE,
-    );
-    gl.drawBuffers(only);
-  }
-  gl.blitFramebuffer(0, 0, w, h, 0, h, w, 0, gl.COLOR_BUFFER_BIT, gl.NEAREST);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
 }

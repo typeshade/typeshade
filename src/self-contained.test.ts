@@ -97,6 +97,7 @@ describe('the bundle boundary source walk on every host', () => {
         (file) =>
           file !== 'src/runtime.ts' &&
           !file.startsWith('src/runtime/') &&
+          !file.startsWith('src/rhi/') &&
           !file.startsWith('src/core/'),
       ),
     ).toEqual([]);

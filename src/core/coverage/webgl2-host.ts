@@ -43,7 +43,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.getContextAttributes',
     ],
     evidence:
-      'src/runtime/runtime.ts:52-59; src/core/gl-context.ts:18; src/core/host-draw.ts:237-242',
+      'src/runtime/runtime.ts:51-58; src/core/gl-context.ts:18; src/core/host-draw.ts:237-242',
     note: "the runtime makes a plain context, or takes the host's context through createRuntime({ device }); the call layer makes an opaque, non-antialiased one",
     webgpu: andGap(
       raw(
@@ -67,7 +67,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: '`preserveDrawingBuffer`',
     covers: ['webgl:WebGLContextAttributes.preserveDrawingBuffer'],
     evidence:
-      'src/runtime/gl-draw.ts (the pass draws into a texture and turns it over onto the screen); docs/use-typeshade-surface.md:7961-7962 (load starts from what the screen shows)',
+      'src/rhi/webgl2.ts (the pass draws into a texture and turns it over onto the screen); docs/use-typeshade-surface.md:7961-7962 (load starts from what the screen shows)',
     note: 'WebGPU has no equivalent: the canvas texture is new each frame',
     webgpu: na('no WebGPU form: the canvas texture is new each frame'),
     webgl2: andGap(
@@ -90,7 +90,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WEBGL_lose_context.loseContext',
       'webgl:WEBGL_lose_context.restoreContext',
     ],
-    evidence: 'src/runtime/gl.ts:113 (destroy loses the context the runtime made)',
+    evidence: 'src/rhi/webgl2.ts:1601-1605 (destroy loses the context the runtime made)',
     note: 'rt.destroy() loses the context it made; no typed loss handling on either tier',
     webgpu: andGap(
       raw('Runtime.device', 'GPUDevice.lost, reached through the device'),
@@ -113,7 +113,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.getExtension',
       'webgl:WebGLRenderingContextBase.getSupportedExtensions',
     ],
-    evidence: 'src/runtime/gl-draw.ts:225-230 (turns on three extensions)',
+    evidence: 'src/rhi/webgl2.ts:256-261 (turns on three extensions)',
     note: "the runtime turns on EXT_color_buffer_float, EXT_color_buffer_half_float and OES_texture_float_linear; every other extension is the host's",
     webgpu: typed(
       'src/compiler/ts/builtin-values.test.ts',
@@ -136,7 +136,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.getShaderPrecisionFormat',
     ],
     evidence:
-      'changes/0051-device-limits.md:415-416 (WebGL2 left out); src/runtime/gl-draw.ts:234 (the pass reads MAX_COLOR_ATTACHMENTS once for its own use, with no author-facing form)',
+      'changes/0051-device-limits.md:415-416 (WebGL2 left out); src/rhi/webgl2.ts:266 (the pass reads MAX_COLOR_ATTACHMENTS once for its own use, with no author-facing form)',
     note: 'rt.limits is drafted for WebGPU',
     webgpu: planned('0051', 'rt.limits is drafted for WebGPU'),
     webgl2: gap(
@@ -193,7 +193,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: '`KHR_parallel_shader_compile`',
     covers: ['webgl:KHR_parallel_shader_compile'],
-    evidence: 'src/runtime/gl-draw.ts',
+    evidence: 'src/rhi/webgl2.ts',
     note: 'not used',
     webgpu: na('createRenderPipelineAsync is used'),
     webgl2: na('an implementation hint; the runtime does not use it'),
@@ -241,7 +241,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextOverloads.uniformMatrix4fv',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:944-944 (uniform1i for sampler units); src/core/host-kernel-gl.ts:179 (uniform4uiv for the _dispatch uniform); src/core/gl-compute.ts:735 (uniform1ui)',
+      'src/rhi/webgl2.ts:1515 (uniform1i for sampler units); src/core/host-kernel-gl.ts:179 (uniform4uiv for the _dispatch uniform); src/core/gl-compute.ts:735 (uniform1ui)',
     note: 'a program has no default-block uniforms; everything is a block or a texture; the runtime sets uniforms itself, and the author writes none by location',
     webgpu: na('the writer uses blocks; Rule 6.8'),
     webgl2: na('the writer uses blocks; Rule 6.8'),
@@ -257,7 +257,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.uniformBlockBinding',
     ],
     evidence:
-      'src/runtime/gl-draw.ts (bindBufferBase, uniformBlockBinding); docs/use-typeshade-surface.md:7962 (a uniform binding is a block)',
+      'src/rhi/webgl2.ts (bindBufferBase, uniformBlockBinding); docs/use-typeshade-surface.md:7962 (a uniform binding is a block)',
     note: 'bindings by name, std140 from the manifest; bindBufferRange (a sub-range) has no typed form',
     webgpu: andGap(
       typed('scripts/compile-gate.ts'),
@@ -299,7 +299,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.vertexAttribPointer',
     ],
     evidence:
-      'src/core/vertex-layout.ts:23-80; src/runtime/gl-draw.ts:1285-1289 (enableVertexAttribArray, vertexAttribPointer, vertexAttribIPointer); src/core/gl-compute.ts:445, 579, 807 (createVertexArray, bindVertexArray, deleteVertexArray)',
+      'src/core/vertex-layout.ts:23-80; src/rhi/webgl2.ts:1057-1079 (enableVertexAttribArray, vertexAttribPointer, vertexAttribIPointer); src/core/gl-compute.ts:445, 579, 807 (createVertexArray, bindVertexArray, deleteVertexArray)',
     note: 'one tightly packed buffer of f32/i32/u32 attributes (Rule 6.8); a divisor (per-instance attribute), normalized 8/16-bit attributes and a second buffer have no typed form',
     webgpu: andGap(
       typed('scripts/compile-gate.ts'),
@@ -332,8 +332,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.vertexAttrib4f',
       'webgl:WebGLRenderingContextBase.vertexAttrib4fv',
     ],
-    evidence:
-      'src/runtime/gl-draw.ts:1285-1289 (every attribute a program reads comes from a buffer)',
+    evidence: 'src/rhi/webgl2.ts:1057-1079 (every attribute a program reads comes from a buffer)',
     note: 'a value for an attribute with no buffer; WebGPU has no such input, and each vertex input comes from a vertex buffer (Rule 6.8); no caller of these keys in src/',
     webgpu: na('no WebGPU form: each vertex input is read from a vertex buffer (Rule 6.8)'),
     webgl2: gap(
@@ -371,7 +370,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.deleteBuffer',
     ],
     evidence:
-      'src/core/resident.ts:53-72; src/runtime/gl-draw.ts (bufferData); changes/0048-partial-buffer-write.md',
+      'src/core/resident.ts:53-72; src/rhi/webgl2.ts (bufferData); changes/0048-partial-buffer-write.md',
     note: 'Resident: upload once, read back, destroy; a partial write is 0048 (draft); bufferSubData has no caller in src/',
     webgpu: typed('journeys/overrides/journey.mjs', 'also: planned (0048, sub-range write)'),
     webgl2: typed('journeys/overrides/journey.mjs', 'also: planned (0048, sub-range write)'),
@@ -382,7 +381,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: '`copyBufferSubData`',
     covers: ['webgl:WebGL2RenderingContextBase.copyBufferSubData'],
     evidence:
-      'node_modules/typescript/lib/lib.dom.d.ts:23588; src/runtime/runtime.ts:199-201 (Frame.encoder, the host encoder)',
+      'node_modules/typescript/lib/lib.dom.d.ts:23588; src/runtime/runtime.ts:198-200 (Frame.encoder, the host encoder)',
     note: 'a buffer-to-buffer copy: on WebGPU the host copies in its own encoder; WebGL2 has no typed form for it',
     webgpu: andGap(
       raw('Frame.encoder', 'the host copies between buffers in its own encoder'),
@@ -403,7 +402,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.drawElements',
     ],
     evidence:
-      'src/runtime/program.ts:321-352; src/runtime/gl-draw.ts (drawArraysInstanced, drawElementsInstanced)',
+      'src/runtime/program.ts:328-359; src/rhi/webgl2.ts (drawArraysInstanced, drawElementsInstanced)',
     note: 'Geometry: count, instances, indices (uint16/uint32); a first vertex, index or instance has no form; drawRangeElements has no caller in src/',
     webgpu: andGap(
       typed('scripts/compile-gate.ts'),
@@ -423,7 +422,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: 'Primitive topology of `drawArrays`: `POINTS`, `LINES`, `LINE_STRIP`, `TRIANGLES`, `TRIANGLE_STRIP`',
     covers: ['webgl:WebGLRenderingContextBase.drawArrays'],
-    evidence: 'src/runtime/gl-draw.ts:762-768',
+    evidence: 'src/rhi/webgl2.ts:445-453',
     note: "WebGPU's five topologies map",
     webgpu: typed('scripts/compile-gate.ts', 'the five topologies'),
     webgl2: typed('scripts/compile-gate.ts', 'the five topologies'),
@@ -436,8 +435,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.LINE_LOOP',
       'webgl:WebGLRenderingContextBase.TRIANGLE_FAN',
     ],
-    evidence:
-      'src/runtime/gl-draw.ts:763-768 (the five topologies the runtime maps, not these two)',
+    evidence: 'src/rhi/webgl2.ts:446-451 (the five topologies the runtime maps, not these two)',
     note: 'declared on WebGLRenderingContextBase (WebGL 1.0); flagged WebGL2-only by changes/0059-capability-coverage.md:221-226, item 4',
     webgpu: na('no WebGPU form: GPUPrimitiveTopology has no line-loop or triangle-fan value'),
     webgl2: gap(
@@ -452,8 +450,8 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: '`lineWidth`',
     covers: ['webgl:WebGLRenderingContextBase.lineWidth'],
-    evidence: 'src/runtime/gl-draw.ts:1449-1468 (setState sets no line width)',
-    note: 'the runtime never sets a line width (src/runtime/gl-draw.ts:1455-1473); WebGPU has no line width',
+    evidence: 'src/rhi/webgl2.ts:575-617 (setState sets no line width)',
+    note: 'the runtime never sets a line width (src/rhi/webgl2.ts:626-651); WebGPU has no line width',
     webgpu: na('no WebGPU form: WebGPU has no line width'),
     webgl2: gap(
       11,
@@ -481,8 +479,8 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextOverloads.texSubImage2D',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:224, 244-251, 1418-1426 (texSubImage2D for storage round trips and the _fp64 guard, activeTexture, bindTexture); changes/0050-texture-write.md',
-    note: 'rt.texture() makes a 2D texture in any WebGPU-named format WebGL2 has; an upload from the host and mipmaps are 0050 on WebGPU only; copies between textures and texParameter (LOD, compare) have no typed form. The sRGB formats (EXT_sRGB is core in WebGL2; src/runtime/gl-draw.ts:139) and the cube faces are covered by this row; the WebGL2 route to a cube texture is in the Textures 3D / array row',
+      'src/rhi/webgl2.ts:626-651, 1344-1383; src/runtime/gl-draw.ts:101-113 (texSubImage2D for storage round trips and the _fp64 guard, activeTexture, bindTexture); changes/0050-texture-write.md',
+    note: 'rt.texture() makes a 2D texture in any WebGPU-named format WebGL2 has; an upload from the host and mipmaps are 0050 on WebGPU only; copies between textures and texParameter (LOD, compare) have no typed form. The sRGB formats (EXT_sRGB is core in WebGL2; src/rhi/webgl2.ts:152) and the cube faces are covered by this row; the WebGL2 route to a cube texture is in the Textures 3D / array row',
     webgpu: andGap(
       typed(
         'scripts/compile-gate.ts',
@@ -508,7 +506,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.LUMINANCE',
       'webgl:WebGLRenderingContextBase.LUMINANCE_ALPHA',
     ],
-    evidence: 'src/runtime/gl-draw.ts:89-193 (formatOf: no luminance or alpha case)',
+    evidence: 'src/rhi/webgl2.ts:103-227 (formatOf: no luminance or alpha case)',
     note: 'declared on WebGLRenderingContextBase (WebGL 1.0); flagged WebGL2-only by changes/0059-capability-coverage.md:221-226, item 4',
     webgpu: na('no WebGPU form: WebGPU has no luminance or alpha-only texture format'),
     webgl2: gap(11, 'no typed spelling; WebGL2-only capability; no door yet (Rule 11.16)', 642),
@@ -534,7 +532,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.RGB565',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:89-193 (formatOf: no unpacked three-component case); src/runtime/gl-draw.ts:117-123 (rg11b10ufloat, the one packed three-component case); node_modules/@webgpu/types/dist/index.d.ts:429 (rgb9e5ufloat, a packed three-component format)',
+      'src/rhi/webgl2.ts:103-227 (formatOf: no unpacked three-component case); src/rhi/webgl2.ts:131-138 (rg11b10ufloat, the one packed three-component case); node_modules/@webgpu/types/dist/index.d.ts:429 (rgb9e5ufloat, a packed three-component format)',
     note: 'RGB and RGB565 are declared on WebGLRenderingContextBase (WebGL 1.0); the others on WebGL2RenderingContextBase; flagged WebGL2-only by changes/0059-capability-coverage.md:221-226, item 4',
     webgpu: na(
       'no WebGPU form: WebGPU has no unpacked three-component texture format; rgb9e5ufloat and rg11b10ufloat are packed',
@@ -553,7 +551,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.texSubImage3D',
     ],
     evidence:
-      'docs/use-typeshade-surface.md:7939-7941 (a 2D array, 3D or cube texture is a host WebGLTexture on the WebGL2 tier); src/runtime/gl.ts:310-319 (a host texture of another dimension is bound for the target its pass program names); src/runtime/gl-draw.ts:1662-1665 (a colour target is a runtime Texture or the canvas context)',
+      'docs/use-typeshade-surface.md:7939-7941 (a 2D array, 3D or cube texture is a host WebGLTexture on the WebGL2 tier); src/runtime/gl.ts:334-343 (a host texture of another dimension is bound for the target its pass program names); src/runtime/gl-draw.ts:1108-1136 (a colour target is a runtime Texture or the canvas context)',
     note: "the runtime's texture is 2D on WebGL2; a 2D array, 3D or cube texture is a host WebGLTexture on WebGL2 (surface §69); a layered colour target is the row below",
     webgpu: gap(
       15,
@@ -563,10 +561,10 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgl2: andGap(
       raw(
         'WebGLTexture',
-        'a host WebGLTexture of TEXTURE_2D_ARRAY, TEXTURE_3D or TEXTURE_CUBE_MAP; only a compute entry binds it, since a draw binds TEXTURE_2D (src/runtime/gl-draw.ts:276)',
+        'a host WebGLTexture of TEXTURE_2D_ARRAY, TEXTURE_3D or TEXTURE_CUBE_MAP; only a compute entry binds it, since a draw binds TEXTURE_2D (src/rhi/webgl2.ts:285)',
       ),
       6,
-      'no pass takes a layer: a colour target on WebGL2 is a runtime Texture or the canvas context (src/runtime/gl-draw.ts:1662-1665); roadmap row 12 names texture_cube_array and texture_3d (docs/roadmap.md:225)',
+      'no pass takes a layer: a colour target on WebGL2 is a runtime Texture or the canvas context (src/runtime/gl-draw.ts:1097-1100); roadmap row 12 names texture_cube_array and texture_3d (docs/roadmap.md:225)',
       637,
     ),
   },
@@ -576,7 +574,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: '`framebufferTextureLayer` (a layer of a 3D or array texture as a colour target)',
     covers: ['webgl:WebGL2RenderingContextBase.framebufferTextureLayer'],
     evidence:
-      'src/runtime/gl-draw.ts:323-326 (the WebGL2 tier makes 2D textures of one layer); src/runtime/gl-draw.ts:1662-1665 (a colour target is a runtime Texture or the canvas context)',
+      'src/runtime/gl-draw.ts:162-165 (the WebGL2 tier makes 2D textures of one layer); src/runtime/gl-draw.ts:1108-1136 (a colour target is a runtime Texture or the canvas context)',
     note: 'the runtime binds each colour target as a 2D texture; on WebGPU a layer is the depthSlice member of table A',
     webgpu: andGap(
       raw(
@@ -590,7 +588,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgl2: refused(
       'Rule 11.11',
       'use a 2D texture; omit depthSlice',
-      'a layer of a 3D or array texture as a colour target; src/runtime/gl-draw.ts:323-326 refuses a dimension other than 2d',
+      'a layer of a 3D or array texture as a colour target; src/runtime/gl-draw.ts:161-164 refuses a dimension other than 2d',
     ),
   },
   {
@@ -612,8 +610,8 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextOverloads.compressedTexSubImage2D',
     ],
     evidence:
-      'src/runtime/resources.ts:155-156 (read cannot copy a compressed format); changes/0050-texture-write.md:284, 387 (write refuses a compressed format, and no write of compressed blocks)',
-    note: 'the runtime makes no compressed texture and uploads none; a texture the host makes is bound as is (src/runtime/resources.ts:209; src/runtime/gl-draw.ts:1433-1435)',
+      'src/runtime/resources.ts:153-154 (read cannot copy a compressed format); changes/0050-texture-write.md:284, 387 (write refuses a compressed format, and no write of compressed blocks)',
+    note: 'the runtime makes no compressed texture and uploads none; a texture the host makes is bound as is (src/runtime/resources.ts:206-210; src/rhi/webgl2.ts:621-622)',
     webgpu: andGap(
       raw(
         'GPUTexture',
@@ -626,7 +624,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgl2: andGap(
       raw(
         'WebGLTexture',
-        'a compressed texture the host makes is bound as is (src/runtime/gl-draw.ts:1433-1435)',
+        'a compressed texture the host makes is bound as is (src/rhi/webgl2.ts:621-622)',
       ),
       6,
       'no upload path; changes/0050-texture-write.md:387 excludes a write of compressed blocks',
@@ -639,8 +637,8 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: '`EXT_texture_norm16` (16-bit unorm and snorm colour formats)',
     covers: ['webgl:EXT_texture_norm16'],
     evidence:
-      'src/runtime/gl-draw.ts:86 (NAMED admits the names); src/runtime/gl-draw.ts:89-193 (formatOf: no 16-bit unorm or snorm case)',
-    note: 'the runtime does not turn EXT_texture_norm16 on (src/runtime/gl-draw.ts:225-230); the sampling route is read, not measured on a WebGL2 context',
+      'src/rhi/webgl2.ts:92 (NAMED admits the names); src/rhi/webgl2.ts:103-227 (formatOf: no 16-bit unorm or snorm case)',
+    note: 'the runtime does not turn EXT_texture_norm16 on (src/rhi/webgl2.ts:256-261); the sampling route is read, not measured on a WebGL2 context',
     webgpu: andGap(
       typed(
         'src/runtime/runtime.test.ts',
@@ -653,10 +651,10 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgl2: andGap(
       raw(
         'WebGLTexture',
-        'a host WebGLTexture of this format is bound as is (src/runtime/gl-draw.ts:1433-1435)',
+        'a host WebGLTexture of this format is bound as is (src/rhi/webgl2.ts:621-622)',
       ),
       14,
-      'not measured as a target; the runtime makes no 16-bit unorm or snorm texture and admits no render target of the format (src/runtime/gl-draw.ts:89-193, 1664); roadmap row 13b names the tier-1 formats (docs/roadmap.md:228)',
+      'not measured as a target; the runtime makes no 16-bit unorm or snorm texture and admits no render target of the format (src/rhi/webgl2.ts:103-227; src/runtime/gl-draw.ts:1099); roadmap row 13b names the tier-1 formats (docs/roadmap.md:228)',
       644,
     ),
   },
@@ -666,7 +664,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Pixel store: `pixelStorei` (`UNPACK_FLIP_Y_WEBGL`, `UNPACK_PREMULTIPLY_ALPHA_WEBGL`, alignments)',
     covers: ['webgl:WebGLRenderingContextBase.pixelStorei'],
     evidence:
-      'changes/0050-texture-write.md:148-152 (the call layer sets both for an image upload); src/core/host-draw.ts; src/runtime/gl-draw.ts:580, 1419',
+      'changes/0050-texture-write.md:148-152 (the call layer sets both for an image upload); src/core/host-draw.ts; src/rhi/webgl2.ts:742, 576',
     note: 'WebGPU spells flipY and premultipliedAlpha on copyExternalImageToTexture, a copy member of table A; the typed route here is the call-layer image upload',
     webgpu: typed('scripts/user-journey.ts', 'call layer; also: planned (0050)'),
     webgl2: andGap(
@@ -702,7 +700,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.samplerParameterf',
       'webgl:WebGL2RenderingContextBase.samplerParameteri',
     ],
-    evidence: 'src/runtime/resources.ts:76-93; src/runtime/gl-draw.ts (samplerParameteri)',
+    evidence: 'src/runtime/resources.ts:74-91; src/rhi/webgl2.ts (samplerParameteri)',
     note: 'filter, address and compare are typed; the LOD clamps have no typed form; anisotropy is its own row',
     webgpu: andGap(
       typed(
@@ -729,7 +727,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: '`EXT_texture_filter_anisotropic`',
     covers: ['webgl:EXT_texture_filter_anisotropic'],
     evidence:
-      'src/runtime/resources.ts:322-325 (a host GPUSampler is bound as is); src/runtime/gl-draw.ts:1441-1444 (samplerOf takes a WebGLSampler)',
+      'src/runtime/resources.ts:298-300 (a host GPUSampler is bound as is); src/runtime/gl-draw.ts:977-984 (samplerOf takes a WebGLSampler)',
     note: 'a host sampler carries the anisotropy: a host GPUSampler on WebGPU, a host WebGLSampler on WebGL2',
     webgpu: andGap(
       raw('GPUSampler', 'a host GPUSampler with maxAnisotropy is bound as is'),
@@ -755,7 +753,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:OES_texture_float_linear',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:225-230 (turns on three of the four); src/core/backends/glsl.ts:604-607; docs/use-typeshade-surface.md:5916-5917 (floatRenderTarget, float32Blend and float32Filterable are still unspellable)',
+      'src/rhi/webgl2.ts:256-261 (turns on three of the four); src/core/backends/glsl.ts:604-607; docs/use-typeshade-surface.md:5916-5917 (floatRenderTarget, float32Blend and float32Filterable are still unspellable)',
     note: 'the runtime turns on EXT_color_buffer_float, EXT_color_buffer_half_float and OES_texture_float_linear; the three declarable capabilities (floatRenderTarget, float32Filterable, float32Blend) have no "use typeshade" spelling',
     webgpu: gap(6, 'float32-filterable and float32-blendable are not spellable', 637),
     webgl2: andGap(
@@ -778,7 +776,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.deleteFramebuffer',
       'webgl:WebGLRenderingContextBase.framebufferTexture2D',
     ],
-    evidence: 'src/runtime/gl-draw.ts:1627-1784',
+    evidence: 'src/rhi/webgl2.ts:923-1178',
     note: 'Frame.pass(targets): colour targets, depth, clear and load',
     webgpu: typed('scripts/compile-gate.ts'),
     webgl2: typed('scripts/compile-gate.ts'),
@@ -792,7 +790,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.invalidateSubFramebuffer',
     ],
     evidence:
-      'src/runtime/runtime.ts:468-498 (FrameImpl.pass); src/runtime/runtime.ts:544-558 (depthStencilAttachmentOf); src/runtime/gl-draw.ts:1627-1784 (recordPass)',
+      'src/runtime/runtime.ts:467-498 (FrameImpl.pass); src/runtime/program.ts:1198-1215 (depthStencilAttachmentOf); src/rhi/webgl2.ts:923-1178 (recordPass)',
     note: 'a hint: the contents after a pass may be dropped',
     webgpu: typed(
       'journeys/pass-attachments',
@@ -816,7 +814,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.renderbufferStorage',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:1680-1724 (the runtime attaches textures to its targets, not renderbuffers)',
+      'src/runtime/gl-draw.ts:1103-1150 (the runtime attaches textures to its targets, not renderbuffers)',
     note: 'the runtime gives every render target as a texture; a renderbuffer is a storage choice a program cannot name',
     webgpu: na(
       'the runtime gives every render target as a texture; a renderbuffer is a storage choice a program cannot name',
@@ -830,7 +828,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: 'Multisampled renderbuffers: `renderbufferStorageMultisample`',
     covers: ['webgl:WebGL2RenderingContextBase.renderbufferStorageMultisample'],
-    evidence: 'src/runtime/gl-draw.ts:329-329 (no multisampled texture on the WebGL2 tier)',
+    evidence: 'src/runtime/gl-draw.ts:168 (no multisampled texture on the WebGL2 tier)',
     note: 'a multisampled draw on WebGL2 is refused; the platform has a multisampled renderbuffer path that the runtime does not take',
     webgpu: gap(
       15,
@@ -849,7 +847,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Blit (resolve): `blitFramebuffer`',
     covers: ['webgl:WebGL2RenderingContextBase.blitFramebuffer'],
     evidence:
-      'src/runtime/gl-draw.ts:327-329 (no multisampled texture on the WebGL2 tier); src/runtime/gl-draw.ts:1808 (blitFramebuffer makes the screen flip)',
+      'src/runtime/gl-draw.ts:166-169 (no multisampled texture on the WebGL2 tier); src/rhi/webgl2.ts:914 (blitFramebuffer makes the screen flip)',
     note: 'a resolve has no typed form on either tier',
     webgpu: andGap(
       raw('RenderPipeline.draw(pass, …)', 'the host makes its own pass with resolveTarget'),
@@ -868,7 +866,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: '`readPixels` (synchronous readback), `PIXEL_PACK_BUFFER`',
     covers: ['webgl:WebGL2RenderingContextOverloads.readPixels'],
-    evidence: 'src/runtime/gl-draw.ts (readPixels); src/runtime/resources.ts:37-72',
+    evidence: 'src/rhi/webgl2.ts (readPixels); src/runtime/resources.ts:35-70',
     note: 'Texture.read() and readFloats() on both tiers',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: andGap(
@@ -893,7 +891,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.clearStencil',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:1627-1784 (recordPass); src/runtime/runtime.ts:468-498 (FrameImpl.pass); src/runtime/runtime.ts:544-558 (depthStencilAttachmentOf)',
+      'src/rhi/webgl2.ts:923-1178 (recordPass); src/runtime/runtime.ts:467-498 (FrameImpl.pass); src/runtime/program.ts:1197-1215 (depthStencilAttachmentOf)',
     note: 'PassTargets clear values',
     webgpu: typed(
       'journeys/pass-attachments',
@@ -912,7 +910,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.depthFunc',
       'webgl:WebGLRenderingContextBase.depthMask',
     ],
-    evidence: 'src/runtime/program.ts:271-277; src/runtime/gl-draw.ts (depthFunc, depthMask)',
+    evidence: 'src/runtime/program.ts:278-284; src/rhi/webgl2.ts (depthFunc, depthMask)',
     note: 'RenderState.depth; the switch that turns the test on is in Capability switches',
     webgpu: typed('scripts/compile-gate.ts'),
     webgl2: typed('scripts/compile-gate.ts'),
@@ -922,7 +920,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: '`depthRange`',
     covers: ['webgl:WebGLRenderingContextBase.depthRange'],
-    evidence: 'src/runtime/gl-draw.ts:1449-1468 (setState sets no depth range)',
+    evidence: 'src/rhi/webgl2.ts:575-617 (setState sets no depth range)',
     note: "the runtime sets the depth range to 0 to 1 at each WebGL2 pass start and gives the host's back at its end; on WebGPU it is an argument of setViewport",
     webgpu: typed(
       'journeys/render-state',
@@ -954,7 +952,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: '`EXT_depth_clamp`',
     covers: ['webgl:EXT_depth_clamp'],
-    evidence: 'src/runtime/program.ts:261-319 (no unclipped depth field)',
+    evidence: 'src/runtime/program.ts:268-326 (no unclipped depth field)',
     note: 'depth clamping is unclippedDepth on WebGPU; the runtime sets no depth clamp on either tier; no DEPTH_CLAMP use in src/runtime or src/core',
     webgpu: gap(1, 'unclippedDepth (depth clamp)', 632),
     webgl2: andGap(
@@ -980,7 +978,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.stencilOpSeparate',
     ],
     evidence:
-      'src/runtime/program.ts:292 (RenderState.depth.stencil); src/runtime/program.ts:1189-1208 (depthStencilOf); src/runtime/gl-draw.ts:1449 (setState)',
+      'src/runtime/program.ts:299 (RenderState.depth.stencil); src/rhi/webgpu.ts:199-218 (depthStencilOf); src/rhi/webgl2.ts:575-617 (setState)',
     note: 'the stencil test, its functions, operations and masks are set by each draw of a pipeline with depth.stencil',
     webgpu: typed(
       'journeys/pipeline-state',
@@ -997,7 +995,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: '`WEBGL_stencil_texturing`',
     covers: ['webgl:WEBGL_stencil_texturing'],
     evidence:
-      'src/runtime/gl-draw.ts:1627-1784 (a stencil attachment is cleared to 0 and never tested); src/runtime/resources.ts:48-49 (a depth or stencil format other than depth32float rejects a read)',
+      'src/rhi/webgl2.ts:923-1178 (a stencil attachment is cleared to 0 and never tested); src/runtime/resources.ts:46-47 (a depth or stencil format other than depth32float rejects a read)',
     note: 'the stencil aspect of a depth-stencil texture as a sampled texture; the same capability as the stencil-only aspect of GPUTextureAspect in table A',
     webgpu: gap(
       6,
@@ -1006,7 +1004,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       6,
-      'the stencil aspect of a depth-stencil texture has no typed spelling; WebGL2 reads a depth texture through a copy to r32float and refuses other depth formats (src/runtime/gl-draw.ts:405, 552-554)',
+      'the stencil aspect of a depth-stencil texture has no typed spelling; WebGL2 reads a depth texture through a copy to r32float and refuses other depth formats (src/runtime/gl-draw.ts:253; src/rhi/webgl2.ts:714-716)',
       637,
     ),
   },
@@ -1021,16 +1019,16 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.blendFuncSeparate',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:1470-1471 (blendFuncSeparate, blendEquationSeparate); src/runtime/program.ts:61-70',
+      'src/rhi/webgl2.ts:596-597 (blendFuncSeparate, blendEquationSeparate); src/runtime/program.ts:68-77',
     note: 'TargetState.blend; min and max are core in WebGL2 (ES 3.00), the form EXT_blend_minmax adds in WebGL 1.0; the switch that turns blending on is in Capability switches',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend (src/runtime/program.ts:70)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend (src/runtime/program.ts:77)',
       645,
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend on the WebGL2 tier (src/runtime/gl-draw.ts:1470-1471)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend on the WebGL2 tier (src/runtime/gl-draw.ts:972-973)',
       645,
     ),
   },
@@ -1040,8 +1038,8 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: '`blendColor`',
     covers: ['webgl:WebGLRenderingContextBase.blendColor'],
     evidence:
-      'src/runtime/gl-draw.ts:783 (the constant factor maps to CONSTANT_COLOR); src/runtime/gl-draw.ts:1449-1468 (setState sets the functions, not the colour)',
-    note: 'the constant blend factor is typed (TargetState.blend, src/runtime/program.ts:66-72); the constant colour is typed by RenderPass.setBlendConstant and RenderState.blendConstant',
+      'src/rhi/webgl2.ts:468 (the constant factor maps to CONSTANT_COLOR); src/rhi/webgl2.ts:575-617 (setState sets the functions, not the colour)',
+    note: 'the constant blend factor is typed (TargetState.blend, src/runtime/program.ts:73-79); the constant colour is typed by RenderPass.setBlendConstant and RenderState.blendConstant',
     webgpu: typed(
       'journeys/render-state',
       'RenderPass.setBlendConstant; also src/runtime/runtime.test.ts',
@@ -1065,7 +1063,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:OES_draw_buffers_indexed.enableiOES',
     ],
     evidence:
-      'docs/use-typeshade-surface.md:7967 (targets that blend or mask apart are refused on WebGL2); src/runtime/gl-draw.ts:968-975 (the refusal, a TypeError)',
+      'docs/use-typeshade-surface.md:7967 (targets that blend or mask apart are refused on WebGL2); src/runtime/gl-draw.ts:588-613 (the refusal, a TypeError)',
     note: 'the extension would lift the refusal',
     webgpu: gap(
       15,
@@ -1075,7 +1073,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgl2: refused(
       'Rule 11.11',
       'give every target the same blend and writeMask',
-      "OES_draw_buffers_indexed would lower it (group 10); table A's GPUColorTargetState.blend row names the same capability; WebGL2 keeps one blend state and one mask (src/runtime/gl-draw.ts:968-975)",
+      "OES_draw_buffers_indexed would lower it (group 10); table A's GPUColorTargetState.blend row names the same capability; WebGL2 keeps one blend state and one mask (src/rhi/webgl2.ts:1486-1525)",
     ),
   },
   {
@@ -1096,16 +1094,16 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: 'Colour mask: `colorMask`',
     covers: ['webgl:WebGLRenderingContextBase.colorMask'],
-    evidence: 'src/runtime/gl-draw.ts (colorMask)',
+    evidence: 'src/rhi/webgl2.ts (colorMask)',
     note: 'TargetState.writeMask; one mask for every target on WebGL2',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask (src/runtime/program.ts:71)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask (src/runtime/program.ts:78)',
       645,
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets writeMask on the WebGL2 tier (src/runtime/gl-draw.ts:1473)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets writeMask on the WebGL2 tier (src/runtime/gl-draw.ts:975)',
       645,
     ),
   },
@@ -1117,7 +1115,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.cullFace',
       'webgl:WebGLRenderingContextBase.frontFace',
     ],
-    evidence: 'src/runtime/gl-draw.ts (cullFace, frontFace)',
+    evidence: 'src/rhi/webgl2.ts (cullFace, frontFace)',
     note: 'RenderState.primitive; the switch that turns culling on is in Capability switches',
     webgpu: gap(
       15,
@@ -1126,7 +1124,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets cullMode or frontFace on the WebGL2 tier (src/runtime/gl-draw.ts:1464, 1466)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets cullMode or frontFace on the WebGL2 tier (src/rhi/webgl2.ts:647; src/runtime/gl-draw.ts:967)',
       645,
     ),
   },
@@ -1146,7 +1144,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Scissor: `scissor` (`enable(SCISSOR_TEST)` is in Capability switches)',
     covers: ['webgl:WebGLRenderingContextBase.scissor'],
     evidence:
-      'src/runtime/gl-draw.ts:1728, 1760 (SCISSOR_TEST is disabled before a pass draws, and at its end)',
+      'src/runtime/gl-draw.ts:1156; src/rhi/webgl2.ts:979, 1154 (SCISSOR_TEST is disabled before a pass draws, and at its end)',
     note: 'RenderPass.setScissorRect sets the scissor rectangle; the runtime disables the scissor test at each pass start and end',
     webgpu: typed(
       'journeys/render-state',
@@ -1163,7 +1161,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Viewport: `viewport`',
     covers: ['webgl:WebGLRenderingContextBase.viewport'],
     evidence:
-      'src/runtime/gl-draw.ts:1740-1740 (the whole target at each pass start); src/runtime/gl-draw.ts:1576-1611 (GlPass.setViewport)',
+      'src/rhi/webgl2.ts:991 (the whole target at each pass start); src/runtime/gl-draw.ts:1062-1079 (GlPass.setViewport)',
     note: 'RenderPass.setViewport sets a sub-viewport; the runtime sets the whole target at each WebGL2 pass start',
     webgpu: typed(
       'journeys/render-state',
@@ -1182,7 +1180,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Polygon offset: `polygonOffset`, `EXT_polygon_offset_clamp`',
     covers: ['webgl:EXT_polygon_offset_clamp', 'webgl:WebGLRenderingContextBase.polygonOffset'],
     evidence:
-      'src/runtime/program.ts:283 (RenderState.depth.bias); src/runtime/program.ts:1189-1208 (depthStencilOf); src/runtime/gl-draw.ts:516-535 (refuseBias); src/runtime/gl-draw.ts:1449 (setState, the polygon offset)',
+      'src/runtime/program.ts:290 (RenderState.depth.bias); src/rhi/webgpu.ts:199-218 (depthStencilOf); src/runtime/gl-draw.ts:330-350 (refuseBias); src/rhi/webgl2.ts:611-616 (setState, the polygon offset)',
     note: 'depthBias is pipeline state; each draw sets the polygon offset from its pipeline',
     webgpu: typed(
       'journeys/pipeline-state',
@@ -1202,7 +1200,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: 'Sample coverage: `sampleCoverage`',
     covers: ['webgl:WebGLRenderingContextBase.sampleCoverage'],
-    evidence: 'src/runtime/program.ts:301-303',
+    evidence: 'src/runtime/program.ts:308-310',
     note: 'alphaToCoverage and the sample mask have no typed form',
     webgpu: gap(1, 'alphaToCoverageEnabled and the sample mask', 632),
     webgl2: gap(
@@ -1236,7 +1234,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.hint',
       'webgl:WebGLRenderingContextBase.isEnabled',
     ],
-    evidence: 'src/runtime/gl-draw.ts:723-726, 1455-1469, 1743 (the switch of each state)',
+    evidence: 'src/rhi/webgl2.ts:575-617 (the switch of each state)',
     note: 'a switch is a mechanism: each state it switches has its own row; dither has no portable meaning; rasterizer discard serves transform feedback; no use of DITHER or hint in src/runtime/',
     webgpu: na('WebGPU has no capability switch: each state is a descriptor field'),
     webgl2: na(
@@ -1273,7 +1271,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Timer queries: `EXT_disjoint_timer_query_webgl2` (timestamps, `TIME_ELAPSED`)',
     covers: ['webgl:EXT_disjoint_timer_query_webgl2'],
     evidence:
-      'src/runtime/gl-draw.ts:1627-1784 (the pass makes no query call); src/runtime/gl.ts:433-452 (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
+      'src/rhi/webgl2.ts:923-1178 (the pass makes no query call); src/runtime/gl.ts:459-478 (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
     note: 'timestamps are not spellable on either tier; the query methods that a timer query also uses are in the occlusion row',
     webgpu: andGap(
       raw('Runtime.device', 'a host GPUQuerySet of type timestamp, made on the runtime device'),
@@ -1300,7 +1298,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.getQueryParameter',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:1627-1784 (the pass makes no query call); src/runtime/gl.ts:433-452 (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
+      'src/rhi/webgl2.ts:923-1178 (the pass makes no query call); src/runtime/gl.ts:459-478 (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
     note: 'no typed occlusion query on either tier; the same methods carry the timer queries of the row above; issue 542 tracks timestamps only',
     webgpu: andGap(
       raw(
@@ -1331,7 +1329,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.flush',
     ],
     evidence:
-      'src/core/gl-compute.ts:272-275 (fenceSync, clientWaitSync in gpuDone); src/runtime/gl.ts:433-452 (the frame runs its draws after submit returns); src/runtime/resources.ts',
+      'src/core/gl-compute.ts:272-275 (fenceSync, clientWaitSync in gpuDone); src/runtime/gl.ts:459-478 (the frame runs its draws after submit returns); src/runtime/resources.ts',
     note: 'the promise of submit() and read() is the typed form; the runtime polls clientWaitSync and calls neither waitSync nor getSyncParameter',
     webgpu: typed('src/runtime/runtime.test.ts', 'onSubmittedWorkDone through submit()'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'through submit and read'),
@@ -1417,7 +1415,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.isTexture',
     ],
     evidence:
-      'src/runtime/gl-draw.ts (no object query outside the shader status checks); src/core/gl-compute.ts:111 (isProgram)',
+      'src/rhi/webgl2.ts (no object query outside the shader status checks); src/core/gl-compute.ts:111 (isProgram)',
     note: 'introspection the manifest replaces (Rule 11.10)',
     webgpu: na('the manifest is the introspection (Rule 11.10)'),
     webgl2: na('the manifest is the introspection (Rule 11.10)'),
@@ -1431,7 +1429,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.drawingBufferWidth',
     ],
     evidence:
-      "docs/use-typeshade-surface.md:7961 (the pass draws into a texture of the drawing buffer's size); src/runtime/gl-draw.ts:1655, 1659-1660",
+      "docs/use-typeshade-surface.md:7961 (the pass draws into a texture of the drawing buffer's size); src/runtime/gl-draw.ts:1094-1096, 1094-1095",
     note: 'the host sets the canvas size and configures its canvas context',
     webgpu: raw(
       'createRuntime({ device })',
@@ -1451,7 +1449,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.drawingBufferColorSpace',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:1655, 1659-1660 (the pass draws into the drawing buffer); docs/use-typeshade-surface.md:7960 (a colour target is the runtime context for its canvas)',
+      'src/rhi/webgl2.ts:279-292, 1410-1420 (the pass draws into the drawing buffer); docs/use-typeshade-surface.md:7960 (a colour target is the runtime context for its canvas)',
     note: "colour space is the host's; the host makes its canvas and its context",
     webgpu: raw(
       'createRuntime({ device })',
@@ -1472,7 +1470,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: '`EXT_texture_mirror_clamp_to_edge`',
     covers: ['webgl:EXT_texture_mirror_clamp_to_edge'],
-    evidence: 'src/runtime/resources.ts:76-93',
+    evidence: 'src/runtime/resources.ts:74-91',
     note: 'WebGPU has no mirror-clamp mode',
     webgpu: na('WebGPU has no mirror-clamp mode'),
     webgl2: gap(11, 'WebGL2-only, no portable meaning; no door yet (Rule 11.16)', 642),
@@ -1488,7 +1486,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WEBGL_multi_draw.multiDrawElementsInstancedWEBGL',
       'webgl:WEBGL_multi_draw.multiDrawElementsWEBGL',
     ],
-    evidence: 'src/runtime/program.ts:321-352 (one draw per call, from a Geometry)',
+    evidence: 'src/runtime/program.ts:328-359 (one draw per call, from a Geometry)',
     note: 'WebGPU has no multi-draw; the nearest form is indirect draw',
     webgpu: gap(
       5,
@@ -1509,7 +1507,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WEBGL_draw_instanced_base_vertex_base_instance',
       'webgl:WEBGL_multi_draw_instanced_base_vertex_base_instance',
     ],
-    evidence: 'src/runtime/program.ts:321-352',
+    evidence: 'src/runtime/program.ts:328-359',
     note: 'first and base offsets have no typed form',
     webgpu: gap(2, 'firstInstance needs indirect-first-instance (group 5) for indirect draws', 633),
     webgl2: gap(2, 'first and base offsets have no typed form', 633),
@@ -1535,8 +1533,8 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: '`WEBGL_render_shared_exponent` (rgb9e5 render target)',
     covers: ['webgl:WEBGL_render_shared_exponent'],
     evidence:
-      'src/runtime/gl-draw.ts:86 (NAMED does not match rgb9e5ufloat); src/runtime/gl-draw.ts:89-193 (formatOf: no rgb9e5 case); src/runtime/gl-draw.ts:1664 (a colour target is a runtime Texture or the canvas context)',
-    note: 'read, not measured: NAMED does not match rgb9e5ufloat, formatOf has no rgb9e5 case, and the extension is not turned on (src/runtime/gl-draw.ts:225-230)',
+      'src/rhi/webgl2.ts:92 (NAMED does not match rgb9e5ufloat); src/rhi/webgl2.ts:103-227 (formatOf: no rgb9e5 case); src/runtime/gl-draw.ts:1133 (a colour target is a runtime Texture or the canvas context)',
+    note: 'read, not measured: NAMED does not match rgb9e5ufloat, formatOf has no rgb9e5 case, and the extension is not turned on (src/rhi/webgl2.ts:256-261)',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts'),
       14,
@@ -1545,7 +1543,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       14,
-      'not measured; not admitted: formatOf has no rgb9e5 case (src/runtime/gl-draw.ts:89-193), and a host WebGLTexture is refused as a colour target (src/runtime/gl-draw.ts:1664)',
+      'not measured; not admitted: formatOf has no rgb9e5 case (src/rhi/webgl2.ts:103-227), and a host WebGLTexture is refused as a colour target (src/runtime/gl-draw.ts:1099)',
       644,
     ),
   },

@@ -3,15 +3,13 @@
 // WebGPU beside the runtime binds the same texture both ways.
 
 import type { CompareFunction } from './program.js';
-import {
-  BUFFER,
-  MAP_READ,
-  TEXTURE,
-  type Device,
-  type Sampler as GpuSampler,
-  type Texture as GpuTexture,
-  type TextureView,
-} from './gpu.js';
+import type {
+  RhiDevice,
+  RhiSampler,
+  RhiTexture,
+  RhiTextureUsage,
+  RhiTextureView,
+} from '../rhi/rhi.js';
 import { DEVICE_VIEW } from '../core/host-entry.js';
 
 /** What `rt.texture()` makes. `format` is any `GPUTextureFormat` the device can render to or
@@ -196,17 +194,18 @@ export class TextureImpl implements Texture {
     return this.view();
   }
 
-  #gpu: GpuTexture;
-  #view: TextureView | undefined;
+  #gpu: RhiTexture;
+  #view: RhiTextureView | undefined;
   readonly #owned: boolean;
   readonly #options: TextureOptions | undefined;
 
   constructor(
-    private readonly device: Device,
+    private readonly device: RhiDevice,
     source: TextureOptions | object,
   ) {
-    if ('createView' in source) {
-      this.#gpu = source as GpuTexture;
+    const host = device.fromNative('texture', source);
+    if (host !== undefined) {
+      this.#gpu = host;
       this.#owned = false;
       this.#options = undefined;
     } else {
@@ -216,12 +215,12 @@ export class TextureImpl implements Texture {
     }
   }
 
-  #make(width: number, height: number): GpuTexture {
+  #make(width: number, height: number): RhiTexture {
     const o = this.#options!;
     const samples = o.sampleCount ?? 1;
-    let usage = TEXTURE.RENDER_ATTACHMENT | TEXTURE.TEXTURE_BINDING;
-    if (samples === 1) usage |= TEXTURE.COPY_SRC | TEXTURE.COPY_DST;
-    if (o.storage === true) usage |= TEXTURE.STORAGE_BINDING;
+    const usage: RhiTextureUsage[] = ['render', 'sampled'];
+    if (samples === 1) usage.push('copy-src', 'copy-dst');
+    if (o.storage === true) usage.push('storage');
     return this.device.createTexture({
       size: [width, height, o.size[2] ?? 1],
       format: o.format,
@@ -232,7 +231,7 @@ export class TextureImpl implements Texture {
   }
 
   get texture(): object {
-    return this.#gpu;
+    return this.device.toNative(this.#gpu);
   }
   get format(): string {
     return this.#gpu.format;
@@ -245,8 +244,8 @@ export class TextureImpl implements Texture {
   }
 
   /** The view a bind group or a pass attaches. */
-  view(): TextureView {
-    return (this.#view ??= this.#gpu.createView());
+  view(): RhiTextureView {
+    return (this.#view ??= this.device.createView(this.#gpu));
   }
 
   resize(width: number, height: number): void {
@@ -255,13 +254,13 @@ export class TextureImpl implements Texture {
         'This texture wraps one the host made; resize the host’s texture instead.',
       );
     if (width === this.width && height === this.height) return;
-    this.#gpu.destroy();
+    this.device.destroyTexture(this.#gpu);
     this.#gpu = this.#make(width, height);
     this.#view = undefined;
   }
 
   async read(): Promise<Uint8Array> {
-    return this.#copy(this.#layout('read'));
+    return this.device.readTexture(this.#gpu, this.#layout('read').bytes);
   }
 
   async readFloats(): Promise<Float32Array> {
@@ -271,7 +270,7 @@ export class TextureImpl implements Texture {
         `readFloats() takes a float, unorm or snorm format and depth32float; a ${this.format} texture holds integers, which read() gives as bytes.`,
       );
     // The copy is recorded and submitted by the call, before this awaits anything.
-    return layout.floats(await this.#copy(layout));
+    return layout.floats(await this.device.readTexture(this.#gpu, layout.bytes));
   }
 
   /** How the texture's format reads back; `who` is the method that asks. */
@@ -284,50 +283,26 @@ export class TextureImpl implements Texture {
     return layout;
   }
 
-  /** The texels as bytes, rows tightly packed. The copy is recorded and submitted here, before
-   *  anything is awaited, so it runs after every submit made before the call and before every one
-   *  made after it; the size is the texture's at the call, whatever `resize()` does after. */
-  async #copy(layout: Layout): Promise<Uint8Array> {
-    const { width, height } = this;
-    const row = width * layout.bytes;
-    const stride = Math.ceil(row / 256) * 256;
-    const staging = this.device.createBuffer({
-      size: stride * height,
-      usage: BUFFER.MAP_READ | BUFFER.COPY_DST,
-    });
-    const encoder = this.device.createCommandEncoder();
-    encoder.copyTextureToBuffer(
-      { texture: this.#gpu, ...(this.format === 'depth32float' ? { aspect: 'depth-only' } : {}) },
-      { buffer: staging, bytesPerRow: stride },
-      [width, height, 1],
-    );
-    this.device.queue.submit([encoder.finish()]);
-    await staging.mapAsync(MAP_READ);
-    const mapped = new Uint8Array(staging.getMappedRange());
-    const out = new Uint8Array(row * height);
-    for (let y = 0; y < height; y++)
-      out.set(mapped.subarray(y * stride, y * stride + row), y * row);
-    staging.unmap();
-    staging.destroy();
-    return out;
-  }
-
   destroy(): void {
-    if (this.#owned) this.#gpu.destroy();
+    if (this.#owned) this.device.destroyTexture(this.#gpu);
   }
 }
 
 export class SamplerImpl implements Sampler {
-  readonly #gpu: GpuSampler;
-  constructor(device: Device, source: SamplerOptions | object | undefined) {
+  /** The sampler a binding binds. */
+  readonly handle: RhiSampler;
+  constructor(
+    private readonly device: RhiDevice,
+    source: SamplerOptions | object | undefined,
+  ) {
     if (source !== undefined && !isSamplerOptions(source)) {
-      this.#gpu = source as GpuSampler;
+      this.handle = device.fromNative('sampler', source)!;
       return;
     }
     const o = (source ?? {}) as SamplerOptions;
     const filter = o.filter ?? 'linear';
     const address = ADDRESS[o.address ?? 'clamp'];
-    this.#gpu = device.createSampler({
+    this.handle = device.createSampler({
       magFilter: filter,
       minFilter: filter,
       mipmapFilter: filter,
@@ -338,7 +313,7 @@ export class SamplerImpl implements Sampler {
     });
   }
   get sampler(): object {
-    return this.#gpu;
+    return this.device.toNative(this.handle);
   }
 }
 
