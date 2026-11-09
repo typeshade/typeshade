@@ -408,9 +408,53 @@ Open findings: none. Open decisions for the owner: none.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the implementing pull requests (each
-commit `Change: 0131`), the delivered configuration and the validation evidence listed under
-"Required validation evidence".
+Implementing pull request: #1114 (draft, branch `claude/clever-ramanujan-yrfjsq-impl-0131`, base
+`main` at `8d6bf255`), by an AI agent (Claude Code). Each commit carries `Change: 0131`. The first
+commit is `d8d545d7`; the commit that adds this record follows it on the same branch. The status
+stays `accepted` until the owner's merge (`CLAUDE.md`, Merging): the pull request removes an
+author-facing name and is not approved in advance.
+
+Delivered configuration (as declared): `numerics(...)`, the `numerics` option of a stage call,
+`TS8078` (retired, recorded as a gap), `FuncDecl.numerics`, `NumericsClass`, the `'contract'`
+member of `DeterminismKind` and the `contract` rows are removed; `src/compiler/ts/numerics.ts`,
+`src/core/passes/finite-math.ts`, `contract-constants.ts` and `contract-boundary.ts` are deleted
+with their tests and hooks; `workgroup_size` takes no options; Rule 6.7, Rule 9.6 (ten
+families), Rule 11.22 (the text of proposed item 3), surface §3, §38 and §78 (title kept) carry
+the new text; `CHANGELOG.md` has one withdrawal entry; change 0107 is `archived`.
+
+Validation evidence, run on 2026-11-09 on the first commit's tree (Bun 1.4.4, Node 22, TypeScript
+of the lockfile, Chromium headless shell 156.0.8078.4 / SwiftShader for the compile gate):
+
+| Check                                                                                     | Result                                                                                                                                                                                                        |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun run bake:goldens`                                                                    | passed, 355 tests; no golden changed                                                                                                                                                                          |
+| `src/compiler/ts/numerics-removed.test.ts` (both halves, Rule 12.7)                       | passed: `numerics(...)` is `TS8004` in `compile()` and the editor, with the same cascade; the option on `vertex`, `fragment`, `compute` and a third `workgroup_size` argument are one `TS8028` each           |
+| `src/core/passes/opt/algebraic.test.ts` (`Verifies: Rule 11.22`)                          | passed: `x * 0`, `x - x`, `mix(a, b, 0)` and `mix(a, b, 1)` kept                                                                                                                                              |
+| `src/core/passes/determinism.test.ts`                                                     | passed: no `contract` row                                                                                                                                                                                     |
+| `bun run bake:api-surface`                                                                | only `FuncDecl`, `DeterminismKind` and `NumericsClass` changed                                                                                                                                                |
+| `bun run bake:author-names`                                                               | only `numerics` left (283 to 282)                                                                                                                                                                             |
+| `bun run reqs:sync`, `python scripts/doorstop-check.py -C -e -F`                          | clean after `doorstop review` (RULE-0607, RULE-1122, RULE-1207, SURF-038, SURF-078) and `doorstop clear` (SURF-026, 049, 053, 077, 078), each read first                                                      |
+| `bun run docs:impact`, `bun run docs:refs`                                                | no must-fix item; 0 dead references                                                                                                                                                                           |
+| `bun scripts/changes.ts --base origin/main`, `bun scripts/ifchange.ts --base origin/main` | passed                                                                                                                                                                                                        |
+| `bun run build`, `bun run lint`, `bun run format:check`, `bun scripts/bundle-boundary.ts` | passed; the runtime, emit and fuse budgets record the measured sizes (runtime 160,575 to 159,263 gzip bytes single file)                                                                                      |
+| `bun run gate:compile`                                                                    | passed: 203 examples on Tint, 140 GLSL ES 3.00 on WebGL2, 131 render pipelines, 0 failures                                                                                                                    |
+| `bunx vitest run` (full suite)                                                            | 13,431 passed, 9 failed: the 9 tests of `src/affected-tests.test.ts` and `src/doc-test-selection.test.ts` fail identically on `origin/main` at `8d6bf255` in this container (environment), not on this change |
+| `bun run gate:differential`                                                               | not run: it needs a WebGPU adapter; CI runs it                                                                                                                                                                |
+
+Deviations (open, recorded on #1114 for the reviewer):
+
+1. `scripts/numbering.ts` records TS8078 as a gap and steps `nextFree` past a recorded gap, so the
+   next free code reads TS8079. The proposal does not name the script.
+2. `scripts/doc-impact.ts` takes `docs/owner-decisions.md` for a record, as a proposal is, and
+   honours a `doc-refs: skip` marker (for a heading, on the first line under it). Without this,
+   the owner's file and §78's kept title (decision 2) stayed must-fix items.
+3. `changes/0132-remove-diagnostic.md` gets one `doc-refs: skip` marker on its measurement line
+   that names the deleted `numerics.test.ts`.
+4. `src/language-service/diagnostics.ts` pairs TS2353 and TS2554 with `TS8028` (`SAME_MISTAKE`),
+   the merge "What an author sees" requires, in a file the applicability row does not name.
+
+Pending: the compiler issue for the value-domain analysis (proposed item 8); closing #965
+unmerged (decision 4); `status: implemented` at the merge; the downstream work below.
 
 ## What it owes downstream
 
