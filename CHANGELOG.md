@@ -25,8 +25,8 @@ init?)`, `zeros(Class, n)` and `array(Class, data)`, which make a `Uniform<T>` o
   `ps.at(i).vel.set(v)`. `set` allocates nothing, writes only a changed number and widens the
   resource's dirty byte range; `get` returns the field's typed view, and `needsUpdate = true`
   marks a write through it. `await ps.read()` gives the elements as instances of the class. A
-  resource is freed by `dispose()`, by `using` or by the garbage collector, and an accessor of a
-  freed one throws a `TypeError` that names it. The generated module puts each exported class's
+  resource is freed by `dispose()` or by the garbage collector (and by `[Symbol.dispose]()` where
+  the runtime has one), and an accessor of a freed one throws a `TypeError` that names it. The generated module puts each exported class's
   layouts on the class. No call takes a resource yet: the upload of a dirty range at submission is
   milestone 3. `array` is now a function as well as the family's type.
   The caps of `scripts/bundle-budget.json` take the measured gzip sizes: `typeshade/runtime`

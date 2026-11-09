@@ -7944,8 +7944,9 @@ its stride (a matrix column of three rows has a fourth, unused lane). An `f64` f
 halves in the region, so its `get` returns the joined number or a new `Float64Array`. A host that
 writes through a view sets `needsUpdate = true`. A new resource is dirty over its whole range.
 
-A resource is freed by `dispose()`, by `using` at the end of a block, or when the garbage collector
-reclaims it. An accessor of a freed resource throws a `TypeError` that names it:
+A resource is freed by `dispose()` or when the garbage collector reclaims it. Where the runtime
+has `Symbol.dispose`, a resource has `[Symbol.dispose]()` as well, which `using` calls at the end
+of a block; the types do not declare it yet. An accessor of a freed resource throws a `TypeError` that names it:
 `Uniform<Camera> was disposed; its fields cannot be read or set. Make a new one with
 uniform(Camera).` A class with a field that has no layout (a `bool`, a two-row matrix in a
 uniform) is refused with the reason, and so is a field named like the accessor's own member

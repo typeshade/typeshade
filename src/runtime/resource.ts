@@ -531,13 +531,6 @@ function readValue(dv: DataView, at: number, l: Layout, proto?: object): unknown
 
 // ─── the types ───────────────────────────────────────────────────────────────────────────────
 
-/** The key of `Symbol.dispose` where the `lib` declares it, so `using` takes a resource. */
-type DisposeKey = SymbolConstructor extends { readonly dispose: infer S extends symbol }
-  ? S
-  : never;
-/** `[Symbol.dispose]()`, where the `lib` declares it. */
-type Disposal = [DisposeKey] extends [never] ? unknown : { readonly [K in DisposeKey]: () => void };
-
 type AnyFunction = (...args: never) => unknown;
 /** The keys of `T` that hold data, not methods. */
 type DataKeys<T> = { [K in keyof T]-?: T[K] extends AnyFunction ? never : K }[keyof T];
@@ -616,8 +609,9 @@ type StructOf<T> = { readonly [K in DataKeys<T>]: FieldOf<T[K]> } & {
  * uniform rules of Rule 6.8, with an accessor for each field. `camera.pos.set(0, 2, 5)` writes a
  * vector, `camera.view.set(m)` a matrix from an array, `camera.set({ view, proj })` several
  * fields; `camera.pos.get()` is the field's typed view. Each `set` writes only what changed and
- * widens the dirty range. Made by {@link uniform}; freed by `dispose()`, by `using`, or when the
- * garbage collector reclaims it.
+ * widens the dirty range. Made by {@link uniform}; freed by `dispose()` or when the garbage
+ * collector reclaims it. Where the runtime has `Symbol.dispose`, it has `[Symbol.dispose]()` too,
+ * which `using` calls; the type does not declare it yet, since the library's `lib` has none.
  *
  * Exported from `typeshade/runtime`.
  */
@@ -627,18 +621,18 @@ export type Uniform<T> = StructOf<T> & {
   needsUpdate: boolean;
   /** Free the uniform's range. A use of an accessor after it throws a `TypeError`. */
   dispose(): void;
-} & Disposal;
+};
 
 /**
  * A storage array of `length` structs `T` (change 0138, R9): one range of the region laid out as
  * a storage array with no size (Rule 6.8). `ps.at(i).pos.set(x, y, z)` writes one field of element
  * `i`; `await ps.read()` gives every element, each an instance of the class. Made by
- * {@link zeros} or {@link array}; freed by `dispose()`, by `using`, or when the garbage collector
- * reclaims it.
+ * {@link zeros} or {@link array}; freed by `dispose()` or when the garbage collector reclaims
+ * it, and by `[Symbol.dispose]()` as a uniform is.
  *
  * Exported from `typeshade/runtime`.
  */
-export type Buffer<T> = {
+export interface Buffer<T> {
   /** How many elements it holds. */
   readonly length: number;
   /** Element `index`'s accessor. @throws `RangeError` for an index outside the array. */
@@ -650,7 +644,7 @@ export type Buffer<T> = {
   needsUpdate: boolean;
   /** Free the array's range. A use of an accessor after it throws a `TypeError`. */
   dispose(): void;
-} & Disposal;
+}
 
 /**
  * A host value of an array with no size, or the function that makes a storage array (change
