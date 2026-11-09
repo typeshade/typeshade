@@ -73,7 +73,7 @@ export interface RhiCanvas {
 /** What a buffer is used for. `'map-read'` makes a buffer that `readBuffer` reads; such a buffer
  *  takes only `'copy-dst'` beside it. */
 export type RhiBufferUsage =
-  'map-read' | 'copy-src' | 'copy-dst' | 'index' | 'vertex' | 'uniform' | 'storage';
+  'map-read' | 'copy-src' | 'copy-dst' | 'index' | 'vertex' | 'uniform' | 'storage' | 'indirect';
 
 export interface RhiBufferDesc {
   readonly size: number;
@@ -319,6 +319,10 @@ export interface RhiComputePass {
   setPipeline(pipeline: RhiComputePipeline): void;
   setBindGroup(index: number, group: RhiBindGroup): void;
   dispatchWorkgroups(x: number, y?: number, z?: number): void;
+  /** Dispatch the workgroup counts three `u32`s of `buffer` hold from `byteOffset`, as the
+   *  dispatch runs (WebGPU's `dispatchWorkgroupsIndirect`). The buffer has the `'indirect'` usage.
+   *  A count with a 0 in it runs nothing. */
+  dispatchWorkgroupsIndirect(buffer: RhiBuffer, byteOffset: number): void;
   end(): void;
 }
 
