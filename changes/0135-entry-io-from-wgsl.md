@@ -286,7 +286,9 @@ location in the examples is 1).
 
 ### Conflicts
 
-None found that this proposal resolves by itself.
+One question goes to the owner (Open questions for the owner, question 3): `OD-5`, recorded on
+`main` at `583891d2` after the first revision of this draft, can be read two ways against item 2.
+The other points below were checked and are not conflicts.
 
 - Rule 6.6 derives from WGSL's requirement that "each user-defined input and output must have an
   explicitly specified IO location". The emitted WGSL keeps an explicit location on each one. The
@@ -307,6 +309,13 @@ None found that this proposal resolves by itself.
 - `OD-1`: TypeShade's source is not WGSL; the emitted WGSL keeps WGSL's explicit attributes, and
   the source needs only what the author must state.
 - `OD-2`: not touched. The entries keep `@vertex`, `@fragment` and `@compute([…])` (change 0130).
+- `OD-5` (recorded 2026-11-09, `main` at `583891d2`): "An entry's built-in values and inter-stage
+  values stay in the type: `builtin<…>` and `location<…>`." Item 1 keeps `builtin<…>` in the
+  type. Item 2 keeps `location<n, T>` as a type, accepted, and adds a field that writes no
+  attribute at all. The owner's question behind `OD-5` was the type form against the decorated
+  form (`@location(0) uv: vec2`). This proposal does not decide whether `OD-5` also requires the
+  number to be written; that is question 3 below. If it does, D2.0 is the only option that keeps
+  `OD-5`, and D2.1 and D2.2 are withdrawn.
 - `OD-4`: the example above and the options with their costs are shown before the owner decides.
 
 This proposal reverses no entry.
@@ -426,7 +435,14 @@ says otherwise. Scratch scripts lived outside the tree.
 2. D1: a written `T` that WGSL fixes: accepted for good (D1.1, recommended), or warned and later
    refused (D1.2)?
 
-No two principles or rules were found that point different ways on this proposal.
+3. `OD-5` against item 2. Reading A: `OD-5` decides where an entry's I/O attribute is written (in
+   the type, not as a decorator), and a value with no attribute is outside it; D2.1 or D2.2 then
+   keeps `OD-5`. Reading B: `OD-5` requires every inter-stage value to write `location<…>`; then
+   only D2.0 keeps it. One example: `uv: location<0, vec2>` (both readings accept it) against
+   `uv: vec2` (reading A accepts it, reading B refuses it with `TS8029` as today). This proposal
+   takes no side; the owner decides.
+
+Apart from question 3, no two principles or rules were found that point different ways.
 
 ### Independent review record
 
