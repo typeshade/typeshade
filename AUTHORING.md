@@ -1968,13 +1968,13 @@ takes, the names the module emits and each refusal: `docs/use-typeshade-surface.
 ### A function that changes its caller's variable
 
 A parameter is a copy of the value the call passes, so a write to it leaves the caller alone. To
-change the caller's variable, type the parameter `inout<T>`, GLSL's qualifier, and pass the
-variable itself. Inside the function the parameter is the caller's variable: read it, assign to
-it, and reach its fields as you would reach `this` in a method. A parameter the function only
-writes is `out<T>`: it starts with no value, so write it before reading it, and on every path.
-A local that such a call fills first is declared `let s!: f32;`, which a plain `tsc --strict`
-accepts. The decorated parameters of earlier releases, `@inout a: f32` and `@out c: f32`, stay
-accepted until the release after the migration release.
+change the caller's variable, write `@inout` before the parameter, `@inout a: f32`, as GLSL
+writes its qualifier, and pass the variable itself. Inside the function the parameter is the
+caller's variable: read it, assign to it, and reach its fields as you would reach `this` in a
+method. A parameter the function only writes is `@out c: f32`: it starts with no value, so write
+it before reading it, and on every path. A local that such a call fills first is declared `let s!: f32;`. The type form of
+change 0111, `a: inout<f32>`, is refused (`TS8028`), and `tshc migrate` rewrites it to
+`@inout a: f32`.
 
 ```ts
 "use typeshade";
@@ -1984,17 +1984,17 @@ class Ray {
   dir!: vec3;
 }
 
-function swap(a: inout<f32>, b: inout<f32>): void {
+function swap(@inout a: f32, @inout b: f32): void {
   const t = a;
   a = b;
   b = t;
 }
 
-function add(a: f32, b: f32, c: out<f32>): void {
+function add(a: f32, b: f32, @out c: f32): void {
   c = a + b;
 }
 
-function advance(r: inout<Ray>, t: f32): void {
+function advance(@inout r: Ray, t: f32): void {
   r.origin = r.origin + r.dir * t;
 }
 
@@ -2016,7 +2016,7 @@ parameter; the CPU oracle copies the value in and stores it back. The argument i
 module variable, an element of a `read_write` storage binding, or a field or an element of one;
 a value, a literal and a vector's component are refused with `TS8073`. One call may not take two
 references to one variable that the function writes, `swap(x, x)`, which is `TS8074`. A read
-before a variable is assigned, or an `out<T>` parameter read before it is written, is `TS8075`. A
+before a variable is assigned, or an `@out` parameter read before it is written, is `TS8075`. A
 function of the file or of a namespace takes a qualifier; a method, an entry and a local
 function take values, and a local function inside such a function may still read and write the
 parameter, as it reads and writes any variable around it. There is no `@in`: a parameter with no
@@ -3160,7 +3160,7 @@ spelling to the page that explains it, and read the note for what changes.
 | `uniform Block { … } name;`                    | [`declare const name: uniform<Block>`](/guide/authoring/layouts-and-resources/)     | `@group`/`@binding` `var<uniform>`              | the std140 layout comes from `reflect()`, so no offset is counted by hand                                                                                              |
 | a loose `uniform float u_x;`                   | a field of a uniform struct                                                         | a field of a `var<uniform>` struct              | `declare const u_x: uniform<f32>` is WGSL-only, since GLSL ES 3.00 spells a uniform binding as a std140 block                                                          |
 | a symbol or a block the host prelude declares  | none; the IR builder's `externVar`, `hostUniform` and `hostBlock`                   | the same reference, spelled per target          | [`docs/ir-builder.md`](docs/ir-builder.md) has them                                                                                                                    |
-| `in` / `out` / `inout` on a function parameter | none / [`out<T>`, `inout<T>`](#a-function-that-changes-its-callers-variable)        | a pointer parameter                             | a parameter with no qualifier is GLSL's `in`                                                                                                                           |
+| `in` / `out` / `inout` on a function parameter | none / [`@out`, `@inout`](#a-function-that-changes-its-callers-variable)            | a pointer parameter                             | a parameter with no qualifier is GLSL's `in`                                                                                                                           |
 | `#ifdef FEATURE` where this module decides     | [one file per variant](/guide/authoring/conditional-programs/)                      | no preprocessor                                 | the variant that does not declare a binding never has it                                                                                                               |
 | `#ifdef FEATURE` where the host decides        | [`variantFamily`](/guide/authoring/conditional-programs/)                           | one module per point in the matrix              | `emitGuarded` generates the `#if` ladder for a GLSL host that owns the define, and every arm is byte-identical to the standalone variant                               |
 | a variant that changes only a value            | [`override<T>` with `overrideValues`](/guide/authoring/conditional-programs/)       | `override` plus pipeline constants              | building a separate variant for this multiplies pipelines for nothing                                                                                                  |

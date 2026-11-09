@@ -125,6 +125,16 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **A parameter qualifier is written before the parameter, `@inout a: f32` and `@out c: f32`
+  (§70, Rule 8.25, change 0137).** It is the language's form: neither half warns on it, and the
+  editor drops TypeScript's TS1206 on it, keeps hover and signature help in that form, and no
+  longer throws on go-to-definition or rename at `@inout`. The type form of change 0111,
+  `a: inout<f32>` and `c: out<f32>`, is refused with `TS8028` in every type position, in the
+  compiler and in the editor; `tshc migrate` rewrites it on a parameter to `@inout a: f32`, and
+  no longer rewrites `@inout` to the type form. The messages of `TS8073`, `TS8075`, the `TS8018`
+  remedy and the host view's reason name `@inout` and `@out`. A plain `tsc`, prettier, esbuild
+  and `bun build` refuse a decorator on a parameter of a function, a cost of the owner's
+  decision OD-5.
 - **Each fuse report group counts its device commands (§71, change 0121).** Required `group.dispatches` includes WebGPU push stages, reduction folds and store-only entries, WebGL2 draws, and zero on the CPU. Group counts sum to the plan total. Hand-built `FuseReport` groups must add the actual count; CPU groups add `dispatches: 0`. This source-breaking type change requires a new minor release before 1.0. Bundle measurements add 23 bytes gzip to runtime, 76 to fuse, 75 to algorithms and 48 to random; split aggregate grows by 100 bytes for runtime and 127 for fuse, with floors unchanged.
 - **The program runtime records through a render hardware interface on WebGPU** (change 0120,
   milestone M1). `src/rhi/rhi.ts` declares the interface, internal and in no subpath, and
