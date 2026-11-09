@@ -1641,8 +1641,6 @@ ${renderJSDoc(ATTRIBUTE_DOCS.inout)}
 declare function inout(target: unknown, context?: unknown, index?: number): void
 ${renderJSDoc(ATTRIBUTE_DOCS.out)}
 declare function out(target: unknown, context?: unknown, index?: number): void
-${renderJSDoc(ATTRIBUTE_DOCS.diagnostic)}
-declare function diagnostic(severity: string, rule: string): (target: Function, context?: unknown) => void
 ${renderJSDoc(ATTRIBUTE_TYPE_DOCS.builtin!)}
 type builtin<N extends ${WGSL_BUILTIN_NAMES.map((n) => `'${n}'`).join(' | ')}, T, O extends { readonly invariant?: true } = {}> = T
 ${renderJSDoc(ATTRIBUTE_TYPE_DOCS.location!)}
@@ -1652,11 +1650,11 @@ type inout<T> = T
 ${renderJSDoc(ATTRIBUTE_TYPE_DOCS.out!)}
 type out<T> = T
 ${renderJSDoc(STAGE_CALL_DOCS.vertex!)}
-declare function vertex<F extends (...args: never[]) => unknown>(entry: F, options?: { readonly diagnostic?: readonly [severity: string, rule: string] }): F
+declare function vertex<F extends (...args: never[]) => unknown>(entry: F): F
 ${renderJSDoc(STAGE_CALL_DOCS.fragment!)}
-declare function fragment<F extends (...args: never[]) => unknown>(entry: F, options?: { readonly diagnostic?: readonly [severity: string, rule: string] }): F
+declare function fragment<F extends (...args: never[]) => unknown>(entry: F): F
 ${renderJSDoc(STAGE_CALL_DOCS.compute!)}
-declare function compute<F extends (...args: never[]) => unknown>(workgroupSize: readonly [x: number, y?: number, z?: number], entry: F, options?: { readonly diagnostic?: readonly [severity: string, rule: string] }): F
+declare function compute<F extends (...args: never[]) => unknown>(workgroupSize: readonly [x: number, y?: number, z?: number], entry: F): F
 ${renderJSDoc(STAGE_CALL_DOCS.workgroup_size!)}
 declare function workgroup_size<F extends (...args: never[]) => unknown>(size: readonly [x: number], kernel: F): F
 ${renderJSDoc(ATTRIBUTE_DOCS.vertex)}

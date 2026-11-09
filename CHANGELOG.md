@@ -11,7 +11,9 @@ A released version is headed `## [X.Y.Z] - YYYY-MM-DD`.
 This file starts where TypeShade was separated from the X-GIS monorepo. Everything before that
 — the IR, the three backends, the pass pipeline, and the breaking changes that shaped them — is
 in [`docs/HISTORY.md`](docs/HISTORY.md), kept as its generator produced it. Nothing in this
-repository was published to npm before **`0.1.0`, the first release**.
+repository is an official release yet: the `typeshade` package on npm holds only the placeholder
+`0.0.0`, and the `## [0.1.0]` heading below marks a test build, not a release
+(`docs/owner-decisions.md` OD-6; Rule 13.9 defines an official release).
 
 ## [Unreleased]
 
@@ -96,8 +98,8 @@ repository was published to npm before **`0.1.0`, the first release**.
   call, the classes `finite-math` and `reassociate`, `TS8078` (retired, never reused),
   `FuncDecl.numerics`, the exported type `NumericsClass` and the determinism report's `contract`
   rows are gone, with the passes that served them; §9.3 loses its `contracts | numerics` row. No
-  published version had the construct (it landed after `0.1.0`), so no migration release follows
-  (Rules 13.9 and 13.10 bind a published version). Rule 11.22 now says that no source construct
+  official release had the construct, so no migration release follows (Rules 13.9 and 13.10 bind
+  an official release; OD-6). Rule 11.22 now says that no source construct
   opts a function into a floating-point rewrite, and that the optimizer applies a rewrite a NaN,
   an infinity or the sign of a zero can observe only where it proves the rewrite exact. A
   leftover `numerics(...)` is `TS8004` in both halves; `workgroup_size` takes no options, and a
@@ -227,7 +229,7 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   as before. The render hardware interface's compute pass gains `dispatchWorkgroupsIndirect`
   and buffers the `'indirect'` usage, with a conformance case; the WebGPU backend takes a device
   with no `createComputePipelineAsync` or `onSubmittedWorkDone`, as the call layer did; the
-  program runtime's buffer pool gives its buffers back first in, first out, and a bind group
+  program runtime's buffer pool gives its buffers back last in, first out (#1133), and a bind group
   over a pooled buffer is keyed by the size it binds. The caps of `typeshade/runtime` in
   `scripts/bundle-budget.json` take the measured gzip sizes, measured after `main` with change
   0131: single file 159,268 to 159,626 (+358), split initial 41,242 to 41,557 (+315) and split
@@ -1696,6 +1698,24 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Removed
 
+- **The diagnostic filter: the compiler rewrites an implicit-LOD sample or a derivative in
+  non-uniform control flow** (change 0132; Rule 1.4, Rule 6.7, Rule 8.5, surface §3, §7, §50 and
+  §54). The stage call's `{ diagnostic: [...] }` option, the decorated `@diagnostic(…)` and the
+  ambient `diagnostic` declaration are gone. A `textureSample`, `textureSampleBias`,
+  `textureSampleCompare` or screen-space derivative the uniformity walk finds in non-uniform
+  control flow is recomputed before the statement that made the flow non-uniform, and sampled
+  inside with `textureSampleGrad` and the gradients computed there (`textureGrad` on GLSL ES
+  3.00). A call the rewrite cannot reach keeps `TS8052`, which now names the reason and no
+  longer offers the filter. Delete a written filter, or run `tshc migrate`, which deletes it: a
+  leftover `{ diagnostic: [...] }` or `@diagnostic(…)` is `TS8028`, an error, in the compiler and
+  in the editor. No official release had the filter, so no warning release precedes the
+  refusal (Rules 13.9 and 13.10 bind an official release; OD-6). `CompileTsSourceResult.directives` is
+  removed, and the `"use typeshade"` front end emits no `diagnostic(...)` directive;
+  `ModuleDecl.diagnostics` stays for the IR builder. The WGSL `@diagnostic` attribute row and the
+  `diagnostic` keyword row of `docs/capability-coverage.md` are `refused` with Rule 1.4. The
+  examples `sample-branch` and `capsule-corp-namek-class` drop the option, and their WGSL and
+  GLSL ES 3.00 carry the gradient form in place of the directive.
+
 - **A meaning that an ECMAScript form carries in every case has that one spelling (change 0112,
   change 0112).** The ambient library no longer declares, and the front end no longer resolves, the
   names below. A program that calls or reads one stops compiling with a sentence that names the
@@ -1732,6 +1752,16 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `docs/ir-builder.md` describes the builder for engines and tools.
 
 ### Fixed
+
+- **A call that repeats its shapes makes no bind group, whatever the pool holds** (#1133). The
+  program runtime's buffer pool gave its buffers back first in, first out. When the pool held
+  more buffers of a shape than a call took, each repeat took a set turned round from the last,
+  and the bind group cache made a new group for each set. On the CPU tier a scale entry made 3
+  bind groups in 4 repeats after an entry of four storage arrays. The pool now gives back last
+  in, first out, with the first buffer a frame took on top, so a repeat takes the same buffers.
+  The split caps of `typeshade/runtime` in `scripts/bundle-budget.json` take the measured gzip
+  sizes: initial 41,557 to 41,562 (+5) and total 161,753 to 161,758 (+5). The single-file cap,
+  the floors and the other subpaths do not change.
 
 - **Conservative uniformity for helper conditions** (#180, #1088). Restored the previous
   `unknown` floor for every user call. The single-return helper proof could accept a barrier
@@ -2810,6 +2840,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   the centre. `examples/README.md` documents the `vec2` pointer contract.
 
 ## [0.1.0] - 2026-09-29
+
+A test build, not an official release: no `typeshade@0.1.0` was published to npm
+(`docs/owner-decisions.md` OD-6, Rule 13.9). The heading keeps the date the entries below were
+recorded.
 
 ### Changed
 

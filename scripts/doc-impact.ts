@@ -256,15 +256,26 @@ export function nameMentions(name: string, files = proseFiles()): Mention[] {
   // tick of the next, in `Change: none`, and in a value such as `else none`. For such a name a
   // mention is a call or a type-argument form, or a member form, which no sentence uses as a word:
   // `none(…)`, `none<…>`, `.none`, `Owner.none`.
-  const inTicks = /^[a-z]{2,5}$/.test(name)
+  //
+  // A code span is read as one: the ticks are paired from the start of the line, so the text
+  // between the closing tick of one span and the opening tick of the next is prose, not code. A
+  // name that is an English word as well (`diagnostic`, change 0132) was found in every sentence
+  // that said "diagnostic" between two code spans. A path segment (`src/compiler/ts/diagnostic.ts`)
+  // names a file, which the file checks below follow, and not the declaration.
+  // A span of four words or more with no code punctuation is a phrase, such as a test's title
+  // (`one mistake, one diagnostic, in compile() and in the editor`), and not the declaration either.
+  const inSpan = /^[a-z]{2,5}$/.test(name)
     ? new RegExp(
-        `\`[^\`\\n]*?(?:(?<![\\w$])${escape(name)}[(<]|(?<=[\\w$)\\]]\\.|(?<![\\w$])\\.)${escape(name)}(?![\\w$]))[^\`\\n]*?\``,
+        `(?:(?<![\\w$])${escape(name)}[(<]|(?<=[\\w$)\\]]\\.|(?<![\\w$])\\.)${escape(name)}(?![\\w$]))`,
       )
-    : new RegExp(`\`[^\`\\n]*?(?<![\\w$])${escape(name)}(?![\\w$])[^\`\\n]*?\``);
+    : new RegExp(`(?<![\\w$/])${escape(name)}(?![\\w$]|\\.(?:ts|mts|mjs|js|md|json)\\b)`);
+  const phrase = /^[A-Za-z][\w'’,.()-]*(?: [\w'’,.()-]+){3,}$/;
+  const mentioned = (text: string): boolean =>
+    [...text.matchAll(/`([^`\n]*)`/g)].some((m) => !phrase.test(m[1]!) && inSpan.test(m[1]!));
   const out: Mention[] = [];
   for (const file of files) {
     linesOf(file).forEach((text, i) => {
-      if (inTicks.test(text)) out.push({ file, line: i + 1, text: text.trim() });
+      if (mentioned(text)) out.push({ file, line: i + 1, text: text.trim() });
     });
   }
   return out;

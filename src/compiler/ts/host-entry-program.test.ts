@@ -96,6 +96,50 @@ describe('the entry call as a program-runtime pipeline and pass (change 0120, M4
     expect(counts()).toEqual(Object.fromEntries(MAKERS.map((k) => [k, 0])));
   });
 
+  // #1133: the test above passed alone and failed after an earlier file in the same worker had left
+  // more buffers of the call's shape in the pool than the call takes. The pool handed them out
+  // first in, first out, so each repeat took a set turned round from the last, and the cache made
+  // a bind group over each new set. This test makes that pool state itself, in any order.
+  it('creates no object on the device for a call that repeats its shapes, when the pool holds more of its shapes than it takes', async () => {
+    // An entry of four storage arrays: on the CPU tier, four buffers of the shape SCALE's three
+    // storage bindings take, which go back to the pool after its call.
+    const wide = await load(`"use typeshade";
+declare const a: storage<array<f32>, "read_write">;
+declare const b: storage<array<f32>, "read_write">;
+declare const c: storage<array<f32>, "read_write">;
+declare const d: storage<array<f32>, "read_write">;
+
+export const fill = compute([4], function fill(gid: builtin<"global_invocation_id", vec3u>) {
+  if (gid.x >= a.length) {
+    return;
+  }
+  a[gid.x] = 1.0;
+  b[gid.x] = 2.0;
+  c[gid.x] = 3.0;
+  d[gid.x] = 4.0;
+});
+`);
+    const arrays = { a: new Float32Array(4), b: new Float32Array(4) };
+    await (wide.fill as (b: unknown, w: unknown) => Promise<void>)(
+      { ...arrays, c: new Float32Array(4), d: new Float32Array(4) },
+      1,
+    );
+    expect([...arrays.b]).toEqual([2, 2, 2, 2]);
+    const m = await load(SCALE);
+    const scale = m.scale as (b: unknown, w: unknown) => Promise<void>;
+    const xs = Float32Array.from({ length: 10 }, (_, i) => i + 0.5);
+    await scale({ k: 3, xs, ys: new Float32Array(10), pts: new Float32Array(20) }, 2);
+    const proto = Object.getPrototypeOf(cpuDevice()) as Proto;
+    const spies = MAKERS.map((k) => vi.spyOn(proto, k));
+    for (let i = 0; i < 4; i++) {
+      const again = { ys: new Float32Array(10), pts: new Float32Array(20) };
+      await scale({ k: 3, xs, ...again }, 2);
+      expect([...again.ys]).toEqual([...xs].map((x) => Math.fround(x * 3)));
+    }
+    const counts = Object.fromEntries(MAKERS.map((k, i) => [k, spies[i]!.mock.calls.length]));
+    expect(counts).toEqual(Object.fromEntries(MAKERS.map((k) => [k, 0])));
+  });
+
   it('computes an f64 on the host doubles it was given, with no bytes between', async () => {
     const m = await load(`"use typeshade";
 declare const xs: storage<array<f64>>;

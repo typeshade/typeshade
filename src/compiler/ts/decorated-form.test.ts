@@ -67,7 +67,11 @@ export function scale(ys: array<f32>, k: f32): void {
 }
 `;
 
-/** The warning on each decorator of `DECORATED`, in source order. */
+/** The filter `DECORATED` still writes: change 0132 removed it, with no warning release. */
+const FILTER = '@diagnostic("off", "derivative_uniformity")\n';
+
+/** The warning on each decorator of `DECORATED`, in source order, and the one refusal: the
+ *  filter, which change 0132 removed, warned here until it was refused. */
 const WARNINGS = [
   warns('@builtin("position")', 'write "pos: builtin<"position", vec4, { invariant: true }>"'),
   warns('@invariant', 'write "pos: builtin<"position", vec4, { invariant: true }>"'),
@@ -79,10 +83,9 @@ const WARNINGS = [
   warns('@inout', 'write "v: inout<f32>"'),
   warns('@out', 'write "v: out<f32>"'),
   warns('@fragment', 'write "export const fs = fragment(function fs(…) { … })"'),
-  warns(
-    '@diagnostic("off", "derivative_uniformity")',
-    'write the option "{ diagnostic: ["off", "derivative_uniformity"] }" after the function of the stage call',
-  ),
+  'error TS8028 "@diagnostic(…)" is not a decorator the compiler reads (Rule 6.7). Delete it: ' +
+    'the compiler rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5) and ' +
+    'reports each other one with TS8052 and the reason. "tshc migrate" deletes it.',
   warns('@compute([8, 8])', 'write "export const main = compute([8, 8], function main(…) { … })"'),
   warns('@builtin("global_invocation_id")', 'write "gid: builtin<"global_invocation_id", vec3u>"'),
   warns('@compute', 'write "const plain = compute([64], function plain(…) { … })"'),
@@ -101,9 +104,13 @@ describe('the decorated form warns once on each decorator, in both halves (TS802
   it('gives one warning for each decorator, and still compiles as the new form does', () => {
     const count = DECORATED.match(/@\w+/g)!.length;
     expect(WARNINGS).toHaveLength(count);
+    // The migration deletes the filter (change 0132), so the new form is the decorated one
+    // without it.
     const migrated = migrateSource(DECORATED);
     expect(migrated.skipped).toEqual([]);
-    const a = compile(DECORATED);
+    expect(migrated.text).not.toContain('diagnostic');
+    expect(DECORATED).toContain(FILTER);
+    const a = compile(DECORATED.replace(FILTER, ''));
     const b = compile(migrated.text);
     expect(b.diagnostics).toEqual([]);
     expect(a.wgsl).toBe(b.wgsl);
