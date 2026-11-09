@@ -1391,9 +1391,12 @@ export class BufferPool {
   take(size: number, usage: readonly RhiBufferUsage[]): RhiBuffer {
     const rounded = Math.max(16, Math.ceil(size / 16) * 16);
     const key = `${[...usage].sort().join('|')}:${rounded}`;
-    // First in, first out: a frame whose shapes repeat takes the same buffers in the same order, so
-    // the bind groups over them are the cache's, not a second set over the buffers turned round.
-    const b = this.#free.get(key)?.shift() ?? this.device.createBuffer({ size: rounded, usage });
+    // Last in, first out, and `release` puts a frame's buffers back so that the first it took is on
+    // top: a frame whose shapes repeat takes the same buffers in the same order, so the bind groups
+    // over them are the cache's. A queue would turn them round whenever the pool holds more of a
+    // shape than the frame takes (buffers an earlier frame of other shapes left), and each turn
+    // would make a bind group over a new set of the same buffers (#1133).
+    const b = this.#free.get(key)?.pop() ?? this.device.createBuffer({ size: rounded, usage });
     this.#taken.push([key, b]);
     return b;
   }
@@ -1403,7 +1406,8 @@ export class BufferPool {
     const taken = this.#taken;
     this.#taken = [];
     const back = (): void => {
-      for (const [key, b] of taken) {
+      // In reverse, so that the next `take` of each shape pops the first this frame took.
+      for (const [key, b] of taken.reverse()) {
         let list = this.#free.get(key);
         if (list === undefined) this.#free.set(key, (list = []));
         list.push(b);
