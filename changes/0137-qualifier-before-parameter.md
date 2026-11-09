@@ -198,13 +198,18 @@ it owes downstream). `tshc migrate` reaches none of its matches, so each is edit
 - Inference: no published artifact carries `inout<T>` or `out<T>`. The decorated `@inout` is
   published in vscode-typeshade 0.3.0, and it stays the language's form, so this proposal breaks
   nothing published. Rule 13.9 binds "a published version", so it does not decide the timing.
+- The owner's decision OD-6 (2026-11-09; pull request #1132, open at this revision): nothing is
+  released yet; the two bundled builds above were test builds, and a refusal owes no warning
+  release because of them (Rules 13.9 and 13.10). So the timing does not depend on the
+  inference above.
   Rule 13.10 covers a program that keeps compiling and computes something else, which this
   change does not do.
 - Change 0132 decision 5 is the precedent: the owner chose on 2026-11-09 to refuse a written
   `@diagnostic` at once, on the same kind of facts.
 
 The decision rests on OD-5 (the type form is not the language's form), OD-3 (one construct has
-one spelling) and OD-1 (the type form exists only so that a plain `tsc` accepts the file). The
+one spelling), OD-1 (the type form exists only so that a plain `tsc` accepts the file) and OD-6
+(no release owes a warning window). The
 rejected alternatives, a warning for one release first and `inout<T>` kept as a second spelling,
 are under Alternatives.
 
@@ -481,6 +486,8 @@ Recorded as costs of OD-5, not as reasons against it (`CLAUDE.md`, The owner's d
   and `tshc migrate`, in every type position and in both halves.
 - **OD-4**: the before and after, the list of forms that change, the timing options with their costs
   and the owner's choice are shown above.
+- **OD-6** (pull request #1132): nothing is released yet, and the bundled builds were tests, so
+  refusing the type form at once owes no warning release.
 - **OD-2** is untouched: this proposal changes no stage form.
 
 This proposal reverses no entry.
