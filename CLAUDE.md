@@ -156,6 +156,18 @@ rules first, in the same pull request, and only then moves the surface. A name a
 write comes from WGSL, from ECMAScript as TypeScript spells it, or from the enumerated
 extension table in that document's §9; a compiler-internal helper never becomes one.
 
+When two principles or rules point different ways, the agent does not choose between them.
+An example is `docs/roadmap.md`'s "ordinary TypeScript first" against the language's own syntax:
+change 0111 chose the first without asking, and it replaced `@vertex` with `vertex(f)`.
+
+1. Stop before the proposal or the change takes a side.
+2. Name both principles with their sources (file and rule or section).
+3. Show what each choice does to one example an author writes.
+4. Ask the owner, in the conversation, which one holds.
+5. Record the owner's decision and its date in the proposal.
+
+A conflict found after acceptance is asked the same way, before the implementation goes on.
+
 ## A test reads both halves
 
 A `"use typeshade"` program is read twice: by the compiler (`compile()`: its diagnostics, the
