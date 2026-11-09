@@ -34,7 +34,8 @@ they establish the scope.
 ## Why
 
 Describe the problem and its evidence. Explain the relevant alternatives and the reason for
-the proposed choice. State assumptions and unresolved decisions explicitly.
+the proposed choice. State assumptions and unresolved decisions explicitly. For a need from a
+downstream repository, link its compiler issue and say why compiler work cannot meet the need.
 
 ## What it touches
 
