@@ -204,14 +204,29 @@ describe('the editor reads a stage attribute as an entry (change 0130)', () => {
         }
       },
     } as Parameters<typeof createTypeshadeLanguageService>[0]);
+    // Every `*.shade.ts` under `examples/`, its subdirectories included: the host example
+    // modules and the pass files carry entries too.
+    const files = (readdirSync(dir, { recursive: true }) as string[])
+      .filter((f) => f.endsWith('.shade.ts'))
+      .sort();
+    expect(files.length).toBeGreaterThan(100);
+    expect(
+      files.some((f) => f.startsWith('hosts')) && files.some((f) => f.startsWith('passes')),
+    ).toBe(true);
     const found: string[] = [];
-    for (const file of readdirSync(dir).filter((f) => f.endsWith('.shade.ts'))) {
+    let attributes = 0;
+    for (const file of files) {
+      const text = readFileSync(join(dir, file), 'utf8');
+      attributes += text.match(/^@(?:vertex|fragment|compute)\b/gm)?.length ?? 0;
       const uri = pathToFileURL(join(dir, file)).href;
-      s.openDocument(uri, readFileSync(join(dir, file), 'utf8'));
+      s.openDocument(uri, text);
       for (const d of s.getDiagnostics(uri))
         if (d.code === 1206 || d.code === 2564 || d.code === 'TS1206' || d.code === 'TS2564')
           found.push(`${file}: ${String(d.code)}`);
     }
+    // The check reads what it is for: the examples write the stage attributes (change 0130),
+    // on which a plain `tsc` reports TS1206 (AGENTS.md#gate-discipline).
+    expect(attributes).toBeGreaterThan(100);
     expect(found).toEqual([]);
   });
 });

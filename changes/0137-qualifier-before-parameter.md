@@ -683,9 +683,9 @@ proposal's sentences in place.
 - `npx vitest run` (the whole unit suite), run twice. On `64d8cd56`: 13476 passed, 12 failed in
   5 files. The second run, with the `remedy-lines.test.ts` expectation fixed: 10 failed in 3
   files, `src/affected-tests.test.ts` (5) and `src/doc-test-selection.test.ts` (4), which fail
-  in this container on `main` as well (environmental), and `examples/plain-typescript.test.ts`
+  in this container on `main` as well (environmental), and `examples/plain-typescript.test.ts` <!-- doc-refs: skip — the implementing change (pull request 2 of change 0140) deleted the file -->
   (1). `src/compiler/ts/remedy-lines.test.ts` (a new quoted remedy site) and
-  `examples/plain-typescript.test.ts` (TS1206 on a qualifier under a plain `tsc`, a cost of
+  `examples/plain-typescript.test.ts` (TS1206 on a qualifier under a plain `tsc`, a cost of <!-- doc-refs: skip — the implementing change (pull request 2 of change 0140) deleted the file -->
   OD-5) were fixed in the record commit, and each then passed on its own run.
 - `src/compiler/ts/reference-parameters.test.ts`: 72 passed, among them both halves for every
   row of "Every form that changes": the attribute form with no diagnostic, the type form refused
@@ -717,7 +717,7 @@ qualifier is written before a parameter, as "@inout a: f32", and here the type i
   the attribute form and `tshc migrate`, as "The type form" requires.
 - D-2. The proposal names `hover.ts` for signature help; the work is in
   `src/language-service/signature.ts`. Disposition: closed.
-- D-3. `examples/plain-typescript.test.ts` and `src/compiler/ts/remedy-lines.test.ts`, not
+- D-3. `examples/plain-typescript.test.ts` and `src/compiler/ts/remedy-lines.test.ts`, not <!-- doc-refs: skip — the implementing change (pull request 2 of change 0140) deleted the file -->
   named under "What it touches", follow the change: the first leaves out TS1206 on a qualifier
   and only it, and proves it reads one; the second counts the new remedy site. Disposition:
   closed.

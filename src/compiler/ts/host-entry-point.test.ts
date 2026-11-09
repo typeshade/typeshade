@@ -17,10 +17,7 @@ const SOURCE = readFileSync(EXAMPLE, 'utf8');
 describe('the generated host of a respelled entry (Proposal 0070, C5)', () => {
   it('passes the emitted entry name as entryPoint and keeps the authored name for the host', () => {
     // `fract` is a WGSL predeclared function. The module does not call it, so it compiles.
-    const source = SOURCE.replace(
-      'export const scale = compute([WIDTH], function scale(',
-      'export const fract = compute([WIDTH], function fract(',
-    );
+    const source = SOURCE.replace('export function scale(', 'export function fract(');
     expect(source).not.toBe(SOURCE);
     const face = hostFace(source, {
       fileName: 'fract.shade.ts',
