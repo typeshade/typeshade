@@ -642,8 +642,89 @@ waits for the owner's "merge" (`CLAUDE.md`, Merging). Duration and cost are not 
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the evidence listed under "Draft impact
-estimate".
+**Delivery.** Pull request #1139 (branch `claude/clever-ramanujan-yrfjsq-impl-0137`, base `main`
+at `d1ba7283`), by an AI agent (Claude Code) at the coordinator's request. Commits: `16e5465f`
+(the compiler, the language service, `tshc migrate`, the example, the journey and the tests),
+`64d8cd56` (the rule texts, the surface, `AUTHORING.md`, `docs/typescript-coverage.md`,
+`src/AGENTS.md`, `CHANGELOG.md` and `reqs/`), and the commit that adds this record (two test
+expectations and this section). Change 0130 was not implemented, so this pull request applied
+the texts for `main`: Rule 1.7's interim sentence, Rule 6.7's second sentence and Rationale, and
+Rules 7.2, 7.6, 8.22 and 8.25. Rule 6.6 on `main` names no qualifier and is unchanged; Rule 1.8 <!-- doc-refs: skip — Rule 1.8 is the rule change 0130 adds -->
+does not exist on `main`. Change 0130's implementation applies its own texts with this
+proposal's sentences in place.
+
+**What was delivered.**
+
+- The compiler: `refuseQualifierTypes` (`src/compiler/ts/decorated-form.ts`) reports `TS8028` at
+  each written `inout<…>` or `out<…>` in every type position, once. On a parameter the refused
+  type still stands for its qualifier (`attribute-types.ts`), and `refuseQualifiedParameter`
+  (`lower/function.ts`) withholds its `TS8073` when a qualifier is the type form, so the type
+  form's `TS8028` is the one diagnostic. `decoratedForms` and `attributeTypeOf` no longer read a
+  qualifier, so `@inout` and `@out` give no warning. The texts of `TS8073`, `TS8075`, the
+  `TS8018` remedy and the host view's reason name `@inout` and `@out`.
+- `tshc migrate` (`src/cli/migrate.ts`) keeps a written qualifier and rewrites `v: inout<T>` to
+  `@inout v: T` on a parameter of a module function; any other type form is named in `skipped`.
+- The language service: a TS1206 filter for a qualifier on a parameter of a module function in
+  every file (`isQualifierOnModuleFunction`, `diagnostics.ts`); `TS8073` joins
+  `DECORATOR_REFUSALS`, so TS1206 goes where the compiler refuses the qualifier; the navigation
+  guard (`navigation.ts`) covers a decorator on a parameter of a function that is no class
+  member; hover (`hover.ts`) and signature help (`signature.ts`) show `@inout a: f32`; the
+  `@inout` and `@out` hover (`docs.ts`) no longer says "decorated form"; completion
+  (`completions.ts`) offers neither `inout` nor `out` in a type position. The ambient aliases
+  stay.
+- `examples/reference-parameters.shade.ts` and `journeys/class-twins/units.shade.ts` write
+  `@inout` and `@out`. Their emit goldens did not move.
+
+**Functional verification** (2026-11-09; Linux container, Bun 1.4.4, Node 22.23.4, TypeScript
+5.6.3, vitest 5.0.5; on `64d8cd56` plus the two test expectations of the record commit):
+
+- `npx tsc --noEmit -p tsconfig.json` and `npx tsc -p tsconfig.tests.json --noEmit`: pass.
+- `bun run lint`, `bun run format:check`: pass.
+- `npx vitest run` (the whole unit suite), run twice. On `64d8cd56`: 13476 passed, 12 failed in
+  5 files. The second run, with the `remedy-lines.test.ts` expectation fixed: 10 failed in 3
+  files, `src/affected-tests.test.ts` (5) and `src/doc-test-selection.test.ts` (4), which fail
+  in this container on `main` as well (environmental), and `examples/plain-typescript.test.ts`
+  (1). `src/compiler/ts/remedy-lines.test.ts` (a new quoted remedy site) and
+  `examples/plain-typescript.test.ts` (TS1206 on a qualifier under a plain `tsc`, a cost of
+  OD-5) were fixed in the record commit, and each then passed on its own run.
+- `src/compiler/ts/reference-parameters.test.ts`: 72 passed, among them both halves for every
+  row of "Every form that changes": the attribute form with no diagnostic, the type form refused
+  once on a parameter, an entry's and a method's parameter, beside a written `@inout`, on a
+  local, a return type, an alias, a generic argument and a field; a qualifier on an entry, a
+  local function, a constructor, a generic function and an overload signature refused once
+  with no TS1206; go-to-definition, prepare-rename and rename at `@inout` and `@out`; signature
+  help, hover and completion.
+- `src/cli/migrate.test.ts`, `src/compiler/ts/decorated-form.test.ts`,
+  `src/compiler/ts/attribute-types.test.ts`, `src/compiler/ts/doc-snippets.test.ts`: pass.
+- `bun run bake:goldens`: 355 passed, no golden changed.
+- `bun run build` and `bun scripts/bundle-boundary.ts`: pass.
+- `bun run gate:compile`: 203 examples, WGSL on Tint 203, GLSL ES 3.00 on WebGL2 140, render
+  pipelines on Tint 131, failures 0.
+- Not run: the user journeys (packed tarball, WebGPU); CI runs them.
+
+**Document audit** (2026-11-09): `bun scripts/changes.ts --base origin/main` passes (it lists
+Rules 1.8 and 6.6 as still to do, for the reasons above); `bun run docs:refs`, 0 dead
+references; `bun run docs:impact`, no must-fix item, each review item read; `bun run reqs:sync`,
+then `doorstop review` of RULE-0107, RULE-0607, RULE-0702, RULE-0706, RULE-0822, RULE-0825 and
+SURF-070 and `doorstop clear` of each suspect surface section after it was read;
+`python scripts/doorstop-check.py -C -e -F` passes.
+
+**Deviations.**
+
+- D-1. The `TS8028` text away from a parameter, which this proposal does not spell, is `… a
+qualifier is written before a parameter, as "@inout a: f32", and here the type is "f32";
+"tshc migrate" rewrites a parameter's type form (change 0137).` Disposition: closed; it names
+  the attribute form and `tshc migrate`, as "The type form" requires.
+- D-2. The proposal names `hover.ts` for signature help; the work is in
+  `src/language-service/signature.ts`. Disposition: closed.
+- D-3. `examples/plain-typescript.test.ts` and `src/compiler/ts/remedy-lines.test.ts`, not
+  named under "What it touches", follow the change: the first leaves out TS1206 on a qualifier
+  and only it, and proves it reads one; the second counts the new remedy site. Disposition:
+  closed.
+- D-4. `status` stays `accepted` in this pull request, at the coordinator's instruction, though
+  `changes/README.md` (lifecycle, step 4) says the pull request that finishes the compiler
+  repository's work sets `implemented`. Disposition: open; the owner decides whether this pull
+  request or a later one sets it.
 
 ## What it owes downstream
 
