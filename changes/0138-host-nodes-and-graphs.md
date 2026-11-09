@@ -1,6 +1,6 @@
 ---
 id: '0138'
-title: A host imports a shader module and uses each export as TypeScript does, calls GPU work as nodes, joins nodes into graphs with fuse, and keeps uniform and storage data in typed-array views with dirty tracking
+title: A host imports a shader module and uses each export as TypeScript does, calls GPU work as nodes, joins nodes into graphs with fuse, keeps uniform and storage data in typed-array views of one memory region with dirty tracking, and runs host CPU code as WebAssembly
 status: draft
 rules:
   - '6.1'
@@ -52,14 +52,14 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0138, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the owner's direction, from a design conversation with the owner in the same session. The date is the drafting date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Request source                | The owner (Seungup), in the Claude Code session of 2026-11-09. Shown the host code that proposal 0120 would give, the owner judged it scattered ("너무 중구난방이예요"), stopped the work of 0120 ("모두 멈춤"), and asked to design from the start how an imported `.shade.ts` is used. The owner's decisions in that conversation are recorded under Owner's decisions. No GitHub issue is recorded.                                                                                                                                                                                                                                                                                                                                                           |
-| Applicability / effectivity   | Expected: the host face and host view (`src/compiler/ts/host-face.ts` and its view writer), the call layer (`src/core/host-*.ts`, `resident.ts`, `owner.ts`), `typeshade/fuse` (`src/core/compute/`, the planner), the program runtime (`src/runtime/`), the render hardware interface of 0120 (`src/rhi/`), the Vite plugin and `tshc` (`src/vite.ts`, the host transform of R12), `docs/language-design.md` Rules 6.1, 6.6, 8.20 to 8.24, 11.7, 11.8, 11.11, 11.13 and 11.17, `docs/use-typeshade-surface.md` §64, §67 and §71, `examples/hosts/`, `src/__api__/surface.md`, and the downstream repositories. The emitted WGSL and GLSL of a shader module do not change except where R10 and R11 generate new entry variants. No release version is assigned. |
-| Review baseline               | `main` at `8635663c` (merge of pull request #1115), read on 2026-11-09.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Review and revision authority | No pull request is assigned yet. Git records the revisions of this file. The review and the merge of its pull request with `status: accepted` will record the decision.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0138, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the owner's direction, from a design conversation with the owner in the same session. The date is the drafting date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Request source                | The owner (Seungup), in the Claude Code session of 2026-11-09. Shown the host code that proposal 0120 would give, the owner judged it scattered ("너무 중구난방이예요"), stopped the work of 0120 ("모두 멈춤"), and asked to design from the start how an imported `.shade.ts` is used. The owner's decisions in that conversation are recorded under Owner's decisions. No GitHub issue is recorded.                                                                                                                                                                                                                                                                                                                                                                                        |
+| Applicability / effectivity   | Expected: the host face and host view (`src/compiler/ts/host-face.ts` and its view writer), the call layer (`src/core/host-*.ts`, `resident.ts`, `owner.ts`), `typeshade/fuse` (`src/core/compute/`, the planner), the program runtime (`src/runtime/`), the render hardware interface of 0120 (`src/rhi/`), the Vite plugin and `tshc` (`src/vite.ts`, the host transform of R12, the WebAssembly emit of R16), `docs/language-design.md` Rules 6.1, 6.6, 8.20 to 8.24, 11.7, 11.8, 11.11, 11.13 and 11.17, `docs/use-typeshade-surface.md` §64, §67 and §71, `examples/hosts/`, `src/__api__/surface.md`, and the downstream repositories. The emitted WGSL and GLSL of a shader module do not change except where R10 and R11 generate new entry variants. No release version is assigned. |
+| Review baseline               | `main` at `8635663c` (merge of pull request #1115), read on 2026-11-09.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Review and revision authority | No pull request is assigned yet. Git records the revisions of this file. The review and the merge of its pull request with `status: accepted` will record the decision.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ## What changes
 
@@ -177,6 +177,22 @@ over }`.
   shader modules. A pass `setPipeline(p)` returns a pass typed by `p`, so `tsc` checks
   `setVertexBuffer`, `setBindings` and `draw` against it. Bind group layouts, pipeline layouts,
   vertex buffer layouts, padding and `getCurrentTexture()` do not appear.
+- **R16. What runs on the CPU is WebAssembly where it can be.** The code a host runs on the CPU
+  from an import (a helper of Rule 8.20, the CPU tier of a node, the CPU tier of a graph and of
+  a render composition) is compiled to a WebAssembly module at build time by the Vite plugin and
+  `tshc`, beside today's generated JavaScript. `f32` arithmetic is WebAssembly's own `f32`, and a
+  vector may use SIMD128 where the runtime has it. Where WebAssembly cannot run, the generated
+  JavaScript runs, and both give the CPU oracle's bits (Rule 11.7). The runtime instantiates the
+  module; it builds no code at run time (no `new Function`, Rule 11.7).
+- **R17. Memory comes from one serialized region.** Every resource of R7 to R9 (a uniform, a
+  storage array, a staging copy) is allocated from one global region: the linear memory of the
+  WebAssembly module of R16, or one `ArrayBuffer` where WebAssembly cannot run. Each resource
+  is a byte range of that region, laid out by Rule 6.8, and its typed-array views are views of
+  the region. So the CPU tier reads and writes a resource where it lies, with no copy; an upload
+  to a GPU device is a `writeBuffer` or `bufferSubData` of the resource's dirty range of the
+  region; and a read back lands in the same range. The runtime's allocator places, frees and
+  compacts ranges; a resource is freed by `dispose()`, by `using`, or when the garbage collector
+  reclaims its owner (`FinalizationRegistry`).
 
 ### One example, before and after
 
@@ -299,6 +315,10 @@ Decisions the owner took in the conversation of 2026-11-09, in the owner's words
    직관적으로 사용하도록 하세요. Threejs 처럼 쓰도록." (R7, R8, R10).
 9. Storage the same way: "네, storage도 같은 방식으로" (R9).
 10. The work of proposal 0120 stops while this design is decided: "모두 멈춤".
+11. What an import runs on the CPU is WebAssembly where possible: "저런식으로 import된건 가능하면
+    wasm으로 나오는게 나을 것 같은데 성능적으로" (R16).
+12. Memory from one global, serialized region: "각 메모리는 전역 메모리로 가능하면 직렬화된
+    영역에서 할당받아서 사용하게하고" (R17).
 
 ## Why the compiler cannot do it
 
@@ -362,19 +382,22 @@ Known:
 Estimated, in milestones that each leave `main` green:
 
 1. **Resources.** `zeros`, `array`, `uniform`, `texture`; R7 to R10 (views, dirty ranges,
-   `set`/`get`, exported bindings). No call changes yet.
-2. **Non-blocking calls.** R2 and R3: GPU nodes return resources; `read()`; the device of the
+   `set`/`get`, exported bindings) on the one region of R17, an `ArrayBuffer` at first. No call
+   changes yet.
+2. **WebAssembly CPU tier.** R16: the Vite plugin and `tshc` emit a WebAssembly module for the
+   CPU code of an import; the region of R17 becomes its linear memory.
+3. **Non-blocking calls.** R2 and R3: GPU nodes return resources; `read()`; the device of the
    data; `using device(…)`.
-3. **Graphs for compute.** R4 and R14 on kernels and `@compute`: `fuse(fn)` as a node, nesting,
+4. **Graphs for compute.** R4 and R14 on kernels and `@compute`: `fuse(fn)` as a node, nesting,
    return values, in-place updates.
-4. **Rendering.** R5, R6 and R11: compositions, texture outputs, render-state options, `show`,
+5. **Rendering.** R5, R6 and R11: compositions, texture outputs, render-state options, `show`,
    class parameters as uniforms.
-5. **Control flow.** R12: build-time branches and shape caching; the host transform for GPU
+6. **Control flow.** R12: build-time branches and shape caching; the host transform for GPU
    conditions; indirect counts.
-6. **State and anti-aliasing.** R13: module fields as state, textures used in turn, MSAA and its
+7. **State and anti-aliasing.** R13: module fields as state, textures used in turn, MSAA and its
    resolve, several resolutions.
-7. **Encoder layer.** R15 and `node((encoder, …) => …)` on the RHI of 0120.
-8. **Migration.** A deprecation release for the old forms; host files for the examples; the site.
+8. **Encoder layer.** R15 and `node((encoder, …) => …)` on the RHI of 0120.
+9. **Migration.** A deprecation release for the old forms; host files for the examples; the site.
 
 Unknown: duration and cost; the planner's reach on WebGL2 and the CPU tier for indirect
 execution and MSAA (they lack both; refusal or a slower path is open item Q7).
@@ -397,6 +420,13 @@ Decisions that must be resolved before acceptance:
   execution, MSAA and a GPU-value condition.
 - **Q8.** The names of the new exports (`zeros`, `array`, `uniform`, `texture`, `show`, `device`,
   `node`, `inspect`). They are host exports, not author-facing names of a shader file.
+- **Q9.** How the views of R17 survive a growth of the region. A WebAssembly `memory.grow` gives
+  a new `ArrayBuffer` and detaches every view of the old one. Options: a region sized up front
+  with a stated limit; views re-made on growth behind each field's accessor; or a resizable
+  `ArrayBuffer` where the runtime has one.
+- **Q10.** Whether a WebAssembly CPU tier (R16) replaces the generated JavaScript or stands
+  beside it, how the CPU oracle's bits are held on both (Rule 11.7, Rule 11.8), and what the
+  bundle and the build cost.
 
 ### Independent review record
 
@@ -408,7 +438,7 @@ reviewer, the date, the revision reviewed, each finding and the answer to it.
 
 This record does not yet apply. Acceptance will require: the owner's decision in the
 conversation, or a review, and the merge of this file with `status: accepted`; the answers to
-Q1 to Q8; the approved scope and milestones; and the amendment to proposal 0120 named under
+Q1 to Q10; the approved scope and milestones; and the amendment to proposal 0120 named under
 What it touches.
 
 ### Configuration and validation record
