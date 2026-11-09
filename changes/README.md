@@ -69,8 +69,8 @@ does not record where a request came from.
    name and downstream repository in the front matter. A proposal that adds to the language (an
    author-facing name, a rule, a diagnostic code or a surface form) says in
    `## Why the compiler cannot do it` what the author must write that the compiler cannot
-   decide. What the compiler can decide (an optimization, a numerical relaxation, a tuning
-   parameter) is the compiler's work. When the compiler can do it, the proposal is not needed:
+   decide. What the compiler can decide (an optimization it can prove exact, a tuning
+   parameter) is the compiler's work; a numerical relaxation changes results and is not. When the compiler can do it, the proposal is not needed:
    the work is an implementation change with no proposal, or no change. Rule links in `reqs/` (`reqs/README.md`) and searches of the
    site and editor establish those impacts. Review starts with a proposal-only PR and `status: draft`.
    Before the owner decides, the proposal passes an independent review (below).
