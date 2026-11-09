@@ -1,50 +1,18 @@
 ---
 id: '0120'
-title: A host opens one `Device` and draws a vertex and fragment entry pair with it on WebGPU, WebGL2 and the CPU tier, over a render hardware interface that TypeShade owns
+title: TypeShade owns a render hardware interface with WebGPU, WebGL2 and CPU backends, and the program runtime and the call layer run on it
 status: accepted
 rules:
-  - '8.21'
   - '8.24'
   - '11.7'
-  - '11.8'
-  - '11.10'
   - '11.11'
-  - '11.17'
   - '11.20'
-surface:
-  - 3
-  - 65
-  - 66
-  - 67
-  - 69
-exports:
-  - createDevice
-  - configure
-  - Device
-  - DeviceOptions
-  - DrawOptions
-  - VertexEntry
-  - FragmentEntry
-exports-removed:
-  - createRuntime
-  - runtime
-  - Runtime
-  - RuntimeOptions
+surface: []
+exports: []
+exports-removed: []
 codes: []
 examples: []
-downstream:
-  - repo: typeshade.github.io
-    what: The Playground's `host.ts` tab shows each example's real host file from `typeshade/examples`, the Result shows only what that file draws through `createDevice()`, and the site's own renderer (`lib/shader-runtime.ts`, `lib/render-runtime.ts`, `scripts/playground-bindings.ts`, `scripts/playground/cpu-program.ts`, `scripts/playground-raster.ts`) is removed; every page and API entry that copies surface §67 or §69 or names `createRuntime`, `runtime()`, `Runtime`, `RuntimeOptions` or `configure({ runtime })` moves to `Device`, in English and in Korean; `compiler-changes.md` records 0120 when the pin moves.
-  - repo: vscode-typeshade
-    what: The skill's references for the program runtime and for host calls name `createDevice()`, `device.load()`, `device.frame()` and `device.draw()` in place of `createRuntime()`; a fixture or snippet that names `createRuntime` changes; `compiler-changes.md` records 0120 when the pin moves.
-  - repo: radiance
-    what: '`packages/radiance/src/renderers/PathTracer.ts` and the design records that name `createRuntime` move to `createDevice()` and `device.native` before the release that removes `createRuntime`; `compiler-changes.md` records 0120 when the pin moves.'
-  - repo: typenn
-    what: A host or test that calls `createRuntime`, `runtime()` or `configure({ runtime })` moves to `createDevice()` before the release that removes them; `compiler-changes.md` records 0120 when the pin moves.
-  - repo: typecv
-    what: The same search and migration as typenn; `compiler-changes.md` records 0120 when the pin moves.
-  - repo: typeaudio
-    what: The same search and migration as typenn; `compiler-changes.md` records 0120 when the pin moves.
+downstream: []
 ---
 
 <!-- doc-refs: skip-file — a draft proposal names files, tests and options that its implementation adds -->
@@ -705,7 +673,43 @@ sits under it.
   `downstream`; D1 to D6; O1 and O3 to O8.
 - Status: `status: accepted` does not change.
 
+### A2. The host forms of items 3, 4 and 6 are withdrawn; proposal 0138 replaces them (2026-11-09)
+
+- [fact] Why. Shown the host code this proposal would give (`createDevice`, `device.draw`, the
+  call forms beside it), the owner judged it scattered ("너무 중구난방이예요") and stopped the work
+  ("모두 멈춤") on 2026-11-09. The owner then designed the host's use of a shader module from the
+  start, and accepted proposal 0138 on the same day (pull request #1126).
+- [decision, owner, 2026-11-09] Proposal 0138's approval record states that it replaces this
+  proposal's item 3 (`Device` with `load`, `frame`, `submit`, `draw`, `DrawOptions`,
+  `VertexEntry`, `FragmentEntry`, the deprecation of `createRuntime` and `runtime()`), item 4
+  (the first draw's scope), item 6 (a host file for each example in item 3's forms) and the
+  milestones from M4 part 2c onward (M4 part 2c to M7). This amendment withdraws them. Their text
+  stays above as the record of what was accepted on 2026-11-03.
+- [fact] What stays, delivered: item 1 (the RHI and its three backends, M1 to M3: #1031, #1101,
+  #1102), item 2 (the program runtime on the RHI, and the call layer's draw and entry calls
+  through program-runtime `Program` objects, M4 parts 1 to 2b: #1110, #1112, #1115), item 5 (the
+  CPU rasterizer, M3) and Amendment A1. These are proposal 0138's execution base.
+- [fact] What stays, owed by this proposal: the Enforced-by text of Rule 11.11 (the program
+  runtime records through `src/rhi/`), Rule 11.20 (A1: `src/rhi/` beside `src/runtime/` and
+  `src/core/`), Rule 8.24 (`src/core/host-entry-program.ts` and `host-draw.ts` through the program
+  runtime) and Rule 11.7 (the CPU backend). A documentation pull request with `Change: 0120`
+  writes them.
+- [fact] What moves to proposal 0138: the lazy CPU program loader of A1 (0138's R16 makes the CPU
+  tier WebAssembly; the loader is decided there), the kernel calls and `fuse` plans through
+  `Program` objects (M4 part 2c), D-M2-2's remainder (the WebGL2 RHI backend's compute pass), the
+  exports and removals, the examples' host files and every downstream obligation.
+- Open, carried: the WebGL2 backend takes a `flat` value from the last vertex; WebGPU and the CPU
+  backend take it from the first. Next action: a bug fix.
+- Affects: the front matter (the title now names the scope that stays; `rules` keeps 8.24, 11.7, 11.11 and 11.20; `surface`, `exports`,
+  `exports-removed` and `downstream` become empty, because 0138 carries them), items 3, 4 and 6,
+  and the plan's M4 part 2c to M7.
+- Status: `status: accepted` does not change. The status becomes `implemented` when the
+  documentation pull request above is merged.
+
 ## What it owes downstream
+
+Amendment A2 (2026-11-09) moves every obligation below to proposal 0138, which states them
+against its own host forms. The text stays as the record of 2026-11-03.
 
 - **typeshade.github.io** (`typeshade/web`, `apps/typeshade`). The Playground's `host.ts` tab shows
   each example's host file from `typeshade/examples` (O7) in place of the generic starter of
