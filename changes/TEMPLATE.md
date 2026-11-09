@@ -48,6 +48,12 @@ and downstream effort. Separate known impacts from estimates. Record the basis o
 duration or cost estimate. Mark unestimated values as unknown, not zero. Identify decisions
 that must be resolved before acceptance.
 
+### Independent review record
+
+Before the owner decides, an agent or a person that did not write this proposal reviews it
+against `README.md` (Independent review). Record the reviewer, the date, the revision reviewed,
+each finding and the author's answer to it: fixed, or kept with the reason.
+
 ### Approval and plan record
 
 For a draft, state: this record does not yet apply; acceptance will require the evidence below.
