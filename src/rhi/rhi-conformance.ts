@@ -1059,7 +1059,7 @@ export const main = compute([4, 1, 1], function main(g: builtin<"global_invocati
   },
   {
     name: 'an indirect compute dispatch, its counts read from a buffer at an offset',
-    covers: ['dispatchWorkgroupsIndirect'],
+    covers: ['beginComputePass', 'dispatchWorkgroupsIndirect'],
     async run(device) {
       if (device.caps.compute !== 'native')
         return {
