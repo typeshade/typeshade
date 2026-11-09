@@ -130,6 +130,19 @@ export const fs = fragment(function fs() {
     expect(editorErrorsOf(frame)).toContain(refusal);
   });
 
+  it('takes the literal an arrow entry returns as its expression body', () => {
+    const src = `"use typeshade";
+${VS_OUT}
+interface Color { color: location<0, vec4> }
+export const vs = vertex((i: builtin<"vertex_index", u32>) => ({ pos: vec4(f32(i), 0., 0., 1.), uv: vec2(0., 0.) }));
+export const fs = fragment((v: VsOut) => ({ color: vec4(v.uv, 0., 1.) }));
+`;
+    expect(errorsOf(src)).toEqual([]);
+    expect(editorErrorsOf(src)).toEqual([]);
+    expect(compile(src).wgsl).toContain('-> Color {');
+    expect(hoverAt(src, '=> ({ color', 0)).toContain('): Color');
+  });
+
   it("refuses a literal two structs match, and keeps a helper's literal on the used struct", () => {
     // The used `P` beside an unused twin `Q` builds a `P` in a helper, as before the change.
     const helper = `"use typeshade";

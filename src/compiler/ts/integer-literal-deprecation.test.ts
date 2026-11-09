@@ -202,36 +202,22 @@ export const fs = fragment(function fs(): location<0, vec4> {
     expect(corrected.glsl).toEqual(result.glsl);
   });
 
-  it.each([
-    'let i = 0, j = 1; i < 4; i++',
-    'let i = 0; ; i++',
-    'let i = 0; i < 4;',
-    'const i = 0; i < 4; i++',
-  ])('does not hide the existing reports for an invalid loop header (%s)', (header) => {
-    const source = `"use typeshade";
+  // Change 0136 made `let i = 0, j = 1; i < 4; i++` and `let i = 0; i < 4;` open loops that
+  // compile, and `const i = 0; i < 4; i++` a write to a `const` that the compiler and
+  // TypeScript's TS2588 report on the same `i++`, as one diagnostic (Rule 12.4); the header that
+  // stays refused for its own sake is `for (let i = 0; ; i++)`, a loop that never ends.
+  it.each(['let i = 0; ; i++'])(
+    'does not hide the existing reports for an invalid loop header (%s)',
+    (header) => {
+      const source = `"use typeshade";
 export function f(): void { for (${header}) {} }`;
-    const off = compile(source, { fileName: '/app/deprecations.shade.ts' });
-    // TypeScript independently refuses ++ on a const, outside the header's TS8008 span.
-    // That existing checker error must remain, alongside the shared compiler diagnostics.
-    const on = paired(
-      source,
-      true,
-      header.startsWith('const')
-        ? [
-            {
-              code: 'TS2588',
-              message: "Cannot assign to 'i' because it is a constant.",
-              offset: source.indexOf('i++'),
-              length: 1,
-              severity: 'error',
-            },
-          ]
-        : [],
-    );
-    expect(on.diagnostics.filter((d) => d.category === 'error')).toEqual(off.diagnostics);
-    expect(on.diagnostics.filter((d) => d.code === TS_CODES.INT_LITERAL_DEPRECATION)).not.toEqual(
-      [],
-    );
-    expect(on.wgsl).toBeUndefined();
-  });
+      const off = compile(source, { fileName: '/app/deprecations.shade.ts' });
+      const on = paired(source, true, []);
+      expect(on.diagnostics.filter((d) => d.category === 'error')).toEqual(off.diagnostics);
+      expect(on.diagnostics.filter((d) => d.code === TS_CODES.INT_LITERAL_DEPRECATION)).not.toEqual(
+        [],
+      );
+      expect(on.wgsl).toBeUndefined();
+    },
+  );
 });

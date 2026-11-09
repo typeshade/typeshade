@@ -1722,24 +1722,26 @@ function entryResultLiterals(sourceFile: ts.SourceFile): Set<string>[] {
   visitStatements(sourceFile.statements);
   for (const fn of entries) {
     if (fn.type !== undefined || fn.body === undefined) continue;
+    const returned = (value: ts.Expression): void => {
+      let e: ts.Expression = value;
+      while (ts.isParenthesizedExpression(e)) e = e.expression;
+      if (!ts.isObjectLiteralExpression(e)) return;
+      const names = e.properties.map((p) =>
+        (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) &&
+        ts.isIdentifier(p.name)
+          ? p.name.text
+          : undefined,
+      );
+      if (names.every((n) => n !== undefined)) out.push(new Set(names as string[]));
+    };
     const walk = (node: ts.Node): void => {
       if (ts.isFunctionLike(node) || ts.isClassLike(node)) return;
-      if (ts.isReturnStatement(node) && node.expression !== undefined) {
-        let e: ts.Expression = node.expression;
-        while (ts.isParenthesizedExpression(e)) e = e.expression;
-        if (ts.isObjectLiteralExpression(e)) {
-          const names = e.properties.map((p) =>
-            (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) &&
-            ts.isIdentifier(p.name)
-              ? p.name.text
-              : undefined,
-          );
-          if (names.every((n) => n !== undefined)) out.push(new Set(names as string[]));
-        }
-      }
+      if (ts.isReturnStatement(node) && node.expression !== undefined) returned(node.expression);
       ts.forEachChild(node, walk);
     };
-    ts.forEachChild(fn.body, walk);
+    // An arrow function whose body is an expression returns it.
+    if (ts.isBlock(fn.body)) ts.forEachChild(fn.body, walk);
+    else returned(fn.body);
   }
   return out;
 }

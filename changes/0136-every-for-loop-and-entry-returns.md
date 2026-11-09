@@ -532,9 +532,69 @@ waits for the owner's "merge" (`CLAUDE.md`, Merging). Duration and cost are not 
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the implementing pull requests (each commit
-with `Change: 0136`), the delivered configuration and the validation evidence listed under "Draft
-impact estimate".
+**Implementing pull request.** Pull request #1142 (draft), branch
+`claude/clever-ramanujan-yrfjsq-impl-0136`, from `main` at `d1ba7283`; each commit carries
+`Change: 0136`. Implemented by an AI agent (Claude Code) at the direction of the coordinating
+session. The status stays `accepted` until the owner disposes of the open deviation D1 below.
+
+**What was delivered.**
+
+- Item 1 (F1). `lowerFor` (`src/compiler/ts/lower/control.ts`) lowers every `for`. The header is
+  first read as a counted loop: `analyzeCountedFor` (`src/compiler/ts/loop-bound.ts`) classifies
+  it, and a refusal now carries `endless`, true only for a constant header whose step never moves
+  the counter, never reaches the bound or leaves its type. A counted header keeps its IR, its
+  emit and its `counted` fact. Any other header is an open loop: an IR `for` with no `counted`.
+  The `while` rule (`openLoopError`) refuses a `for` with no condition, or one that folds to
+  `true`, and no `break` or `return`, its sentence naming the loop as written. A header clause
+  that is not a counted step is lowered as the statement it is (`lowerExpressionAsStatement`), so
+  an update that is no statement is refused as in a body. The counter type follows Rule 7.5: an
+  annotation, or `i32`/`u32` for an integer-written value; a float literal against a non-integer
+  bound, or another value, takes its own type. A float literal against an integer bound keeps the
+  `i32` it had, so `for (let i = 0.; i < 10; i++)` stays counted and keeps its emit.
+- F2.1. Two declarations and comma updates are accepted. See D1 for the mechanism.
+- Item 2 (R1). An entry with no return type is lowered with Rule 8.19's inference
+  (`fillFunctionBody`), and `settleInferredEntryResult` (`src/compiler/ts/lower/function.ts`)
+  gives the result its stage's default attribute and the checks a written type gets. The entry
+  sentence of `TS8021` left; a compute entry that returns a value with no return type keeps a
+  `TS8021` refusal with a new sentence (D2). An object literal such an entry returns takes the one
+  struct `LoweringScope.entryResultMatches` finds: every collected struct whose fields are its
+  names, minus the structs a binding or a module variable holds (`resourceStructsOf`); the
+  collector roots each declared interface or alias whose fields an entry literal names
+  (`entryResultLiterals`, `src/compiler/ts/structs.ts`). None or several is `TS8022` with
+  "write the return type". The editor records an entry's inferred result
+  (`recordInferredReturn`), and the projection writes it into the text TypeScript reads for a
+  vertex or fragment entry (`src/language-service/projection.ts`), so the hover shows it.
+- The kernel R1 sentence (`src/compiler/ts/kernel-loops.ts`) names an open loop.
+- Rules 7.5, 8.19 and 8.22, §7.1, Appendix B's Rule 7.5 row, surface §3, §14, §16, §17 and §65,
+  `reqs/` and `CHANGELOG.md` follow. No example was edited.
+
+**Deviations.**
+
+| #   | Deviation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Disposition                                                                                                                            |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | "Owner's decisions" (F2) says the IR `for` header carries two declarations and a comma update. The IR `Stmt` type is a public export in `src/__api__/surface.md`, and this proposal declares `exports: []`, so a reshaped header is outside the record (`scripts/changes.ts`). The delivered mechanism is the other one F2.1 names, without an IR change: the declarations run ahead of the loop (each has an IR name no other local has), and the updates run at the end of the body and before each `continue` of the loop, over the counter a `while` uses. The behaviour F2.1 decided is delivered; the IR is unchanged. | Open: the owner either accepts the mechanism, or amends this proposal to declare the reshaped `Stmt` export first.                     |
+| D2  | A compute entry that returns a value with no return type is refused with `TS8021 Entry function "k" is a compute entry, and a compute entry returns nothing (WGSL): it returns f32. Write the value to a storage binding.` The proposal says `TS8021`'s entry sentence leaves; it does not name the compute case, whose result has no default attribute ("An entry whose body cannot be read as one of the defaults writes it"). Without the refusal the entry would emit WGSL Tint refuses (Rule 12.6).                                                                                                                     | Open: recorded for the owner; a written `: f32` on a compute entry still compiles without a word, which is a separate existing defect. |
+| D3  | The owed test "its WGSL, GLSL and CPU oracle agree on one value" is met by both CPU engines (oracle and codegen) agreeing on each value, and by the compile gate's open-loop leg compiling the WGSL on Tint and the GLSL ES 3.00 on ANGLE. No GPU run compares a value. `bun run gate:differential` was not run.                                                                                                                                                                                                                                                                                                             | Open.                                                                                                                                  |
+| D4  | The language service's projection does not write an inferred result for a compute entry, since a compute entry returns nothing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Closed: within R1.                                                                                                                     |
+
+**Validation**, on Linux in the session container, Bun 1.4.4, Playwright 1.64.1 (Chromium for
+Testing headless shell, SwiftShader), commits as listed on pull request #1142:
+
+- `bun run gate:compile`, 2026-11-09, at `095d0160` plus the open-loop leg: 204 examples, WGSL
+  on Tint 204, GLSL ES 3.00 on WebGL2 141, render pipelines 132, failures 0; `open-loop/shapes`
+  passed on Tint, on WebGL2 and as a pipeline.
+- `bun run bake:goldens`: no golden changed.
+- `bun run build`, `bun run gate:boundary`, `bun run lint`, `bun run format:check`: passed.
+- `bun run test`, 2026-11-09, on the second commit's tree: 568 files, 13,496 tests passed, 4
+  skipped, 9 failed, all in `src/affected-tests.test.ts` and `src/doc-test-selection.test.ts`,
+  the known environmental failures of this container.
+- `bun scripts/changes.ts --base origin/main`: the change touches Rule 7.5, Rule 8.19, Rule 8.22;
+  surface §3, §14, §16, §17 and §65, inside what this proposal declares.
+- `bun run docs:refs`: 0 dead references. `bun run reqs:sync` and
+  `python scripts/doorstop-check.py -C -e -F`: clean after `doorstop review` of RULE-0705,
+  RULE-0819, RULE-0822, SURF-003 and SURF-016 and `doorstop clear` of the suspect sections, each
+  read.
+- Not run: `bun run gate:differential` (D3), the user journeys.
 
 ## What it owes downstream
 

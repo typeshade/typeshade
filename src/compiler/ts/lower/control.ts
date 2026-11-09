@@ -270,10 +270,11 @@ function counterShown(node: ts.ForStatement): string {
 
 /** The header as written, `let i = 0; i < n; i++`, for a sentence about the loop. */
 function headerText(node: ts.ForStatement, sourceFile: ts.SourceFile): string {
-  const part = (n: ts.Node | undefined): string => n?.getText(sourceFile) ?? '';
-  const cond = node.condition === undefined ? '' : ` ${part(node.condition)}`;
-  const update = node.incrementor === undefined ? '' : ` ${part(node.incrementor)}`;
-  return `${part(node.initializer)};${cond};${update}`;
+  const parts = [node.initializer, node.condition, node.incrementor].map(
+    (n) => n?.getText(sourceFile) ?? '',
+  );
+  // `for (;;)` as an author writes it, and `for (let i = 0; ; i++)` as prettier spells it.
+  return parts.every((p) => p === '') ? ';;' : parts.join('; ').trimEnd();
 }
 
 /** One clause of a header's initializer or update, as the statement it is (change 0136): `k = 2`,
