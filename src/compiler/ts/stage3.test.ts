@@ -3,7 +3,7 @@
 // (optional) mat2/mat3 rejection. Each gets a positive (stays clean) and a negative (fires with
 // the right code) case.
 //
-// Verifies: Rule 6.6, Rule 6.7, Rule 8.7 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 6.6, Rule 6.7, Rule 8.1, Rule 8.7, Rule 8.22 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -264,7 +264,7 @@ describe('@compute argument shapes (#118, WORKGROUP_ARG)', () => {
       expect(d, `expected WORKGROUP_ARG for @compute(${written})`).toBeDefined();
       expect(d!.category).toBe('error');
       expect(d!.message).toContain(`"${written}" is not a workgroup shape`);
-      expect(d!.message).toContain('"compute([64, 1, 1], f)"');
+      expect(d!.message).toContain('"@compute([64, 1, 1])"');
     }
   });
 
@@ -508,8 +508,8 @@ describe('attribute name allow-list (ATTRIBUTE_NAME)', () => {
       `@compute
 @workgroup_size(64)
 export function cs(): void { }`,
-      '"@workgroup_size" is WGSL\'s attribute, written here as compute\'s first argument: ' +
-        'compute([64], f) or compute([8, 8], f).',
+      '"@workgroup_size" is WGSL\'s attribute, written here as @compute\'s argument: ' +
+        '@compute([64]) or @compute([8, 8]); on a kernel function, @workgroup_size([n]).',
     ],
     [
       '@size on a field',
@@ -886,7 +886,7 @@ describe('a decorator where nothing reads it (Rule 6.7)', () => {
     `"@${name}" does not apply to a parameter of a function that is not an entry: it marks an ` +
     "entry's input or output. Remove it.";
   const METHOD = (shown: string): string =>
-    `A decorator has no place on "${shown}"; an entry is a top-level const that a stage call initializes, "export const vs = vertex(function vs(…) { … })".`;
+    `A decorator has no place on "${shown}"; an entry is a function declaration with a stage attribute, "@vertex export function vs(…) { … }".`;
   it.each([
     [
       'an unknown name on a constructor',
@@ -1219,5 +1219,136 @@ describe('entry-IO struct fields need @builtin or @location (STRUCT_FIELD_MISSIN
       }
     `);
     expect(r.diagnostics.filter((d) => d.code === TS_CODES.STRUCT_FIELD_MISSING_ATTR)).toEqual([]);
+  });
+});
+
+// Change 0130 (with change 0140, pull request 1): a stage attribute on a function declaration is
+// the entry's form, read with no diagnostic in either half, beside the stage call it replaces,
+// which still compiles to the same WGSL and GLSL ES 3.00 until change 0140 refuses it.
+describe('the stage attributes are the form of an entry (Rule 8.1, change 0130)', () => {
+  /** `compile()`'s diagnostics and the editor's on one source, unfiltered. */
+  const both = (source: string) => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', source);
+    return {
+      compiler: compile(source).diagnostics.map((d) => [d.category, d.code, d.message]),
+      editor: service.getDiagnostics('a.ts').map((d) => [d.source, d.code, d.message]),
+    };
+  };
+  const clean = { compiler: [], editor: [] };
+  const BUF = 'declare const buf: storage<array<f32>, "read_write">;\n';
+  const GID = 'gid: builtin<"global_invocation_id", vec3u>';
+
+  it('reads each stage attribute, in both orders and in a namespace, with no diagnostic', () => {
+    const sources = [
+      `"use typeshade";\n@vertex\nexport function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> { return vec4(f32(i)); }\n@fragment\nexport function fs(): location<0, vec4> { return vec4(1.); }\n`,
+      `"use typeshade";\nexport @fragment function fs(): location<0, vec4> { return vec4(1.); }\n`,
+      `"use typeshade";\nnamespace N { @fragment export function fs(): location<0, vec4> { return vec4(1.); } }\n`,
+      `"use typeshade";\n${BUF}const WG: u32 = 8;\n@compute([WG, 8])\nexport function blur(${GID}) { buf[gid.x] = 1.; }\n`,
+      `"use typeshade";\n${BUF}@compute\nexport function k(${GID}) { buf[gid.x] = 1.; }\n`,
+      `"use typeshade";\n${BUF}@compute()\nexport function k(${GID}) { buf[gid.x] = 1.; }\n`,
+      // `export default` stays accepted with no diagnostic until change 0140's refusal.
+      `"use typeshade";\n${BUF}@compute([8]) export default function k(${GID}) { buf[gid.x] = 1.; }\n`,
+    ];
+    for (const source of sources) expect(both(source)).toEqual(clean);
+    expect(compile(sources[2]!).wgsl).toContain('@fragment');
+    expect(compile(sources[3]!).wgsl).toContain('@workgroup_size(WG, 8)');
+    expect(compile(sources[4]!).wgsl).toContain('@workgroup_size(64');
+    expect(compile(sources[5]!).wgsl).toContain('@workgroup_size(64');
+  });
+
+  it('compiles a stage call and its attribute to the same WGSL, GLSL and reflection', () => {
+    const pairs: [string, string][] = [
+      [
+        `export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> { return vec4(f32(i)); });\nexport const fs = fragment((p: builtin<"position", vec4>): location<0, vec4> => p * 0.5);`,
+        `@vertex\nexport function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> { return vec4(f32(i)); }\n@fragment\nexport function fs(p: builtin<"position", vec4>): location<0, vec4> { return p * 0.5; }`,
+      ],
+      [
+        `${BUF}export const k = compute([8, 4], function k(${GID}): void { buf[gid.x] = f32(gid.y); });`,
+        `${BUF}@compute([8, 4])\nexport function k(${GID}): void { buf[gid.x] = f32(gid.y); }`,
+      ],
+      [
+        `export const scale = workgroup_size([128], function scale(xs: array<f32>): void { for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * 2.; } });`,
+        `@workgroup_size([128])\nexport function scale(xs: array<f32>): void { for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * 2.; } }`,
+      ],
+    ];
+    const sig = (source: string) => {
+      const r = compile(`"use typeshade";\n${source}\n`);
+      expect(r.diagnostics).toEqual([]);
+      return JSON.stringify([r.wgsl, r.glsl, reflect(r.module)]);
+    };
+    for (const [call, attribute] of pairs) expect(sig(attribute)).toBe(sig(call));
+  });
+
+  it('refuses two stage attributes on one function, once, in both halves', () => {
+    const message =
+      '"@fragment" is a second stage attribute on "fs", after "@vertex": an entry has exactly ' +
+      'one stage, "@vertex", "@fragment" or "@compute([…])" (Rule 8.1).';
+    expect(
+      both(
+        `"use typeshade";\n@vertex @fragment\nexport function fs(): location<0, vec4> { return vec4(1.); }\n`,
+      ),
+    ).toEqual({
+      compiler: [['error', 'TS8028', message]],
+      editor: [['typeshade', 'TS8028', message]],
+    });
+  });
+
+  it("names the attribute in @compute's TS8037, in both halves (Rule 8.7)", () => {
+    for (const [arg, written] of [
+      ['[1, 2, 3, 4]', '[1, 2, 3, 4]'],
+      ['[0]', '[0]'],
+      ['[undefinedName]', '[undefinedName]'],
+    ] as const) {
+      const message = `compute takes an array of one to three whole numbers, "@compute([64, 1, 1])"; "${written}" is not a workgroup shape.`;
+      expect(both(`"use typeshade";\n@compute(${arg})\nexport function k(${GID}) { }\n`)).toEqual({
+        compiler: [['error', 'TS8037', message]],
+        editor: [['typeshade', 'TS8037', message]],
+      });
+    }
+  });
+
+  it('reads @workgroup_size([n]) on a kernel function, and refuses it elsewhere (Rule 8.22)', () => {
+    const kernel = `"use typeshade";\n@workgroup_size([128])\nexport function k(a: array<f32>) { for (let i = 0; i < a.length; i++) { a[i] = a[i] * 2.; } }\n`;
+    expect(both(kernel)).toEqual(clean);
+    const reduces = `"use typeshade";\n@workgroup_size([128])\nexport function k(a: array<f32>): f32 { let s = 0.; for (let i = 0; i < a.length; i++) { s += a[i]; } return s; }\n`;
+    expect(both(reduces).compiler.map((d) => d[1])).toEqual(['TS8077']);
+    expect(both(reduces).editor.map((d) => d[1])).toEqual(['TS8077']);
+    const helper = `"use typeshade";\n@workgroup_size([64]) function h(x: f32): f32 { return x; }\n@fragment export function fs(): location<0, vec4> { return vec4(h(1.)); }\n`;
+    const notKernel =
+      '"workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Declare "h" without it.';
+    expect(both(helper)).toEqual({
+      compiler: [['error', 'TS8028', notKernel]],
+      editor: [['typeshade', 'TS8028', notKernel]],
+    });
+    const onEntry = `"use typeshade";\n@workgroup_size([64]) @compute([8]) export function k(${GID}) { }\n`;
+    const rule67 =
+      '"@workgroup_size" is WGSL\'s attribute, written here as @compute\'s argument: @compute([64]) or @compute([8, 8]); on a kernel function, @workgroup_size([n]).';
+    expect(both(onEntry)).toEqual({
+      compiler: [['error', 'TS8028', rule67]],
+      editor: [['typeshade', 'TS8028', rule67]],
+    });
+  });
+
+  it('refuses a stage attribute on a method with TS8035, naming the attribute form', () => {
+    const message =
+      'A decorator has no place on "C.k"; an entry is a function declaration with a stage attribute, "@vertex export function vs(…) { … }".';
+    const r = both(
+      `"use typeshade";\nclass C { @fragment k(): vec4 { return vec4(1.); } }\n@fragment export function fs(): location<0, vec4> { return vec4(1.); }\n`,
+    );
+    expect(r.compiler).toEqual([['error', 'TS8035', message]]);
+    expect(r.editor).toEqual([['typeshade', 'TS8035', message]]);
+  });
+
+  it('reads an entry I/O class whose fields have no "!" with no TS2564 (change 0130, D3)', () => {
+    expect(
+      both(`"use typeshade";
+class VsOut { pos: builtin<"position", vec4>; uv: location<0, vec2>; }
+@vertex
+export function vs(): VsOut { const o = new VsOut(); o.pos = vec4(1.); o.uv = vec2(0.); return o; }
+@fragment
+export function fs(i: VsOut): location<0, vec4> { return vec4(i.uv, 0., 1.); }
+`),
+    ).toEqual(clean);
   });
 });

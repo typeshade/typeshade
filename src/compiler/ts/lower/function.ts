@@ -3803,8 +3803,8 @@ function settleKernelWorkgroup(
     if (diagnostics.some((x) => x.start === start && x.message === message)) return;
     diagnostics.push(makeDiagnostic(sourceFile, d, message, code, category));
   };
-  // Each message names the stage call, the form an author writes (change 0111), whichever form
-  // was written; the decorated form has its own warning (TS8028).
+  // Each message names the attribute, the form an author writes (change 0130), whichever form
+  // was written.
   if (!kernel || !isExported(node)) {
     once(
       `"workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Declare "${node.name?.text ?? 'this function'}" without it.`,
@@ -3822,7 +3822,7 @@ function settleKernelWorkgroup(
     const written =
       args.length === 0 ? d.getText(sourceFile) : args.map((a) => a.getText(sourceFile)).join(', ');
     once(
-      `workgroup_size takes an array of one whole number before its function, as "workgroup_size([64], f)", or a module constant in it, as "workgroup_size([TILE], f)"; "${written}" is not one.`,
+      `workgroup_size takes an array of one whole number, as "@workgroup_size([64])", or a module constant in it, as "@workgroup_size([TILE])"; "${written}" is not one.`,
       TS_CODES.WORKGROUP_ARG,
     );
     return undefined;
@@ -3930,9 +3930,9 @@ function parseStage(
           diagnostics,
           sourceFile,
           args[0]!,
-          // The stage call's spelling, whichever form was written (change 0111).
-          `compute takes an array of one to three whole numbers before its function, ` +
-            `"compute([64, 1, 1], f)"; "${written}" is not a workgroup shape.`,
+          // The attribute's spelling, whichever form was written (Rule 8.7, change 0130).
+          `compute takes an array of one to three whole numbers, "@compute([64, 1, 1])"; ` +
+            `"${written}" is not a workgroup shape.`,
           TS_CODES.WORKGROUP_ARG,
         );
       } else {
@@ -3964,7 +3964,28 @@ function parseStage(
     else if (sc.callee === 'compute') readCompute(sc.size === undefined ? [] : [sc.size], sc.call);
     else stage = sc.callee;
   }
+  // An entry has exactly one stage attribute (Rule 8.1, change 0130): a second one is refused at
+  // its own decorator, once, and the first one decides the stage.
+  let firstStage: string | undefined;
   for (const d of decos) {
+    const name = /^@(vertex|fragment|compute)\b/.exec(d.getText(sourceFile))?.[1];
+    if (name === undefined) continue;
+    if (firstStage === undefined) {
+      firstStage = name;
+      continue;
+    }
+    const message =
+      `"@${name}" is a second stage attribute on "${node.name?.text ?? 'this function'}", ` +
+      `after "@${firstStage}": an entry has exactly one stage, "@vertex", "@fragment" or ` +
+      `"@compute([…])" (Rule 8.1).`;
+    const start = d.getStart(sourceFile);
+    if (!diagnostics.some((x) => x.start === start && x.message === message))
+      diagnostics.push(makeDiagnostic(sourceFile, d, message, TS_CODES.ATTRIBUTE_NAME));
+  }
+  for (const d of decos) {
+    const stageName = /^@(vertex|fragment|compute)\b/.exec(d.getText(sourceFile))?.[1];
+    if (stageName !== undefined && stageName !== firstStage) continue;
+    if (stageName !== undefined && stage !== undefined) continue;
     // A function that is not an entry may be a kernel function, which takes one extent of
     // `@workgroup_size` (Rule 8.22). Whether it is one is known once its parameters are read.
     if (!isEntry && /^@workgroup_size\b/.test(d.getText(sourceFile))) {

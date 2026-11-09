@@ -212,8 +212,8 @@ class Wording {
         if (r.why === 'console')
           return `${why} ${this.line(r.at)} calls ${r.name}, whose lines would print in another order on the GPU. Log after the loop.`;
         if (r.why === 'barrier')
-          return `${why} ${this.line(r.at)} calls ${r.name}(), and an iteration of a loop is not a workgroup. Write a compute([…], f) entry to use a barrier.`;
-        return `${why} ${this.line(r.at)} reads "${this.value(r.name)}", which is workgroup memory, and an iteration of a loop is not a workgroup. Write a compute([…], f) entry to use it.`;
+          return `${why} ${this.line(r.at)} calls ${r.name}(), and an iteration of a loop is not a workgroup. Write an @compute([…]) entry to use a barrier.`;
+        return `${why} ${this.line(r.at)} reads "${this.value(r.name)}", which is workgroup memory, and an iteration of a loop is not a workgroup. Write an @compute([…]) entry to use it.`;
     }
   }
 

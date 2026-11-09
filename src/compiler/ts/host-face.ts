@@ -2727,7 +2727,7 @@ function viewText(
         const [x, y, z] = e.entry.wg;
         out.push(
           ...above(
-            `A \`compute([${x}, ${y}, ${z}], f)\` entry: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Resident a call wrote (change 0075); each binding the entry writes is read back into your value in place, or stays on the device in a Resident. The shape shown is its default; options.constants selects declared overrides without changing workgroups (Rules 8.24 and 11.8). ${queuedCall('bindings')}`,
+            `An \`@compute([${x}, ${y}, ${z}])\` entry: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Resident a call wrote (change 0075); each binding the entry writes is read back into your value in place, or stays on the device in a Resident. The shape shown is its default; options.constants selects declared overrides without changing workgroups (Rules 8.24 and 11.8). ${queuedCall('bindings')}`,
           ),
           ...(e.queuedType !== undefined
             ? [
@@ -2800,7 +2800,7 @@ function viewText(
       case 'fragment':
         out.push(
           ...above(
-            `A full-screen \`fragment(f)\` entry: draws one frame into \`target\`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24).`,
+            `A full-screen \`@fragment\` entry: draws one frame into \`target\`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24).`,
           ),
           `export declare function ${e.name}(target: HTMLCanvasElement | OffscreenCanvas, bindings${e.entry.bindings.every(isGuard) ? '?' : ''}: ${e.bindingsType}): Promise<void>;`,
         );

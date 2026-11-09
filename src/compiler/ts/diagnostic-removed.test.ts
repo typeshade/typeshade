@@ -121,7 +121,7 @@ export const fs = fragment(function fs(): vec4 { const p = new P(); return vec4(
       expect(editor).toEqual(compiler);
     });
 
-  it('on an entry of the decorated form, beside the warning on its stage decorator', () => {
+  it('on an entry with a stage attribute, beside the warning on its parameter decorator', () => {
     const source = `${HEAD}@fragment
 ${FILTER}
 export function fs(@builtin("position") p: vec4): vec4 {
@@ -131,7 +131,8 @@ export function fs(@builtin("position") p: vec4): vec4 {
 `;
     const { compiler, editor } = bothHalves(source);
     expect(compiler.filter((d) => d.startsWith('error'))).toEqual([DECORATOR]);
-    expect(compiler.filter((d) => d.startsWith('warning')).length).toBe(2);
+    // The stage attribute is the entry's form (change 0130): only `@builtin` warns.
+    expect(compiler.filter((d) => d.startsWith('warning')).length).toBe(1);
     expect(editor).toEqual(compiler);
   });
 });

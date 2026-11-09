@@ -69,35 +69,66 @@ function isTopLevelFunctionDeclaration(node: ts.Node): node is ts.FunctionDeclar
   );
 }
 
+/** The decorator TS1206 at `diagnostic` sits in, or undefined. */
+function decoratorAt(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): ts.Decorator | undefined {
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.start ?? 0);
+  while (node !== undefined && !ts.isDecorator(node)) node = node.parent;
+  return node;
+}
+
+/** The names of the attributes written on a function declaration: a stage, `@vertex`,
+ *  `@fragment` or `@compute([…])` (Rule 8.1), and a kernel function's size,
+ *  `@workgroup_size([n])` (Rule 8.22). */
+const FUNCTION_ATTRIBUTES: ReadonlySet<string> = new Set([
+  'vertex',
+  'fragment',
+  'compute',
+  'workgroup_size',
+]);
+
 /**
- * TS1206 ("Decorators are not valid here") fires on a function declaration's own decorator
- * (`@vertex`) and on a parameter decorator (`@builtin("vertex_index")`) alike, because legacy
- * decorators are grammatically valid only on a class, its members, or their parameters — never
- * on a plain function declaration. `"use typeshade"` deliberately puts `@vertex`/`@fragment`/
- * `@compute` on a top-level function (exported or not — see `isTopLevelFunctionDeclaration`)
- * and `@builtin`/`@location` on that function's parameters, so this is the one syntax-level
- * restriction no ambient `.d.ts` can configure away (§6); this predicate recognizes exactly
- * that shape, on the entry function itself or on one of its parameters. The compiler reads
- * every decorator there, and refuses one it does not apply (`TS8028`); any other TS1206 still
- * surfaces unless the compiler refuses the decorator itself (`mergeDiagnostics`). The filter
- * table applies it only to a file that still writes the decorated form of change 0111
- * (`usesDecoratedForm`); a file in the new form gets TS1206 as a plain `tsc --strict` does.
+ * Whether TS1206 ("Decorators are not valid here") sits on a stage attribute or
+ * `@workgroup_size` on a function declaration at the top of the file or of a namespace (exported
+ * or not, see `isTopLevelFunctionDeclaration`): the language's form of an entry (Rules 1.7, 1.8
+ * and 8.1, change 0130), in every file. Legacy decorators are grammatically valid only on a class,
+ * its members or their parameters, so this is the one syntax-level restriction no ambient `.d.ts`
+ * can configure away. TypeScript still parses the attribute and answers references, rename,
+ * definition and completion inside it; the compiler checks its name and its extents (`TS8028`,
+ * `TS8037`), and the editor reports that check (`mergeDiagnostics`), so no second checker reads
+ * it (Rule 1.7). A misspelled name is the compiler's `TS8028`, which replaces TS1206 there.
  */
-function isDecoratorOnTopLevelFunction(
+function isAttributeOnTopLevelFunction(
   context: DiagnosticFilterContext,
   diagnostic: ts.Diagnostic,
 ): boolean {
-  const pos = diagnostic.start ?? 0;
-  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos);
-  while (node !== undefined && !ts.isDecorator(node)) node = node.parent;
-  if (node === undefined) return false;
-  const decorated = node.parent;
-  if (decorated === undefined) return false;
-  if (isTopLevelFunctionDeclaration(decorated)) return true;
-  if (ts.isParameter(decorated) && decorated.parent !== undefined) {
-    return isTopLevelFunctionDeclaration(decorated.parent);
-  }
-  return false;
+  const node = decoratorAt(context, diagnostic);
+  if (node === undefined || !isTopLevelFunctionDeclaration(node.parent)) return false;
+  let e: ts.Expression = node.expression;
+  if (ts.isCallExpression(e)) e = e.expression;
+  return ts.isIdentifier(e) && FUNCTION_ATTRIBUTES.has(e.text);
+}
+
+/**
+ * Whether TS1206 sits on a decorator on a parameter of a function declared at the top of the
+ * file or of a namespace (`@builtin("vertex_index")`): the decorated form of change 0111, which
+ * the compiler reads and warns on (`TS8028`) in its migration release. The filter table applies
+ * it only to a file that still writes that form (`usesDecoratedForm`), so the editor hides
+ * TS1206 there only while `compile()` warns (Rule 6.6 as change 0130 amends it).
+ */
+function isDecoratorOnTopLevelFunctionParameter(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): boolean {
+  const decorated = decoratorAt(context, diagnostic)?.parent;
+  return (
+    decorated !== undefined &&
+    ts.isParameter(decorated) &&
+    decorated.parent !== undefined &&
+    isTopLevelFunctionDeclaration(decorated.parent)
+  );
 }
 
 /** TypeScript treats the second argument of `array<T, N>` as a type, while TypeShade also
@@ -1145,21 +1176,21 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
   {
     code: 1206,
     reason:
-      "In a file that still writes the decorated form of change 0111, @vertex/@fragment/@compute on a top-level or a namespace's function, and " +
-      "@builtin/@location on that function's parameters, are the grammar the migration release " +
-      'still reads, and the compiler warns on each (TS8028) — legacy decorators otherwise forbid a function declaration or its ' +
-      'parameters as a target, and no compiler option relaxes that. A file in the new form gets TS1206 as a plain tsc --strict does (change 0111, Amendment 2).',
-    when: (context, diagnostic) =>
-      usesDecoratedForm(context.sourceFile) && isDecoratorOnTopLevelFunction(context, diagnostic),
+      "A stage attribute, @vertex, @fragment or @compute([…]), or @workgroup_size([n]), on a top-level or a namespace's " +
+      "function declaration is the language's form of an entry (Rules 1.8 and 8.1, change 0130), in every file: " +
+      'TypeScript parses it and keeps references, rename and completion inside it, and the compiler checks its name and ' +
+      'extents (TS8028, TS8037). Legacy decorators forbid a function declaration as a target, and no compiler option relaxes that.',
+    when: isAttributeOnTopLevelFunction,
   },
   {
-    code: 2564,
+    code: 1206,
     reason:
-      'In a file that still writes the decorated form of change 0111, a struct class field has no ' +
-      'initializer, which the migration release still reads: a struct field is zero until written. ' +
-      'A file in the new form gets TS2564 as a plain tsc --strict does, and writes "!" on the field ' +
-      '(change 0111, Amendment 2).',
-    when: (context) => usesDecoratedForm(context.sourceFile),
+      "In a file that still writes the decorated form of change 0111, @builtin/@location on a top-level or a namespace's " +
+      "function's parameters are the grammar the migration release still reads, and the compiler warns on each (TS8028); " +
+      'the editor hides TS1206 there only while compile() warns (Rule 6.6, change 0130).',
+    when: (context, diagnostic) =>
+      usesDecoratedForm(context.sourceFile) &&
+      isDecoratorOnTopLevelFunctionParameter(context, diagnostic),
   },
   {
     code: 2749,

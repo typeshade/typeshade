@@ -103,13 +103,13 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
 /** One Markdown sentence per attribute name in `ATTRIBUTE_NAMES`. */
 export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
   vertex:
-    "The decorated form of `export const vs = vertex(function vs(…) { … })`, the pipeline's vertex-stage entry point.",
+    "Marks the pipeline's vertex-stage entry point, on the function declaration: `@vertex export function vs(…) { … }`. The entry takes the function's name.",
   fragment:
-    "The decorated form of `export const fs = fragment(function fs(…) { … })`, the pipeline's fragment-stage entry point.",
+    "Marks the pipeline's fragment-stage entry point, on the function declaration: `@fragment export function fs(…) { … }`. The entry takes the function's name.",
   compute:
-    'The decorated form of `export const main = compute([64], function main(…) { … })`, a compute-stage entry point with its workgroup size.',
+    'Marks a compute-stage entry point with its workgroup size, one to three extents, on the function declaration: `@compute([64]) export function main(…) { … }`. A bare `@compute` takes 64.',
   workgroup_size:
-    'The decorated form of `workgroup_size([128], f)`, the workgroup size of each loop that does not reduce in a kernel function, an exported function that takes an array with no size or a 2D storage texture. A loop that reduces runs at 256 whatever is written. An entry takes its size as `compute([128], f)`.',
+    'Optionally states the workgroup size of each loop that does not reduce in a kernel function, an exported function that takes an array with no size or a 2D storage texture, as one extent: `@workgroup_size([128]) export function scale(xs: array<f32>) { … }`. Without it the compiler chooses the size, and a loop that reduces runs at 256 whatever is written. An entry takes its size as `@compute([128])`.',
   builtin:
     'The decorated form of `builtin<N, T>`, a WebGPU builtin value: `i: builtin<"vertex_index", u32>` for `@builtin("vertex_index") i: u32`.',
   location:
@@ -125,17 +125,18 @@ export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
   out: "The decorated form of `p: out<T>`: the parameter names a place of the caller's that the function writes before reading it and on every path. The caller passes a variable, which may have no value yet: `let s!: f32; add(a, b, s);`. WGSL `ptr<function, T>`, GLSL ES 3.00 `inout T`.",
 };
 
-/** One Markdown sentence per stage call of change 0111, the plain-TypeScript spelling of an
- *  entry point and of a kernel function's workgroup size. */
+/** One Markdown sentence per stage call of change 0111, the call spelling of an entry point and
+ *  of a kernel function's workgroup size, which still compiles beside the stage attribute that
+ *  replaces it (change 0130; refused later by change 0140). */
 export const STAGE_CALL_DOCS: Readonly<Record<string, string>> = {
   vertex:
-    "Declares the pipeline's vertex-stage entry point: `export const vs = vertex(function vs(…) { … })`. The entry takes the constant's name.",
+    'The call form of a vertex-stage entry point, `export const vs = vertex(function vs(…) { … })`. The language writes the attribute, `@vertex export function vs(…) { … }`, and `tshc migrate` rewrites the call to it.',
   fragment:
-    "Declares the pipeline's fragment-stage entry point: `export const fs = fragment(function fs(…) { … })`. The entry takes the constant's name.",
+    'The call form of a fragment-stage entry point, `export const fs = fragment(function fs(…) { … })`. The language writes the attribute, `@fragment export function fs(…) { … }`, and `tshc migrate` rewrites the call to it.',
   compute:
-    'Declares a compute-stage entry point with its workgroup size, one to three extents: `export const main = compute([64], function main(…) { … })`.',
+    'The call form of a compute-stage entry point with its workgroup size, `export const main = compute([64], function main(…) { … })`. The language writes the attribute, `@compute([64]) export function main(…) { … }`, and `tshc migrate` rewrites the call to it.',
   workgroup_size:
-    'Sets the workgroup size of a kernel function, an exported function that takes an array with no size or a 2D storage texture, as one extent: `export const scale = workgroup_size([128], function scale(xs: array<f32>) { … })`. A loop that reduces runs at 256 whatever is written.',
+    "The call form of a kernel function's workgroup size, `export const scale = workgroup_size([128], function scale(xs: array<f32>) { … })`. The language writes the attribute, `@workgroup_size([128]) export function scale(…) { … }`, and `tshc migrate` rewrites the call to it.",
 };
 
 /** One Markdown sentence per attribute type of change 0111, the plain-TypeScript spelling of

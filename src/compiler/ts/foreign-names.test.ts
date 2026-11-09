@@ -89,7 +89,7 @@ describe('a GLSL or HLSL name is refused with TypeShade spelling as the remedy (
     numthreads: [
       '@numthreads([64])\nexport function f(): void {}',
       `${TS_CODES.ATTRIBUTE_NAME} Unknown attribute "@numthreads". HLSL's numthreads is ` +
-        'compute([x, y, z], f) here.',
+        '@compute([x, y, z]) here.',
     ],
   };
   for (const [name, [source, sentence]] of Object.entries(rows)) {

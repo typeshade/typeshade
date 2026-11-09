@@ -1,7 +1,8 @@
-// `tshc migrate` (change 0111, milestone 2, amendment 2): the decorated form rewritten to the
-// stage calls and attribute types, keeping every byte it does not need to change. The rewrite
-// is held to the compiler: each registered example, migrated, gives the WGSL, the GLSL ES 3.00
-// and the diagnostic codes the decorated example gives.
+// `tshc migrate` (change 0130, with change 0140): the stage calls of change 0111 rewritten to the
+// stage attributes, an `export default` entry to a named one, the decorated form on a parameter or
+// a field to the attribute type, and no `!` on a field or a local, keeping every byte it does not
+// need to change. The rewrite is held to the compiler: each registered example, migrated, gives
+// the WGSL, the GLSL ES 3.00 and the diagnostic codes the example gives as written.
 
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -13,119 +14,118 @@ import { compile } from '../compiler/ts/compile.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
+/** What a program compiles to: the WGSL, the GLSL ES 3.00 and the codes and texts of its
+ *  diagnostics. */
+const sig = (r: ReturnType<typeof compile>) =>
+  JSON.stringify([r.wgsl, r.glsl, r.diagnostics.map((d) => [d.code, d.category, d.message])]);
+
 describe('migrateSource', () => {
-  it('rewrites each decorated form, and keeps the rest of the text', () => {
+  it('rewrites each stage call to its attribute, and keeps the rest of the text', () => {
     const before = `"use typeshade";
 // A comment the rewrite keeps.
 class VsOut {
-  @builtin("position") @invariant pos: vec4;
+  pos!: builtin<"position", vec4, { invariant: true }>;
   @location(0) uv: vec2;
-  @location(1) @interpolate("flat") id: u32;
+  c!: location<1, vec4>;
 }
-class Light {
-  dir: vec3;
-  power = 1.;
-}
-function put(@out v: f32): void { v = 2.; }
-@vertex
-export function vs(@builtin("vertex_index") i: u32): VsOut {
-  return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.), id: i };
-}
-@fragment
-@diagnostic("off", "derivative_uniformity")
-export function fs(v: VsOut): vec4 {
-  let b: f32;
+declare const out: storage<array<f32>, "read_write">;
+function put(v: out<f32>): void { v = 2.; }
+export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+  let b!: f32;
   put(b);
-  return vec4(v.uv, b, 1.);
+  return { pos: vec4(0., 0., 0., 1.), uv: vec2(b, 0.), c: vec4(1.) };
+});
+export const fs = fragment((v: VsOut): location<0, vec4> => v.c * v.uv.x);
+namespace N {
+  export const main = compute([8, 8], function main(gid: builtin<"global_invocation_id", vec3u>): void {
+    out[gid.x] = 1.;
+  });
 }
-@compute([8, 8])
-export function main(@builtin("global_invocation_id") gid: vec3u): void {}
+export const scale = workgroup_size([128], function (xs: array<f32>) {
+  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * 2.; }
+});
 `;
     const after = `"use typeshade";
 // A comment the rewrite keeps.
-interface VsOut {
+class VsOut {
   pos: builtin<"position", vec4, { invariant: true }>;
   uv: location<0, vec2>;
-  id: location<1, u32, { interpolate: "flat" }>;
+  c: location<1, vec4>;
 }
-class Light {
-  dir!: vec3;
-  power = 1.;
-}
+declare const out: storage<array<f32>, "read_write">;
 function put(v: out<f32>): void { v = 2.; }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
-  return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.), id: i };
-});
-export const fs = fragment(function fs(v: VsOut): vec4 {
-  let b!: f32;
+@vertex
+export function vs(i: builtin<"vertex_index", u32>): VsOut {
+  let b: f32;
   put(b);
-  return vec4(v.uv, b, 1.);
-});
-export const main = compute([8, 8], function main(gid: builtin<"global_invocation_id", vec3u>): void {});
+  return { pos: vec4(0., 0., 0., 1.), uv: vec2(b, 0.), c: vec4(1.) };
+}
+@fragment
+export function fs(v: VsOut): location<0, vec4> { return v.c * v.uv.x; }
+namespace N {
+  @compute([8, 8])
+  export function main(gid: builtin<"global_invocation_id", vec3u>): void {
+    out[gid.x] = 1.;
+  }
+}
+@workgroup_size([128])
+export function scale(xs: array<f32>) {
+  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * 2.; }
+}
 `;
     const result = migrateSource(before);
     expect(result.text).toBe(after);
     expect(result.skipped).toEqual([]);
     // The rewrite is idempotent: a migrated file has nothing left to rewrite.
     expect(migrateSource(after)).toEqual({ text: after, changes: 0, skipped: [] });
-  });
-
-  it('keeps a class something builds with new, with "!" on its fields', () => {
-    const result = migrateSource(`"use typeshade";
-class P { @location(0) uv: vec2; }
-export function f(): P { return new P(); }
-`);
-    expect(result.text).toContain('class P { uv!: location<0, vec2>; }');
-  });
-
-  it('keeps a class nothing names, so its struct is still emitted and checked', () => {
-    // The compiler emits a class as a struct whether or not an entry uses it, and an interface
-    // only when something names it. An unused decorated class rewritten as an interface lost
-    // its struct and the checks on it (#921): here, the clip_distances type rule.
-    const source = `"use typeshade";
-class Unused { @builtin("position") p: vec4; @location(0) uv: vec2; }
-export const fs = fragment(function fs(): vec4 { return vec4(0.); });
-`;
-    const result = migrateSource(source);
-    expect(result.text).toContain(
-      'class Unused { p!: builtin<"position", vec4>; uv!: location<0, vec2>; }',
-    );
-    // The decorated source's TS8028 warnings, one per decorator, are what the rewrite removes.
+    // Both forms compile to the same WGSL, GLSL and diagnostics, but for the decorated field's
+    // warning, which the rewrite removes.
     const kept = (r: ReturnType<typeof compile>) =>
-      r.diagnostics
-        .filter((d) => !(d.code === 'TS8028' && d.category === 'warning'))
-        .map((d) => [d.code, d.message]);
-    const sig = (r: ReturnType<typeof compile>) => JSON.stringify([r.wgsl, r.glsl, kept(r)]);
-    expect(compile(result.text).diagnostics).toEqual([]);
-    expect(compile(result.text).wgsl).toContain('struct Unused');
-    expect(sig(compile(result.text))).toBe(sig(compile(source)));
-    const refused = `"use typeshade";
-class Unused { @builtin("position") p: vec4; @builtin("clip_distances") cd: f32; }
-export const fs = fragment(function fs(): vec4 { return vec4(0.); });
-`;
-    const codes = (text: string) => kept(compile(text));
-    expect(codes(migrateSource(refused).text)).toEqual(codes(refused));
-    expect(codes(refused).some(([code]) => code === 'TS8003')).toBe(true);
+      JSON.stringify([
+        r.wgsl,
+        r.glsl,
+        r.diagnostics.filter((d) => !(d.code === 'TS8028' && d.category === 'warning')),
+      ]);
+    expect(compile(after).diagnostics).toEqual([]);
+    expect(kept(compile(after))).toBe(kept(compile(before)));
   });
 
-  it('gives the fields of a mixin\'s class expression "!"', () => {
-    const result = migrateSource(`"use typeshade";
-function Tinted<T extends new (...a: any[]) => object>(Base: T) {
-  return class extends Base { tint: vec3; };
-}
-`);
-    expect(result.text).toContain('return class extends Base { tint!: vec3; };');
+  it('names an entry, "export default" being no name (Rule 8.1)', () => {
+    const before = `"use typeshade";
+declare const out: storage<array<f32>, "read_write">;
+@compute([8]) export default function k(gid: builtin<"global_invocation_id", vec3u>) { out[gid.x] = 1.; }
+`;
+    const after = before.replace('export default function', 'export function');
+    expect(migrateSource(before)).toEqual({ text: after, changes: 1, skipped: [] });
+    expect(migrateSource(after)).toEqual({ text: after, changes: 0, skipped: [] });
+    expect(sig(compile(after))).toBe(sig(compile(before)));
+  });
+
+  it("keeps a file in the language's form as it is", () => {
+    const source = `"use typeshade";
+@vertex
+export function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> { return vec4(f32(i)); }
+@fragment export function fs(): location<0, vec4> { return vec4(1.); }
+`;
+    expect(migrateSource(source)).toEqual({ text: source, changes: 0, skipped: [] });
   });
 
   it('names a form it leaves as written', () => {
     // A filter on a helper was named here until change 0132 made the migration delete it; a
     // decorator the rewrite does not know beside it still leaves the function as written.
-    const result = migrateSource(`"use typeshade";
+    expect(
+      migrateSource(`"use typeshade";
 @diagnostic("off", "derivative_uniformity") @bogus
 function helper(): f32 { return 1.; }
-`);
-    expect(result.skipped).toEqual([
-      'line 2: "helper" carries a decorator the rewrite does not know',
+`).skipped,
+    ).toEqual(['line 2: "helper" carries a decorator the rewrite does not know']);
+    // A wrapped function with a name of its own: the entry would have two.
+    expect(
+      migrateSource(`"use typeshade";
+export const fs = fragment(function other(): location<0, vec4> { return vec4(1.); });
+`).skipped,
+    ).toEqual([
+      'line 2: the function "other" that "fs" wraps has a name of its own; an entry takes one name',
     ]);
   });
 
@@ -149,13 +149,13 @@ export const main = compute(
 declare const t: texture_2d<f32>;
 declare const s: sampler;
 function helper(uv: vec2): vec4 { return textureSample(t, s, uv); }
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment
+export function fs(uv: location<0, vec2>): vec4 {
   if (uv.x > 0.5) { return helper(uv); }
   return vec4(0.);
-});
-export const main = compute(
-  [64],
-  function main(): void {});
+}
+@compute([64])
+export function main(): void {}
 `;
     const result = migrateSource(before);
     expect(result).toEqual({ text: after, changes: 3, skipped: [] });
@@ -195,9 +195,13 @@ describe('every registered example, migrated, compiles as it did', () => {
       const migrated = migrateSource(source, file);
       expect(migrated.skipped).toEqual([]);
       const options = { fileName: pathToFileURL(path).href, readDocument };
-      const sig = (r: ReturnType<typeof compile>) =>
-        JSON.stringify([r.wgsl, r.glsl, r.diagnostics.map((d) => d.code)]);
-      expect(sig(compile(migrated.text, options))).toBe(sig(compile(source, options)));
+      // The same WGSL, GLSL and diagnostics, but for an entry's span, which starts at its
+      // attribute.
+      const codes = (r: ReturnType<typeof compile>) =>
+        JSON.stringify([r.wgsl, r.glsl, r.diagnostics.map((d) => [d.code, d.category, d.message])]);
+      expect(codes(compile(migrated.text, options))).toBe(codes(compile(source, options)));
+      // And the rewrite is idempotent.
+      expect(migrateSource(migrated.text, file).changes).toBe(0);
     });
   }
 });
@@ -228,18 +232,20 @@ describe('tshc migrate', () => {
     };
     return { h, out, err };
   };
-  const OLD = `"use typeshade";\n@fragment\nexport function fs(): vec4 { return vec4(1.); }\n`;
+  const OLD = `"use typeshade";\nexport const fs = fragment(function fs(): vec4 { return vec4(1.); });\n`;
 
-  it('--check fails on a decorated file and writes nothing; migrate rewrites it', () => {
+  it('--check fails on a file with a stage call and writes nothing; migrate rewrites it', () => {
     const files: Record<string, string> = { '/p/a.shade.ts': OLD };
     const checked = host(files);
     expect(runCli(['migrate', '--check'], checked.h, { version: '0' })).toBe(1);
-    expect(checked.err.join('')).toContain('a.shade.ts is in the decorated form');
+    expect(checked.err.join('')).toContain('a.shade.ts writes a form tshc migrate rewrites');
     expect(files['/p/a.shade.ts']).toBe(OLD);
 
     const done = host(files);
     expect(runCli(['migrate'], done.h, { version: '0' })).toBe(0);
-    expect(files['/p/a.shade.ts']).toContain('export const fs = fragment(function fs()');
+    expect(files['/p/a.shade.ts']).toBe(
+      `"use typeshade";\n@fragment\nexport function fs(): vec4 { return vec4(1.); }\n`,
+    );
     expect(runCli(['migrate', '--check'], host(files).h, { version: '0' })).toBe(0);
   });
 });

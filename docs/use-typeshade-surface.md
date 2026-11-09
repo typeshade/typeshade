@@ -204,8 +204,9 @@ An entry I/O field carries its attribute in its type (change 0111): `location<n,
 `builtin<"...", T>`, and the options `interpolate`, `invariant` and `blend_src` as a third type
 argument (§53). Each type means `T`. A type carries in all three spellings, so a struct used as
 entry I/O — where WGSL requires a built-in or a location on every member — may be a `class`, an
-`interface` or a `type`. A `class` field with no initializer takes `!` (`view!: mat4`), which a
-plain `tsc --strict` requires.
+`interface` or a `type`. A `class` field needs no initializer and no `!` (`view: mat4`): the
+stage that produces an entry I/O field fills it, and a struct field is zero until written. A
+written `!` is accepted and changes nothing (change 0130, D3).
 
 The decorated field (`@location(0) uv: vec2`, with `@interpolate`, `@invariant` or `@blend_src`
 beside it) needs a **class field**, since interfaces and type-literal members cannot carry
@@ -326,7 +327,7 @@ export const fs = fragment(function fs(
 - A `portable` kernel's workgroup stays one-dimensional (`SD0111`): the WebGL2 lowering draws one
   texel per invocation and has no workgroup to give `y` and `z` to.
 - `compute({ workgroup: [64, 1, 1] }, f)` is refused (`TS8037`):
-  `compute takes an array of one to three whole numbers before its function, "compute([64, 1, 1], f)"; "{ workgroup: [64, 1, 1] }" is not a workgroup shape.`
+  `compute takes an array of one to three whole numbers, "@compute([64, 1, 1])"; "{ workgroup: [64, 1, 1] }" is not a workgroup shape.`
 - A stage call takes no options after the function: change 0131 removed `numerics` (§78), and
   change 0132 removed `diagnostic`, whose work the compiler's rewrite does (§54). A leftover
   option is refused (`TS8028`), in the compiler and in the editor, and `{ diagnostic: [...] }`
@@ -341,16 +342,17 @@ export const fs = fragment(function fs(
   `workgroup_size` takes no options; a third argument is refused (`TS8028`):
   `"workgroup_size" takes two arguments, the workgroup size and the kernel function, and no options.`
 
-**The decorated form.** In the migration release (change 0111, Amendment 2, D5), the compiler
-also accepts the decorated form, reads it as the stage call, and warns once on each decorator
-(`TS8028`, §7), naming the new form and `tshc migrate`. The release after it refuses the
-decorated form:
-`@vertex export function vs(@builtin("vertex_index") i: u32)`, `@fragment`, `@compute([64])`,
-and `@workgroup_size([128])` on a kernel function. A bare `@compute` takes the default of 64.
-`@compute({ workgroup: [64, 1, 1] })` is `TS8037`, and `@workgroup_size` on an entry or on a
-function that is neither is refused as above. A plain `tsc --strict` refuses a decorator on a
-function declaration and on its parameter (TS1206), so `tshc migrate` rewrites a file to the
-stage call and the attribute types.
+**The stage attributes.** An entry may also be written as a function declaration with one stage
+attribute (change 0130), which compiles to the same WGSL and GLSL ES 3.00 as the stage call, with
+no diagnostic in either half: `@vertex export function vs(i: builtin<"vertex_index", u32>)`,
+`@fragment`, `@compute([64])`, and `@workgroup_size([128])` on a kernel function. A bare
+`@compute` takes the default of 64. Two stage attributes on one function are refused
+(`TS8028`), `@compute({ workgroup: [64, 1, 1] })` is `TS8037`, and `@workgroup_size` on an entry
+or on a function that is neither is refused as above. `tshc migrate` rewrites each stage call
+to its attribute. Change 0140 refuses the stage calls once the examples and the documents move
+to the attributes. A decorator on a parameter, `@builtin("vertex_index") i: u32`, is the
+decorated form of change 0111: it warns once (`TS8028`, §7), and `tshc migrate` rewrites it to
+the attribute type.
 
 ### What an entry may return
 
@@ -471,7 +473,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | builtin parameter on an incompatible stage | stage mismatch |
 | `@compute` method on a class | an entry is declared at the top level, not on a class (Rule 8.1) |
 | `@diagnostic(…)` anywhere: on a function, a field, a parameter or a declaration | `TS8028`, an error, in the compiler and in the editor: `"@diagnostic(…)" is not a decorator the compiler reads (Rule 6.7). Delete it: the compiler rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5) and reports each other one with TS8052 and the reason. "tshc migrate" deletes it.` Change 0132 removed the filter, with no warning release (§54) |
-| a decorator of the decorated form where it is read: `@vertex`, `@fragment`, `@compute(…)` or `@workgroup_size(…)` on a function, `@builtin`, `@location`, `@interpolate`, `@invariant`, `@blend_src`, `@inout` or `@out` on a parameter or a field | a `TS8028` warning, one per decorator, in the compiler and in the editor, naming the new spelling (change 0111, the migration release): `"@vertex" is the decorated form, which the next release refuses: write "export const vs = vertex(function vs(…) { … })", or run "tshc migrate" (change 0111).`, and for an attribute the member's type, `write "pos: builtin<"position", vec4, { invariant: true }>"`. A decorator refused where it is written keeps that refusal alone. The release after it refuses each one. The editor drops TypeScript's TS1206 and TS2564 only in a file that still writes the decorated form |
+| a decorator of the decorated form where it is read: `@builtin`, `@location`, `@interpolate`, `@invariant`, `@blend_src`, `@inout` or `@out` on a parameter or a field | a `TS8028` warning, one per decorator, in the compiler and in the editor, naming the new spelling (change 0111, the migration release): for an attribute the member's type, `write "pos: builtin<"position", vec4, { invariant: true }>"`. A decorator refused where it is written keeps that refusal alone. The release after it refuses each one. The editor drops TypeScript's TS1206 on a parameter's decorator only while `compile()` warns on it. A stage attribute on a function, `@vertex`, `@fragment`, `@compute(…)` or `@workgroup_size(…)`, is the entry's form (change 0130): no warning, and the editor drops its TS1206 in every file. The editor reports no TS2564 (`strictPropertyInitialization: false`) |
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
 | `.length` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 | a call of a name that change 0112 removed: `arrayLength`, `log10`, `log1p`, `expm1`, `cbrt`, `hypot`, `sum`, `none`, `pow`; a read of `PI`, `E`, `LN2`, `LN10`, `LOG2E` or `LOG10E`; `any(xs, p)` or `all(xs, p)` | `TS8004` for a call, `TS8022` for a read, `TS8019` for the two folds, each in one sentence that names the spelling to write: `arrayLength was removed: write xs.length.`, `PI was removed: write Math.PI.`, `any expects 1 argument, got 2; the array fold was removed: write xs.some(p).` (§10) |

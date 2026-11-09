@@ -1,10 +1,12 @@
 // The migration release of change 0111 (decision D5, Amendment 2, milestone 4). Each decorator of
-// the decorated form still compiles as the stage call or the attribute type it stands for, and
-// warns once (`TS8028`), naming the new spelling and the codemod. Both halves give the same
-// warning (Rule 12.7). The editor drops TypeScript's TS1206 and TS2564 only in a file that still
-// writes the decorated form; a file in the new form gets them as a plain `tsc --strict` does.
+// the decorated form on a parameter or a field still compiles as the attribute type it stands
+// for, and warns once (`TS8028`), naming the new spelling and the codemod. Both halves give the
+// same warning (Rule 12.7). A stage attribute on a function declaration is no decorated form: it
+// is the entry's form (change 0130), with no warning, and the editor drops TypeScript's TS1206 on
+// it in every file. The editor drops TS1206 on a parameter's decorator only while `compile()`
+// warns on it, and never reports TS2564 (`strictPropertyInitialization: false`, change 0130 D3).
 //
-// Verifies: Rule 6.7 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 1.7, Rule 6.6, Rule 6.7 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
@@ -70,39 +72,34 @@ export function scale(ys: array<f32>, k: f32): void {
 /** The filter `DECORATED` still writes: change 0132 removed it, with no warning release. */
 const FILTER = '@diagnostic("off", "derivative_uniformity")\n';
 
-/** The warning on each decorator of `DECORATED`, in source order, and the one refusal: the
- *  filter, which change 0132 removed, warned here until it was refused. */
+/** The warning on each decorator of `DECORATED` on a parameter or a field, in source order, and
+ *  the one refusal: the filter, which change 0132 removed, warned here until it was refused. A
+ *  stage attribute is the entry's form (change 0130) and has none. */
 const WARNINGS = [
   warns('@builtin("position")', 'write "pos: builtin<"position", vec4, { invariant: true }>"'),
   warns('@invariant', 'write "pos: builtin<"position", vec4, { invariant: true }>"'),
   warns('@location(0)', 'write "uv: location<0, vec2>"'),
   warns('@location(1)', 'write "id: location<1, u32, { interpolate: "flat" }>"'),
   warns('@interpolate("flat")', 'write "id: location<1, u32, { interpolate: "flat" }>"'),
-  warns('@vertex', 'write "export const vs = vertex(function vs(…) { … })"'),
   warns('@builtin("vertex_index")', 'write "i: builtin<"vertex_index", u32>"'),
   warns('@inout', 'write "v: inout<f32>"'),
   warns('@out', 'write "v: out<f32>"'),
-  warns('@fragment', 'write "export const fs = fragment(function fs(…) { … })"'),
   'error TS8028 "@diagnostic(…)" is not a decorator the compiler reads (Rule 6.7). Delete it: ' +
     'the compiler rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5) and ' +
     'reports each other one with TS8052 and the reason. "tshc migrate" deletes it.',
-  warns('@compute([8, 8])', 'write "export const main = compute([8, 8], function main(…) { … })"'),
   warns('@builtin("global_invocation_id")', 'write "gid: builtin<"global_invocation_id", vec3u>"'),
-  warns('@compute', 'write "const plain = compute([64], function plain(…) { … })"'),
-  warns(
-    '@workgroup_size([128])',
-    'write "export const scale = workgroup_size([128], function scale(…) { … })"',
-  ),
 ];
 
 describe('the decorated form warns once on each decorator, in both halves (TS8028)', () => {
-  it('names the stage call, the attribute type, its option or the qualifier to write', () => {
+  it('names the attribute type, its option or the qualifier to write, and nothing on a stage', () => {
     expect(compiled(DECORATED)).toEqual(WARNINGS);
     expect(edited(DECORATED)).toEqual(WARNINGS);
   });
 
   it('gives one warning for each decorator, and still compiles as the new form does', () => {
-    const count = DECORATED.match(/@\w+/g)!.length;
+    const count = DECORATED.match(/@\w+/g)!.filter(
+      (d) => !/^@(vertex|fragment|compute|workgroup_size)$/.test(d),
+    ).length;
     expect(WARNINGS).toHaveLength(count);
     // The migration deletes the filter (change 0132), so the new form is the decorated one
     // without it.
@@ -198,59 +195,60 @@ function plainTscCodes(source: string): number[] {
     .map((d) => d.code);
 }
 
-describe("the editor's TS1206 and TS2564 filters hold only for a file in the decorated form", () => {
-  // A struct class with a field and no initializer: TS2564 under `--strict`.
+describe("the editor's TS1206 filter, and no TS2564 (change 0130)", () => {
+  // A struct class with a field and no initializer: TS2564 under a plain `--strict`.
   const STRUCT = 'class S { a: f32; }\ndeclare const u: uniform<S>;\n';
-  const NEW = `"use typeshade";
+  const CALL = `"use typeshade";
 ${STRUCT}export const fs = fragment(function fs(): vec4 { return vec4(u.a); });
 `;
-  const OLD = `"use typeshade";
+  const ATTRIBUTE = `"use typeshade";
 ${STRUCT}@fragment
 export function fs(): vec4 { return vec4(u.a); }
 `;
 
-  it('reports TS2564 in a file in the new form, as a plain tsc --strict does', () => {
-    expect(usesDecoratedForm(ts.createSourceFile('a.ts', NEW, ts.ScriptTarget.Latest, true))).toBe(
-      false,
-    );
-    expect(plainTscCodes(NEW)).toEqual([2564]);
-    expect(typescriptCodes(NEW)).toEqual([2564]);
-    // The compiler accepts the program, and the editor shows TypeScript's report beside it.
-    expect(compile(NEW).diagnostics).toEqual([]);
-    expect(edited(NEW)).toEqual([
-      "error 2564 Property 'a' has no initializer and is not definitely assigned in the constructor.",
-    ]);
-    // "!" is the spelling `tshc migrate` writes, and both say nothing of it.
-    const fixed = NEW.replace('a: f32', 'a!: f32');
-    expect(plainTscCodes(fixed)).toEqual([]);
-    expect(edited(fixed)).toEqual([]);
+  it('reports no TS2564: a field needs no initializer and no "!" (D3)', () => {
+    // A plain tsc --strict reports it; the TypeShade program sets strictPropertyInitialization
+    // to false, so neither TypeScript's half nor the merged list does.
+    expect(plainTscCodes(CALL)).toEqual([2564]);
+    expect(typescriptCodes(CALL)).toEqual([]);
+    expect(compile(CALL).diagnostics).toEqual([]);
+    expect(edited(CALL)).toEqual([]);
+    // A written "!" is accepted and changes nothing.
+    expect(edited(CALL.replace('a: f32', 'a!: f32'))).toEqual([]);
   });
 
-  it('keeps TS2564 and TS1206 out of a file that still writes the decorated form', () => {
-    expect(usesDecoratedForm(ts.createSourceFile('a.ts', OLD, ts.ScriptTarget.Latest, true))).toBe(
-      true,
-    );
-    expect(plainTscCodes(OLD).sort()).toEqual([1206, 2564]);
-    expect(typescriptCodes(OLD)).toEqual([]);
-    expect(edited(OLD)).toEqual([
-      warns('@fragment', 'write "export const fs = fragment(function fs(…) { … })"'),
-    ]);
+  it('drops TS1206 on a stage attribute in every file, with no warning in either half', () => {
+    expect(
+      usesDecoratedForm(ts.createSourceFile('a.ts', ATTRIBUTE, ts.ScriptTarget.Latest, true)),
+    ).toBe(false);
+    expect(plainTscCodes(ATTRIBUTE).sort()).toEqual([1206, 2564]);
+    expect(typescriptCodes(ATTRIBUTE)).toEqual([]);
+    expect(compiled(ATTRIBUTE)).toEqual([]);
+    expect(edited(ATTRIBUTE)).toEqual([]);
   });
 
-  it('reports TS1206 on a decorator in a file in the new form', () => {
+  it("drops TS1206 on a parameter's decorator only while compile() warns on it", () => {
+    const source = `"use typeshade";
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 { return p; }
+`;
+    const said = [warns('@builtin("position")', 'write "p: builtin<"position", vec4>"')];
+    expect(typescriptCodes(source)).toEqual([]);
+    expect(compiled(source)).toEqual(said);
+    expect(edited(source)).toEqual(said);
+  });
+
+  it('keeps TS1206 on a decorator that is no attribute, under the refusal of the compiler', () => {
     // `@bogus` is no attribute: the compiler refuses it, and the merged list keeps its sentence
     // alone (Rule 12.4); TypeScript's own half says TS1206, as a plain tsc --strict does.
     const source = `"use typeshade";
 @bogus
 function h(): f32 { return 1.; }
-export const fs = fragment(function fs(): vec4 { return vec4(h()); });
+@fragment
+export function fs(): vec4 { return vec4(h()); }
 `;
-    expect(typescriptCodes(source)).toContain(1206);
+    expect(typescriptCodes(source)).toEqual([1206]);
     expect(plainTscCodes(source)).toContain(1206);
-    const decorated = source.replace(
-      'export const fs = fragment(function fs(): vec4 { return vec4(h()); });',
-      '@fragment\nexport function fs(): vec4 { return vec4(h()); }',
-    );
-    expect(typescriptCodes(decorated)).not.toContain(1206);
+    expect(edited(source).map((d) => d.split(' ').slice(0, 2).join(' '))).toEqual(['error TS8028']);
   });
 });

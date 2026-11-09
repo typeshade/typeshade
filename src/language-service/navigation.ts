@@ -28,22 +28,21 @@ function spanOfNode(node: ts.Node): { start: number; length: number } {
 }
 
 /**
- * Whether `offset` in `sourceFile` lands inside a decorator whose decorated node is a
- * `ts.FunctionDeclaration` (`@vertex`/`@fragment`/`@compute` on a "use typeshade" entry, per
- * `parseStage` in `lower/function.ts`) — as opposed to a decorator on a class, member or
- * parameter (`@builtin`/`@location`), which TypeScript's own decorator-resolution machinery
- * handles fine. `ts.getDefinitionAtPosition`/`getRenameInfo`/`findRenameLocations` all resolve
- * through `getDiagnosticHeadMessageForDecoratorResolution`-adjacent code that switches on the
- * decorated node's kind and `Debug.fail()`s on anything other than a class/method/accessor/
- * property/parameter; a function declaration is exactly that unhandled shape (see
- * `diagnostics.ts`'s TS1206 filter, which recognizes the same grammar), so these three
- * navigation methods must refuse the position before ever calling into `ts`.
+ * Whether `offset` in `sourceFile` lands on a decorator that is no call, `@vertex`, `@fragment`
+ * or a bare `@compute`, on a `ts.FunctionDeclaration` (a stage attribute, Rule 8.1, change 0130).
+ * `ts.getDefinitionAtPosition` resolves such a decorator through its call-signature machinery,
+ * which switches on the decorated node's kind and `Debug.fail()`s on a function declaration
+ * (measured on TypeScript 5.6.3 and 6.0.2), so definition, and the rename guard that asks for a
+ * definition, must refuse the position before calling into `ts`. A decorator that is a call,
+ * `@compute([WG])` or `@workgroup_size([n])`, resolves: definition, references, rename and quick
+ * info at its name and inside its argument are TypeScript's (change 0130, The editor, item 4).
  */
 function isDecoratorOnFunctionDeclarationAt(sourceFile: ts.SourceFile, offset: number): boolean {
   const onDecorator = (pos: number): boolean => {
     let node: ts.Node | undefined = nodeAtPosition(sourceFile, pos);
     while (node !== undefined) {
-      if (ts.isDecorator(node)) return ts.isFunctionDeclaration(node.parent);
+      if (ts.isDecorator(node))
+        return ts.isFunctionDeclaration(node.parent) && !ts.isCallExpression(node.expression);
       node = node.parent;
     }
     return false;
@@ -104,9 +103,9 @@ function locationsFrom(
 }
 
 /** Every location `offset` in `uri` is defined at, with any ambient-lib result dropped. Returns
- * `[]` without calling into `ts` when `offset` is on a `@vertex`/`@fragment`/`@compute`
- * function decorator — TypeScript's own decorator-resolution code cannot handle that target and
- * throws (`Error: Debug Failure.`) rather than returning `undefined`. */
+ * `[]` without calling into `ts` when `offset` is on a stage attribute that is no call,
+ * `@vertex`, `@fragment` or a bare `@compute` — TypeScript's own decorator-resolution code cannot
+ * handle that target and throws (`Error: Debug Failure.`) rather than returning `undefined`. */
 export function getDefinition(
   languageService: ts.LanguageService,
   program: ts.Program,
@@ -315,9 +314,10 @@ function definesInAmbientLib(
 /**
  * The one predicate both `prepareRename` and `rename` consult, so the two can never disagree
  * about a position: `true` for the `"use typeshade"` directive string, a `@builtin(...)` id
- * string, a `@vertex`/`@fragment`/`@compute` function decorator (see
- * `isDecoratorOnFunctionDeclarationAt`: `ts.getRenameInfo` and `ts.findRenameLocations` both
- * throw on that target), and a name defined in the ambient lib. Everything else is left to
+ * string, a stage attribute that is no call, `@vertex`, `@fragment` or a bare `@compute` (see
+ * `isDecoratorOnFunctionDeclarationAt`: the ambient-lib check below asks `ts` for its definition,
+ * which throws there), and a name defined in the ambient lib, `compute` in `@compute([WG])`
+ * among them. A name inside an attribute's argument, `WG`, is renamed as anywhere else. Everything else is left to
  * `ts.getRenameInfo`'s own `canRename` verdict, which `rename` also honours by going through
  * `prepareRename` first.
  */

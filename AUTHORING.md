@@ -178,9 +178,8 @@ An _entry point_ is a function the GPU calls directly: once per vertex, once per
 or once per compute invocation. This page uses the first two. You mark one with a stage
 call that wraps the function, `vertex(f)`, `fragment(f)` or `compute([64], f)`, and give it a
 top-level `export const`: `export const vs = vertex(function vs(…) { … });`. Every other
-function you write is a plain helper. A plain `tsc --strict` accepts this form. The decorated
-form of earlier releases, `@vertex export function vs(…)`, stays accepted until the release
-after the migration release, and `tshc migrate` rewrites a file to the new form.
+function you write is a plain helper. The stage attribute, `@vertex export function vs(…)`,
+compiles to the same program (change 0130), and `tshc migrate` rewrites a stage call to it.
 
 The vertex stage runs once per vertex. It produces the clip space position and whatever
 the fragment stage needs from it, packed in an _IO struct_: an interface (or a class or a `type`) whose fields each carry
