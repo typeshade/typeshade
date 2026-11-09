@@ -890,9 +890,36 @@ Findings for the owner: none open. Decision 5 was changed by the owner, not by a
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the implementing pull requests (each
-commit `Change: 0132`), the delivered configuration and the validation evidence listed under
-"Required validation evidence".
+**Delivered configuration.** Two implementing pull requests, each commit `Change: 0132`:
+
+- Step 1, pull request #1113, merged as `2cc98b8f` on 2026-11-09: the rewrite pass
+  (`src/core/passes/derivative-rewrite.ts`), its reach decision in `compileTsSource`, and the
+  `TS8052` reasons (items 3 and 4). The filter stayed, and a filtered module was not rewritten.
+- Step 2, pull request #1122: items 1, 2, 7 and 8; the `TS8028` refusal in both halves;
+  `diagnostic-directive.ts` deleted, the options refusal in
+  `src/compiler/ts/stage-call.ts` (`refuseStageOptions`); `CompileTsSourceResult.directives`
+  removed; Rules 1.4, 6.7 and 8.5; surface §3, §7, §50 and §54; the two coverage rows `refused`
+  with Rule 1.4; the two examples without the option and their four goldens; `CHANGELOG.md`;
+  the author-names lock and the API surface bake.
+
+**Validation evidence.** The checks of each step are recorded on its pull request, with the
+command, the commit, the tool versions and the result.
+
+**Deviations.**
+
+| ID  | Difference from the approved text                                                                                                                                                                                                                                                    | Disposition                                         |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| D1  | "Migration order" lands the rewrite and the removal in one implementing change. They landed in two pull requests, #1113 and #1122. No release was cut between them.                                                                                                                  | Closed by #1122, which lands the removal.           |
+| D2  | A sixth `TS8052` reason, "its operand depends on a value the compiler cannot recompute there", for a `raw` statement, a write through an `inout` parameter or a call with an effect. Reason 2 is also worded for a `texture_1d` ("… is a texture_1d, which has no gradient form …"). | Accepted by the owner, 2026-11-09 (merge of #1113). |
+| D3  | The sentence names the statement that made the flow non-uniform ("the loop", "the return", "the && or \|\|", "the ?:", "the break"), where "The final `TS8052` sentences" show "the branch".                                                                                         | Accepted by the owner, 2026-11-09 (merge of #1113). |
+| D4  | Reason 1 is conservative: a read of `private`, `workgroup` or `read_write` memory that any function of the module writes is refused, also when the write is before the hoist point.                                                                                                  | Open.                                               |
+| D5  | The `textureSampleBias` equality (the `exp2` scaling) and the device comparison of "Required validation evidence" (per-pixel difference and frame time on desktop and mobile GPUs) are not measured. No device was available to the implementing sessions.                           | Open.                                               |
+| D6  | The stage-call refusal reads `"diagnostic: [...]"` for any `diagnostic` option, and an option other than `diagnostic` reads `A stage call takes no options; "<the option as written>" is not one. Delete it.` The approved text gives only the `diagnostic` sentence.                | Open, for the owner with the merge of #1122.        |
+| D7  | `scripts/doc-impact.ts` pairs the ticks of a code span, and reads a path segment and a phrase of four words as no mention of a removed name. Without it, the English word "diagnostic" in 28 unrelated sentences blocked the commit. The approved text does not name the tool.       | Open, for the owner with the merge of #1122.        |
+
+**Status.** The proposal stays `accepted`. D4 and D5 are open: the device comparison, the bias
+measurement and the narrower memory test are the remaining work. The proposal moves to
+`implemented` when they are closed or the owner accepts them.
 
 ## What it owes downstream
 
