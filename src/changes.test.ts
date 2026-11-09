@@ -15,17 +15,21 @@ import { hostExamples } from '../examples/hosts/index.js';
 import { ROOT } from '../scripts/doc-refs.js';
 import { definedRules } from '../scripts/doc-refs.js';
 import {
+  COMPILER_FIRST_AFTER,
+  COMPILER_FIRST_HEADING,
   DOWNSTREAM_REPOS,
   NAMES_FILE,
   STATUSES,
   authorNames,
   changeLines,
   codeTable,
+  compilerFirstProblems,
   handledIds,
   judge,
   owedDownstream,
   parseProposal,
   proposals,
+  sectionBody,
   sectionsAt,
   touchedBy,
   type Proposal,
@@ -400,5 +404,60 @@ describe('the author-facing name set as a criterion', () => {
     ).toContainEqual(
       expect.stringContaining('author-facing name `Math.clz32` is changed here but not declared'),
     );
+  });
+});
+
+describe('a proposal that adds to the language says why the compiler cannot do it', () => {
+  const template = readFileSync(join(ROOT, 'changes/TEMPLATE.md'), 'utf8');
+  const prompt = sectionBody(template, COMPILER_FIRST_HEADING) ?? '';
+  const later = { ...accepted, id: '0131', file: 'changes/0131-a-change.md' } as Proposal;
+  const text = (section: string | null) =>
+    [
+      '---',
+      '---',
+      '## What changes',
+      '',
+      'Body.',
+      ...(section === null ? [] : ['', `## ${COMPILER_FIRST_HEADING}`, '', section]),
+      '',
+      '## What it touches',
+      '',
+      'Body.',
+    ].join('\n');
+
+  it('sanity: the template carries the section and its prompt', () => {
+    expect(prompt.length).toBeGreaterThan(100);
+    expect(prompt).toMatch(/the proposal is not\s+needed/);
+  });
+
+  it('holds every proposal on disk numbered after the cut to the section', () => {
+    const problems = proposals().flatMap((p) =>
+      compilerFirstProblems(p, readFileSync(join(ROOT, p.file), 'utf8'), prompt),
+    );
+    expect(problems).toEqual([]);
+  });
+
+  it('refuses a later proposal that adds a name with the section missing, empty or the prompt', () => {
+    expect(compilerFirstProblems(later, text(null), prompt)[0]).toMatch(/has no `## Why the/);
+    expect(compilerFirstProblems(later, text('<!-- later -->'), prompt)[0]).toMatch(/is empty/);
+    expect(compilerFirstProblems(later, text(prompt), prompt)[0]).toMatch(/template's prompt/);
+  });
+
+  it('accepts a later proposal that says why, and one that adds no name', () => {
+    const why = 'The bound is a property of the data the host uploads, which no pass can read.';
+    expect(compilerFirstProblems(later, text(why), prompt)).toEqual([]);
+    expect(compilerFirstProblems({ ...later, names: [] }, text(null), prompt)).toEqual([]);
+  });
+
+  it('does not reach back to a proposal numbered up to the cut', () => {
+    const old = { ...later, id: COMPILER_FIRST_AFTER } as Proposal;
+    expect(compilerFirstProblems(old, text(null), prompt)).toEqual([]);
+  });
+
+  it('reads a section up to the next heading, past fenced code and comments', () => {
+    const doc = ['## A', 'one', '```', '## not a heading', '```', '<!-- x -->', '## B', 'two'];
+    expect(sectionBody(doc.join('\n'), 'A')).toBe('one\n```\n## not a heading\n```');
+    expect(sectionBody(doc.join('\n'), 'B')).toBe('two');
+    expect(sectionBody(doc.join('\n'), 'C')).toBeNull();
   });
 });

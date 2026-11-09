@@ -40,8 +40,13 @@ name is added or removed, run `bun run bake:author-names` and commit the diff.
 ## The lifecycle
 
 1. **Draft.** A new proposal uses `TEMPLATE.md` and the next free number in `NNNN-short-name.md`.
-   The author declares every affected rule, surface section, export, code, example and downstream
-   repository in the front matter. Rule links in `reqs/` (`reqs/README.md`) and searches of the
+   The author declares every affected rule, surface section, export, code, example, author-facing
+   name and downstream repository in the front matter. A proposal that adds to the language (an
+   author-facing name, a rule, a diagnostic code or a surface form) says in
+   `## Why the compiler cannot do it` what the author must write that the compiler cannot
+   decide. What the compiler can decide (an optimization, a numerical relaxation, a tuning
+   parameter) is the compiler's work. When the compiler can do it, the proposal is not needed:
+   the work is an implementation change with no proposal, or no change. Rule links in `reqs/` (`reqs/README.md`) and searches of the
    site and editor establish those impacts. Review starts with a proposal-only PR and `status: draft`.
 2. **Accepted.** Discussion happens on that pull request. Merging it with `status: accepted` is
    the agreement.
@@ -76,8 +81,13 @@ fields or change the lifecycle above. `TEMPLATE.md` provides prompts; an actual 
 those prompts with specific facts or explicit uncertainty. It contains no unfinished placeholders,
 fabricated signatures or predicted completion results.
 
-Each new proposal retains the four sections `What changes`, `Why`, `What it touches` and
-`What it owes downstream`. A document-control table precedes those sections. It identifies:
+Each new proposal retains the five sections `What changes`, `Why`,
+`Why the compiler cannot do it`, `What it touches` and `What it owes downstream`.
+`src/changes.test.ts` fails a proposal numbered after 0130 that declares `names:` and whose
+`Why the compiler cannot do it` section is missing, empty or still the template's prompt
+(`compilerFirstProblems` in `scripts/changes.ts`). Proposals up to 0130 predate the section and
+are not rewritten. For a rule, a code or a surface form the section is required by this text
+and checked in review, since the front matter does not tell an added rule from an edited one. A document-control table precedes those sections. It identifies:
 
 - The proposal number and current front-matter status.
 - The actual document date, timezone and whether the date means authorship, revision context or
@@ -146,15 +156,16 @@ Use this procedure when preparing a new draft:
 3. Record the document-control facts.
 4. Describe the proposed behavior.
 5. Explain the evidence and alternatives.
-6. Declare the affected surfaces.
-7. Assess the expected impacts.
-8. Identify unresolved decisions.
-9. Identify the required validation evidence.
-10. Label future-stage records as not yet applicable.
-11. Replace the template prompts with proposal-specific content.
-12. Review the document against its evidence.
-13. Open the proposal-only draft PR.
-14. Record the actual PR reference.
+6. Explain why the compiler cannot do it.
+7. Declare the affected surfaces.
+8. Assess the expected impacts.
+9. Identify unresolved decisions.
+10. Identify the required validation evidence.
+11. Label future-stage records as not yet applicable.
+12. Replace the template prompts with proposal-specific content.
+13. Review the document against its evidence.
+14. Open the proposal-only draft PR.
+15. Record the actual PR reference.
 
 ## The front matter
 

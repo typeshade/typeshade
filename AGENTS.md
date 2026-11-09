@@ -281,7 +281,9 @@ true is a set of steps with tools, each an industry practice, not a memory:
   examples), or that adds an author-facing name to `src/__api__/author-names.md`, starts as a
   proposal in `changes/`, merged with `status: accepted` before the
   implementation. It names everything the change will touch and the work each downstream
-  repository will owe. Each implementing commit says `Change: NNNN`, and
+  repository will owe. A proposal that adds to the language says in
+  `## Why the compiler cannot do it` what the compiler cannot decide; when the compiler can, no
+  proposal is needed. Each implementing commit says `Change: NNNN`, and
   `scripts/changes.ts` (`bun run changes:check`) fails a diff that reaches past what its
   proposal declared, or that needs a proposal and names none. `changes/README.md` has the
   criteria and the lifecycle; a caught change that truly needs no proposal says why with

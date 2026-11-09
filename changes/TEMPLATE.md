@@ -37,6 +37,14 @@ they establish the scope.
 Describe the problem and its evidence. Explain the relevant alternatives and the reason for
 the proposed choice. State assumptions and unresolved decisions explicitly.
 
+## Why the compiler cannot do it
+
+Required when the proposal adds an author-facing name (`names`), a rule, a diagnostic code or a
+surface form. State what the author must write that the compiler cannot decide from the program
+alone, and give the evidence. An optimization, a numerical relaxation, a tuning parameter or a
+choice of strategy is the compiler's work. If the compiler can do it, the proposal is not
+needed. A proposal that adds none of these writes "Not applicable:" and says what it adds.
+
 ## What it touches
 
 Explain each entry of the front matter in one line: why that rule, section, export, code or
