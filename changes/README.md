@@ -48,8 +48,10 @@ compiler asks for compiler work first. It does not ask for a language change.
 4. State the need, the workaround and the measurement (device, commit, result) in the issue.
 
 The compiler side decides how to meet the need. What the compiler can decide is compiler work:
-an optimization, a lowering, a numerical relaxation, a tuning parameter or a report. That work
-adds no author-facing construct, and the criteria above give it no proposal.
+an optimization the compiler can prove exact, a lowering, a tuning parameter or a report. That
+work adds no author-facing construct, and the criteria above give it no proposal. A numerical
+relaxation is not compiler work: it changes results, and the GPU computes what the CPU oracle
+computes (`docs/dx.md`).
 
 A language change is the last resort. A proposal that adds an author-facing name, rule,
 diagnostic code or form for a downstream need links the issue. Its `Why` section says why
