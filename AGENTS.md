@@ -287,7 +287,8 @@ true is a set of steps with tools, each an industry practice, not a memory:
   `## Why the compiler cannot do it` what the compiler cannot decide; when the compiler can, no
   proposal is needed. Each implementing commit says `Change: NNNN`, and
   `scripts/changes.ts` (`bun run changes:check`) fails a diff that reaches past what its
-  proposal declared, or that needs a proposal and names none. `changes/README.md` has the
+  proposal declared, that needs a proposal and names none, or that adds a proposal under an id
+  the base branch gives to another file. `changes/README.md` has the
   criteria and the lifecycle; a caught change that truly needs no proposal says why with
   `Change: none, <reason>`; an added author-facing name cannot be waived that way.
 - **Read the impact before you commit.** `bun run docs:impact` lists what the prose owes the

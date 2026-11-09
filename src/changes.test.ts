@@ -20,11 +20,13 @@ import {
   DOWNSTREAM_REPOS,
   NAMES_FILE,
   STATUSES,
+  addedProposalFiles,
   authorNames,
   changeLines,
   codeTable,
   compilerFirstProblems,
   handledIds,
+  idCollisions,
   judge,
   owedDownstream,
   parseProposal,
@@ -459,5 +461,46 @@ describe('a proposal that adds to the language says why the compiler cannot do i
     expect(sectionBody(doc.join('\n'), 'A')).toBe('one\n```\n## not a heading\n```');
     expect(sectionBody(doc.join('\n'), 'B')).toBe('two');
     expect(sectionBody(doc.join('\n'), 'C')).toBeNull();
+  });
+});
+
+describe('a pull request never claims an id the base branch gives to another proposal', () => {
+  const front = (id: string) => `---\nid: '${id}'\ntitle: T\nstatus: draft\n---\n\n# T\n`;
+  const portable = parseProposal('changes/0122-portable-fuse-origin.md', front('0122'));
+  const onBase = [portable];
+
+  it('lists the proposal files a diff adds, renamed ones by their new name', () => {
+    expect(
+      addedProposalFiles({
+        added: ['changes/0133-new.md', 'changes/README.md', 'docs/0122-x.md'],
+        renamed: [['changes/0122-old.md', 'changes/0134-old.md']],
+      }),
+    ).toEqual(['changes/0133-new.md', 'changes/0134-old.md']);
+  });
+
+  it('refuses an added file whose number the base branch already took (#1037, #1044)', () => {
+    const problems = idCollisions(
+      [{ file: 'changes/0122-synchronous-cpu-artifact.md', text: front('0122') }],
+      onBase,
+    );
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('changes/0122-portable-fuse-origin.md');
+  });
+
+  it('refuses an id in the front matter that the base branch took, whatever the file name', () => {
+    expect(idCollisions([{ file: 'changes/0133-x.md', text: front('0122') }], onBase)).toHaveLength(
+      1,
+    );
+  });
+
+  it('refuses a taken file-name number when the front matter cannot be read', () => {
+    expect(
+      idCollisions([{ file: 'changes/0122-x.md', text: 'no front matter' }], onBase),
+    ).toHaveLength(1);
+  });
+
+  it('accepts a free id, and the same file present on both sides', () => {
+    expect(idCollisions([{ file: 'changes/0133-x.md', text: front('0133') }], onBase)).toEqual([]);
+    expect(idCollisions([{ file: portable.file, text: front('0122') }], onBase)).toEqual([]);
   });
 });
