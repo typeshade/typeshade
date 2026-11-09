@@ -60,8 +60,8 @@ export const CODE_GAPS: readonly Gap[] = [
     from: 8076,
     to: 8076,
     why:
-      'reserved by draft proposal 0052 (not on main); recorded in changes/0067-kernel-workgroup-size.md ' +
-      '(decision D7) and changes/0107-numerical-contract.md, not in codes.ts',
+      'reserved by draft proposal 0052 (not on main); recorded in codes.ts above KERNEL_WORKGROUP_REDUCES, ' +
+      'changes/0067-kernel-workgroup-size.md (decision D7) and changes/0107-numerical-contract.md',
   },
 ];
 
