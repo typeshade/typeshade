@@ -199,6 +199,13 @@ Change 0137 replaces, for a parameter qualifier, the sentences of this proposal'
 `@inout` clause of the typecv downstream entry; the implementation applies change 0137's text
 there.
 
+Change 0140 replaces D4 and refuses the call forms and an `export default` entry with no warning
+release, in the last of four pull requests; the implementation applies change 0140's text in place
+of D4, the Enforced by of Rule 1.8, the call-form clause of Rule 6.7, the `export default` and <!-- doc-refs: skip — Rule 1.8 is added by change 0130 -->
+stage-call sentences of Rule 8.1, items 4 to 6 of the proposed rules in short, the summary bullets
+for Rules 6.7 and 8.1, item 2 of The editor, the first clause of the codes bullet, the overload
+sentence of the OD-2 cost, Migration order steps 3 to 5, the milestones and the validation record.
+
 **Before (change 0111 D1):**
 
 ```ts

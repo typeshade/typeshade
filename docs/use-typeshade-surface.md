@@ -327,9 +327,11 @@ export const fs = fragment(function fs(
   texel per invocation and has no workgroup to give `y` and `z` to.
 - `compute({ workgroup: [64, 1, 1] }, f)` is refused (`TS8037`):
   `compute takes an array of one to three whole numbers before its function, "compute([64, 1, 1], f)"; "{ workgroup: [64, 1, 1] }" is not a workgroup shape.`
-- A stage call takes one option after the function, `diagnostic` (§54):
-  `fragment(f, { diagnostic: ["off", "derivative_uniformity"] })`. Another option is refused
-  (`TS8028`); change 0131 removed `numerics` (§78).
+- A stage call takes no options after the function: change 0131 removed `numerics` (§78), and
+  change 0132 removed `diagnostic`, whose work the compiler's rewrite does (§54). A leftover
+  option is refused (`TS8028`), in the compiler and in the editor, and `{ diagnostic: [...] }`
+  is told what took its place:
+  `A stage call takes no options; "diagnostic: [...]" is not one. Delete it: the compiler rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5) and reports each other one with TS8052 and the reason. "tshc migrate" deletes it.`
 - A kernel function (§65) takes one extent in the same spelling as an entry:
   `export const scale = workgroup_size([128], function scale(xs: array<f32>) { … })`. Its loops
   that do not reduce run at that size on WebGPU, and at 64 without it. `workgroup_size([8, 8], f)`
@@ -465,11 +467,12 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | `@std140` anywhere but on a class | `TS8028`, `"@std140" is not applied: WGSL lays out a struct by its own rules, which reflect() reports. Remove it.` On a class it keeps `TS8010`, `@std140 on a class is not applied.` |
 | a decorator on a constructor, an overload signature, an abstract member, a mixin, a class expression, a class declared in a function's body, an index signature, or a parameter of one of those | `TS8028`, one per decorator, answered as on a declaration. On an overload signature an attribute its implementation reads is to be written there: `"@fragment" does not apply to an overload signature: it marks an entry function. Write it on the implementation.` The overload carrying `@fragment` used to leave the module with no entry |
 | a decorator that is not a name, anywhere: `@N.k`, `@a.b(1)`, `@(fragment)` | `TS8028`, `"@N.k" is not applied: an attribute is written "@name" or "@name(...)". Remove it.` |
-| an attribute where the place does not apply it: `@location`, `@builtin`, `@interpolate`, `@invariant` or `@diagnostic` on a class, `@location` or `@builtin` on a function, a stage or `@diagnostic` on a field or a parameter, `@blend_src` on a parameter, `@diagnostic` on a namespace's function | `TS8028`, naming what it marks: `"@location" does not apply to a class: it marks an entry's input or output. Remove it.` Each was dropped with no word |
+| an attribute where the place does not apply it: `@location`, `@builtin`, `@interpolate` or `@invariant` on a class, `@location` or `@builtin` on a function, a stage on a field or a parameter, `@blend_src` on a parameter | `TS8028`, naming what it marks: `"@location" does not apply to a class: it marks an entry's input or output. Remove it.` Each was dropped with no word |
 | `@builtin`, `@location`, `@interpolate`, `@invariant` or `@blend_src` on a parameter of a function that is not an entry: a helper, a local function, a method, a constructor | `TS8028`, `"@location" does not apply to a parameter of a function that is not an entry: it marks an entry's input or output. Remove it.` Tint refuses the WGSL it was (`'@location' is not valid for non-entry point function parameters`) |
 | builtin parameter on an incompatible stage | stage mismatch |
 | `@compute` method on a class | an entry is declared at the top level, not on a class (Rule 8.1) |
-| a decorator of the decorated form where it is read: `@vertex`, `@fragment`, `@compute(…)`, `@workgroup_size(…)` or `@diagnostic(…)` on a function, `@builtin`, `@location`, `@interpolate`, `@invariant` or `@blend_src` on a parameter or a field | a `TS8028` warning, one per decorator, in the compiler and in the editor, naming the new spelling (change 0111, the migration release): `"@vertex" is the decorated form, which the next release refuses: write "export const vs = vertex(function vs(…) { … })", or run "tshc migrate" (change 0111).`, and for an attribute the member's type, `write "pos: builtin<"position", vec4, { invariant: true }>"`. A decorator refused where it is written keeps that refusal alone. The release after it refuses each one. The editor drops TypeScript's TS1206 and TS2564 only in a file that still writes the decorated form. A parameter qualifier, `@inout` or `@out`, is no decorated form and warns nowhere (change 0137) |
+| `@diagnostic(…)` anywhere: on a function, a field, a parameter or a declaration | `TS8028`, an error, in the compiler and in the editor: `"@diagnostic(…)" is not a decorator the compiler reads (Rule 6.7). Delete it: the compiler rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5) and reports each other one with TS8052 and the reason. "tshc migrate" deletes it.` Change 0132 removed the filter, with no warning release (§54) |
+| a decorator of the decorated form where it is read: `@vertex`, `@fragment`, `@compute(…)` or `@workgroup_size(…)` on a function, `@builtin`, `@location`, `@interpolate`, `@invariant` or `@blend_src` on a parameter or a field | a `TS8028` warning, one per decorator, in the compiler and in the editor, naming the new spelling (change 0111, the migration release): `"@vertex" is the decorated form, which the next release refuses: write "export const vs = vertex(function vs(…) { … })", or run "tshc migrate" (change 0111).`, and for an attribute the member's type, `write "pos: builtin<"position", vec4, { invariant: true }>"`. A decorator refused where it is written keeps that refusal alone. The release after it refuses each one. The editor drops TypeScript's TS1206 and TS2564 only in a file that still writes the decorated form. A parameter qualifier, `@inout` or `@out`, is no decorated form and warns nowhere (change 0137) |
 | the type form of a parameter qualifier, `inout<T>` or `out<T>`, in any type position: a parameter, a local, a result, a type alias, a generic argument or a field | a `TS8028` error, once, at the written `inout<…>`, in the compiler and in the editor (change 0137): `"inout<f32>" is the type form of a parameter qualifier, which the language does not have: write "@inout a: f32", or run "tshc migrate" (change 0137).`; away from a parameter, `… a qualifier is written before a parameter, as "@inout a: f32", and here the type is "f32"; "tshc migrate" rewrites a parameter's type form (change 0137).` |
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
 | `.length` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
@@ -6289,10 +6292,10 @@ And four by design, with no measurement to take:
 - `var<immediate>`, `const_assert` and `@must_use` on a user function have no spelling here.
   The first two have no TypeScript shape to hang on; `@must_use` is an emit decision the
   writer makes, not an author one.
-- The `diagnostic(...)` directive is not written by hand. It is emitted where a rule this
-  compiler analyses asks for it, which is the uniformity item, not a free-form author control:
-  the author writes `{ diagnostic: ["off", "derivative_uniformity"] }` as the options of an
-  entry's stage call (§54).
+- The `diagnostic(...)` directive is not written by hand, and the `"use typeshade"` front end
+  emits none. The compiler rewrites what the `derivative_uniformity` filter would have switched
+  off (§54, change 0132), so the filter is not borrowed (Rule 1.4). A module assembled with the
+  IR builder (`typeshade/core/ir`) can still carry `diagnostics` on its `ModuleDecl`.
 - Four declarable capabilities — `floatRenderTarget`, `float32Blend`, `float32Filterable` and
   `multiview` — are still unspellable from a `"use typeshade"` source. (`capabilityMatrix`
   reports nine of its eighteen rows `declarable`; the other five are the extensions above.) `"enable ..."` takes the
@@ -6740,14 +6743,14 @@ broken-shader instrument check passing on both compilers first:
 | Written | Verdict |
 | --- | --- |
 | `textureSample` under `if (uv.x > 0.5)` on a fragment input | `'textureSample' must only be called from uniform control flow` |
-| the same with `diagnostic(off, derivative_uniformity);` at module scope | accepted |
-| the same with `@diagnostic(off, derivative_uniformity)` on the entry | accepted |
+| the same with `diagnostic(off, derivative_uniformity);` at module scope | accepted | <!-- doc-refs: skip — a Tint measurement of WGSL's own filter, which change 0132 removed from the language -->
+| the same with `@diagnostic(off, derivative_uniformity)` on the entry | accepted | <!-- doc-refs: skip — a Tint measurement of WGSL's own filter, which change 0132 removed from the language -->
 | `textureSample` under `if (k > 0.5)` on a uniform buffer value | accepted |
 | `textureSampleLevel` under a condition on a fragment input | accepted |
 | `dpdx` under a condition on a fragment input | `'dpdx' must only be called from uniform control flow` |
 | `workgroupBarrier` under a condition on a uniform buffer value | accepted |
 | `workgroupBarrier` under `if (id.x > 4u)` on `local_invocation_id` | `'workgroupBarrier' must only be called from uniform control flow` |
-| the same, **with** `diagnostic(off, derivative_uniformity);` in the module | still `'workgroupBarrier' must only be called from uniform control flow` |
+| the same, **with** `diagnostic(off, derivative_uniformity);` in the module | still `'workgroupBarrier' must only be called from uniform control flow` | <!-- doc-refs: skip — a Tint measurement of WGSL's own filter, which change 0132 removed from the language -->
 | `if (uv.x > 1.) { return … }` above a `textureSample` | `'textureSample' must only be called from uniform control flow` |
 | `if (uv.x > 1.) { discard }` above a `textureSample`, and above a `fwidth` | accepted |
 | `if (id.x > 4u) { break }` or `{ continue }` in a loop, a barrier below the loop | accepted |
@@ -6771,10 +6774,9 @@ the compile gate already runs Tint's own uniformity check on every example, and 
 item asking for a pipeline leg rests on a premise the measurement disproves. There is nothing
 to add to the gate.
 
-Three of those rows decide as much as the first. **The filter is the derivative rule's**, so
-the off switch does not silence a barrier: a barrier's requirement is not `derivative_uniformity`
-and is not filterable, and silencing it here would hand an author a module that fails at
-`createShaderModule` instead of at the line. **A `return` under a non-uniform condition makes
+Three of those rows decide as much as the first. **The filter is the derivative rule's**: a
+barrier's requirement is not `derivative_uniformity` and is not filterable, so no filter lifts
+it, and no rewrite applies to it either. **A `return` under a non-uniform condition makes
 everything after it non-uniform** — those invocations are gone. **A `discard` does not**: the
 invocation is demoted to a helper rather than ended, so it goes on contributing the neighbour a
 derivative differences against, which is why `discard` beside `fwidth` is the ordinary
@@ -6843,9 +6845,9 @@ reports, so `compile()` and the language service say the same (Rule 12.7), and t
 the GLSL writer and the CPU oracle read the rewritten functions (Rule 11.1). The oracle samples
 nothing and differences nothing: with `gpuStubs` a rewritten program gives the placeholder it
 gave before, and without it the derivative moved to the hoist point throws for an invocation
-that skips the branch. A module that writes a `derivative_uniformity` filter is not rewritten
-until a later step of change 0132 removes the filter. The rewrite never touches a barrier or a
-subgroup call.
+that skips the branch. No filter keeps a module from the rewrite: change 0132 removed it, and a
+written `@diagnostic(…)` or `{ diagnostic: [...] }` is `TS8028` (§7). The rewrite never touches
+a barrier or a subgroup call.
 
 **What the compiler says for a call it cannot reach.** The call keeps `TS8052` at the call,
 naming the value the control flow depends on, why the compiler could not compute it before the
@@ -6871,8 +6873,7 @@ The reasons:
 | changes from one iteration of a loop on the path to the next | its operand changes on each iteration of a loop that not every invocation runs |
 | depends on anything else the compiler cannot repeat (a `raw` statement, a write through an `inout` parameter, a call with an effect) | its operand depends on a value the compiler cannot recompute there |
 
-A barrier's sentence is the one below, and a module that writes the filter keeps the sentence it
-had. The sentence names the statement that made the flow non-uniform, and the move that fits it.
+A barrier's sentence is the one below. The sentence names the statement that made the flow non-uniform, and the move that fits it.
 Each move compiles on Tint:
 
 | The call is reached | The sentence says it is reached | The move |
@@ -6893,12 +6894,7 @@ inside an `if` on the value is reached under that `if`, whatever its bound, and 
 uniform inside a loop the value bounds leaves the loop's condition as the reason. A barrier's
 sentence also names the other way out, a value the whole workgroup shares to branch, return,
 break, continue, bound the loop, test on the left side or test in the condition on; a
-derivative's names the explicit-LOD sample, and no longer the filter. In a module that writes
-the filter with severity `warning` or `info`, the sentence still offers it where the file can
-carry it, as the `diagnostic` option of a stage call: on the entry when every entry is
-top-level, on a top-level entry when another entry is a namespace's, since a namespace's stage
-call refuses its `diagnostic` option and a namespace's function `@diagnostic` (`TS8028`, §7),
-and not at all in a file whose every entry is a namespace's. The value is named as the author
+derivative's names the explicit-LOD sample, and never a filter. The value is named as the author
 wrote it: a helper as it is called, `Lim.hit(…)` or `done(…)`, never the name the emit gives it,
 and a helper the walk cannot see through by its own name, not as "the expression".
 
@@ -7053,10 +7049,24 @@ uniform buffer value is accepted by Tint, and is accepted here, for both — whi
 kernel branching on a dispatch-wide flag needs. What is still refused is a branch on a value the
 invocations do not share, and a branch this compiler cannot read, which keeps the old answer.
 
-**Switching it off.** `{ diagnostic: ["off", "derivative_uniformity"] }`, the options argument
-of an entry's stage call (change 0111, D7), silences the analysis and emits WGSL's module-scope
-directive. The decorated form, `@diagnostic("off", "derivative_uniformity")` on an entry
-function, stays accepted until the release after the migration release (D5):
+**No switch.** Change 0132 removed the filter: the stage call's `{ diagnostic: [...] }` option,
+the decorated `@diagnostic(…)` and the ambient `diagnostic` declaration. The filter did not fix
+the program. It told Tint to accept a sample whose result WGSL calls indeterminate in
+non-uniform control flow, and GLSL ES 3.00 calls undefined. The compiler's rewrite above makes
+the same program defined, and the author writes nothing for it (Rule 1.4, Rule 8.5). A written
+filter is refused in the change that removed it, with no warning release, since no published
+version had it (§7):
+
+```
+A stage call takes no options; "diagnostic: [...]" is not one. Delete it: the compiler rewrites
+each implicit-LOD sample or derivative it can reach (Rule 8.5) and reports each other one with
+TS8052 and the reason. "tshc migrate" deletes it.
+```
+
+`tshc migrate` deletes a `@diagnostic(…)` decorator and a stage call's `diagnostic` option. The
+front end emits no `diagnostic(...)` directive, and `CompileTsSourceResult` has no
+`directives` member. `ModuleDecl.diagnostics` stays for a module the IR builder assembles
+(`typeshade/core/ir`), which no `"use typeshade"` form reaches.
 
 ```ts
 "use typeshade";
@@ -7069,37 +7079,22 @@ interface VsOut {
 }
 
 export const fs = fragment(function fs(v: VsOut): vec4 {
-  if (v.uv.x > 0.5) { return textureSample(t, s, v.uv); }   // taken as written
+  if (v.uv.x > 0.5) { return textureSample(t, s, v.uv); }   // rewritten: textureSampleGrad
   return vec4(0., 0., 0., 1.);
-}, { diagnostic: ["off", "derivative_uniformity"] });
+});
 ```
 
-```wgsl
-diagnostic(off, derivative_uniformity);
-```
+`examples/sample-branch.shade.ts` is the gate's evidence for the rewrite: two samples under a
+branch on a `location<0, vec2>` input, in two helpers, both rewritten to `textureSampleGrad`
+with the gradients computed before the `if`, and compiled on Tint and on ANGLE with no
+`diagnostic(...)` line. A sample under a `uniform` condition sits beside them, left as written.
+`examples/capsule-corp-namek-class.shade.ts` has six derivatives in `Terrain.shade`, under an
+`else if` on a ray hit, which the rewrite reaches with one recompute of `dirt`.
 
-`examples/sample-branch.shade.ts` is the gate's evidence for the whole path — the option in,
-the module-scope directive out, compiled on Tint and on ANGLE. Its non-uniform branch is in the
-ENTRY, on a `location<0, vec2>` input, so deleting the directive line turns the file into the refusal
-above; a sample under a `uniform` condition sits beside it, needing no directive at all.
-
-The severity is HONOURED, not merely emitted: `off` silences the rule, `info` and `warning`
-demote it to a warning, and `error` is the default it already has. A directive the emit carried
-while the front end went on reporting an error would be a line that reads as a decision and is
-not one — the module would never reach the compiler the author aimed it at, because the WGSL is
-withheld whenever a diagnostic is an error.
-
-Written on the entry, emitted at module scope, and that is deliberate: WGSL's `@diagnostic` on
-a function covers that function's own body and not the functions it calls, and a sample is as
-often in a helper as in the entry — so the function-scope form would switch off a rule the module
-still breaks elsewhere. One spelling in, the one that means what the author meant out. The
-severity vocabulary is WGSL's (`off`, `info`, `warning`, `error`); the rule vocabulary is what
-this compiler analyses, which is one rule, because a directive with nothing behind it is a line
-that reads as a decision and is not one.
-
-GLSL ES 3.00 needs none of this: an implicit derivative in non-uniform control flow is
-undefined there rather than refused (glsl-es-300.txt:3751-3752), so the GLSL text does not move
-for any of it.
+GLSL ES 3.00 has no refusal: an implicit derivative in non-uniform control flow is undefined
+there rather than refused (glsl-es-300.txt:3751-3752). The rewrite runs on the shared IR, so the
+GLSL text changes with the WGSL, `textureGrad` with `dFdx` and `dFdy` before the branch in place
+of `texture` inside it, and the GLSL result becomes defined too.
 
 ## 55. `random(seed)`: a hash of its seed, and what a driver does to it
 

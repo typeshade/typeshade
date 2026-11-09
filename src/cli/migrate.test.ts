@@ -62,7 +62,7 @@ export const fs = fragment(function fs(v: VsOut): vec4 {
   let b!: f32;
   put(b);
   return vec4(v.uv, b, 1.);
-}, { diagnostic: ["off", "derivative_uniformity"] });
+});
 export const main = compute([8, 8], function main(gid: builtin<"global_invocation_id", vec3u>): void {});
 `;
     const result = migrateSource(before);
@@ -156,11 +156,63 @@ function Tinted<T extends new (...a: any[]) => object>(Base: T) {
   });
 
   it('names a form it leaves as written', () => {
+    // A filter on a helper was named here until change 0132 made the migration delete it; a
+    // decorator the rewrite does not know beside it still leaves the function as written.
     const result = migrateSource(`"use typeshade";
-@diagnostic("off", "derivative_uniformity")
+@diagnostic("off", "derivative_uniformity") @bogus
 function helper(): f32 { return 1.; }
 `);
-    expect(result.skipped).toEqual(['line 2: @diagnostic on "helper", which is no entry']);
+    expect(result.skipped).toEqual([
+      'line 2: "helper" carries a decorator the rewrite does not know',
+    ]);
+  });
+
+  it('deletes the diagnostic filter wherever it is written (change 0132, item 7)', () => {
+    const before = `"use typeshade";
+declare const t: texture_2d<f32>;
+declare const s: sampler;
+@diagnostic("off", "derivative_uniformity")
+function helper(uv: vec2): vec4 { return textureSample(t, s, uv); }
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+  if (uv.x > 0.5) { return helper(uv); }
+  return vec4(0.);
+}, { diagnostic: ["off", "derivative_uniformity"] });
+export const main = compute(
+  [64],
+  function main(): void {},
+  { diagnostic: ["off", "derivative_uniformity"] },
+);
+`;
+    const after = `"use typeshade";
+declare const t: texture_2d<f32>;
+declare const s: sampler;
+function helper(uv: vec2): vec4 { return textureSample(t, s, uv); }
+export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+  if (uv.x > 0.5) { return helper(uv); }
+  return vec4(0.);
+});
+export const main = compute(
+  [64],
+  function main(): void {});
+`;
+    const result = migrateSource(before);
+    expect(result).toEqual({ text: after, changes: 3, skipped: [] });
+    expect(migrateSource(after)).toEqual({ text: after, changes: 0, skipped: [] });
+    // The source the migration leaves compiles: the sample under the branch is rewritten.
+    expect(compile(before).diagnostics.map((d) => d.code)).toEqual(['TS8028', 'TS8028', 'TS8028']);
+    expect(compile(after).diagnostics).toEqual([]);
+    expect(compile(after).wgsl).toContain('textureSampleGrad(');
+  });
+
+  it('leaves a stage call whose options hold more than the filter, and names it', () => {
+    const source = `"use typeshade";
+export const fs = fragment(function fs(): vec4 { return vec4(0.); }, { diagnostic: ["off", "derivative_uniformity"], bogus: 1 });
+`;
+    expect(migrateSource(source)).toEqual({
+      text: source,
+      changes: 0,
+      skipped: ['line 2: the options of "fragment" hold more than the diagnostic filter'],
+    });
   });
 });
 

@@ -99,7 +99,8 @@ export interface DecoratedForm {
 const NEXT = 'is the decorated form, which the next release refuses';
 const MIGRATE = 'or run "tshc migrate" (change 0111).';
 
-/** The sentence for a stage decorator, `@diagnostic` included, on function `fn`. */
+/** The sentence for a stage decorator on function `fn`. `@diagnostic` is no stage decorator:
+ *  change 0132 removed the filter, and `builtin-check.ts` refuses it. */
 function stageSentence(
   d: ts.Decorator,
   fn: ts.FunctionDeclaration,
@@ -116,11 +117,6 @@ function stageSentence(
   if (name === 'compute') return `${written}: write "${call(name, args[0] ?? '[64]')}", ${MIGRATE}`;
   if (name === 'workgroup_size')
     return `${written}: write "${call(name, args[0] ?? '[64]')}", ${MIGRATE}`;
-  if (name === 'diagnostic')
-    return (
-      `${written}: write the option "{ diagnostic: [${args.join(', ')}] }" after the function ` +
-      `of the stage call, ${MIGRATE}`
-    );
   return undefined;
 }
 
@@ -145,9 +141,9 @@ const found = new WeakMap<ts.SourceFile, readonly DecoratedForm[]>();
 
 /**
  * Each decorator of the decorated form `sf` writes where the compiler reads it: a stage
- * decorator or `@diagnostic` on a function of the module, an attribute on a parameter of one,
- * and an attribute on a class field. A qualifier, `@inout` or `@out`, is the language's form
- * and is never among them (change 0137). A decorator anywhere else is one nothing
+ * decorator on a function of the module, an attribute on a parameter of one, and an attribute
+ * on a class field. A qualifier, `@inout` or `@out`, is the language's form and is never among
+ * them (change 0137). A decorator anywhere else is one nothing
  * reads, which the compiler refuses on its own (`TS8028`, `TS8035`). A decorator an attribute
  * type stands for (`isTypeDecorator`) is no node of the tree, so it is never among them.
  */
@@ -159,7 +155,7 @@ export function decoratedForms(sf: ts.SourceFile): readonly DecoratedForm[] {
     if (isModuleFunction(node)) {
       for (const d of writtenDecorators(node)) {
         const name = decoratorParts(d, sf).name;
-        if (!STAGE_DECORATORS.has(name) && name !== 'diagnostic') continue;
+        if (!STAGE_DECORATORS.has(name)) continue;
         const message = stageSentence(d, node, sf);
         if (message !== undefined) out.push({ decorator: d, message });
       }

@@ -138,8 +138,9 @@ const EXPRESSION_FORMS: Readonly<Record<string, string>> = {
 };
 
 /** The forms that are written in a DECLARATION rather than in an expression. One program
- *  exercises all thirteen, which is also the shape every example opens with. The four before
- *  `inout` are the entry-IO and uniformity attributes #158 and #161 added (§53, §54); they are listed here
+ *  exercises all thirteen, which is also the shape every example opens with. The three before
+ *  `inout` are the entry-IO attributes #158 added (§53); `diagnostic`, which #161 added beside
+ *  them, left the language with change 0132. They are listed here
  *  rather than excused on `DECLARED_NOT_LOWERABLE` because the witness below really does
  *  compile them and each one really does reach the emitted WGSL. */
 const DECLARATION_FORMS: readonly string[] = [
@@ -153,7 +154,6 @@ const DECLARATION_FORMS: readonly string[] = [
   'interpolate',
   'invariant',
   'blend_src',
-  'diagnostic',
   // GLSL's qualifiers on a parameter of a function of the file (Rule 8.25), written before the
   // parameter (change 0137), which the witness's `bump` and `put` take.
   'inout',
@@ -184,7 +184,7 @@ export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): V {
 export const fs = fragment(function fs(v: V): Dual {
   const c = vec4(un.k, 0., 0., 1.);
   return { a: c, b: c };
-}, { diagnostic: ["off", "derivative_uniformity"] });
+});
 function bump(@inout v: f32): void {
   v += un.k;
 }

@@ -14,6 +14,9 @@
 // the nodes the author wrote, so every position, every check and the emit are the ones the
 // decorated form has. Only the declaration node is new, and its text range is the statement's.
 import ts from 'typescript';
+import { TS_CODES } from './codes.js';
+import { makeDiagnostic } from './diagnostic.js';
+import type { TsCompilerDiagnostic } from './source-file.js';
 
 /** The functions a stage call is spelled with, and what each makes of its function. */
 export const STAGE_CALLEES = ['vertex', 'fragment', 'compute', 'workgroup_size'] as const;
@@ -33,7 +36,8 @@ export interface StageCall {
   readonly fn: ts.FunctionExpression | ts.ArrowFunction;
   /** The workgroup argument of `compute([…], f)` and `workgroup_size([…], f)`. */
   readonly size?: ts.Expression;
-  /** The options argument after the function, `{ diagnostic: [...] }`. */
+  /** An argument after the function. A stage call takes none (changes 0131 and 0132), so
+   *  {@link refuseStageOptions} refuses it. */
   readonly options?: ts.Expression;
   readonly exported: boolean;
 }
@@ -159,4 +163,57 @@ export function stageDeclarationOfFunction(fn: ts.Node): ts.FunctionDeclaration 
 /** The stage call a declaration made by `declarationOf` stands for. */
 export function stageCallOfDeclaration(decl: ts.Node): StageCall | undefined {
   return ts.isFunctionDeclaration(decl) ? calls.get(decl) : undefined;
+}
+
+/** What a stage call that still writes `{ diagnostic: [...] }` is told (change 0132, "A written
+ *  filter: refused at once"). It names neither a severity nor a spelling that is still read. */
+export const DIAGNOSTIC_OPTION_REFUSAL =
+  'A stage call takes no options; "diagnostic: [...]" is not one. Delete it: the compiler ' +
+  'rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5) and reports each ' +
+  'other one with TS8052 and the reason. "tshc migrate" deletes it.';
+
+/** The sentence for the argument `options` written after a stage call's function. */
+function optionsRefusal(sc: StageCall, sf: ts.SourceFile): string {
+  const options = sc.options!;
+  // `workgroup_size` takes no options: change 0131 removed `numerics`, its only one.
+  if (sc.callee === 'workgroup_size')
+    return (
+      `"workgroup_size" takes two arguments, the workgroup size and the kernel function, ` +
+      `and no options.`
+    );
+  const props = ts.isObjectLiteralExpression(options) ? options.properties : [];
+  const key = (p: ts.ObjectLiteralElementLike): string | undefined =>
+    p.name !== undefined && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name))
+      ? p.name.text
+      : undefined;
+  if (props.some((p) => key(p) === 'diagnostic')) return DIAGNOSTIC_OPTION_REFUSAL;
+  const written = (props[0] ?? options).getText(sf);
+  return `A stage call takes no options; "${written}" is not one. Delete it.`;
+}
+
+/**
+ * Refuses each argument written after a stage call's function, at the top of the file and in
+ * a namespace, with one `TS8028` on the argument (Rule 6.7). A stage call takes no options:
+ * change 0131 removed `numerics`, and change 0132 removed `diagnostic`, whose work the
+ * compiler's rewrite of an implicit-LOD sample or a derivative does (Rule 8.5). The editor's
+ * TS2554 on the same argument merges into this refusal, so both halves read one diagnostic
+ * (Rule 12.7).
+ */
+export function refuseStageOptions(sf: ts.SourceFile, diagnostics: TsCompilerDiagnostic[]): void {
+  const visit = (statements: readonly ts.Statement[]): void => {
+    for (const stmt of statements) {
+      if (ts.isModuleDeclaration(stmt)) {
+        let body = stmt.body;
+        while (body !== undefined && ts.isModuleDeclaration(body)) body = body.body;
+        if (body !== undefined && ts.isModuleBlock(body)) visit(body.statements);
+        continue;
+      }
+      const sc = stageCallOf(stmt);
+      if (sc?.options === undefined) continue;
+      diagnostics.push(
+        makeDiagnostic(sf, sc.options, optionsRefusal(sc, sf), TS_CODES.ATTRIBUTE_NAME),
+      );
+    }
+  };
+  visit(sf.statements);
 }
