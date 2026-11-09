@@ -195,7 +195,7 @@ Rule 1.7:
 > marks. A construct must not be written as a call of a function whose only role is to carry it.
 > A stage (`@vertex`, `@fragment`, `@compute`) is written as an attribute. A construct is added only for
 > what the author must state and the compiler cannot know; what the compiler can decide (an
-> optimization, a numerical relaxation, a tuning parameter, a validation it can satisfy by
+> optimization it can prove exact, a tuning parameter, a validation it can satisfy by
 > rewriting the program) is the compiler's work and never an
 > author-facing construct. Whether a plain `tsc` accepts a form is not a criterion for the surface.
 >
@@ -208,7 +208,7 @@ Rule 1.7:
 >   arithmetic is an operator TypeScript does not overload, and a host project's `tsc` reads the
 >   generated host view, not the source (surface §64). This rule prevents that criterion. The types of an entry's inputs and outputs
 >   (`builtin<N, T>`, `location<I, T>`, `inout<T>`, `out<T>`) mark a value and stay types (Rule 6.6,
->   Rule 8.25). The editor keeps TypeScript's checker by its projection of an attribute
+>   Rule 8.25). How the editor keeps TypeScript's checker for an attribute is open (independent review, S2)
 >   (Rule 1.7, Rule 12.7).
 > - Derives from: `changes/0130-stage-attributes.md`; the owner's direction of 2026-11-09.
 > - Enforced by: review (Rule 13.1); `TS8028 ATTRIBUTE_NAME` on a call form after the migration
@@ -280,7 +280,7 @@ declaration. That measures the file against a tool that does not read the langua
 goal could not be reached: a plain `tsc` does not accept a shader file whole, because its vector
 arithmetic is an operator TypeScript does not overload (§64). A host project's `tsc` never reads
 the source; it reads the generated host view (§64). The TypeShade language service is the editor
-for a `"use typeshade"` file, and it already filters TS1206 for these attributes (0111
+for a `"use typeshade"` file. It filters TS1206 on the decorated form only as a migration shim, coupled to TS2564 (0111
 milestone 4, #949). So change 0111 D1 gave up the language's attribute and gained no file that a
 plain `tsc` accepts.
 
@@ -298,7 +298,7 @@ plain `tsc` accepts.
 
 - No new cost reaches a host project. Its `tsconfig.json` excludes `*.shade.ts`, and its `tsc`
   reads the generated host view (`*.shade.typeshade.ts`) in place of the source
-  (`docs/use-typeshade-surface.md` §64). A shader project is checked with `tshc check`.
+  (`docs/use-typeshade-surface.md` §64), with the documented setup (`moduleSuffixes` and the views `tshc sync` writes). A shader project is checked with `tshc check`. The `tsconfig.shade.json` path in `README.md` runs plain `tsc` over shader sources (independent review, S6).
 - A plain `tsc` run directly over a shader source reports TS1206 on each function attribute.
   It already reports errors on such a file without this change: §64 says that ordinary `tsc`
   does not accept a shader file whole, because its vector arithmetic is an operator TypeScript
@@ -361,6 +361,32 @@ Decisions to resolve before acceptance (recommendations are the author's, not de
   sentence "its entry forms are plain TypeScript (change 0111)" is corrected with it.
 - **D4. Record of change 0111.** Recommended: 0111's record gains a note that D1 is replaced by
   0130, and its milestone 5 (refusal of the decorated form) is withdrawn.
+
+### Independent review record
+
+Reviewer: a Claude Code agent that did not write this proposal, run by the author on
+2026-11-09 under `changes/README.md` (Independent review). Revision reviewed: commit `87d87344`.
+Verdict: revise before acceptance. Status of each finding: **fixed** in this revision,
+**open** (to fix in the next revision), or **owner** (needs the owner's decision).
+
+| ID  | Finding                                                                                                                                                                                                                                                                                                                                                               | Status                                                                                                                                           |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| B1  | Rule 1.8 listed "a numerical relaxation" as compiler work; a relaxation changes results, so the compiler cannot apply one by itself (0107, `docs/dx.md`, `docs/compiler-owns-performance.md`).                                                                                                                                                                        | fixed: the parenthesis now says "an optimization it can prove exact". The removal of `numerics` stays a separate proposal.                       | <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds --> |
+| B2  | `@compute([8, 8])` is kept while Rule 1.8 calls a tuning parameter compiler work. The size is author knowledge where it is observable (host workgroup count, `local_invocation_id`, workgroup memory, barriers, subgroups); a kernel's size is tuning. Items 2 and 6 and What it touches disagree with D1. `docs/dx.md` principle 6 keeps "a workgroup shape" public. | owner: the criterion and D1.                                                                                                                     | <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds --> |
+| B3  | The editor's TS1206 and TS2564 filters both follow `usesDecoratedForm` (`src/language-service/diagnostics.ts`, `src/compiler/ts/decorated-form.ts`): a file with `@vertex` loses TS2564 and the parameter-decorator TS1206.                                                                                                                                           | open: What it touches will require the filter narrowed to a stage attribute on a module function, decoupled from TS2564, with a two-halves test. |
+| B4  | 0130 keeps 0111 D8 (`!` on fields and `let q!`), which exists only for plain `tsc`, while Rule 1.8 says plain `tsc` is not a criterion. D3 keeps a plain-`tsc` test.                                                                                                                                                                                                  | owner: a new decision on D8 and on D3.                                                                                                           | <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds --> |
+| S1  | A decorator on a function declaration is a parse error in prettier, `@typescript-eslint/typescript-estree`, esbuild, Bun and Node's type stripping; the costs above named only `tsc` and the editor. This repository's and typecv's `.prettierignore` already exclude decorated shader files.                                                                         | owner: this cost against the language's own syntax (`CLAUDE.md`, principle conflicts).                                                           |
+| S2  | No projection of an attribute exists, only a filter; TypeScript does not check a decorator expression on a function declaration, so Rule 1.7 is not met for the stage argument.                                                                                                                                                                                       | owner: a projection in the language service, or an exception to Rule 1.7. The overclaim is fixed.                                                |
+| S3  | Item 7 meets Rule 2.1: an attribute name the ambient library does not declare is outside the author-facing set.                                                                                                                                                                                                                                                       | open: add Rule 2.1 and the surface-names test to the scope.                                                                                      |
+| S4  | The stage can be inferred from the attribute types in most entries; only a compute entry without a builtin, and the size, are ambiguous.                                                                                                                                                                                                                              | owner: inference with a marker only where the compiler cannot know, or a marker on every entry.                                                  |
+| S5  | Rule 1.8 conflicts with Rule 1.4 and `docs/roadmap.md` ("ordinary TypeScript first") without naming it, and its "attribute vs type" criterion is only in the rationale.                                                                                                                                                                                               | open: cite both, move the criterion into the rule.                                                                                               | <!-- doc-refs: skip — Rule 1.8 is the rule this proposal adds --> |
+| S6  | Scope misses `journeys/` (77 files), `README.md` `tsconfig.shade.json`, the diagnostic messages that name the call form, `docs/dx.md` and `docs/roadmap.md`.                                                                                                                                                                                                          | open.                                                                                                                                            |
+| S7  | No migration order with 0111 milestone 5, the `numerics` and `diagnostic` removals, and a split `tshc migrate`.                                                                                                                                                                                                                                                       | open.                                                                                                                                            |
+| S8  | typecv still owes 224 `@builtin` and 10 `@inout` parameter decorators; typeplot writes 44 stage decorators.                                                                                                                                                                                                                                                           | open.                                                                                                                                            |
+| N1  | The factual basis is otherwise correct (decorated form compiles with TS8028; 94 + 7 examples).                                                                                                                                                                                                                                                                        | noted.                                                                                                                                           |
+| N2  | The §64 claim holds only with the documented setup.                                                                                                                                                                                                                                                                                                                   | fixed.                                                                                                                                           |
+| N4  | The request source should record the reversal as a new decision, not as an unintended outcome.                                                                                                                                                                                                                                                                        | open.                                                                                                                                            |
+| N5  | The `textureSampleGrad` rewrite of item 9 is unproven when the coordinate is computed inside the branch.                                                                                                                                                                                                                                                              | open: an assumption for the separate proposal.                                                                                                   |
 
 ### Approval and plan record
 
