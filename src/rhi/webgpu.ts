@@ -56,6 +56,7 @@ export interface ComputePassEncoder {
   setPipeline(p: object): void;
   setBindGroup(i: number, g: object): void;
   dispatchWorkgroups(x: number, y?: number, z?: number): void;
+  dispatchWorkgroupsIndirect(b: object, offset: number): void;
   end(): void;
 }
 
@@ -87,6 +88,8 @@ export interface Device {
   createPipelineLayout(d: { bindGroupLayouts: readonly object[] }): object;
   createBindGroup(d: { layout: object; entries: readonly object[] }): object;
   createComputePipelineAsync(d: object): Promise<object>;
+  /** The synchronous form, for a device that offers no asynchronous one. */
+  createComputePipeline?(d: object): object;
   createRenderPipelineAsync(d: object): Promise<object>;
   createCommandEncoder(): CommandEncoder;
   pushErrorScope(filter: 'validation' | 'out-of-memory' | 'internal'): void;
@@ -110,6 +113,7 @@ export const BUFFER = {
   VERTEX: 0x0020,
   UNIFORM: 0x0040,
   STORAGE: 0x0080,
+  INDIRECT: 0x0100,
 } as const;
 
 /** `GPUTextureUsage`. */
@@ -133,6 +137,7 @@ const BUFFER_USAGE: Readonly<Record<RhiBufferUsage, number>> = {
   vertex: BUFFER.VERTEX,
   uniform: BUFFER.UNIFORM,
   storage: BUFFER.STORAGE,
+  indirect: BUFFER.INDIRECT,
 };
 
 /** The `GPUTextureUsage` flag of each of the RHI's texture usage names. */
@@ -391,15 +396,22 @@ class WebGpuDevice implements RhiDevice {
   }
 
   async createComputePipeline(desc: RhiComputePipelineDesc): Promise<RhiComputePipeline> {
+    const descriptor = {
+      layout: this.#layout(desc.layouts),
+      compute: {
+        module: native(desc.module),
+        entryPoint: desc.entryPoint,
+        ...(desc.constants !== undefined ? { constants: desc.constants } : {}),
+      },
+    };
+    // The asynchronous form where the device has it: Chrome compiles a synchronous pipeline on its
+    // GPU process's main thread (`docs/hardware-notes.md`). The call layer always took a device
+    // that offers only the synchronous one.
+    const d = this.native as Partial<Pick<Device, 'createComputePipelineAsync'>> & Device;
     return handle(
-      await this.native.createComputePipelineAsync({
-        layout: this.#layout(desc.layouts),
-        compute: {
-          module: native(desc.module),
-          entryPoint: desc.entryPoint,
-          ...(desc.constants !== undefined ? { constants: desc.constants } : {}),
-        },
-      }),
+      typeof d.createComputePipelineAsync === 'function'
+        ? await d.createComputePipelineAsync(descriptor)
+        : d.createComputePipeline!(descriptor),
     );
   }
 
@@ -440,7 +452,12 @@ class WebGpuDevice implements RhiDevice {
 
   submit(encoders: readonly RhiCommandEncoder[]): Promise<void> {
     this.native.queue.submit(encoders.map((e) => (e as WebGpuEncoder).native.finish()));
-    return this.native.queue.onSubmittedWorkDone();
+    // A stand-in device may offer no `onSubmittedWorkDone`; a mapping of a buffer the work wrote
+    // still waits for the work.
+    const queue = this.native.queue as Partial<Queue>;
+    return typeof queue.onSubmittedWorkDone === 'function'
+      ? queue.onSubmittedWorkDone.call(this.native.queue)
+      : Promise.resolve();
   }
 
   pushValidationScope(): void {

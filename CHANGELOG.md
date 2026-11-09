@@ -204,6 +204,24 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   52,189 to 52,999 (+810) and `typeshade/random` 33,557 to 34,309 (+752), single file. Their split
   caps, the floors, `typeshade/emit` and `typeshade/fuse` do not change.
 
+- **The call layer's entry call runs through the program runtime** (change 0120, milestone M4,
+  part 2b). A call of a `@compute` entry outside a `fuse` scope (Rule 8.24) loads the entry as a
+  `Program` of a manifest the call layer makes from the entry's record, takes its compute
+  pipeline and records one dispatch: through `RuntimeImpl` on WebGPU and on the CPU tier, and
+  through the WebGL2 tier's `GlRuntimeImpl`, whose dispatch no longer leaves the call layer to
+  call `runGlCompute` itself. The tiers, their order, the results, the refusals and the console
+  lines do not change, and the API does not change. On the CPU tier each buffer holds the value
+  the code reads, not bytes, so an `f64` stays a double. A call that repeats its shapes makes no
+  object on the device after the first, on WebGPU and the CPU tier. A call in a `fuse` plan runs
+  as before. The render hardware interface's compute pass gains `dispatchWorkgroupsIndirect`
+  and buffers the `'indirect'` usage, with a conformance case; the WebGPU backend takes a device
+  with no `createComputePipelineAsync` or `onSubmittedWorkDone`, as the call layer did; the
+  program runtime's buffer pool gives its buffers back first in, first out, and a bind group
+  over a pooled buffer is keyed by the size it binds. The caps of `typeshade/runtime` in
+  `scripts/bundle-budget.json` take the measured gzip sizes, measured after `main` with change
+  0131: single file 159,268 to 159,626 (+358), split initial 41,242 to 41,557 (+315) and split
+  total 161,356 to 161,753 (+397). The floors and the other subpaths do not change.
+
 - **The design rules say what TypeShade borrows (change 0100).** `docs/language-design.md`
   now defines a `"use typeshade"` program by its own rules: a form borrowed from ECMAScript keeps
   ECMAScript's meaning, a form borrowed from WGSL keeps WGSL's, and a rule records each

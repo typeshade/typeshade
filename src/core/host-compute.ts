@@ -29,6 +29,7 @@ import {
   describe,
   flavored,
   isBuffer,
+  isGuard,
   madeReport,
   onCpu,
   onGpu,
@@ -56,6 +57,37 @@ import type { PlanRun } from './host-kernel.js';
 import type { GlComputeProgram } from './passes/gl-compute.js';
 import type { Tier } from './tiers.js';
 import { uploadImage } from './gl-image.js';
+
+/**
+ * How an entry call outside a `fuse` scope runs on each tier: as a program-runtime pipeline and
+ * pass (change 0120, D2), through `core/host-entry-program.ts`, which the host face installs here
+ * at its first call. This file holds only the slot, so `typeshade/fuse`, whose plan borrows this
+ * file (`entryHost`), reaches no program runtime (`scripts/bundle-boundary.ts`). A call in the
+ * plan of a scope runs as it did (`onGpu`, `onGl`, `onCpu`); the plans move in a later part of
+ * milestone M4.
+ */
+export interface EntryPrograms {
+  /** Dispatch on WebGPU and read each written binding back into the caller's value, a binding
+   *  in `checked.onDevice` bound as it is. */
+  gpu(d: GpuDevice, e: ComputeEntry, checked: Checked, wg: Workgroups): Promise<void>;
+  /** Dispatch the entry's pass program on WebGL2, and read each written binding back. */
+  gl(
+    gl: WebGL2RenderingContext,
+    e: ComputeEntry,
+    checked: Checked,
+    wg: readonly [number, number, number],
+  ): Promise<void>;
+  /** Run every invocation on the CPU tier, and read each written binding back. */
+  cpu(
+    cpu: GeneratedCpu,
+    e: ComputeEntry,
+    values: Record<string, unknown>,
+    wg: readonly [number, number, number],
+  ): Promise<void>;
+}
+
+/** The slot `core/host-entry-program.ts` fills. */
+export const entryPrograms: { run?: EntryPrograms } = {};
 
 function checkArity(e: ComputeEntry, argc: number): void {
   if (argc !== 2 && argc !== 3)
@@ -404,7 +436,8 @@ export async function runEntry(
           : wg;
       // The owner's flavor of the emulated double picks the WGSL and the guard (change 0073).
       const ge = flavored(e, owner.fp64Flavor(d));
-      if (run === undefined) return onGpu(d, ge, { ...checked, onDevice }, grid);
+      if (run === undefined)
+        return (entryPrograms.run?.gpu ?? onGpu)(d, ge, { ...checked, onDevice }, grid);
       run.tiers.add('webgpu');
       await run.batchOn(d).add(ge, { ...checked, onDevice }, grid);
       return;
@@ -416,6 +449,14 @@ export async function runEntry(
       const grid = await gridOf(wg, owner, run);
       if (grid === undefined) return;
       await hostCopies(states, checked.values, run);
+      // The program runtime's WebGL2 dispatch binds a `_fp64` guard of its own by that name, so an
+      // authored binding of that name runs as it did (change 0125).
+      if (
+        run === undefined &&
+        entryPrograms.run !== undefined &&
+        !e.bindings.some((b) => b.name === '_fp64' && !isGuard(b))
+      )
+        return entryPrograms.run.gl(gl, e, checked, grid);
       const passes = await onGl(gl, e, e.gl!, checked, grid);
       if (run !== undefined) recordDispatches(run.counts, run.group, passes);
       return;
@@ -427,6 +468,8 @@ export async function runEntry(
     await hostCopies(states, checked.values, run);
     if (e.overrideValues !== undefined) checkEntryLimits(e);
     const selected = cpuSpecialization(cpu, e);
+    if (run === undefined && entryPrograms.run !== undefined)
+      return entryPrograms.run.cpu(selected.cpu, selected.entry, checked.values, grid);
     onCpu(selected.cpu, selected.entry, checked.values, grid);
     return;
   }

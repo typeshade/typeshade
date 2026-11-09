@@ -66,3 +66,28 @@ and every person reads this file before any other document of this repository.
 - What it means: before the owner decides on a proposal or a merge, the agent shows what the
   change does, with one example before and after, and the options with their costs.
   `CLAUDE.md` (Merging) carries the procedure.
+
+### OD-5. A parameter qualifier is written before the parameter, `@inout` or `@out`; an entry's I/O stays in the type
+
+- Date: 2026-11-09.
+- The owner's words: "inout, in, out 이런건 지금 앞에 따로 쓰는데 왜 타입으로 바꿔야해?". Asked
+  which form holds for a parameter qualifier, the owner chose the form written before the
+  parameter (`@inout a: f32`). Asked the same for an entry's I/O fields, the owner chose to keep
+  the type form (`pos: builtin<"position", vec4>`, `uv: location<0, vec2>`).
+- What it means:
+  - A parameter that the function writes back to its caller is written `@inout a: f32` or
+    `@out c: f32`. The type form `inout<T>` and `out<T>` of change 0111 D5 is not the
+    language's form. Change 0111 D5 moved the qualifier into the type only so that a plain
+    `tsc` accepts the file, which OD-1 rejects.
+  - `in` is not written: every parameter is passed by value unless it carries `@inout` or
+    `@out`.
+  - An entry's built-in values and inter-stage values stay in the type: `builtin<…>` and
+    `location<…>`.
+  - Scope, decided 2026-11-09: asked whether OD-5 also requires every inter-stage value to write
+    `location<…>`, the owner chose "생략 허용 (A)". OD-5 chooses the type form over the decorated
+    form. It does not require an attribute where the compiler can supply one: an input or output
+    with no attribute (`uv: vec2`) is allowed, and `location<n, T>` stays for a fixed number or an
+    option.
+  - Change 0130 adds a rule after Rule 1.7 that says a construct that describes a value that
+    flows in or out, a parameter included, is part of its type. For a parameter qualifier this
+    entry holds, and that rule text is fixed in its own pull request.
