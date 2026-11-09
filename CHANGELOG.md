@@ -11,7 +11,9 @@ A released version is headed `## [X.Y.Z] - YYYY-MM-DD`.
 This file starts where TypeShade was separated from the X-GIS monorepo. Everything before that
 — the IR, the three backends, the pass pipeline, and the breaking changes that shaped them — is
 in [`docs/HISTORY.md`](docs/HISTORY.md), kept as its generator produced it. Nothing in this
-repository was published to npm before **`0.1.0`, the first release**.
+repository is an official release yet: the `typeshade` package on npm holds only the placeholder
+`0.0.0`, and the `## [0.1.0]` heading below marks a test build, not a release
+(`docs/owner-decisions.md` OD-6; Rule 13.9 defines an official release).
 
 ## [Unreleased]
 
@@ -85,8 +87,8 @@ repository was published to npm before **`0.1.0`, the first release**.
   call, the classes `finite-math` and `reassociate`, `TS8078` (retired, never reused),
   `FuncDecl.numerics`, the exported type `NumericsClass` and the determinism report's `contract`
   rows are gone, with the passes that served them; §9.3 loses its `contracts | numerics` row. No
-  published version had the construct (it landed after `0.1.0`), so no migration release follows
-  (Rules 13.9 and 13.10 bind a published version). Rule 11.22 now says that no source construct
+  official release had the construct, so no migration release follows (Rules 13.9 and 13.10 bind
+  an official release; OD-6). Rule 11.22 now says that no source construct
   opts a function into a floating-point rewrite, and that the optimizer applies a rewrite a NaN,
   an infinity or the sign of a zero can observe only where it proves the rewrite exact. A
   leftover `numerics(...)` is `TS8004` in both halves; `workgroup_size` takes no options, and a
@@ -1695,8 +1697,8 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   3.00). A call the rewrite cannot reach keeps `TS8052`, which now names the reason and no
   longer offers the filter. Delete a written filter, or run `tshc migrate`, which deletes it: a
   leftover `{ diagnostic: [...] }` or `@diagnostic(…)` is `TS8028`, an error, in the compiler and
-  in the editor. No published version had the filter, so no warning release precedes the
-  refusal (Rules 13.9 and 13.10 bind a published version). `CompileTsSourceResult.directives` is
+  in the editor. No official release had the filter, so no warning release precedes the
+  refusal (Rules 13.9 and 13.10 bind an official release; OD-6). `CompileTsSourceResult.directives` is
   removed, and the `"use typeshade"` front end emits no `diagnostic(...)` directive;
   `ModuleDecl.diagnostics` stays for the IR builder. The WGSL `@diagnostic` attribute row and the
   `diagnostic` keyword row of `docs/capability-coverage.md` are `refused` with Rule 1.4. The
@@ -2827,6 +2829,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   the centre. `examples/README.md` documents the `vec2` pointer contract.
 
 ## [0.1.0] - 2026-09-29
+
+A test build, not an official release: no `typeshade@0.1.0` was published to npm
+(`docs/owner-decisions.md` OD-6, Rule 13.9). The heading keeps the date the entries below were
+recorded.
 
 ### Changed
 
