@@ -17,6 +17,7 @@ import { compile as compileTs } from '../compiler/ts/compile.js';
 import { packModule } from '../compiler/ts/pack.js';
 import { createRuntime, type RenderPass } from './runtime.js';
 import { GlDrawing, GlPass, GlTextureImpl, recordPass } from './gl-draw.js';
+import { webgl2Device } from '../rhi/webgl2.js';
 
 const COLOR_ATTACHMENT0 = 0x8ce0;
 const MAX_COLOR_ATTACHMENTS = 0x8cdf;
@@ -333,8 +334,8 @@ export const fs = fragment(function fs(): vec4 { return ${fragment}; });
 describe('a WebGL2 pass and MAX_COLOR_ATTACHMENTS', () => {
   it('detaches only the attachments the context has, and leaves getError() clean', async () => {
     const { gl, attached } = fakeGl(4);
-    const d = new GlDrawing(gl);
-    expect(d.maxColorAttachments).toBe(4);
+    // The backend reads MAX_COLOR_ATTACHMENTS once (src/rhi/webgl2.ts); the detaches below are 0 to 3.
+    const d = new GlDrawing(webgl2Device(gl));
     await recordPass(d, {}, () => undefined)();
     expect(gl.getError()).toBe(0);
     expect(attached).toEqual([0, 1, 2, 3]);
@@ -351,7 +352,7 @@ describe('a WebGL2 pass and MAX_COLOR_ATTACHMENTS', () => {
 describe('the WebGL2 pass procedure (proposal 0064, PR-1)', () => {
   it('runs the pass procedure in the order the proposal gives, with the recorded steps in the middle', async () => {
     const { gl, calls } = fakeGl(4);
-    const d = new GlDrawing(gl);
+    const d = new GlDrawing(webgl2Device(gl));
     const colour = new GlTextureImpl(d, { size: [16, 12], format: 'rgba8unorm' });
     const depth = new GlTextureImpl(d, { size: [16, 12], format: 'depth24plus-stencil8' });
     const run = recordPass(d, { color: [colour], depth }, (p) => {
@@ -397,7 +398,7 @@ describe('the WebGL2 pass procedure (proposal 0064, PR-1)', () => {
 
   it('gives each pass the host state at its start and no state of the pass before it', async () => {
     const { gl, calls } = fakeGl(4);
-    const d = new GlDrawing(gl);
+    const d = new GlDrawing(webgl2Device(gl));
     const colour = new GlTextureImpl(d, { size: [16, 12], format: 'rgba8unorm' });
     const runPass = async (record: Parameters<typeof recordPass>[2]): Promise<string[]> => {
       calls.length = 0;
@@ -424,7 +425,7 @@ describe('the WebGL2 pass procedure (proposal 0064, PR-1)', () => {
 
   it('turns a canvas target over, and takes the scissor off before each blit, so a scissor does not clip it', async () => {
     const { gl, calls } = fakeGl(4);
-    const d = new GlDrawing(gl);
+    const d = new GlDrawing(webgl2Device(gl));
     const run = recordPass(d, { color: [{ target: gl, load: 'load' }] }, () => undefined);
     calls.length = 0;
     await run();
@@ -440,7 +441,7 @@ describe('the WebGL2 pass procedure (proposal 0064, PR-1)', () => {
 
   it('clips a scissor to the target, passes it through when it fits, and keeps its y as the texture row', async () => {
     const { gl, calls } = fakeGl(4);
-    const d = new GlDrawing(gl);
+    const d = new GlDrawing(webgl2Device(gl));
     const colour = new GlTextureImpl(d, { size: [16, 12], format: 'rgba8unorm' });
     const scissorOf = async (x: number, y: number, w: number, h: number): Promise<string[]> => {
       calls.length = 0;
@@ -1390,7 +1391,7 @@ export const fs = fragment(function fs(v: VsOut): Color { return { c: textureLoa
     'The WebGL2 tier cannot sample the depth attachment of the pass that writes it; sample it in a later pass.';
   const env = () => {
     const { gl, calls } = fakeGl(4);
-    const d = new GlDrawing(gl);
+    const d = new GlDrawing(webgl2Device(gl));
     const tex = (format: string) => new GlTextureImpl(d, { size: [16, 12], format });
     return { gl, calls, d, tex };
   };
@@ -1678,13 +1679,15 @@ export const fs = fragment(function fs(v: VsOut): Color { return { c: textureLoa
     const e = env();
     const D = e.tex('depth24plus');
     const raw = D.texture as WebGLTexture;
+    // The pass compares the device's handles of the textures (src/rhi/webgl2.ts).
+    const handle = (t: object) => e.d.rhi.fromNative('texture', t)!;
     await recordPass(e.d, { depth: D } as never, (p) => {
       const pass = p as GlPass;
-      expect(pass.readsOwnDepth(D, raw)).toBe(true);
-      expect(pass.readsOwnDepth(raw, raw)).toBe(true);
-      expect(
-        pass.readsOwnDepth(e.tex('depth24plus'), e.tex('depth24plus').texture as WebGLTexture),
-      ).toBe(false);
+      expect(pass.readsOwnDepth(D, handle(raw))).toBe(true);
+      expect(pass.readsOwnDepth(raw, handle(raw))).toBe(true);
+      expect(pass.readsOwnDepth(e.tex('depth24plus'), handle(e.tex('depth24plus').texture))).toBe(
+        false,
+      );
     })();
   });
 
@@ -1909,7 +1912,7 @@ export const fs = fragment(function fs(v: VsOut): Color { return { c: textureLoa
 describe('the WebGL2 context after a pass (proposal 0064, PR-1, O10 unit leg)', () => {
   it('leaves no error on the context after a pass that sets every PR-1 call', async () => {
     const { gl } = fakeGl(4);
-    const d = new GlDrawing(gl);
+    const d = new GlDrawing(webgl2Device(gl));
     const colour = new GlTextureImpl(d, { size: [16, 12], format: 'rgba8unorm' });
     await recordPass(d, { color: [colour] }, (p) => {
       p.setViewport(3, 2, 8, 6, 0.25, 0.75);
