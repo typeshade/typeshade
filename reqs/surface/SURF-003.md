@@ -3,6 +3,7 @@ active: true
 derived: false
 level: 3
 links:
+- RULE-0108: DTqTv3GkOlZwue7-aaw03mDFm9fX5lyLFvft5uwJodY=
 - RULE-0606: nfS5gw_7TvuoHTZQ6gSkpAKywJjGThS1mWGlFSsySnM=
 - RULE-0801: 0_hSnbk6jP4XMkd70axBV-MaR4j6YAkRflge4_w6kRQ=
 - RULE-0802: WK2UrloI1kt3Um3fUlRk9YPrXsU-RW41nqtipEHbAMw=
@@ -14,10 +15,10 @@ links:
 - RULE-1207: -5zmDylMuYrkLS3PqZL8I1PjjR-jIqAPGb3BPmfL-Lo=
 normative: true
 ref: ''
-reviewed: fyz-1I8QQlNRaiRS1nPKvP7UMe90VTDem2_Tl6Uht1E=
+reviewed: s2dYM5YqZZ0Rn2-weRXI669GfFUROpfUkz8lL-3Vb50=
 source: docs/use-typeshade-surface.md §3
 ---
 
-# Entries — stage calls and explicit builtins
+# Entries — stage attributes and explicit builtins
 
-docs/use-typeshade-surface.md §3, "Entries — stage calls and explicit builtins": the surface section that explains Rule 6.6, Rule 8.1, Rule 8.2, Rule 8.5, Rule 8.7, Rule 8.19, Rule 8.22, Rule 12.6, Rule 12.7.
+docs/use-typeshade-surface.md §3, "Entries — stage attributes and explicit builtins": the surface section that explains Rule 1.8, Rule 6.6, Rule 8.1, Rule 8.2, Rule 8.5, Rule 8.7, Rule 8.19, Rule 8.22, Rule 12.6, Rule 12.7.

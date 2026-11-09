@@ -10,11 +10,11 @@ same way.
 You write a shader as an ordinary TypeScript file whose first statement is the directive
 `"use typeshade"`. The file uses TypeScript's own syntax: `function`, `const` and `let`,
 `if`, `for`, `class`, operators and literals. The types are the GPU's: `f32`, `u32`, `vec3`,
-`mat4`, `array<f32, 16>`. A stage call such as `fragment(f)` marks the function the GPU calls.
+`mat4`, `array<f32, 16>`. A stage attribute such as `@fragment` marks the function the GPU calls.
 A wrong type or a misspelt field is an error in your editor, at the line you wrote.
 
-Three places carry the structure. A top-level `export const` initialized by a stage call
-(`vertex(f)`, `fragment(f)` or `compute([64], f)`) is an entry point: the function the GPU calls, once
+Three places carry the structure. A top-level function declaration with a stage attribute
+before it (`@vertex`, `@fragment` or `@compute([64])`) is an entry point: the function the GPU calls, once
 per vertex, per fragment or per compute invocation. Every other function is a helper it
 calls. A `declare const` with a type such as `uniform<T>` or `storage<T>` is a resource the
 host binds. A `class`, an `interface` or a `type` alias is a struct.
@@ -176,10 +176,10 @@ is a multiply and a subtract.
 
 An _entry point_ is a function the GPU calls directly: once per vertex, once per fragment,
 or once per compute invocation. This page uses the first two. You mark one with a stage
-call that wraps the function, `vertex(f)`, `fragment(f)` or `compute([64], f)`, and give it a
-top-level `export const`: `export const vs = vertex(function vs(…) { … });`. Every other
-function you write is a plain helper. The stage attribute, `@vertex export function vs(…)`,
-compiles to the same program (change 0130), and `tshc migrate` rewrites a stage call to it.
+attribute before a top-level function declaration, `@vertex`, `@fragment` or `@compute([64])`:
+`@vertex export function vs(…) { … }`. Every other function you write is a plain helper. The
+stage call of change 0111, `export const vs = vertex(function vs(…) { … });`, is not the
+language's form (change 0130). `tshc migrate` rewrites it to the attribute.
 
 The vertex stage runs once per vertex. It produces the clip space position and whatever
 the fragment stage needs from it, packed in an _IO struct_: an interface (or a class or a `type`) whose fields each carry
@@ -202,11 +202,12 @@ derives their positions from the vertex index alone. A stage input is an ordinar
 parameter with the same attribute:
 
 ```ts
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-});
+}
 ```
 
 `vi` is a `u32`, and `f32(vi & 1)` converts it. A number written without a decimal point
@@ -221,10 +222,11 @@ output as a parameter, so the fields declared on `VsOut` are what it reads: `vo.
 `vec2` with `.x` and `.y` on it.
 
 ```ts
-export const fs = fragment(function fs(vo: VsOut): vec4 {
+@fragment
+export function fs(vo: VsOut): vec4 {
   const shade = 1. - vo.uv.y;
   return vec4(vo.uv.x, shade, 0.5, 1.);
-});
+}
 ```
 
 A bare fragment return goes to location 0, the first colour attachment, so nothing
@@ -243,16 +245,18 @@ interface VsOut {
   uv: location<0, vec2>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-});
+}
 
-export const fs = fragment(function fs(vo: VsOut): vec4 {
+@fragment
+export function fs(vo: VsOut): vec4 {
   const shade = 1. - vo.uv.y;
   return vec4(vo.uv.x, shade, 0.5, 1.);
-});
+}
 ```
 
 A file that imports another shader file is one module with it:
@@ -653,12 +657,12 @@ function as a parameter, which every call names where it is in scope
 
 ### Entry points
 
-An entry point is a top-level `export const` initialized by a stage call that wraps its
-function: `vertex(f)`, `fragment(f)` or `compute([…], f)`. The function is a function
-expression with the constant's name, or an arrow function. A compute entry takes its workgroup
-size as the first argument, `compute([64], f)` or `compute([8, 8], f)`. The decorated form of
-earlier releases (`@compute([64]) export function main(…)`) stays accepted until the release
-after the migration release.
+An entry point is a top-level function declaration with exactly one stage attribute written
+before it: `@vertex`, `@fragment` or `@compute([…])`. An entry takes its declaration's name. A
+compute entry takes its workgroup size as the attribute's argument, `@compute([64])` or
+`@compute([8, 8])`. A bare `@compute` takes the default of 64. The stage call of change 0111
+(`export const main = compute([64], function main(…) { … })`) is not the language's form
+(change 0130). Change 0140 refuses it, and `tshc migrate` rewrites it to the attribute.
 
 ```ts
 "use typeshade";
@@ -669,7 +673,8 @@ declare const params: uniform<vec4u>;
 declare const input: storage<array<f32>>;
 declare const output: storage<array<f32>, "read_write">;
 
-export const reduceWindows = compute([64], function reduceWindows(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64])
+export function reduceWindows(gid: builtin<"global_invocation_id", vec3u>): void {
   const idx = gid.x;
   if (idx >= params.x) {
     return;
@@ -680,7 +685,7 @@ export const reduceWindows = compute([64], function reduceWindows(gid: builtin<"
     acc += input[base + k];
   }
   output[idx] = acc;
-});
+}
 ```
 
 The guard leaves the function before its last statement with a plain `return`.
@@ -692,7 +697,7 @@ shape and pass it through `program.compute(entry, { constants })`, or through an
 entry's optional third argument, `entry(bindings, groups, { constants })`. A program pipeline
 reports the resolved `pipeline.workgroupShape`. Entry calls, including calls in `device.fuse()`,
 use the selected shape without changing the supplied workgroup count. See
-[`docs/use-typeshade-surface.md` §3](docs/use-typeshade-surface.md#3-entries--stage-calls-and-explicit-builtins),
+[`docs/use-typeshade-surface.md` §3](docs/use-typeshade-surface.md#3-entries--stage-attributes-and-explicit-builtins),
 [`§15`](docs/use-typeshade-surface.md#15-textures-samplers-and-overrides),
 [`§24`](docs/use-typeshade-surface.md#24-module-variables) and
 [`§69`](docs/use-typeshade-surface.md#69-running-a-compiled-program) for the source form,
@@ -724,7 +729,8 @@ interface Gradient {
 
 declare const u: uniform<Gradient>;
 
-export const vsFull = vertex(function vsFull(idx: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vsFull(idx: builtin<"vertex_index", u32>): VsOut {
   let pos = vec2(-1., -1.);
   if (idx == 1) {
     pos = vec2(3., -1.);
@@ -732,13 +738,14 @@ export const vsFull = vertex(function vsFull(idx: builtin<"vertex_index", u32>):
     pos = vec2(-1., 3.);
   }
   return { pos: vec4(pos, 0., 1.), uv: vec2((pos.x + 1.) * 0.5, (pos.y + 1.) * 0.5) };
-});
+}
 
-export const fsGradient = fragment(function fsGradient(vo: VsOut): vec4 {
+@fragment
+export function fsGradient(vo: VsOut): vec4 {
   const t = vo.uv.y + u.mixBias;
   const rgb = mix(u.bottom.rgb, u.top.rgb, t);
   return vec4(rgb, 1.);
-});
+}
 ```
 
 A fragment entry that returns a plain value gets location 0, the first colour
@@ -773,9 +780,10 @@ export function hash(p: vec2): f32 {
 
 import { hash } from "./noise.shade.ts";
 
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment
+export function fs(uv: location<0, vec2>): vec4 {
   return vec4(hash(uv), hash(uv * 2.), 0., 1.);
-});
+}
 ```
 
 [A shader module that imports another](#a-shader-module-that-imports-another) has the host
@@ -860,7 +868,8 @@ belongs in a fragment stage.
 
 declare const dists: storage<array<f32>>;
 
-export const fs = fragment(function fs(alpha: location<0, f32>, count: location<1, u32, { interpolate: "flat" }>): vec4 {
+@fragment
+export function fs(alpha: location<0, f32>, count: location<1, u32, { interpolate: "flat" }>): vec4 {
   let nearest = 1e10;
   for (let i: u32 = 0; i < count; i++) {
     const d = dists[i];
@@ -876,7 +885,7 @@ export const fs = fragment(function fs(alpha: location<0, f32>, count: location<
     discard;
   }
   return vec4(nearest, 0., 0., alpha);
-});
+}
 ```
 
 `discard` is allowed in a fragment entry, and in a helper as long as no vertex or compute
@@ -1011,9 +1020,9 @@ the line that reads it.
 
 An IO struct is a group of fields that crosses a stage boundary: a vertex stage returns
 it and a fragment stage takes it as a parameter. It is an `interface`, a `class` or a
-`type`, and every field carries a stage attribute in its type. A `class` field with no
-initializer takes `!` (`pos!: builtin<"position", vec4>`), which a plain `tsc --strict`
-requires. `builtin<"id", T>` declares a value the hardware supplies, and takes a WGSL builtin
+`type`, and every field carries a stage attribute in its type. A `class` field needs no
+initializer and no `!` (`pos: builtin<"position", vec4>`): the stage that produces the field
+fills it. `builtin<"id", T>` declares a value the hardware supplies, and takes a WGSL builtin
 id such as `"position"` or `"vertex_index"`; an id WGSL does not define is an error.
 `location<n, T>` declares a numbered slot, with an optional third type argument
 `{ interpolate: "flat" }`, `{ interpolate: "linear" }` or `{ interpolate: "perspective" }`.
@@ -1039,18 +1048,20 @@ interface VsOut {
 
 // A vertex entry returns the struct. The object literal takes the declared struct,
 // so a missing or extra field is an error.
-export const vsMain = vertex(function vsMain(v: VsIn, inst: builtin<"instance_index", u32>): VsOut {
+@vertex
+export function vsMain(v: VsIn, inst: builtin<"instance_index", u32>): VsOut {
   const pos = vec4(v.xy, 0., 1.);
   return { pos: pos, uv: v.uv, vis: 1., id: inst };
-});
+}
 
 // Read fields off a parameter declared with the struct.
-export const fsMain = fragment(function fsMain(input: VsOut): vec4 {
+@fragment
+export function fsMain(input: VsOut): vec4 {
   if (input.vis < 0.) {
     discard;
   }
   return vec4(input.uv, f32(input.id), 1.);
-});
+}
 ```
 
 A vertex entry's `location<n, T>` inputs are vertex attributes, loose parameters or the fields of
@@ -1076,10 +1087,11 @@ interface Uniforms {
 
 declare const u: uniform<Uniforms>;
 
-export const vs = vertex(function vs(pos: location<0, vec3>): vec4 {
+@vertex
+export function vs(pos: location<0, vec3>): vec4 {
   const opacity = u.rasterParams.x;
   return u.mvp * vec4(pos, opacity);
-});
+}
 ```
 
 The slot is the declaration's place in the file: each `declare const` takes the next binding
@@ -1102,14 +1114,14 @@ type of a storage buffer, or a struct nested inside another one. Write it as a `
 "use typeshade";
 
 class ShapeSegment {
-  kind!: u32;
-  colorIdx!: u32;
-  flags!: u32;
-  pad!: u32;
-  p0!: vec2;
-  p1!: vec2;
-  p2!: vec2;
-  p3!: vec2;
+  kind: u32;
+  colorIdx: u32;
+  flags: u32;
+  pad: u32;
+  p0: vec2;
+  p1: vec2;
+  p2: vec2;
+  p3: vec2;
 }
 
 declare const segments: storage<array<ShapeSegment>>;
@@ -1137,9 +1149,10 @@ one. Index the array as you index any array:
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
 
-export const twice = compute([64, 1, 1], function twice(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1])
+export function twice(gid: builtin<"global_invocation_id", vec3u>): void {
   dst[gid.x] = src[gid.x] * 2.0;
-});
+}
 ```
 
 The two declarations emit `var<storage, read> src: array<f32>;` and
@@ -1178,12 +1191,13 @@ like any other resource.
 declare const tex: texture_2d<f32>;
 declare const texSampler: sampler;
 
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment
+export function fs(uv: location<0, vec2>): vec4 {
   const c = textureSample(tex, texSampler, uv); // fragment only
   const cv = textureSampleLevel(tex, texSampler, uv, 0.); // any stage
   const size = textureDimensions(tex); // vec2u, the extent in texels
   return c + cv * f32(size.x);
-});
+}
 ```
 
 `textureSample` takes its mip level from screen-space derivatives, which only a fragment
@@ -1225,7 +1239,8 @@ declare const atlas: texture_2d_array<f32>;
 declare const atlasSampler: sampler;
 declare const ids: texture_2d<u32>;
 
-export const fs = fragment(function fs(p: builtin<"position", vec4>, uv: location<0, vec2>): vec4 {
+@fragment
+export function fs(p: builtin<"position", vec4>, uv: location<0, vec2>): vec4 {
   const layer: i32 = 2;
   const a = textureSample(atlas, atlasSampler, uv, layer); // implicit LOD, fragment only
   const b = textureSampleLevel(atlas, atlasSampler, uv, layer, 0.); // explicit LOD, any stage
@@ -1234,7 +1249,7 @@ export const fs = fragment(function fs(p: builtin<"position", vec4>, uv: locatio
   const id = textureLoad(ids, vec2i(p.xy), 0); // vec4u
   const size = textureDimensions(ids); // vec2u, as for any other texture
   return a + b + c + vec4(f32(n), f32(id.x), f32(size.x), 1.);
-});
+}
 ```
 
 `reflect()` reports each texture binding's dimension and element, which is what a host needs
@@ -1272,13 +1287,15 @@ interface VsOut {
   uv: location<0, vec2>;
 }
 
-export const vs = vertex(function vs(xy: location<0, vec2>): VsOut {
+@vertex
+export function vs(xy: location<0, vec2>): VsOut {
   return { pos: vec4(xy, 0., 1.), uv: xy * 0.5 + 0.5 };
-});
+}
 
-export const fs = fragment(function fs(vo: VsOut): vec4 {
+@fragment
+export function fs(vo: VsOut): vec4 {
   return u.tint * (0.5 + 0.5 * sin(u.time + vo.uv.x));
-});
+}
 ```
 
 ### Emitting WGSL
@@ -1623,9 +1640,10 @@ call is stubbed.
 declare const tex: texture_2d<f32>;
 declare const smp: sampler;
 
-export const shade = fragment(function shade(uv: location<0, vec2>): vec4 {
+@fragment
+export function shade(uv: location<0, vec2>): vec4 {
   return textureSample(tex, smp, uv);
-});
+}
 ```
 
 ```ts
@@ -1765,7 +1783,7 @@ It has no generated `typeshade/shade` declaration, and its CLI and Vite plugin c
 Initialization does not remove those limits; see [installation](./README.md#getting-started).
 The command preserves unrelated settings and JSONC comments and refuses conflicts before writing.
 Repeated initialization changes no file. Manual setup and `tshc sync` remain supported.
-Shader checks use the shared `tshc check` diagnostics; ordinary `tsc` accepts the entry forms (stage calls and attribute types), but not vector arithmetic, which TypeScript has no operator overloading for.
+Shader checks use the shared `tshc check` diagnostics; ordinary `tsc` reports TS1206 on each stage attribute and on vector arithmetic, which TypeScript has no operator overloading for, so `tshc check` and the editor are the checks of a shader file.
 The surface reference describes setup and host values: `docs/use-typeshade-surface.md` §64.
 
 ### A loop over an array
@@ -1781,7 +1799,7 @@ a grid written as two nested loops is one invocation per row. When each cell sho
 invocation, write the grid as one flat loop, `for (let i: u32 = 0; i < w * h; i++)`, and take
 `x = i % w` and `y = i / w` from the index.
 
-A kernel function may set the workgroup size of its loops with a stage call, `export const k = workgroup_size([128], function k(xs: array<f32>) { … })`, one whole number in the array, as `compute([128], f)` sets an entry's (`docs/use-typeshade-surface.md` §3 and §65). A loop that reduces always runs in workgroups of 256, so a reduction in such a function is refused with `TS8077`: move the reduction into a function of its own.
+The compiler chooses the workgroup size of a kernel function's loops. A kernel function may state it with the optional attribute `@workgroup_size([128])`, `@workgroup_size([128]) export function k(xs: array<f32>) { … }`, one whole number in the array, as `@compute([128])` sets an entry's (`docs/use-typeshade-surface.md` §3 and §65). A loop that reduces always runs in workgroups of 256, so a reduction in such a function is refused with `TS8077`: move the reduction into a function of its own.
 
 A kernel function may also take a texture (`docs/use-typeshade-surface.md` §65): a
 `texture_2d<f32>` it reads with `textureLoad`, and a 2D storage texture, `texture_storage_2d<F, A>`,
@@ -1971,7 +1989,7 @@ change the caller's variable, write `@inout` before the parameter, `@inout a: f3
 writes its qualifier, and pass the variable itself. Inside the function the parameter is the
 caller's variable: read it, assign to it, and reach its fields as you would reach `this` in a
 method. A parameter the function only writes is `@out c: f32`: it starts with no value, so write
-it before reading it, and on every path. A local that such a call fills first is declared `let s!: f32;`. The type form of
+it before reading it, and on every path. A local that such a call fills first is declared with no value and no `!`, `let s: f32;`. The type form of
 change 0111, `a: inout<f32>`, is refused (`TS8028`), and `tshc migrate` rewrites it to
 `@inout a: f32`.
 
@@ -1979,8 +1997,8 @@ change 0111, `a: inout<f32>`, is refused (`TS8028`), and `tshc migrate` rewrites
 "use typeshade";
 
 class Ray {
-  origin!: vec3;
-  dir!: vec3;
+  origin: vec3;
+  dir: vec3;
 }
 
 function swap(@inout a: f32, @inout b: f32): void {
@@ -2001,7 +2019,7 @@ export function demo(): f32 {
   let x: f32 = 1.;
   let y: f32 = 2.;
   swap(x, y); // x is 2. and y is 1.
-  let s!: f32;
+  let s: f32;
   add(x, y, s); // s is 3.
   let r = new Ray();
   r.dir = vec3(1., 0., 0.);
@@ -2216,9 +2234,10 @@ export function shadeHeight(h: f32): vec4 {
 
 import { shadeHeight } from "./terrain.shade.ts";
 
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment
+export function fs(uv: location<0, vec2>): vec4 {
   return shadeHeight(0.);
-});
+}
 
 // terrain-dem.shade.ts
 "use typeshade";
@@ -2228,9 +2247,10 @@ import { shadeHeight } from "./terrain.shade.ts";
 declare const dem: texture_2d<f32>;
 declare const demSampler: sampler;
 
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment
+export function fs(uv: location<0, vec2>): vec4 {
   return shadeHeight(textureSample(dem, demSampler, uv).x);
-});
+}
 ```
 
 The host picks the file:
@@ -2275,9 +2295,10 @@ export function shade(base: f32): f32 {
   return acc;
 }
 
-export const fs = fragment(function fs(v: location<0, f32>): vec4 {
+@fragment
+export function fs(v: location<0, f32>): vec4 {
   return vec4(shade(v), 0., 0., 1.);
-});
+}
 ```
 
 WGSL emits `override quality: f32 = 1.0;` and the host pins it through the pipeline's
@@ -2367,8 +2388,9 @@ kind one target lacks. An extension no use derives is turned on by a string dire
 "use typeshade";
 "enable subgroups";
 
-export const k = compute([64], function k(gid: builtin<"global_invocation_id", vec3u>) {
-});
+@compute([64])
+export function k(gid: builtin<"global_invocation_id", vec3u>) {
+}
 ```
 
 The vocabulary is fixed and target-neutral, so a raw `EXT_*` or `OVR_*` string never appears
@@ -2560,13 +2582,14 @@ per pass into a texture, which the compiler writes and the manifest carries
 declare const field: storage<array<f32>>;
 declare const outColor: storage<array<u32>, "read_write">;
 
-export const evalField = compute([64], function evalField(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64])
+export function evalField(gid: builtin<"global_invocation_id", vec3u>): void {
   const i = gid.x;
   if (i >= field.length) {
     return;
   }
   outColor[i] = pack4x8unorm(vec4(field[i], 0., 0., 1.));
-});
+}
 ```
 
 ```ts
@@ -2616,7 +2639,7 @@ usually changes only in its signature.
 "use typeshade";
 
 class Uniforms {
-  origin!: f64; // one vec2<f32> slot: the host writes splitF64(value)
+  origin: f64; // one vec2<f32> slot: the host writes splitF64(value)
 }
 
 declare const u: uniform<Uniforms>;
@@ -2749,7 +2772,7 @@ componentwise work runs once for the whole vector.
 "use typeshade";
 
 class P {
-  center!: vec2f64;
+  center: vec2f64;
 }
 
 declare const p: uniform<P>;
@@ -2933,13 +2956,15 @@ function terrainShade(uv: vec2): vec4 {
   return vec4(h, h * 0.5, 0.25, 1.) * u.tint;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): vec4 {
   return vec4(f32(vi & 1) * 4. - 1., f32(vi >> 1) * 4. - 1., 0., 1.);
-});
+}
 
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment
+export function fs(p: builtin<"position", vec4>): vec4 {
   return terrainShade(p.xy * 0.01);
-});
+}
 ```
 
 ### The plugin bag
@@ -3183,9 +3208,10 @@ interface Camera {
 // uniform Camera { mat4 u_matrix; vec2 u_viewport_px; } u_camera;
 declare const u_camera: uniform<Camera>;
 
-export const vs = vertex(function vs(pos: location<0, vec2>): vec4 {
+@vertex
+export function vs(pos: location<0, vec2>): vec4 {
   return u_camera.u_matrix * vec4(pos / u_camera.u_viewport_px, 0., 1.);
-});
+}
 ```
 
 ### Builtin values
@@ -3216,9 +3242,10 @@ interface FragOut {
   depth: builtin<"frag_depth", f32>;
 }
 
-export const fsCoord = fragment(function fsCoord(pos: builtin<"position", vec4>): FragOut {
+@fragment
+export function fsCoord(pos: builtin<"position", vec4>): FragOut {
   return { color: vec4(pos.x * 0.001, pos.y * 0.001, 0., 1.), depth: 0.5 };
-});
+}
 ```
 
 ### Targeting WebGL2 only
