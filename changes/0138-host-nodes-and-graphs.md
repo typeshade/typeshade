@@ -27,7 +27,6 @@ exports:
   - uniform
   - texture
   - show
-  - device
   - node
   - inspect
   - fuse
@@ -35,7 +34,9 @@ exports:
   - Texture
   - Uniform
   - Node
-exports-removed: []
+exports-removed:
+  - resident
+  - configure
 codes: []
 examples: []
 names: []
@@ -133,7 +134,7 @@ host what it means in TypeScript.** The host learns five concepts and four layer
   (`docs/dx.md` principle 3).
 - **R3. Data decides the device.** A resource belongs to one device. A node runs on the device
   of its input resources. With plain JavaScript values alone it runs on the default device. A
-  call that mixes devices is a `TypeError`. `using _ = device('cpu')` (ECMAScript explicit
+  call that mixes devices is a `TypeError`. `using _ = (await createDevice({ prefer: ['cpu'] })).use()` (ECMAScript explicit
   resource management) sets the default device for a block. An exported binding (R10) belongs to
   no one device: its value lies once in the region of R17, and each device that runs a node that
   reads it uploads the same dirty range.
@@ -571,6 +572,33 @@ halves of each host form tested on the same source (`compile()` and the language
 CLAUDE.md "A test reads both halves"); the user journeys on WebGPU, WebGL2 and the CPU tier;
 the planner's reports for the graphs of the examples; the bundle sizes; the document
 validation; each deviation with its disposition; and the pending work.
+
+## Amendments
+
+An amendment changes the accepted text. Its pull request is proposal-only, and its merge is its
+acceptance. Git holds the earlier text. The decided text stays in place, and an amendment record
+sits under it.
+
+### A1. The answers to Q8, Q9 and Q13 before milestone 1 (2026-11-09)
+
+- [decision, owner, 2026-11-09] Q8, the device names: "createDevice 하나". A device is opened
+  only by `createDevice()`. A block's default device is `using _ = device.use()`. `device()` is
+  withdrawn from the exports, and `configure()` is deprecated and then removed.
+- [decision, owner, 2026-11-09] Q8, the data names: "resident를 대체". `resident(xs)` is replaced
+  by `array(xs)`, deprecated with a warning and then removed. The names that make data are
+  `zeros`, `array`, `uniform` and `texture`. The host's `uniform()` keeps the name of the shader
+  type `uniform<T>`, since both mean a uniform of `T`.
+- [decision, owner, 2026-11-09] Q9: "접근자가 다시 만듦". Each field's accessor detects a growth of
+  the region and makes its views again; where the runtime has a resizable `ArrayBuffer`, the
+  region uses it. The host does not see the growth. Workers, a second realm and wasm32's 4 GiB
+  limit stay to be stated with milestone 2.
+- [decision, owner, 2026-11-09] Q13, the new text of `docs/dx.md` principle 1: "이 문구로". The
+  text is: "The unit is the function call. Data is a resource typed by the shader's own
+  declarations (a class, a uniform, a storage array, a texture), laid out by the compiler, set
+  and read through typed views. Plain data is accepted and uploaded." Milestone 1 writes it.
+- Affects: the front matter (`exports` loses `device`; `exports-removed` lists `resident` and
+  `configure`, removed after a deprecation release), R3's example, Q8, Q9 and Q13.
+- Status: `status: accepted` does not change.
 
 ## What it owes downstream
 
