@@ -1,6 +1,6 @@
 // ═══ CHANGELOG.md's version headings say what each release promised (Rule 13.9) ═══
 //
-// Rule 13.9: a published version follows Semantic Versioning 2.0.0, and before 1.0.0 the minor
+// Rule 13.9: an official release follows Semantic Versioning 2.0.0, and before 1.0.0 the minor
 // is the breaking position. The CHANGELOG is where that is readable, so this test holds its
 // headings to it:
 //

@@ -276,7 +276,7 @@ entry that names the old result). Every breaking entry names the edit an author 
 program that compiles to something else says nothing, and the shader is the place a silent
 change is hardest to see. So a change of meaning ships in two steps:
 
-1. **Warn, in a published release.** The new meaning is reported as a `category: 'warning'`
+1. **Warn, in an official release.** The new meaning is reported as a `category: 'warning'`
    diagnostic behind the opt-in option, `compile(src, { deprecations: true })` and
    `tshc check --deprecations`, naming the edit that keeps today's meaning. The emitted
    bytes are identical with the option on and off. A consumer turns the option on in CI, sees
@@ -287,8 +287,9 @@ change is hardest to see. So a change of meaning ships in two steps:
    meaning, the new one and the one-line edit that keeps the old; every example golden is
    re-baked and reviewed line by line; the warning and its code are retired.
 
-The window is counted in published releases, not in commits on `main`: a warning that never
-reached npm warned nobody. Do not compress it because the change looks small: the size of the
+The window is counted in official releases (Rule 13.9: a version of `typeshade` on npm other than
+`0.0.0`, with no prerelease part), not in commits on `main`: a warning that never reached npm
+warned nobody. A meaning that no official release carried owes no window (OD-6). Do not compress it because the change looks small: the size of the
 diff is not the size of the breakage. From `1.0.0` a removal takes the same window: a spelling
 warns under the same option, and an export carries `@deprecated` in its JSDoc naming its
 replacement for one minor before the major that removes it. Before `1.0.0` a removal is a loud
