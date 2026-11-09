@@ -20,10 +20,22 @@ A diff needs a proposal when it does any of the following:
 | rules     | Changes, adds or removes a `**Rule N.M.**` paragraph of `docs/language-design.md`.                                                                                                                  |
 | exports   | Adds, removes or reshapes an export listed in `src/__api__/surface.md`.                                                                                                                             |
 | visible   | Changes what a downstream repository shows or checks: a numbered section of `docs/use-typeshade-surface.md`, a diagnostic code (added, removed or renumbered), or the set of `examples/*.shade.ts`. |
+| names     | Adds an author-facing name to `src/__api__/author-names.md`, the baked set of names a `"use typeshade"` file can write.                                                                             |
 
 Anything else needs no proposal: an internal refactor, a test, a performance change, or a fix
 that touches none of the above. `scripts/changes.ts` applies these criteria to the diff, so
 nobody has to remember them.
+
+The `names` criterion has two differences from the others:
+
+- `Change: none` does not waive it. The language grows only through an accepted proposal that
+  lists each added name under `names:`.
+- A removed name is not a criterion. A smaller language is the direction the owner set on
+  2026-11-09. `scripts/changes.ts` still reports each removed name, and the diff of
+  `src/__api__/author-names.md` shows it to the reviewer.
+
+`src/author-names.test.ts` holds the snapshot to the ambient library (`SHADE_DTS`). After a
+name is added or removed, run `bun run bake:author-names` and commit the diff.
 
 ## The lifecycle
 
@@ -158,6 +170,7 @@ exports: []                # exports added or reshaped
 exports-removed: []        # exports removed: downstream must stop naming them
 codes: []                  # diagnostic codes added, removed or renumbered
 examples: []               # examples/*.shade.ts ids added or removed
+names: []                  # author-facing names added to src/__api__/author-names.md
 downstream:                # the work each downstream repository will owe
 - repo: typeshade.github.io
   what: One line naming the pages
@@ -166,3 +179,9 @@ downstream:                # the work each downstream repository will owe
 `src/changes.test.ts` checks every proposal's shape: the fields, a unique id matching the file
 name, a known status, known downstream repositories, and rule and section numbers that exist
 once the proposal is implemented.
+
+`names` lists each author-facing name the change adds, spelled as `src/__api__/author-names.md`
+spells it: `abs` for a declared name, `Math.fround` for a member of a standard object and
+`Array.prototype.map` for an array method. A proposal written before this field existed omits
+it and declares no name. Such a proposal, once accepted, must be amended in its own pull request
+before an implementation that adds a name can pass `scripts/changes.ts`.
