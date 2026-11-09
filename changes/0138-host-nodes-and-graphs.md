@@ -34,6 +34,7 @@ exports:
   - Texture
   - Uniform
   - Node
+  - Device
 exports-removed:
   - resident
   - configure
@@ -598,6 +599,18 @@ sits under it.
   and read through typed views. Plain data is accepted and uploaded." Milestone 1 writes it.
 - Affects: the front matter (`exports` loses `device`; `exports-removed` lists `resident` and
   `configure`, removed after a deprecation release), R3's example, Q8, Q9 and Q13.
+- Status: `status: accepted` does not change.
+
+### A2. `Device` gains `use()`; `Device` is listed among the exports (2026-11-09)
+
+- [fact] Why. Amendment A1 decided that a block's default device is `using _ = device.use()`.
+  `Device` is an existing export of `typeshade/runtime`, and `use()` reshapes it, but the front
+  matter did not list `Device`. So milestone 1a (pull request #1145, merged at `cbe559a3`) could
+  not export `Device.use()` or the public `texture()`: `scripts/changes.ts` refused the reshape.
+- [decision, owner, 2026-11-09] "승인", on the agent's recommendation to add `Device` to the
+  exports. `Device` joins `exports` as a reshaped export: it gains `use()`, which returns a
+  disposable that makes the device the default for the block (ECMAScript `using`).
+- Affects: the front matter `exports`. No rule, decision or milestone changes.
 - Status: `status: accepted` does not change.
 
 ## What it owes downstream
