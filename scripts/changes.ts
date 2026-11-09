@@ -37,6 +37,13 @@
 //      either an undeclared cascade or a proposal to update; either way the check stops. What was declared and is not in this diff
 //      is listed as still to do: one proposal may be implemented over several pull requests.
 //
+// WHY THE COMPILER CANNOT DO IT. A proposal numbered after COMPILER_FIRST_AFTER that adds an
+// author-facing name (`names:`) must carry a non-empty `## Why the compiler cannot do it`
+// section that is not the template's prompt: what the compiler can decide (an optimization, a
+// numerical relaxation, a tuning parameter) is the compiler's work, never an author-facing
+// construct, and a proposal whose answer is "the compiler can" is not needed. src/changes.test.ts
+// applies `compilerFirstProblems` to every proposal on disk.
+//
 // Where it runs: the shared commit policy (scripts/precommit.ts), the Claude hook
 // (scripts/doc-impact.ts --hook), and CI on every pull request.
 // A proposal's own shape (front matter, ids, status) is held by src/changes.test.ts.
@@ -182,6 +189,61 @@ export function owedDownstream(
       p.downstream.some((d) => d.repo === repo) &&
       !handled.has(p.id),
   );
+}
+
+// ─── why the compiler cannot do it ─────────────────────────────────────────────────────────
+
+/** The heading of the section a proposal that adds to the language must fill. */
+export const COMPILER_FIRST_HEADING = 'Why the compiler cannot do it';
+
+/** The last proposal written before the section existed. Proposals up to it are historical
+ *  records and are not rewritten; every later one is held to the section. */
+export const COMPILER_FIRST_AFTER = '0130';
+
+/** The text of a `## heading` section, without HTML comments, up to the next `## ` heading;
+ *  null when the proposal has no such section. Fenced code is skipped when looking for headings. */
+export function sectionBody(text: string, heading: string): string | null {
+  const lines = text.split('\n');
+  let fence = false;
+  let start = -1;
+  let stop = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (/^\s*```/.test(line)) fence = !fence;
+    if (fence || !/^## /.test(line)) continue;
+    if (start >= 0) {
+      stop = i;
+      break;
+    }
+    if (line.slice(3).trim() === heading) start = i + 1;
+  }
+  if (start < 0) return null;
+  return lines
+    .slice(start, stop)
+    .join('\n')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .trim();
+}
+
+/**
+ * What stops a proposal that adds author-facing names without saying why the compiler cannot do
+ * the work: a missing section, an empty one, or the template's prompt left in place (`prompt`,
+ * the section's text in changes/TEMPLATE.md). Empty for a proposal numbered up to
+ * COMPILER_FIRST_AFTER and for one that adds no name.
+ */
+export function compilerFirstProblems(p: Proposal, text: string, prompt = ''): string[] {
+  if (p.id <= COMPILER_FIRST_AFTER || p.names.length === 0) return [];
+  const body = sectionBody(text, COMPILER_FIRST_HEADING);
+  const where = `${p.file} adds the author-facing name ${p.names.join(', ')}`;
+  if (body === null)
+    return [`${where} and has no \`## ${COMPILER_FIRST_HEADING}\` section (changes/TEMPLATE.md).`];
+  if (body === '' || body === prompt.trim())
+    return [
+      `${where} and its \`## ${COMPILER_FIRST_HEADING}\` section is empty or still the ` +
+        "template's prompt: say what the author must state that the compiler cannot decide, or " +
+        'drop the proposal if the compiler can.',
+    ];
+  return [];
 }
 
 // ─── what a diff touches ───────────────────────────────────────────────────────────────────
