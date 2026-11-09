@@ -59,6 +59,7 @@ import { CpuTexture, cpuFormatGap } from '../core/cpu-texture.js';
 import { textureOwners } from '../core/owner.js';
 import { TIERS, tierNames, type Tier } from '../core/tiers.js';
 import { TextureImpl, type Texture } from './resources.js';
+import { webgpuDevice } from '../rhi/webgpu.js';
 import { fitChunk, learnRate, type ChunkRate } from './chunk.js';
 
 export type { ChunkRate } from './chunk.js';
@@ -453,7 +454,7 @@ class DeviceImpl implements Device {
       textureOwners.set(memory, this.owner);
       return memory as unknown as Texture;
     }
-    const texture = new TextureImpl(this.#gpu as never, {
+    const texture = new TextureImpl(webgpuDevice(this.#gpu), {
       size: [size[0]!, size[1]!],
       format,
       ...(storage === true ? { storage: true } : {}),

@@ -3,7 +3,7 @@
 
 import type { Pack, PackBinding, PackEntry } from '../core/manifest-types.js';
 import { checkLimitValues, copyLimits, isMinimumLimit } from '../core/device-limits.js';
-import { STAGE } from './gpu.js';
+import { STAGE } from '../rhi/rhi.js';
 
 export { checkLimitValues, copyLimits, isMinimumLimit };
 

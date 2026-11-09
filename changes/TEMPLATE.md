@@ -34,7 +34,8 @@ they establish the scope.
 ## Why
 
 Describe the problem and its evidence. Explain the relevant alternatives and the reason for
-the proposed choice. State assumptions and unresolved decisions explicitly.
+the proposed choice. State assumptions and unresolved decisions explicitly. For a need from a
+downstream repository, link its compiler issue and say why compiler work cannot meet the need.
 
 ## What it touches
 
@@ -47,6 +48,12 @@ Describe expected technical work, compatibility effects, dependencies, tools, va
 and downstream effort. Separate known impacts from estimates. Record the basis of any known
 duration or cost estimate. Mark unestimated values as unknown, not zero. Identify decisions
 that must be resolved before acceptance.
+
+### Independent review record
+
+Before the owner decides, an agent or a person that did not write this proposal reviews it
+against `README.md` (Independent review). Record the reviewer, the date, the revision reviewed,
+each finding and the author's answer to it: fixed, or kept with the reason.
 
 ### Approval and plan record
 
