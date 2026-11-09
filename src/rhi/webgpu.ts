@@ -352,7 +352,9 @@ class WebGpuDevice implements RhiDevice {
     return handle(this.native.createSampler({ ...desc }));
   }
 
-  createShaderModule(code: string): RhiShaderModule {
+  createShaderModule(code: string | object): RhiShaderModule {
+    if (typeof code !== 'string')
+      throw new TypeError("The WebGPU backend runs WGSL text; it got a module's CPU program.");
     return handle(this.native.createShaderModule({ code }));
   }
 

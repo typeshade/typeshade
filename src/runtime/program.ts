@@ -49,6 +49,7 @@ import type {
 } from '../rhi/rhi.js';
 import { needOfEntry, PIPELINE_LIMITS, selectBindings } from './limits.js';
 import { SamplerImpl, TextureImpl } from './resources.js';
+import { cpuProgramOf } from './cpu-program.js';
 import type { DepthAttachment, PassTargets, RuntimeImpl } from './runtime.js';
 
 /** A draw or dispatch binds values by the names the source declares. Each is a `Texture`, a
@@ -1476,7 +1477,11 @@ export class ProgramImpl implements Program {
   }
 
   #shaderModule(): RhiShaderModule {
-    return (this.#module ??= this.device.createShaderModule(this.#wgsl));
+    // The CPU backend runs the module's CPU program in place of its WGSL (change 0120, O2 (a));
+    // `load()` refuses a manifest that carries none.
+    return (this.#module ??= this.device.createShaderModule(
+      this.device.backend === 'cpu' ? cpuProgramOf(this.manifest)! : this.#wgsl,
+    ));
   }
 
   /** Refuse a pipeline whose entries need more of a limit than the device has (change 0051, R4).
@@ -1522,9 +1527,14 @@ export class ProgramImpl implements Program {
       if (slot !== undefined) console = { slot, log: this.#log, entry: recorder.name };
     }
     const byGroup = new Map<number, Slot[]>();
+    // The `_fp64` guard and the console buffer are the GPU's: the CPU tier computes an `f64` as a
+    // double, and its code delivers its own `console.*` calls.
+    const cpu = this.device.backend === 'cpu';
+    if (cpu) console = undefined;
     for (const [name, vis] of visibility) {
       const b = this.#bindings.get(name);
       if (b === undefined) continue;
+      if (cpu && (name === '_fp64' || name === '_console')) continue;
       let slots = byGroup.get(b.group);
       if (slots === undefined) byGroup.set(b.group, (slots = []));
       slots.push({
@@ -1799,6 +1809,10 @@ export class ProgramImpl implements Program {
         typeof v === 'object' && v !== null ? this.device.fromNative('buffer', v) : undefined;
       if (host !== undefined) return { buffer: host };
       const state = residentState(v);
+      if (state !== undefined && this.device.backend === 'cpu')
+        throw new TypeError(
+          `${where} is a Resident, which the program runtime's CPU tier does not bind yet; pass its host value (change 0120, milestone M4).`,
+        );
       if (state !== undefined) {
         // One buffer of both layers (change 0025): the Resident's, uploaded on its first use.
         if (s.layout === undefined)
