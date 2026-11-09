@@ -194,6 +194,11 @@ This proposal replaces decision D1 of change 0111. It keeps the rest of change 0
 inputs and outputs carry `builtin<N, T>` and `location<I, T>` types (D2), and `inout<T>` and
 `out<T>` are types (D4).
 
+Change 0137 replaces, for a parameter qualifier, the sentences of this proposal's Rules 1.7, 1.8,
+6.6, 6.7, 7.6 and 8.25, items 3 and 4 of The editor, item 3 of the proposed rules in short, and the
+`@inout` clause of the typecv downstream entry; the implementation applies change 0137's text
+there.
+
 **Before (change 0111 D1):**
 
 ```ts
