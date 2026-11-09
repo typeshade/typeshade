@@ -2805,7 +2805,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: andGap(
       typed(
         'src/compiler/ts/entry-io-attributes.test.ts',
-        'also: to measure (group 14): the provoking vertex of a flat varying; see table D, WEBGL_provoking_vertex',
+        'the provoking vertex of a flat varying is the first on both targets; see table D, WEBGL_provoking_vertex',
       ),
       10,
       'linear and sample: NV_shader_noperspective_interpolation, OES_shader_multisample_interpolation; fails closed in a draw entry (TS8015, Rule 10.3)',

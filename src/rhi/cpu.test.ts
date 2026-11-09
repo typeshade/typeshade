@@ -42,12 +42,14 @@ describe('the conformance suite on the CPU backend', () => {
     expect(results.filter((r) => r.skipped !== undefined).map((r) => r.name)).toEqual(
       CONFORMANCE.filter((c) => c.refusedOnCpu !== undefined).map((c) => c.name),
     );
-    // The refusals: a texture binding (O6 (a)), a depth test, blending and a stencil test (item 4).
+    // The refusals: a texture binding (O6 (a)), a depth test, blending, a stencil test and a
+    // topology other than a triangle list (item 4).
     expect(CONFORMANCE.filter((c) => c.refusedOnCpu !== undefined).map((c) => c.name)).toEqual([
       'a texture sampled nearest, its row 0 at the top',
       'a depth test: depth 0 to 1, less, written; the nearest of three triangles stays',
       'the blend constant: a target blended as the constant alone',
       'a stencil reference: written where a draw passes, then tested equal',
+      'interpolation: flat on a triangle strip, from the first vertex of each triangle',
     ]);
   });
 
