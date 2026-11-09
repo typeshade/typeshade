@@ -19,6 +19,35 @@ repository is an official release yet: the `typeshade` package on npm holds only
 
 ### Added
 
+- **Every `for` loop, and an entry's inferred result** (change 0136). A `for` that is not
+  counted compiles as an open loop, as a `while` does (Rule 7.5): `for (;;)` with a `break`, an
+  `f32` counter, a bound the body writes, an exit with another test, a header with no
+  initializer or update, two declarations and comma updates. A loop proved never to end stays
+  refused, and the kept sentences no longer say to write a `while`. An entry that writes no
+  return type returns what its body says (Rule 8.19): a bare result takes its stage's default
+  attribute, and a returned object literal takes the one declared struct whose fields are its
+  names, a resource struct excluded (surface §16). A kernel function's open `for` runs on the
+  CPU with `TS8070`, whose R1 sentence now names an open loop (Rule 8.22). No source that
+  compiled before changes its emit.
+
+- **Host resources** (change 0138, milestone 1). `typeshade/runtime` exports `uniform(Class,
+init?)`, `zeros(Class, n)` and `array(Class, data)`, which make a `Uniform<T>` or a
+  `Buffer<T>` of a class a shader module exports. Each uniform and storage array is a byte range
+  of one memory region, laid out by Rule 6.8 (resizable where the runtime allows). Each field has
+  an accessor: `camera.pos.set(0, 2, 5)`, `camera.view.set(m)`, `camera.set({ time })`,
+  `ps.at(i).vel.set(v)`. `set` allocates nothing, writes only a changed number and widens the
+  resource's dirty byte range; `get` returns the field's typed view, and `needsUpdate = true`
+  marks a write through it. `await ps.read()` gives the elements as instances of the class. A
+  resource is freed by `dispose()` or by the garbage collector (and by `[Symbol.dispose]()` where
+  the runtime has one), and an accessor of a freed one throws a `TypeError` that names it. The generated module puts each exported class's
+  layouts on the class. No call takes a resource yet: the upload of a dirty range at submission is
+  milestone 3. `array` is now a function as well as the family's type.
+  The caps of `scripts/bundle-budget.json` take the measured gzip sizes: `typeshade/runtime`
+  single file 159,626 to 163,157 (+3,531), split initial 41,562 to 45,178 and split total 161,758
+  to 165,360; `typeshade/fuse` split initial 16,000 to 16,001 and split total 113,833 to 113,835
+  (the one-time warning `resident()` and `configure()` import). The floors and the other caps do
+  not change.
+
 - **WebGPU scratch acquisition counts** (change 0128, #992). New fuse reports include
   `webgpuScratch` allocation and reuse counts and their buffer descriptor bytes. Empty scopes,
   fused locals and CPU or WebGL2 plans report zero. Older reports may omit the member;
@@ -1694,6 +1723,14 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   installs `typeshade` without a peer conflict. TypeScript 7 stays out: its default export has
   no `SyntaxKind`, and the package throws on import against it. A wider range breaks nothing
   (Rule 13.9 counts only a narrower one).
+
+### Deprecated
+
+- **`resident()` and `configure()`** (change 0138, Amendment A1). `array(value)` and
+  `array(length, element)` make the same `Resident` that `resident()` made; a device is opened
+  only by `createDevice()`, which takes the options `configure()` took. Each
+  deprecated function still works as before, prints one `console.warn` at its first call, and is
+  removed after a deprecation release.
 
 ### Removed
 

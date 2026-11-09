@@ -1809,7 +1809,9 @@ export function lowerSourceFunctions(
   // lowered already is not lowered again.
   for (const r of ready) {
     if (pendingFill.has(r.stub)) runPending(r.stub);
-    else if (r.node.type !== undefined || r.stub.stage !== undefined) fillReady(r, false);
+    // An entry that writes no return type returns what its body does (Rule 8.19, change 0136).
+    else if (r.node.type !== undefined || r.stub.stage !== undefined)
+      fillReady(r, r.node.type === undefined);
   }
   fillLifted(lifted, sourceFile, diagnostics);
   // Once every body is lowered, the instances and the functions written as arguments among
@@ -2930,7 +2932,9 @@ export function parseSignature(
   // A vertex entry has to produce a position, and nothing here can invent one: WGSL says "a
   // vertex shader must include the 'position' builtin in its return type", and before this the
   // three ways to leave it out compiled clean and were refused by Tint instead.
-  if (stageInfo.stage === 'vertex') {
+  // An entry that writes no return type is checked once its body has said it (Rule 8.19,
+  // `settleInferredEntryResult`).
+  if (stageInfo.stage === 'vertex' && node.type !== undefined) {
     refuseVertexWithoutPosition(ret, node, name, sourceFile, diagnostics, structs);
   }
   return decl;
@@ -3102,6 +3106,7 @@ export function functionScope(
     scope.setNamespaces(namespaceNamesOf(sourceFile));
   }
   scope.setStage(stub.stage);
+  scope.setResourceStructs(resourceStructsOf(bindings, vars));
   // `return 0` in a function declared i32/u32 types the literal from the signature (#8 A3),
   // and `return { … }` knows which struct it builds (#8 A11). One field, two readers.
   scope.setReturnType(stub.ret);
@@ -3339,6 +3344,7 @@ export function fillFunctionBody(
    *  call made on one, the capture of it a function handed over takes (Rule 8.18). */
   receiverKeys?: readonly CaptureKey[],
 ): void {
+  const errorsBefore = errorsOf(diagnostics);
   const scope = functionScope(
     stub,
     callees,
@@ -3645,29 +3651,23 @@ export function fillFunctionBody(
       ...writtenModuleNames(scope, sourceFile),
     });
   // The type a function that writes none returns, which the language service writes into the
-  // text TypeScript reads when its return does vector arithmetic (#162, `projection.ts`).
-  if (node.type === undefined && stub.stage === undefined) {
-    recordInferredReturn(sourceFile, node, stub.ret);
+  // text TypeScript reads when its return does vector arithmetic (#162, `projection.ts`), and
+  // for an entry whatever its return does (change 0136).
+  if (node.type === undefined) recordInferredReturn(sourceFile, node, stub.ret);
+  // An entry that writes no return type returns what its body says (Rule 8.19, change 0136): its
+  // output takes the attribute its stage gives that type, as a written one does.
+  if (node.type === undefined && stub.stage !== undefined) {
+    settleInferredEntryResult(
+      stub,
+      node,
+      sourceFile,
+      diagnostics,
+      structs,
+      errorsOf(diagnostics) > errorsBefore,
+    );
+    if (typeKey(stub.ret) === 'void') return;
   }
   if (typeKey(stub.ret) === 'void') {
-    // An entry function (`stub.stage` set) with no return type annotation was left at the
-    // tentative `void` from `parseSignature` above; now that the body is lowered, a `return`
-    // carrying a value means that tentative void was wrong, and the front end can name the
-    // real (inferred) type — this is now an error, not the warning `parseSignature` gives a
-    // helper function, because it emits invalid WGSL (the design doc's Stage 3 check).
-    if (node.type === undefined && stub.stage) {
-      const valued = collectReturns(body).find((r) => r.expr);
-      if (valued?.expr) {
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          node.name ?? node,
-          `Entry function "${stub.name}" returns a value (inferred type ${authorTypeText(valued.expr.type)}) but has no return type annotation; add ": ${authorTypeText(valued.expr.type)}" to the signature.`,
-          TS_CODES.RETURN_SHAPE,
-        );
-      }
-      return;
-    }
     // A function that says it returns nothing, in its signature or as an entry's written
     // `: void`, cannot return a value: WGSL refuses a `return` with a value in a function with
     // no return type (Rule 1.1), so the front end says it where TypeScript's TS2322 says it, on
@@ -3848,6 +3848,116 @@ function settleKernelWorkgroup(
       'warning',
     );
   return attr.size;
+}
+
+/** How many errors `diagnostics` holds. */
+function errorsOf(diagnostics: readonly TsCompilerDiagnostic[]): number {
+  return diagnostics.filter((d) => d.category === 'error').length;
+}
+
+/** The structs a binding, a module variable or workgroup memory holds, through arrays: none of
+ *  them is an entry's result by inference (Rule 8.19, change 0136). */
+function resourceStructsOf(
+  bindings: readonly BindingDecl[],
+  vars: readonly ModuleVarDecl[],
+): Set<string> {
+  const out = new Set<string>();
+  const see = (t: ShaderType): void => {
+    if (t.kind === 'struct') out.add(t.name);
+    else if (t.kind === 'array') see(t.elem);
+  };
+  for (const b of bindings) see(b.type);
+  for (const v of vars) see(v.type);
+  return out;
+}
+
+/**
+ * The output of an entry that writes no return type, once its body has said it (Rule 8.19,
+ * change 0136): the attribute its stage gives the type, and the checks a written return type
+ * gets (`parseSignature`, `parseReturnType`). A bare `vec4` vertex result is the position, a bare
+ * scalar or vector fragment result is `@location(0)`, and a struct result carries its fields'
+ * attributes. A compute entry returns nothing, so a value it returns is refused. `failed` says
+ * that an error in the body already explains a result that is missing.
+ */
+function settleInferredEntryResult(
+  stub: FuncDecl,
+  node: FunctionNode,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  structs: readonly CollectedStruct[],
+  failed: boolean,
+): void {
+  const ret = stub.ret;
+  const anchor = node.name ?? node;
+  const decl = stub as {
+    retAttr?: string;
+    retBuiltin?: string;
+  };
+  if (stub.stage === 'compute') {
+    if (typeKey(ret) !== 'void') {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        anchor,
+        `Entry function "${stub.name}" is a compute entry, and a compute entry returns nothing ` +
+          `(WGSL): it returns ${authorTypeText(ret)}. Write the value to a storage binding.`,
+        TS_CODES.RETURN_SHAPE,
+      );
+    }
+    return;
+  }
+  if (typeKey(ret) === 'void') {
+    if (stub.stage === 'vertex' && !failed) {
+      refuseVertexWithoutPosition(ret, node, stub.name, sourceFile, diagnostics, structs);
+    }
+    return;
+  }
+  const declOf = (n: string): StructDecl | undefined =>
+    structs.find((c) => c.decl.name === n)?.decl;
+  if (
+    refuseOptionalAt(
+      ret,
+      anchor,
+      "an entry point's result",
+      sourceFile,
+      diagnostics,
+      authorTypeText,
+      declOf,
+    )
+  )
+    return;
+  if (
+    refuseF64EntryIo(
+      ret,
+      `The return of entry "${stub.name}"`,
+      'varying',
+      anchor,
+      sourceFile,
+      diagnostics,
+    )
+  )
+    return;
+  if (ret.kind === 'struct') {
+    checkStructBuiltinFields(
+      diagnostics,
+      sourceFile,
+      anchor,
+      ret.name,
+      structs,
+      stub.stage!,
+      'output',
+    );
+  }
+  if (stub.stage === 'vertex' && typeKey(ret).startsWith('vec4')) {
+    decl.retAttr = '@builtin(position)';
+    decl.retBuiltin = 'position';
+  }
+  if (stub.stage === 'fragment' && (ret.kind === 'scalar' || ret.kind === 'vec')) {
+    decl.retAttr = '@location(0)';
+  }
+  if (stub.stage === 'vertex') {
+    refuseVertexWithoutPosition(ret, node, stub.name, sourceFile, diagnostics, structs);
+  }
 }
 
 function parseStage(

@@ -461,16 +461,17 @@ describe('what still does not compile', () => {
     ).toBe('Argument 1 of "g" type mismatch.');
   });
 
-  it('rejects a for-init that is not an integer', () => {
-    expect(
-      diagnose(`
+  it('takes a for-init that is not an integer as an open loop (change 0136)', () => {
+    // This was `for induction must be i32 or u32, got f32.`: the counter takes its value's type,
+    // as a `let` does, and the loop is an open one.
+    const r = compileTsSource(`"use typeshade";
         export function f(): f32 {
-          for (let i = 0.5; i < 4.; i++) {
-          }
-          return 0.;
+          let a = 0.;
+          for (let i = 0.5; i < 4.; i++) { a += i; }
+          return a;
         }
-      `),
-    ).toBe('for induction must be i32 or u32, got f32.');
+      `);
+    expect(r.diagnostics).toEqual([]);
   });
 
   it('rejects a ternary whose arms disagree', () => {

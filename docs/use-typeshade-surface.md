@@ -358,6 +358,39 @@ the attribute type.
 
 The shapes are the target's, not this compiler's, and there is one constraint per stage.
 
+**The return type may be left off where the body says it** (Rule 8.19, change 0136). An entry
+that writes no return type returns what its body does, as any function does: a bare `vec4`
+vertex result is the position, a bare scalar or vector fragment result is `@location(0)`, and a
+struct result carries its fields' attributes. An object literal it returns builds the one struct
+whose fields are its names (§16). Both forms stay valid:
+
+```ts
+"use typeshade";
+
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
+}
+
+export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>) {
+  const x = f32(i32(vi) / 2) * 4. - 1.;
+  const y = f32(i32(vi) % 2) * 4. - 1.;
+  return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) * 0.5 + vec2(0.5, 0.5) }; // VsOut
+});
+
+export const fs = fragment(function fs(v: VsOut) {
+  return vec4(v.uv, 0., 1.); // vec4, at @location(0)
+});
+```
+
+The return type stays the author's to write where it says what the body cannot: a result that
+is another built-in value (`builtin<"frag_depth", f32>`, `builtin<"sample_mask", u32>`), the
+position with an option (`builtin<"position", vec4, { invariant: true }>`), or a location with an
+option (`location<0, vec4, { blend_src: 1 }>`). A returned `f32` is a colour at location 0 unless
+the signature says it is the depth. The editor shows the inferred result where the type would be
+written: a hover on `vs` reads `vs(vi: builtin<"vertex_index", u32>): VsOut` (Rule 12.7). A
+compute entry returns nothing, and one that returns a value with no return type is `TS8021`.
+
 **A vertex entry returns the position.** A return typed `vec4` carries the position built-in on
 its own, so the smallest vertex shader needs no struct and no parameters:
 
@@ -1625,7 +1658,9 @@ vec2 at another`); a bare `return` beside one with a value where the result is w
 calls such a function, since every default is lowered before any body; and a setter's value with
 no type and no getter, or beside a getter that returns nothing, since nothing says what it takes.
 A setter's value that writes no type beside a getter takes what the getter returns, written or
-said by its body (§26). An entry point writes its return type, which is its output (§3).
+said by its body (§26). An entry point's result is inferred as any function's is (§3, change
+0136); it writes its return type when the result carries an attribute other than its stage's
+default, or when an object literal it returns matches no single struct (§16).
 
 ### Triple-slash directives
 
@@ -1784,6 +1819,18 @@ export function pick(): f32 {
 }
 ```
 
+**An entry that writes no return type** (Rule 8.19, change 0136) takes the one struct whose
+fields are the literal's names, among every struct the program declares except a struct a
+binding (`uniform<T>`, `storage<T>`), a module variable or workgroup memory holds. A struct the
+program names nowhere else is found too, so `return { color: … }` from a fragment entry builds
+the `Color` the file declares beside it, and a resource struct such as `Frame` in
+`examples/loops-over-data.shade.ts` is never an entry's result by inference. A literal that
+matches no struct or several keeps `TS8022`, and its sentence names the remedy:
+`Object literal { a, b } matches "P" and "Q" alike, so the entry's result is not known: write the return type.`
+This wider table is for that one position. Every other position keeps the table of the structs
+the program uses, so a used `P { a, b }` beside an unused twin `Q { a, b }` still builds a `P` in
+a helper's literal.
+
 Matching the field **names** against the struct table is the fallback, for a position that
 declares nothing (`const o = { … }` with no annotation). It stays because it is often enough,
 but it could never answer the case above: `VsOut` and `FsIn` have the same fields, so the name
@@ -1855,11 +1902,91 @@ names the elements to write in its place, `xs[0], xs[1]` (§18).
 
 ## 17. What a `for` loop may say, and what it is told
 
-A `for` must be **counted**: an integer induction variable, a constant step, and an exit that
-compares the variable to a bound the body does not write (Rule 7.5). The start and the bound
-may be runtime values, and a trip count has no ceiling: #203 removed the 256-trip limit and the
-constant bound, and made `while` an open loop. The first part of this section says what that
-means; the rest is the counted loop's older detail, which still holds.
+A `for` means what it means in TypeScript (Rule 7.5, change 0136): the initializer runs once,
+the condition (`true` when there is none) is tested before each trip, and the update runs after
+each trip and at each `continue`. The compiler records whether a `for` is **counted**: an integer
+induction variable, a constant step, and an exit that compares the variable to a bound the body
+does not write. A counted loop carries that fact into the IR, where the proof of a kernel
+function's loop reads it (§65). Any other `for` is an **open loop**, as a `while` is. The start
+and the bound of a counted loop may be runtime values, and a trip count has no ceiling: #203
+removed the 256-trip limit and the constant bound, and made `while` an open loop. The first part
+of this section says what that means; the rest is the counted loop's older detail, which still
+holds.
+
+**Every `for` TypeScript accepts compiles, except one that never ends.** Each header below was
+refused before change 0136, most of them with a sentence that said to write the loop as a
+`while`. Each is an open loop now, and both targets accept it (measured on Tint and on ANGLE):
+
+```ts
+"use typeshade";
+
+export function isqrt(x: f32): f32 {
+  const a = max(x, 0.);
+  let r = max(a, 1.);
+  for (;;) {
+    const next = 0.5 * (r + a / r);
+    if (abs(next - r) < 0.0001) {
+      break;
+    }
+    r = next;
+  }
+  return r;
+}
+
+export function ramp(): f32 {
+  let s = 0.;
+  for (let x = 0.; x < 1.; x += 0.25) {
+    s += x; // x is an f32: its initializer is
+  }
+  for (let i = 0, j = 10; i < j; i++, j--) {
+    s += f32(j - i);
+  }
+  return s;
+}
+```
+
+| Header | Before change 0136 |
+| --- | --- |
+| `for (;;) { …; if (c) { break; } }` | `TS8007 for is missing an exit condition.` |
+| `for (let x = 0.; x < 1.; x += 0.25)` | `TS8003 cannot compare i32 and f32` (the counter was made an `i32`) |
+| `for (let x: f32 = 0.; x < 1.; x += 0.25)` | `TS8008 for induction must be i32 or u32, got f32.` |
+| `for (let i = 0, j = 10; i < j; i++, j--)` | `TS8008 for-init must declare exactly one identifier.` |
+| `for (k = 2; k < 6; k++)`, `for (; k < 6; k++)` | ``TS8008 for-init must be `let i: i32 = <start>` …`` |
+| `for (let i = 0; i < 6;) { i += 2; }` | `TS8008 for-update is required (e.g. i++).` |
+| `for (let i = 0; i < n; i++) { n -= 1; }` | `TS8006 for bound reads "n", which the loop body writes, …` |
+| `for (let i = 0; !done; i++)`, `i < n && acc < 3.` | `TS8006 for exit must compare "i" to a bound …`, `… joins the bound …` |
+| `for (let i = 0; i != n; i++)`, `n` a uniform | `TS8006 … with a runtime bound exits only if "i += 1" lands on it exactly.` |
+| `for (let i = 1; i < 100; i = i * 3 + 1)`, `i >>= 1`, `v.x += 1.` | `TS8008 for-update must be i++ / i += <const>, or i *= / /= <const>.` |
+
+A name the header declares with no type and a value written as an integer is still an `i32`,
+or a `u32` against a `u32` bound, so `for (let i = 0; i < 10; i++)` counts in `i32` as it always
+did. A name declared with any other value takes that value's type, as a `let` does:
+`for (let x = 0.; …)` counts in `f32`. The IR `for` holds one initializer and one update, as
+WGSL's header does, so a header with two declarations or a comma update runs its declarations
+ahead of the loop and its updates at the end of the body and at each `continue`:
+
+```wgsl
+var i: i32 = 0;
+var j: i32 = 10;
+for (var _w: i32 = 0; (i < j); _w = (_w + 1)) {
+  s += f32((j - i));
+  i = (i + 1);
+  j = (j - 1);
+}
+```
+
+What stays refused is the loop the compiler proves never ends, by the rule a `while` has: a `for`
+with no condition, or one that folds to `true`, and no `break` or `return` that leaves it, is
+`TS8007 for (;;) has no break or return in its body, so it never ends. Leave it with a break, or write the exit into the condition.`;
+a constant header whose step never moves the counter, never reaches its bound or leaves its type
+first keeps its sentence below. A `++` used as a value stays `TS8099 ++/-- is a statement, not a
+value.` (`for (let i = 0; i++ < 5;)`), and an update that is no statement is refused as the same
+statement in a body is.
+
+What this costs, recorded in change 0136: a `for` no longer promises a reader that it is
+counted, and a mistake in a counted header passes as an open loop: `for (let i = 0; i < n; j++)`
+compiles, and never ends when `n > 0`. A kernel function's loop that is not counted runs on the
+CPU with the `TS8070` warning (§65).
 
 **A bound may be a value the program learns at run time.** A count from a uniform, an array's
 length, a parameter, an `override`: any integer expression the body does not write.
@@ -1892,44 +2019,30 @@ The start may be a runtime value too, which is how a kernel strides over data:
 #203 measured `for (…; i < data.length; …)` (the emitted `arrayLength(&data)`) and a uniform-bounded `for` and `while` on
 Tint and on ANGLE.
 
-The step is still a constant, so the compiler still knows which way the counter moves, and
-refuses the header that moves it away from its bound:
+The step is still a constant, so the compiler still knows which way the counter moves. A
+header whose step moves the counter away from a runtime bound (`i < n; i -= 1`), a factor from a
+start of 0 (`i < n; i *= 2`), `!==` against a runtime bound, and a factor that is not a whole
+number of 2 or more are not counted, so each is an open loop (change 0136); each was refused,
+and none of them is proved never to end, since the bound is known only when the loop runs.
 
-| Header | Answer |
-| --- | --- |
-| `let i: i32 = 0; i < n; i -= 1` | `TS8007 for step "i -= 1" moves "i" away from a bound it compares with <, so the loop does not exit once it starts.` |
-| `let i: i32 = 0; i < n; i *= 2` | `TS8007 for step "i *= 2" never advances "i": multiplying pins it at 0.` |
-| `let i: i32 = 0; i !== n; i += 2` | `TS8006`: against a runtime bound, `!=` exits only if the step lands on it exactly, so the remedy is `<`. |
-| `let i: i32 = 1; i < n; i *= -2` | `TS8006`: with a runtime bound, a factor has to be a whole number of 2 or more, or its direction is unknown. |
-| a body that writes `n` | `TS8006 for bound reads "n", which the loop body writes, so it does not bound the loop.` Read it into a `const` first, or write a `while`. |
-
-**The update is one of the counted forms, or the loop is refused.** `i++`, `i--`, `i += c`,
-`i -= c`, `i *= c` and `i /= c` step the counter, and so do `i = i + c`, `i = c + i` and
-`i = i - c`, which are `i += c` and `i -= c` spelled out (Rule 7.5); those three were
-`TS8099 Unsupported for-update.` The sum is typed as the same assignment in the body is
-(Rule 7.1): `i = i + 2.` and `i = i + u32(1)` on an `i32` counter are
+**The update of a counted loop is one of the counted forms.** `i++`, `i--`, `i += c`, `i -= c`,
+`i *= c` and `i /= c` step the counter, and so do `i = i + c`, `i = c + i` and `i = i - c`,
+which are `i += c` and `i -= c` spelled out (Rule 7.5). The sum is typed as the same assignment
+in the body is (Rule 7.1): `i = i + 2.` and `i = i + u32(1)` on an `i32` counter are
 `TS8003 Type mismatch: cannot + i32 and f32 …` and `… cannot + i32 and u32 …` in the header as
-there. Every other update gets the sentence an update of another
-variable (`j += 1`) gets: `i <<= 1`, `i %= 3`, `i = i * 2`, `i++, j++`, and a compound assignment
-to a member or an element (`v.x += 1.`, `xs[0] += 1`) are each
-`TS8008 for-update must be i++ / i += <const>, or i *= / /= <const>.`, and one to a name nothing
-declares (`zz += 1`) is `TS8022 Cannot assign to unknown name "zz".`, as `zz++` is. The last
-three used to compile with no diagnostic and no loop: the whole `for`, body and all, was missing
-from both targets. A `for` the compiler does not lower now always leaves an error, and one that
-no other refusal explains is `TS8099` with that reason.
+there. Any other update (`i <<= 1`, `i %= 3`, `i = i * 2`, `i++, j++`, `v.x += 1.`,
+`xs[0] += 1`) is the update of an open loop, lowered as the statement it is; each was
+`TS8008 for-update must be i++ / i += <const>, or i *= / /= <const>.` until change 0136. An
+update to a name nothing declares (`zz += 1`) is `TS8022 Cannot assign to unknown name "zz".`, as
+`zz++` is. A `for` the compiler does not lower always leaves an error, and one that no other
+refusal explains is `TS8099` with that reason.
 
-**An exit is the bound alone.** `for (let i: i32 = 0; i < 8 && i !== 3; i++)` does compare `i`
-to a bound, and it was told it must. The other clause is the refused part, and the answer names
-it with the loop that says the same thing:
-`TS8006 for exit joins the bound "i < 8" with "i !== 3", and a counted loop's exit is its bound alone. Make "if (i === 3) { break; }" the body's first statement, or write the loop as a while.`
-The test is written as one comparison where that is its exact negation (an equality, or an
-ordering of integers), as `ok` for a clause `!ok`, and as `!(…)` otherwise, since `!(x > 0.)` is
-not `x <= 0.` for a NaN. A clause keeps the parentheses that make it one clause:
-`i < 8 && (a > 0 || b > 0) && c > 0` is told `"(a > 0 || b > 0) && c > 0"` and
-`if (!((a > 0 || b > 0) && c > 0)) { break; }`; the clauses joined bare read as
-`a > 0 || (b > 0 && c > 0)`, a different test. The bound may stand on either side of the `&&`,
-and an unannotated counter takes its type from it, so `i < data.length && data[i] > 0.` is told
-this and not `cannot compare i32 and u32`.
+**An exit with another test is an open loop.** `for (let i: i32 = 0; i < 8 && i !== 3; i++)`
+joins the bound with a second test. It was `TS8006 for exit joins the bound "i < 8" with "i !== 3",
+and a counted loop's exit is its bound alone. …, or write the loop as a while.` It is an open
+loop now, and runs the trips the `while` with the same condition runs. The bound may stand on
+either side of the `&&`, and an unannotated counter takes its type from it, so
+`i < data.length && data[i] > 0.` counts in `u32`.
 
 What is not checked, because the value is not known before the loop runs: that the counter
 reaches a runtime bound before it leaves its type. `i <= n` with `n` at the type's maximum never
@@ -1958,8 +2071,8 @@ no trip, where doubles make it true. A `?:`, a call, a float comparison over ari
 local, or a local `const` holding one of those (`const go = !OFF`) is still read as a runtime
 condition (Appendix B of the language design). A `break` inside a nested loop or a `switch`
 leaves that statement, not this loop, and is not counted as a way out.
-A `for` with no condition says to write this form: `for (;;)` is refused and points at
-`while (true) { … }`.
+A `for` with no condition is this loop too: `for (;;)` with a `break` compiles, and emits the
+same text as `while (true)` (change 0136).
 
 A condition that is not a `bool` is refused as it is in an `if` or a `for`. TypeScript reads any
 value there by its truthiness, and `while (k)` on an `f32` compiled with no word, then failed in
@@ -7548,7 +7661,8 @@ a picking test, a unit test. No device, buffer or compile step appears in the ho
 `typescript` is needed at build time only. A compute entry runs on the GPU through the same
 import, and a full-screen fragment entry draws into a canvas (§67). The device a compute
 entry runs on takes the limits and features that `configure({ limits, features })` names, and
-`callDevice()` reports it (§65, change 0051).
+`callDevice()` reports it (§65, change 0051). `configure()` is deprecated (change 0138, Amendment
+A1): a device is opened by `createDevice({ limits, features })`.
 
 ```ts
 "use typeshade";
@@ -7923,6 +8037,50 @@ calls it on an element of an array (§65, §67). A host method converts at the b
 call, as a helper does, so a host loop that ticks an instance once per sample pays that per
 sample: the host method is the reference, and the kernel is the fast path.
 
+**Resources** (change 0138, milestone 1; Rule 8.21). A class a shader module exports also types
+data a host keeps for the GPU. `uniform(Camera, { … })` makes one struct laid out as a
+`uniform<Camera>` binding is, a `Uniform<Camera>`; `zeros(Particle, n)` and `array(Particle, data)` make `n`
+structs laid out as a `storage<array<Particle>>` binding is, a `Buffer<Particle>`.
+
+```ts
+import { uniform, zeros, array } from 'typeshade/runtime';
+import { Camera, Particle } from './scene.shade.ts';
+
+const camera = uniform(Camera, { time: 0 });
+camera.pos.set(0, 2, 5); // a vector, from its components
+camera.view.set(view); // a matrix, from an array of 16, column-major
+camera.set({ time: now / 1000 }); // some of the fields
+const pos = camera.pos.get(); // Readonly<Float32Array>: the field's view
+
+const ps = zeros(Particle, 1024);
+ps.at(3).vel.set(0, 1, 0);
+const seeded = array(Particle, [{ life: 1 }, { life: 2 }]); // the other fields are zero
+const all = await ps.read(); // Particle[], each an instance of the class
+```
+
+Each uniform and storage array is a byte range of one memory region (R17 of change 0138), an
+`ArrayBuffer` that is resizable where the runtime has one. Each field has one accessor with a
+typed view of the region, made once and made again only after the region moved its ranges. `set`
+checks each number as a call checks it (Rule 8.21), compares it with what the view holds, writes
+only a changed one and widens the resource's dirty byte range; it allocates nothing. `get` returns
+a scalar's number, or the typed view of a vector, a matrix or an array of scalars, each element at
+its stride (a matrix column of three rows has a fourth, unused lane). An `f64` field is two `f32`
+halves in the region, so its `get` returns the joined number or a new `Float64Array`. A host that
+writes through a view sets `needsUpdate = true`. A new resource is dirty over its whole range.
+
+A resource is freed by `dispose()` or when the garbage collector reclaims it. Where the runtime
+has `Symbol.dispose`, a resource has `[Symbol.dispose]()` as well, which `using` calls at the end
+of a block; the types do not declare it yet. An accessor of a freed resource throws a `TypeError` that names it:
+`Uniform<Camera> was disposed; its fields cannot be read or set. Make a new one with
+uniform(Camera).` A class with a field that has no layout (a `bool`, a two-row matrix in a
+uniform) is refused with the reason, and so is a field named like the accessor's own member
+(`set`, and on a uniform `needsUpdate` and `dispose`). A texture lives on its device only and
+takes no range of the region.
+
+At milestone 1 no call takes a resource yet: a kernel function, an entry and a draw take plain data
+and a `Resident` as before. The upload of each dirty range when a call reads the resource is
+milestone 3 of change 0138.
+
 **The name** (Rule 3.8). A shader module a host imports is named `*.shade.ts`. The plugin refuses
 a `.ts` the bundle reads that begins with `"use typeshade"` under any other name, with the
 rename. A module with a compile error fails the build with each `TS80xx` diagnostic at its file,
@@ -8052,7 +8210,8 @@ is selected. A smaller upload is a memory result; complete-call speed requires m
 
 **The proof** (Rule 8.22) accepts a loop when:
 
-- R1: it is a counted `for` (Rule 7.5), or a `for…of`, that steps by adding a constant;
+- R1: it is a counted `for` (Rule 7.5), or a `for…of`, that steps by adding a constant; a
+  `while` and a `for` that is not counted are open loops, and run on the CPU (change 0136);
 - R2: nothing returns from it or breaks out of it;
 - R3: each write lands on a name declared inside it; on an outer array at `a*i + c`, at one index
   whose coefficient of `i` is loop-invariant, or at `i*W + x` over a nested loop of `x` below `W`,
@@ -8081,7 +8240,7 @@ correct either way. The first sentence names the line and your names, and the se
 
 | Rule | Warning                                                                                                                                                                      |
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R1   | `This loop runs on the CPU because it is a while loop, whose trip count is known only when it ends. A for loop over a count runs on the GPU.`                                |
+| R1   | `This loop runs on the CPU because it is an open loop, a while or a for that is not counted, whose trip count is known only when it ends. A counted for loop runs on the GPU.` |
 | R1   | `This loop runs on the CPU because "stride /= 2" does not step through a range of indices. Step by adding a constant.`                                                       |
 | R2   | `This loop runs on the CPU because line 9 returns from inside it, so whether an iteration runs depends on the ones before it. Record the result in an array and read it after the loop.` |
 | R3   | `This loop runs on the CPU because line 49 writes "nearest", which the next iteration reads. Declare it inside the loop, or combine it with one of += *= min max & \| ^.`   |
@@ -8380,8 +8539,10 @@ opened tier, not the effective tier of each call. `FuseReport.tier` keeps its ag
 (§71). Reading information performs no browser operation. No native handles, persistent device
 ID, user agent, storage or automatic sending is added. The host controls inspection and consent.
 
-**Resident arrays.** `resident(value)`, from `typeshade` or `typeshade/runtime`, wraps a host
-value once: a typed array, an array of objects, or any other host value (Rule 8.21), such as a
+**Resident arrays.** `array(value)`, from `typeshade/runtime`, wraps a host value once (change
+0138, Amendment A1: it replaces `resident(value)`, which still works, warns once and is removed
+after a deprecation release; `array(length, element)` replaces `resident(length, element)` the same
+way): a typed array, an array of objects, or any other host value (Rule 8.21), such as a
 struct a frame's draws share. A kernel function takes the handle wherever it takes the array
 (Rule 11.8). The first call on WebGPU uploads it; the calls after bind the same buffer and read
 nothing back, and `await dev.read()` returns a new copy of what it holds. `dev.write(value)`
@@ -8395,9 +8556,9 @@ a buffer of the program runtime too (§69), and `configure({ runtime })` puts th
 runtime's device, so one `Resident` serves both:
 
 ```ts
-import { resident } from 'typeshade/runtime';
+import { array } from 'typeshade/runtime';
 
-const dev = resident(new Float32Array(512 * 512));
+const dev = array(new Float32Array(512 * 512));
 render(k, 512, dev); // queued: every array it writes is resident, and it returns nothing
 const sum = await total(dev); // reads the same buffer
 const img = await dev.read(); // the one read of the chain

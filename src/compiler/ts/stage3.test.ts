@@ -303,7 +303,9 @@ describe('@compute argument shapes (#118, WORKGROUP_ARG)', () => {
 });
 
 describe('entry function missing a return type annotation but returning a value (RETURN_SHAPE)', () => {
-  it('is an error naming the inferred type', () => {
+  it("returns the inferred type, at its stage's default attribute (Rule 8.19, change 0136)", () => {
+    // This was `TS8021 Entry function "fs" returns a value (inferred type vec4) but has no
+    // return type annotation; add ": vec4" to the signature.`
     const r = diag(`
       "use typeshade";
       @fragment
@@ -311,10 +313,8 @@ describe('entry function missing a return type annotation but returning a value 
         return vec4(1., 0., 0., 1.);
       }
     `);
-    const d = r.diagnostics.find((d) => d.code === TS_CODES.RETURN_SHAPE && d.category === 'error');
-    expect(d, 'expected an error-level RETURN_SHAPE diagnostic').toBeDefined();
-    expect(d!.message).toContain('inferred type vec4)');
-    expect(d!.message).toContain('no return type annotation');
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain('-> @location(0) vec4<f32>');
   });
 
   it('is silent for an ordinary helper function with no return annotation (Rule 8.19)', () => {

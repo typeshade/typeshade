@@ -392,18 +392,15 @@ describe('the compiler follows the narrowing forms TypeScript follows (Rule 7.10
     });
   }
 
-  it('a for condition cannot carry the test: a counted loop exits on its bound alone (TS8006)', () => {
-    // Observed: Rule 7.10 lists the condition of a `for` among the narrowing forms, and the
-    // walk follows it, but the counted-loop rule refuses a `for` whose exit joins the bound
-    // with anything else, before the narrowing is read. The remedy it names, a `break` as the
-    // body's first statement, is the early-break form above.
+  it('a for condition carries the test, as a while condition does (change 0136)', () => {
+    // This was `TS8006 for exit joins the bound "i < 3" with "v !== undefined", …`: the
+    // counted-loop rule refused the `&&` exit before the narrowing was read. A `for` that is not
+    // counted is an open loop now, and its condition narrows the body as Rule 7.10 lists.
     const source = program(
       `export function run(v: f32 | undefined): f32 { let s = 0.; for (let i = 0; i < 3 && v !== undefined; i++) { s = s + v; } return s; }`,
     );
-    const errors = errorsOf(source);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toMatch(/^TS8006 for exit joins the bound "i < 3" with "v !== undefined"/);
-    expect(editorCompilerSentences(source)).toEqual(errors);
+    expect(errorsOf(source)).toEqual([]);
+    expect(editorCompilerSentences(source)).toEqual([]);
   });
 
   it('a bare discard is no exit to the narrowing, as it is none to TypeScript (Rule 12.7)', () => {

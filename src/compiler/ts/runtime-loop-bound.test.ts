@@ -33,6 +33,16 @@ function header(head: string): string {
   `;
 }
 
+/** Whether the first `for` of `f` carries the counted fact (Rule 7.5); an open loop does not
+ *  (change 0136). The program must compile. */
+function isCounted(src: string): boolean {
+  const c = compile(src);
+  expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+  const loop = c.module.funcs.flatMap((f) => f.body).find((st) => st.s === 'for');
+  expect(loop, 'no for loop').toBeDefined();
+  return loop!.s === 'for' && loop!.counted !== undefined;
+}
+
 describe('a for loop takes a runtime bound', () => {
   it('counts to a parameter on both CPU engines', () => {
     const r = compile(header('let i: i32 = 0; i < n; i++'));
@@ -178,47 +188,31 @@ export const main = compute([64], function main(lid: builtin<"local_invocation_i
     expect(errorsOf(kernel('lid')).map((d) => d.code)).toEqual(['TS8052']);
   });
 
-  it('refuses the runtime headers whose exit it can prove is never reached', () => {
-    expect(errorsOf(header('let i: i32 = 0; i < n; i -= 1'))).toEqual([
-      {
-        code: 'TS8007',
-        message:
-          'for step "i -= 1" moves "i" away from a bound it compares with <, so the loop does ' +
-          'not exit once it starts.',
-      },
-    ]);
-    expect(errorsOf(header('let i: i32 = n; i > 0; i /= 2'))).toEqual([]);
-    expect(errorsOf(header('let i: i32 = n; i < 64; i /= 2'))[0]?.code).toBe('TS8007');
-    expect(errorsOf(header('let i: i32 = 0; i < n; i *= 2'))).toEqual([
-      {
-        code: 'TS8007',
-        message: 'for step "i *= 2" never advances "i": multiplying pins it at 0.',
-      },
-    ]);
-    expect(errorsOf(header('let i: i32 = 1; i < n; i *= 2'))).toEqual([]);
-    expect(errorsOf(header('let i: i32 = 1; i < n; i *= -2'))).toEqual([
-      {
-        code: 'TS8006',
-        message:
-          'for step "i *= -2" with a runtime start or bound needs a whole factor of 2 or more, ' +
-          'so its direction is known.',
-      },
-    ]);
-    expect(errorsOf(header('let i: i32 = 0; i !== n; i += 2'))).toEqual([
-      {
-        code: 'TS8006',
-        message:
-          'for exit "i != <bound>" with a runtime bound exits only if "i += 2" lands on it ' +
-          'exactly. Compare with <, <=, > or >=.',
-      },
-    ]);
+  it('takes the runtime headers it cannot count as open loops (change 0136)', () => {
+    // Each was refused: a step away from a runtime bound (TS8007), a factor from a start of 0
+    // (TS8007), a factor that is not a whole number of 2 or more (TS8006), and `!==` against a
+    // runtime bound (TS8006). None of them is proved never to end, since the bound is known
+    // only when the loop runs, so each is an open loop, as the same `while` is.
+    for (const head of [
+      'let i: i32 = 0; i < n; i -= 1',
+      'let i: i32 = n; i < 64; i /= 2',
+      'let i: i32 = 0; i < n; i *= 2',
+      'let i: i32 = 1; i < n; i *= -2',
+      'let i: i32 = 0; i !== n; i += 2',
+    ]) {
+      expect(errorsOf(header(head)), head).toEqual([]);
+      expect(isCounted(header(head)), head).toBe(false);
+    }
+    // The headers it can count stay counted.
+    expect(isCounted(header('let i: i32 = n; i > 0; i /= 2'))).toBe(true);
+    expect(isCounted(header('let i: i32 = 1; i < n; i *= 2'))).toBe(true);
+    expect(compile(header('let i: i32 = 0; i !== n; i += 2')).eval('f', [6])).toBe(3);
   });
 
-  it('refuses a bound that is not one: the counter itself, or a name the body writes', () => {
-    expect(errorsOf(header('let i: i32 = 1; i < i * 2; i++'))[0]?.message).toBe(
-      'for exit must compare "i" to a bound (e.g. i < 16, or i < n). A loop that ends some ' +
-        'other way is a while loop.',
-    );
+  it('takes a bound that is not one as an open loop: the counter itself, or a name the body writes', () => {
+    // These were `TS8006 for exit must compare "i" to a bound …` and `TS8006 for bound reads
+    // "n", which the loop body writes, …, or write the loop as a while.` (change 0136).
+    expect(isCounted(header('let i: i32 = 1; i < i * 2; i++'))).toBe(false);
     const moved = `"use typeshade";
       export function f(n0: i32): i32 {
         let s: i32 = 0;
@@ -230,22 +224,15 @@ export const main = compute([64], function main(lid: builtin<"local_invocation_i
         return s;
       }
     `;
-    expect(errorsOf(moved)).toEqual([
-      {
-        code: 'TS8006',
-        message:
-          'for bound reads "n", which the loop body writes, so it does not bound the loop. ' +
-          'Read it into a const before the loop, or write the loop as a while.',
-      },
-    ]);
-    // The same loop as a while is an open loop, and says what it does.
-    expect(
-      errorsOf(
-        moved
-          .replace('for (let i: i32 = 0; i < n; i++)', 'let i: i32 = 0;\n while (i < n)')
-          .replace('s += i;', 's += i; i++;'),
-      ),
-    ).toEqual([]);
+    expect(isCounted(moved)).toBe(false);
+    // The same loop as a while runs the same trips.
+    const asWhile = moved
+      .replace('for (let i: i32 = 0; i < n; i++)', 'let i: i32 = 0;\n while (i < n)')
+      .replace('s += i;', 's += i; i++;');
+    expect(errorsOf(asWhile)).toEqual([]);
+    for (const n of [0, 3, 20]) {
+      expect(compile(moved).eval('f', [n]), String(n)).toBe(compile(asWhile).eval('f', [n]));
+    }
   });
 
   // A runtime-sized array's length is fixed when the host binds the buffer, so a body that writes
@@ -268,18 +255,15 @@ export const main = compute([64], function main(gid: builtin<"global_invocation_
     ]) {
       expect(errorsOf(kernel(body)), body).toEqual([]);
     }
-    // Reading an ELEMENT is still reading what the body writes.
-    expect(
-      errorsOf(kernel('for (let i: u32 = 0; i < u32(xs[0]); i++) { xs[0] = 0.; }')).map(
-        (d) => d.code,
-      ),
-    ).toEqual(['TS8006']);
-    // So is a field beside the array in the same binding.
-    expect(
-      errorsOf(kernel('for (let i: i32 = 0; i < i32(field.scale); i++) { field.scale = 0.; }')).map(
-        (d) => d.code,
-      ),
-    ).toEqual(['TS8006']);
+    // Reading an ELEMENT is still reading what the body writes, and so is a field beside the
+    // array in the same binding: each was TS8006, and is an open loop (change 0136).
+    for (const body of [
+      'for (let i: u32 = 0; i < u32(xs[0]); i++) { xs[0] = 0.; }',
+      'for (let i: i32 = 0; i < i32(field.scale); i++) { field.scale = 0.; }',
+    ]) {
+      expect(errorsOf(kernel(body)), body).toEqual([]);
+      expect(isCounted(kernel(body)), body).toBe(false);
+    }
   });
 
   // A fixed array's `.length` is a literal before the check sees it, so this one never tripped;
@@ -398,18 +382,13 @@ describe('a while loop is an open loop', () => {
     expect(r.eval('f', [])).toBe(4);
   });
 
-  it('points a for with no condition at the while form', () => {
-    expect(
-      errorsOf(`"use typeshade";
+  it('takes a for with no condition and a break as an open loop (change 0136)', () => {
+    // This was `TS8007 for is missing an exit condition. A for loop is counted; a loop that
+    // ends at a break is "while (true) { … }".`
+    const src = `"use typeshade";
         export function f(): void { for (;;) { break; } }
-      `),
-    ).toEqual([
-      {
-        code: 'TS8007',
-        message:
-          'for is missing an exit condition. A for loop is counted; a loop that ends at a ' +
-          'break is "while (true) { … }".',
-      },
-    ]);
+      `;
+    expect(errorsOf(src)).toEqual([]);
+    expect(isCounted(src)).toBe(false);
   });
 });

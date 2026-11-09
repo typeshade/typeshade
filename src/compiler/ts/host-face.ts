@@ -114,6 +114,7 @@ import {
   type Pack,
 } from '../../core/manifest.js';
 import type { PackLayout } from '../../core/manifest-types.js';
+import type { ClassLayouts } from '../../runtime/resource.js';
 import { collectionKeyOf, keyTypeText, keysOf, recordKeyText, recordOf } from './key-types.js';
 import {
   CONSTRUCTOR,
@@ -305,6 +306,10 @@ interface ClassExport {
    *  an abstract class, which has no instance of its own. */
   readonly ctor?: MemberCall | { readonly zero: CpuValue } | Refused;
   readonly members: readonly ClassMember[];
+  /** The struct's layouts for a host resource (change 0138, R7, R9): `u` as one uniform, `s` as
+   *  an array with no size in storage, or the reason each has none. The module puts them on the
+   *  class, and `uniform()`, `zeros()` and `array()` of `typeshade/runtime` read them. */
+  readonly layouts: ClassLayouts;
 }
 
 /** A class with a field that has no host value (D4): a type of the host face, with each field
@@ -2504,8 +2509,22 @@ function classFace(
     abstract,
     bases,
     fields,
+    layouts: abstract ? { a: 1 } : resourceLayouts(local, c.structs),
     ...(ctor !== undefined ? { ctor } : {}),
     members: classMembers(name, decl, struct, c),
+  };
+}
+
+/** The layouts of struct `name` as a host resource (change 0138): as one uniform (std140) and as
+ *  an array with no size in storage (std430), each from the layouts a binding of that type has
+ *  (Rule 6.8), or the reason it has none. */
+function resourceLayouts(name: string, structs: ReadonlyMap<string, StructDecl>): ClassLayouts {
+  const t: ShaderType = { kind: 'struct', name };
+  const u = layoutOf(t, 'std140', structs, authorTypeText);
+  const s = layoutOf({ kind: 'array', elem: t }, 'std430', structs, authorTypeText);
+  return {
+    ...('none' in u ? { un: u.none } : { u }),
+    ...('none' in s ? { sn: s.none } : { s: s as Layout & { k: 'a' } }),
   };
 }
 
@@ -3299,6 +3318,9 @@ function classModule(
           `${lead}set ${q(m.name)}(__ts_v) { ${run(call(m.set, shown, object_), self, '[__ts_v]')}; }`,
         );
     }
+    // The layouts `uniform()`, `zeros()` and `array()` read (change 0138), under a registered
+    // symbol, so the class needs no name of the runtime's.
+    body.push(`static [Symbol.for("typeshade.layout")] = ${JSON.stringify(e.layouts)};`);
     const id = bind(e.name);
     ids.set(e, id);
     out.push(

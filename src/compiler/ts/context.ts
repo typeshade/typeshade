@@ -657,7 +657,7 @@ export const irNameOf = (b: Binding): string => b.irName ?? b.name;
 
 /** A copy of an IR node, sharing only what is shared by identity: a type, a span, and the
  *  declaration a call refers to. */
-function cloneIr<T>(value: T): T {
+export function cloneIr<T>(value: T): T {
   if (Array.isArray(value)) return value.map((v) => cloneIr(v)) as T;
   if (value === null || typeof value !== 'object') return value;
   const out: Record<string, unknown> = {};
@@ -675,6 +675,7 @@ export class LoweringScope {
   private readonly takenIr = new Set<string>();
   private readonly byIr = new Map<string, Binding>();
   private ownerDecl: FuncDecl | undefined;
+  private resourceStructs: ReadonlySet<string> = new Set();
   private superCtorInfo: SuperCtor | undefined;
   private afterSuperStmts: readonly Stmt[] | undefined;
   private afterSuperTaken = false;
@@ -1122,6 +1123,33 @@ export class LoweringScope {
   /** Includes generated and inherited class functions, without requiring their bodies yet. */
   allCallees(): readonly FuncDecl[] {
     return [...this.callees.values()];
+  }
+
+  /** The structs a binding, a module variable or workgroup memory holds, by name: a resource
+   *  struct is never an entry's result by inference (Rule 8.19, change 0136). */
+  setResourceStructs(names: ReadonlySet<string>): void {
+    this.resourceStructs = names;
+  }
+
+  /**
+   * The structs an object literal an entry returns may build when the entry writes no return
+   * type (Rule 8.19, surface §16, change 0136): every struct the program declares whose fields
+   * are the literal's names, except a resource struct and a struct with a private field. The
+   * collector adds the declared structs whose fields an entry's literal names, so one used
+   * nowhere else is here too (`structs.ts`). Unlike {@link matchStruct}, which reads the
+   * structs the program uses, this lists every match, and a caller takes exactly one.
+   */
+  entryResultMatches(fieldNames: readonly string[]): StructDecl[] {
+    const set = new Set(fieldNames);
+    const out: StructDecl[] = [];
+    for (const s of this.structs.values()) {
+      if (s.name.startsWith('__') || this.resourceStructs.has(s.name)) continue;
+      if (this.hasHiddenFields(s.name)) continue;
+      if (s.fields.length !== set.size) continue;
+      if (!s.fields.every((f) => set.has(f.name))) continue;
+      out.push(s);
+    }
+    return out;
   }
 
   matchStruct(fieldNames: readonly string[]): StructDecl | undefined {

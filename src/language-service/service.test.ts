@@ -543,7 +543,9 @@ describe('getDiagnostics: Stage 3 TypeShade checks (design doc §10 step 5)', ()
     expect(d!.range.start.line).toBe(1);
   });
 
-  it('reports an entry function with no return annotation that returns a value, naming the inferred type', () => {
+  it('reports nothing for an entry function with no return annotation that returns a value, and hovers its inferred type', () => {
+    // This was TS8021 naming the inferred type; the entry returns it now (Rule 8.19, change
+    // 0136), and the hover shows it as a written one would.
     const service = createTypeshadeLanguageService();
     const text =
       '"use typeshade";\n' +
@@ -551,12 +553,10 @@ describe('getDiagnostics: Stage 3 TypeShade checks (design doc §10 step 5)', ()
       '  return vec4(1., 0., 0., 1.)\n' +
       '});\n';
     service.openDocument('no-return-type.ts', text);
-    const d = service
-      .getDiagnostics('no-return-type.ts')
-      .find((d) => d.source === 'typeshade' && d.code === 'TS8021');
-    expect(d, 'expected a TS8021 (RETURN_SHAPE) diagnostic').toBeDefined();
-    expect(d!.severity).toBe('error');
-    expect(d!.message).toContain('inferred type vec4)');
+    expect(service.getDiagnostics('no-return-type.ts')).toEqual([]);
+    expect(service.getHover('no-return-type.ts', { line: 1, character: 37 })?.contents).toContain(
+      'fs(): vec4',
+    );
   });
 
   // `mat2<f32>` used to be the TS8027 sample here. Every `matCxR` is a type since #149, so

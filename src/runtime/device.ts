@@ -46,7 +46,7 @@ import {
   checkFp64Flavor,
   kernelQueue,
   handleOf as residentHandle,
-  resident,
+  makeResident,
   residentState,
   ZEROED_ELEMENTS,
   ZeroedState,
@@ -390,7 +390,7 @@ class DeviceImpl implements Device {
     const zeroed = args.length >= 2;
     const [value, element] = args as [unknown, unknown];
     // The refusals of `resident()` come first, so a wrong value makes no slot.
-    const probe = zeroed ? resident(value as number, element as ZeroedElement) : resident(value);
+    const probe = makeResident('resident()', zeroed ? [value, element] : [value]);
     const probeState = residentState(probe)!;
     const el: PooledElement | undefined = zeroed ? (element as ZeroedElement) : elementOf(value);
     const length = zeroed
