@@ -83,6 +83,11 @@ and every person reads this file before any other document of this repository.
     `@out`.
   - An entry's built-in values and inter-stage values stay in the type: `builtin<…>` and
     `location<…>`.
+  - Scope, decided 2026-11-09: asked whether OD-5 also requires every inter-stage value to write
+    `location<…>`, the owner chose "생략 허용 (A)". OD-5 chooses the type form over the decorated
+    form. It does not require an attribute where the compiler can supply one: an input or output
+    with no attribute (`uv: vec2`) is allowed, and `location<n, T>` stays for a fixed number or an
+    option.
   - Change 0130 adds a rule after Rule 1.7 that says a construct that describes a value that
     flows in or out, a parameter included, is part of its type. For a parameter qualifier this
     entry holds, and that rule text is fixed in its own pull request.
