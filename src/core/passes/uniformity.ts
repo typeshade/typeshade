@@ -207,6 +207,19 @@ export interface UniformityViolation {
   readonly via: Via;
   /** Where the call was authored, when the IR carries it. */
   readonly span?: SourceSpan;
+  /** The call node itself, in the module the walk read: what the derivative rewrite
+   *  (`derivative-rewrite.ts`, change 0132) finds the call by. */
+  readonly call: Extract<Expr, { op: 'call' }>;
+}
+
+/** What the last walk saw, for a pass that acts on it (the derivative rewrite, change 0132):
+ *  the class of the control flow each statement starts under, and the class at each call,
+ *  each joined over every walk of it (a loop body is walked more than once). The class is the
+ *  one the derivative threshold reads, an earlier divergence included. A statement or a call
+ *  the walk never reached is absent. */
+export interface UniformityObservation {
+  readonly stmt: Map<Stmt, Uniformity>;
+  readonly call: Map<Expr, Uniformity>;
 }
 
 /** A value's class, with the phrase a diagnostic uses for it. A class of CONTROL FLOW also
@@ -632,6 +645,8 @@ export interface UniformitySource {
    *  a closure's `main_done`, so that a message names what the author can find (Rule 12.1);
    *  `undefined` where it cannot tell, and the IR name stands. */
   readonly calleeText?: (call: Extract<Expr, { op: 'call' }>) => string | undefined;
+  /** Filled by the walk that reports, when given: see {@link UniformityObservation}. */
+  readonly observe?: UniformityObservation;
 }
 
 /** What a walk of one function reads that does not change as it steps: the module, the
@@ -1040,6 +1055,7 @@ export function uniformityViolations(
       source,
       found,
       () => undefined,
+      source.observe,
     );
   }
   // One call, one violation. A loop body is walked more than once — the fixpoint that follows
@@ -1066,8 +1082,14 @@ function walkFunction(
   source: UniformitySource,
   found: UniformityViolation[],
   record: (callee: string, at: Known, args: readonly Known[]) => void,
+  observe?: UniformityObservation,
 ): void {
   const cx: Cx = { m, f, paramAt, retDeps, source };
+  /** Joins `at` into what `observe` holds for `key`. */
+  const note = <K>(into: Map<K, Uniformity>, key: K, at: Uniformity): void => {
+    const prior = into.get(key);
+    into.set(key, prior === undefined ? at : join(prior, at));
+  };
   const entry: Flow = {
     env: new Map(),
     at: start?.at ?? 'unknown',
@@ -1138,6 +1160,7 @@ function walkFunction(
     // branch, and names it.
     const own: Known = { at: flow.at, why: flow.why, via: flow.via };
     const { at, why, via } = flow.diverged === undefined ? own : degrade(flow.diverged, own);
+    if (observe !== undefined) note(observe.call, x, at);
     // The flow the call is under, AND the class of each argument: a helper's body needs
     // both, and seeding its parameters `unknown` regardless of what it was handed is what
     // let a derivative under `if (x > 0.5)` inside it pass while Tint refused it.
@@ -1158,6 +1181,7 @@ function walkFunction(
           cause: why,
           via: via ?? 'branch',
           span: x.span,
+          call: x,
         });
       }
     } else if (SUBGROUP_INTRINSICS.has(x.fn)) {
@@ -1173,6 +1197,7 @@ function walkFunction(
           cause: at === 'non-uniform' ? why : `${why}, which this compiler cannot prove uniform`,
           via: via ?? 'branch',
           span: x.span,
+          call: x,
         });
       }
     } else if (
@@ -1188,6 +1213,7 @@ function walkFunction(
         cause: at === 'non-uniform' ? why : `${why}, which this compiler cannot prove uniform`,
         via: via ?? 'branch',
         span: x.span,
+        call: x,
       });
     }
   };
@@ -1196,6 +1222,10 @@ function walkFunction(
   const walk = (stmts: readonly Stmt[], flow: Flow): Flow => {
     let cur = flow;
     for (const s of stmts) {
+      if (observe !== undefined) {
+        const own: Known = { at: cur.at, why: cur.why };
+        note(observe.stmt, s, (cur.diverged === undefined ? own : degrade(cur.diverged, own)).at);
+      }
       // Every Expr this statement holds directly, read under the control flow reaching it.
       eachStmtExpr(
         s,
