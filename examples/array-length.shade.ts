@@ -31,14 +31,15 @@ declare const dst: storage<array<f32>, "read_write">;
 
 // The two parts a scale of 2 is split into, named for what they hold.
 class Weights {
-  half!: f32;
-  rest!: f32;
+  half: f32;
+  rest: f32;
 }
 
-export const scale_all = compute([64, 1, 1], function scale_all(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1])
+export function scale_all(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= src.length) {
     return;
   }
   const w: Weights = { half: 0.5, rest: 1.5 };
   dst[gid.x] = src[gid.x] * (w.half + w.rest);
-});
+}

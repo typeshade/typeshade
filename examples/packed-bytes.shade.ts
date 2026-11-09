@@ -30,8 +30,8 @@
 
 class Palette {
   // Four 8-bit weights packed into one word, the way a host hands a shader a small LUT.
-  weights!: u32;
-  texels!: u32;
+  weights: u32;
+  texels: u32;
 }
 
 declare const palette: uniform<Palette>;
@@ -41,16 +41,18 @@ interface VsOut {
   uv: location<0, vec2>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const xs = array(-1., 3., -1.);
   const ys = array(-1., -1., 3.);
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
   const out: VsOut = { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
   return out;
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): vec4 {
+@fragment
+export function fs(v: VsOut): vec4 {
   // The two dots: four byte products summed, unsigned into a u32 and signed into an i32.
   const lit: u32 = dot4U8Packed(palette.weights, palette.texels);
   const signedLit: i32 = dot4I8Packed(palette.weights, palette.texels);
@@ -74,4 +76,4 @@ export const fs = fragment(function fs(v: VsOut): vec4 {
   const c: f32 = f32((truncated ^ clamped) % u32(97)) / 97.;
   const d: f32 = f32((signedPacked ^ signedClamped) % u32(63)) / 63.;
   return vec4(a * v.uv.x, b * v.uv.y, c * 0.5 + d * 0.5, 1.);
-});
+}

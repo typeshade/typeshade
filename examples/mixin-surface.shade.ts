@@ -22,19 +22,19 @@
 // The `function Tinted` itself emits nothing at all.
 
 class Disc {
-  center!: vec2;
-  radius!: f32;
+  center: vec2;
+  radius: f32;
 }
 
 class Bar {
-  center!: vec2;
-  halfWidth!: f32;
+  center: vec2;
+  halfWidth: f32;
 }
 
 /** Everything a shape needs to be drawn, added to whatever geometry it already has. */
 function Tinted<TBase extends AnyClass>(Base: TBase) {
   return class extends Base {
-    tint!: vec3;
+    tint: vec3;
     /** The colour this surface shows at a coverage between 0 and 1. */
     lit(cover: f32): vec3 {
       return this.tint * smoothstep(0., 1., cover);
@@ -43,7 +43,7 @@ function Tinted<TBase extends AnyClass>(Base: TBase) {
 }
 
 class TintedDisc extends Tinted(Disc) {
-  softness!: f32;
+  softness: f32;
   constructor(center: vec2, radius: f32, softness: f32, tint: vec3) {
     super();
     this.center = center;
@@ -57,7 +57,7 @@ class TintedDisc extends Tinted(Disc) {
 }
 
 class TintedBar extends Tinted(Bar) {
-  softness!: f32;
+  softness: f32;
   constructor(center: vec2, halfWidth: f32, softness: f32, tint: vec3) {
     super();
     this.center = center;
@@ -70,17 +70,19 @@ class TintedBar extends Tinted(Bar) {
   }
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   return vec4(xs[i], ys[i], 0., 1.);
-});
+}
 
-export const fs = fragment(function fs(frag: builtin<"position", vec4>): vec4 {
+@fragment
+export function fs(frag: builtin<"position", vec4>): vec4 {
   const p: vec2 = frag.xy * 0.004;
   const disc = new TintedDisc(vec2(0.6, 0.6), 0.35, 0.08, vec3(0.95, 0.4, 0.25));
   const bar = new TintedBar(vec2(1.4, 0.), 0.25, 0.05, vec3(0.2, 0.55, 0.9));
   const rgb: vec3 = disc.lit(disc.cover(p)) + bar.lit(bar.cover(p));
   return vec4(rgb, 1.);
-});
+}

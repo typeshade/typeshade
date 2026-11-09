@@ -29,15 +29,17 @@ interface Color {
   color: location<0, vec4>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
   return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment
+export function fs(v: VsOut): Color {
   // A list of vectors, and a list of integers written without a decimal point.
   const stops: array<vec3, 3> = [vec3(0.1, 0.1, 0.35), vec3(0.9, 0.4, 0.2), vec3(1., 0.95, 0.7)];
   const weights: array<i32, 3> = [1, 2, 1];
@@ -50,4 +52,4 @@ export const fs = fragment(function fs(v: VsOut): Color {
   const w = f32(weights[band]) * 0.25;
   const c: vec3 = stops[band] * (0.75 + w);
   return { color: vec4(c, 1.) };
-});
+}

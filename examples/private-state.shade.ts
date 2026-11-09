@@ -29,11 +29,12 @@ interface FsOut {
 }
 
 // Fullscreen triangle, as `cutout.shade.ts` draws it.
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
-});
+}
 
 // A linear congruential step on the invocation's own state, then the top 24 bits as a float
 // in [0, 1).
@@ -42,11 +43,12 @@ function next(): f32 {
   return f32(seed >> 8) / 16777216.;
 }
 
-export const fs = fragment(function fs(v: VsOut): FsOut {
+@fragment
+export function fs(v: VsOut): FsOut {
   const cell = vec2u(u32((v.uv.x + 1.) * 32.), u32((v.uv.y + 1.) * 32.));
   seed = cell.x * 1973 + cell.y * 9277 + 26699;
   const r = next();
   const g = next();
   const b = next();
   return { color: vec4(r, g, b, 1.) };
-});
+}

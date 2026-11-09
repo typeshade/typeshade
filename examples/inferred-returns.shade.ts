@@ -31,11 +31,12 @@ interface FsOut {
 }
 
 // Fullscreen triangle, as `rng-method.shade.ts` draws it.
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
-});
+}
 
 /** A linear congruential generator: `next` changes `seed` and returns a value in [0, 1). */
 class Rng {
@@ -74,7 +75,8 @@ function pick<T>(c: bool, a: T, b: T) {
   return b;
 }
 
-export const fs = fragment(function fs(v: VsOut): FsOut {
+@fragment
+export function fs(v: VsOut): FsOut {
   const p = v.uv;
   const orbit = new Orbit();
   orbit.span = 0.9;
@@ -89,7 +91,7 @@ export const fs = fragment(function fs(v: VsOut): FsOut {
   }
   const col = min(tint(glow, ring(p, orbit.radius * 0.6)), vec3(1.));
   return { color: vec4(col, 1.) };
-});
+}
 
 /** The dots' blue and the ring's amber, added. */
 function tint(glow: f32, lit: f32) {

@@ -24,9 +24,9 @@
 // nor as `renderable: false` (the flag arm correctly refuses a module that emits a `main()`).
 
 class Uniforms {
-  top!: vec4;
-  bottom!: vec4;
-  mix_bias!: f32;
+  top: vec4;
+  bottom: vec4;
+  mix_bias: f32;
 }
 
 declare const u: uniform<Uniforms>;
@@ -38,7 +38,8 @@ interface VsOut {
 
 // Oversized fullscreen triangle (3 verts, NDC −1..3) — covers the screen from a single
 // non-indexed draw with no vertex buffer.
-export const vs_full = vertex(function vs_full(idx: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs_full(idx: builtin<"vertex_index", u32>): VsOut {
   let pos = vec2(-1., -1.);
   if (idx === 1) {
     pos = vec2(3., -1.);
@@ -46,12 +47,13 @@ export const vs_full = vertex(function vs_full(idx: builtin<"vertex_index", u32>
     pos = vec2(-1., 3.);
   }
   return { pos: vec4(pos, 0., 1.), uv: vec2((pos.x + 1.) * 0.5, (pos.y + 1.) * 0.5) };
-});
+}
 
 // Fragment — vertical gradient between the two uniform colours, biased. `vo` (not `in`, a
 // GLSL reserved word) is the fragment input.
-export const fs_gradient = fragment(function fs_gradient(vo: VsOut): vec4 {
+@fragment
+export function fs_gradient(vo: VsOut): vec4 {
   const t = vo.uv.y + u.mix_bias;
   const rgb = mix(u.bottom.rgb, u.top.rgb, t);
   return vec4(rgb, f32(1.));
-});
+}

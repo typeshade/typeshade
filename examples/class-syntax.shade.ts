@@ -29,11 +29,12 @@ interface FsOut {
 }
 
 // Fullscreen triangle, as `rng-method.shade.ts` draws it.
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
-});
+}
 
 /** A ring: a centre and a radius, and a band width kept above a minimum by its setter. */
 class Ring {
@@ -77,7 +78,8 @@ class Ring {
   }
 }
 
-export const fs = fragment(function fs(v: VsOut): FsOut {
+@fragment
+export function fs(v: VsOut): FsOut {
   let a = Ring.unit;
   a.relativeWidth = 0.16;
   let b = new Ring(vec2(0.35, 0.2), 0.3);
@@ -88,4 +90,4 @@ export const fs = fragment(function fs(v: VsOut): FsOut {
   const ink = max(a.coverage(v.uv), b.coverage(v.uv));
   const tint = mix(vec3(0.07, 0.08, 0.14), vec3(0.95, 0.74, 0.32), ink);
   return { color: vec4(tint * (Ring.drawn * 0.5), 1.) };
-});
+}

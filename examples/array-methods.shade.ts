@@ -29,19 +29,21 @@ interface FsOut {
 }
 
 // Fullscreen triangle, as `rng-method.shade.ts` draws it.
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
-});
-
-class Light {
-  pos!: vec2;
-  radius!: f32;
-  color!: vec3;
 }
 
-export const fs = fragment(function fs(v: VsOut): FsOut {
+class Light {
+  pos: vec2;
+  radius: f32;
+  color: vec3;
+}
+
+@fragment
+export function fs(v: VsOut): FsOut {
   const p = v.uv;
   const lights = array<Light, 3>(
     { pos: vec2(-0.5, -0.3), radius: 0.35, color: vec3(1., 0.45, 0.2) },
@@ -66,4 +68,4 @@ export const fs = fragment(function fs(v: VsOut): FsOut {
   // A ring at 0.2 around the nearest light.
   col += vec3(1. - smoothstep(0., 0.012, abs(nearest - 0.2)));
   return { color: vec4(col, 1.) };
-});
+}

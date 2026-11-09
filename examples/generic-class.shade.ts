@@ -24,8 +24,8 @@
 
 /** Two of something, and a run-time choice between them. */
 class Slot<T> {
-  a!: T;
-  b!: T;
+  a: T;
+  b: T;
 
   constructor(a: T, b: T) {
     this.a = a;
@@ -45,7 +45,7 @@ class Slot<T> {
 /** A fixed-length list of `T`, with the index kept inside. A type parameter is a type wherever
  *  a type is written, `array<T, 3>` included. */
 class Bag<T> {
-  xs!: array<T, 3>;
+  xs: array<T, 3>;
 
   constructor(xs: array<T, 3>) {
     this.xs = xs;
@@ -59,7 +59,7 @@ class Bag<T> {
 /** Every type parameter has a default, so the bare name is the instance those defaults give:
  *  `Level` and `Level<f32>` are one struct, exactly as TypeScript reads them. */
 class Level<T = f32> {
-  edge!: T;
+  edge: T;
 
   constructor(edge: T) {
     this.edge = edge;
@@ -75,7 +75,7 @@ class Level<T = f32> {
 /** A base written with type arguments is the INSTANCE it names: this inherits `Slot_f32`'s two
  *  f32 fields and its methods, not a layout `Slot` would have had. */
 class Marked extends Slot<f32> {
-  tag!: f32;
+  tag: f32;
 
   constructor(a: f32, b: f32, tag: f32) {
     super(a, b);
@@ -83,14 +83,16 @@ class Marked extends Slot<f32> {
   }
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   return vec4(xs[i], ys[i], 0., 1.);
-});
+}
 
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment
+export function fs(p: builtin<"position", vec4>): vec4 {
   const uv: vec2 = fract(p.xy * 0.006);
 
   // One declaration, two instances: a scalar one and a vector one.
@@ -108,4 +110,4 @@ export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
 
   const k = gain.either(uv.x > 0.5) * step * marked.first() * marked.tag;
   return vec4(tint.either(uv.y > 0.5) * k * edge, 1.);
-});
+}

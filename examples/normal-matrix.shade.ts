@@ -32,10 +32,10 @@
 // the `mat3` below rides in the block without ceremony.
 
 class Uniforms {
-  model!: mat4;
+  model: mat4;
   // A 3×3 in std140: three columns, each a vec3 padded to 16 bytes — the same 48 bytes WGSL
   // gives it. This is the shape the refusal above is NOT about.
-  tint!: mat3;
+  tint: mat3;
 }
 
 declare const u: uniform<Uniforms>;
@@ -51,7 +51,8 @@ export function normalMatrix(model: mat4): mat3 {
   return mat3(model);
 }
 
-export const vs = vertex(function vs(idx: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(idx: builtin<"vertex_index", u32>): VsOut {
   const x = f32(idx & 1) * 4. - 1.;
   const y = f32(idx >> 1) * 4. - 1.;
   const n = normalMatrix(u.model);
@@ -63,9 +64,10 @@ export const vs = vertex(function vs(idx: builtin<"vertex_index", u32>): VsOut {
   // what it is. The compiler knows; only the editor needs the note.
   const normal: vec3 = n * vec3(0., 0., handed);
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5), normal: normal };
-});
+}
 
-export const fs = fragment(function fs(vo: VsOut): vec4 {
+@fragment
+export function fs(vo: VsOut): vec4 {
   // From columns, and scaled either way round — `m * s` and `s * m` are both the spec's
   // component-wise scaling and both emit as written.
   const basis = mat3(vec3(1., 0., 0.), vec3(0., 1., 0.), vec3(0., 0., 1.));
@@ -83,4 +85,4 @@ export const fs = fragment(function fs(vo: VsOut): vec4 {
   const col: vec2 = tall * vo.normal;
   const rgb: vec3 = scaled * u.tint * vec3(row.x, col.y, abs(row.y - col.y));
   return vec4(rgb, 1.);
-});
+}

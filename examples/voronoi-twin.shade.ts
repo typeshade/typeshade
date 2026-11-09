@@ -38,11 +38,12 @@ interface VsOut {
   uv: location<0, vec2>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-});
+}
 
 // Hash a cell coordinate into a stable point in [0,1]²: the per-cell feature seed.
 function hash2(c: vec2): vec2 {
@@ -50,7 +51,8 @@ function hash2(c: vec2): vec2 {
   return fract(vec2(sin(h.x), sin(h.y)) * 43758.5453);
 }
 
-export const fs = fragment(function fs(v: VsOut): vec4 {
+@fragment
+export function fs(v: VsOut): vec4 {
   const p: vec2 = v.uv * U.cells;
   const cell: vec2 = floor(p);
   const f: vec2 = fract(p);
@@ -69,4 +71,4 @@ export const fs = fragment(function fs(v: VsOut): vec4 {
   // Dark cores, cool cell walls.
   const c: vec3 = vec3(md * md, md * md, md * md) * vec3(0.35, 0.6, 1.) + vec3(0.02, 0.03, 0.06);
   return vec4(c, 1.);
-});
+}

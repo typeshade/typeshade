@@ -24,9 +24,9 @@
 // into it by probing the program for the Fp64Guard block.
 
 class Uniforms {
-  origin!: f64; // occupies one vec2<f32> slot, the host packs the two words
-  span!: f32; // world units swept across the screen
-  fp64!: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
+  origin: f64; // occupies one vec2<f32> slot, the host packs the two words
+  span: f32; // world units swept across the screen
+  fp64: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
 }
 
 declare const u: uniform<Uniforms>;
@@ -39,7 +39,8 @@ interface VsOut {
 // Oversized fullscreen triangle, the same pattern as gradient-pass.ts. The original reaches it
 // with If().elif() over an auto-var, which here is a reassigned `let`; the comparison is `===`
 // because `==` is refused with TS8099.
-export const vs_full = vertex(function vs_full(idx: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs_full(idx: builtin<"vertex_index", u32>): VsOut {
   let pos = vec2(-1., -1.);
   if (idx === 1) {
     pos = vec2(3., -1.);
@@ -47,9 +48,10 @@ export const vs_full = vertex(function vs_full(idx: builtin<"vertex_index", u32>
     pos = vec2(-1., 3.);
   }
   return { pos: vec4(pos, 0., 1.), uv: vec2((pos.x + 1.) * 0.5, (pos.y + 1.) * 0.5) };
-});
+}
 
-export const fs_stripes = fragment(function fs_stripes(vo: VsOut): vec4 {
+@fragment
+export function fs_stripes(vo: VsOut): vec4 {
   const sweep = vo.uv.x * u.span;
   // f64 path: the full-precision world coordinate keeps its fraction. `f64(sweep)` widens the
   // f32 sweep exactly (§39), and `fract` is one of the ten builtins with a df64 body.
@@ -60,4 +62,4 @@ export const fs_stripes = fragment(function fs_stripes(vo: VsOut): vec4 {
   // place, which is what makes the emulation's contribution tangible.
   const v = (vo.uv.x < 0.5 || u.fp64 < 0.5) ? stripes32 : stripes64;
   return vec4(v, v, v, 1.0);
-});
+}

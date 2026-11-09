@@ -34,7 +34,8 @@ function tally(x: f32): void {
   atomicAdd(seen[bin], 1);
 }
 
-export const scratch = compute([64, 1, 1], function scratch(
+@compute([64, 1, 1])
+export function scratch(
   gid: builtin<"global_invocation_id", vec3u>,
   lid: builtin<"local_invocation_id", vec3u>,
 ): void {
@@ -46,4 +47,4 @@ export const scratch = compute([64, 1, 1], function scratch(
   tally(tile[lid.x] - 1.);
   dst[gid.x] = tile[lid.x];
   counts[gid.x] = calls;
-});
+}

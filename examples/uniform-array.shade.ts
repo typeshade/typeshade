@@ -40,11 +40,11 @@ class Palette {
   // the second half of the fix: the wrapper gives the element its 16-byte stride, and
   // `@align(16)` on this member gives the array its 16-byte OFFSET. Without it Tint puts
   // `weights` at offset 4 and says so, while `reflect()` reports 16.
-  count!: f32;
+  count: f32;
   // Under 16 bytes an element: padded on WGSL, native on GLSL std140.
-  weights!: array<f32, 4>;
+  weights: array<f32, 4>;
   // Already 16 bytes an element: untouched on both.
-  stops!: array<vec4, 2>;
+  stops: array<vec4, 2>;
 }
 
 declare const U: uniform<Palette>;
@@ -54,13 +54,15 @@ interface VsOut {
   uv: location<0, vec2>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): vec4 {
+@fragment
+export function fs(v: VsOut): vec4 {
   // Read every padded element, so the emitted `.v` hop is exercised at each index rather
   // than only at a constant one.
   let acc = 0.;
@@ -70,4 +72,4 @@ export const fs = fragment(function fs(v: VsOut): vec4 {
   // …and both unpadded ones, which are read exactly as written.
   const ramp = mix(U.stops[0], U.stops[1], clamp(v.uv.x, 0., 1.));
   return ramp * (acc / max(U.count, 1.));
-});
+}

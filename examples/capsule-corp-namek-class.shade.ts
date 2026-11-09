@@ -18,9 +18,9 @@
 // =======================================================================================================
 
 class Uniforms {
-  time!: f32;
-  resolution!: vec2;
-  mouse!: vec2;
+  time: f32;
+  resolution: vec2;
+  mouse: vec2;
 }
 
 declare const u: uniform<Uniforms>;
@@ -145,8 +145,8 @@ const TET: array<vec3, 4> = [
 // ---------------------------------------------------------------------
 
 class PolarResult {
-  point!: vec3;
-  index!: f32;
+  point: vec3;
+  index: f32;
 
   constructor(point: vec3, index: f32) {
     this.point = point;
@@ -155,10 +155,10 @@ class PolarResult {
 }
 
 class MarchResult {
-  hit!: vec2;
-  edge!: f32;
-  winEdge!: f32;
-  tEdge!: f32;
+  hit: vec2;
+  edge: f32;
+  winEdge: f32;
+  tEdge: f32;
 
   constructor(hit: vec2, edge: f32, winEdge: f32, tEdge: f32) {
     this.hit = hit;
@@ -437,7 +437,7 @@ class SDF {
 // ---------------------------------------------------------------------
 
 class Ship {
-  legCount!: f32;
+  legCount: f32;
 
   constructor() {
     this.legCount = 4.0;
@@ -805,9 +805,9 @@ class Ship {
 // ---------------------------------------------------------------------
 
 class NamekTree {
-  position!: vec2;
-  height!: f32;
-  radius!: f32;
+  position: vec2;
+  height: f32;
+  radius: f32;
 
   constructor(position: vec2, height: f32, radius: f32) {
     this.position = position;
@@ -892,8 +892,8 @@ class NamekTree {
 }
 
 class NamekTrees {
-  first!: NamekTree;
-  second!: NamekTree;
+  first: NamekTree;
+  second: NamekTree;
 
   constructor() {
     this.first = new NamekTree(
@@ -969,8 +969,8 @@ class NamekTrees {
 // ---------------------------------------------------------------------
 
 class ShipDetails {
-  private ship!: Ship;
-  private trees!: NamekTrees;
+  private ship: Ship;
+  private trees: NamekTrees;
 
   constructor(ship: Ship, trees: NamekTrees) {
     this.ship = ship;
@@ -1354,7 +1354,7 @@ class ShipDetails {
 // ---------------------------------------------------------------------
 
 class Lettering {
-  strokeWidth!: f32;
+  strokeWidth: f32;
 
   constructor() {
     this.strokeWidth = SW;
@@ -3807,10 +3807,10 @@ class Sky {
 // ---------------------------------------------------------------------
 
 class NamekScene {
-  private ship!: Ship;
-  private trees!: NamekTrees;
-  private details!: ShipDetails;
-  private lettering!: Lettering;
+  private ship: Ship;
+  private trees: NamekTrees;
+  private details: ShipDetails;
+  private lettering: Lettering;
 
   constructor() {
     this.ship = new Ship();
@@ -4247,22 +4247,24 @@ interface VsOut {
   uv: location<0, vec2>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4.0 - 1.0;
   const y = f32(vi >> u32(1)) * 4.0 - 1.0;
   const ndc = vec2(x, y);
   return { pos: vec4(x, y, 0.0, 1.0), uv: ndc * 0.5 + vec2(0.5) };
-});
+}
 
 // ---------------------------------------------------------------------
 // Fragment entry
 // ---------------------------------------------------------------------
 
-export const main = fragment(function main(
+@fragment
+export function main(
   uv: location<0, vec2>
 ): vec4 {
   const scene =
     new NamekScene();
 
   return scene.colorAt(uv);
-});
+}

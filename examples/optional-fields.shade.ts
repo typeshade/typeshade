@@ -31,8 +31,8 @@ interface Color {
 /** A hit along a ray: the distance, the normal where the surface has one, and the circle's
  *  radius where the object is a circle. */
 class Hit {
-  t!: f32;
-  normal!: vec2 | undefined;
+  t: f32;
+  normal: vec2 | undefined;
   radius?: f32;
 }
 
@@ -90,15 +90,17 @@ function sampleAll(samples: array<f32 | undefined, 4>): f32 {
   return s;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
   return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment
+export function fs(v: VsOut): Color {
   const o = v.uv * 2. - vec2(1., 1.);
   const hit = intersect(o - vec2(0., 2.), vec2(0., 1.), 0.5);
   const flat = circle(v.uv.x);
@@ -108,4 +110,4 @@ export const fs = fragment(function fs(v: VsOut): Color {
   const samples: array<f32 | undefined, 4> = [v.uv.x, undefined, v.uv.y, undefined];
   const b = clampTo(sampleAll(samples), 0.75) + clampTo(v.uv.x * 0.1);
   return { color: vec4(r, g, b, 1.) };
-});
+}

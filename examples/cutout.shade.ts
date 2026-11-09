@@ -37,11 +37,12 @@ interface FsOut {
 
 // Fullscreen triangle: three vertices covering the screen, with a centred [-1, 1] uv. No
 // vertex buffer — the position comes from the vertex index alone.
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
-});
+}
 
 // Discards outside the unit circle; inside, a radial gradient from a bright centre to a dim
 // rim, with the rim itself softened over one pixel of screen space.
@@ -64,6 +65,7 @@ export function discardOutsideCircle(p: vec2): vec4 {
   return vec4(shaded, 1.);
 }
 
-export const fs = fragment(function fs(v: VsOut): FsOut {
+@fragment
+export function fs(v: VsOut): FsOut {
   return { color: discardOutsideCircle(v.uv) };
-});
+}

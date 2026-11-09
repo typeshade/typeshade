@@ -31,18 +31,20 @@
 // the emitted code has to satisfy, and it said no.
 
 class Palette {
-  lo!: vec3;
-  hi!: vec3;
+  lo: vec3;
+  hi: vec3;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   return vec4(xs[i], ys[i], 0., 1.);
-});
+}
 
-export const fs = fragment(function fs(frag: builtin<"position", vec4>): vec4 {
+@fragment
+export function fs(frag: builtin<"position", vec4>): vec4 {
   const uv: vec2 = fract(frag.xy * 0.008);
 
   const warm: Palette = { lo: vec3(0.35, 0.1, 0.05), hi: vec3(1., 0.75, 0.35) };
@@ -58,4 +60,4 @@ export const fs = fragment(function fs(frag: builtin<"position", vec4>): vec4 {
   const band = i32(floor(uv.y * 3.));
   const t = smoothstep(0., 1., steps[band]);
   return vec4(mix(shade.lo, shade.hi, t), 1.);
-});
+}

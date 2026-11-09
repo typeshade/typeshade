@@ -40,11 +40,12 @@ declare const frame: uniform<Frame>;
 
 const WEIGHTS: array<f32, 3> = [0.25, 0.5, 0.25];
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(i32(vi) / 2) * 4. - 1.;
   const y = f32(i32(vi) % 2) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) * 0.5 + vec2(0.5, 0.5) };
-});
+}
 
 /** Accumulates a soft ring along the ray, in as many steps as the host asks for. */
 function march(uv: vec2, steps: i32): f32 {
@@ -93,7 +94,8 @@ function isqrt(x: f32): f32 {
   return r;
 }
 
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment
+export function fs(v: VsOut): Color {
   const ring = march(v.uv, frame.steps);
   const n = f32(leaves(frame.depth));
   let s = 0.;
@@ -103,4 +105,4 @@ export const fs = fragment(function fs(v: VsOut): Color {
     k += 1.;
   }
   return { color: vec4(ring, fract(n / 7.), s, 1.) };
-});
+}

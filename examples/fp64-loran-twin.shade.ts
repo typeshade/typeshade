@@ -24,12 +24,12 @@
 class Uniforms {
   // The observer, one DF64Vec2 slot: the host writes [hi.x, hi.y, lo.x, lo.y], the same
   // packing for both surfaces, which is why no twin ever spells the split.
-  center!: vec2f64;
-  st_a!: vec2f64; // master station, swept out with the observer by the DISTANCE slider
-  st_b!: vec2f64; // secondary station
-  resolution!: vec2;
-  zoom_exp!: f32; // view span = 10^-zoom_exp world units (negative zooms out)
-  fp64!: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
+  center: vec2f64;
+  st_a: vec2f64; // master station, swept out with the observer by the DISTANCE slider
+  st_b: vec2f64; // secondary station
+  resolution: vec2;
+  zoom_exp: f32; // view span = 10^-zoom_exp world units (negative zooms out)
+  fp64: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
 }
 
 declare const u: uniform<Uniforms>;
@@ -41,13 +41,15 @@ interface VsOut {
   // stations out of the uniform in the stage that needs them.
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
-});
+}
 
-export const fs_loran = fragment(function fs_loran(vo: VsOut): vec4 {
+@fragment
+export function fs_loran(vo: VsOut): vec4 {
   const span = 10.0 ** -u.zoom_exp;
   const half = vo.uv.x * 2.0;
   const sx = half - (vo.uv.x < 0.5 ? 0.0 : 1.0);
@@ -94,4 +96,4 @@ export const fs_loran = fragment(function fs_loran(vo: VsOut): vec4 {
     vec3(0.25, 0.95, 0.95) * (lineH * 0.9) +
     vec3(0.95, 0.7, 0.25) * (lineE * 0.35);
   return vec4(rgb, 1.);
-});
+}
