@@ -77,10 +77,58 @@ function compiled(source: string) {
   return c;
 }
 
-/** The whole TS8052 sentence for a `textureSample` (Rule 12.5): where the call is reached, and
- *  the hoist that fits that place. */
-const sampleRefusal = (reached: string, hoist: string): string =>
-  `${TS_CODES.UNIFORMITY} textureSample() is reached ${reached}, which WGSL's derivative_uniformity rule refuses: the implicit level of detail is a difference between neighbouring invocations, and one that did not run has no value to difference against. ${hoist}, or use textureSampleLevel or textureSampleGrad, whose level of detail is the one you wrote, or give the stage call of the entry the option { diagnostic: ["off", "derivative_uniformity"] } to take the module as written.`;
+// ═══ The derivative rewrite (change 0132) ═══
+//
+// The compiler rewrites a sample or a derivative the walk finds in non-uniform control flow
+// when it can recompute the operand before the branch, so a refusal this file pinned now
+// compiles. Each such case asserts both things: the ORIGINAL source compiles in both halves
+// with the gradients computed before the branch (`rewritten`), and the same source with the
+// operand read from module memory a function writes, which the rewrite cannot recompute
+// (change 0132, reason 1), still gets the walk's TS8052, naming the same root (`unreachable`).
+
+/** A module variable a function writes. */
+const HELD = 'let held: vec2 = vec2(0., 0.)\nexport function hold(uv: vec2): void { held = uv }\n';
+/** The reason TS8052 names for an operand that reads it. */
+const READS_HELD = 'its operand reads "held", which the branch writes';
+/** The reason for an operand that changes from one iteration of the loop to the next. */
+const LOOP_VARIANT =
+  'its operand changes on each iteration of a loop that not every invocation runs';
+
+/** `source` with each sample's coordinate and each derivative's operand read from `held`. */
+const unreachable = (source: string): string =>
+  HELD +
+  source
+    .replace(/textureSample\(t, s, (v\.uv|uv|p\.xy)\)/g, 'textureSample(t, s, held)')
+    .replace(/dpdx\(v\.uv\.x\)/g, 'dpdx(held.x)');
+
+/** `source` compiled with every reached sample and derivative rewritten (change 0132): both
+ *  halves say nothing, the WGSL samples with gradients or uses a derivative computed before the
+ *  branch, and so does the GLSL ES 3.00. */
+function rewritten(source: string) {
+  const c = compiled(source);
+  expect(c.wgsl).toMatch(/textureSampleGrad\(|let hoist_d_h\d+ = dpdx\(/);
+  // A module with a read_write storage binding has no GLSL ES 3.00 text (no storage buffers).
+  if (c.glsl !== undefined) expect(c.glsl.fragment).toMatch(/textureGrad\(|hoist_d_h\d+ = dFdx\(/);
+  return c;
+}
+
+/** The rewrite reaches `source`, and the walk still refuses it once its operand cannot be
+ *  recomputed: the errors of the unreachable form, for the assertions the case makes. */
+const refusedWhenUnreachable = (source: string): string[] => {
+  rewritten(source);
+  return errorsOf(unreachable(source));
+};
+
+/** The whole TS8052 sentence for a `textureSample` the rewrite could not reach (Rule 12.5,
+ *  change 0132): where the call is reached, what it could not be computed before, and why. */
+const sampleRefusal = (reached: string, hoist: string, reason: string): string => {
+  const past = hoist.replace(/^Hoist the call (above|out of) /, '');
+  return `${TS_CODES.UNIFORMITY} textureSample() is reached ${reached}, which WGSL's derivative_uniformity rule refuses: the implicit level of detail is a difference between neighbouring invocations, and one that did not run has no value to difference against. The compiler could not compute the gradients before ${past}: ${reason}. Move the call above ${past} and select from its result, or call textureSampleLevel or textureSampleGrad with the level or the gradients you want.`;
+};
+
+/** The same for a screen-space derivative. */
+const derivativeRefusal = (reached: string, past: string, reason: string): string =>
+  `${TS_CODES.UNIFORMITY} dpdx() is reached ${reached}, which WGSL's derivative_uniformity rule refuses: it differences neighbouring invocations, and one that did not run has no value to difference against. The compiler could not compute it before ${past}: ${reason}. Compute the value it differences before ${past}, call dpdx() there, and use the result inside.`;
 
 /** The whole TS8052 sentence for a call the workgroup has to reach together: where it is
  *  reached, where to move it, and what to write the statement on instead. */
@@ -92,7 +140,7 @@ const LID = '"lid" (@builtin(local_invocation_id))';
 
 describe('a derivative under a branch the invocations do not share', () => {
   it('refuses textureSample under a condition on a fragment input, naming the input', () => {
-    const [first, ...rest] = errorsOf(
+    const [first, ...rest] = refusedWhenUnreachable(
       frag(`  if (v.uv.x > 0.5) { return textureSample(t, s, v.uv) }
   return vec4(0., 0., 0., 1.)`),
     );
@@ -101,15 +149,17 @@ describe('a derivative under a branch the invocations do not share', () => {
     expect(first).toContain('textureSample() is reached under "VsOut.uv"');
     expect(first).toContain('a fragment input at @location(0)');
     expect(first).toContain('derivative_uniformity');
-    // The three fixes are named, because "not allowed" alone leaves an author guessing.
+    // The fixes are named, because "not allowed" alone leaves an author guessing, and so is
+    // why the compiler could not do it (change 0132). The filter is not offered.
     expect(first).toContain('textureSampleLevel');
-    expect(first).toContain('{ diagnostic: ["off", "derivative_uniformity"] }');
+    expect(first).toContain(READS_HELD);
+    expect(first).not.toContain('diagnostic: [');
   });
 
   it('follows the condition through a local it was copied into, to its ROOT', () => {
     // The message names the value an author would change, which is the input the local came
     // from and not the local: `edge` is a name, `VsOut.uv` is the reason.
-    const [first] = errorsOf(
+    const [first] = refusedWhenUnreachable(
       frag(`  const edge = v.uv.x > 0.5
   if (edge) { return textureSample(t, s, v.uv) }
   return vec4(0., 0., 0., 1.)`),
@@ -130,7 +180,7 @@ describe('a derivative under a branch the invocations do not share', () => {
     ).toContain('textureSample(t, s,');
     // …and a write UNDER a branch is only as uniform as the branch, so this one stays refused.
     expect(
-      errorsOf(
+      refusedWhenUnreachable(
         frag(`  let g: f32 = 0.
   if (v.uv.x > 0.5) { g = 1. }
   if (g > 0.5) { return textureSample(t, s, v.uv) }
@@ -140,7 +190,7 @@ describe('a derivative under a branch the invocations do not share', () => {
   });
 
   it('refuses a derivative builtin for the same reason', () => {
-    const [first] = errorsOf(
+    const [first] = refusedWhenUnreachable(
       frag(`  if (v.uv.x > 0.5) { return vec4(dpdx(v.uv.x), 0., 0., 1.) }
   return vec4(0., 0., 0., 1.)`),
     );
@@ -149,7 +199,7 @@ describe('a derivative under a branch the invocations do not share', () => {
 
   it('reaches a switch scrutinee, not only an if', () => {
     expect(
-      errorsOf(
+      refusedWhenUnreachable(
         frag(`  switch (i32(v.uv.x)) {
     case 0: return textureSample(t, s, v.uv)
     default: return vec4(0., 0., 0., 1.)
@@ -161,13 +211,32 @@ describe('a derivative under a branch the invocations do not share', () => {
     // Named as the loop it is: no branch surrounds the call, so "above the branch" pointed at
     // nothing (Rule 12.1).
     expect(
-      errorsOf(
+      refusedWhenUnreachable(
         frag(`  let acc: vec4 = vec4(0., 0., 0., 1.)
   for (let i: i32 = 0; i < i32(v.uv.x * 4.); i++) { acc = textureSample(t, s, v.uv) }
   return acc`),
       ),
     ).toEqual([
-      sampleRefusal(`in a loop whose condition reads ${UV}`, 'Hoist the call out of the loop'),
+      sampleRefusal(
+        `in a loop whose condition reads ${UV}`,
+        'Hoist the call out of the loop',
+        READS_HELD,
+      ),
+    ]);
+    // …and an operand that changes from one iteration to the next has no value before the
+    // loop, so it is refused as it is written (change 0132, reason 3).
+    expect(
+      errorsOf(
+        frag(`  let acc: vec4 = vec4(0., 0., 0., 1.)
+  for (let i: i32 = 0; i < i32(v.uv.x * 4.); i++) { acc = textureSample(t, s, v.uv * f32(i)) }
+  return acc`),
+      ),
+    ).toEqual([
+      sampleRefusal(
+        `in a loop whose condition reads ${UV}`,
+        'Hoist the call out of the loop',
+        LOOP_VARIANT,
+      ),
     ]);
   });
 
@@ -179,12 +248,16 @@ describe('a derivative under a branch the invocations do not share', () => {
     // beside `fwidth` is the ordinary antialiased-cutout idiom.
     // The call sits in no branch, so the sentence names the return and the hoist above it.
     expect(
-      errorsOf(
+      refusedWhenUnreachable(
         frag(`  if (v.uv.x > 1.) { return vec4(0., 0., 0., 1.) }
   return textureSample(t, s, v.uv)`),
       ),
     ).toEqual([
-      sampleRefusal(`after a return taken under ${UV}`, 'Hoist the call above the return'),
+      sampleRefusal(
+        `after a return taken under ${UV}`,
+        'Hoist the call above the return',
+        READS_HELD,
+      ),
     ]);
     expect(
       compiled(
@@ -239,11 +312,11 @@ describe('@diagnostic("off", "derivative_uniformity")', () => {
     OFF,
   );
 
-  it('is offered where the file can carry it, which a namespace entry cannot', () => {
-    // A namespace's entry refuses the attribute (TS8028), and TS8052 still told the author to
-    // write it "on the entry". The option is read off a top-level stage call (change 0111), so
-    // it is offered on a top-level entry when the file has one, and not at all when it does not.
-    // The decorated form's `@diagnostic` on a top-level helper is still read, and not offered.
+  it('is not offered by a call the rewrite could not reach, wherever the file could carry it', () => {
+    // Change 0132: the compiler rewrites what it can reach, and a TS8052 for the rest names why
+    // and what the author can write instead; it no longer offers the filter, on a top-level
+    // entry or anywhere else. A file that writes one keeps it until a later step of 0132
+    // removes it: the decorated form's `@diagnostic` on a top-level helper is still read.
     const ns = (top: string, attrs = '') => `declare const t: texture_2d<f32>
 declare const s: sampler
 ${attrs}${top}namespace N {
@@ -252,18 +325,19 @@ ${attrs}${top}namespace N {
     return textureSample(t, s, p.xy)
   }
 }`;
-    const said = (tail: string): string =>
-      `${TS_CODES.UNIFORMITY} textureSample() is reached after a return taken under "p" (@builtin(position)), which WGSL's derivative_uniformity rule refuses: the implicit level of detail is a difference between neighbouring invocations, and one that did not run has no value to difference against. Hoist the call above the return, or use textureSampleLevel or textureSampleGrad, whose level of detail is the one you wrote${tail}`;
-    expect(errorsOf(ns(''))).toEqual([said('.')]);
+    const said = sampleRefusal(
+      'after a return taken under "p" (@builtin(position))',
+      'Hoist the call above the return',
+      READS_HELD,
+    );
     const helper = 'function half(x: f32): f32 { return x * 0.5 }\n';
-    expect(errorsOf(ns(helper))).toEqual([said('.')]);
     const vs =
       'export const vs = vertex(function vs(): builtin<"position", vec4> { return vec4(0.) })\n';
-    expect(errorsOf(ns(vs))).toEqual([
-      said(
-        ', or give the stage call of a top-level entry the option { diagnostic: ["off", "derivative_uniformity"] } to take the module as written.',
-      ),
-    ]);
+    for (const top of ['', helper, vs]) {
+      // Reached as written: the gradients are computed above the return.
+      expect(compiled(ns(top)).wgsl, top).toContain('textureSampleGrad(t, s, p.xy,');
+      expect(errorsOf(unreachable(ns(top))), top).toEqual([said]);
+    }
     expect(compiled(ns(helper, OFF)).wgsl).toContain('diagnostic(off, derivative_uniformity);');
   });
 
@@ -647,7 +721,7 @@ describe('a value that goes through a helper keeps its class', () => {
     // A call into a user function returns at most the join of its arguments, never more
     // uniform: returning a bare `unknown` laundered the input, and `unknown` is below the
     // derivative threshold. The message still names the ROOT — the input, not the helper.
-    const errors = errorsOf(source);
+    const errors = refusedWhenUnreachable(source);
     expect(errors[0], _what).toContain(want);
     expect(errors[0]).toContain('a fragment input at @location(0)');
   });
@@ -657,7 +731,7 @@ describe('a value that goes through a helper keeps its class', () => {
     // helper handed a fragment input is analysed as the caller handed it. Seeding every
     // helper parameter `unknown` regardless let this through while Tint refused it — the same
     // hole as the row above, read from the other end.
-    const errors = errorsOf(`${HEAD}export function shade(x: f32, uv: vec2): vec4 {
+    const errors = refusedWhenUnreachable(`${HEAD}export function shade(x: f32, uv: vec2): vec4 {
   if (x > 0.5) { return textureSample(t, s, uv) }
   return vec4(0., 0., 0., 1.)
 }
@@ -800,7 +874,7 @@ export function outer(p: f32, q: f32): f32 { return inner(q, p) }
     // a branch it does not appear in, or through a callee's own dependent slot. Each of these
     // is refused by Tint, and each would be accepted by a summary that read only the
     // `return` expressions.
-    expect(errorsOf(src)[0]).toContain('is reached under "VsOut.uv"');
+    expect(refusedWhenUnreachable(src)[0]).toContain('is reached under "VsOut.uv"');
   });
 
   it('keeps the BARRIER threshold where it was: unknown is still not uniform', () => {
@@ -1120,7 +1194,7 @@ ${body}
     // argument. Tint: `'textureSample' must only be called from uniform control flow`, with
     // `parameter 'v' of 'fs' may be non-uniform`.
     expect(
-      errorsOf(`${HEAD}export function idx(x: f32, y: f32): f32 {
+      refusedWhenUnreachable(`${HEAD}export function idx(x: f32, y: f32): f32 {
   let a: array<f32, 2> = [0., 0.]
   a[u32(x)] = y
   return a[0]
@@ -1137,7 +1211,7 @@ ${body}
     // assign arm classified the value and the branch and never the target's index. Tint
     // refuses this one as well.
     expect(
-      errorsOf(`${HEAD}@fragment export function fs(v: VsOut): vec4 {
+      refusedWhenUnreachable(`${HEAD}@fragment export function fs(v: VsOut): vec4 {
   let a: array<f32, 2> = [0., 0.]
   a[u32(v.uv.x)] = k
   if (a[0] > 0.5) { return textureSample(t, s, v.uv) }
@@ -1213,7 +1287,7 @@ export function stow2(x: f32): void { scratch[0] = x }
     // about the result in each of these and says nothing about the write, so the pass accepted
     // programs whose inline forms it already refused — the same program passing or failing on
     // whether its write went through a helper. Tint refuses every row.
-    expect(errorsOf(src)[0]).toContain('is reached under');
+    expect(refusedWhenUnreachable(src)[0]).toContain('is reached under');
   });
 
   it('does not assert `uniform` about a location a callee overwrote', () => {
@@ -1305,7 +1379,7 @@ export function peek2(): f32 { return scratch[0] }
     // parameters had an empty summary and went through. One bit on the summary carries it.
     // Both measured REFUSED on Tint; the same helper returning a `uniform` is ACCEPTED by both
     // and is the row below.
-    expect(errorsOf(src)[0]).toContain('is reached under');
+    expect(refusedWhenUnreachable(src)[0]).toContain('is reached under');
   });
 
   it('and leaves a nullary helper that returns a UNIFORM alone', () => {
@@ -1683,9 +1757,12 @@ ${body}
 ${inner}
   }
   return c;`);
+    // The coordinate changes with `i`, so it has no one value before the loop: refused as it
+    // is written (change 0132, reason 3).
     const refusal = sampleRefusal(
       `in a loop some invocations leave by a break taken under ${UV}`,
       'Hoist the call out of the loop',
+      LOOP_VARIANT,
     );
     expect(
       errorsOf(
@@ -1736,8 +1813,8 @@ ${inner}
   return vec4(0., 0., 0., 1.);
 }`;
     for (const jump of ['break', 'continue']) {
-      expect(errorsOf(counted(jump, 'v.uv.x')), jump).toEqual([
-        sampleRefusal(`under ${UV}`, 'Hoist the call above the branch'),
+      expect(refusedWhenUnreachable(counted(jump, 'v.uv.x')), jump).toEqual([
+        sampleRefusal(`under ${UV}`, 'Hoist the call above the branch', READS_HELD),
       ]);
       expect(compiled(counted(jump, 'k')).wgsl, jump).toContain('textureSample(t, s,');
     }
@@ -1763,8 +1840,8 @@ ${inner}
   if (pick(${arg}) > 0.5) { return textureSample(t, s, v.uv); }
   return vec4(0., 0., 0., 1.);
 }`;
-    expect(errorsOf(picked('v.uv.x'))).toEqual([
-      sampleRefusal(`under ${UV}`, 'Hoist the call above the branch'),
+    expect(refusedWhenUnreachable(picked('v.uv.x'))).toEqual([
+      sampleRefusal(`under ${UV}`, 'Hoist the call above the branch', READS_HELD),
     ]);
     expect(compiled(picked('k')).wgsl).toContain('textureSample(t, s,');
   });
@@ -1938,10 +2015,10 @@ ${inner}
   }
   return c;`),
       ),
-    ).toEqual([sampleRefusal(`under ${UV}`, 'Hoist the call above the branch')]);
+    ).toEqual([sampleRefusal(`under ${UV}`, 'Hoist the call above the branch', LOOP_VARIANT)]);
     // After a break out of a switch case, the rest of the case.
     expect(
-      errorsOf(
+      refusedWhenUnreachable(
         frag(`  let c = vec4(0., 0., 0., 0.);
   switch (i32(k)) {
     case 0: {
@@ -1957,6 +2034,7 @@ ${inner}
       sampleRefusal(
         `after a break out of the switch taken under ${UV}`,
         'Hoist the call above the break',
+        READS_HELD,
       ),
     ]);
     // Above a return taken in the loop, which the next iteration reaches after it.
@@ -1973,6 +2051,7 @@ ${inner}
       sampleRefusal(
         `after a return taken inside a loop under ${UV}`,
         'Hoist the call above the loop',
+        LOOP_VARIANT,
       ),
     ]);
     // A screen-space derivative after a continue, whose remedy has no explicit-LOD form.
@@ -1986,7 +2065,11 @@ ${inner}
   return vec4(c, 0., 0., 1.);`),
       ),
     ).toEqual([
-      `${TS_CODES.UNIFORMITY} dpdx() is reached in a loop where some invocations skip ahead by a continue taken under ${UV}, which WGSL's derivative_uniformity rule refuses: it differences neighbouring invocations, and one that did not run has no value to difference against. Hoist the call out of the loop and select from its result, or compute the quantity some other way — a screen-space derivative has no alternative form, or give the stage call of the entry the option { diagnostic: ["off", "derivative_uniformity"] } to take the module as written.`,
+      derivativeRefusal(
+        `in a loop where some invocations skip ahead by a continue taken under ${UV}`,
+        'the loop',
+        LOOP_VARIANT,
+      ),
     ]);
   });
 
@@ -2035,10 +2118,11 @@ describe('a call on the right of && or ||', () => {
     const cond = (left: string): string =>
       frag(`  if (${left} && textureSample(t, s, v.uv).x > 0.5) { return vec4(1., 0., 0., 1.); }
   return vec4(0., 0., 0., 1.);`);
-    expect(errorsOf(cond('v.uv.x > 0.5'))).toEqual([
+    expect(refusedWhenUnreachable(cond('v.uv.x > 0.5'))).toEqual([
       sampleRefusal(
         `on the right of an && or || whose left side reads ${UV}`,
         'Hoist the call above the && or ||',
+        READS_HELD,
       ),
     ]);
     expect(compiled(cond('k > 0.5')).wgsl).toContain('textureSample(t, s,');
@@ -2055,10 +2139,11 @@ describe('a call on the right of && or ||', () => {
       'declare const scratch: storage<array<f32>, "read_write">\n' +
         'function paint(uv: vec2): f32 {\n  scratch[0] = uv.x\n  return uv.y\n}\n@fragment',
     );
-    expect(errorsOf(src)).toEqual([
+    expect(refusedWhenUnreachable(src)).toEqual([
       sampleRefusal(
         `on the right of an && or || whose left side reads ${UV}`,
         'Hoist the call above the && or ||',
+        READS_HELD,
       ),
     ]);
   });
@@ -2085,25 +2170,29 @@ describe('an arm of a ?: that WGSL writes as an if', () => {
 
   it('refuses a sample in either arm of a struct ?: on a fragment input', () => {
     const want = [
-      sampleRefusal(`in an arm of a ?: whose condition reads ${UV}`, 'Hoist the call above the ?:'),
+      sampleRefusal(
+        `in an arm of a ?: whose condition reads ${UV}`,
+        'Hoist the call above the ?:',
+        READS_HELD,
+      ),
     ];
-    expect(errorsOf(pick('v.uv.x > 0.5', 'new C2(textureSample(t, s, v.uv), 1.) : z'))).toEqual(
-      want,
-    );
-    expect(errorsOf(pick('v.uv.x > 0.5', 'z : new C2(textureSample(t, s, v.uv), 1.)'))).toEqual(
-      want,
-    );
+    expect(
+      refusedWhenUnreachable(pick('v.uv.x > 0.5', 'new C2(textureSample(t, s, v.uv), 1.) : z')),
+    ).toEqual(want);
+    expect(
+      refusedWhenUnreachable(pick('v.uv.x > 0.5', 'z : new C2(textureSample(t, s, v.uv), 1.)')),
+    ).toEqual(want);
   });
 
   it('refuses a derivative in an arm of an array ?: on a fragment input', () => {
     expect(
-      errorsOf(
+      refusedWhenUnreachable(
         frag(`  const z = array<f32, 2>(0., 0.)
   const r = v.uv.x > 0.5 ? array<f32, 2>(dpdx(v.uv.x), 1.) : z
   return vec4(r[0], 0., 0., 1.)`),
       ),
     ).toEqual([
-      `${TS_CODES.UNIFORMITY} dpdx() is reached in an arm of a ?: whose condition reads ${UV}, which WGSL's derivative_uniformity rule refuses: it differences neighbouring invocations, and one that did not run has no value to difference against. Hoist the call above the ?: and select from its result, or compute the quantity some other way — a screen-space derivative has no alternative form, or give the stage call of the entry the option { diagnostic: ["off", "derivative_uniformity"] } to take the module as written.`,
+      derivativeRefusal(`in an arm of a ?: whose condition reads ${UV}`, 'the ?:', READS_HELD),
     ]);
   });
 
@@ -2148,10 +2237,11 @@ function n(): u32 { return ${read}; }
 ${frag(`  if (n() > 4) { return textureSample(t, s, v.uv); }
   return vec4(0., 0., 0., 1.);`)}`;
     expect(compiled(sampled('buf.length')).wgsl).toContain('textureSample(t, s,');
-    expect(errorsOf(sampled('buf[0]'))).toEqual([
+    expect(refusedWhenUnreachable(sampled('buf[0]'))).toEqual([
       sampleRefusal(
         'under n(…), which reads memory the invocations share',
         'Hoist the call above the branch',
+        READS_HELD,
       ),
     ]);
   });

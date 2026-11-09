@@ -63,6 +63,11 @@ import {
   derivativeUniformitySeverity,
 } from './diagnostic-directive.js';
 import { uniformityViolations, type UniformityViolation } from '../../core/passes/uniformity.js';
+import {
+  reasonKey,
+  rewriteDerivatives,
+  type DerivativeRewriteReason,
+} from '../../core/passes/derivative-rewrite.js';
 import { interstageMismatches } from '../../core/passes/lint/rules/interstage-io.js';
 import {
   authorTypeText,
@@ -392,27 +397,44 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   // Derivative uniformity, and the barriers that need the same property for a different
   // reason (§54). Answered on the assembled module, because the walk follows a condition down
   // through the statements a function holds, and reported here, where the IR's span can point
-  // at the call the author wrote. Silent when the file has switched the rule off: WGSL will
-  // not refuse the module either, which is the whole point of the directive.
+  // at the call the author wrote.
+  //
+  // First the rewrite (change 0132, Rule 8.5): an implicit-LOD sample or a derivative in
+  // non-uniform control flow is recomputed before the branch and sampled with its gradients
+  // inside. It runs here, before the report, so `compile()` and the language service (which
+  // runs this with `emit: false`) report the same TS8052 (Rule 12.7), and the three consumers
+  // read the rewritten functions. A module that writes a `derivative_uniformity` filter is
+  // left as it was written until the filter is removed (change 0132, migration order).
   {
-    const shaped: ModuleDecl = {
+    const shape = (): ModuleDecl => ({
       consts: [...consts],
       structs: emittedStructDecls(structs),
       bindings: [...bindings],
       funcs: [...funcs],
       overrides: [...overrides],
       vars: [...vars],
-    };
+    });
     // The filter sets the DERIVATIVE rule and nothing else: a barrier's requirement is not
     // `derivative_uniformity` and is not filterable, measured on Tint with the directive in
     // the module. `off` drops the derivative rows, `info` and `warning` demote them.
     const severity = derivativeUniformitySeverity(directives);
+    let ifs = builtIfs;
+    let unreached: ReadonlyMap<string, DerivativeRewriteReason> | undefined;
+    if (severity === undefined) {
+      const rewrite = rewriteDerivatives(shape(), {
+        builtIfs,
+        calleeText: calleesAsWritten(sourceFile, funcs),
+      });
+      if (rewrite.module.funcs !== funcs) funcs.splice(0, funcs.length, ...rewrite.module.funcs);
+      ifs = rewrite.builtIfs;
+      unreached = rewrite.unreached;
+    }
+    const shaped = shape();
     const calleeText = calleesAsWritten(sourceFile, funcs);
     // The `diagnostic` option is read off a top-level stage call (`collectDiagnosticDirectives`,
-    // change 0111), and a namespace's entry refuses it (`TS8028`). So the sentence offers it on
-    // the entry when every entry is top-level, on a top-level entry when one is not and the file
-    // has one, and not at all when it has none. The decorated form's `@diagnostic` on any
-    // top-level function is not offered: the next release refuses it.
+    // change 0111), and a namespace's entry refuses it (`TS8028`). So a filtered module's
+    // sentence offers it on the entry when every entry is top-level, on a top-level entry when
+    // one is not and the file has one, and not at all when it has none.
     const entries = funcs.filter((f) => stageOf(f) !== undefined);
     const topLevel = entries.filter((f) => entryDeclaration(sourceFile, f.name) !== undefined);
     const directivePlace =
@@ -421,7 +443,7 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
         : topLevel.length > 0
           ? 'a top-level entry'
           : undefined;
-    for (const v of uniformityViolations(shaped, { builtIfs, calleeText })) {
+    for (const v of uniformityViolations(shaped, { builtIfs: ifs, calleeText })) {
       if (v.kind === 'derivative' && severity === 'off') continue;
       const category =
         v.kind === 'derivative' && (severity === 'warning' || severity === 'info')
@@ -432,7 +454,9 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
           sourceFile,
           v.span,
           entryDeclaration(sourceFile, v.fn),
-          uniformityMessage(v, directivePlace),
+          unreached !== undefined && v.kind === 'derivative'
+            ? unreachedMessage(v, unreached.get(reasonKey(v)) ?? { kind: 'other' })
+            : uniformityMessage(v, directivePlace),
           TS_CODES.UNIFORMITY,
           category,
         ),
@@ -974,4 +998,60 @@ function uniformityMessage(
           `{ diagnostic: ["off", "derivative_uniformity"] } to take the module as written.`
     }`
   );
+}
+
+/** What a {@link UniformityViolation}'s call is reached before, as the sentence of a call the
+ *  derivative rewrite could not reach names it. */
+const HOIST_PAST: Readonly<Record<UniformityViolation['via'], string>> = {
+  branch: 'the branch',
+  'short-circuit': 'the && or ||',
+  conditional: 'the ?:',
+  loop: 'the loop',
+  return: 'the return',
+  'loop-return': 'the loop',
+  'bound-return': 'the loop',
+  break: 'the loop',
+  continue: 'the loop',
+  'switch-break': 'the break',
+};
+
+/** Why the rewrite could not reach a call, as the clause after "before the branch:" (change
+ *  0132, "The final TS8052 sentences"). */
+function unreachedReason(r: DerivativeRewriteReason): string {
+  switch (r.kind) {
+    case 'memory':
+      return `its operand reads "${r.name}", which the branch writes`;
+    case 'atomic':
+      return 'its operand depends on an atomic operation';
+    case 'loop-trips':
+      return 'its operand is computed in a loop whose trip count is not a constant';
+    case 'no-gradient':
+      return r.what === 'depth'
+        ? `"${r.texture}" is a depth texture, which has no gradient form, and its arguments are computed in the branch`
+        : `"${r.texture}" is a texture_1d, which has no gradient form, and its arguments are computed in the branch`;
+    case 'loop-variant':
+      return 'its operand changes on each iteration of a loop that not every invocation runs';
+    case 'other':
+      return 'its operand depends on a value the compiler cannot recompute there';
+  }
+}
+
+/** The sentence of a derivative-rule call the rewrite could not reach (change 0132, Rule 8.5):
+ *  why WGSL refuses it, why the compiler could not compute it before the statement that made
+ *  the flow non-uniform, and what the author can write instead. Each action names only what an
+ *  author can already write. */
+function unreachedMessage(v: UniformityViolation, reason: DerivativeRewriteReason): string {
+  const site = UNIFORMITY_SITES[v.via];
+  const past = HOIST_PAST[v.via];
+  const reached = `${v.callee}() is reached ${site.reached} ${v.cause}, which WGSL's derivative_uniformity rule refuses: `;
+  return v.isDerivativeBuiltin
+    ? `${reached}it differences neighbouring invocations, and one that did not run has no value ` +
+        `to difference against. The compiler could not compute it before ${past}: ` +
+        `${unreachedReason(reason)}. Compute the value it differences before ${past}, call ` +
+        `${v.callee}() there, and use the result inside.`
+    : `${reached}the implicit level of detail is a difference between neighbouring invocations, ` +
+        `and one that did not run has no value to difference against. The compiler could not ` +
+        `compute the gradients before ${past}: ${unreachedReason(reason)}. Move the call above ` +
+        `${past} and select from its result, or call textureSampleLevel or textureSampleGrad ` +
+        `with the level or the gradients you want.`;
 }
