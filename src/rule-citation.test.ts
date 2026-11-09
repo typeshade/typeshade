@@ -22,6 +22,8 @@ const none: Touched = {
   exportsRemoved: new Set(),
   codes: new Set(),
   examples: new Set(),
+  names: new Set(),
+  namesRemoved: new Set(),
 };
 const defined = rulesIn(readFileSync(join(ROOT, 'docs/language-design.md'), 'utf8'));
 // A rule the document does not define, built so that docs:refs does not read it as a reference.
@@ -67,6 +69,8 @@ describe('Rule 13.1 over a pull request', () => {
     ['a removed export', { ...none, exportsRemoved: new Set(['compile']) }],
     ['a diagnostic code', { ...none, codes: new Set(['TS8079']) }],
     ['an example', { ...none, examples: new Set(['new-example']) }],
+    ['an author-facing name added', { ...none, names: new Set(['Math.fround']) }],
+    ['an author-facing name removed', { ...none, namesRemoved: new Set(['Math.fround']) }],
   ] as const) {
     it(`fails ${kind} changed with no rule cited, and passes it with one`, () => {
       const missing = judgeCitation(touched, body(''), defined);

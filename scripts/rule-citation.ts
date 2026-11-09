@@ -8,9 +8,11 @@
 //
 // WHICH PULL REQUESTS. The ones whose diff the proposal criteria of scripts/changes.ts catch
 // (changes/README.md): a `**Rule N.M.**` paragraph, an export in src/__api__/surface.md, a numbered
-// section of docs/use-typeshade-surface.md, a diagnostic code, or the set of examples. The check
-// reuses `touchedBy` so the two can never disagree on what the criteria mean. A diff those
-// criteria do not catch needs no citation here; review still reads the rest.
+// section of docs/use-typeshade-surface.md, a diagnostic code, the set of examples, or an
+// author-facing name added to src/__api__/author-names.md. The check reuses `touchedBy` so the two
+// can never disagree on what the criteria mean. One addition: a removed author-facing name is no
+// proposal criterion (it is reported), but it changes what an author can write, so it asks for a
+// citation here. A diff none of these catch needs no citation; review still reads the rest.
 //
 // WHAT COUNTS AS A CITATION. `Rule N.M` in the pull request's description, outside HTML comments
 // (the template's own placeholder comment names no rule), where N.M is a rule that
@@ -63,12 +65,12 @@ export function judgeCitation(
 ): CitationVerdict {
   const all = [...citedRules(body)];
   const cited = all.filter((r) => defined.has(r));
-  if (nothingTouched(touched)) return { problems: [], cited };
+  if (nothingTouched(touched) && !touched.namesRemoved.size) return { problems: [], cited };
   const problems: string[] = [];
   const unknown = all.filter((r) => !defined.has(r));
   if (!cited.length)
     problems.push(
-      `This pull request changes what an author can write (${describe(touched)}), so Rule 13.1 ` +
+      `This pull request changes what an author can write (${what(touched)}), so Rule 13.1 ` +
         'asks its description to cite the rule of docs/language-design.md it rests on: write ' +
         '`Rule N.M` under "Rules cited".' +
         (unknown.length
@@ -76,6 +78,14 @@ export function judgeCitation(
           : ''),
     );
   return { problems, cited };
+}
+
+/** What the diff changes, in the proposal check's words, with the removed names it leaves out. */
+function what(t: Touched): string {
+  const removed = t.namesRemoved.size
+    ? `removed author-facing name ${[...t.namesRemoved].join(', ')}`
+    : '';
+  return [describe(t), removed].filter((s) => s !== '').join('; ');
 }
 
 /** The whole check over a diff and a description, for CI. */
