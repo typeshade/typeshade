@@ -66,7 +66,7 @@ fragment entry (`compile()`; the editor shows the same `typeshade` diagnostic):
 | `for (let i: u32 = 0; i <= 4294967295; i++)`     | `TS8006 for (i = 0; i <= 4294967295; i += 1) walks "i" outside the range of u32 before the condition fails.`                                                 |
 | `for (;;) { … }` with no `break` and no `return` | `TS8007`, the first sentence above                                                                                                                           |
 
-Proposed (decision F1, recommended):
+Proposed (decision F1, decided by the owner on 2026-11-09, "계속 거부"; with F2.1, "받기"):
 
 - A `for` statement means what it means in TypeScript: run the initializer once; before each trip
   test the condition (none is `true`); after each trip, and at each `continue`, run the update.
@@ -101,8 +101,8 @@ quoted). Each rule below is not Rule 7.5's and is not changed here:
   (surface §7, Rule 7.9) for a `while` today; the same rule applies to a `for` condition and to a
   `for` update that is not a statement the backends take.
 - Two declarations of different types in one header (`for (let i = 0, x = 0.; …)`): GLSL ES 3.00
-  declares one type in a `for` initializer. Under F2.1 the compiler moves the declarations ahead of
-  the loop in a block of their own; under F2.2 the header stays refused.
+  declares one type in a `for` initializer. Under F2.1, which the owner chose, the compiler moves
+  the declarations ahead of the loop in a block of their own, so the header is accepted.
 - `for…of`, `for…in` and labels keep their rules (Rule 7.5, surface §17).
 
 ### Item 2: an entry's return type is inferred where its body says it
@@ -120,7 +120,7 @@ compiler already gives the default one from the type: a bare `vec4` vertex resul
 `@builtin(position)`, and a bare scalar or vector fragment result is `@location(0)`
 (`src/compiler/ts/lower/function.ts`, the entry signature). It cannot give any other one.
 
-Proposed (decision R1, recommended):
+Proposed (decision R1, decided by the owner on 2026-11-09, "struct도 추론"):
 
 - An entry that writes no return type returns what its body does, by Rule 8.19, as every other
   function does. A bare result takes the default attribute of its stage; a struct result takes its
@@ -270,11 +270,12 @@ measured as the type `TS8021` names today, and `Color` needs the widened table a
 
 ### Alternatives
 
-No option reverses an entry of `docs/owner-decisions.md`.
+The owner decided F, F2 and R on 2026-11-09 ("Owner's decisions"). The options not chosen are kept
+below as rejected alternatives. No option reverses an entry of `docs/owner-decisions.md`.
 
 **F. Item 1.**
 
-- F1 (recommended). Lower every `for` that is refused today only for not being counted; keep
+- F1 (decided). Lower every `for` that is refused today only for not being counted; keep
   only the refusals of a loop proved never to end, as for `while`. The costs below are costs of
   `OD-3`, shown to the owner as `CLAUDE.md` (The owner's decisions) requires:
   - A `for` no longer promises a reader that it is counted (the reason Rule 7.5's rationale gives
@@ -290,34 +291,34 @@ i++ / i += <const>, or i *= / /= <const>.` today. After F1 it compiles, and the 
     general sentence, `its operand is computed in a loop whose trip count is not a constant`
     (`src/compiler/ts/source-file.ts`, `loop-trips`). Today the `for` itself was refused earlier, in
     the author's words; after F1 the sentence comes later and names less.
-- F1b (variant). As F1, and also lower a constant header that never reaches its bound or leaves
+- F1b (variant, rejected). As F1, and also lower a constant header that never reaches its bound or leaves
   its type, with WGSL's wrapping arithmetic. Cost: a loop of two billion trips (`i--` from 0 to a
   bound of 10 wraps after 2^31 steps) compiles without a word; the CPU oracle runs it as long.
-- F0 (no change). Cost: the author rewrites each such loop as a `while` and keeps the counter
+- F0 (no change, rejected). Cost: the author rewrites each such loop as a `while` and keeps the counter
   outside it (`OD-3`, Rule 1.6).
 
 **F2. A header with two declarations or a comma update** (`for (let i = 0, j = 10; i < j; i++, j--)`).
 
-- F2.1 (recommended). Included. The IR `for` holds one initializer statement and one update
+- F2.1 (decided). Included. The IR `for` holds one initializer statement and one update
   statement (`src/core/ir/nodes.ts`). The implementation carries a list in each, or emits the two
   declarations in a block before the loop and the updates as WGSL's `loop { … continuing { … } }`.
   Measured: Tint accepts that `loop`/`continuing` form, and ANGLE accepts the GLSL ES 3.00 form as
   written (`for (int i = 0, j = 10; i < j; i++, j--)`). Cost: an IR change that the three backends,
   the CPU oracle and every pass that walks a `for` read.
-- F2.2. Deferred. Such a header stays refused, with a sentence that says it is not supported yet
+- F2.2 (rejected). Deferred. Such a header stays refused, with a sentence that says it is not supported yet
   and names the reason (one statement in the IR header). Cost: one `for` form TypeScript accepts
   stays refused.
 
 **R. Item 2.**
 
-- R1 (recommended). Infer every entry's result that the body says, as above; keep the return type
+- R1 (decided). Infer every entry's result that the body says, as above; keep the return type
   for a non-default attribute and for an object literal that does not match exactly one struct.
   Cost: an author who writes no return type reads the output from the body; a reader who wants it
   in the signature writes it. The inferred return feeds the editor's projection (below).
-- R2. Infer only a bare scalar or vector result; a struct result keeps its return type. Cost: the
+- R2 (rejected). Infer only a bare scalar or vector result; a struct result keeps its return type. Cost: the
   struct case, the common vertex shape (69 of the examples' vertex entries return a struct), keeps
   the annotation. Benefit: no widening of §16's fallback.
-- R0 (no change). Cost: the author copies a type the refusal already prints (`OD-3`).
+- R0 (no change, rejected). Cost: the author copies a type the refusal already prints (`OD-3`).
 
 ### Assumptions
 
@@ -359,6 +360,16 @@ and two other proposals are read beside this one:
 - `OD-2` and `OD-5`: not touched. Stages stay attributes; an entry's I/O stays in its types where it
   is written; a return type that is written keeps `builtin<…>` and `location<…>`.
 - `OD-4`: the example and the options with their costs are shown above, before the owner decides.
+- Decisions on this proposal, by the owner, on 2026-11-09, in the Claude Code session, in Korean:
+  - F: "계속 거부" (F1). A loop proved never to end stays refused, as a `while` is; every other
+    `for` that is refused today only for not being counted compiles. F1b and F0 are rejected.
+  - F2: "받기" (F2.1). Two declarations and a comma update in a `for` header are accepted; the IR
+    `for` header carries them (an IR change the backends, the CPU oracle and the passes read).
+    F2.2 is rejected.
+  - R: "struct도 추론" (R1). An entry's struct result is inferred too, with the exclusions item 2
+    writes: no struct used as a binding's, a module variable's or workgroup memory's type is a
+    candidate, and a result that is `frag_depth`, `sample_mask`, the position with `invariant`, or a
+    location with `blend_src` keeps its written type. R2 and R0 are rejected.
 
 This proposal reverses no entry.
 
@@ -460,7 +471,13 @@ signature says it is the depth.
 
 ### Draft impact estimate
 
-- Known: no source that compiles today is refused, and none changes its emit.
+- Known: no source that compiles today is refused, and none changes its emit. Two published
+  artifacts bundle a compiler: vscode-typeshade 0.3.0 on the Visual Studio Marketplace (compiler
+  pin `3e1e8420`, 2026-10-27) and `@typeshade/mcp` 0.1.0 and 0.1.1 on npm (2026-09-23). Each keeps
+  the compiler it bundles and its refusals; a source accepted there stays accepted by a compiler
+  with this change. The skill text bundled in vscode-typeshade 0.3.0 states the old loop and return
+  rules until that artifact moves its pin ("What it owes downstream"). This reasoning does not rest
+  on nothing having been published.
 - Known: Rules 7.5, 8.19 and 8.22 and surface §3, §14, §16, §17 and §65 are rewritten; `reqs/`
   follows.
 - Estimate: item 1 without F2 is local to `lowerFor`; F2 changes the IR `for` and every reader of
@@ -472,15 +489,12 @@ signature says it is the depth.
   Tint and ANGLE; `bun run gate:differential` for a kernel with a loop that is not counted (CPU
   tier); `bun run bake:goldens` with no golden changed; `bun run reqs:sync` and
   `python scripts/doorstop-check.py -C`; `bun run docs:impact` and `bun run docs:refs`.
-- Decisions to resolve before acceptance: F (F1 or F1b), F2 (F2.1 or F2.2), R (R1 or R2).
+- Decisions to resolve before acceptance: none. The owner decided F, F2 and R on 2026-11-09.
 
 ### Open questions for the owner
 
-1. F: keep refusing a loop proved never to end, as `while` does (F1, recommended), or lower it too
-   (F1b)?
-2. F2: include two declarations and a comma update now (F2.1, recommended, an IR change), or defer
-   them with a sentence that says why (F2.2)?
-3. R: infer a struct result too (R1, recommended), or only a bare result (R2)?
+None. The owner answered F (F1), F2 (F2.1) and R (R1) on 2026-11-09; "Owner's decisions" records
+each.
 
 No two principles or rules were found that point different ways and that this proposal would have
 to choose between; the two texts under "Conflicts" are read against `OD-3`, which takes precedence.
@@ -506,9 +520,10 @@ written in the revision that follows.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decisions on F, F2 and R, the
-independent review record above with each finding answered, and the merge of this file with
-`status: accepted`.
+This record does not yet apply. Every open question is decided ("Owner's decisions") and every
+review finding is answered. The proposal is ready for acceptance once this revision is merged with
+`status: accepted` on the owner's go-ahead. That merge will record the decision; the approved
+scope will be F1, F2.1 and R1 as written here.
 
 ### Configuration and validation record
 
