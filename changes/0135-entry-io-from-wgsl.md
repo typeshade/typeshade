@@ -1,7 +1,7 @@
 ---
 id: '0135'
 title: An entry's built-in value takes its type from WGSL, and a user-defined input or output takes its location from the compiler, so an author writes builtin<"vertex_index"> and uv: vec2
-status: draft
+status: accepted
 rules:
   - '6.6'
   - '6.8'
@@ -552,10 +552,13 @@ written in the revision that follows.
 
 ### Approval and plan record
 
-This record does not yet apply. Every open question is decided ("Owner's decisions") and every
-review finding is answered. The proposal is ready for acceptance once this revision is merged with
-`status: accepted` on the owner's go-ahead. That merge will record the decision; the approved
-scope will be D1.2 and D2.1 as written here.
+Accepted. The owner (Seungup) approved acceptance in the Claude Code session on 2026-11-09, in
+Korean ("0135 승인"), after the before and after forms, the options and their costs were shown
+(OD-4). The approval is recorded by the merge of pull request #1123 with `status: accepted`. The
+approved revision is this file as merged; the approved scope is D1.2 and D2.1, as written here. The
+implementation follows in its own pull requests, each commit with `Change: 0135`. An implementing
+pull request that changes how an author writes an example shows one example before and after and
+waits for the owner's "merge" (`CLAUDE.md`, Merging). Duration and cost are not estimated.
 
 ### Configuration and validation record
 
