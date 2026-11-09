@@ -42,7 +42,9 @@ export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
 });
 
 describe('a leftover numerics option (change 0131)', () => {
-  const ONE_OPTION = 'TS8028 A stage call takes one option, "diagnostic"; ';
+  // A stage call takes no options since change 0132 removed `diagnostic`, the last one.
+  const ONE_OPTION =
+    'TS8028 A stage call takes no options; "numerics: ["finite-math"]" is not one. Delete it.';
   const sources: Readonly<Record<string, string>> = {
     vertex: `"use typeshade";
 export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> {

@@ -411,9 +411,8 @@ export function createTypeshadeLanguageServiceWith(
       let outputText = '';
       if (!hasError) {
         // The module `compile()` emits (src/compiler/ts/compile.ts), field for field. Without
-        // the overrides the pane showed WGSL that reads an override it never declares, and
-        // without the directives it dropped the `diagnostic(off, derivative_uniformity);` an
-        // entry asked for (Rule 12.7).
+        // the overrides the pane showed WGSL that reads an override it never declares (Rule
+        // 12.7).
         const moduleDecl = {
           consts: [...analysis.consts],
           structs: emittedStructDecls(analysis.structs),
@@ -422,7 +421,6 @@ export function createTypeshadeLanguageServiceWith(
           overrides: [...analysis.overrides],
           vars: [...analysis.vars],
           enables: [...analysis.enables],
-          ...(analysis.directives.length > 0 ? { diagnostics: [...analysis.directives] } : {}),
         };
         // WGSL is the program, even when this pane requests GLSL. A failure shared by both
         // writers must remain an error rather than become a GLSL warning or disappear.

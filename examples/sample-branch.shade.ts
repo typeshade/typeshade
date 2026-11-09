@@ -2,8 +2,8 @@
 
 /* @example
 {
-  "title": "A sample under a branch, and the directive that allows it",
-  "blurb": "WGSL requires `textureSample` to be called from UNIFORM control flow (§54): the implicit level of detail is a difference between neighbouring invocations, and one that did not run has no value to difference against. A sample inside an `if` on a varying is a shader-creation error — Tint: `'textureSample' must only be called from uniform control flow` — and the compiler emitted it with zero diagnostics. This file is the other half of the rule: the author who wants the branch anyway writes `{ diagnostic: [\"off\", \"derivative_uniformity\"] }` on the entry's stage call, which emits WGSL's module-scope `diagnostic(off, derivative_uniformity);` and takes the module as written. Beside it, a sample under a `uniform` condition, which needs no directive because every invocation takes the same side of it.",
+  "title": "A sample under a branch, and the compiler rewrites it",
+  "blurb": "WGSL requires `textureSample` to be called from UNIFORM control flow (§54): the implicit level of detail is a difference between neighbouring invocations, and one that did not run has no value to difference against. A sample inside an `if` on a varying is a shader-creation error — Tint: `'textureSample' must only be called from uniform control flow`. The author writes the sample where it is, and the compiler rewrites it: it computes the coordinate again before the `if`, takes `dpdx` and `dpdy` of it there, in uniform control flow, and samples inside the branch with `textureSampleGrad` and those gradients (Rule 8.5). The emitted WGSL carries no `diagnostic(...)` directive. Beside it, a sample under a `uniform` condition, which the compiler leaves as written, because every invocation takes the same side of it.",
   "renderable": true
 }
 */
@@ -13,28 +13,27 @@
 // detail is a difference between neighbouring invocations, and one that did not run has no
 // value to difference against. A sample inside an `if` on a varying is therefore a
 // shader-creation error — Tint: `'textureSample' must only be called from uniform control
-// flow` — and this compiler now refuses it at the call.
+// flow`.
 //
-// This file is the OTHER half: the author who wants the branch anyway, and says so. The
-// `{ diagnostic: ["off", "derivative_uniformity"] }` option of the entry's stage call emits WGSL's module-scope
-// `diagnostic(off, derivative_uniformity);`, and Tint takes the module as written. It is on
-// the entry because that is where the decision belongs, and module-scope in the emit because
-// WGSL's function attribute does not reach the functions the entry calls.
+// This file is the case the compiler rewrites (change 0132, Rule 8.5). The branch on `v.uv.x`
+// picks between two helpers, and each samples at a coordinate computed from `v.uv`, a value
+// defined before the branch. So the compiler computes each coordinate again before the `if`,
+// takes `dpdx` and `dpdy` of it there, in uniform control flow, and calls a copy of each helper
+// that samples with `textureSampleGrad` and those gradients. The author writes nothing for it,
+// and the emitted WGSL carries no `diagnostic(...)` directive. A call the compiler cannot
+// rewrite gets TS8052 with the reason.
 //
-// The branch on `v.uv.x` is in the ENTRY, deliberately: that is the one the analysis has an
-// answer about — `v.uv` is a `location<…>` input, which varies by invocation by definition — so
-// deleting the directive line turns this file into the refusal §54 is about, and the gate
-// compiles the module the directive allows. A sample under a HELPER's parameter would not
-// prove the same thing: a parameter is only as uniform as the argument, which the walk reads
-// from the call site rather than from the parameter, so that shape says nothing here.
+// The branch on `v.uv.x` is in the ENTRY, deliberately: `v.uv` is a `location<…>` input, which
+// varies by invocation by definition, so the walk knows the branch is non-uniform, and the
+// gate compiles the rewritten module on Tint and on ANGLE.
 //
 // The uniform branch beside it is the row that used to be refused for the wrong reason: every
 // invocation takes the same side of `tint.rgb.w > 0.5`, because a `uniform` holds one value
-// for the whole draw, so the sample under it needs no directive at all.
+// for the whole draw, so the sample under it is uniform and the compiler leaves it as written.
 //
-// GLSL ES 3.00 has nothing to say about any of it: an implicit derivative in non-uniform
-// control flow is undefined there rather than refused, so its text carries no directive and
-// the picture is the same one.
+// GLSL ES 3.00 reads the same rewritten IR: the two samples become `textureGrad` with `dFdx`
+// and `dFdy` before the branch, where an implicit derivative in non-uniform control flow was
+// undefined.
 
 class Tint {
   rgb!: vec4;
@@ -68,8 +67,8 @@ function wide(uv: vec2): vec4 {
 
 export const fs = fragment(function fs(v: VsOut): vec4 {
   // The sample under a NON-uniform condition — `v.uv` is a `location<…>` input, so the two sides
-  // of this branch are taken by different invocations of the same quad. Legal only because
-  // this entry carries the directive; delete that line and this is the refusal §54 is about.
+  // of this branch are taken by different invocations of the same quad. The compiler computes
+  // each helper's coordinate and its gradients before the `if`, and samples with them inside.
   let base: vec4 = vec4(0., 0., 0., 1.);
   if (v.uv.x > 0.5) {
     base = sharp(v.uv);
@@ -77,11 +76,11 @@ export const fs = fragment(function fs(v: VsOut): vec4 {
     base = wide(v.uv);
   }
   // A UNIFORM condition: one value for the whole draw, so every invocation takes the same
-  // side and the sample under it needs no directive.
+  // side and the sample under it is left as written.
   if (tint.rgb.w > 0.5) {
     const near: vec2 = v.uv * 0.75;
     const warm: vec4 = textureSample(albedo, smp, near);
     return vec4(base.xyz * tint.rgb.xyz + warm.xyz * 0.25, 1.);
   }
   return vec4(base.xyz * tint.rgb.xyz, 1.);
-}, { diagnostic: ["off", "derivative_uniformity"] });
+});

@@ -42,6 +42,7 @@
 // The diff of docs/capability-coverage.md and of the Appendix C block of docs/language-design.md is
 // read as a change of the table (Rule 11.4 and Rule 11.15).
 //
+// Verifies: Rule 1.4 (the derivative_uniformity filter's two rows, `refused` with it; change 0132)
 // Verifies: Rule 11.14
 // Verifies: Rule 11.15
 // Verifies: Rule 11.16

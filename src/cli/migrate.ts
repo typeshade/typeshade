@@ -8,12 +8,18 @@
 //   @compute([64]) export function main(…) { … }   → export const main = compute([64], function main(…) { … });
 //   @workgroup_size([128]) export function k(…) { … } → export const k = workgroup_size([128], function k(…) { … });
 //   @fragment @diagnostic("off", "derivative_uniformity") export function fs(…) { … }
-//     → export const fs = fragment(function fs(…) { … }, { diagnostic: ["off", "derivative_uniformity"] });
+//     → export const fs = fragment(function fs(…) { … });
+//   export const fs = fragment(function fs(…) { … }, { diagnostic: ["off", "derivative_uniformity"] });
+//     → export const fs = fragment(function fs(…) { … });
 //   @location(1) @interpolate("flat") id: u32        → id: location<1, u32, { interpolate: "flat" }>
 //   @builtin("position") @invariant pos: vec4        → pos: builtin<"position", vec4, { invariant: true }>
 //   @inout v: f32, @out w: f32                       → v: inout<f32>, w: out<f32>
 //   class VsOut { @builtin("position") pos: vec4; }  → interface VsOut { pos: builtin<"position", vec4>; }
 //   let q: f32; put(q);   (put's parameter is @out)  → let q!: f32; put(q);
+//
+// The diagnostic filter is deleted, wherever it is written (change 0132, item 7): the compiler
+// rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5), and refuses a
+// written filter (`TS8028`).
 //
 // A form the rewrite cannot carry is left as written and named in `skipped`, with its line,
 // so the author finishes it by hand: an entry with no body, an attribute on a parameter with
@@ -274,17 +280,24 @@ export function migrateSource(text: string, fileName = 'a.shade.ts'): MigrateRes
   visitClasses(sf);
 
   // Entries and kernel functions: the decorator becomes the stage call around the function.
+  // A `@diagnostic(…)` among the decorators is deleted with them (change 0132).
   const visitFunctions = (n: ts.Node): void => {
     if (ts.isFunctionDeclaration(n) && n.name) {
       const decorators = decoratorsOf(n);
       const parts = decorators.map((d) => partsOf(d, sf));
       const stage = parts.find((p) => STAGES.has(p.name) || p.name === 'workgroup_size');
-      const diagnostics = parts.filter((p) => p.name === 'diagnostic');
+      const filters = parts.filter((p) => p.name === 'diagnostic');
       if (stage === undefined) {
-        if (diagnostics.length > 0) skip(n, `@diagnostic on "${n.name.text}", which is no entry`);
+        if (filters.length > 0 && filters.length === parts.length) {
+          const range = decoratorRange(decorators, sf);
+          edits.push({ start: range.pos, end: range.end, text: '' });
+          changes++;
+        } else if (filters.length > 0) {
+          skip(n, `"${n.name.text}" carries a decorator the rewrite does not know`);
+        }
       } else if (n.body === undefined) {
         skip(n, `entry "${n.name.text}" has no body`);
-      } else if (parts.length !== 1 + diagnostics.length) {
+      } else if (parts.length !== 1 + filters.length) {
         skip(n, `entry "${n.name.text}" carries a decorator the rewrite does not know`);
       } else {
         const name = n.name.text;
@@ -301,12 +314,34 @@ export function migrateSource(text: string, fileName = 'a.shade.ts'): MigrateRes
           end: fnKeyword.getStart(sf),
           text: `const ${name} = ${stage.name}(${size}`,
         });
-        const options =
-          diagnostics.length > 0
-            ? `, { ${diagnostics.map((d) => `diagnostic: [${d.args.join(', ')}]`).join(', ')} }`
-            : '';
-        edits.push({ start: n.body.getEnd(), end: n.body.getEnd(), text: `${options});` });
+        edits.push({ start: n.body.getEnd(), end: n.body.getEnd(), text: ');' });
         changes++;
+      }
+    }
+    // A stage call's `{ diagnostic: [...] }` option: the argument is deleted when the filter is
+    // all it holds, and named for the author to finish otherwise.
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && STAGES.has(n.expression.text)) {
+      const at = n.expression.text === 'compute' ? 1 : 0;
+      const fn = n.arguments[at];
+      const options = n.arguments[at + 1];
+      if (
+        fn !== undefined &&
+        options !== undefined &&
+        n.arguments.length === at + 2 &&
+        ts.isObjectLiteralExpression(options) &&
+        options.properties.some((p) => p.name?.getText(sf) === 'diagnostic')
+      ) {
+        if (options.properties.every((p) => p.name?.getText(sf) === 'diagnostic')) {
+          // From the end of the function to the end of the options, with a trailing comma.
+          let end = options.getEnd();
+          const close = n.getEnd() - 1;
+          const rest = sf.text.slice(end, close);
+          if (/^\s*,\s*$/.test(rest)) end = close;
+          edits.push({ start: fn.getEnd(), end, text: '' });
+          changes++;
+        } else {
+          skip(n, `the options of "${n.expression.text}" hold more than the diagnostic filter`);
+        }
       }
     }
     ts.forEachChild(n, visitFunctions);
