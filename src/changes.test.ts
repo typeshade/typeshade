@@ -16,7 +16,9 @@ import { ROOT } from '../scripts/doc-refs.js';
 import { definedRules } from '../scripts/doc-refs.js';
 import {
   DOWNSTREAM_REPOS,
+  NAMES_FILE,
   STATUSES,
+  authorNames,
   changeLines,
   codeTable,
   handledIds,
@@ -91,6 +93,8 @@ const none: Touched = {
   exportsRemoved: new Set(),
   codes: new Set(),
   examples: new Set(),
+  names: new Set(),
+  namesRemoved: new Set(),
 };
 
 const accepted = parseProposal(
@@ -109,6 +113,8 @@ const accepted = parseProposal(
     '- oldName',
     'codes: []',
     'examples: []',
+    'names:',
+    "- 'Math.hypot'",
     'downstream:',
     '- repo: typeshade.github.io',
     '  what: the constructs page',
@@ -126,6 +132,7 @@ describe('the judge', () => {
       rules: ['7.5'],
       surface: [17],
       exportsRemoved: ['oldName'],
+      names: ['Math.hypot'],
       downstream: [{ repo: 'typeshade.github.io', what: 'the constructs page' }],
     });
   });
@@ -176,7 +183,11 @@ describe('the judge', () => {
     const t = { ...none, rules: new Set(['7.5']) };
     const v = judge(t, 'feat: loops\n\nChange: 0012', [accepted]);
     expect(v.problems).toEqual([]);
-    expect(v.pending).toEqual(['surface section surface §17', 'removed export `oldName`']);
+    expect(v.pending).toEqual([
+      'surface section surface §17',
+      'removed export `oldName`',
+      'author-facing name `Math.hypot`',
+    ]);
   });
 
   it('stops a change that reaches past its proposal', () => {
@@ -323,5 +334,71 @@ describe('proposal scope from a diff (#584)', () => {
     texts(bake(['oldName'], ['oldName']), bake([], ['oldName']));
     expect([...touchedBy(diff()).exportsRemoved]).toEqual(['oldName']);
     expect([...touchedBy(diff()).exports]).toEqual([]);
+  });
+});
+
+describe('the author-facing name set as a criterion', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const diff: impact.Diff = {
+    base: 'fixture',
+    staged: false,
+    added: [],
+    deleted: [],
+    renamed: [],
+    modified: [],
+    touched: new Map(),
+    removedLines: new Map(),
+    removedAt: new Map(),
+  };
+  const snapshot = (...names: string[]) =>
+    ['# names', '', '## Declared names', '', '```', ...names, '```', ''].join('\n');
+  function snapshots(before: string, after: string) {
+    vi.spyOn(impact, 'atBase').mockImplementation((_d, file) =>
+      file === NAMES_FILE ? before : '',
+    );
+    vi.spyOn(impact, 'atHead').mockImplementation((_d, file) => (file === NAMES_FILE ? after : ''));
+  }
+
+  it('reads the names of a snapshot from its fenced blocks only', () => {
+    expect([...authorNames(snapshot('abs', 'Math.fround'))]).toEqual(['abs', 'Math.fround']);
+  });
+
+  it('sees a name the snapshot gains as touched, and one it loses as removed', () => {
+    snapshots(snapshot('abs', 'oldName'), snapshot('abs', 'Math.hypot'));
+    const t = touchedBy(diff);
+    expect([...t.names]).toEqual(['Math.hypot']);
+    expect([...t.namesRemoved]).toEqual(['oldName']);
+  });
+
+  it('counts no name while the snapshot is being introduced', () => {
+    snapshots('', snapshot('abs', 'Math.hypot'));
+    const t = touchedBy(diff);
+    expect([...t.names, ...t.namesRemoved]).toEqual([]);
+    expect(judge(t, '', []).problems).toEqual([]);
+  });
+
+  it('asks no proposal for a removed name', () => {
+    const t = { ...none, namesRemoved: new Set(['oldName']) };
+    expect(judge(t, 'refactor: drop a spelling', []).problems).toEqual([]);
+  });
+
+  it('requires a proposal for an added name, and Change: none does not waive it', () => {
+    const t = { ...none, names: new Set(['Math.hypot']) };
+    expect(judge(t, 'feat: hypot', []).problems[0]).toMatch(/needs a proposal/);
+    expect(judge(t, 'feat: hypot\n\nChange: none, small', []).problems[0]).toMatch(
+      /`Change: none` does not cover `Math.hypot`/,
+    );
+  });
+
+  it('accepts an added name its accepted proposal lists, and stops one it does not', () => {
+    expect(
+      judge({ ...none, names: new Set(['Math.hypot']) }, 'Change: 0012', [accepted]).problems,
+    ).toEqual([]);
+    expect(
+      judge({ ...none, names: new Set(['Math.clz32']) }, 'Change: 0012', [accepted]).problems,
+    ).toContainEqual(
+      expect.stringContaining('author-facing name `Math.clz32` is changed here but not declared'),
+    );
   });
 });
