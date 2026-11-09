@@ -1,3 +1,4 @@
+// Verifies: Rule 8.21, Rule 11.8
 // Host resources (change 0138, milestone 1: R7 to R9 and R17). A class a shader module exports
 // carries its layouts in the generated module, and `uniform()`, `zeros()` and `array()` make
 // ranges of one region with a typed view for each field. Both readers of a host program are read:

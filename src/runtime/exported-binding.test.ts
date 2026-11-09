@@ -67,6 +67,7 @@ async function load(): Promise<Record<string, unknown>> {
   return loaded;
 }
 
+// Verifies: Rule 6.1
 describe('an exported binding is read by both halves (Rule 6.1)', () => {
   it('compiles to the same binding, and the language service reports nothing on it', () => {
     const r = compile(SOURCE, { fileName: 'scene.shade.ts' });
@@ -98,6 +99,7 @@ describe('an exported binding is read by both halves (Rule 6.1)', () => {
   });
 });
 
+// Verifies: Rule 6.1, Rule 8.21
 describe('the generated module makes each exported binding once (R10)', () => {
   it('is a Uniform whose fields are set and read, with a dirty range', async () => {
     const m = await load();
@@ -139,6 +141,7 @@ describe('the generated module makes each exported binding once (R10)', () => {
   });
 });
 
+// Verifies: Rule 11.8
 describe('device.use() and texture() (Amendment A2)', () => {
   it('makes the device the default of a block, nesting, and texture() uses it', async () => {
     expect(() => texture({ size: [2, 2], format: 'rgba8unorm' })).toThrow(TypeError);

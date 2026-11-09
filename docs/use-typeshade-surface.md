@@ -8081,6 +8081,41 @@ At milestone 1 no call takes a resource yet: a kernel function, an entry and a d
 and a `Resident` as before. The upload of each dirty range when a call reads the resource is
 milestone 3 of change 0138.
 
+**Exported bindings** (change 0138, R10; Rule 6.1). A binding the shader module exports is a host
+resource. `export declare const camera: uniform<Camera>` is a `Uniform<Camera>` in the host, and
+`export declare const ps: storage<array<Particle, 64>, "read_write">` a `Buffer<Particle>` of 64
+elements, each laid out by the exported class's layouts and made once by the generated module.
+
+```ts
+// scene.shade.ts
+export class Camera {
+  pos: vec3 = vec3(0.);
+  time: f32 = 0.;
+}
+export declare const camera: uniform<Camera>;
+```
+
+```ts
+// host.ts
+import { camera } from './scene.shade.ts';
+
+camera.pos.set(0, 2, 5); // a field, through its accessor
+camera.set({ time: now / 1000 }); // `camera = …` is a type error: an import is read-only
+```
+
+The binding lives as long as its module, so its `dispose()` throws a `TypeError`. A storage array
+with no size has no length to make, and a scalar, a vector, a struct no exported class declares,
+one `storage<T>`, a texture and a sampler have no resource of their own yet: the view declares
+each `never`, with the reason. An entry call still takes the binding's value in its bindings
+object; binding the exported resource at a call is milestone 3 of change 0138.
+
+**The default device** (change 0138, Amendment A2; Rule 11.8). A device is opened by
+`createDevice()` alone. `using _ = device.use()` makes it the default device until the end of the
+block, uses nesting, and `texture({ size, format })` makes a texture on it; with no device in use,
+`texture()` throws a `TypeError`. Where the `lib` declares no `Symbol.dispose`, call `dispose()` on
+the handle `use()` returns. The calls of a kernel function or an entry do not follow `device.use()`
+yet.
+
 **The name** (Rule 3.8). A shader module a host imports is named `*.shade.ts`. The plugin refuses
 a `.ts` the bundle reads that begins with `"use typeshade"` under any other name, with the
 rename. A module with a compile error fails the build with each `TS80xx` diagnostic at its file,
