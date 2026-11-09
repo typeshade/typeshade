@@ -38,9 +38,6 @@ export interface ConformanceCase {
   readonly covers: readonly string[];
   /** What the CPU backend's refusal of the case says, when it refuses it. */
   readonly refusedOnCpu?: string;
-  /** Why the WebGL2 backend does not run the case, when it does not: the case is reported as
-   *  skipped there, and the compile gate's floor of WebGL2 cases leaves it out. */
-  readonly notOnWebgl2?: string;
   run(device: RhiDevice): Promise<{ got: number[]; want: number[] } | { skipped: string }>;
 }
 
@@ -88,6 +85,8 @@ async function pipelineOf(
     readonly depth?: boolean;
     readonly blend?: object;
     readonly cullMode?: 'none' | 'front' | 'back';
+    /** The topology, `triangle-list` when absent. */
+    readonly topology?: string;
     /** A stencil test on a `depth24plus-stencil8` attachment, both faces alike, depth always. */
     readonly stencil?: {
       readonly compare: 'always' | 'equal';
@@ -113,7 +112,11 @@ async function pipelineOf(
       ],
       ...(glsl ? { module: device.createShaderModule(programs.fragment) } : {}),
     },
-    primitive: { topology: 'triangle-list', cullMode: extra.cullMode ?? 'none', frontFace: 'ccw' },
+    primitive: {
+      topology: extra.topology ?? 'triangle-list',
+      cullMode: extra.cullMode ?? 'none',
+      frontFace: 'ccw',
+    },
     ...(extra.depth === true
       ? {
           depthStencil: {
@@ -349,6 +352,67 @@ function interpolatedTexel(w: readonly number[], x: number, y: number): number[]
   const linear = l.reduce((s, li, i) => s + li * NUMBERS[i]!, 0);
   return [unorm8(perspective), unorm8(linear), unorm8(SAME[0]), 255];
 }
+
+/** The flat numbers of the four vertices of {@link flatQuadFrame}. */
+const QUAD_FLAT = [0.6, 0.2, 1, 0.4] as const;
+
+/** Two triangles of `INTERPOLATED` that share an edge and cover an 8 × 8 target cleared to opaque
+ *  black, each vertex with a flat number of its own (`QUAD_FLAT`): vertices 0, 1 and 2 make the
+ *  triangle below the edge, and 1, 2 and 3 the one above it. The edge passes between the pixel
+ *  centres. `indices` draws them as an indexed list; without it they are a strip of four. */
+async function flatQuadFrame(device: RhiDevice, indices?: readonly number[]): Promise<number[]> {
+  const ndc = [
+    [-1, -1],
+    [1.125, -1],
+    [-1, 1.125],
+    [1.125, 1.125],
+  ] as const;
+  const t = target(device, 8, 8);
+  const { pipeline, layout } = await pipelineOf(device, INTERPOLATED, [], {
+    buffers: [
+      {
+        arrayStride: 28,
+        attributes: [
+          { shaderLocation: 0, offset: 0, format: 'float32x4' },
+          { shaderLocation: 1, offset: 16, format: 'float32x3' },
+        ],
+      },
+    ],
+    ...(indices === undefined ? { topology: 'triangle-strip' } : {}),
+  });
+  const data = ndc.flatMap(([x, y], i) => [x, y, 0.25, 1, NUMBERS[0], NUMBERS[1], QUAD_FLAT[i]!]);
+  const vertices = device.createBuffer({ size: 112, usage: ['vertex', 'copy-dst'] });
+  device.writeBuffer(vertices, 0, new Float32Array(data));
+  const encoder = device.createCommandEncoder();
+  const pass = encoder.beginRenderPass({
+    colorAttachments: [
+      { view: device.createView(t), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] },
+    ],
+  });
+  pass.setPipeline(pipeline);
+  pass.setBindGroup(0, device.createBindGroup(layout, []));
+  pass.setVertexBuffer(0, vertices);
+  if (indices === undefined) pass.draw(4);
+  else {
+    const buffer = device.createBuffer({ size: indices.length * 2, usage: ['index', 'copy-dst'] });
+    device.writeBuffer(buffer, 0, new Uint16Array(indices));
+    pass.setIndexBuffer(buffer, 'uint16');
+    pass.drawIndexed(indices.length);
+  }
+  pass.end();
+  await device.submit([encoder]);
+  return [...(await device.readTexture(t, 4))];
+}
+
+/** The answer of {@link flatQuadFrame}: the flat number `below` in the triangle below the shared
+ *  edge, where pixel `(x, y)` has `x - y` under 0.5, and `above` in the other. */
+const flatQuadImage = (below: number, above: number): number[] =>
+  image(8, 8, (x, y) => [
+    unorm8(NUMBERS[0]),
+    unorm8(NUMBERS[1]),
+    unorm8(x - y < 0.5 ? below : above),
+    255,
+  ]);
 
 export const CONFORMANCE: readonly ConformanceCase[] = [
   {
@@ -1119,12 +1183,29 @@ export const main = compute([2, 1, 1], function main(g: builtin<"global_invocati
   {
     name: "interpolation: flat, from the first vertex of the triangle (WebGPU's provoking vertex)",
     covers: ['draw'],
-    notOnWebgl2:
-      'GLSL ES 3.00 takes a flat value from the last vertex, and the backend asks for no WEBGL_provoking_vertex',
     async run(device) {
       const w = [1, 2, 4] as const;
       const got = await interpolatedFrame(device, w, () => 0.25, FLAT);
       return { got, want: image(8, 8, (x, y) => interpolatedTexel(w, x, y)) };
+    },
+  },
+  {
+    name: 'interpolation: flat on an indexed list, from the first index of each triangle',
+    covers: ['drawIndexed'],
+    async run(device) {
+      // The second triangle starts at vertex 2, which the first one ends with.
+      const got = await flatQuadFrame(device, [0, 1, 2, 2, 1, 3]);
+      return { got, want: flatQuadImage(QUAD_FLAT[0], QUAD_FLAT[2]) };
+    },
+  },
+  {
+    name: 'interpolation: flat on a triangle strip, from the first vertex of each triangle',
+    covers: ['draw'],
+    refusedOnCpu: 'it draws a triangle-list',
+    async run(device) {
+      // The strip's second triangle starts at vertex 1.
+      const got = await flatQuadFrame(device);
+      return { got, want: flatQuadImage(QUAD_FLAT[0], QUAD_FLAT[1]) };
     },
   },
   {
@@ -1300,10 +1381,6 @@ export async function runConformance(device: RhiDevice): Promise<CaseResult[]> {
   const out: CaseResult[] = [];
   const cpu = device.caps.shaderLanguage === 'cpu';
   for (const c of CONFORMANCE) {
-    if (device.backend === 'webgl2' && c.notOnWebgl2 !== undefined) {
-      out.push({ name: c.name, skipped: c.notOnWebgl2 });
-      continue;
-    }
     const refused = cpu ? c.refusedOnCpu : undefined;
     try {
       const r = await c.run(device);

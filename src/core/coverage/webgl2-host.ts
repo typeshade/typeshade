@@ -1133,10 +1133,14 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: '`WEBGL_provoking_vertex`',
     covers: ['webgl:WEBGL_provoking_vertex'],
-    evidence: 'src/core/passes/varying-interpolate.ts:138-153 (flat defaults to `first`)',
-    note: "inference, not measured: ES 3.00 takes the last vertex for a flat varying and WGSL's @interpolate(flat, first) the first, so a flat varying may differ by target; the extension would settle it",
+    evidence:
+      'src/core/passes/varying-interpolate.ts:138-153 (flat defaults to `first`); src/rhi/webgl2.ts (firstVertexLast, provokingVertexWEBGL)',
+    note: "measured: ES 3.00 takes the last vertex for a flat varying and WGSL's @interpolate(flat, first) the first; the WebGL2 backend takes the first with the extension, and without it draws each triangle with its first vertex last and refuses a line that carries a flat value",
     webgpu: typed('src/compiler/ts/entry-io-attributes.test.ts', "first is WGSL's default"),
-    webgl2: gap(14, 'to measure: the convention is inferred, not measured', 644),
+    webgl2: typed(
+      'src/rhi/webgl2.test.ts',
+      'both ways, with the extension and without it; the pixels in the compile gate (src/rhi/rhi-conformance.ts, the three flat cases), on a context without the extension',
+    ),
   },
   {
     table: 'D',

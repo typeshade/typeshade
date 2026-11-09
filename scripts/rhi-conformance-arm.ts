@@ -4,8 +4,7 @@
 //
 // WHY IT CANNOT BE VACUOUSLY GREEN (AGENTS.md#gate-discipline):
 //   1. Every case must run on WebGPU, and every case but the ones WebGL2 has no member for (a
-//      compute pass) or names a reason for (`notOnWebgl2`) on WebGL2: a floor of compared cases on
-//      each backend.
+//      compute pass) on WebGL2: a floor of compared cases on each backend.
 //   2. The suite run again on a WebGL2 device whose reads are perturbed must DIFFER in every case
 //      that it runs: each comparison is seen to fail.
 
@@ -36,10 +35,8 @@ export async function rhiConformanceBundle(): Promise<string> {
   return built.outputs[0]!.text();
 }
 
-/** The cases WebGL2 does not run: those that need a compute pass, and those that name why. */
-const NOT_ON_WEBGL2 = CONFORMANCE.filter(
-  (c) => c.covers.includes('beginComputePass') || c.notOnWebgl2 !== undefined,
-).length;
+/** The cases WebGL2 does not run: those that need a compute pass. */
+const NOT_ON_WEBGL2 = CONFORMANCE.filter((c) => c.covers.includes('beginComputePass')).length;
 
 /** Print the leg's verdicts; the number of failures. */
 export function rhiConformanceVerdicts(report: RhiConformanceReport): number {
@@ -66,6 +63,10 @@ export function rhiConformanceVerdicts(report: RhiConformanceReport): number {
   };
   leg('webgpu', report.webgpu, CONFORMANCE.length);
   leg('webgl2', report.webgl2, CONFORMANCE.length - NOT_ON_WEBGL2);
+  // Which of the backend's two ways the flat cases held: the context decides, so the leg says.
+  console.log(
+    `rhi webgl2: a flat value takes the first vertex ${report.provokingVertex ? 'with WEBGL_provoking_vertex' : 'through reordered indices (the context has no WEBGL_provoking_vertex)'}`,
+  );
   const ran = report.perturbed.filter((r) => r.skipped === undefined);
   const blind = ran.filter((r) => differences(r).length === 0);
   if (ran.length >= CONFORMANCE.length - NOT_ON_WEBGL2 && blind.length === 0)
