@@ -104,3 +104,18 @@ and every person reads this file before any other document of this repository.
   - The bundled builds were for testing. A change of meaning or a refusal owes no warning release
     because of them (Rules 13.9 and 13.10).
   - The `## [0.1.0]` heading of `CHANGELOG.md` does not make a release.
+
+### OD-7. A number's type is inferred from its uses; there is no default type to learn
+
+- Date: 2026-11-09.
+- The owner's words: "자동추론으로", confirmed as: the compiler infers a number's type from every
+  place it reaches (a function's result from the places that call it, a value passed on from the
+  place that receives it), and where nothing decides, the compiler chooses without asking the
+  author. Asked whether to record this as an entry, the owner said "기록".
+- What it means:
+  - An author writes a number as a number. The compiler gives it the type its uses need.
+  - No default type is part of the language for an author to learn. Where no use decides, the
+    compiler's choice is `f32` (the owner's choice, 2026-11-09, proposal 0134 question 5).
+  - A value that one use makes an integer and that `/` divides is refused, not silently divided
+    as integers (the owner's choice, 2026-11-09, proposal 0134 question 6).
+  - Proposal 0134 records the full design.
