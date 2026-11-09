@@ -3,6 +3,8 @@
 // a field to the attribute type, and no `!` on a field or a local, keeping every byte it does not
 // need to change. The rewrite is held to the compiler: each registered example, migrated, gives
 // the WGSL, the GLSL ES 3.00 and the diagnostic codes the example gives as written.
+// A parameter qualifier stays written before the parameter, `@inout v: f32`, and the type form of
+// change 0111, `v: inout<f32>`, is rewritten back to it (Rule 8.25, change 0137).
 
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -29,7 +31,7 @@ class VsOut {
   c!: location<1, vec4>;
 }
 declare const out: storage<array<f32>, "read_write">;
-function put(v: out<f32>): void { v = 2.; }
+function put(@out v: f32): void { v = 2.; }
 export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
   let b!: f32;
   put(b);
@@ -53,7 +55,7 @@ class VsOut {
   c: location<1, vec4>;
 }
 declare const out: storage<array<f32>, "read_write">;
-function put(v: out<f32>): void { v = 2.; }
+function put(@out v: f32): void { v = 2.; }
 @vertex
 export function vs(i: builtin<"vertex_index", u32>): VsOut {
   let b: f32;
@@ -88,6 +90,42 @@ export function scale(xs: array<f32>) {
       ]);
     expect(compile(after).diagnostics).toEqual([]);
     expect(kept(compile(after))).toBe(kept(compile(before)));
+  });
+
+  it('keeps a qualifier before the parameter, and rewrites the type form to it (change 0137)', () => {
+    const kept = `"use typeshade";
+function swap(@inout a: f32, @inout b: f32): void { const t = a; a = b; b = t; }
+function add(a: f32, b: f32, @out c: f32): void { c = a + b; }
+`;
+    expect(migrateSource(kept)).toEqual({ text: kept, changes: 0, skipped: [] });
+    const typed = `"use typeshade";
+function swap(a: inout<f32>, b: inout<f32>): void { const t = a; a = b; b = t; }
+namespace N { export function grow(xs: inout<array<f32, 3>>, c: out<vec2>): void { c = vec2(xs[0]); } }
+function both(@inout a: inout<f32>): void { a = 1.; }
+`;
+    const result = migrateSource(typed);
+    expect(result.text).toBe(`"use typeshade";
+function swap(@inout a: f32, @inout b: f32): void { const t = a; a = b; b = t; }
+namespace N { export function grow(@inout xs: array<f32, 3>, @out c: vec2): void { c = vec2(xs[0]); } }
+function both(@inout a: f32): void { a = 1.; }
+`);
+    expect(result.skipped).toEqual([]);
+    expect(compile(result.text).diagnostics).toEqual([]);
+    expect(migrateSource(result.text).changes).toBe(0);
+  });
+
+  it('leaves a type form that is no parameter of a module function, and names it', () => {
+    const result = migrateSource(`"use typeshade";
+type R = inout<f32>;
+class C { m(p: inout<f32>): void {} }
+export function f(): f32 { let x: out<f32> = 1.; return x; }
+`);
+    expect(result.changes).toBe(0);
+    expect(result.skipped).toEqual([
+      'line 2: "inout<f32>" is no parameter\'s type of a module function: write the qualifier before the parameter by hand, "@inout a: T"',
+      'line 3: "inout<f32>" is no parameter\'s type of a module function: write the qualifier before the parameter by hand, "@inout a: T"',
+      'line 4: "out<f32>" is no parameter\'s type of a module function: write the qualifier before the parameter by hand, "@out a: T"',
+    ]);
   });
 
   it('names an entry, "export default" being no name (Rule 8.1)', () => {

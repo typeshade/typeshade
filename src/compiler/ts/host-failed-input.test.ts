@@ -496,8 +496,8 @@ describe('held data dependencies (0129)', () => {
 
 it('keeps same-named linked helpers distinct for read/write and write-only places', async () => {
   const documents = {
-    '/failure/set.shade.ts': `"use typeshade"; export function touch(x: out<f32>) { x = 7.; }`,
-    '/failure/update.shade.ts': `"use typeshade"; export function touch(x: inout<f32>) { x += 1.; }`,
+    '/failure/set.shade.ts': `"use typeshade"; export function touch(@out x: f32) { x = 7.; }`,
+    '/failure/update.shade.ts': `"use typeshade"; export function touch(@inout x: f32) { x += 1.; }`,
   };
   const source = `${SOURCE}
 import { touch as set } from "./set.shade";

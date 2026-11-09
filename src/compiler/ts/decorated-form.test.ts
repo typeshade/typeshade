@@ -5,6 +5,9 @@
 // is the entry's form (change 0130), with no warning, and the editor drops TypeScript's TS1206 on
 // it in every file. The editor drops TS1206 on a parameter's decorator only while `compile()`
 // warns on it, and never reports TS2564 (`strictPropertyInitialization: false`, change 0130 D3).
+// A parameter qualifier, `@inout` or `@out`, is no decorated form either: it is the language's
+// form (Rule 8.25, change 0137), which neither half warns on and the editor's TS1206 filter keeps
+// in every file.
 //
 // Verifies: Rule 1.7, Rule 6.6, Rule 6.7 (docs/language-design.md; traced in reqs/).
 
@@ -74,7 +77,8 @@ const FILTER = '@diagnostic("off", "derivative_uniformity")\n';
 
 /** The warning on each decorator of `DECORATED` on a parameter or a field, in source order, and
  *  the one refusal: the filter, which change 0132 removed, warned here until it was refused. A
- *  stage attribute is the entry's form (change 0130) and has none. */
+ *  stage attribute (change 0130) and a qualifier (change 0137) are the language's forms and have
+ *  none. */
 const WARNINGS = [
   warns('@builtin("position")', 'write "pos: builtin<"position", vec4, { invariant: true }>"'),
   warns('@invariant', 'write "pos: builtin<"position", vec4, { invariant: true }>"'),
@@ -82,8 +86,6 @@ const WARNINGS = [
   warns('@location(1)', 'write "id: location<1, u32, { interpolate: "flat" }>"'),
   warns('@interpolate("flat")', 'write "id: location<1, u32, { interpolate: "flat" }>"'),
   warns('@builtin("vertex_index")', 'write "i: builtin<"vertex_index", u32>"'),
-  warns('@inout', 'write "v: inout<f32>"'),
-  warns('@out', 'write "v: out<f32>"'),
   'error TS8028 "@diagnostic(…)" is not a decorator the compiler reads (Rule 6.7). Delete it: ' +
     'the compiler rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5) and ' +
     'reports each other one with TS8052 and the reason. "tshc migrate" deletes it.',
@@ -91,14 +93,14 @@ const WARNINGS = [
 ];
 
 describe('the decorated form warns once on each decorator, in both halves (TS8028)', () => {
-  it('names the attribute type, its option or the qualifier to write, and nothing on a stage', () => {
+  it('names the attribute type or its option to write, and nothing on a stage or a qualifier', () => {
     expect(compiled(DECORATED)).toEqual(WARNINGS);
     expect(edited(DECORATED)).toEqual(WARNINGS);
   });
 
-  it('gives one warning for each decorator, and still compiles as the new form does', () => {
+  it('gives one warning for each decorator but a stage or a qualifier, and still compiles as the new form does', () => {
     const count = DECORATED.match(/@\w+/g)!.filter(
-      (d) => !/^@(vertex|fragment|compute|workgroup_size)$/.test(d),
+      (d) => !/^@(vertex|fragment|compute|workgroup_size|inout|out)$/.test(d),
     ).length;
     expect(WARNINGS).toHaveLength(count);
     // The migration deletes the filter (change 0132), so the new form is the decorated one
@@ -236,6 +238,21 @@ export function fs(@builtin("position") p: vec4): vec4 { return p; }
     expect(typescriptCodes(source)).toEqual([]);
     expect(compiled(source)).toEqual(said);
     expect(edited(source)).toEqual(said);
+  });
+
+  it('keeps TS1206 out of a parameter qualifier in a file in the new form (change 0137)', () => {
+    const source = `"use typeshade";
+function bump(@inout v: f32): void { v += 1.; }
+@fragment
+export function fs(): vec4 { let a: f32 = 0.; bump(a); return vec4(a); }
+`;
+    expect(
+      usesDecoratedForm(ts.createSourceFile('a.ts', source, ts.ScriptTarget.Latest, true)),
+    ).toBe(false);
+    expect(plainTscCodes(source)).toEqual([1206, 1206]);
+    expect(typescriptCodes(source)).toEqual([]);
+    expect(compiled(source)).toEqual([]);
+    expect(edited(source)).toEqual([]);
   });
 
   it('keeps TS1206 on a decorator that is no attribute, under the refusal of the compiler', () => {

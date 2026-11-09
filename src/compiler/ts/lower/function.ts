@@ -2,7 +2,7 @@
 //
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
-import { attributeDecoratorsOf } from '../attribute-types.js';
+import { attributeDecoratorsOf, isTypeDecorator } from '../attribute-types.js';
 import { variableRefused } from '../refused-names.js';
 import { moduleVarSourceName } from '../module-var-names.js';
 import { stageCallOf, stageCallOfDeclaration, stageDeclarationOf } from '../stage-call.js';
@@ -339,7 +339,9 @@ export function lowerSourceFunctions(
         const takes = stmt.parameters.find((p) => qualifiersOf(p).length > 0);
         if (takes !== undefined) {
           const refusal = refuseQualifiedParameter(takes, qualifiersOf(takes), undefined, {})!;
-          pushDiag(diagnostics, sourceFile, refusal.at, refusal.message, TS_CODES.REFERENCE);
+          // The type form's own refusal says it (`TS8028`, change 0137; Rule 12.4).
+          if (!refusal.typeForm)
+            pushDiag(diagnostics, sourceFile, refusal.at, refusal.message, TS_CODES.REFERENCE);
           refused.add(base);
           continue;
         }
@@ -2348,7 +2350,9 @@ export function parseParams(
     if (qualifiers.length > 0) {
       const refused = refuseQualifiedParameter(p, qualifiers, stage, opts);
       if (refused !== undefined) {
-        pushDiag(diagnostics, sourceFile, refused.at, refused.message, TS_CODES.REFERENCE);
+        // The type form's own refusal says it (`TS8028`, change 0137; Rule 12.4).
+        if (!refused.typeForm)
+          pushDiag(diagnostics, sourceFile, refused.at, refused.message, TS_CODES.REFERENCE);
         return undefined;
       }
     }
@@ -2405,15 +2409,17 @@ export function parseParams(
     )
       return undefined;
     if (referenced !== undefined && (pType.kind === 'texture' || pType.kind === 'sampler')) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        p.type,
-        `"${p.name.text}" is ${referenced}<T>, and a ${pType.kind} is a handle to a resource, ` +
-          `not a place a function writes. Declare it "${p.name.text}: ${authorTypeText(pType)}" to take it ` +
-          `by value.`,
-        TS_CODES.REFERENCE,
-      );
+      // The type form's own refusal says it (`TS8028`, change 0137; Rule 12.4).
+      if (!isTypeDecorator(qualifiers[0]!.node))
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          p.type,
+          `"${p.name.text}" is @${referenced}, and a ${pType.kind} is a handle to a resource, ` +
+            `not a place a function writes. Declare it "${p.name.text}: ${authorTypeText(pType)}" to take it ` +
+            `by value.`,
+          TS_CODES.REFERENCE,
+        );
       return undefined;
     }
     // An array with no size is a kernel function's parameter, the caller's storage (Rule 8.23),
@@ -2556,20 +2562,24 @@ export function parseParams(
 
 /** Why `p`, which carries `qualifiers`, cannot take them here, or `undefined` where it can: a
  *  qualifier belongs to a parameter of a function declared at the top of the file or of a
- *  namespace (Rule 8.25), one to a parameter, and a place takes no default. */
+ *  namespace (Rule 8.25), one to a parameter, and a place takes no default. `typeForm` says that
+ *  a qualifier is the refused type form `inout<T>` or `out<T>`, whose own `TS8028` is then the
+ *  one diagnostic (change 0137; Rule 12.4). */
 function refuseQualifiedParameter(
   p: ts.ParameterDeclaration,
   qualifiers: readonly { name: string; node: ts.Decorator }[],
   stage: FuncDecl['stage'] | undefined,
   opts: { readonly owner?: string; readonly forbidSelf?: boolean; readonly references?: boolean },
-): { at: ts.Node; message: string } | undefined {
+): { at: ts.Node; message: string; typeForm: boolean } | undefined {
   const name = (p.name as ts.Identifier).text;
   const first = qualifiers[0]!;
+  const typeForm = qualifiers.some((q) => isTypeDecorator(q.node));
   if (qualifiers.length > 1) {
     return {
       at: qualifiers[1]!.node,
+      typeForm,
       message:
-        `"${name}" carries ${qualifiers.map((q) => `${q.name}<T>`).join(' and ')}, and a ` +
+        `"${name}" carries ${qualifiers.map((q) => `@${q.name}`).join(' and ')}, and a ` +
         `parameter takes one qualifier. Keep the one that says what the function does with it.`,
     };
   }
@@ -2585,8 +2595,9 @@ function refuseQualifiedParameter(
             : 'a generic function, whose instance is made from its arguments,';
     return {
       at: first.node,
+      typeForm,
       message:
-        `"${name}" is ${first.name}<T>, and ${site} takes its parameters by value. A ` +
+        `"${name}" is @${first.name}, and ${site} takes its parameters by value. A ` +
         `parameter that names the caller's place belongs to a function declared at the top ` +
         `of the file or of a namespace (Rule 8.25): move the code that changes the caller's ` +
         `value into one, or take the value and return the result.`,
@@ -2595,8 +2606,9 @@ function refuseQualifiedParameter(
   if (p.initializer !== undefined) {
     return {
       at: p.initializer,
+      typeForm,
       message:
-        `"${name}" is ${first.name}<T>, which names the place a call hands over; a default is a ` +
+        `"${name}" is @${first.name}, which names the place a call hands over; a default is a ` +
         `value and names no place. Remove the default, and pass a variable at every call.`,
     };
   }

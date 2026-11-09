@@ -66,12 +66,13 @@ the module (the Vite plugin rewrites them as modules change). Run it before tsc 
 a clean checkout; its home is the "prepare" script. With --check it writes
 nothing and fails when a view is missing or stale.
 
-migrate rewrites each *.shade.ts to the language's own forms (change 0130): a
-stage attribute for each stage call ("@vertex export function vs" for
+migrate rewrites each *.shade.ts to the language's own forms (changes 0130 and
+0137): a stage attribute for each stage call ("@vertex export function vs" for
 "export const vs = vertex(function vs"), a named entry for an "export default"
-one, an attribute type for each @builtin, @location, @inout or @out, and no "!"
-on a field or a local. It keeps every other byte and names, by line, a form it
-leaves as written. With --check it writes nothing and fails when a file would
+one, an attribute type for each @builtin or @location, "@inout v: T" for
+"v: inout<T>", and no "!" on a field or a local. It keeps every other byte and
+names, by line, a form it leaves as written. With --check it writes nothing and
+fails when a file would
 change.
 
 init configures a Vite project explicitly, preserves unrelated settings and comments,

@@ -9,6 +9,10 @@
 // `@workgroup_size([n])`, is no decorated form: it is the language's form of an entry and of a
 // kernel function's size (Rules 1.8, 8.1 and 8.22, change 0130), read in `lower/function.ts`.
 //
+// A parameter qualifier, `@inout` or `@out`, is no decorated form: it is the language's form,
+// written before the parameter (Rule 8.25, change 0137). Its type form of change 0111,
+// `a: inout<f32>`, is refused at once (`refuseQualifierTypes`, `TS8028`).
+//
 // The list of what the codemod rewrites is one authority: `tshc migrate` (`src/cli/migrate.ts`)
 // spells an attribute type with `attributeTypeOf` below, so the warning and the rewrite name the
 // same text.
@@ -34,7 +38,7 @@ export const ATTRIBUTE_DECORATORS: ReadonlySet<string> = new Set([
   'invariant',
   'blend_src',
 ]);
-/** The qualifier decorators on a parameter, which `inout<T>` and `out<T>` replace (D4). */
+/** The qualifier decorators on a parameter, the language's form (Rule 8.25, change 0137). */
 export const QUALIFIER_DECORATORS: ReadonlySet<string> = new Set(['inout', 'out']);
 
 /** A decorator's name and its arguments' source text; the name is the decorator's whole text
@@ -50,9 +54,10 @@ export function decoratorParts(
   return { name: d.getText(sf), args: [] };
 }
 
-/** The attribute type a run of attribute and qualifier decorators stands for around `type`,
+/** The attribute type a run of attribute decorators stands for around `type`,
  *  `builtin<"position", vec4, { invariant: true }>`, or undefined when the run holds none, or
- *  holds an option with no `@builtin` or `@location` to carry it. */
+ *  holds an option with no `@builtin` or `@location` to carry it. A qualifier in the run stays a
+ *  decorator, written before the parameter (change 0137), so it adds nothing to the type. */
 export function attributeTypeOf(
   attrs: readonly { name: string; args: readonly string[] }[],
   type: string,
@@ -71,7 +76,6 @@ export function attributeTypeOf(
   if (builtin) out = `builtin<${builtin.args[0]}, ${out}${third}>`;
   else if (location) out = `location<${location.args[0]}, ${out}${third}>`;
   else if (options.length > 0) return undefined;
-  for (const a of attrs) if (QUALIFIER_DECORATORS.has(a.name)) out = `${a.name}<${out}>`;
   return out === type ? undefined : out;
 }
 
@@ -100,7 +104,7 @@ export interface DecoratedForm {
 const NEXT = 'is the decorated form, which the next release refuses';
 const MIGRATE = 'or run "tshc migrate" (change 0111).';
 
-/** The sentence for an attribute or a qualifier decorator on parameter or field `member`. */
+/** The sentence for an attribute decorator on parameter or field `member`. */
 function memberSentence(
   d: ts.Decorator,
   member: ts.ParameterDeclaration | ts.PropertyDeclaration,
@@ -109,24 +113,21 @@ function memberSentence(
   const written = `"${d.getText(sf)}" ${NEXT}`;
   const ours = writtenDecorators(member)
     .map((x) => decoratorParts(x, sf))
-    .filter((p) => ATTRIBUTE_DECORATORS.has(p.name) || QUALIFIER_DECORATORS.has(p.name));
+    .filter((p) => ATTRIBUTE_DECORATORS.has(p.name));
   const type =
     member.type === undefined ? undefined : attributeTypeOf(ours, member.type.getText(sf));
   if (type !== undefined)
     return `${written}: write "${member.name.getText(sf)}: ${type}", ${MIGRATE}`;
-  return (
-    `${written}: write the attribute in the type, as "builtin<…>", "location<…>", ` +
-    `"inout<T>" or "out<T>", ${MIGRATE}`
-  );
+  return `${written}: write the attribute in the type, as "builtin<…>" or "location<…>", ${MIGRATE}`;
 }
 
 const found = new WeakMap<ts.SourceFile, readonly DecoratedForm[]>();
 
 /**
- * Each decorator of the decorated form `sf` writes where the compiler reads it: an attribute or a
- * qualifier on a parameter of a function of the module, and an attribute on a class field. A
- * stage attribute on the function itself is the language's form (change 0130) and is never among
- * them. A decorator anywhere else is one nothing
+ * Each decorator of the decorated form `sf` writes where the compiler reads it: an attribute on a
+ * parameter of a function of the module, and an attribute on a class field. A stage attribute on
+ * the function itself (change 0130) and a qualifier, `@inout` or `@out` (change 0137), are the
+ * language's forms and are never among them. A decorator anywhere else is one nothing
  * reads, which the compiler refuses on its own (`TS8028`, `TS8035`). A decorator an attribute
  * type stands for (`isTypeDecorator`) is no node of the tree, so it is never among them.
  */
@@ -139,7 +140,7 @@ export function decoratedForms(sf: ts.SourceFile): readonly DecoratedForm[] {
       for (const p of node.parameters) {
         for (const d of writtenDecorators(p)) {
           const name = decoratorParts(d, sf).name;
-          if (ATTRIBUTE_DECORATORS.has(name) || QUALIFIER_DECORATORS.has(name))
+          if (ATTRIBUTE_DECORATORS.has(name))
             out.push({ decorator: d, message: memberSentence(d, p, sf) });
         }
       }
@@ -159,7 +160,8 @@ export function decoratedForms(sf: ts.SourceFile): readonly DecoratedForm[] {
 
 /** Whether `sf` still writes the decorated form on a parameter or a field: the editor keeps its
  *  TS1206 filter on those decorators while `compile()` warns on them (change 0111, Amendment 2,
- *  item 4; Rule 6.6 as change 0130 amends it). A stage attribute does not count (change 0130). */
+ *  item 4; Rule 6.6 as change 0130 amends it). A stage attribute (change 0130) and a qualifier
+ *  (change 0137) do not count: each is the language's form. */
 export function usesDecoratedForm(sf: ts.SourceFile): boolean {
   return decoratedForms(sf).length > 0;
 }
@@ -174,4 +176,77 @@ export function warnDecoratedForm(sf: ts.SourceFile, diagnostics: TsCompilerDiag
     if (diagnostics.some((d) => d.start >= start && d.start + d.length <= end)) continue;
     diagnostics.push(makeDiagnostic(sf, decorator, message, TS_CODES.ATTRIBUTE_NAME, 'warning'));
   }
+}
+
+/** Whether `node` is a written `inout<…>` or `out<…>` that names the ambient library's type:
+ *  the type form of a parameter qualifier (change 0111 D4, replaced by change 0137). A file that
+ *  declares its own type of that name keeps it. */
+export function isQualifierTypeForm(node: ts.Node, declared: ReadonlySet<string>): boolean {
+  return (
+    ts.isTypeReferenceNode(node) &&
+    ts.isIdentifier(node.typeName) &&
+    QUALIFIER_DECORATORS.has(node.typeName.text) &&
+    !declared.has(node.typeName.text)
+  );
+}
+
+/** The names `sf` declares a type of itself: a class, an interface, a type alias or an enum. */
+function declaredTypeNames(sf: ts.SourceFile): ReadonlySet<string> {
+  const out = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isClassDeclaration(node) ||
+        ts.isInterfaceDeclaration(node) ||
+        ts.isTypeAliasDeclaration(node) ||
+        ts.isEnumDeclaration(node)) &&
+      node.name !== undefined
+    )
+      out.add(node.name.text);
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+/**
+ * The `TS8028` error on each written type form of a parameter qualifier, `inout<…>` or
+ * `out<…>`, in every type position: a parameter, a local, a result, a type alias, a generic
+ * argument and a field (Rule 8.25, change 0137). The language writes the qualifier before the
+ * parameter, `@inout a: f32`; `tshc migrate` rewrites a parameter's type form. One diagnostic
+ * stands at the outermost written `inout<…>`, once (Rule 12.4): on a parameter the refused type
+ * still stands for its qualifier (`attribute-types.ts`), and every other refusal of that
+ * qualifier is left to this one (`lower/function.ts`).
+ */
+export function refuseQualifierTypes(sf: ts.SourceFile, diagnostics: TsCompilerDiagnostic[]): void {
+  const declared = declaredTypeNames(sf);
+  const visit = (node: ts.Node): void => {
+    if (isQualifierTypeForm(node, declared)) {
+      diagnostics.push(
+        makeDiagnostic(
+          sf,
+          node,
+          qualifierTypeSentence(node as ts.TypeReferenceNode, sf),
+          TS_CODES.ATTRIBUTE_NAME,
+        ),
+      );
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+}
+
+/** The sentence for a written type form `ref`: on a parameter, the parameter as the language
+ *  writes it; anywhere else, the type it means, since a qualifier marks a parameter only. */
+function qualifierTypeSentence(ref: ts.TypeReferenceNode, sf: ts.SourceFile): string {
+  const name = (ref.typeName as ts.Identifier).text;
+  const value = ref.typeArguments?.[0]?.getText(sf) ?? 'T';
+  const written = `"${ref.getText(sf)}" is the type form of a parameter qualifier, which the language does not have`;
+  const p = ref.parent;
+  if (ts.isParameter(p) && p.type === ref && ts.isIdentifier(p.name))
+    return `${written}: write "@${name} ${p.name.text}: ${value}", or run "tshc migrate" (change 0137).`;
+  return (
+    `${written}: a qualifier is written before a parameter, as "@${name} a: ${value}", and ` +
+    `here the type is "${value}"; "tshc migrate" rewrites a parameter's type form (change 0137).`
+  );
 }

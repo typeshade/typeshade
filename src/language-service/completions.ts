@@ -2,6 +2,7 @@
 
 import ts from 'typescript';
 import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
+import { QUALIFIER_DECORATORS } from '../compiler/ts/decorated-form.js';
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
 import { ATTRIBUTE_DOCS, BUILTIN_DOCS } from './docs.js';
 import { nodeAtPosition } from './positions.js';
@@ -378,6 +379,15 @@ function isAttributeSlot(slot: ts.Node): boolean {
   return ts.isCallExpression(parent) && parent.expression === slot && ts.isDecorator(parent.parent);
 }
 
+/** Whether `slot` is inside a type: `let x: in|`, `f(a: ou|)`, `array<in|, 2>`. */
+function isTypeSlot(slot: ts.Node): boolean {
+  for (let n: ts.Node | undefined = slot; n !== undefined && !ts.isSourceFile(n); n = n.parent) {
+    if (ts.isTypeNode(n)) return true;
+    if (ts.isStatement(n) || ts.isBlock(n)) return false;
+  }
+  return false;
+}
+
 /**
  * Whether a value expression can start at `slot`: not inside a type (`let x: vec|`,
  * `f(): vec|`, `uniform<Cam|>`), a decorator, an import or export clause, or a class body's
@@ -434,7 +444,13 @@ export function getCompletions(
   if (isAttributeSlot(context.slot)) return ATTRIBUTE_NAMES.map(attributeItem);
 
   const merged = new Map<string, TypeshadeCompletionItem>();
-  for (const item of tsCompletions(languageService, uri, offset)) merged.set(item.label, item);
+  // `inout<T>` and `out<T>` are the refused type form of a qualifier (change 0137): a type
+  // position does not offer them, though the ambient library keeps the aliases.
+  const typeSlot = isTypeSlot(context.slot);
+  for (const item of tsCompletions(languageService, uri, offset)) {
+    if (typeSlot && QUALIFIER_DECORATORS.has(item.label)) continue;
+    merged.set(item.label, item);
+  }
   if (isExpressionSlot(context.slot)) {
     for (const snippet of VEC_SNIPPETS) merged.set(snippet.label, vecSnippetItem(snippet));
   }

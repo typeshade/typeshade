@@ -8,7 +8,7 @@ links:
 - RULE-0802: WK2UrloI1kt3Um3fUlRk9YPrXsU-RW41nqtipEHbAMw=
 - RULE-0805: Kq2hCdlup1NA0l4vhuwirKDHJRnVjrkr0ZK9UUZFYbQ=
 - RULE-0807: yk8ipEbraGkGUnumzHLwSdV82CBTdMJU_QYyw6xWPPI=
-- RULE-0822: CZO7tIJPPMU2bNQwMy6oLDwk5WcbH__azEWsRUt6tuM=
+- RULE-0822: ap9wgHduuoK05mqnXk8iUUzBF1-aviDJ-JJRItjGy_w=
 - RULE-1206: cxZ3W1P8f61AZD9IU4OoWoeyAczeH2kn2TZslZ5WPus=
 normative: true
 ref: ''

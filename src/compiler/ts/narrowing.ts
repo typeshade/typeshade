@@ -260,7 +260,7 @@ function referenceParams(sourceFile: ts.SourceFile): ReadonlyMap<string, Readonl
     if (ts.isFunctionDeclaration(n) && n.name !== undefined) {
       const refs = new Set<number>();
       n.parameters.forEach((p, i) => {
-        // `@inout x: T`, or the type that stands for it, `x: inout<T>` (change 0111).
+        // `@inout x: T` (Rule 8.25), or the refused type form `x: inout<T>` (change 0137).
         if (qualifiersOf(p).length > 0) refs.add(i);
       });
       if (refs.size > 0) out.set(n.name.text, refs);

@@ -36,13 +36,27 @@ function spanOfNode(node: ts.Node): { start: number; length: number } {
  * definition, must refuse the position before calling into `ts`. A decorator that is a call,
  * `@compute([WG])` or `@workgroup_size([n])`, resolves: definition, references, rename and quick
  * info at its name and inside its argument are TypeScript's (change 0130, The editor, item 4).
+ * A decorator on a parameter of a function that is no class member, a qualifier `@inout` or
+ * `@out` (Rule 8.25, change 0137), throws in definition and in rename alike
+ * (`getEffectiveDecoratorArguments`), so it is refused too.
  */
 function isDecoratorOnFunctionDeclarationAt(sourceFile: ts.SourceFile, offset: number): boolean {
   const onDecorator = (pos: number): boolean => {
     let node: ts.Node | undefined = nodeAtPosition(sourceFile, pos);
     while (node !== undefined) {
-      if (ts.isDecorator(node))
-        return ts.isFunctionDeclaration(node.parent) && !ts.isCallExpression(node.expression);
+      if (ts.isDecorator(node)) {
+        const decorated = node.parent;
+        if (ts.isFunctionDeclaration(decorated)) return !ts.isCallExpression(node.expression);
+        // A parameter qualifier, `@inout a: f32`, on a parameter of a function that is no class
+        // member (Rule 8.25, change 0137): TypeScript throws on it as on a decorator of the
+        // function itself, where a method's or a constructor's parameter decorator resolves.
+        return (
+          ts.isParameter(decorated) &&
+          (ts.isFunctionDeclaration(decorated.parent) ||
+            ts.isFunctionExpression(decorated.parent) ||
+            ts.isArrowFunction(decorated.parent))
+        );
+      }
       node = node.parent;
     }
     return false;

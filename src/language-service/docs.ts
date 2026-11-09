@@ -121,8 +121,8 @@ export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
   blend_src:
     'The decorated form of the `blend_src` option, `location<0, vec4, { blend_src: 0 }>` beside `{ blend_src: 1 }`: which of the two colours a dual-source blend mixes this fragment output is. Derives the `dualSourceBlending` capability; GLSL ES 3.00 has no second source, so a module using it fails closed there.',
   inout:
-    "The decorated form of `p: inout<T>`: the parameter names the caller's place, so reading `p` reads it and assigning to `p`, or to a field or element of it, writes it. The caller passes the variable itself, unmarked: `swap(x, y)`. WGSL `ptr<function, T>`, GLSL ES 3.00 `inout T`.",
-  out: "The decorated form of `p: out<T>`: the parameter names a place of the caller's that the function writes before reading it and on every path. The caller passes a variable, which may have no value yet: `let s!: f32; add(a, b, s);`. WGSL `ptr<function, T>`, GLSL ES 3.00 `inout T`.",
+    "Written before a parameter, `@inout p: T`: the parameter names the caller's place, so reading `p` reads it and assigning to `p`, or to a field or element of it, writes it. The caller passes the variable itself, unmarked: `swap(x, y)`. WGSL `ptr<function, T>`, GLSL ES 3.00 `inout T`.",
+  out: "Written before a parameter, `@out p: T`: the parameter names a place of the caller's that the function writes before reading it and on every path. The caller passes a variable, which may have no value yet: `let s!: f32; add(a, b, s);`. WGSL `ptr<function, T>`, GLSL ES 3.00 `inout T`.",
 };
 
 /** One Markdown sentence per stage call of change 0111, the call spelling of an entry point and
@@ -140,15 +140,17 @@ export const STAGE_CALL_DOCS: Readonly<Record<string, string>> = {
 };
 
 /** One Markdown sentence per attribute type of change 0111, the plain-TypeScript spelling of
- *  an entry input's or output's attribute. Each type means its value type. */
+ *  an entry input's or output's attribute. Each type means its value type. `inout` and `out`
+ *  are the refused type form of a parameter qualifier (change 0137), kept in the ambient library
+ *  so TypeScript adds no second diagnostic to the compiler's `TS8028` (Rule 12.4). */
 export const ATTRIBUTE_TYPE_DOCS: Readonly<Record<string, string>> = {
   builtin:
     'A WebGPU builtin value of type `T`: `i: builtin<"vertex_index", u32>` on an entry parameter, `pos: builtin<"position", vec4>` on an entry IO field. Options: `{ invariant: true }` on the position.',
   location:
     'A shader IO location of type `T`: `uv: location<0, vec2>`. Options: `{ interpolate: "flat" }` or `{ interpolate: ["linear", "centroid"] }`, and `{ blend_src: 0 | 1 }` on a dual-source fragment output.',
   inout:
-    "A parameter that names the caller's place: reading it reads that place and assigning to it writes it. The caller passes the variable itself: `swap(x, y)`. WGSL `ptr<function, T>`, GLSL ES 3.00 `inout T`.",
-  out: "A parameter that names a place of the caller's that the function writes before reading it and on every path. The caller passes a variable, which may have no value yet: `let s!: f32; add(a, b, s);`. WGSL `ptr<function, T>`, GLSL ES 3.00 `inout T`.",
+    "Not the language's form: a parameter qualifier is written before the parameter, `@inout a: T` (Rule 8.25, change 0137). The compiler refuses `inout<T>` (TS8028), and `tshc migrate` rewrites it on a parameter.",
+  out: "Not the language's form: a parameter qualifier is written before the parameter, `@out c: T` (Rule 8.25, change 0137). The compiler refuses `out<T>` (TS8028), and `tshc migrate` rewrites it on a parameter.",
 };
 
 /** One Markdown sentence per `@builtin(...)` id in `WGSL_BUILTIN_NAMES`. */

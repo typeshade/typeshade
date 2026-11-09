@@ -192,7 +192,7 @@ function run(): f32 {
   it('an argument another argument writes through is copied', () => {
     const { wgsl } = runs(
       `class Cell { a!: f32; }
-function take(into: inout<Cell>, src: Cell): f32 { into.a = 7.; return src.a; }
+function take(@inout into: Cell, src: Cell): f32 { into.a = 7.; return src.a; }
 function run(): f32 {
   let c: Cell = { a: 1. };
   return take(c, c) + c.a;

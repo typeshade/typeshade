@@ -59,7 +59,8 @@ export function isOutParam(param: FuncDecl['params'][number] | undefined): boole
 /** The qualifier decorators written on `p` (`@inout`, `@out`), in source order. */
 export function qualifiersOf(p: ts.ParameterDeclaration): { name: string; node: ts.Decorator }[] {
   const out: { name: string; node: ts.Decorator }[] = [];
-  // With the qualifier a type stands for, `x: inout<f32>` (change 0111).
+  // With the qualifier the refused type form stands for, `x: inout<f32>`, so that its `TS8028`
+  // is the one diagnostic (change 0137; Rule 12.4).
   for (const d of attributeDecoratorsOf(p)) {
     if (ts.isIdentifier(d.expression) && QUALIFIER_NAMES.includes(d.expression.text)) {
       out.push({ name: d.expression.text, node: d });
@@ -142,7 +143,7 @@ export function lowerReferenceArgument(
   const qualifier = isOutParam(param) ? 'out' : 'inout';
   const takes =
     `"${shown}" writes "${param.name}" back to the caller ` +
-    `(${param.name}: ${qualifier}<${authorTypeText(param.type)}>)`;
+    `(@${qualifier} ${param.name}: ${authorTypeText(param.type)})`;
   const place = bare(arg);
   // A qualified parameter the caller holds is passed on as the same place (Rule 8.25), and so is
   // one a local function captures, which the local function then takes by reference (Rule 8.17).
@@ -167,8 +168,8 @@ export function lowerReferenceArgument(
       return push(
         place,
         `${takes}, and "${root.text}" is a parameter that holds a copy of its caller's value, ` +
-          `which this function cannot hand on as a place. Declare it "${root.text}: ` +
-          `inout<${authorTypeText(b.type)}>" to pass its caller's place on, or copy it into a let.`,
+          `which this function cannot hand on as a place. Declare it "@inout ${root.text}: ` +
+          `${authorTypeText(b.type)}" to pass its caller's place on, or copy it into a let.`,
       );
     }
     // `const v = new V(); f(v)`: a `const` that holds a value nothing else does is written

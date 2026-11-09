@@ -8,7 +8,12 @@
 //   pos: builtin<'position', vec4, { invariant: true }>
 //   id: location<1, u32, { interpolate: 'flat' }>
 //   b: location<0, vec4, { blend_src: 1 }>
-//   x: inout<f32>, y: out<f32>                   the parameters `@inout x: f32`, `@out y: f32`
+//
+// The type form of a parameter qualifier, `x: inout<f32>` and `y: out<f32>`, is not the
+// language's form: a qualifier is written before the parameter, `@inout x: f32` (Rule 8.25,
+// change 0137), and the type form is refused with `TS8028` (`refuseQualifierTypes`). The
+// refused type still stands for its qualifier on a parameter, so that the refusal is the one
+// diagnostic its mistake gets (Rule 12.4), and it still means its value type everywhere.
 //
 // Each type stands for the decorators the decorated form writes. The decorators are made of the
 // type's own nodes: the callee is the type's name or the option's name, and each argument is the
@@ -17,7 +22,9 @@
 // type: `builtin<'position', vec4>` is a `vec4` (`type-map.ts`).
 import ts from 'typescript';
 
-/** The attribute types, and the index of the type argument that is the value's type. */
+/** The attribute types, and the index of the type argument that is the value's type. `inout`
+ *  and `out` are the refused type form of a qualifier (change 0137), kept here so that each
+ *  means its value type while the refusal stands. */
 export const ATTRIBUTE_TYPES: Readonly<Record<string, number>> = {
   builtin: 1,
   location: 1,
@@ -99,6 +106,7 @@ export function typeDecoratorsOf(node: ts.Node): readonly ts.Decorator[] {
   const known = cache.get(node);
   if (known !== undefined) return known;
   const out: ts.Decorator[] = [];
+  const parameter = ts.isParameter(node);
   const type = (node as { type?: ts.TypeNode }).type;
   const f = ts.factory;
   const decorator = (
@@ -119,8 +127,11 @@ export function typeDecoratorsOf(node: ts.Node): readonly ts.Decorator[] {
     const ref = at;
     const name = ref.typeName as ts.Identifier;
     const args = ref.typeArguments ?? ts.factory.createNodeArray<ts.TypeNode>();
-    if (name.text === 'inout' || name.text === 'out') decorator(name, undefined, ref);
-    else {
+    if (name.text === 'inout' || name.text === 'out') {
+      // The refused type form stands for its qualifier on a parameter alone, where the front
+      // end reads a qualifier; elsewhere it is its value type (change 0137).
+      if (parameter) decorator(name, undefined, ref);
+    } else {
       const literal = literalOf(args[0]);
       decorator(name, literal === undefined ? [] : [literal], ref);
       const options = args[2];

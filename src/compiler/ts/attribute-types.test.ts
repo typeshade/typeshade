@@ -1,9 +1,10 @@
-// The attribute types of change 0111 (decision D2, D4, D8, amendment 1): an entry input's or
-// output's attribute, and a parameter's qualifier, written in its type, `builtin<'position',
-// vec4>`, `location<0, vec2>`, `inout<f32>`, `out<f32>`. Each program is read by both halves,
-// the emit of each pair is the decorated form's byte for byte, and the program the proposal
-// promises, with no decorator at all, type-checks under a plain `tsc --strict` against the
-// published ambient library.
+// The attribute types of change 0111 (decision D2, D8, amendment 1): an entry input's or
+// output's attribute written in its type, `builtin<'position', vec4>`, `location<0, vec2>`. A
+// parameter's qualifier is written before the parameter, `@inout v: f32` (Rule 8.25, change
+// 0137), in both programs. Each program is read by both halves, the emit of each pair is the
+// decorated form's byte for byte, and the typed program type-checks under a plain
+// `tsc --strict` against the published ambient library but for TypeScript's grammar report on
+// each qualifier (TS1206), a cost of the owner's decision OD-5 that the editor hides.
 //
 // Verifies: Rule 6.6, Rule 6.7, Rule 7.2, Rule 7.6, Rule 8.2, Rule 8.25 (docs/language-design.md; traced in reqs/).
 
@@ -82,8 +83,8 @@ export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
   if (i === 1) { x = 0.8; }
   return { pos: vec4(x, -0.8, 0., 1.), uv: vec2(x, 0.), id: i };
 });
-function bump(v: inout<f32>): void { v += 1.; }
-function put(v: out<f32>): void { v = 2.; }
+function bump(@inout v: f32): void { v += 1.; }
+function put(@out v: f32): void { v = 2.; }
 export const fs = fragment(function fs(v: VsOut): vec4 {
   let a = v.uv.x;
   bump(a);
@@ -93,17 +94,18 @@ export const fs = fragment(function fs(v: VsOut): vec4 {
 });
 `;
 
-describe('an attribute type compiles as the decorator it stands for (change 0111, D2, D4)', () => {
+describe('an attribute type compiles as the decorator it stands for (change 0111, D2)', () => {
   for (const struct of ['class', 'interface', 'type'] as const) {
     it(`entry IO declared as a ${struct}: the same WGSL and GLSL ES 3.00, and no diagnostic`, () => {
       const a = compiled(DECORATED);
       const b = compiled(TYPED(struct));
       // The decorated form warns once on each decorator of a parameter or a field (TS8028,
-      // change 0111, milestone 4), and says nothing else; a stage attribute is the entry's form
-      // (change 0130), with no warning.
+      // change 0111, milestone 4), and says nothing else; a stage attribute (change 0130) and a
+      // qualifier (change 0137) are the language's forms, with no warning.
       expect(a.diagnostics.filter((d) => !isDecoratedFormWarning(d))).toEqual([]);
       expect(a.diagnostics).toHaveLength(
-        DECORATED.match(/@\w+/g)!.filter((d) => !/^@(vertex|fragment|compute)$/.test(d)).length,
+        DECORATED.match(/@\w+/g)!.filter((d) => !/^@(vertex|fragment|compute|inout|out)$/.test(d))
+          .length,
       );
       expect(b.diagnostics).toEqual([]);
       expect(b.wgsl).toBe(a.wgsl);
@@ -125,7 +127,7 @@ describe('an attribute type compiles as the decorator it stands for (change 0111
     expect(typed).toEqual(codes(DECORATED.replace('"vertex_index"', '"vertex_idx"')));
   });
 
-  it('a read of an out<T> local before the call fills it is TS8075, as with @out', () => {
+  it('a read of a local before an @out argument fills it is TS8075', () => {
     const source = TYPED('interface').replace(
       'let b!: f32;\n  put(b);',
       'let b!: f32;\n  a += b;\n  put(b);',
@@ -135,8 +137,13 @@ describe('an attribute type compiles as the decorator it stands for (change 0111
 });
 
 describe('the program change 0111 promises type-checks under a plain tsc --strict', () => {
-  it('the typed form: no diagnostic, with no TypeScript library and no filter', () => {
-    expect(plainTsc(TYPED('interface').replace('"use typeshade";\n', ''))).toEqual([]);
+  it('the typed form: TS1206 on each parameter qualifier alone, with no TypeScript library and no filter', () => {
+    // A plain `tsc` refuses a decorator on a parameter of a function; the editor drops it on a
+    // qualifier (change 0137, OD-5).
+    expect(plainTsc(TYPED('interface').replace('"use typeshade";\n', ''))).toEqual([
+      'TS1206 Decorators are not valid here.',
+      'TS1206 Decorators are not valid here.',
+    ]);
   });
 
   it('the decorated form: TS1206 on each decorator of a function or a parameter, TS2564 on each field', () => {

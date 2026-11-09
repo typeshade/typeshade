@@ -154,8 +154,8 @@ const DECLARATION_FORMS: readonly string[] = [
   'interpolate',
   'invariant',
   'blend_src',
-  // GLSL's qualifiers on a parameter of a function of the file (Rule 8.25), which the witness's
-  // `bump` and `put` take.
+  // GLSL's qualifiers on a parameter of a function of the file (Rule 8.25), written before the
+  // parameter (change 0137), which the witness's `bump` and `put` take.
   'inout',
   'out',
   // A kernel function's stage call (change 0111, amendment 1), which the witness's `scale` takes;
@@ -185,10 +185,10 @@ export const fs = fragment(function fs(v: V): Dual {
   const c = vec4(un.k, 0., 0., 1.);
   return { a: c, b: c };
 });
-function bump(v: inout<f32>): void {
+function bump(@inout v: f32): void {
   v += un.k;
 }
-function put(v: out<f32>): void {
+function put(@out v: f32): void {
   v = un.k;
 }
 export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {

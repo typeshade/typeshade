@@ -25,7 +25,12 @@
 //
 //   @location(1) @interpolate("flat") id: u32        → id: location<1, u32, { interpolate: "flat" }>
 //   @builtin("position") @invariant pos: vec4        → pos: builtin<"position", vec4, { invariant: true }>
-//   @inout v: f32, @out w: f32                       → v: inout<f32>, w: out<f32>
+//
+// A parameter qualifier is written before the parameter, `@inout v: f32` (Rule 8.25, change
+// 0137): the rewrite leaves a written `@inout` or `@out` as it is, and rewrites the type form of
+// change 0111 back to it on a parameter of a module function:
+//
+//   v: inout<f32>, w: out<f32>                       → @inout v: f32, @out w: f32
 //
 // The diagnostic filter is deleted, wherever it is written (change 0132, item 7): the compiler
 // rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5), and refuses a
@@ -34,7 +39,8 @@
 // A form the rewrite cannot carry is left as written and named in `skipped`, with its line,
 // so the author finishes it by hand: an entry with no body, an attribute on a parameter with
 // no type, a stage call whose function has a name of its own or options beyond the filter, an
-// `export default` entry with no name.
+// `export default` entry with no name, a type form of a qualifier that is no parameter's type of
+// a module function.
 
 import ts from 'typescript';
 import {
@@ -42,6 +48,7 @@ import {
   QUALIFIER_DECORATORS,
   attributeTypeOf,
   decoratorParts,
+  isQualifierTypeForm,
 } from '../compiler/ts/decorated-form.js';
 import { stageCallOf, type StageCall } from '../compiler/ts/stage-call.js';
 
@@ -177,17 +184,16 @@ export function migrateSource(text: string, fileName = 'a.shade.ts'): MigrateRes
   const line = (n: ts.Node): number => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
   const skip = (n: ts.Node, why: string): void => void skipped.push(`line ${line(n)}: ${why}`);
 
-  // Attributes on a parameter or a field: the decorators go, the type carries them.
+  // Attributes on a parameter or a field: the decorators go, the type carries them. A qualifier
+  // stays before the parameter (change 0137).
   const rewriteMember = (
     node: ts.ParameterDeclaration | ts.PropertyDeclaration,
     what: string,
   ): boolean => {
-    const decorators = decoratorsOf(node).filter((d) => {
-      const name = partsOf(d, sf).name;
-      return ATTRIBUTES.has(name) || QUALIFIERS.has(name);
-    });
+    const decorators = decoratorsOf(node).filter((d) => ATTRIBUTES.has(partsOf(d, sf).name));
     if (decorators.length === 0) return false;
-    if (decorators.length !== decoratorsOf(node).length) {
+    const others = decoratorsOf(node).filter((d) => !QUALIFIERS.has(partsOf(d, sf).name));
+    if (decorators.length !== others.length) {
       skip(node, `${what} carries a decorator the rewrite does not know`);
       return false;
     }
@@ -217,6 +223,63 @@ export function migrateSource(text: string, fileName = 'a.shade.ts'): MigrateRes
     ts.forEachChild(n, visitParams);
   };
   visitParams(sf);
+
+  // The type form of a qualifier, `v: inout<f32>`, back to the language's form, `@inout v: f32`,
+  // on a parameter of a module function (change 0137). Any other type form is left as written.
+  const declared = new Set<string>();
+  const visitDeclared = (n: ts.Node): void => {
+    if (
+      (ts.isClassDeclaration(n) ||
+        ts.isInterfaceDeclaration(n) ||
+        ts.isTypeAliasDeclaration(n) ||
+        ts.isEnumDeclaration(n)) &&
+      n.name !== undefined
+    )
+      declared.add(n.name.text);
+    ts.forEachChild(n, visitDeclared);
+  };
+  visitDeclared(sf);
+  const visitQualifierTypes = (n: ts.Node): void => {
+    if (isQualifierTypeForm(n, declared)) {
+      const ref = n as ts.TypeReferenceNode;
+      const name = (ref.typeName as ts.Identifier).text;
+      const value = ref.typeArguments?.length === 1 ? ref.typeArguments[0] : undefined;
+      const p = ref.parent;
+      const fn = ts.isParameter(p) ? p.parent : undefined;
+      const moduleFunction =
+        fn !== undefined &&
+        ts.isFunctionDeclaration(fn) &&
+        (ts.isSourceFile(fn.parent) || ts.isModuleBlock(fn.parent));
+      const written = ts.isParameter(p)
+        ? decoratorsOf(p).filter((d) => QUALIFIERS.has(partsOf(d, sf).name))
+        : [];
+      if (
+        value === undefined ||
+        !ts.isParameter(p) ||
+        p.type !== ref ||
+        !moduleFunction ||
+        written.some((d) => partsOf(d, sf).name !== name) ||
+        // An entry's attribute decorator moves into the same type (above).
+        decoratorsOf(p).some((d) => ATTRIBUTES.has(partsOf(d, sf).name))
+      ) {
+        skip(
+          ref,
+          `"${ref.getText(sf)}" is no parameter's type of a module function: write the ` +
+            `qualifier before the parameter by hand, "@${name} a: T"`,
+        );
+        return;
+      }
+      edits.push({ start: ref.getStart(sf), end: ref.getEnd(), text: value.getText(sf) });
+      if (written.length === 0) {
+        const at = p.getStart(sf);
+        edits.push({ start: at, end: at, text: `@${name} ` });
+      }
+      changes++;
+      return;
+    }
+    ts.forEachChild(n, visitQualifierTypes);
+  };
+  visitQualifierTypes(sf);
 
   // Fields: a decorated field's attributes go into its type, and the `!` on a field is not
   // written (change 0130, D3). A class stays a class.

@@ -4,17 +4,18 @@ derived: false
 level: 70
 links:
 - RULE-0610: suiaQZS1y-SaWxDmJXHL21Qzp_yYkddUlpCNV8AsLVc=
-- RULE-0702: aMOE9178T8VwoRmUdH2Du74apGdNk0pkL7kvkijCD1I=
-- RULE-0706: sElnT59hi3sfpf_LP1bQQHSuephJdk6mW_W4wsRYzG8=
+- RULE-0702: n80y261InLeIFFQe38cBrTreiZKqZvRwFA1R21AMbwA=
+- RULE-0706: FTjvSTHfC8VfTIRf8NWVqMQuJ4A5FFDQH0GYUlHYblE=
 - RULE-0709: I2kb4szrYiKtmhAPhRUfI3BqKOo-DmLFxyCamUwLrCA=
 - RULE-0810: Ykj9-mn7nKHgjj7lumMInvpMX5beYmLXczu7AxLc3Yo=
+- RULE-0825: rh2UwYiwaHUbPvP_w6lEH6ujxXtDYRpOaPm5GRz_tMU=
 - RULE-0828: V8ipeRbiwYGOQTgzqHmfFLsSBod7WJW41jqlpKUUxJE=
 normative: true
 ref: ''
-reviewed: 4e9uUICNvuzQzpWxc70LJUSbow7gGjUHSNyZ8kC1CKs=
+reviewed: L6l8IqQ0vH29Z22oX3K1VEkBh7DAvdDWJoc72dQ7kvc=
 source: docs/use-typeshade-surface.md §70
 ---
 
-# Parameter qualifiers: `inout<T>` and `out<T>`
+# Parameter qualifiers: `@inout` and `@out`
 
-docs/use-typeshade-surface.md §70, "Parameter qualifiers: `inout<T>` and `out<T>`": the surface section that explains Rule 6.10, Rule 7.2, Rule 7.6, Rule 7.9, Rule 8.10, Rule 8.28.
+docs/use-typeshade-surface.md §70, "Parameter qualifiers: `@inout` and `@out`": the surface section that explains Rule 6.10, Rule 7.2, Rule 7.6, Rule 7.9, Rule 8.10, Rule 8.25, Rule 8.28.

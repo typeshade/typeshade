@@ -754,9 +754,9 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'decorated-form.ts',
-      sites: 1,
+      sites: 2,
       lines: 0,
-      note: "names a parameter's or field's attribute type, which is no declaration; `tshc migrate` writes it (a stage attribute is the entry's form since change 0130, and has no sentence here)",
+      note: "names a parameter's or field's attribute type, which is no declaration; `tshc migrate` writes it (a stage attribute is the entry's form since change 0130, and has no sentence here); and, for the refused type form of a qualifier (change 0137), the parameter as the language writes it, `@inout a: f32`, a parameter to rewrite and no declaration",
     },
     {
       file: 'integer-literal-deprecation.ts',
