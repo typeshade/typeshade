@@ -1,7 +1,7 @@
 ---
 id: '0137'
 title: A parameter that a function writes back to its caller is written `@inout a: f32` or `@out c: f32`, before the parameter, and no longer as the type `inout<T>` or `out<T>`
-status: draft
+status: accepted
 rules:
   - '1.7'
   - '1.8'
@@ -632,11 +632,13 @@ reviewer's facts. Each finding and its answer:
 
 ### Approval and plan record
 
-This record does not yet apply. The owner's decision on the type form is recorded (Owner's
-decisions), and the independent review record answers each finding. The proposal is ready for
-acceptance: it is accepted when pull request #1125 is merged with `status: accepted` on the
-owner's go-ahead in the conversation. That merge also adds the pointer sentence to change 0130
-(Amending change 0130 and change 0111).
+Accepted. The owner (Seungup) approved acceptance in the Claude Code session on 2026-11-09, in
+Korean ("0137 승인"), after the before and after forms, the options and their costs were shown
+(OD-4). The approval is recorded by the merge of pull request #1125 with `status: accepted`. The
+approved revision is this file as merged; the approved scope is refusing the type form at once (option (b)), as written here. The
+implementation follows in its own pull requests, each commit with `Change: 0137`. An implementing
+pull request that changes how an author writes an example shows one example before and after and
+waits for the owner's "merge" (`CLAUDE.md`, Merging). Duration and cost are not estimated.
 
 ### Configuration and validation record
 
