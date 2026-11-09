@@ -1400,13 +1400,16 @@ export class BufferPool {
   release(done: Promise<unknown>): void {
     const taken = this.#taken;
     this.#taken = [];
-    void done.then(() => {
+    const back = (): void => {
       for (const [key, b] of taken) {
         let list = this.#free.get(key);
         if (list === undefined) this.#free.set(key, (list = []));
         list.push(b);
       }
-    });
+    };
+    // A submit the CPU backend rejects (the code threw) is done with its buffers too, and its
+    // rejection is the submitter's to handle, not an unhandled one here.
+    void done.then(back, back);
   }
 
   destroy(): void {
@@ -1476,7 +1479,9 @@ export class ProgramImpl implements Program {
     return this.rt.rhi;
   }
 
-  #shaderModule(): RhiShaderModule {
+  /** The program's shader module, made once. The call layer's draw reads how its WGSL compiled
+   *  from it (change 0120, M4). */
+  shaderModule(): RhiShaderModule {
     // The CPU backend runs the module's CPU program in place of its WGSL (change 0120, O2 (a));
     // `load()` refuses a manifest that carries none.
     return (this.#module ??= this.device.createShaderModule(
@@ -1580,7 +1585,7 @@ export class ProgramImpl implements Program {
       p = this.device
         .createComputePipeline({
           layouts: shape.layouts,
-          module: this.#shaderModule(),
+          module: this.shaderModule(),
           entryPoint: e.emitted,
           ...(constants !== undefined
             ? { constants: wgslConstants(this.manifest, constants.values) }
@@ -1655,7 +1660,7 @@ export class ProgramImpl implements Program {
     return this.device
       .createRenderPipeline({
         layouts: shape.layouts,
-        module: this.#shaderModule(),
+        module: this.shaderModule(),
         vertex: {
           entryPoint: vs.emitted,
           buffers:
