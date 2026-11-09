@@ -306,7 +306,7 @@ whole; a sentence of today's rule that is not shown and not named as kept is rem
 - **Rule 6.6**, replacement of the two sentences that begin "An entry I/O struct may be a
   `class`…" and "The decorated form, `@builtin("...")`…" (the sentences before them stay): "An entry I/O struct may be a
   `class`, an `interface` or a `type` (Rule 6.9), and a field of one carries its attribute in its
-  type and takes no initializer and no `!`; a written `!` is accepted and changes nothing, and the
+  type and needs no initializer and no `!`; a written `!` is accepted and changes nothing, and the
   language service sets `strictPropertyInitialization: false` in the TypeShade program, since an
   entry I/O field is filled by the stage that produces it, not by an initializer. No decorator is written on a parameter or a field:
   `@builtin("...")` or `@location(n)` there stays accepted with a `TS8028` warning until the
@@ -318,7 +318,7 @@ whole; a sentence of today's rule that is not shown and not named as kept is rem
   replaced by "and the language-service check that reports no TS1206 and no TS2564 on any example",
   and the bare-parameter example becomes `@fragment export function fs(p: vec4): vec4 { … }`.
 - **Rule 6.7**, replacement of its second, third and fourth sentences (every sentence after the
-  list of names), and of the rationale (the first sentence, the list of names as 0131 leaves it,
+  list of names), and of the rationale (the first sentence, the list of names as 0131 and 0132 leave it,
   stays): "A stage is an attribute on the entry's
   function declaration (`@vertex`, `@fragment`, `@compute([x, y?, z?])`, Rule 8.1), and a kernel's
   size the optional attribute `@workgroup_size([n])` (Rule 8.22); `builtin` and `location` are
@@ -415,7 +415,7 @@ The proposed rules, in short:
    that produces it, not by an initializer. The `README.md` `tsconfig.shade.json` (lines 206-207) and `tshc init`
    (`src/cli/init.ts` lines 194-195) already write that option and stay. A local's `let q!` is TS2454, which the language service already drops in
    every shader file (`src/language-service/diagnostics.ts` lines 1297-1308). A written `!` stays
-   accepted, since it is valid TypeScript; `tshc migrate` removes it (it adds it today,
+   accepted, since it changes nothing; `tshc migrate` removes it (it adds it today,
    `src/cli/migrate.ts` lines 157-198), and the 52 examples that carry `!:` drop it (51 with
    entry I/O fields or `out<T>` locals, and `loop-struct-array` with `!` on a non-entry class;
    measured on `71887632`).
@@ -496,7 +496,7 @@ Each item gets its own record later. None blocks this proposal.
   acceptance is not a criterion.
 - **Rule 2.1**: `vertex`, `fragment`, `compute`, `workgroup_size` are author-facing names reached
   as decorators; `@compute([…])` folds WGSL's two attributes.
-- **Rule 6.6**: entry I/O carries attributes in types; fields take no `!`, and a written `!` is
+- **Rule 6.6**: entry I/O carries attributes in types; fields need no `!`, and a written `!` is
   accepted and changes nothing; parameter and field decorators warn until refused.
 - **Rule 6.7**: stages and `@workgroup_size` are attributes on declarations; the stage calls warn
   for one release, then are refused.
