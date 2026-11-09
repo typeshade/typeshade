@@ -46,14 +46,14 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`HTMLCanvasElement.getContext()`',
     covers: ['HTMLCanvasElement.getContext'],
-    evidence: 'src/runtime/runtime.ts:51-58; src/core/host-draw.ts:233-247',
+    evidence: 'src/runtime/runtime.ts:51-58; src/core/host-draw.ts:315-331',
     webgpu: typed(
       'scripts/compile-gate.ts',
-      'the call layer calls getContext("webgpu") on a canvas a host call passes (src/core/host-draw.ts:233-235; Rule 8.24)',
+      'the call layer calls getContext("webgpu") on a canvas a host call passes (src/core/host-draw.ts:315-316; Rule 8.24)',
     ),
     webgl2: typed(
       'scripts/user-journey.ts',
-      'the call layer calls getContext("webgl2") on a canvas a host call passes (src/core/host-draw.ts:237; Rule 8.24)',
+      'the call layer calls getContext("webgl2") on a canvas a host call passes (src/core/host-draw.ts:319; Rule 8.24)',
     ),
   },
   {
@@ -62,15 +62,15 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`OffscreenCanvas.getContext()`',
     covers: ['OffscreenCanvas.getContext'],
     evidence:
-      'src/runtime/runtime.ts:51-58; docs/language-design.md:905; src/core/host-draw.ts:154; src/core/host-draw.ts:233-247',
+      'src/runtime/runtime.ts:51-58; docs/language-design.md:905; src/core/host-draw.ts:184; src/core/host-draw.ts:315-331',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test draws into an OffscreenCanvas on WebGPU; the call layer takes an OffscreenCanvas as a draw target and calls getContext("webgpu") on it (src/core/host-draw.ts:154, 233-235; Rule 8.24)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test draws into an OffscreenCanvas on WebGPU; the call layer takes an OffscreenCanvas as a draw target and calls getContext("webgpu") on it (src/core/host-draw.ts:184, 315-316; Rule 8.24)',
       645,
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): the tests that ask an OffscreenCanvas stand-in for a WebGL2 context get none back (`src/compiler/ts/host-draw.test.ts`, `src/fuse.test.ts:2028`, `examples/host-examples.test.ts:72`), so the WebGL2 painter is never entered; the call layer calls getContext("webgl2") on an OffscreenCanvas draw target (src/core/host-draw.ts:154, 237)',
+      'typed in code; no test reads it on this target (Rule 11.18): the tests that ask an OffscreenCanvas stand-in for a WebGL2 context get none back (`src/compiler/ts/host-draw.test.ts`, `src/fuse.test.ts:2028`, `examples/host-examples.test.ts:72`), so the WebGL2 painter is never entered; the call layer calls getContext("webgl2") on an OffscreenCanvas draw target (src/core/host-draw.ts:184, 319)',
       645,
     ),
   },
@@ -80,7 +80,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`HTMLVideoElement`',
     covers: ['HTMLVideoElement'],
     evidence:
-      'docs/language-design.md:857; changes/0050-texture-write.md:331; src/core/host-draw.ts:549-555',
+      'docs/language-design.md:857; changes/0050-texture-write.md:331; src/core/gl-image.ts:54-74',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test uploads a video; an image source of a call-layer texture (Rule 8.21)',
@@ -88,7 +88,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test uploads a video through uploadImage; the WebGL2 call layer uploads an image source at each call (src/core/host-draw.ts:549-555); the WebGL2 draw refuses a Texture, not an image',
+      'typed in code; no test reads it on this target (Rule 11.18): no test uploads a video through uploadImage; the WebGL2 call layer uploads an image source at each call (src/core/gl-image.ts:54-74); the WebGL2 draw refuses a Texture, not an image',
       645,
     ),
   },
@@ -628,10 +628,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPU.getPreferredCanvasFormat()`',
     covers: ['GPU.getPreferredCanvasFormat'],
-    evidence: 'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:336-338',
+    evidence: 'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:728-730',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test reads the format it returns; the call layer takes it for a canvas it configures (src/core/host-draw.ts:336-338)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test reads the format it returns; the call layer takes it for a canvas it configures (src/core/host-draw.ts:728-730)',
       645,
     ),
     webgl2: na('the WebGPU canvas format query; WebGL2 has no GPU object'),
@@ -954,10 +954,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.configure()`',
     covers: ['GPUCanvasContext.configure'],
     evidence:
-      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-170; src/core/host-draw.ts:336-339',
+      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-170; src/core/host-draw.ts:728-731',
     webgpu: raw(
       'createRuntime({ device })',
-      'the call layer configures a context it makes, with the preferred format and an opaque alpha mode (src/core/host-draw.ts:336-339); the host configures its own context with the device it passes in',
+      'the call layer configures a context it makes, with the preferred format and an opaque alpha mode (src/core/host-draw.ts:728-731); the host configures its own context with the device it passes in',
     ),
     webgl2: na(
       'WebGPU-only concept: WebGL2 has no GPUCanvasContext; a WebGL2 context is made with its attributes (WebGLContextAttributes)',
@@ -969,10 +969,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.unconfigure()`',
     covers: ['GPUCanvasContext.unconfigure'],
     evidence:
-      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-170; src/core/host-draw.ts:339',
+      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-170; src/core/host-draw.ts:731',
     webgpu: raw(
       'createRuntime({ device })',
-      'the host unconfigures its own context; the call layer never does (src/core/host-draw.ts:339)',
+      'the host unconfigures its own context; the call layer never does (src/core/host-draw.ts:731)',
     ),
     webgl2: na(
       'WebGPU-only concept: WebGL2 has no GPUCanvasContext; a WebGL2 context is made with its attributes (WebGLContextAttributes)',
@@ -984,10 +984,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.getConfiguration()`',
     covers: ['GPUCanvasContext.getConfiguration'],
     evidence:
-      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-170; src/core/host-draw.ts:339',
+      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-170; src/core/host-draw.ts:731',
     webgpu: raw(
       'createRuntime({ device })',
-      'the host reads the configuration of its own context; the call layer never does (src/core/host-draw.ts:339)',
+      'the host reads the configuration of its own context; the call layer never does (src/core/host-draw.ts:731)',
     ),
     webgl2: na(
       'WebGPU-only concept: WebGL2 has no GPUCanvasContext; a WebGL2 context is made with its attributes (WebGLContextAttributes)',
@@ -1146,12 +1146,12 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCompilationInfo.messages`',
     covers: ['GPUCompilationInfo.messages'],
-    evidence: 'docs/language-design.md:1391-1395; src/core/host-draw.ts:518',
+    evidence: 'docs/language-design.md:1391-1395; src/core/gl-compute.ts:131',
     webgpu: na(
       'the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)',
     ),
     webgl2: na(
-      'WebGL2 reports shader errors through getShaderInfoLog, a string, not a list of messages (src/core/host-draw.ts:518)',
+      'WebGL2 reports shader errors through getShaderInfoLog, a string, not a list of messages (src/core/gl-compute.ts:131)',
     ),
   },
   {
@@ -1159,12 +1159,12 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCompilationMessage.message`',
     covers: ['GPUCompilationMessage.message'],
-    evidence: 'docs/language-design.md:1391-1395; src/core/host-draw.ts:518',
+    evidence: 'docs/language-design.md:1391-1395; src/core/gl-compute.ts:131',
     webgpu: na(
       'the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)',
     ),
     webgl2: na(
-      'WebGL2 reports shader errors through getShaderInfoLog, a string, and has no compilation message object (src/core/host-draw.ts:518)',
+      'WebGL2 reports shader errors through getShaderInfoLog, a string, and has no compilation message object (src/core/gl-compute.ts:131)',
     ),
   },
   {
@@ -1172,12 +1172,12 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCompilationMessage.type`',
     covers: ['GPUCompilationMessage.type'],
-    evidence: 'docs/language-design.md:1391-1395; src/core/host-draw.ts:518',
+    evidence: 'docs/language-design.md:1391-1395; src/core/gl-compute.ts:131',
     webgpu: na(
       'the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)',
     ),
     webgl2: na(
-      'WebGL2 reports shader errors through getShaderInfoLog, a string with no message type (src/core/host-draw.ts:518)',
+      'WebGL2 reports shader errors through getShaderInfoLog, a string with no message type (src/core/gl-compute.ts:131)',
     ),
   },
   {
@@ -1185,12 +1185,12 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCompilationMessage.lineNum`',
     covers: ['GPUCompilationMessage.lineNum'],
-    evidence: 'docs/language-design.md:1391-1395; src/core/host-draw.ts:518',
+    evidence: 'docs/language-design.md:1391-1395; src/core/gl-compute.ts:131',
     webgpu: na(
       'the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)',
     ),
     webgl2: na(
-      'WebGL2 reports shader errors through getShaderInfoLog, a string with no lineNum, linePos, offset or length field (src/core/host-draw.ts:518)',
+      'WebGL2 reports shader errors through getShaderInfoLog, a string with no lineNum, linePos, offset or length field (src/core/gl-compute.ts:131)',
     ),
   },
   {
@@ -1198,12 +1198,12 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCompilationMessage.linePos`',
     covers: ['GPUCompilationMessage.linePos'],
-    evidence: 'docs/language-design.md:1391-1395; src/core/host-draw.ts:518',
+    evidence: 'docs/language-design.md:1391-1395; src/core/gl-compute.ts:131',
     webgpu: na(
       'the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)',
     ),
     webgl2: na(
-      'WebGL2 reports shader errors through getShaderInfoLog, a string with no lineNum, linePos, offset or length field (src/core/host-draw.ts:518)',
+      'WebGL2 reports shader errors through getShaderInfoLog, a string with no lineNum, linePos, offset or length field (src/core/gl-compute.ts:131)',
     ),
   },
   {
@@ -1211,12 +1211,12 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCompilationMessage.offset`',
     covers: ['GPUCompilationMessage.offset'],
-    evidence: 'docs/language-design.md:1391-1395; src/core/host-draw.ts:518',
+    evidence: 'docs/language-design.md:1391-1395; src/core/gl-compute.ts:131',
     webgpu: na(
       'the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)',
     ),
     webgl2: na(
-      'WebGL2 reports shader errors through getShaderInfoLog, a string with no lineNum, linePos, offset or length field (src/core/host-draw.ts:518)',
+      'WebGL2 reports shader errors through getShaderInfoLog, a string with no lineNum, linePos, offset or length field (src/core/gl-compute.ts:131)',
     ),
   },
   {
@@ -1224,12 +1224,12 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCompilationMessage.length`',
     covers: ['GPUCompilationMessage.length'],
-    evidence: 'docs/language-design.md:1391-1395; src/core/host-draw.ts:518',
+    evidence: 'docs/language-design.md:1391-1395; src/core/gl-compute.ts:131',
     webgpu: na(
       'the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)',
     ),
     webgl2: na(
-      'WebGL2 reports shader errors through getShaderInfoLog, a string with no lineNum, linePos, offset or length field (src/core/host-draw.ts:518)',
+      'WebGL2 reports shader errors through getShaderInfoLog, a string with no lineNum, linePos, offset or length field (src/core/gl-compute.ts:131)',
     ),
   },
   {
@@ -1523,11 +1523,11 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUQueue.copyExternalImageToTexture()`',
     covers: ['GPUQueue.copyExternalImageToTexture'],
     evidence:
-      'changes/0050-texture-write.md:64; changes/0050-texture-write.md:147; changes/0050-texture-write.md:331; docs/language-design.md:857; src/core/host-draw.ts:549-555',
+      'changes/0050-texture-write.md:64; changes/0050-texture-write.md:147; changes/0050-texture-write.md:331; docs/language-design.md:857; src/core/gl-image.ts:54-74',
     webgpu: planned('0050', 'the call layer uploads an image source at a call today (Rule 8.21)'),
     webgl2: gap(
       6,
-      'a copy of an image into a texture: no typed copy exists on WebGL2, though the call layer uploads an image source at each call (src/core/host-draw.ts:549-555); 0050 leaves the WebGL2 tier unchanged (changes/0050-texture-write.md:331)',
+      'a copy of an image into a texture: no typed copy exists on WebGL2, though the call layer uploads an image source at each call (src/core/gl-image.ts:54-74); 0050 leaves the WebGL2 tier unchanged (changes/0050-texture-write.md:331)',
       637,
     ),
   },
@@ -1703,7 +1703,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUShaderModule.getCompilationInfo()`',
     covers: ['GPUShaderModule.getCompilationInfo'],
-    evidence: 'docs/language-design.md:1391-1395; src/core/host-draw.ts:518',
+    evidence: 'docs/language-design.md:1391-1395; src/core/gl-compute.ts:131',
     webgpu: na('Rule 12.6: the front end diagnoses at the source'),
     webgl2: na(
       'WebGL2 has no shader module object; a program reads its compile status with getShaderParameter and getShaderInfoLog',

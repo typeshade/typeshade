@@ -43,7 +43,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.getContextAttributes',
     ],
     evidence:
-      'src/runtime/runtime.ts:51-58; src/core/gl-context.ts:18; src/core/host-draw.ts:237-242',
+      'src/runtime/runtime.ts:51-58; src/core/gl-context.ts:18; src/core/host-draw.ts:319-325',
     note: "the runtime makes a plain context, or takes the host's context through createRuntime({ device }); the call layer makes an opaque, non-antialiased one",
     webgpu: andGap(
       raw(
@@ -165,7 +165,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.useProgram',
     ],
     evidence:
-      'src/core/gl-compute.ts:99-131 (compile: shaders, link and the info log of a failure); src/core/compute/runner.ts:298-316 (compile and link status); src/core/host-draw.ts',
+      'src/core/gl-compute.ts:99-131 (compile: shaders, link and the info log of a failure); src/core/compute/runner.ts:298-316 (compile and link status); src/rhi/webgl2.ts:1480 (a render pipeline, among them the draws of the call layer)',
     note: "from the manifest's GLSL (Rule 11.11); a driver refusal is an Error with the info log (src/core/gl-compute.ts:99-131)",
     webgpu: typed('scripts/compile-gate.ts', 'shader module from the manifest'),
     webgl2: typed('scripts/compile-gate.ts', 'from the manifest GLSL'),
@@ -664,7 +664,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Pixel store: `pixelStorei` (`UNPACK_FLIP_Y_WEBGL`, `UNPACK_PREMULTIPLY_ALPHA_WEBGL`, alignments)',
     covers: ['webgl:WebGLRenderingContextBase.pixelStorei'],
     evidence:
-      'changes/0050-texture-write.md:148-152 (the call layer sets both for an image upload); src/core/host-draw.ts; src/rhi/webgl2.ts:742, 576',
+      'changes/0050-texture-write.md:148-152 (the call layer sets both for an image upload); src/core/gl-image.ts:54-74; src/rhi/webgl2.ts:742, 576',
     note: 'WebGPU spells flipY and premultipliedAlpha on copyExternalImageToTexture, a copy member of table A; the typed route here is the call-layer image upload',
     webgpu: typed('scripts/user-journey.ts', 'call layer; also: planned (0050)'),
     webgl2: andGap(
