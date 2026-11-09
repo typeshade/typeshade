@@ -35,7 +35,7 @@ const CLASS = `class Voice {
     nudge(this.phase, d);
   }
 }
-function nudge(x: inout<f32>, d: f32): void {
+function nudge(@inout x: f32, d: f32): void {
   x = x + d;
 }`;
 

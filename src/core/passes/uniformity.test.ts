@@ -961,7 +961,7 @@ export const cs = compute([64, 1, 1], function cs(lid: builtin<"local_invocation
     ],
     [
       'an inout parameter',
-      'function edge(x: inout<f32>): bool { return x > 0.5; }',
+      'function edge(@inout x: f32): bool { return x > 0.5; }',
       'edge(local)',
       '',
     ],

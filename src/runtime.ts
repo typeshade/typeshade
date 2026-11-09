@@ -84,8 +84,10 @@ export type {
   mat4x2f,
   mat4x3f,
   mat4x4f,
-  array,
 } from './runtime/host-types.js';
+// Host resources (change 0138, milestone 1): uniforms and storage arrays in typed views of one
+// memory region. `array` is a function and the host type family's `array<T>` at once.
+export { array, uniform, zeros, type Buffer, type Uniform } from './runtime/resource.js';
 export { resident, configure, type Resident } from './core/resident.js';
 export {
   createDevice,

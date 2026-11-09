@@ -30,6 +30,24 @@ repository is an official release yet: the `typeshade` package on npm holds only
   CPU with `TS8070`, whose R1 sentence now names an open loop (Rule 8.22). No source that
   compiled before changes its emit.
 
+- **Host resources** (change 0138, milestone 1). `typeshade/runtime` exports `uniform(Class,
+init?)`, `zeros(Class, n)` and `array(Class, data)`, which make a `Uniform<T>` or a
+  `Buffer<T>` of a class a shader module exports. Each uniform and storage array is a byte range
+  of one memory region, laid out by Rule 6.8 (resizable where the runtime allows). Each field has
+  an accessor: `camera.pos.set(0, 2, 5)`, `camera.view.set(m)`, `camera.set({ time })`,
+  `ps.at(i).vel.set(v)`. `set` allocates nothing, writes only a changed number and widens the
+  resource's dirty byte range; `get` returns the field's typed view, and `needsUpdate = true`
+  marks a write through it. `await ps.read()` gives the elements as instances of the class. A
+  resource is freed by `dispose()` or by the garbage collector (and by `[Symbol.dispose]()` where
+  the runtime has one), and an accessor of a freed one throws a `TypeError` that names it. The generated module puts each exported class's
+  layouts on the class. No call takes a resource yet: the upload of a dirty range at submission is
+  milestone 3. `array` is now a function as well as the family's type.
+  The caps of `scripts/bundle-budget.json` take the measured gzip sizes: `typeshade/runtime`
+  single file 159,626 to 163,157 (+3,531), split initial 41,562 to 45,178 and split total 161,758
+  to 165,360; `typeshade/fuse` split initial 16,000 to 16,001 and split total 113,833 to 113,835
+  (the one-time warning `resident()` and `configure()` import). The floors and the other caps do
+  not change.
+
 - **WebGPU scratch acquisition counts** (change 0128, #992). New fuse reports include
   `webgpuScratch` allocation and reuse counts and their buffer descriptor bytes. Empty scopes,
   fused locals and CPU or WebGL2 plans report zero. Older reports may omit the member;
@@ -138,6 +156,16 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **A parameter qualifier is written before the parameter, `@inout a: f32` and `@out c: f32`
+  (§70, Rule 8.25, change 0137).** It is the language's form: neither half warns on it, and the
+  editor drops TypeScript's TS1206 on it, keeps hover and signature help in that form, and no
+  longer throws on go-to-definition or rename at `@inout`. The type form of change 0111,
+  `a: inout<f32>` and `c: out<f32>`, is refused with `TS8028` in every type position, in the
+  compiler and in the editor; `tshc migrate` rewrites it on a parameter to `@inout a: f32`, and
+  no longer rewrites `@inout` to the type form. The messages of `TS8073`, `TS8075`, the `TS8018`
+  remedy and the host view's reason name `@inout` and `@out`. A plain `tsc`, prettier, esbuild
+  and `bun build` refuse a decorator on a parameter of a function, a cost of the owner's
+  decision OD-5.
 - **Each fuse report group counts its device commands (§71, change 0121).** Required `group.dispatches` includes WebGPU push stages, reduction folds and store-only entries, WebGL2 draws, and zero on the CPU. Group counts sum to the plan total. Hand-built `FuseReport` groups must add the actual count; CPU groups add `dispatches: 0`. This source-breaking type change requires a new minor release before 1.0. Bundle measurements add 23 bytes gzip to runtime, 76 to fuse, 75 to algorithms and 48 to random; split aggregate grows by 100 bytes for runtime and 127 for fuse, with floors unchanged.
 - **The program runtime records through a render hardware interface on WebGPU** (change 0120,
   milestone M1). `src/rhi/rhi.ts` declares the interface, internal and in no subpath, and
@@ -1695,6 +1723,14 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   installs `typeshade` without a peer conflict. TypeScript 7 stays out: its default export has
   no `SyntaxKind`, and the package throws on import against it. A wider range breaks nothing
   (Rule 13.9 counts only a narrower one).
+
+### Deprecated
+
+- **`resident()` and `configure()`** (change 0138, Amendment A1). `array(value)` and
+  `array(length, element)` make the same `Resident` that `resident()` made; a device is opened
+  only by `createDevice()`, which takes the options `configure()` took. Each
+  deprecated function still works as before, prints one `console.warn` at its first call, and is
+  removed after a deprecation release.
 
 ### Removed
 

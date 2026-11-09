@@ -1610,7 +1610,7 @@ describe('a loop that calls a method on an element is proved as the same loop wr
     nudge(this.phase, d);
   }
 }
-function nudge(x: inout<f32>, d: f32): void {
+function nudge(@inout x: f32, d: f32): void {
   x = x + d;
 }`;
   /** The kernel function `f` with `params` and one loop over `count` from `start` whose body is

@@ -245,7 +245,7 @@ export const main = compute([4, 1, 1], function main(li: builtin<"local_invocati
       src: `"use typeshade";
 declare const total: storage<atomic<u32>, "read_write">;
 declare const out: storage<array<u32>, "read_write">;
-function bump(x: inout<u32>, by: u32): void {
+function bump(@inout x: u32, by: u32): void {
   x = x + atomicAdd(total, by) % 7 + by;
 }
 export const main = compute([8, 1, 1], function main(gid: builtin<"global_invocation_id", vec3u>): void {

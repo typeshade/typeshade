@@ -2316,7 +2316,7 @@ function checkRootNamed(
         // A value parameter is a copy; the caller's value changes through a reference, which a
         // function of the file may take (Rule 8.25).
         (mayTakeReference(node, rootName)
-          ? ` To change the caller's value, declare "${rootName}: inout<${authorTypeText(rules.type)}>".`
+          ? ` To change the caller's value, declare "@inout ${rootName}: ${authorTypeText(rules.type)}".`
           : ''),
       TS_CODES.ASSIGN_TARGET,
     );

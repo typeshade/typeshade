@@ -109,7 +109,7 @@ export class Envelope {
 }
 
 /** Adds `by` to the count it is handed: the caller's place, through `@inout`. */
-function advance(count: inout<u32>, by: u32): void {
+function advance(@inout count: u32, by: u32): void {
   count = count + by;
 }
 

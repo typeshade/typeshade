@@ -3,6 +3,9 @@
 // warns once (`TS8028`), naming the new spelling and the codemod. Both halves give the same
 // warning (Rule 12.7). The editor drops TypeScript's TS1206 and TS2564 only in a file that still
 // writes the decorated form; a file in the new form gets them as a plain `tsc --strict` does.
+// A parameter qualifier, `@inout` or `@out`, is no decorated form: it is the language's form
+// (Rule 8.25, change 0137), which neither half warns on and the editor's TS1206 filter keeps in
+// every file.
 //
 // Verifies: Rule 6.7 (docs/language-design.md; traced in reqs/).
 
@@ -80,8 +83,6 @@ const WARNINGS = [
   warns('@interpolate("flat")', 'write "id: location<1, u32, { interpolate: "flat" }>"'),
   warns('@vertex', 'write "export const vs = vertex(function vs(…) { … })"'),
   warns('@builtin("vertex_index")', 'write "i: builtin<"vertex_index", u32>"'),
-  warns('@inout', 'write "v: inout<f32>"'),
-  warns('@out', 'write "v: out<f32>"'),
   warns('@fragment', 'write "export const fs = fragment(function fs(…) { … })"'),
   'error TS8028 "@diagnostic(…)" is not a decorator the compiler reads (Rule 6.7). Delete it: ' +
     'the compiler rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5) and ' +
@@ -96,13 +97,13 @@ const WARNINGS = [
 ];
 
 describe('the decorated form warns once on each decorator, in both halves (TS8028)', () => {
-  it('names the stage call, the attribute type, its option or the qualifier to write', () => {
+  it('names the stage call, the attribute type or its option to write', () => {
     expect(compiled(DECORATED)).toEqual(WARNINGS);
     expect(edited(DECORATED)).toEqual(WARNINGS);
   });
 
-  it('gives one warning for each decorator, and still compiles as the new form does', () => {
-    const count = DECORATED.match(/@\w+/g)!.length;
+  it('gives one warning for each decorator but a qualifier, and still compiles as the new form does', () => {
+    const count = DECORATED.match(/@\w+/g)!.filter((d) => d !== '@inout' && d !== '@out').length;
     expect(WARNINGS).toHaveLength(count);
     // The migration deletes the filter (change 0132), so the new form is the decorated one
     // without it.
@@ -235,6 +236,20 @@ export function fs(): vec4 { return vec4(u.a); }
     expect(edited(OLD)).toEqual([
       warns('@fragment', 'write "export const fs = fragment(function fs(…) { … })"'),
     ]);
+  });
+
+  it('keeps TS1206 out of a parameter qualifier in a file in the new form (change 0137)', () => {
+    const source = `"use typeshade";
+function bump(@inout v: f32): void { v += 1.; }
+export const fs = fragment(function fs(): vec4 { let a: f32 = 0.; bump(a); return vec4(a); });
+`;
+    expect(
+      usesDecoratedForm(ts.createSourceFile('a.ts', source, ts.ScriptTarget.Latest, true)),
+    ).toBe(false);
+    expect(plainTscCodes(source)).toEqual([1206]);
+    expect(typescriptCodes(source)).toEqual([]);
+    expect(compiled(source)).toEqual([]);
+    expect(edited(source)).toEqual([]);
   });
 
   it('reports TS1206 on a decorator in a file in the new form', () => {
