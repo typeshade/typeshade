@@ -279,15 +279,15 @@ describe('"use typeshade" examples — passes (change 0026)', () => {
     const vs = `
 interface VsOut { pos: builtin<"position", vec4>; uv: location<0, vec2>; }
 interface Color { color: location<0, vec4>; }
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) * 0.5 + vec2(0.5, 0.5) };
-});`;
+}`;
     const fs = `
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment export function fs(v: VsOut): Color {
   return { color: vec4(v.uv, 0., 1.) };
-});`;
+}`;
     const src = `"use typeshade";\n${decls}\n${vs}\n${entries === 'both' ? fs : ''}`;
     const { diagnostics, module } = compile(src, { fileName: 'probe.shade.ts' });
     const errors = diagnostics.filter((d) => d.category === 'error');
