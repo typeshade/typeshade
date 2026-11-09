@@ -5,23 +5,23 @@
 // the brick material; the light's view is shared with the shadow pass.
 
 class Camera {
-  viewProj!: mat4;
-  time!: f32;
+  viewProj: mat4;
+  time: f32;
 }
 
 class LightView {
-  viewProj!: mat4;
+  viewProj: mat4;
 }
 
 class Light {
-  dir!: vec4;
-  color!: vec4;
+  dir: vec4;
+  color: vec4;
 }
 
 // The scene's two lights: a key light that casts the shadow, and a fill light from above.
 class Lights {
-  key!: Light;
-  fill!: Light;
+  key: Light;
+  fill: Light;
 }
 
 declare const camera: uniform<Camera>;
@@ -43,11 +43,13 @@ interface Color {
   color: location<0, vec4>;
 }
 
-export const vs = vertex(function vs(v: VsIn): VsOut {
+@vertex
+export function vs(v: VsIn): VsOut {
   return { pos: camera.viewProj * vec4(v.position, 1.), world: v.position };
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment
+export function fs(v: VsOut): Color {
   // Where this point falls in the light's view, and whether the occluder is nearer the light.
   const ls = light.viewProj * vec4(v.world, 1.);
   const uv = vec2(ls.x * 0.5 + 0.5, 0.5 - ls.y * 0.5);
@@ -59,4 +61,4 @@ export const fs = fragment(function fs(v: VsOut): Color {
   const light1 = lights.fill.color.xyz * max(dot(n, lights.fill.dir.xyz), 0.) * pulse;
   const albedo = vec3(0.6, 0.6, 0.6);
   return { color: vec4(albedo * (vec3(0.08, 0.08, 0.08) + light0 + light1), 1.) };
-});
+}

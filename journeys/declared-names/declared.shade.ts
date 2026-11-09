@@ -21,7 +21,8 @@ function mix(a: f32, b: f32): f32 {
   return (a + b) * 0.5;
 }
 
-export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64])
+export function main(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x * 4 >= out.length) {
     return;
   }
@@ -32,4 +33,4 @@ export const main = compute([64], function main(gid: builtin<"global_invocation_
   // `random` is hash-like and the two tiers' `sin` differ, so this says only what must hold on both:
   // it is a fractional part, below 1, which the author's `fract` (a hundred or more) is not.
   out[gid.x * 4 + 3] = random(x) < 1. ? 1. : 0.;
-});
+}

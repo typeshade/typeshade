@@ -20,15 +20,17 @@ interface Color {
   color: location<0, vec4>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), glow: sheen };
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment
+export function fs(v: VsOut): Color {
   // Vertical stripes: the column, in groups of 8, numbers a band, and the bands are 0 to 1.
   const band = f32((u32(v.pos.x) / u32(8)) % bands) / f32(bands);
   const blue = inverted ? 1. - band : band;
   return { color: vec4(band * tint, v.glow, blue, 1.) };
-});
+}

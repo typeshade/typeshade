@@ -14,18 +14,20 @@ interface Color {
 }
 
 /** A fullscreen triangle, with `uv` running from 0 at the top left to 1 at the bottom right. */
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(i32(vi) / 2) * 4 - 1;
   const y = f32(i32(vi) % 2) * 4 - 1;
   return { pos: vec4(x, y, 0, 1), uv: vec2(x * 0.5 + 0.5, 0.5 - y * 0.5) };
-});
+}
 
 /** `fwidth` is never negative, so no pixel is discarded; the call only makes the quad's
  *  neighbours run. */
-export const edge = fragment(function edge(v: VsOut): Color {
+@fragment
+export function edge(v: VsOut): Color {
   if (fwidth(v.uv.x) < 0) {
     discard;
   }
   console.log("pixel", v.pos.x, v.pos.y, v.uv);
   return { color: vec4(v.uv, 0, 1) };
-});
+}

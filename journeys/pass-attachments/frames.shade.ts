@@ -19,13 +19,15 @@ const depth: override<f32> = 0.5;
 /** 1 red, 2 green, 3 white. 0 is unused. */
 const pick: override<i32> = 0;
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(i32(vi) / 2) * 4 - 1;
   const y = f32(i32(vi) % 2) * 4 - 1;
   return { pos: vec4(x, y, depth, 1) };
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment
+export function fs(v: VsOut): Color {
   if (pick == 1) {
     return { color: vec4(1, 0, 0, 1) };
   }
@@ -33,4 +35,4 @@ export const fs = fragment(function fs(v: VsOut): Color {
     return { color: vec4(0, 1, 0, 1) };
   }
   return { color: vec4(1, 1, 1, 1) };
-});
+}

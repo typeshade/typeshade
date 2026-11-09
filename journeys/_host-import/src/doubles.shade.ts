@@ -6,9 +6,9 @@
 // `deep.shade.ts` is the fragment entry's twin.
 
 class Affine {
-  k!: f64;
+  k: f64;
   // A `vec2f64` in a uniform is a `DF64Vec2` struct, which the WGSL aligns to 16 bytes.
-  shift!: vec2f64;
+  shift: vec2f64;
 }
 
 declare const affine: uniform<Affine>;
@@ -16,14 +16,15 @@ declare const xs: storage<array<f64>>;
 declare const ys: storage<array<f64>, "read_write">;
 declare const ps: storage<array<vec3f64>, "read_write">;
 
-export const axpy = compute([64], function axpy(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64])
+export function axpy(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x >= xs.length) {
     return;
   }
   ys[gid.x] = xs[gid.x] * affine.k + affine.shift.x + affine.shift.y;
   // A vector of doubles is two planes, `hi` and `lo`, which the runtime writes and reads apart.
   ps[gid.x] = vec3f64(xs[gid.x], affine.k, ys[gid.x]);
-});
+}
 
 /** A kernel function over doubles (Rule 8.22): the map and both reductions run on WebGPU, each
  *  double as two f32s, and the reductions fold in the 256-wide tree order (Rule 7.2). */

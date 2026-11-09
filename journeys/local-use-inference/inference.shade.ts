@@ -10,7 +10,8 @@ function wrap(index: u32): u32 {
   return index + 1;
 }
 
-export const main = compute([1], function main(): void {
+@compute([1])
+export function main(): void {
   let objectIndex = -3;
   const unsignedIndex = 4294967295;
   out[0] = f32(half(objectIndex));
@@ -21,4 +22,4 @@ export const main = compute([1], function main(): void {
   }
   const captured = (): i32 => half(objectIndex);
   out[3] = f32(captured());
-});
+}

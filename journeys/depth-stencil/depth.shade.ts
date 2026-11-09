@@ -13,15 +13,17 @@ interface Color {
 }
 
 /** A fullscreen triangle, in front of a depth target cleared to its default, 1. */
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(i32(vi) / 2) * 4 - 1;
   const y = f32(i32(vi) % 2) * 4 - 1;
   return { pos: vec4(x, y, 0.5, 1) };
-});
+}
 
 /** Red climbs with the column and green with the row, over a 16 by 16 target. */
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment
+export function fs(v: VsOut): Color {
   const px = floor(v.pos.x);
   const py = floor(v.pos.y);
   return { color: vec4(px / 16, py / 16, 0.5, 1) };
-});
+}
