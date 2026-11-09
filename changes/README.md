@@ -31,6 +31,7 @@ nobody has to remember them.
    The author declares every affected rule, surface section, export, code, example and downstream
    repository in the front matter. Rule links in `reqs/` (`reqs/README.md`) and searches of the
    site and editor establish those impacts. Review starts with a proposal-only PR and `status: draft`.
+   Before the owner decides, the proposal passes an independent review (below).
 2. **Accepted.** Discussion happens on that pull request. Merging it with `status: accepted` is
    the agreement.
 3. **Implementation.** Each pull request that implements the proposal has a commit message line
@@ -55,6 +56,33 @@ nobody has to remember them.
 A change the criteria catch but that truly needs no proposal, such as a typo inside a rule,
 says why on a line of its own in the commit message: `Change: none, <reason>`. That line stays
 in the history, where a reviewer reads it.
+
+## Independent review
+
+The rules that keep the language small are enforced by review: Rules 1.4, 1.6 and 1.7 of
+`docs/language-design.md`, `docs/dx.md` and `docs/compiler-owns-performance.md`. A review that
+nobody performs enforces nothing, and an author does not argue well against their own
+recommendation. Each proposal therefore receives one review from an agent or a person that did
+not write it, before the owner decides on it.
+
+1. Give the reviewer the proposal and the documents above.
+2. Ask the reviewer to argue against the proposal.
+3. Ask the reviewer to answer the questions below, with file and line evidence.
+4. Record the findings in the proposal, under `### Independent review record`.
+5. Answer each finding in the same section: fixed, or kept with the reason.
+6. Show the owner the open findings before the owner decides.
+
+The questions:
+
+- What does an author have to learn after this change that they did not have to learn before?
+- Can the compiler do this instead of the author? If not, why not?
+- Does the proposal conflict with a principle or a rule? Name each conflict and where the
+  proposal resolves it. A conflict the proposal resolves by itself goes to the owner as a
+  question.
+- What does one example look like before and after the change?
+- What does the change remove?
+
+A proposal whose record has no independent review is not ready for the owner's decision.
 
 ## Controlled proposal records
 
