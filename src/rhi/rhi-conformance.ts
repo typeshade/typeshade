@@ -1058,6 +1058,56 @@ export const main = compute([4, 1, 1], function main(g: builtin<"global_invocati
     },
   },
   {
+    name: 'an indirect compute dispatch, its counts read from a buffer at an offset',
+    covers: ['beginComputePass', 'dispatchWorkgroupsIndirect'],
+    async run(device) {
+      if (device.caps.compute !== 'native')
+        return {
+          skipped:
+            'the backend runs a dispatch as a fragment pass of its own (change 0054), not as a compute pass',
+        };
+      const layout = device.createBindGroupLayout([
+        { binding: 0, visibility: STAGE.compute, buffer: { type: 'storage' } },
+      ]);
+      const pipeline = await device.createComputePipeline({
+        layouts: [layout],
+        module: device.createShaderModule(
+          device.caps.shaderLanguage === 'cpu'
+            ? `"use typeshade";
+declare const d: storage<array<u32>, "read_write">;
+export const main = compute([2, 1, 1], function main(g: builtin<"global_invocation_id", vec3u>): void {
+  d[g.x] = d[g.x] + u32(100);
+});
+`
+            : `@group(0) @binding(0) var<storage, read_write> d: array<u32>;
+@compute @workgroup_size(2) fn main(@builtin(global_invocation_id) g: vec3u) { d[g.x] = d[g.x] + 100u; }`,
+        ),
+        entryPoint: 'main',
+      });
+      const data = device.createBuffer({ size: 32, usage: ['storage', 'copy-src', 'copy-dst'] });
+      const values = [1, 2, 3, 5, 8, 13, 21, 34];
+      device.writeBuffer(data, 0, new Uint32Array(values));
+      // Three workgroups in x from byte 4; the word before them is no count.
+      const counts = device.createBuffer({ size: 16, usage: ['indirect', 'copy-dst'] });
+      device.writeBuffer(counts, 0, new Uint32Array([7, 3, 1, 1]));
+      const read = device.createBuffer({ size: 32, usage: ['map-read', 'copy-dst'] });
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(
+        0,
+        device.createBindGroup(layout, [{ binding: 0, resource: { buffer: data } }]),
+      );
+      pass.dispatchWorkgroupsIndirect(counts, 4);
+      pass.end();
+      encoder.copyBufferToBuffer(data, 0, read, 0, 32);
+      await device.submit([encoder]);
+      const got = [...new Uint32Array(await device.readBuffer(read))];
+      // Three workgroups of two invocations: the first six words.
+      return { got, want: values.map((v, i) => (i < 6 ? v + 100 : v)) };
+    },
+  },
+  {
     name: 'interpolation: perspective-correct, and linear in screen space',
     covers: ['draw'],
     async run(device) {

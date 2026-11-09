@@ -350,6 +350,23 @@ function boundOf(groups: ReadonlyMap<number, CpuBindGroup>): Bound {
   return out;
 }
 
+/** The CPU tier's value a buffer holds in place of its bytes, by buffer: what the call layer binds
+ *  for an entry call (change 0120, M4). The call layer's CPU tier hands the code the value
+ *  `toCpu` makes of the host's value, a double where the host gave one, and takes back what the
+ *  code left, with no bytes between (Rule 11.7): bytes would hold an `f64` as two `f32`s and a
+ *  plain array's numbers as `f32`s, which the CPU tier never rounds them to. */
+const hostValues = new WeakMap<object, { value: unknown }>();
+
+/**
+ * Bind `slot` as what `buffer` holds, or bind its bytes again when `slot` is undefined. A dispatch
+ * hands the code `slot.value` in place of the bytes, and a storage buffer it may write takes the
+ * value the code left back into `slot.value`, with the bytes left as they were.
+ */
+export function holdValue(buffer: RhiBuffer, slot: { value: unknown } | undefined): void {
+  if (slot === undefined) hostValues.delete(buffer);
+  else hostValues.set(buffer, slot);
+}
+
 /** Hand the bound buffers to the stages' code, each by its binding's name; returns the storage
  *  buffers to write back after the stages ran. */
 function bindTo(
@@ -364,8 +381,11 @@ function bindTo(
     for (const b of s.program.bindings) {
       const at = bound.get(`${b.group}:${b.binding}`);
       if (at === undefined || b.layout === undefined) continue;
-      const dv = new DataView(at.buffer.bytes.buffer, 0, at.size);
-      s.code.$.bindings[b.name] = decode(dv, 0, b.layout, at.size);
+      const held = hostValues.get(at.buffer);
+      s.code.$.bindings[b.name] =
+        held !== undefined
+          ? held.value
+          : decode(new DataView(at.buffer.bytes.buffer, 0, at.size), 0, b.layout, at.size);
       if (at.writable && b.kind === 'storage')
         back.push({ binding: b, code: s.code, buffer: at.buffer, size: at.size });
     }
@@ -376,7 +396,12 @@ function bindTo(
 function writeBack(
   back: readonly { binding: CpuBinding; code: CpuCode; buffer: CpuBuffer; size: number }[],
 ): void {
-  for (const { binding, code, buffer, size } of back)
+  for (const { binding, code, buffer, size } of back) {
+    const held = hostValues.get(buffer);
+    if (held !== undefined) {
+      held.value = code.$.bindings[binding.name];
+      continue;
+    }
     encode(
       new DataView(buffer.bytes.buffer, 0, size),
       0,
@@ -384,6 +409,7 @@ function writeBack(
       code.$.bindings[binding.name],
       size,
     );
+  }
 }
 
 // ─── entries ─────────────────────────────────────────────────────────────────────────────────
@@ -891,6 +917,22 @@ class CpuComputePassImpl implements RhiComputePass {
       if (this.#pipeline === undefined)
         throw new TypeError('The dispatch has no pipeline: call setPipeline first.');
       dispatch(this.#pipeline, new Map(this.#groups), [x, y, z]);
+    });
+  }
+  dispatchWorkgroupsIndirect(buffer: RhiBuffer, byteOffset: number): void {
+    this.commands.push(() => {
+      if (this.#pipeline === undefined)
+        throw new TypeError('The dispatch has no pipeline: call setPipeline first.');
+      // The counts are read when the dispatch runs, so a command before it may write them.
+      const b = buffer as CpuBuffer;
+      if (byteOffset % 4 !== 0 || byteOffset + 12 > b.size)
+        throw new TypeError(
+          `dispatchWorkgroupsIndirect: three counts from byte ${byteOffset} do not fit a buffer of ${b.size}.`,
+        );
+      const dv = new DataView(b.bytes.buffer, b.bytes.byteOffset + byteOffset, 12);
+      const wg = [dv.getUint32(0, true), dv.getUint32(4, true), dv.getUint32(8, true)] as const;
+      if (wg.some((n) => n === 0)) return;
+      dispatch(this.#pipeline, new Map(this.#groups), wg);
     });
   }
   end(): void {}

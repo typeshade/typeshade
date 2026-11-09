@@ -51,8 +51,9 @@ const GL_WRAP = {
 
 /** Upload an image source into the `TEXTURE_2D` bound to `gl`'s active unit as `RGBA8`, with the
  *  filter and the address of `s`. The first row of the image is texture coordinate 0, as it is
- *  on WebGPU. A full-screen draw (`host-draw.ts`) and a compute entry's call (`host-compute.ts`)
- *  both upload their images here. */
+ *  on WebGPU. A compute entry's call in the plan of a `fuse` scope (`host-compute.ts`) uploads
+ *  its images here; a draw and an entry call outside a scope upload into a texture the WebGL2
+ *  backend made (`glImageTexture` in `host-draw.ts`, change 0120). */
 export function uploadImage(
   gl: Pick<GlImage, 'pixelStorei' | 'texImage2D' | 'texParameteri'>,
   source: object,

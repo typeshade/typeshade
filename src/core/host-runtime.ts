@@ -9,7 +9,8 @@ import type { ConsoleEvent } from './console.js';
 import { printConsole } from './console-print.js';
 
 export { createCodegenRuntime, type CodegenRuntime } from './cpu-codegen-runtime.js';
-export { callCompute } from './host-compute.js';
+// An entry call outside a `fuse` scope runs as a program-runtime pipeline and pass (change 0120).
+export { callCompute } from './host-entry-program.js';
 export {
   type ComputeEntry,
   type DrawBinding,
