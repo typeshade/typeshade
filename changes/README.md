@@ -25,6 +25,29 @@ Anything else needs no proposal: an internal refactor, a test, a performance cha
 that touches none of the above. `scripts/changes.ts` applies these criteria to the diff, so
 nobody has to remember them.
 
+## A need from a downstream repository
+
+A downstream repository (`DOWNSTREAM_REPOS` in `scripts/changes.ts`) that needs something of the
+compiler asks for compiler work first. It does not ask for a language change.
+
+1. Write the workaround in the downstream repository.
+2. Measure the workaround on the devices that show the need.
+3. Open an issue in this repository.
+4. State the need, the workaround and the measurement (device, commit, result) in the issue.
+
+The compiler side decides how to meet the need. What the compiler can decide is compiler work:
+an optimization, a lowering, a numerical relaxation, a tuning parameter or a report. That work
+adds no author-facing construct, and the criteria above give it no proposal.
+
+A language change is the last resort. A proposal that adds an author-facing name, rule,
+diagnostic code or form for a downstream need links the issue. Its `Why` section says why
+compiler work cannot meet the need. Nothing domain-shaped is asked of the language
+(`docs/dx.md`, principle 7). Pull request #1094 (a draft) proposes the same principle as a
+design rule.
+
+The `downstream` field of a proposal lists the work that the proposal owes each repository. It
+does not record where a request came from.
+
 ## The lifecycle
 
 1. **Draft.** A new proposal uses `TEMPLATE.md` and the next free number in `NNNN-short-name.md`.
