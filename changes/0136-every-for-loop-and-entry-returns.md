@@ -360,6 +360,8 @@ and two other proposals are read beside this one:
 - `OD-2` and `OD-5`: not touched. Stages stay attributes; an entry's I/O stays in its types where it
   is written; a return type that is written keeps `builtin<…>` and `location<…>`.
 - `OD-4`: the example and the options with their costs are shown above, before the owner decides.
+- `OD-6` (recorded in pull request #1132, not yet on `main`): nothing is released yet; the bundled
+  builds were tests. It is cited where the published builds are discussed (Draft impact estimate).
 - Decisions on this proposal, by the owner, on 2026-11-09, in the Claude Code session, in Korean:
   - F: "계속 거부" (F1). A loop proved never to end stays refused, as a `while` is; every other
     `for` that is refused today only for not being counted compiles. F1b and F0 are rejected.
@@ -472,12 +474,12 @@ signature says it is the depth.
 ### Draft impact estimate
 
 - Known: no source that compiles today is refused, and none changes its emit. Two published
-  artifacts bundle a compiler: vscode-typeshade 0.3.0 on the Visual Studio Marketplace (compiler
-  pin `3e1e8420`, 2026-10-27) and `@typeshade/mcp` 0.1.0 and 0.1.1 on npm (2026-09-23). Each keeps
-  the compiler it bundles and its refusals; a source accepted there stays accepted by a compiler
-  with this change. The skill text bundled in vscode-typeshade 0.3.0 states the old loop and return
-  rules until that artifact moves its pin ("What it owes downstream"). This reasoning does not rest
-  on nothing having been published.
+  builds bundle a compiler: vscode-typeshade 0.3.0 on the Visual Studio Marketplace (compiler pin
+  `3e1e8420`, 2026-10-27) and `@typeshade/mcp` 0.1.0 and 0.1.1 on npm (2026-09-23). Under `OD-6`
+  (the owner, 2026-11-09, recorded in pull request #1132, not yet on `main`) they were test builds
+  before any official release, so no warning release is owed because of them. The skill text
+  bundled in vscode-typeshade 0.3.0 states the old loop and return rules until that build moves its
+  pin ("What it owes downstream").
 - Known: Rules 7.5, 8.19 and 8.22 and surface §3, §14, §16, §17 and §65 are rewritten; `reqs/`
   follows.
 - Estimate: item 1 without F2 is local to `lowerFor`; F2 changes the IR `for` and every reader of
