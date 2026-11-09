@@ -1236,7 +1236,7 @@ export function opt(x: f32, k?: f32): f32 { return x + (k ?? 0.); }`,
 describe('a member path rooted at a local or a parameter is narrowed (Rule 7.10, change 0093, decision D2)', () => {
   const HIT = `class Inner { d!: f32 | undefined; }
 class Hit { t!: f32; n!: vec2 | undefined; k!: f32 | undefined; a!: Inner; bump(): void { this.k = undefined; } peek(): f32 { return this.t; } }
-function setK(h: inout<Hit>, v: f32): void { h.k = v; }`;
+function setK(@inout h: Hit, v: f32): void { h.k = v; }`;
   const UNNARROWED = (path: string, inner: string, takes: string, zero: string): string =>
     `TS8003 "${path}" is "${inner} | undefined" here, and ${takes} ${inner}. Test it first, ` +
     `"if (${path} !== undefined)", or give the absent case a value, "${path} ?? ${zero}".`;
@@ -1755,7 +1755,7 @@ return c.count + (x === undefined ? k : 0.); }`,
     [
       'nullish conversion fallback preserves short circuit',
       `class C { count: f32 = 0.; next(): f32 | null { this.count += 1.; return null; } }
-function f(x: f32 | undefined, c: inout<C>): f32 | null | undefined { return x ?? c.next(); }
+function f(x: f32 | undefined, @inout c: C): f32 | null | undefined { return x ?? c.next(); }
 function run(k: f32): f32 { let c = new C(); const x = f(k, c); return c.count + (x ?? 0.); }`,
       4,
     ],
@@ -1811,7 +1811,7 @@ function run(k: f32): f32 { return (id<f32 | null>(null) ?? 1.) + (id<f32 | unde
     expect(cpu(r)('run', 4)).toBe(7);
   });
   it('reference arguments require the exact logical storage type', () => {
-    const source = program(`function set(x: inout<f32 | null>): void { x = null; }
+    const source = program(`function set(@inout x: f32 | null): void { x = null; }
 function run(): f32 { let x: f32 | undefined; set(x); return x ?? 0.; }`);
     expect(errorsOf(source).some((d) => d.startsWith('TS8073'))).toBe(true);
     expect(editorCompilerSentences(source).sort()).toEqual(errorsOf(source).sort());

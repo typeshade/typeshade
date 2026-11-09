@@ -122,7 +122,7 @@ export function f(k: u32): vec4f {
   });
 
   it('reads an index that calls once, before the right-hand side', () => {
-    const { compiled, result } = bothHalves(`function next(n: inout<u32>): u32 {
+    const { compiled, result } = bothHalves(`function next(@inout n: u32): u32 {
   n = n + 1;
   return n - 1;
 }

@@ -17,7 +17,7 @@ export const cs = compute([64, 1, 1], function cs(lid: builtin<"local_invocation
 ${body}
  out[lid.x] = 1.;
 });`;
-const setter = 'function set(a: inout<f32>, x: f32): void { a = x; }';
+const setter = 'function set(@inout a: f32, x: f32): void { a = x; }';
 
 function readBoth(source: string) {
   const result = compile(source, { fileName: 'helper-floor.shade.ts' });
@@ -41,7 +41,7 @@ describe('helper conditions retain the unknown floor after caller writes', () =>
     ],
     [
       'a nested setter',
-      `${setter}\nfunction nested(a: inout<f32>, x: f32): void { set(a, x); }`,
+      `${setter}\nfunction nested(@inout a: f32, x: f32): void { set(a, x); }`,
       'let a = k; nested(a, f32(lid.x)); if (edge(a)) { workgroupBarrier(); }',
     ],
     [
@@ -71,7 +71,7 @@ describe('helper conditions retain the unknown floor after caller writes', () =>
     ],
     [
       'an unused out parameter, conservatively',
-      'function initialize(a: out<f32>): void { a = 1.; }',
+      'function initialize(@out a: f32): void { a = 1.; }',
       'if (edge(k)) { workgroupBarrier(); }',
     ],
   ])('keeps the unknown floor with %s', (_name, helpers, body) => {

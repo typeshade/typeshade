@@ -67,10 +67,11 @@ a clean checkout; its home is the "prepare" script. With --check it writes
 nothing and fails when a view is missing or stale.
 
 migrate rewrites each *.shade.ts from the decorated form to plain TypeScript
-(change 0111): a stage call for each entry, an attribute type for each @builtin,
-@location, @inout or @out, "!" on a struct field and on a local an out<T>
-argument fills first. It keeps every other byte and names, by line, a form it
-leaves as written. With --check it writes nothing and fails when a file would
+(change 0111): a stage call for each entry, an attribute type for each @builtin
+or @location, "!" on a struct field and on a local an @out argument fills first.
+It keeps a qualifier before its parameter and rewrites "v: inout<T>" to
+"@inout v: T" (change 0137). It keeps every other byte and names, by line, a form
+it leaves as written. With --check it writes nothing and fails when a file would
 change.
 
 init configures a Vite project explicitly, preserves unrelated settings and comments,

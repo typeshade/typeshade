@@ -37,13 +37,27 @@ function spanOfNode(node: ts.Node): { start: number; length: number } {
  * decorated node's kind and `Debug.fail()`s on anything other than a class/method/accessor/
  * property/parameter; a function declaration is exactly that unhandled shape (see
  * `diagnostics.ts`'s TS1206 filter, which recognizes the same grammar), so these three
- * navigation methods must refuse the position before ever calling into `ts`.
+ * navigation methods must refuse the position before ever calling into `ts`. A decorator on a
+ * parameter of a function that is no class member, a qualifier `@inout` or `@out` (Rule 8.25,
+ * change 0137), throws the same way (`getEffectiveDecoratorArguments`), so it is refused too.
  */
 function isDecoratorOnFunctionDeclarationAt(sourceFile: ts.SourceFile, offset: number): boolean {
   const onDecorator = (pos: number): boolean => {
     let node: ts.Node | undefined = nodeAtPosition(sourceFile, pos);
     while (node !== undefined) {
-      if (ts.isDecorator(node)) return ts.isFunctionDeclaration(node.parent);
+      if (ts.isDecorator(node)) {
+        const decorated = node.parent;
+        if (ts.isFunctionDeclaration(decorated)) return true;
+        // A parameter qualifier, `@inout a: f32`, on a parameter of a function that is no class
+        // member (Rule 8.25, change 0137): TypeScript throws on it as on a decorator of the
+        // function itself, where a method's or a constructor's parameter decorator resolves.
+        return (
+          ts.isParameter(decorated) &&
+          (ts.isFunctionDeclaration(decorated.parent) ||
+            ts.isFunctionExpression(decorated.parent) ||
+            ts.isArrowFunction(decorated.parent))
+        );
+      }
       node = node.parent;
     }
     return false;

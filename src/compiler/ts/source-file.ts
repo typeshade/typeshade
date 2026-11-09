@@ -15,7 +15,7 @@ import type {
 } from '../../core/ir/nodes.js';
 import { stageOf } from '../../core/ir/nodes.js';
 import { stageCallOf } from './stage-call.js';
-import { warnDecoratedForm } from './decorated-form.js';
+import { refuseQualifierTypes, warnDecoratedForm } from './decorated-form.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import { kernelLoopDiagnostics } from './kernel-loops.js';
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js';
@@ -463,6 +463,9 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
       );
     }
   }
+  // The type form of a parameter qualifier, `a: inout<f32>`, refused at once in every type
+  // position (Rule 8.25, change 0137).
+  refuseQualifierTypes(sourceFile, diagnostics);
   // A kernel function's loops run as dispatches when the proof accepts them, and on the CPU
   // with a warning that names why when it does not (Rule 8.22, TS8070). After the functions,
   // because the proof reads what each callee writes, and only on a module with no error.
