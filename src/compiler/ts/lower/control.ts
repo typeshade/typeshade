@@ -5,17 +5,16 @@ import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, i32T, isVec, isVec64, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, dropsRecoveredUse, type LoweringScope } from '../context.js';
-import { irNameOf, readOnlyPhrase, writableRemedy, writeRules } from '../context.js';
+import { cloneIr, irNameOf, readOnlyPhrase, writableRemedy, writeRules } from '../context.js';
 import {
   analyzeCountedFor,
   type CountedLoop,
   boundWrittenIn,
-  comparesToBound,
   foldConstNumber,
   forUpdateRefusal,
   openLoopError,
 } from '../loop-bound.js';
-import { fitsTarget, isIntScalar } from '../lit-coerce.js';
+import { fitsTarget, isIntegerLiteralTree, isIntegerWritten, isIntScalar } from '../lit-coerce.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { keyTypeText, keysOf, sameKeys } from '../key-types.js';
 import { numericMismatch } from '../numeric.js';
@@ -25,14 +24,29 @@ import { TS_CODES, type TsCode } from '../codes.js';
 import { reportIntLitRange, retargetDeclaredIntLit } from '../lit-coerce.js';
 import { lowerExpression, unknownIdentifierSentence } from './expression.js';
 import { arrayLengthOf } from './expression-prop.js';
-import { lowerLValue, lowerStatement, lowerStatements, refuseParamWrite } from './statement.js';
+import {
+  lowerDeclarationList,
+  lowerExpressionAsStatement,
+  lowerLValue,
+  lowerStatement,
+  lowerStatements,
+  refuseParamWrite,
+} from './statement.js';
 import { finishAccessorWrite, lowerAccessorTarget, refuseReadonlyWrite } from './class-access.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
 import { fallsIntoABody } from '../fallthrough.js';
 import { optionalConditionSentence } from './optional-values.js';
 
 /**
- * A counted `for` (Rule 7.5), or undefined after an error that says why it is not one.
+ * A `for` statement (Rule 7.5), or undefined after an error that says why it was refused.
+ *
+ * A `for` means what it means in TypeScript: the initializer runs once, the condition (`true`
+ * when there is none) is tested before each trip, and the update runs after each trip and at
+ * each `continue`. A `for` of the counted shape carries the counted fact the analysis proves
+ * (the IR `for`'s `counted`); any other `for` is an open loop, as a `while` is (change 0136). The
+ * one loop refused is the one the compiler proves never ends: no condition, or one that is
+ * always true, with no `break` or `return` to leave it, and a constant header whose step never
+ * reaches its bound.
  *
  * The caller drops a statement this returns nothing for, so a refusal that reports nothing
  * deletes the loop, body and all, from both targets: `for (…; v.x += 1.)` and `for (…; zz += 1)`
@@ -47,9 +61,9 @@ export function lowerFor(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
-): Stmt | undefined {
+): Stmt | Stmt[] | undefined {
   const errors = errorCount(diagnostics);
-  const loop = lowerCountedFor(node, sourceFile, scope, diagnostics);
+  const loop = lowerForLoop(node, sourceFile, scope, diagnostics);
   if (
     loop === undefined &&
     errorCount(diagnostics) === errors &&
@@ -75,7 +89,7 @@ function errorCount(diagnostics: readonly TsCompilerDiagnostic[]): number {
  *  `declare const n: i32` is not lowered, and says nothing more than the declaration's
  *  refusal. Nor is `i < lim(1)` for a `function lim(x?: i32)` whose signature was refused,
  *  which a call of it answers by the same predicate (`declarationRefused`). The header is
- *  where every `undefined` of {@link lowerCountedFor} comes from. */
+ *  where every `undefined` of {@link lowerForLoop} comes from. */
 function readsARefusedName(
   node: ts.ForStatement,
   sourceFile: ts.SourceFile,
@@ -90,143 +104,299 @@ function readsARefusedName(
   return [node.initializer, node.condition, node.incrementor].some((h) => h && reads(h));
 }
 
-function lowerCountedFor(
+/** The clauses of a header part the comma operator joins, in the order they run:
+ *  `i++, j--` is `i++` then `j--` (change 0136, decision F2.1). */
+function commaClauses(e: ts.Expression): ts.Expression[] {
+  if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+    return [...commaClauses(e.left), ...commaClauses(e.right)];
+  }
+  return [e];
+}
+
+function lowerForLoop(
   node: ts.ForStatement,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
-): Stmt | undefined {
-  if (!node.condition) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      'for is missing an exit condition. A for loop is counted; a loop that ends at a break ' +
-        'is "while (true) { … }".',
-      TS_CODES.LOOP_INFINITE,
-    );
-    return undefined;
-  }
-  if (!node.initializer || !ts.isVariableDeclarationList(node.initializer)) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      'for-init must be `let i: i32 = <start>` or `let i: u32 = <start>`.',
-      TS_CODES.LOOP_INDUCTION,
-    );
-    return undefined;
-  }
-  if (!node.incrementor) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      'for-update is required (e.g. i++).',
-      TS_CODES.LOOP_INDUCTION,
-    );
-    return undefined;
-  }
+): Stmt | Stmt[] | undefined {
   scope.push();
   scope.enterLoop();
   try {
-    const hint = counterTypeFromBound(node, node.initializer, sourceFile, scope);
-    const initStmt = lowerForInit(node.initializer, sourceFile, scope, diagnostics, hint);
-    if (!initStmt) return undefined;
-    // The `for` header's own two statements never pass through `lowerStatement`, so the
-    // blanket stamp there does not reach them; give each the span of the clause it came from
-    // rather than the whole loop's, so stepping a loop highlights `let i: i32 = 0` and `i++`.
-    withSpan(initStmt, sourceFile, node.initializer);
+    // The initializer runs once, before the first test. `counter` is the one `let` a counted
+    // loop declares, when the header declares exactly one.
+    const pre: Stmt[] = [];
+    let counter: (Stmt & { s: 'var' }) | undefined;
+    const init = node.initializer;
+    if (init !== undefined && ts.isVariableDeclarationList(init)) {
+      const isLet = (init.flags & ts.NodeFlags.Let) !== 0;
+      const single = init.declarations.length === 1;
+      for (const decl of init.declarations) {
+        // With several declarators, each takes its own temporaries in front of it, so a later
+        // one reads the earlier ones in order.
+        const mark = single ? undefined : scope.hoistMark();
+        let lowered: Stmt[];
+        if (isLet && isHeaderCounter(decl, sourceFile)) {
+          const one = lowerHeaderCounter(node, decl, sourceFile, scope, diagnostics);
+          if (!one) return undefined;
+          // The `for` header's own statements never pass through `lowerStatement`, so the
+          // blanket stamp there does not reach them; give each the span of the clause it came
+          // from rather than the whole loop's, so stepping a loop highlights `let i: i32 = 0`.
+          withSpan(one, sourceFile, single ? init : decl);
+          lowered = [one];
+          if (single) counter = one;
+        } else {
+          const list = lowerDeclarationList(
+            init,
+            single ? init : decl,
+            sourceFile,
+            scope,
+            diagnostics,
+            [decl],
+          );
+          if (list === undefined) return undefined;
+          lowered = Array.isArray(list) ? list : [list];
+        }
+        if (mark !== undefined) pre.push(...scope.takeHoisted(mark));
+        pre.push(...lowered);
+      }
+    } else if (init !== undefined) {
+      const clauses = commaClauses(init);
+      for (const clause of clauses) {
+        const one = lowerHeaderClause(clause, clauses.length > 1, sourceFile, scope, diagnostics);
+        if (one === undefined) return undefined;
+        pre.push(...one);
+      }
+    }
     // A loop's condition runs on every trip, so nothing in it may be hoisted ahead of the loop
     // (change 0088); an optional read as the condition names the test to write.
-    const optional = optionalConditionSentence(node.condition, scope, sourceFile);
-    if (optional !== undefined) {
-      pushDiag(diagnostics, sourceFile, node.condition, optional, TS_CODES.TYPE_MISMATCH);
-      return undefined;
-    }
-    const cond = scope.withHoisting(false, () =>
-      lowerExpression(node.condition!, sourceFile, scope, diagnostics),
-    );
-    if (!cond) return undefined;
-    if (typeKey(cond.type) !== 'bool') {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node.condition,
-        `for condition must be bool, got ${authorTypeText(cond.type)}.`,
-        TS_CODES.TYPE_MISMATCH,
+    let cond: Expr = { op: 'lit', type: boolT, value: true };
+    if (node.condition !== undefined) {
+      const optional = optionalConditionSentence(node.condition, scope, sourceFile);
+      if (optional !== undefined) {
+        pushDiag(diagnostics, sourceFile, node.condition, optional, TS_CODES.TYPE_MISMATCH);
+        return undefined;
+      }
+      const lowered = scope.withHoisting(false, () =>
+        lowerExpression(node.condition!, sourceFile, scope, diagnostics),
       );
-      return undefined;
+      if (!lowered) return undefined;
+      if (typeKey(lowered.type) !== 'bool') {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node.condition,
+          `for condition must be bool, got ${authorTypeText(lowered.type)}.`,
+          TS_CODES.TYPE_MISMATCH,
+        );
+        return undefined;
+      }
+      cond = lowered;
     }
-    // lowerForInit took exactly one identifier, the counter as the author spelled it.
-    const counter = node.initializer.declarations[0]!.name.getText(sourceFile);
-    if (initStmt.s === 'var') {
-      const extra = extraExitClause(node.condition, cond, initStmt.name, sourceFile, scope);
-      if (extra !== undefined) {
-        pushDiag(diagnostics, sourceFile, node.condition, extra, TS_CODES.LOOP_BOUND);
+    const clauses = node.incrementor === undefined ? [] : commaClauses(node.incrementor);
+    // The counted fact, when the header has the counted shape (Rule 7.5). The update is lowered
+    // as a counter's step first, its sentences kept aside: a step that is none of the counted
+    // forms is the update of an open loop, lowered as the statement it is below.
+    let update: Stmt[] | undefined;
+    let counted: CountedLoop | undefined;
+    if (counter !== undefined && node.condition !== undefined && clauses.length === 1) {
+      const shown = counterShown(node);
+      // Kept aside on a copy, so a name an earlier error explains is not reported again.
+      const scratch: TsCompilerDiagnostic[] = [...diagnostics];
+      const step = scope.withHoisting(false, () =>
+        lowerUpdate(clauses[0]!, sourceFile, scope, scratch, shown),
+      );
+      const aside = scratch.slice(diagnostics.length);
+      // A refusal of the expression itself, not of its shape as a step (`i *= 2.5` on an `i32`,
+      // a name that is unknown or read-only), is the update's own error, said as it was.
+      const own = aside.filter((d) => d.category === 'error' && d.code !== TS_CODES.LOOP_INDUCTION);
+      if (own.length > 0) {
+        diagnostics.push(...aside);
+        return undefined;
+      }
+      if (step !== undefined && !aside.some((d) => d.category === 'error')) {
+        withSpan(step, sourceFile, node.incrementor!);
+        const verdict = analyzeCountedFor(counter, cond, step, scope);
+        if (!verdict.ok && verdict.endless) {
+          pushDiag(diagnostics, sourceFile, node, verdict.message, verdict.code);
+          return undefined;
+        }
+        if (verdict.ok) counted = verdict.loop;
+        diagnostics.push(...aside);
+        update = [step];
+      }
+    }
+    if (update === undefined) {
+      update = [];
+      for (const clause of clauses) {
+        const one = lowerHeaderClause(clause, true, sourceFile, scope, diagnostics);
+        if (one === undefined) return undefined;
+        update.push(...one);
+      }
+    }
+    if (counted === undefined) {
+      const err = openLoopError(
+        cond,
+        scope,
+        bodyHasExit(node.statement),
+        `for (${headerText(node, sourceFile)})`,
+      );
+      if (err) {
+        pushDiag(diagnostics, sourceFile, node, err.message, err.code);
         return undefined;
       }
     }
-    const update = lowerUpdate(node.incrementor, sourceFile, scope, diagnostics, counter);
-    if (!update) return undefined;
-    withSpan(update, sourceFile, node.incrementor);
-    const counted = analyzeCountedFor(initStmt, cond, update, scope);
-    if (!counted.ok) {
-      pushDiag(diagnostics, sourceFile, node, counted.message, counted.code);
-      return undefined;
-    }
     const body = lowerBody(node.statement, sourceFile, scope, diagnostics);
-    // A runtime bound counts the loop only if the body leaves it alone (Rule 7.5).
-    const moved = boundWrittenIn(cond, initStmt.s === 'var' ? initStmt.name : '', scope, body);
-    if (moved !== undefined) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node.condition,
-        `for bound reads "${moved}", which the loop body writes, so it does not bound the ` +
-          `loop. Read it into a const before the loop, or write the loop as a while.`,
-        TS_CODES.LOOP_BOUND,
-      );
-      return undefined;
+    // A runtime bound counts the loop only if the body leaves it alone (Rule 7.5); a body that
+    // moves it makes the loop an open one.
+    if (counted !== undefined && boundWrittenIn(cond, counter!.name, scope, body) === undefined) {
+      return [
+        ...pre.filter((s) => s !== counter),
+        { s: 'for', init: counter!, cond, update: update[0]!, body, counted: countedFact(counted) },
+      ];
     }
-    return { s: 'for', init: initStmt, cond, update, body, counted: countedFact(counted.loop) };
+    return openFor(pre, cond, update, body, scope);
   } finally {
     scope.exitLoop();
     scope.pop();
   }
 }
 
-/**
- * The type an unannotated counter takes from the bound it is compared with (Rule 7.5).
- *
- * `for (let i = 0; i < data.length; i++)` is the loop a TypeScript author writes first, and
- * `data.length` is a `u32`. An unannotated counter was always an `i32`, so the comparison was
- * `TS8003 cannot compare i32 and u32`, a type the author never wrote. A counter whose initializer
- * is a plain non-negative integer literal and whose bound is a `u32` is a `u32`, which is the one
- * type the loop can have. Anything else keeps the `i32` default: an annotation, a negative or
- * computed start, an `i32` or float bound.
- *
- * The bound is lowered once here into a scratch list, to read its type, and again where the
- * condition is lowered, which reports its diagnostics. Lowering an expression declares nothing.
- */
-function counterTypeFromBound(
-  node: ts.ForStatement,
-  list: ts.VariableDeclarationList,
+/** The counter as the author spelled it, for the step's sentences. */
+function counterShown(node: ts.ForStatement): string {
+  const list = node.initializer;
+  const decl = list && ts.isVariableDeclarationList(list) ? list.declarations[0] : undefined;
+  return decl && ts.isIdentifier(decl.name) ? decl.name.text : '';
+}
+
+/** The header as written, `let i = 0; i < n; i++`, for a sentence about the loop. */
+function headerText(node: ts.ForStatement, sourceFile: ts.SourceFile): string {
+  const part = (n: ts.Node | undefined): string => n?.getText(sourceFile) ?? '';
+  const cond = node.condition === undefined ? '' : ` ${part(node.condition)}`;
+  const update = node.incrementor === undefined ? '' : ` ${part(node.incrementor)}`;
+  return `${part(node.initializer)};${cond};${update}`;
+}
+
+/** One clause of a header's initializer or update, as the statement it is (change 0136): `k = 2`,
+ *  `j--`, `i = i * 3 + 1`. A temporary its expression needs goes in front of it, and both run
+ *  where the clause runs. `stamp` gives the statements the clause's own span. */
+function lowerHeaderClause(
+  clause: ts.Expression,
+  stamp: boolean,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
-): ShaderType | undefined {
-  const decl = list.declarations[0];
-  if (!decl || list.declarations.length !== 1 || decl.type || !ts.isIdentifier(decl.name)) {
-    return undefined;
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt[] | undefined {
+  const mark = scope.hoistMark();
+  const lowered = scope.withHoisting(true, () =>
+    lowerExpressionAsStatement(clause, clause, sourceFile, scope, diagnostics),
+  );
+  const hoisted = scope.takeHoisted(mark);
+  if (lowered === undefined) return undefined;
+  const list = [...hoisted, ...(Array.isArray(lowered) ? lowered : [lowered])];
+  if (stamp) for (const s of list) withSpan(s, sourceFile, clause);
+  return list;
+}
+
+/**
+ * An open `for` in the IR (change 0136): the loop a `while` lowers to, with no counted fact.
+ *
+ * The IR `for` holds one initializer and one update, and WGSL's header takes one declaration and
+ * one assignment. A header that fits keeps its shape: `for (var x: f32 = 0.0; x < 1.0; x += 0.25)`.
+ * Any other runs its initializer ahead of the loop and its update at the end of the body and at
+ * each `continue` that belongs to the loop, and the loop is a `for` over a counter of the
+ * compiler's own, as a `while` is (decision F2.1). The names the initializer declares are the
+ * IR names the scope gave them, which no other local of the function has (#38), so declaring
+ * them ahead of the loop takes no name from the code that follows it.
+ */
+function openFor(
+  pre: readonly Stmt[],
+  cond: Expr,
+  update: readonly Stmt[],
+  body: readonly Stmt[],
+  scope: LoweringScope,
+): Stmt | Stmt[] {
+  const first = pre[0];
+  const step = update[0];
+  if (
+    pre.length === 1 &&
+    first!.s === 'var' &&
+    update.length === 1 &&
+    (step!.s === 'assign' || step!.s === 'assignOp') &&
+    step!.target.op === 'varref'
+  ) {
+    return { s: 'for', init: first!, cond, update: step!, body };
   }
-  let start = decl.initializer;
-  while (start && ts.isParenthesizedExpression(start)) start = start.expression;
-  if (!start || !ts.isNumericLiteral(start) || !/^\d+$/.test(start.text)) return undefined;
-  const name = decl.name.text;
+  const name = scope.defineTemp('_w', i32T, true);
+  const w = { op: 'varref' as const, type: i32T, name };
+  const loop: Stmt = {
+    s: 'for',
+    init: { s: 'var', name, type: i32T, init: { op: 'lit', type: i32T, value: 0 } },
+    cond,
+    update: {
+      s: 'assign',
+      target: w,
+      expr: { op: 'binop', type: i32T, bop: '+', a: w, b: { op: 'lit', type: i32T, value: 1 } },
+    },
+    body: update.length === 0 ? body : withUpdates(body, update, true),
+  };
+  return pre.length === 0 ? loop : [...pre, loop];
+}
+
+/** `body` with a copy of `update` before each `continue` that belongs to its loop and, when
+ *  `atEnd`, after its last statement unless that statement leaves the trip. A `continue` inside
+ *  a nested loop is that loop's. */
+function withUpdates(body: readonly Stmt[], update: readonly Stmt[], atEnd: boolean): Stmt[] {
+  const copy = (): Stmt[] => update.map((s) => cloneIr(s));
+  const out: Stmt[] = [];
+  for (const s of body) {
+    switch (s.s) {
+      case 'continue':
+        out.push(...copy(), s);
+        break;
+      case 'if':
+        out.push({
+          ...s,
+          arms: s.arms.map((a) => ({ ...a, body: withUpdates(a.body, update, false) })),
+          ...(s.elseBody !== undefined ? { elseBody: withUpdates(s.elseBody, update, false) } : {}),
+        });
+        break;
+      case 'switch':
+        out.push({
+          ...s,
+          cases: s.cases.map((c) => ({ ...c, body: withUpdates(c.body, update, false) })),
+          ...(s.defaultBody !== undefined
+            ? { defaultBody: withUpdates(s.defaultBody, update, false) }
+            : {}),
+        });
+        break;
+      default:
+        out.push(s);
+    }
+  }
+  const last = out[out.length - 1];
+  const leaves =
+    last !== undefined &&
+    (last.s === 'continue' || last.s === 'break' || last.s === 'return' || last.s === 'discard');
+  if (atEnd && !leaves) out.push(...copy());
+  return out;
+}
+
+/** Whether a header declarator is read with the counter's rule (Rule 7.5): a name with a
+ *  value, written with no type or with `i32` or `u32`. Any other declarator is a `let` as any
+ *  `let` is. */
+function isHeaderCounter(decl: ts.VariableDeclaration, sourceFile: ts.SourceFile): boolean {
+  if (!ts.isIdentifier(decl.name) || decl.initializer === undefined) return false;
+  if (decl.type === undefined) return true;
+  const mapped = mapTsTypeToShaderType(decl.type, sourceFile, []);
+  return mapped !== undefined && isIntScalar(mapped);
+}
+
+/**
+ * The bound a header's condition compares the name `name` with, or undefined: `n` in `i < n`,
+ * and under an `&&` exit the clause that compares it.
+ */
+function comparedBound(node: ts.ForStatement, name: string): ts.Expression | undefined {
   const isCounter = (e: ts.Expression): boolean => ts.isIdentifier(e) && e.text === name;
-  // Under an `&&` exit, the clause that compares the counter: the loop is refused for its
-  // other clause (`extraExitClause`), and it should be told that, not "cannot compare i32 and
-  // u32" about the counter's type.
   const compared = (e: ts.Expression): ts.BinaryExpression | undefined => {
     if (ts.isParenthesizedExpression(e)) return compared(e.expression);
     if (!ts.isBinaryExpression(e)) return undefined;
@@ -238,9 +408,7 @@ function counterTypeFromBound(
   };
   const cond = node.condition && compared(node.condition);
   if (!cond) return undefined;
-  const bound = isCounter(cond.left) ? cond.right : cond.left;
-  const lowered = lowerExpression(bound, sourceFile, scope, []);
-  return lowered && typeKey(lowered.type) === 'u32' ? lowered.type : undefined;
+  return isCounter(cond.left) ? cond.right : cond.left;
 }
 
 const COMPARISONS: ReadonlySet<ts.SyntaxKind> = new Set([
@@ -253,180 +421,62 @@ const COMPARISONS: ReadonlySet<ts.SyntaxKind> = new Set([
 ]);
 
 /**
- * The refusal of an exit that joins the counter's bound with `&&` to another test, or
- * undefined when the exit is not that shape (Rule 7.5).
+ * A `let` the `for` header declares with a value and no type other than `i32` or `u32`: its type
+ * is the counter's (Rule 7.5), and the lowered `var`.
  *
- * `for (let i: i32 = 0; i < 8 && i !== 3; i++)` does compare `i` to a bound, so the general
- * sentence, that the exit must compare it to one, was false of it. The refused part is the
- * other clause, and the loop that says the same thing tests it as the body's first statement,
- * negated, and leaves with a `break`: the header's clauses and that test end the same trips.
- * The negation is written as one comparison where that is exact, which is `===` against `!==`
- * always and an ordering on integers; `!(a < b)` is not `a >= b` for a NaN, so a float
- * ordering, and anything else, is negated whole.
+ * An annotation is the type. An unannotated name whose value is written as an integer is an
+ * `i32`, or a `u32` when the value is a non-negative integer literal and the bound it is
+ * compared with is a `u32`: `for (let i = 0; i < data.length; i++)` is the loop a TypeScript
+ * author writes first, and `data.length` is a `u32`. Any other value gives the name the value's
+ * type, as a `let` takes it: `for (let x = 0.; x < 1.; x += 0.25)` counts in `f32` (change 0136).
+ * A float literal compared with an integer bound keeps the `i32` it had before that change, so
+ * `for (let i = 0.; i < 10; i++)` is still counted.
+ *
+ * The bound is lowered once here into a scratch list, to read its type, and again where the
+ * condition is lowered, which reports its diagnostics. Lowering an expression declares nothing.
  */
-function extraExitClause(
-  written: ts.Expression,
-  cond: Expr,
-  counter: string,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-): string | undefined {
-  const clauses: ts.Expression[] = [];
-  const lowered: Expr[] = [];
-  const split = (w: ts.Expression): void => {
-    if (ts.isParenthesizedExpression(w)) return split(w.expression);
-    if (
-      ts.isBinaryExpression(w) &&
-      w.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
-    ) {
-      split(w.left);
-      split(w.right);
-    } else clauses.push(w);
-  };
-  const splitIr = (e: Expr): void => {
-    if (e.op === 'logical' && e.lop === '&&') {
-      splitIr(e.a);
-      splitIr(e.b);
-    } else lowered.push(e);
-  };
-  split(written);
-  splitIr(cond);
-  if (clauses.length < 2 || clauses.length !== lowered.length) return undefined;
-  // The bound is the clause that compares the counter, an ordering before an equality, so
-  // `i !== 3 && i < 8` is told about `i !== 3` as `i < 8 && i !== 3` is.
-  const bounds = lowered.flatMap((c, k) => (comparesToBound(c, counter, scope) ? [k] : []));
-  const ordering = (k: number): boolean => {
-    const c = lowered[k]!;
-    return c.op === 'compare' && c.cop !== '==' && c.cop !== '!=';
-  };
-  const at = bounds.find(ordering) ?? bounds[0];
-  if (at === undefined) return undefined;
-  const text = (w: ts.Expression): string => w.getText(sourceFile);
-  const rest = clauses.filter((_, k) => k !== at);
-  // `split` took the author's parentheses off each clause, and a clause that binds looser than
-  // `&&` needs them back to stay one clause beside another: `(a || b) && c` joined bare read
-  // as `a || (b && c)`, a different test and a `break` that ran other trips.
-  const joined =
-    rest.length === 1
-      ? text(rest[0]!)
-      : rest.map((w) => (loose(w) ? `(${text(w)})` : text(w))).join(' && ');
-  const test =
-    rest.length === 1 ? negated(rest[0]!, lowered[at === 0 ? 1 : 0]!, sourceFile) : undefined;
-  const leave = test ?? `!(${joined})`;
-  return (
-    `for exit joins the bound "${text(clauses[at]!)}" with "${joined}", ` +
-    `and a counted loop's exit is its bound alone. Make "if (${leave}) { break; }" the body's ` +
-    `first statement, or write the loop as a while.`
-  );
-}
-
-/** Whether `w`'s own operator binds looser than `&&`, so that it takes parentheses to stand as
- *  one operand of it: `||`, `??`, `?:`, an assignment or a comma. */
-function loose(w: ts.Expression): boolean {
-  if (ts.isConditionalExpression(w)) return true;
-  if (!ts.isBinaryExpression(w)) return false;
-  const k = w.operatorToken.kind;
-  return (
-    k === ts.SyntaxKind.BarBarToken ||
-    k === ts.SyntaxKind.QuestionQuestionToken ||
-    k === ts.SyntaxKind.CommaToken ||
-    (k >= ts.SyntaxKind.FirstAssignment && k <= ts.SyntaxKind.LastAssignment)
-  );
-}
-
-/** The comparison's source operators and their negations. */
-const NEGATED: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
-  [ts.SyntaxKind.EqualsEqualsEqualsToken]: '!==',
-  [ts.SyntaxKind.ExclamationEqualsEqualsToken]: '===',
-  [ts.SyntaxKind.EqualsEqualsToken]: '!=',
-  [ts.SyntaxKind.ExclamationEqualsToken]: '==',
-  [ts.SyntaxKind.LessThanToken]: '>=',
-  [ts.SyntaxKind.LessThanEqualsToken]: '>',
-  [ts.SyntaxKind.GreaterThanToken]: '<=',
-  [ts.SyntaxKind.GreaterThanEqualsToken]: '<',
-};
-
-/** `clause` negated, as the author would write it: one comparison flipped where that is exact
- *  (see {@link extraExitClause}), `!ok` read as `ok`, else `!` over the whole of it. */
-function negated(clause: ts.Expression, lowered: Expr, sourceFile: ts.SourceFile): string {
-  const text = clause.getText(sourceFile);
-  if (ts.isPrefixUnaryExpression(clause) && clause.operator === ts.SyntaxKind.ExclamationToken) {
-    let operand: ts.Expression = clause.operand;
-    while (ts.isParenthesizedExpression(operand)) operand = operand.expression;
-    return operand.getText(sourceFile);
-  }
-  if (ts.isBinaryExpression(clause) && lowered.op === 'compare') {
-    const flip = NEGATED[clause.operatorToken.kind];
-    const exact = lowered.cop === '==' || lowered.cop === '!=' || isIntScalar(lowered.a.type);
-    if (flip !== undefined && exact) {
-      return `${clause.left.getText(sourceFile)} ${flip} ${clause.right.getText(sourceFile)}`;
-    }
-  }
-  const bare =
-    ts.isIdentifier(clause) ||
-    clause.kind === ts.SyntaxKind.TrueKeyword ||
-    clause.kind === ts.SyntaxKind.FalseKeyword ||
-    ts.isCallExpression(clause) ||
-    ts.isPropertyAccessExpression(clause) ||
-    ts.isElementAccessExpression(clause);
-  return bare ? `!${text}` : `!(${text})`;
-}
-
-function lowerForInit(
-  list: ts.VariableDeclarationList,
+function lowerHeaderCounter(
+  node: ts.ForStatement,
+  decl: ts.VariableDeclaration,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
-  hint: ShaderType | undefined,
-): Stmt | undefined {
-  const decl = list.declarations[0];
-  if (!decl || list.declarations.length !== 1 || !ts.isIdentifier(decl.name)) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      list,
-      'for-init must declare exactly one identifier.',
-      TS_CODES.LOOP_INDUCTION,
-    );
-    return undefined;
-  }
-  if ((list.flags & ts.NodeFlags.Let) === 0) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      list,
-      'for-init must be `let` (mutable induction).',
-      TS_CODES.LOOP_INDUCTION,
-    );
-    return undefined;
-  }
-  const name = decl.name.text;
-  if (!decl.initializer) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      decl,
-      `for-init "${name}" requires an initializer.`,
-      TS_CODES.LOOP_INDUCTION,
-    );
-    return undefined;
-  }
+): (Stmt & { s: 'var' }) | undefined {
+  const name = (decl.name as ts.Identifier).text;
+  const written = decl.initializer!;
   const annotated = decl.type
     ? mapTsTypeToShaderType(decl.type, sourceFile, diagnostics)
     : undefined;
-  let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics);
+  let init = lowerExpression(written, sourceFile, scope, diagnostics);
   if (!init) return undefined;
-  // The induction variable's declared type, or i32 when there is no annotation, since that is
-  // the type it must have. `for (let j: i32 = -1; …)` reaches this with a PrefixUnaryExpression
-  // rather than a NumericLiteral, which the `init.op === 'lit'` special case this replaces
-  // never matched — so the initializer kept the f32 the bare `1` was given and the loop emitted
-  // `var j: i32 = -1.0`, with no diagnostic, which neither Tint nor ANGLE accepts (issue #40).
-  const counterType = annotated ?? hint ?? i32T;
-  init = retargetDeclaredIntLit(init, decl.initializer, counterType);
-  // Out of range, the §13 sentence is the one diagnostic: the loop-bound walk below would
-  // otherwise add a second one about a start value the author has already been told about.
-  if (reportIntLitRange(init, decl.initializer, counterType, sourceFile, diagnostics)) {
-    return undefined;
+  let start: ts.Expression = written;
+  while (ts.isParenthesizedExpression(start)) start = start.expression;
+  const bound = comparedBound(node, name);
+  const boundType =
+    bound === undefined ? undefined : lowerExpression(bound, sourceFile, scope, [])?.type;
+  const intBound =
+    bound !== undefined &&
+    (isIntegerLiteralTree(bound) || (boundType !== undefined && isIntScalar(boundType)));
+  const floatWritten = ts.isNumericLiteral(start) && !isIntegerWritten(start);
+  if (annotated !== undefined || !floatWritten || intBound) {
+    // The induction variable's declared type, or i32 when there is no annotation. `for (let j:
+    // i32 = -1; …)` reaches this with a PrefixUnaryExpression rather than a NumericLiteral, which
+    // the `init.op === 'lit'` special case this replaces never matched — so the initializer kept
+    // the f32 the bare `1` was given and the loop emitted `var j: i32 = -1.0`, with no
+    // diagnostic, which neither Tint nor ANGLE accepts (issue #40).
+    const hint =
+      decl.type === undefined &&
+      ts.isNumericLiteral(start) &&
+      /^\d+$/.test(start.text) &&
+      boundType !== undefined &&
+      typeKey(boundType) === 'u32'
+        ? boundType
+        : undefined;
+    const counterType = annotated ?? hint ?? i32T;
+    init = retargetDeclaredIntLit(init, written, counterType);
+    // Out of range, the §13 sentence is the one diagnostic: the loop-bound walk would
+    // otherwise add a second one about a start value the author has already been told about.
+    if (reportIntLitRange(init, written, counterType, sourceFile, diagnostics)) return undefined;
   }
   if (annotated && typeKey(annotated) !== typeKey(init.type)) {
     // The check statement.ts has always had at its own declaration site, and the reason this
@@ -441,18 +491,7 @@ function lowerForInit(
     return undefined;
   }
   const type: ShaderType = annotated ?? init.type;
-  const k = typeKey(type);
-  if (k !== 'i32' && k !== 'u32') {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      decl,
-      `for induction must be i32 or u32, got ${authorTypeText(type)}.`,
-      TS_CODES.LOOP_INDUCTION,
-    );
-    return undefined;
-  }
-  const bound = scope.define({
+  const bound_ = scope.define({
     kind: 'local',
     name,
     type,
@@ -461,10 +500,10 @@ function lowerForInit(
   });
   scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'local', type, mutable: true });
   // What a local function in the loop body reads `i` through (Rule 8.17).
-  scope.bindDeclaration(decl, bound);
+  scope.bindDeclaration(decl, bound_);
   // Two sequential loops over `i` are the first shape a shader author writes; the second
   // counter takes the IR name `i_1` so the two never collide in the function (#38).
-  return { s: 'var', name: irNameOf(bound), type, init };
+  return { s: 'var', name: irNameOf(bound_), type, init };
 }
 
 export function lowerWhile(
@@ -493,7 +532,7 @@ export function lowerWhile(
     );
     return undefined;
   }
-  const err = openLoopError(cond, scope, bodyHasExit(node.statement), written);
+  const err = openLoopError(cond, scope, bodyHasExit(node.statement), `while (${written})`);
   if (err) {
     pushDiag(diagnostics, sourceFile, node, err.message, err.code);
     return undefined;

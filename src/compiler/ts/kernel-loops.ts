@@ -172,7 +172,7 @@ class Wording {
     switch (r.rule) {
       case 'R1':
         return r.why === 'while'
-          ? `${why} it is a while loop, whose trip count is known only when it ends. A for loop over a count runs on the GPU.`
+          ? `${why} it is an open loop, a while or a for that is not counted, whose trip count is known only when it ends. A counted for loop runs on the GPU.`
           : `${why} "${this.text(r.at) ?? 'its step'}" does not step through a range of indices. Step by adding a constant.`;
       case 'R2':
         return r.why === 'return'

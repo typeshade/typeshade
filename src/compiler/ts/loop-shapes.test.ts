@@ -26,6 +26,7 @@ import { LoweringScope } from './context.js';
 import { lowerStatements } from './lower/statement.js';
 import { checkDocuments } from '../../language-service/check.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
+import type { Stmt } from '../../core/ir/nodes.js';
 
 /** One loop, as a whole module, with `head` spliced into the `for`. */
 function loop(head: string): string {
@@ -60,15 +61,30 @@ function editorErrorsOf(src: string): { code?: string; message: string }[] {
     .map((d) => ({ code: d.code, message: d.message }));
 }
 
-/** The TS8008 sentence, for the counter `i`: one wording for every update none of the forms. */
-const NOT_A_STEP = {
-  code: 'TS8008',
-  message: 'for-update must be i++ / i += <const>, or i *= / /= <const>.',
-};
-
 function accepts(head: string): void {
   const r = compileTsSource(loop(head));
   expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+}
+
+/** The counted fact of the first `for` the module's functions hold, or undefined for an open
+ *  loop (Rule 7.5, change 0136); the program must compile. */
+function countedOf(src: string): unknown {
+  const c = compile(src);
+  expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+  let found: { counted?: unknown } | undefined;
+  const walk = (body: readonly Stmt[]): void => {
+    for (const s of body) {
+      if (found) return;
+      if (s.s === 'for') found = s;
+      else if (s.s === 'if') {
+        s.arms.forEach((a) => walk(a.body));
+        if (s.elseBody) walk(s.elseBody);
+      }
+    }
+  };
+  for (const f of c.module.funcs) walk(f.body);
+  expect(found, 'no for loop in the module').toBeDefined();
+  return found!.counted;
 }
 
 /** How many times the loop's body runs, on the CPU, once the header is accepted. */
@@ -187,17 +203,22 @@ describe('a multiplicative step is a counted loop', () => {
     accepts('let i: i32 = 0; i < 16; i += (1.5 + 1.5)');
   });
 
-  it('names the forms it takes when the update is none of them', () => {
-    // `%=` is not one of the four the update table takes — a remainder step is a fixed point
-    // after one application, so no `for` it heads exits — and an assignment that is not a
-    // step spelled out is not an update shape at all. Each stops in lowerUpdate, before the
-    // counting, and used to be `TS8099 Unsupported for-update.`, which named no form; it now
-    // says what the counter says of `j += 1`, so one mistake reads one way (Rule 12.4).
-    for (const update of ['i %= 3', 'i = i * i', 'i = i * 2', 'i <<= 1', 'i++, a++', '-i']) {
-      expect(errorsOf(loop(`let i: i32 = 1; i < 16; ${update}`)), update).toEqual([NOT_A_STEP]);
+  it('takes an update that is none of the counted forms as an open loop', () => {
+    // These were `TS8008 for-update must be i++ / i += <const>, or i *= / /= <const>.` A `for`
+    // that is not counted is an open loop, as a `while` is (change 0136): the update is the
+    // statement it is, and the loop carries no counted fact. `i %= 3` from 1 never reaches 16,
+    // and no front-end check reads that: a cost of the change, recorded in the proposal.
+    for (const update of ['i %= 3', 'i = i * i', 'i = i * 2', 'i <<= 1', 'i++, a++']) {
+      const src = loop(`let i: i32 = 1; i < 16; ${update}`);
+      expect(errorsOf(src), update).toEqual([]);
+      expect(editorErrorsOf(src), update).toEqual([]);
+      expect(countedOf(src), update).toBeUndefined();
     }
-    // A step that lowers but is not a compile-time constant reaches the counter, which names
-    // the forms it can read.
+    // An update that is no statement is refused as the same statement in a body is.
+    expect(errorsOf(loop('let i: i32 = 1; i < 16; -i'))).toEqual([
+      { code: 'TS8099', message: 'Unsupported update operator.' },
+    ]);
+    // A step that lowers but is not a compile-time constant makes an open loop too.
     const r = compileTsSource(`"use typeshade";
       export function f(n: i32): f32 {
         let a = 0.;
@@ -207,7 +228,7 @@ describe('a multiplicative step is a counted loop', () => {
         return a;
       }
     `);
-    expect(r.diagnostics.map((d) => ({ code: d.code, message: d.message }))).toEqual([NOT_A_STEP]);
+    expect(r.diagnostics.map((d) => ({ code: d.code, message: d.message }))).toEqual([]);
   });
 });
 
@@ -280,24 +301,20 @@ describe('a for update is lowered or refused, never dropped (Rules 7.5, 12.6)', 
   // Each of these compiled with no diagnostic, and the whole loop, body and all, was missing
   // from the WGSL and the GLSL: `lowerUpdate` returned nothing for a compound assignment to
   // a member, an element or an unknown name, and nothing said so.
-  it('refuses a member or an element with the sentence `v.x++` and `j += 1` get', () => {
-    const member = kernel(`
-      let v = vec2(0., 0.);
-      for (let i: i32 = 0; i < 16; v.x += 1.) { out[0] = 5.; }
-    `);
-    expect(errorsOf(member)).toEqual([NOT_A_STEP]);
-    const element = kernel(`
-      let xs: array<i32, 2> = [0, 0];
-      for (let i: i32 = 0; i < 8; xs[0] += 1) { out[0] = 5.; }
-    `);
-    expect(errorsOf(element)).toEqual([NOT_A_STEP]);
-    // The two it already matched, so the three read as one.
-    expect(
-      errorsOf(kernel('let v = vec2(0., 0.); for (let i: i32 = 0; i < 8; v.x++) { }')),
-    ).toEqual([NOT_A_STEP]);
-    expect(errorsOf(kernel('let j: i32 = 0; for (let i: i32 = 0; i < 8; j += 1) { }'))).toEqual([
-      NOT_A_STEP,
-    ]);
+  it("takes a member, an element or another name as an open loop's update", () => {
+    // Each was `TS8008 for-update must be …` (change 0136): the update is the statement it is,
+    // and the loop is an open one, in the module and not dropped.
+    for (const body of [
+      'let v = vec2(0., 0.); for (let i: i32 = 0; i < 16; v.x += 1.) { out[0] = 5.; }',
+      'let xs: array<i32, 2> = [0, 0]; for (let i: i32 = 0; i < 8; xs[0] += 1) { out[0] = 5.; }',
+      'let v = vec2(0., 0.); for (let i: i32 = 0; i < 8; v.x++) { }',
+      'let j: i32 = 0; for (let i: i32 = 0; i < 8; j += 1) { }',
+    ]) {
+      const src = kernel(body);
+      expect(errorsOf(src), body).toEqual([]);
+      expect(editorErrorsOf(src), body).toEqual([]);
+      expect(countedOf(src), body).toBeUndefined();
+    }
   });
 
   it('refuses an unknown name with the sentence `zz++` gets', () => {
@@ -332,7 +349,8 @@ describe('a for update is lowered or refused, never dropped (Rules 7.5, 12.6)', 
         for (${head}) { out[0] = 5.; }`),
       );
       const failed = r.diagnostics.some((d) => d.category === 'error');
-      expect(failed || /for \(var i: i32/.test(r.wgsl ?? ''), head).toBe(true);
+      // An open loop declares its counter ahead of a loop of the compiler's own (change 0136).
+      expect(failed || /\bfor \(var (i|_w): i32/.test(r.wgsl ?? ''), head).toBe(true);
     }
   });
 
@@ -468,82 +486,45 @@ describe('i = i + c is the step i += c spelled out (Rule 7.5)', () => {
     expect(errorsOf(loop('let i: i32 = 0; i < 16; i = i - 1'))).toEqual([
       { code: 'TS8007', message: 'for (i = 0; i < 16; i -= 1) does not exit.' },
     ]);
-    // `c - i` is not a step: it does not move `i` by a constant.
-    expect(errorsOf(loop('let i: i32 = 0; i < 16; i = 1 - i'))).toEqual([NOT_A_STEP]);
+    // `c - i` is not a step: it does not move `i` by a constant, so the loop is an open one
+    // (change 0136).
+    expect(countedOf(loop('let i: i32 = 0; i < 16; i = 1 - i'))).toBeUndefined();
   });
 });
 
-describe('an && exit names the clause that is not the bound (Rules 7.5, 12.1)', () => {
-  it('names the extra clause and the break that says it', () => {
-    // It was `for exit must compare "i" to a bound`, which it does.
-    expect(errorsOf(loop('let i: i32 = 0; i < 8 && i !== 3; i++'))).toEqual([
-      {
-        code: 'TS8006',
-        message:
-          'for exit joins the bound "i < 8" with "i !== 3", and a counted loop\'s exit is its ' +
-          'bound alone. Make "if (i === 3) { break; }" the body\'s first statement, or write ' +
-          'the loop as a while.',
-      },
-    ]);
-    // On either side of the `&&`, and negated whole where one comparison would not be exact:
-    // a float `>` is not the opposite of `<=` for a NaN.
-    expect(errorsOf(loop('let i: i32 = 0; i !== 3 && i < 8; i++'))[0]?.message).toContain(
-      '"if (i === 3) { break; }"',
-    );
-    expect(errorsOf(loop('let i: i32 = 0; i < 8 && a < 4.; i++'))[0]?.message).toContain(
-      '"if (!(a < 4.)) { break; }"',
-    );
-    expect(errorsOf(loop('let i: i32 = 0; i < 8 && !(a > 4.); i++'))[0]?.message).toContain(
-      '"if (a > 4.) { break; }"',
-    );
-  });
-
-  it('keeps the parentheses that make a clause one clause', () => {
-    // The clauses were joined bare: "a > 0 || b > 0 && c > 0" is `a > 0 || (b > 0 && c > 0)`,
-    // not the test the author wrote, and its `break` ran 8 trips where the header ran none.
-    const src = `"use typeshade";
-      export function f(a: i32, b: i32, c: i32): i32 {
-        let n: i32 = 0;
-        for (let i: i32 = 0; i < 8 && (a > 0 || b > 0) && c > 0; i++) { n++; }
-        return n;
-      }
-    `;
-    expect(errorsOf(src)).toEqual([
-      {
-        code: 'TS8006',
-        message:
-          'for exit joins the bound "i < 8" with "(a > 0 || b > 0) && c > 0", and a counted ' +
-          'loop\'s exit is its bound alone. Make "if (!((a > 0 || b > 0) && c > 0)) { break; }" ' +
-          "the body's first statement, or write the loop as a while.",
-      },
-    ]);
+describe('an && exit makes an open loop (Rule 7.5, change 0136)', () => {
+  it('compiles a for whose exit joins the bound with another test', () => {
+    // These were `TS8006 for exit joins the bound "i < 8" with "i !== 3", and a counted loop's
+    // exit is its bound alone. Make "if (i === 3) { break; }" the body's first statement, or
+    // write the loop as a while.` A `for` that is not counted is an open loop now, as the
+    // `while` the sentence named is.
+    for (const exit of [
+      'i < 8 && i !== 3',
+      'i !== 3 && i < 8',
+      'i < 8 && a < 4.',
+      'i < 8 && !(a > 4.)',
+    ]) {
+      const src = loop(`let i: i32 = 0; ${exit}; i++`);
+      expect(errorsOf(src), exit).toEqual([]);
+      expect(editorErrorsOf(src), exit).toEqual([]);
+      expect(countedOf(src), exit).toBeUndefined();
+    }
   });
 
   it('types an unannotated counter from the clause that compares it', () => {
-    // It was `TS8003 cannot compare i32 and u32`, about a counter type the author never wrote.
+    // It was `TS8003 cannot compare i32 and u32`, about a counter type the author never wrote,
+    // and then the TS8006 above; the counter is a `u32` and the loop an open one.
     const src = kernel(
       'for (let i = 0; i < data.length && data[i] > 0.; i++) { out[0] = 5.; }',
       'declare const data: storage<array<f32>>;',
     );
-    expect(errorsOf(src)).toEqual([
-      {
-        code: 'TS8006',
-        message:
-          'for exit joins the bound "i < data.length" with "data[i] > 0.", and a counted ' +
-          'loop\'s exit is its bound alone. Make "if (!(data[i] > 0.)) { break; }" the ' +
-          "body's first statement, or write the loop as a while.",
-      },
-    ]);
-    const fixed = kernel(
-      'for (let i = 0; i < data.length; i++) { if (!(data[i] > 0.)) { break; } out[0] = 5.; }',
-      'declare const data: storage<array<f32>>;',
-    );
-    expect(errorsOf(fixed)).toEqual([]);
+    expect(errorsOf(src)).toEqual([]);
+    expect(editorErrorsOf(src)).toEqual([]);
   });
 
-  it('offers a remedy that compiles and runs the trips the header meant', () => {
-    // The header as the while it is, beside the for loop the diagnostic writes, on the CPU:
-    // the two count the same trips for every input.
+  it('runs the trips the while with the same exit runs', () => {
+    // The header as the while it is, beside the for loop, on the CPU: the two count the same
+    // trips for every input, parentheses kept where a clause binds looser than `&&`.
     for (const exit of [
       'i < 8 && i !== a + 2',
       'i !== b + 1 && i < 8',
@@ -553,19 +534,6 @@ describe('an && exit names the clause that is not the bound (Rules 7.5, 12.1)', 
       'i < 8 && (a > 0 || b > 0) && (c > 0 || a > 1)',
       'i < 8 && !(a > 0 && b > 0)',
     ]) {
-      const refused = `"use typeshade";
-        export function f(a: i32, b: i32, c: i32): i32 {
-          let n: i32 = 0;
-          for (let i: i32 = 0; ${exit}; i++) { n++; }
-          return n;
-        }
-      `;
-      const [error] = errorsOf(refused);
-      const remedy = /Make "(if \(.*\) \{ break; \})" the body's first statement/.exec(
-        error?.message ?? '',
-      )?.[1];
-      expect(remedy, exit).toBeDefined();
-      const bound = /joins the bound "([^"]*)"/.exec(error!.message)![1];
       const c = compile(`"use typeshade";
         export function header(a: i32, b: i32, c: i32): i32 {
           let n: i32 = 0;
@@ -573,9 +541,9 @@ describe('an && exit names the clause that is not the bound (Rules 7.5, 12.1)', 
           while (${exit}) { n++; i++; }
           return n;
         }
-        export function remedy(a: i32, b: i32, c: i32): i32 {
+        export function open(a: i32, b: i32, c: i32): i32 {
           let n: i32 = 0;
-          for (let i: i32 = 0; ${bound}; i++) { ${remedy} n++; }
+          for (let i: i32 = 0; ${exit}; i++) { n++; }
           return n;
         }
       `);
@@ -587,7 +555,7 @@ describe('an && exit names the clause that is not the bound (Rules 7.5, 12.1)', 
         for (const b of [0, 1, 2]) {
           for (const k of [0, 1]) {
             const args = [a, b, k];
-            expect(c.eval('remedy', args), `${exit} at ${args.join(',')}`).toBe(
+            expect(c.eval('open', args), `${exit} at ${args.join(',')}`).toBe(
               c.eval('header', args),
             );
           }
@@ -819,9 +787,6 @@ describe('the editor says what compile() says of a loop (Rules 12.4, 12.7)', () 
         'a break, or write the exit into the condition.',
     });
     for (const [body, expected] of [
-      ['let v = vec2(0., 0.); for (let i: i32 = 0; i < 16; v.x += 1.) { }', NOT_A_STEP],
-      ['let xs: array<i32, 2> = [0, 0]; for (let i: i32 = 0; i < 8; xs[0] += 1) { }', NOT_A_STEP],
-      ['for (let i: i32 = 0; i < 8; i <<= 1) { }', NOT_A_STEP],
       [
         'for (let i: i32 = 0; i < 8; zz += 1) { }',
         { code: 'TS8022', message: 'Cannot assign to unknown name "zz".' },
@@ -835,16 +800,6 @@ describe('the editor says what compile() says of a loop (Rules 12.4, 12.7)', () 
             'explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).',
         },
       ],
-      [
-        'for (let i: i32 = 0; i < 8 && i !== 3; i++) { }',
-        {
-          code: 'TS8006',
-          message:
-            'for exit joins the bound "i < 8" with "i !== 3", and a counted loop\'s exit is its ' +
-            'bound alone. Make "if (i === 3) { break; }" the body\'s first statement, or write ' +
-            'the loop as a while.',
-        },
-      ],
       ['while (ON) { out[0] = 5.; }', never('ON')],
       ['while (!PAUSED) { out[0] = 5.; }', never('!PAUSED')],
     ] as const) {
@@ -852,23 +807,28 @@ describe('the editor says what compile() says of a loop (Rules 12.4, 12.7)', () 
       expect(errorsOf(src), body).toEqual([expected]);
       expect(editorErrorsOf(src), body).toEqual([expected]);
     }
+    // The member, element, shift and `&&` headers this list held are open loops now, in both
+    // halves (change 0136).
+    for (const body of [
+      'let v = vec2(0., 0.); for (let i: i32 = 0; i < 16; v.x += 1.) { }',
+      'let xs: array<i32, 2> = [0, 0]; for (let i: i32 = 0; i < 8; xs[0] += 1) { }',
+      'for (let i: i32 = 0; i < 8; i <<= 1) { }',
+      'for (let i: i32 = 0; i < 8 && i !== 3; i++) { }',
+    ]) {
+      const src = kernel(body, top);
+      expect(errorsOf(src), body).toEqual([]);
+      expect(editorErrorsOf(src), body).toEqual([]);
+    }
   });
 });
 
-describe('the for-init text names both counter types Rule 7.5 accepts (#788)', () => {
-  it('names i32 and u32, in compile() and in the editor alike', () => {
+describe('a for with no initializer is an open loop (#788, change 0136)', () => {
+  it('compiles and counts, in compile() and in the editor alike', () => {
+    // This was `TS8008 for-init must be \`let i: i32 = <start>\` or \`let i: u32 = <start>\`.`
     const src =
       '"use typeshade";\nexport function f(): f32 {\n  let s = 0.;\n  let i: u32 = 0;\n  for (; i < 4; i++) {\n    s += 1.;\n  }\n  return s;\n}\n';
-    const want = {
-      code: 'TS8008',
-      message: 'for-init must be `let i: i32 = <start>` or `let i: u32 = <start>`.',
-    };
-    const r = compileTsSource(src);
-    expect(
-      r.diagnostics
-        .filter((d) => d.category === 'error')
-        .map((d) => ({ code: d.code, message: d.message })),
-    ).toContainEqual(want);
-    expect(editorErrorsOf(src)).toContainEqual(want);
+    expect(errorsOf(src)).toEqual([]);
+    expect(editorErrorsOf(src)).toEqual([]);
+    expect(compile(src).eval('f', [])).toBe(4);
   });
 });

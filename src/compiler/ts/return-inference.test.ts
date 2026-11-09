@@ -544,7 +544,7 @@ export function run(k: f32): f32 {
     ).toBe(`${TS_CODES.UNKNOWN_NAME} Unknown identifier "nope".`);
   });
 
-  it('a setter with no type and no getter, or beside one that returns nothing, and an entry that returns a value', () => {
+  it('a setter with no type and no getter, or beside one that returns nothing', () => {
     // Nothing says the value's type: TypeScript's implicit `any` (TS7006). Said where the value
     // is declared, and the assignment adds nothing (Rule 12.4).
     const setter = (getter: string): string =>
@@ -572,15 +572,9 @@ export function run(k: f32): f32 {
     ).toBe(
       `${TS_CODES.UNKNOWN_TYPE} The getter "A.x" returns nothing, so the setter has no type for "v": write "set x(v: T)".`,
     );
-    expect(
-      only(`"use typeshade";
-export const fs = fragment(function fs() {
-  return vec4(1., 0., 0., 1.);
-});
-`),
-    ).toBe(
-      `${TS_CODES.RETURN_SHAPE} Entry function "fs" returns a value (inferred type vec4) but has no return type annotation; add ": vec4" to the signature.`,
-    );
+    // An entry that returns a value with no return type was `TS8021 Entry function "fs" returns
+    // a value (inferred type vec4) but has no return type annotation; add ": vec4" to the
+    // signature.` It returns what its body says now (change 0136): entry-results.test.ts.
   });
 });
 

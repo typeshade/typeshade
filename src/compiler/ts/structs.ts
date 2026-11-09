@@ -33,6 +33,7 @@ import {
   type KeywordAccess,
 } from './class-names.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
+import { declaresEntry, stageCallOf } from './stage-call.js';
 import { TS_CODES } from './codes.js';
 import { newTargetOf } from './lower/new-target.js';
 import { makeDiagnostic } from './diagnostic.js';
@@ -1665,6 +1666,23 @@ function reachableCandidates(
     if (!ts.isClassDeclaration(stmt)) continue;
     eachHeritageName(stmt.heritageClauses, see);
   }
+  // An entry that writes no return type and returns an object literal takes the one struct the
+  // literal's names match among every struct the file declares (Rule 8.19, surface §16, change
+  // 0136). Each candidate whose fields are those names is a root, so one declared and used
+  // nowhere else is collected, and two that match are both there for the lowering to name.
+  for (const names of entryResultLiterals(sourceFile)) {
+    for (const candidate of candidates.values()) {
+      const fields = candidate.members.flatMap((m) =>
+        ts.isPropertySignature(m) && ts.isIdentifier(m.name) ? [m.name.text] : [],
+      );
+      if (
+        fields.length === candidate.members.length &&
+        fields.length === names.size &&
+        fields.every((f) => names.has(f))
+      )
+        see(candidate.name);
+    }
+  }
   while (pending.length > 0) {
     const candidate = candidates.get(pending.pop()!);
     if (!candidate) continue;
@@ -1674,6 +1692,56 @@ function reachableCandidates(
     eachHeritageName(candidate.heritage, see);
   }
   return reachable;
+}
+
+/** The field names of each object literal an entry that writes no return type returns, in a
+ *  `return` of its own body (change 0136). A literal with a spread or a computed name is left
+ *  out, as the lowering leaves it to the table of used structs. */
+function entryResultLiterals(sourceFile: ts.SourceFile): Set<string>[] {
+  const out: Set<string>[] = [];
+  const entries: ts.FunctionLikeDeclaration[] = [];
+  const visitStatements = (statements: readonly ts.Statement[]): void => {
+    for (const stmt of statements) {
+      const sc = stageCallOf(stmt);
+      if (sc !== undefined && declaresEntry(sc.callee)) entries.push(sc.fn);
+      else if (
+        ts.isFunctionDeclaration(stmt) &&
+        (stmt.modifiers ?? [])
+          .filter(ts.isDecorator)
+          .some((d) => /^@(vertex|fragment|compute)\b/.test(d.getText(sourceFile)))
+      )
+        entries.push(stmt);
+      else if (
+        ts.isModuleDeclaration(stmt) &&
+        stmt.body !== undefined &&
+        ts.isModuleBlock(stmt.body)
+      )
+        visitStatements(stmt.body.statements);
+    }
+  };
+  visitStatements(sourceFile.statements);
+  for (const fn of entries) {
+    if (fn.type !== undefined || fn.body === undefined) continue;
+    const walk = (node: ts.Node): void => {
+      if (ts.isFunctionLike(node) || ts.isClassLike(node)) return;
+      if (ts.isReturnStatement(node) && node.expression !== undefined) {
+        let e: ts.Expression = node.expression;
+        while (ts.isParenthesizedExpression(e)) e = e.expression;
+        if (ts.isObjectLiteralExpression(e)) {
+          const names = e.properties.map((p) =>
+            (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) &&
+            ts.isIdentifier(p.name)
+              ? p.name.text
+              : undefined,
+          );
+          if (names.every((n) => n !== undefined)) out.push(new Set(names as string[]));
+        }
+      }
+      ts.forEachChild(node, walk);
+    };
+    ts.forEachChild(fn.body, walk);
+  }
+  return out;
 }
 
 /** The names an `extends` clause writes. `implements` is left alone: it carries no layout, so
