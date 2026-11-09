@@ -15,9 +15,10 @@
 // is a `TypeError` that says so.
 //
 // The render hardware interface (change 0120, M2). The runtime holds the WebGL2 backend of
-// `src/rhi/webgl2.ts` and calls no WebGL2 function itself. A dispatch still runs through the call
-// layer's executor (`core/gl-compute.ts`), handed the backend's context and the native objects of
-// its handles; milestone M4 moves the call layer onto the program runtime.
+// `src/rhi/webgl2.ts` and calls no WebGL2 function itself. A dispatch still runs through the
+// executor of `core/gl-compute.ts`, handed the backend's context and the native objects of its
+// handles: the backend has no compute pass. The call layer's entry call outside a `fuse` scope
+// dispatches through this tier (`runFrame`, change 0120, M4).
 
 import { describe, byteSize, Misfit, pack, readInto, type Layout } from '../core/host-entry.js';
 import { runGlCompute } from '../core/gl-compute.js';
@@ -35,6 +36,7 @@ import {
 import { kernelQueue, residentState, type ResidentArrayState } from '../core/resident.js';
 import {
   at,
+  CallWords,
   checkManifest,
   constantsOf,
   entryOf,
@@ -129,6 +131,15 @@ export class GlRuntimeImpl implements Runtime<WebGL2RenderingContext> {
     return recordPass(this.drawing, targets, record)();
   }
 
+  /** Record a frame and run it now, outside the queue of `core/resident.ts`: for the call layer's
+   *  entry call, which already holds its place in that queue (change 0120, M4), as `runPass` is
+   *  for its draw. */
+  async runFrame(record: (frame: Frame) => void): Promise<void> {
+    const frame = new GlFrameImpl(this);
+    record(frame);
+    await frame.runNow();
+  }
+
   submit(): ReturnType<Frame['submit']> {
     return Promise.reject(
       new TypeError(
@@ -213,7 +224,8 @@ class GlProgramImpl implements Program {
 
 /** A binding as a dispatch gives it: words packed for this dispatch, or a `Resident`. */
 type Given =
-  | { readonly kind: 'words'; readonly words: Uint32Array }
+  /** `inPlace`: the call layer's words (`CallWords`), which the dispatch runs on as they are. */
+  | { readonly kind: 'words'; readonly words: Uint32Array; readonly inPlace?: true }
   | { readonly kind: 'uniform'; readonly value: unknown }
   | { readonly kind: 'texture'; readonly texture: object }
   | {
@@ -254,7 +266,7 @@ class GlComputePipelineImpl implements ComputePipeline {
       const memory: Record<string, Uint32Array> = {};
       const uniforms: Record<string, unknown> = {};
       for (const [name, g] of given) {
-        if (g.kind === 'words') memory[name] = g.words.slice();
+        if (g.kind === 'words') memory[name] = g.inPlace === true ? g.words : g.words.slice();
         else if (g.kind === 'uniform') uniforms[name] = g.value;
         else if (g.kind === 'texture' || g.kind === 'sampler' || g.kind === 'storage') continue;
         else {
@@ -366,6 +378,10 @@ class GlComputePipelineImpl implements ComputePipeline {
         out.set(b.name, { kind: 'sampler', sampler: rhi.toNative(samplerOf(rhi, v, where)) });
         continue;
       }
+      if (v instanceof CallWords) {
+        out.set(b.name, { kind: 'words', words: v.words, inPlace: true });
+        continue;
+      }
       if (b.layout === undefined)
         throw new TypeError(
           `${where} has no host value${b.noLayout !== undefined ? `: ${b.noLayout}` : ''}.`,
@@ -465,6 +481,12 @@ class GlFrameImpl implements Frame {
 
   pass(targets: PassTargets, record: (pass: RenderPass) => void): void {
     this.record(recordPass(this.rt.drawing, targets, record), []);
+  }
+
+  /** Run the frame's dispatches and passes in order now, outside the queue (`runFrame`). */
+  async runNow(): Promise<void> {
+    this.#submitted = true;
+    for (const run of this.#runs) await run();
   }
 
   submit(): ReturnType<Frame['submit']> {

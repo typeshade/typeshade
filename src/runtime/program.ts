@@ -1391,7 +1391,9 @@ export class BufferPool {
   take(size: number, usage: readonly RhiBufferUsage[]): RhiBuffer {
     const rounded = Math.max(16, Math.ceil(size / 16) * 16);
     const key = `${[...usage].sort().join('|')}:${rounded}`;
-    const b = this.#free.get(key)?.pop() ?? this.device.createBuffer({ size: rounded, usage });
+    // First in, first out: a frame whose shapes repeat takes the same buffers in the same order, so
+    // the bind groups over them are the cache's, not a second set over the buffers turned round.
+    const b = this.#free.get(key)?.shift() ?? this.device.createBuffer({ size: rounded, usage });
     this.#taken.push([key, b]);
     return b;
   }
@@ -1468,11 +1470,15 @@ export class ProgramImpl implements Program {
     readonly rt: RuntimeImpl,
     readonly manifest: Pack,
     readonly recording: boolean,
+    /** A shader module of the program's text the call layer already made on this device, which
+     *  the entries of one module share (change 0120, M4). */
+    module?: RhiShaderModule,
   ) {
     const recorded = recording ? manifest.console : undefined;
     this.#wgsl = recorded?.wgsl ?? manifest.wgsl;
     this.#bindings = new Map((recorded?.bindings ?? manifest.bindings).map((b) => [b.name, b]));
     this.#log = recorded?.log;
+    this.#module = module;
   }
 
   get device(): RhiDevice {
@@ -1602,6 +1608,35 @@ export class ProgramImpl implements Program {
       this.#pipelines.set(key, p);
     }
     return p as Promise<ComputePipeline>;
+  }
+
+  /**
+   * The compute pipeline of `entry` for the call layer's entry call (change 0120, M4), made once
+   * for each entry and constants. The call layer checks the entry against the device itself, with
+   * its own refusals (Rules 8.24 and 11.8), so this checks no limit and words no refusal: it
+   * rejects with what the device rejected, as the call layer's pipeline did. `constants` are the
+   * pipeline's values by their WGSL spellings, as the entry record holds them.
+   */
+  callPipeline(
+    entry: string,
+    constants?: Readonly<Record<string, number>>,
+  ): Promise<ComputePipelineImpl> {
+    const e = entryOf(this.manifest, entry, 'compute');
+    const key = `call:${e.name}:${constants === undefined ? '' : JSON.stringify(constants)}`;
+    let p = this.#pipelines.get(key) as Promise<ComputePipelineImpl> | undefined;
+    if (p === undefined) {
+      const shape = this.#shape([e]);
+      p = this.device
+        .createComputePipeline({
+          layouts: shape.layouts,
+          module: this.shaderModule(),
+          entryPoint: e.emitted,
+          ...(constants !== undefined ? { constants } : {}),
+        })
+        .then((gpu) => new ComputePipelineImpl(this, e, shape, gpu, e.workgroupSize ?? [1, 1, 1]));
+      this.#pipelines.set(key, p);
+    }
+    return p;
   }
 
   render(state: RenderState = {}): Promise<RenderPipeline> {
@@ -1783,15 +1818,16 @@ export class ProgramImpl implements Program {
         );
     return shape.groups.map((g) => {
       const resources: { binding: number; resource: RhiBindResource }[] = [];
-      const key: number[] = [];
+      const key: (number | string)[] = [];
       for (const s of g.slots) {
         const r = this.#resource(s, entry, values, consoleBuffer);
         resources.push({ binding: s.binding.binding, resource: r });
-        key.push(
-          idOf(
-            'buffer' in r ? r.buffer : 'view' in r ? r.view : 'sampler' in r ? r.sampler : r.native,
-          ),
+        const id = idOf(
+          'buffer' in r ? r.buffer : 'view' in r ? r.view : 'sampler' in r ? r.sampler : r.native,
         );
+        // A pooled buffer is bound with the size of what it holds, which the group keeps: the
+        // same buffer bound with another size is another group (#367).
+        key.push('buffer' in r && r.size !== undefined ? `${id}/${r.size}` : id);
       }
       return this.rt.bindGroup(g.layout, key.join(','), resources);
     });
@@ -1810,6 +1846,8 @@ export class ProgramImpl implements Program {
     const where = `"${entry.name}"${at(entry)}, binding "${b.name}" (${b.type})`;
     if (v === undefined) throw new TypeError(`${where} is not given.`);
     if (RESOURCE_KINDS.has(b.resource.resourceKind)) {
+      if (v instanceof CallBuffer)
+        return v.size === undefined ? { buffer: v.buffer } : { buffer: v.buffer, size: v.size };
       const host =
         typeof v === 'object' && v !== null ? this.device.fromNative('buffer', v) : undefined;
       if (host !== undefined) return { buffer: host };
@@ -1963,6 +2001,46 @@ export class ComputePipelineImpl implements ComputePipeline {
     pass.dispatchWorkgroups(...wg);
     if (end) pass.end();
   }
+
+  /**
+   * Record one dispatch of the call layer's entry call into `pass` (change 0120, M4): the counts,
+   * or the buffer that holds them and the byte offset they start at. The call layer has checked
+   * the call and its counts with its own refusals (Rules 8.24 and 11.8), so this checks no size;
+   * the console buffer is taken where the program records.
+   */
+  record(
+    pass: RhiComputePass,
+    bindings: Bindings,
+    grid:
+      readonly [number, number, number] | { readonly buffer: RhiBuffer; readonly offset: number },
+  ): void {
+    const rt = this.program.rt;
+    const recorder = this.shape.console;
+    const consoleBuffer =
+      recorder !== undefined ? rt.consoleBuffer(recorder.log, recorder.entry) : undefined;
+    const groups = this.program.bindGroups(this.shape, this.e, bindings, consoleBuffer);
+    pass.setPipeline(this.gpu);
+    groups.forEach((g, i) => pass.setBindGroup(i, g));
+    if ('buffer' in grid) pass.dispatchWorkgroupsIndirect(grid.buffer, grid.offset);
+    else pass.dispatchWorkgroups(grid[0], grid[1], grid[2]);
+  }
+}
+
+/** A storage binding's words the call layer hands a WebGL2 dispatch (change 0120, M4): the dispatch
+ *  runs on them in place, so the call reads back what the entry wrote from them, as it reads a
+ *  WebGPU buffer back. A plain value is copied, and nothing is read back into it. */
+export class CallWords {
+  constructor(readonly words: Uint32Array) {}
+}
+
+/** A buffer the call layer binds as it is, with the size it binds when it is a pooled buffer
+ *  larger than what it holds (change 0120, M4). The call layer packs each value at the call and
+ *  reads back what the entry wrote from its own buffer, so the program packs nothing for it. */
+export class CallBuffer {
+  constructor(
+    readonly buffer: RhiBuffer,
+    readonly size?: number,
+  ) {}
 }
 
 /** What a frame's pass on WebGPU keeps for the draws recorded into it. */
