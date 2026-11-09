@@ -385,6 +385,8 @@ Apply these defaults to future work and conversations in this repository.
 
 - Start each new proposal from `changes/TEMPLATE.md`. Follow `changes/README.md` for the
   document structure, evidence records and lifecycle. Keep the existing front-matter schema.
+- Take a downstream repository's need as an issue for compiler work first. Draft a proposal
+  for it only as the last resort (`changes/README.md#a-need-from-a-downstream-repository`).
 - Record the document's applicability, review baseline and revision source. Describe the
   meaning of each date. Identify authors and decision owners only from actual evidence.
 - Keep proposed behavior, approved decisions and delivered behavior distinguishable.
