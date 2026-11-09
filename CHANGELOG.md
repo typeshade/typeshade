@@ -32,8 +32,8 @@ init?)`, `zeros(Class, n)` and `array(Class, data)`, which make a `Uniform<T>` o
   layouts on the class. No call takes a resource yet: the upload of a dirty range at submission is
   milestone 3. `array` is now a function as well as the family's type.
   The caps of `scripts/bundle-budget.json` take the measured gzip sizes: `typeshade/runtime`
-  single file 159,626 to 163,157 (+3,531), split initial 41,562 to 45,176 and split total 161,758
-  to 165,358; `typeshade/fuse` split initial 16,000 to 16,001 and split total 113,833 to 113,835
+  single file 159,626 to 163,157 (+3,531), split initial 41,562 to 45,178 and split total 161,758
+  to 165,360; `typeshade/fuse` split initial 16,000 to 16,001 and split total 113,833 to 113,835
   (the one-time warning `resident()` and `configure()` import). The floors and the other caps do
   not change.
 
