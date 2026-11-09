@@ -3,6 +3,7 @@ id: '0132'
 title: An author writes no diagnostic filter; the compiler rewrites an implicit-LOD sample or a derivative in non-uniform control flow
 status: draft
 rules:
+  - '1.4'
   - '6.7'
   - '8.5'
 surface:
@@ -25,14 +26,14 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0132, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the owner's direction, revised the same day after an independent review. The date is the drafting date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Request source                | The owner (Seungup) set the direction in the Claude Code session on 2026-11-09: the language gains as little as possible; what the compiler can decide is compiler work and is never pushed onto the author; what the author does not need to learn is removed. The owner directed this removal in the same session. Draft proposal 0130 (pull request #1094) proposes the principle as a design rule and removes the stage calls. Draft proposal 0131 (pull request #1104) removes the other stage-call option, `numerics`.                                                                                                                                                                                                                                                                                             |
-| Applicability / effectivity   | Expected: `src/compiler/ts/diagnostic-directive.ts` (deleted, or reduced to the options parser; see "Migration order"), `src/compiler/ts/source-file.ts`, `compile.ts`, `host-face.ts`, `builtin-check.ts`, `decorated-form.ts`, `stage-call.ts`, `src/cli/migrate.ts`, `src/core/passes/uniformity.ts` (the `TS8052` text), a new rewrite pass in `src/core/passes/`, `src/language-service/ambient.ts`, `docs.ts` and `service.ts`, `src/core/coverage/wgsl.ts`, `docs/language-design.md`, `docs/use-typeshade-surface.md`, `docs/capability-coverage.md`, two examples and four of their goldens, `reqs/`, and the tests listed under "What it touches". The WGSL and GLSL ES 3.00 of a program that writes no `diagnostic` change only where a sample or a derivative is rewritten. No release version is assigned. |
-| Review baseline               | `main` at `79c76d48` (merge of pull request #1098), 2026-11-09. Every count below was measured on that commit unless the row says otherwise. The independent review measured revision `13d254f5` on `main` at `f2f05cb5`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| Review and revision authority | Pull request #1105 (draft). Git records the revisions of this file. Its merge with `status: accepted` will record the decision.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0132, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the owner's direction, revised the same day after an independent review, and again the same day to record the owner's decisions 3 to 6 and to amend Rule 1.4 (decision 6). The date is the drafting date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Request source                | The owner (Seungup) set the direction in the Claude Code session on 2026-11-09: the language gains as little as possible; what the compiler can decide is compiler work and is never pushed onto the author; what the author does not need to learn is removed. The owner directed this removal in the same session. Draft proposal 0130 (pull request #1094) proposes the principle as a design rule and removes the stage calls. Draft proposal 0131 (pull request #1104) removes the other stage-call option, `numerics`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Applicability / effectivity   | Expected: `src/compiler/ts/diagnostic-directive.ts` (deleted, or reduced to the options parser; see "Migration order"), `src/compiler/ts/source-file.ts`, `compile.ts`, `host-face.ts`, `builtin-check.ts`, `decorated-form.ts`, `stage-call.ts`, `src/cli/migrate.ts`, `src/core/passes/uniformity.ts` (the `TS8052` text), a new rewrite pass in `src/core/passes/`, `src/language-service/ambient.ts`, `docs.ts` and `service.ts`, `src/core/coverage/wgsl.ts`, `docs/language-design.md`, `docs/use-typeshade-surface.md`, `docs/capability-coverage.md`, `CHANGELOG.md`, two examples and four of their goldens, `reqs/` (`RULE-0104`, `RULE-0607`, `RULE-0805`), and the tests listed under "What it touches". The WGSL and GLSL ES 3.00 of a program that writes no `diagnostic` change only where a sample or a derivative is rewritten. No release version is assigned. The removal ships in two releases (decision 5): a written filter warns in the first and is refused in the next breaking release. |
+| Review baseline               | `main` at `79c76d48` (merge of pull request #1098), 2026-11-09. Every count below was measured on that commit unless the row says otherwise. The independent review measured revision `13d254f5` on `main` at `f2f05cb5`. Decisions 3 to 6, the Rule 1.4 amendment and the coverage cells were measured on `main` at `9f1621f7`, merged into this branch.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Review and revision authority | Pull request #1105 (draft). Git records the revisions of this file. Its merge with `status: accepted` will record the decision.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 ## What changes
 
@@ -115,15 +116,38 @@ written, or reads no level.
    rewrite applies to it.
 6. Keep `ModuleDecl.diagnostics`, `DiagnosticDirective` and their WGSL emission in
    `src/core/backends/wgsl.ts` for the IR builder (`typeshade/core/ir`). The `"use typeshade"`
-   language does not reach them. Whether the IR builder keeps them is a separate decision
-   (decision 4 below).
+   language does not reach them. They are not an author construct (decision 4).
 7. Change `tshc migrate` (`src/cli/migrate.ts`): delete a `@diagnostic(…)` decorator and a
    stage call's `diagnostic` option, in place of rewriting the decorator to the option.
+8. Amend Rule 1.4 (decision 6): a WGSL capability that only switches off a validation the
+   compiler satisfies by rewriting the program is reached through that rewrite, not through an
+   author construct. The text is under "Rule 1.4, amended".
 
-After the change, a stage call that still passes `{ diagnostic: [...] }` is refused with
-`TS8028`, as any unknown option is today. A written `@diagnostic(…)` is a decorator outside Rule
-6.7's list, so it is `TS8028` too. Each refusal's text says that the compiler now rewrites the
-call or names the reason it cannot (Rule 12.5).
+### A written filter: one release of warning, then refusal
+
+`@diagnostic("off", "derivative_uniformity")` shipped in `0.1.0` (`CHANGELOG.md`, section
+`[0.1.0] - 2026-09-29`, the entry "Derivative uniformity is analysed, or switched off on
+request"; the feature came with #168, commit `ae6b5040`, 2026-09-22). The stage call's
+`{ diagnostic: [...] }` option came with change 0111 after `0.1.0` and is under `[Unreleased]`
+only. A refusal of a published form is a breaking change (Rule 13.9). The owner chose one
+release of warning before the refusal (decision 5):
+
+1. **The warning release.** A written `@diagnostic(…)` or `{ diagnostic: [...] }` still
+   compiles, with today's meaning: the module carries `diagnostic(off, derivative_uniformity);`
+   and its emitted bytes do not move. Each one gets a `TS8028` warning, in `compile()` and in
+   the language service (Rule 12.7). The warning says to delete the filter, that the compiler
+   then rewrites each call it can reach, that it reports each other call with `TS8052` and the
+   reason, and that `tshc migrate` deletes the filter. The warning is on by default, as change
+   0111's migration-release `TS8028` is (`src/compiler/ts/decorated-form.ts`).
+2. **The refusing release**, the next breaking release (the next `0.N.0`, Rule 13.9) after the
+   warning release is published. A written filter is refused with `TS8028`: the option is an
+   unknown option, and `@diagnostic(…)` is a decorator outside Rule 6.7's list. The refusal's
+   text says the same as the warning (Rule 12.5). `CompileTsSourceResult.directives` leaves in
+   this release.
+
+`tshc migrate` deletes the filter from the warning release on. Measured 2026-11-09:
+`npm view typeshade versions` lists only `0.0.0`, and the repository has no Git tag.
+`CHANGELOG.md` is the release record this proposal cites. The decision does not depend on it.
 
 ### How each control-flow shape is rewritten
 
@@ -285,8 +309,80 @@ The GLSL ES 3.00 changes the same way, with `textureGrad(albedo, inner, gx, gy)`
   (estimate until the pass exists). The cost is that the dirt field is computed for every pixel,
   ship and sky pixels included (N1). If the first implementation does not reach them, the
   example's source computes the six derivatives in `render` before the branch, by hand, and
-  passes them in. That fallback changes how the example is written and is shown to the owner
-  before merge (decision 3).
+  passes them in. That fallback changes how the example is written, so the implementing pull
+  request shows it to the owner before and after, before merge (decision 3, decided: the
+  removal goes ahead either way).
+
+### Rule 1.4, amended
+
+Today (`docs/language-design.md` §1.8, on `main` at `9f1621f7`):
+
+> **Rule 1.4.** Where ECMAScript has a form that carries the GPU meaning, the surface must borrow
+> TypeScript's spelling; a WGSL spelling is borrowed only where no ECMAScript spelling carries
+> the meaning, and the borrowing must keep every WGSL capability reachable (Rule 11.14).
+> A form may be borrowed in part: the members, the positions or the meaning it takes are those
+> the rules give it.
+>
+> - Rationale: the WGSL vocabulary is there to say what TypeScript cannot say, such as a value's
+>   width or an address space. It is not a second spelling an author has to learn for what
+>   TypeScript already says.
+> - Derives from: `changes/0100-typescript-meaning.md` (section 1, the first two requirements);
+>   the roadmap's first rule, "ordinary TypeScript first".
+> - Enforced by: review (Rule 13.1); Appendix B, under Rule 1.1, for the spellings the tree still
+>   offers twice.
+
+Proposed. The first two sentences do not change. A third sentence, and one clause at the end of
+each bullet, are added:
+
+> **Rule 1.4.** Where ECMAScript has a form that carries the GPU meaning, the surface must borrow
+> TypeScript's spelling; a WGSL spelling is borrowed only where no ECMAScript spelling carries
+> the meaning, and the borrowing must keep every WGSL capability reachable (Rule 11.14).
+> A form may be borrowed in part: the members, the positions or the meaning it takes are those
+> the rules give it.
+> A WGSL capability that only switches off a validation the compiler satisfies by rewriting the
+> program is reached through that rewrite, not through an author construct: the
+> `derivative_uniformity` filter is reached through Rule 8.5's rewrite, and its rows in
+> `docs/capability-coverage.md` are `refused` with this rule (Rule 11.14, Rule 11.18).
+>
+> - Rationale: the WGSL vocabulary is there to say what TypeScript cannot say, such as a value's
+>   width or an address space. It is not a second spelling an author has to learn for what
+>   TypeScript already says. A filter that switches a validation off is not something the author
+>   must state: it asks the author to learn a WGSL rule name and its severities for work the
+>   compiler can do, and the program it leaves is indeterminate in WGSL and undefined in GLSL ES
+>   3.00. The language keeps a construct only for what the author must state and the compiler
+>   cannot know (`docs/owner-decisions.md`, OD-3).
+> - Derives from: `changes/0100-typescript-meaning.md` (section 1, the first two requirements);
+>   the roadmap's first rule, "ordinary TypeScript first"; `changes/0132-remove-diagnostic.md`
+>   (decision 6) and OD-3 for the third sentence.
+> - Enforced by: review (Rule 13.1); Appendix B, under Rule 1.1, for the spellings the tree still
+>   offers twice; `capability-coverage.test.ts`, which holds the `@diagnostic` and `diagnostic`
+>   rows of table B as `refused` cells that name this rule and a portable spelling (Rule 11.18);
+>   `TS8028` on a written `@diagnostic(…)` or `{ diagnostic: [...] }`, and the tests of Rule
+>   8.5's rewrite.
+
+`reqs/rules/RULE-0104.md` follows with `bun run reqs:sync`. The rule edit lands with the warning
+release. In that release the two coverage rows keep their status, with a note that the form is
+deprecated by 0132; they become `refused` in the refusing release.
+
+**The coverage cells, measured.** `docs/capability-coverage.md`'s statuses are `typed`, `raw`,
+`refused`, `planned`, `gap` and `n/a` (Rule 11.14). `refused` fits: an author who writes the
+filter is refused (`TS8028`), and the capability is reached by another spelling, the call written
+where it is. `n/a` names a capability the target lacks, and WebGPU has this one. Rule 11.18 asks a
+`refused` cell for a rule and a portable spelling. The proposed cells of
+`src/core/coverage/wgsl.ts`, WebGPU column:
+
+- `@diagnostic` (row 706): `refused('Rule 1.4', 'write the sample or the derivative where it is;
+the compiler rewrites it (Rule 8.5), or textureSampleLevel or textureSampleGrad', 'a written
+@diagnostic is TS8028; surface §54')`.
+- `diagnostic` keyword (row 726): `refused('Rule 1.4', 'none needed: the compiler rewrites what
+derivative_uniformity refuses (Rule 8.5)', 'the module-level directive is not written by hand
+(surface §50)')`, in place of `gap` (group 12, #643). The gap list line 1492 loses the entry.
+
+The WebGL2 column stays `n/a (no GLSL form)`. Measured on `main` at `9f1621f7` (2026-11-09, Bun
+1.4.4): every check in `CHECKS` of `scripts/bake-capability-coverage.ts` (`checkRefused`,
+`checkGap`, `checkSubGaps`, `checkEvidence` and the others) gives 0 defects with the two cells
+substituted, and 0 on the baseline. `checkRefused` accepts `Rule 1.4` because
+`docs/language-design.md` defines it; the amendment keeps the number.
 
 ### Exclusions
 
@@ -388,11 +484,26 @@ adds `'11.1'` to `rules` before acceptance.
 - **Rule 1.3 and `docs/dx.md`** (lines 22-26): the GPU computes what the oracle computes. The
   oracle computes a placeholder for both forms, so this rule is not moved; see "The CPU oracle".
 - **Rule 1.4 and Rule 11.14.** Rule 1.4 says a borrowing must keep every WGSL capability
-  reachable (Rule 11.14). After the change, the `@diagnostic` row of
-  `docs/capability-coverage.md` (line 706) moves from `typed` to `refused` on WebGPU. The
-  proposal's reading: Rule 11.14 allows `refused`, and Rule 1.4 governs how a capability is
-  spelled, not whether a filter is kept. That reading is the proposal's own, so it goes to the
-  owner as decision 6.
+  reachable (Rule 11.14). After the change, no author construct reaches the
+  `derivative_uniformity` filter. The owner decided on 2026-11-09 to amend Rule 1.4 in this
+  proposal (decision 6), so the rule states the exception and the coverage rows become
+  `refused` with Rule 1.4 ("Rule 1.4, amended").
+
+## Owner's decisions
+
+This proposal rests on two entries of `docs/owner-decisions.md`:
+
+- **OD-3.** The language stays small; the compiler's work is not pushed onto the author. A
+  validation the compiler can satisfy by rewriting is the compiler's work, and a construct the
+  compiler could replace is removed. OD-3 names this proposal. The Rule 1.4 amendment
+  (decision 6) writes OD-3's case into the rule.
+- **OD-4.** Show the owner what changes before the owner decides. The `sample-branch` example
+  is shown before and after ("Example"), each decision was put to the owner as a question with
+  its options and costs, and the Namek fallback, if used, is shown before and after before merge
+  (decision 3).
+
+The proposal reverses no entry. OD-1 and OD-2 are not touched: the proposal removes a filter and
+does not change how a stage or any other construct is written.
 
 ## Why the compiler cannot do it
 
@@ -403,6 +514,8 @@ the compiler rewrites the calls whose slice it can recompute, and it reports the
 
 ## What it touches
 
+- `rules` 1.4: the third sentence and the three clauses of "Rule 1.4, amended" (decision 6);
+  `reqs/rules/RULE-0104.md` follows with `bun run reqs:sync`.
 - `rules` 6.7: `diagnostic` leaves the attribute names the compiler reads, with its option
   sentence (D7) and `@diagnostic(…)` in the list of decorated forms (`reqs/rules/RULE-0607.md`
   follows with `bun run reqs:sync`).
@@ -415,12 +528,15 @@ the compiler rewrites the calls whose slice it can recompute, and it reports the
   rewritten: the front end emits none.
 - `surface` 54: "Switching it off" and the filter's text are replaced by the rewrite, its
   method, its reach and the new `TS8052` text. The measurement table stays.
-- `exports` `CompileTsSourceResult`: loses `directives: readonly DiagnosticDirective[]`.
+- `exports` `CompileTsSourceResult`: loses `directives: readonly DiagnosticDirective[]` in the
+  refusing release (a breaking change, Rule 13.9). In the warning release it still carries the
+  directive of a written filter.
 - `exports-removed`: none. `DiagnosticDirective` and `ModuleDecl.diagnostics` stay for the IR
   builder (proposed item 6).
 - `codes`: none added or removed. `TS8052` keeps its number; its text changes (Rule 12.5, "The
-  final `TS8052` sentences"). `TS8028` keeps its number; its text "A stage call takes two
-  options, "diagnostic" and "numerics"" changes (see "Migration order").
+  final `TS8052` sentences"). `TS8028` keeps its number; it gains the warning
+  text of the warning release, and its text "A stage call takes two options, "diagnostic" and
+  "numerics"" changes in the refusing release (see "Migration order").
 - `examples`: no id is added or removed. `sample-branch` and `capsule-corp-namek-class` change
   source and four goldens: `examples/__emit-goldens__/sample-branch.wgsl`,
   `sample-branch.fragment.glsl` (`texture` to `textureGrad`, lines 15 and 20),
@@ -431,9 +547,9 @@ the compiler rewrites the calls whose slice it can recompute, and it reports the
 
 Not in the front matter, and changed:
 
-- `docs/capability-coverage.md`: the `@diagnostic` attribute row (line 706) moves from `typed`
-  to `refused` on WebGPU, with Rule 8.5; the `diagnostic` keyword row (line 726) and the gap
-  list (line 1492, #643) follow. `bun run bake:capability-coverage` and
+- `docs/capability-coverage.md`: in the refusing release, the `@diagnostic` attribute row (line 706) moves from `typed` to `refused (Rule 1.4; …)` on WebGPU, and the `diagnostic` keyword row
+  (line 726) from `gap` to `refused (Rule 1.4; …)`; the gap list (line 1492, #643) loses the
+  entry. The cells are measured under "Rule 1.4, amended". `bun run bake:capability-coverage` and
   `src/core/spec-conformance/capability-coverage.test.ts` check the table (Rule 11.14).
 - Tests that write the option or read the directive, measured on `79c76d48` (matching lines):
   `src/core/passes/uniformity.test.ts` 30, `src/compiler/ts/stage3.test.ts` 11,
@@ -476,8 +592,10 @@ Required validation evidence (at implementation):
 - `sample-branch` and `capsule-corp-namek-class` compile with no option and no `TS8052`, on
   Tint and on ANGLE (`bun run gate:compile`), with no `diagnostic(` line in their WGSL.
 - Tests, both halves (Rule 12.7): each rewrite shape of the table above; each `TS8052` reason in
-  `compile()` and in the language service's `getDiagnostics`, on the same source; a
-  `{ diagnostic }` option and a `@diagnostic` decorator refused with `TS8028` in both halves.
+  `compile()` and in the language service's `getDiagnostics`, on the same source. In the
+  warning release: a `{ diagnostic }` option and a `@diagnostic` decorator each give one
+  `TS8028` warning in both halves, and the emitted WGSL and GLSL do not move. In the refusing
+  release: both are refused with `TS8028` in both halves.
 - A Tint measurement of the rewrite's output with its valid neighbours (Rule 13.3).
 - The oracle: the outcome of decision 2, tested (either the new exception without `gpuStubs`,
   or the pre-rewrite IR on the oracle).
@@ -492,7 +610,10 @@ Required validation evidence (at implementation):
 - `bun run bake:api-surface`: only `CompileTsSourceResult` changes.
 - `bun run bake:author-names`: only `diagnostic` leaves.
 - `bun run bake:capability-coverage`: only the rows named above change.
-- `bun run reqs:sync` and `python scripts/doorstop-check.py -C` after the rule edits.
+- `bun run reqs:sync` and `python scripts/doorstop-check.py -C` after the rule edits
+  (`RULE-0104`, `RULE-0607`, `RULE-0805`).
+- `CHANGELOG.md`: the deprecation entry and the removal entry of "Migration order", each in the
+  house style (Rule 13.8), the removal entry naming the edit an author makes (Rule 13.9).
 - `bun run docs:impact`, `bun run docs:refs`, and the mechanical gates of Rule 13.4.
 
 ### Draft impact estimate
@@ -522,18 +643,43 @@ accepted:
 
 1. The rewrite lands first, with `Change: 0132`. It changes no surface: it only makes `TS8052`
    fire less. The two examples still carry the option, which still works.
-2. This proposal's removal and 0131's removal of `numerics` land in either order. The first of
+2. The deprecation lands next, with `Change: 0132`, and ships in the warning release: the
+   `TS8028` warning on a written filter, `tshc migrate`'s deletion, the edits to Rules 1.4, 6.7
+   and 8.5 and to surface §3, §7, §50 and §54, and the two examples without the option (their
+   goldens re-baked and reviewed, Rule 11.4). `CHANGELOG.md` gets a deprecation entry under
+   `[Unreleased]` (Rule 13.8): a written `@diagnostic(…)` or `{ diagnostic }` warns with
+   `TS8028`, the compiler rewrites what it can reach, `TS8052` names the reason for the rest, and
+   `tshc migrate` deletes the filter.
+3. The refusal lands after the warning release is published, and ships in the next breaking
+   release (Rule 13.9). `CHANGELOG.md` gets a removal entry under `[Unreleased]` that names the
+   edit an author makes (delete the filter, or run `tshc migrate`), the removal of
+   `CompileTsSourceResult.directives`, and the two coverage rows that become `refused`. This
+   proposal's refusal and 0131's removal of `numerics` land in either order. The first of
    the two to land keeps the options parser in `diagnostic-directive.ts` with one option, and
    `TS8028` says "A stage call takes one option, …". The second deletes
    `src/compiler/ts/diagnostic-directive.ts`, moves whatever of the parser remains to
    `src/compiler/ts/stage-call.ts`, removes the `options` parameter from the ambient stage
    calls, and `TS8028` says "A stage call takes no options".
-3. 0130 removes the stage calls themselves (one migration release with a `TS8028` warning, then
+4. 0130 removes the stage calls themselves (one migration release with a `TS8028` warning, then
    refusal). After it, `TS8028` refuses a stage-call form, and the "takes no options" text
-   leaves with the stage calls.
+   leaves with the stage calls. A `@diagnostic(…)` written on a 0130 entry (`@fragment`) is the
+   same filter: it warns in the warning release and is refused after it, as step 3 says.
 
-If only this proposal is accepted, `numerics` stays the one option, and step 2's first branch
+If only this proposal is accepted, `numerics` stays the one option, and step 3's first branch
 applies.
+
+**Rule 1.4 and draft 0130.** Draft 0130 (#1094, head `7205865f`, read 2026-11-09) does not list
+`'1.4'` in its `rules` and does not change Rule 1.4's text. It reads Rule 1.4 in the rationale of
+the Rule 1.8 it proposes <!-- doc-refs: skip — Rule 1.8 is the rule 0130 adds -->
+("Rule 1.4 still holds where an ECMAScript form carries the meaning") and reads the roadmap's
+"ordinary TypeScript first" there. This proposal adds a third sentence to Rule 1.4 and one
+clause at the end of each bullet; it does not change the first two sentences, which 0130 reads.
+The order in which the two land is therefore irrelevant to their meaning. If a revision of 0130
+edits Rule 1.4's "Derives from" bullet, where "ordinary TypeScript first" is cited, the two
+edits meet in that one bullet: the second to land keeps both, 0130's reading and this
+proposal's clause. The rule 0130 adds <!-- doc-refs: skip — Rule 1.8 is the rule 0130 adds -->
+also says that "a validation the compiler can satisfy by rewriting the program" is the
+compiler's work; once both land, the third sentence of Rule 1.4 may cite that rule as well.
 
 ### Decisions for the owner
 
@@ -547,15 +693,35 @@ applies.
    oracle consumes the same rewritten IR (Rule 11.1 unchanged), and a run without `gpuStubs`
    throws on invocations that skipped the branch before. "Proved exact" (0130, 0131) applies to
    rewrites of a defined program; this rewrite makes a refused, indeterminate program defined.
-3. **Open.** The Namek fallback: if the rewrite cannot reach its six calls at first, hoist them
-   in the example's source by hand (shown to the owner before merge), or keep the option until
-   the rewrite reaches them.
-4. **Open.** Keep `ModuleDecl.diagnostics` and `DiagnosticDirective` for the IR builder
-   (recommended in this proposal), or remove them in a separate proposal.
-5. **Open.** A written option or decorator after the change: `TS8028` at once (recommended,
-   since no downstream program writes it), or one migration release with a warning.
-6. **Open.** Rule 1.4's reading: the `@diagnostic` capability becomes `refused` with Rule 8.5,
-   and Rule 1.4 is not amended (recommended), or Rule 1.4 is amended in this proposal.
+3. **Decided 2026-11-09: the example is fixed by hand.** The question: if the rewrite cannot
+   reach Namek's six calls at first, does the example's source hoist them by hand, or does the
+   option stay until the rewrite reaches them? The owner chose, in the conversation's question
+   form, "예제를 손으로 고침 (권장)" (fix the example by hand, recommended). If the first
+   implementation does not reach the six calls, the implementing pull request computes them in
+   `render` before the branch, by hand, and shows the owner that change before and after (OD-4)
+   before merge. The removal goes ahead either way.
+4. **Decided 2026-11-09: kept.** The question: does the IR builder keep `ModuleDecl.diagnostics`
+   and `DiagnosticDirective`, or does a separate proposal remove them? The owner chose "남김
+   (권장)" (keep, recommended). They stay for the IR builder (`typeshade/core/ir`, Rule 11.19).
+   They are not an author construct: no `"use typeshade"` form reaches them.
+5. **Decided 2026-11-09: warning, then refusal.** The question: is a written option or decorator
+   refused with `TS8028` at once, or does it warn for one release first? The owner chose "경고 후
+   거부 (권장)" (warn, then refuse, recommended). This corrects the earlier recommendation of
+   this draft, "`TS8028` at once": `@diagnostic("off", "derivative_uniformity")` shipped in
+   `0.1.0` (2026-09-29), so its refusal is a breaking change of a published form (Rule 13.9),
+   and a published form gets a window before it is refused (Rule 13.10's two steps). One release
+   compiles a written filter with today's meaning and a `TS8028` warning that names the
+   compiler's rewrite and the `TS8052` path; the next breaking release refuses it; `tshc
+migrate` deletes it ("A written filter: one release of warning, then refusal", "Migration
+   order").
+6. **Decided 2026-11-09: Rule 1.4 is amended.** The question: does the `@diagnostic` capability
+   only become `refused` under today's Rule 1.4, or is Rule 1.4 amended in this proposal? The
+   owner chose "Rule 1.4 개정" (amend Rule 1.4). This proposal adds `'1.4'` to `rules` and gives
+   the new text under "Rule 1.4, amended": every WGSL capability stays reachable, and a
+   capability that only switches off a validation the compiler satisfies by rewriting is reached
+   through that rewrite (OD-3).
+
+Open decisions: none.
 
 **Decision 2, the question.** Two principles point different ways:
 
@@ -597,7 +763,7 @@ before the rewrite, an exception to Rule 11.1.
 | B3  | The CPU oracle is the third consumer (Rule 11.1). It samples nothing (`GPU_STUBS`); without `gpuStubs` a derivative throws. A moved derivative runs on every invocation, so the oracle throws where it did not.                                                      | Fixed in the text ("The CPU oracle"). The choice is the owner's: decision 2 (a) or (b).                                                                                                                |
 | S1  | Decision 2 understated the difference: a rewritten sample can differ on every quad, not only diverging ones. 0130 and 0131 hold rewrites to "proved exact"; this one is not. Present both principles with one example.                                               | Owner: decision 2 reframed with both principles and `wide(v.uv)` as the example; listed under "Conflicts".                                                                                             |
 | S2  | Shapes missing: depth textures, the bias clamp, early `return`, `break`, `continue`, `&&`, `                                                                                                                                                                         |                                                                                                                                                                                                        | `, `switch`, `?:`, memory-read order, unaffected built-ins, `discard` in WGSL and GLSL. | Fixed in this revision: "How each control-flow shape is rewritten", the bias, depth and `discard` paragraphs, and the list of unrestricted calls under "Today". The GLSL `discard` reading is an inference. |
-| S3  | Scope missing: `docs/capability-coverage.md` lines 706, 726, 1492; Rule 1.4; `src/vite.test.ts` 468-485; seven test files; RULE-0805 and RULE-0607; the `TS8028` text; four goldens; the reach decision in `compileTsSource`; device evidence beyond `gate:render`.  | Fixed in this revision: each is in "What it touches" or "Required validation evidence". Rule 1.4's reading goes to the owner as decision 6.                                                            |
+| S3  | Scope missing: `docs/capability-coverage.md` lines 706, 726, 1492; Rule 1.4; `src/vite.test.ts` 468-485; seven test files; RULE-0805 and RULE-0607; the `TS8028` text; four goldens; the reach decision in `compileTsSource`; device evidence beyond `gate:render`.  | Fixed: each is in "What it touches" or "Required validation evidence". Rule 1.4: decided by the owner on 2026-11-09 (decision 6), amended in this proposal ("Rule 1.4, amended").                      |
 | S4  | Write the final `TS8052` sentences, each naming an action that needs no new construct.                                                                                                                                                                               | Fixed in this revision: "The final `TS8052` sentences".                                                                                                                                                |
 | S5  | Give the migration order with 0130 and 0131: who deletes `diagnostic-directive.ts`, the `TS8028` text, 0130's removal of stage calls.                                                                                                                                | Fixed in this revision: "Migration order".                                                                                                                                                             |
 | N1  | Cost: Namek computes the dirt field per pixel; explicit gradients cost more on some GPUs. Put device timing in the evidence.                                                                                                                                         | Fixed in this revision: Assumptions (Cost) and the device comparison with frame times. The measurement itself is open until implementation.                                                            |
@@ -606,16 +772,16 @@ before the rewrite, an exception to Rule 11.1.
 | N4  | Line numbers off by one: 61 and 66; 3290-3291, 3324-3325, 3331-3332.                                                                                                                                                                                                 | Fixed in this revision: re-measured with `compile()` on `79c76d48`.                                                                                                                                    |
 | N5  | Say whether a helper is inlined or receives the gradients as parameters.                                                                                                                                                                                             | Fixed in this revision: specialization with gradient parameters is the method; inlining is the fallback. The example shows `sharp_grad` and `wide_grad`.                                               |
 
-Open findings for the owner before the decision: S1 and B3 (decision 2), the Rule 1.4 reading
-of S3 (decision 6). Open until implementation: the measurements of N1 and of the equality
-assumption.
+Findings for the owner: S1 and B3 were decided by the owner (decision 2), and the Rule 1.4 item
+of S3 was decided by the owner (decision 6). None is open. Open until implementation: the
+measurements of N1 and of the equality assumption.
 
 ### Approval and plan record
 
 This record does not yet apply. Acceptance will require the owner's decision on this pull
-request, the approved revision, answers to decisions 2-6, and a review record with no open
-finding that is not the owner's. Decision 1 is recorded above as the owner's direction for the
-draft.
+request, the approved revision, and a review record with no open finding that is not the
+owner's. Decisions 1 to 6 are recorded above as the owner's decisions on the draft; they are not
+the acceptance of the proposal.
 
 ### Configuration and validation record
 
