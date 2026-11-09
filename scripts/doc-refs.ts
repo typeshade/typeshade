@@ -84,7 +84,7 @@ export interface DeadRef extends DocRef {
 }
 
 const SKIP_FILE = /<!--\s*doc-refs:\s*skip-file\s*—\s*\S.*-->/;
-const SKIP_LINE = /<!--\s*doc-refs:\s*skip\s*—\s*\S.*-->/;
+export const SKIP_LINE = /<!--\s*doc-refs:\s*skip\s*—\s*\S.*-->/;
 /** A marker quoted in a code span (`<!-- doc-refs: skip — … -->` in a sentence about it) is prose. */
 export const outsideCode = (line: string): string => line.replace(/`[^`\n]*`/g, '');
 const MARKER_WITHOUT_REASON = /<!--\s*doc-refs:\s*(skip|skip-file)\s*(-->|—\s*-->)/;

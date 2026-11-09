@@ -63,6 +63,11 @@ export const CODE_GAPS: readonly Gap[] = [
       'reserved by draft proposal 0052 (not on main); recorded in codes.ts above KERNEL_WORKGROUP_REDUCES, ' +
       'changes/0067-kernel-workgroup-size.md (decision D7) and changes/0107-numerical-contract.md',
   },
+  {
+    from: 8078,
+    to: 8078,
+    why: 'retired by change 0131 (numerics); recorded in codes.ts above UNSUPPORTED',
+  },
 ];
 
 /** The recorded gaps in the surface document's `§` numbers. */
@@ -184,7 +189,15 @@ export function surfaceProblems(
   return numberingProblems(sectionsIn(text), gaps, '§', exceptions);
 }
 
-/** The next free numbers: one past the highest declared (the catch-all left out). */
+/** The first number past `n` that no recorded gap holds. */
+function pastGaps(n: number, gaps: readonly Gap[]): number {
+  let next = n + 1;
+  while (inGap(next, gaps)) next++;
+  return next;
+}
+
+/** The next free numbers: one past the highest declared (the catch-all left out), and past a
+ *  recorded gap there (a code retired at the top of the sequence, TS8078). */
 export function nextFree(
   codesText: string,
   surfaceText: string,
@@ -192,7 +205,10 @@ export function nextFree(
   const seq = codesIn(codesText)
     .map((c) => c.number)
     .filter((n) => n !== CATCH_ALL.number);
-  return { code: Math.max(...seq) + 1, section: Math.max(...sectionsIn(surfaceText)) + 1 };
+  return {
+    code: pastGaps(Math.max(...seq), CODE_GAPS),
+    section: pastGaps(Math.max(...sectionsIn(surfaceText)), SURFACE_GAPS),
+  };
 }
 
 if (import.meta.main) {

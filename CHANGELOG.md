@@ -80,17 +80,17 @@ repository was published to npm before **`0.1.0`, the first release**.
   its bits are equal, and that the runtime selects it when a device opens by feature and probe.
   Surface §38, §65 and §69 and the authoring guide describe it. The proposal's draft called the
   rule 11.22, which change 0107's numerical contract took first.
-- **A numerical contract, opted into per function** (change 0107, stages 1 and 2; Rule 6.7, Rule 9.6,
-  Rule 11.22, surface §3, §38 and §78). `const f = numerics(["finite-math"], function f(…) { … })`, or
-  a stage call's `{ numerics: [...] }` option, lets `-O2` fold `x * 0`, `x - x`, `mix(a, b, 0)`
-  and `mix(a, b, 1)` in that function, which the default keeps because a NaN or an infinity can
-  observe them. Only `f32` operands are matched, so no rewrite reaches the emulated double, and
-  no inlining pass moves a body into or out of an opted-in function. The CPU oracle keeps the
-  source's meaning. `reassociate` is a valid class with no rewrite yet. A wrong list, and the
-  call anywhere but as a top-level `const`'s initializer, is the new code `TS8078`. The IR gains
-  `FuncDecl.numerics` and the exported type `NumericsClass`. The determinism report lists each class
-  a function opted into as a `contract` row (the new `DeterminismKind` value), after every other
-  row.
+- **The numerical contract of change 0107 is withdrawn before any release** (change 0131; Rule 6.7,
+  Rule 9.6, Rule 11.22, surface §3, §38 and §78). `numerics(...)`, the `numerics` option of a stage
+  call, the classes `finite-math` and `reassociate`, `TS8078` (retired, never reused),
+  `FuncDecl.numerics`, the exported type `NumericsClass` and the determinism report's `contract`
+  rows are gone, with the passes that served them; §9.3 loses its `contracts | numerics` row. No
+  published version had the construct (it landed after `0.1.0`), so no migration release follows
+  (Rules 13.9 and 13.10 bind a published version). Rule 11.22 now says that no source construct
+  opts a function into a floating-point rewrite, and that the optimizer applies a rewrite a NaN,
+  an infinity or the sign of a zero can observe only where it proves the rewrite exact. A
+  leftover `numerics(...)` is `TS8004` in both halves; `workgroup_size` takes no options, and a
+  third argument to it is `TS8028` in both halves. The default `-O2` output does not change.
 - **The subgroup built-in functions and values** (change 0117; Rule 11.21, surface §50 and
   §77). The 21 functions of WGSL's `subgroups` extension (`subgroupAdd`, `subgroupBallot`,
   `subgroupElect`, `subgroupBroadcast` and the rest) and the built-in values `subgroup_id` and
@@ -203,14 +203,6 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   initial 41,217 to 41,242 (+25) and split total 162,582 to 162,623 (+41); `typeshade/algorithms`
   52,189 to 52,999 (+810) and `typeshade/random` 33,557 to 34,309 (+752), single file. Their split
   caps, the floors, `typeshade/emit` and `typeshade/fuse` do not change.
-
-- **A constant argument reaches a function under a numerical contract** (#850 N5; Rule 11.22).
-  At `-O2`, a call that passes a scalar literal to a function opted in with `numerics(...)` calls
-  a copy of it with the literal in place, so `finite-math` folds what the literal decides:
-  `tick(b, x, 0., 0.)` on a `tick` that returns `mix(base, x, curl) + spread * hash(base.xy)`
-  becomes a copy that returns `base`. Calls with the same literals share a copy, and the original
-  is dropped once no call reaches it. An exact function is never copied, so the default output
-  does not change, and no golden moved.
 
 - **The design rules say what TypeShade borrows (change 0100).** `docs/language-design.md`
   now defines a `"use typeshade"` program by its own rules: a form borrowed from ECMAScript keeps

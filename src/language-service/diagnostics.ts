@@ -1553,8 +1553,10 @@ const SAME_MISTAKE: readonly SameMistake[] = [
   },
   {
     typescript: 2353,
-    typeshade: new Set(['TS8010']),
-    reason: 'An object literal that names a field its struct does not have.',
+    typeshade: new Set(['TS8010', 'TS8028']),
+    reason:
+      'An object literal that names a field its struct does not have, or an option a stage call ' +
+      'does not take (`compute([64], f, { numerics: [...] })`, change 0131).',
   },
   {
     typescript: 2561,
@@ -1635,10 +1637,11 @@ const SAME_MISTAKE: readonly SameMistake[] = [
   },
   {
     typescript: 2554,
-    typeshade: new Set(['TS8019', 'TS8003']),
+    typeshade: new Set(['TS8019', 'TS8003', 'TS8028']),
     reason:
       'The wrong number of arguments. For a `Math` member the compiler expands it says so as ' +
-      'TS8003 (`Math.hypot(x)`: `hypot expects 2 or 3 arguments.`).',
+      'TS8003 (`Math.hypot(x)`: `hypot expects 2 or 3 arguments.`), and for an options argument ' +
+      'to `workgroup_size`, which takes none (change 0131), as TS8028.',
   },
   {
     typescript: 2558,
