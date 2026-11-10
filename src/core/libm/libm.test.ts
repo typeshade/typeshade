@@ -402,10 +402,12 @@ describe('tan: the special values, the thresholds and the hard operands', () => 
   });
 
   it('at each threshold of the routine the error is under 1 ULP on both sides, and tan does not decrease', () => {
-    // 2^-27 (tan(x) is x below it), 0.6744 (the kernel runs on pi/4 - |x| from it), pi/4 (the
-    // first reduction starts past it) and 2^20 * pi/2 (the second reduction starts at it).
+    // 2^-27 (tan(x) is x below it), 0.625 (the kernel runs on pi/4 - |x| from it), 0.6744 (where
+    // fdlibm's kernel has that switch), pi/4 (the first reduction starts past it) and
+    // 2^20 * pi/2 (the second reduction starts at it).
     const thresholds = [
       f64OfWords(0x3e400000, 0),
+      f64OfWords(0x3fe40000, 0),
       f64OfWords(0x3fe59428, 0),
       f64OfWords(0x3fe921fc, 0),
       f64OfWords(0x413921fb, 0),
@@ -425,23 +427,22 @@ describe('tan: the special values, the thresholds and the hard operands', () => 
 });
 
 describe('tan: the operands of the largest errors that a sample has measured', () => {
+  // fdlibm's kernel measured up to 0.9277 ULP just below its switch at 0.6744 (the review of
+  // #1207). The kernel now takes the cube by exact products below 0.625, and one sum from it.
   const error = (x: number): number => Math.abs(ulpError(LIBM.tanF64(x), exactTan(x), F64_FORMAT)!);
 
-  it('0.9023 ULP for a huge operand, and 0.8839 for one of the first reduction', () => {
-    // The first is from the independent review of #1207 (96,000,000 operands), the second from
-    // this pull request's sweep (21,000,000 operands). Each bound is just above the measure.
-    for (const [x, bound] of [
-      [2.926865656139087e106, 0.91],
-      [-11.896597503998837, 0.89],
-    ] as const) {
-      expect([x, error(x) < bound, error(x) > bound - 0.02]).toEqual([x, true, true]);
+  it('the operands at which the earlier kernel measured 0.9023 and 0.8839 ULP are under 0.25', () => {
+    // The first is from the independent review of #1207, the second from the sweep of #1207.
+    for (const x of [2.926865656139087e106, -11.896597503998837]) {
+      expect([x, error(x) < 0.25]).toEqual([x, true]);
     }
-    expect(LIBM.tanF64(2.926865656139087e106)).toBe(0.7873026738547275);
+    // The earlier result was 0.7873026738547275, one unit above.
+    expect(LIBM.tanF64(2.926865656139087e106)).toBe(0.7873026738547274);
   });
 
-  it('the kernel just below its switch at 0.6744: 0.9277 ULP for one reduced argument', () => {
-    // The review measured the kernel on 96,000,000 pairs of a head and a tail. This pair is its
-    // largest error. The kernel is no export: the interpreter of the source's module gives it.
+  it('the reduced argument at which the earlier kernel measured 0.9277 ULP is under 0.25', () => {
+    // The review of #1207 measured the kernel on 96,000,000 pairs of a head and a tail. This
+    // pair was its largest error. The kernel is no export: the interpreter of the source's module gives it.
     const ktan = (
       compileModule(compiled.module, { precision: 'f32' }).fns as unknown as Record<
         string,
@@ -460,8 +461,7 @@ describe('tan: the operands of the largest errors that a sample has measured', (
       scale: t.scale,
     };
     const measured = Math.abs(ulpError(ktan(x, y, false), exact, F64_FORMAT)!);
-    expect(measured).toBeLessThan(0.93);
-    expect(measured).toBeGreaterThan(0.92);
+    expect(measured).toBeLessThan(0.25);
   });
 });
 
