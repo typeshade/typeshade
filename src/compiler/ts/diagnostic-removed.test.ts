@@ -6,10 +6,13 @@
 // not borrowed (Rule 1.4). A source that still writes one gets one `TS8028`, an error, in
 // `compile()` and in the language service on the same source (Rule 12.7), with no warning
 // release. Neither sentence names a severity, and neither offers the filter again.
+//
+// The stage call itself is refused since change 0140, so the option is said with the call, in
+// its one `TS8028`: the attribute that replaces the call, and the option to delete.
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
-import { DIAGNOSTIC_OPTION_REFUSAL } from './stage-call.js';
+import { migrateSource } from '../../cli/migrate.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const bothHalves = (source: string): { compiler: string[]; editor: string[] } => {
@@ -25,7 +28,10 @@ const bothHalves = (source: string): { compiler: string[]; editor: string[] } =>
   };
 };
 
-const OPTION = `error TS8028 ${DIAGNOSTIC_OPTION_REFUSAL}`;
+/** The one refusal of a stage call that writes the filter (changes 0132 and 0140). */
+const OPTION = (written: string): string =>
+  `error TS8028 a stage is an attribute on the function declaration: write "${written}", or ` +
+  `run "tshc migrate" (change 0130). The attribute takes no options: delete "diagnostic: [...]"`;
 const DECORATOR =
   'error TS8028 "@diagnostic(…)" is not a decorator the compiler reads (Rule 6.7). Delete it: ' +
   'the compiler rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5) and ' +
@@ -58,11 +64,17 @@ describe('a written { diagnostic: [...] } option is one TS8028 in both halves (c
 }
 `,
   };
+  const WRITTEN: Readonly<Record<string, string>> = {
+    vertex: '@vertex export function vs(…)',
+    fragment: '@fragment export function fs(…)',
+    compute: '@compute([64]) export function main(…)',
+    "a namespace's entry": '@fragment export function fs(…)',
+  };
   for (const [where, source] of Object.entries(sources))
     it(`on ${where}`, () => {
       const { compiler, editor } = bothHalves(source);
-      expect(compiler).toEqual([OPTION]);
-      // TypeScript's TS2554 on the excess argument merges into the refusal (Rule 12.4).
+      expect(compiler).toEqual([OPTION(WRITTEN[where]!)]);
+      // What TypeScript says of the call's arguments merges into the refusal (Rule 12.4).
       expect(editor).toEqual(compiler);
     });
 
@@ -73,15 +85,19 @@ describe('a written { diagnostic: [...] } option is one TS8028 in both halves (c
       '{ diagnostic: [] }',
     ]) {
       const { compiler, editor } = bothHalves(sources.fragment!.replace(FILTER, filter));
-      expect(compiler, filter).toEqual([OPTION]);
+      expect(compiler, filter).toEqual([OPTION(WRITTEN.fragment!)]);
       expect(editor, filter).toEqual(compiler);
     }
     for (const word of ['"off"', '"warning"', 'severity', 'derivative_uniformity'])
-      expect(OPTION).not.toContain(word);
+      expect(OPTION(WRITTEN.fragment!)).not.toContain(word);
   });
 
-  it('compiles once deleted: the sample under the branch is rewritten, with no directive', () => {
-    const source = sources.fragment!.replace(`, ${FILTER}`, '');
+  it('compiles once "tshc migrate" has written the attribute and deleted the filter: the sample under the branch is rewritten, with no directive', () => {
+    const migrated = migrateSource(sources.fragment!);
+    expect(migrated.skipped).toEqual([]);
+    const source = migrated.text;
+    expect(source).toContain('@fragment\nexport function fs(uv: location<0, vec2>): vec4 {');
+    expect(source).not.toContain('diagnostic');
     expect(bothHalves(source)).toEqual({ compiler: [], editor: [] });
     const wgsl = compile(source).wgsl!;
     expect(wgsl).toContain('textureSampleGrad(t, s, uv,');

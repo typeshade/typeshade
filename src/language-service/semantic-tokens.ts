@@ -16,7 +16,6 @@ import type { CompileTsSourceResult } from '../compiler/ts/source-file.js';
 import { WGSL_BUILTIN_NAMES } from './ambient.js';
 import { TYPE_DOCS } from './docs.js';
 import { stageOf } from './navigation.js';
-import { declaresEntry, stageCallOf } from '../compiler/ts/stage-call.js';
 import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
 import { offsetAt, positionAt } from './positions.js';
 import type {
@@ -126,15 +125,6 @@ function collectOverlay(sourceFile: ts.SourceFile): Overlay {
       }
     } else if (ts.isFunctionDeclaration(node) && node.name && stageOf(node, sourceFile)) {
       entryNameStarts.add(node.name.getStart());
-    } else if (ts.isVariableStatement(node)) {
-      // `const vs = vertex(function vs(…) { … })` (change 0111): the constant and the function
-      // expression's own name are the entry.
-      const sc = stageCallOf(node);
-      if (sc !== undefined && declaresEntry(sc.callee)) {
-        entryNameStarts.add(sc.declaration.name.getStart());
-        if (ts.isFunctionExpression(sc.fn) && sc.fn.name)
-          entryNameStarts.add(sc.fn.name.getStart());
-      }
     } else if (isBuiltinTypeLiteral(node) && WGSL_BUILTIN_NAMES.includes(node.text)) {
       // The id of a `builtin<"…", T>` type, coloured as the decorator's argument is.
       builtinStringStarts.add(node.getStart());
@@ -212,17 +202,12 @@ export function getSemanticTokens(
     // `struct` a program has is one it declares.
     const gpu = (baseType === 'type' || baseType === 'struct') && TYPE_DOCS[text] !== undefined;
     if (gpu) modifiers.push('gpu');
-    // A stage call's constant is a `variable` to TypeScript and an entry function here.
-    const staged = baseType === 'variable' && overlay.entryNameStarts.has(start);
-    if ((baseType === 'function' || staged) && overlay.entryNameStarts.has(start))
-      modifiers.push('entry');
+    if (baseType === 'function' && overlay.entryNameStarts.has(start)) modifiers.push('entry');
     const type = gpu
       ? 'type'
-      : staged
-        ? 'function'
-        : baseType === 'variable' && bindingNames.has(text)
-          ? 'resource'
-          : baseType;
+      : baseType === 'variable' && bindingNames.has(text)
+        ? 'resource'
+        : baseType;
     tokens.push({ start, length, type, modifiers });
   }
 

@@ -16,11 +16,6 @@ import { compile } from '../compiler/ts/compile.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
-/** What a program compiles to: the WGSL, the GLSL ES 3.00 and the codes and texts of its
- *  diagnostics. */
-const sig = (r: ReturnType<typeof compile>) =>
-  JSON.stringify([r.wgsl, r.glsl, r.diagnostics.map((d) => [d.code, d.category, d.message])]);
-
 describe('migrateSource', () => {
   it('rewrites each stage call to its attribute, and keeps the rest of the text', () => {
     const before = `"use typeshade";
@@ -80,16 +75,24 @@ export function scale(xs: array<f32>) {
     expect(result.skipped).toEqual([]);
     // The rewrite is idempotent: a migrated file has nothing left to rewrite.
     expect(migrateSource(after)).toEqual({ text: after, changes: 0, skipped: [] });
-    // Both forms compile to the same WGSL, GLSL and diagnostics, but for the decorated field's
-    // warning, which the rewrite removes.
-    const kept = (r: ReturnType<typeof compile>) =>
-      JSON.stringify([
-        r.wgsl,
-        r.glsl,
-        r.diagnostics.filter((d) => !(d.code === 'TS8028' && d.category === 'warning')),
-      ]);
+    // The file as written is refused, once on each stage call (Rule 6.7, change 0140), and
+    // warned once on the decorated field; the file the rewrite writes compiles, with no
+    // diagnostic. So an author with a refused call has the tool the refusal names.
+    const refusal = (callee: string, written: string) =>
+      `error TS8028 ${callee === 'workgroup_size' ? "a kernel's size" : 'a stage'} is an attribute on the function declaration: write "${written}", or run "tshc migrate" (change 0130)`;
+    expect(
+      compile(before)
+        .diagnostics.filter((d) => d.category === 'error')
+        .map((d) => `${d.category} ${d.code} ${d.message}`),
+    ).toEqual([
+      refusal('vertex', '@vertex export function vs(…)'),
+      refusal('fragment', '@fragment export function fs(…)'),
+      refusal('compute', '@compute([8, 8]) export function main(…)'),
+      refusal('workgroup_size', '@workgroup_size([128]) export function scale(…)'),
+    ]);
+    expect(compile(before).wgsl).toBeUndefined();
     expect(compile(after).diagnostics).toEqual([]);
-    expect(kept(compile(after))).toBe(kept(compile(before)));
+    expect(compile(after).wgsl).toContain('@compute @workgroup_size(8, 8)');
   });
 
   it('keeps a qualifier before the parameter, and rewrites the type form to it (change 0137)', () => {
@@ -136,7 +139,13 @@ declare const out: storage<array<f32>, "read_write">;
     const after = before.replace('export default function', 'export function');
     expect(migrateSource(before)).toEqual({ text: after, changes: 1, skipped: [] });
     expect(migrateSource(after)).toEqual({ text: after, changes: 0, skipped: [] });
-    expect(sig(compile(after))).toBe(sig(compile(before)));
+    // The entry as written is refused on `default` (Rule 8.1, change 0140); the named entry the
+    // rewrite writes compiles, with no diagnostic.
+    expect(compile(before).diagnostics.map((d) => `${d.category} ${d.code} ${d.message}`)).toEqual([
+      'error TS8028 an entry takes its declaration\'s name; write "export function k"',
+    ]);
+    expect(compile(after).diagnostics).toEqual([]);
+    expect(compile(after).wgsl).toContain('fn k(');
   });
 
   it("keeps a file in the language's form as it is", () => {

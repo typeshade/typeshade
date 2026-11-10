@@ -1222,9 +1222,9 @@ describe('entry-IO struct fields need @builtin or @location (STRUCT_FIELD_MISSIN
   });
 });
 
-// Change 0130 (with change 0140, pull request 1): a stage attribute on a function declaration is
-// the entry's form, read with no diagnostic in either half, beside the stage call it replaces,
-// which still compiles to the same WGSL and GLSL ES 3.00 until change 0140 refuses it.
+// Change 0130 (with change 0140): a stage attribute on a function declaration is the entry's
+// form, read with no diagnostic in either half. `export default` on an entry is refused here;
+// `stage-call.test.ts` pins the refusal of the stage call the attribute replaces.
 describe('the stage attributes are the form of an entry (Rule 8.1, change 0130)', () => {
   /** `compile()`'s diagnostics and the editor's on one source, unfiltered. */
   const both = (source: string) => {
@@ -1247,8 +1247,6 @@ describe('the stage attributes are the form of an entry (Rule 8.1, change 0130)'
       `"use typeshade";\n${BUF}const WG: u32 = 8;\n@compute([WG, 8])\nexport function blur(${GID}) { buf[gid.x] = 1.; }\n`,
       `"use typeshade";\n${BUF}@compute\nexport function k(${GID}) { buf[gid.x] = 1.; }\n`,
       `"use typeshade";\n${BUF}@compute()\nexport function k(${GID}) { buf[gid.x] = 1.; }\n`,
-      // `export default` stays accepted with no diagnostic until change 0140's refusal.
-      `"use typeshade";\n${BUF}@compute([8]) export default function k(${GID}) { buf[gid.x] = 1.; }\n`,
     ];
     for (const source of sources) expect(both(source)).toEqual(clean);
     expect(compile(sources[2]!).wgsl).toContain('@fragment');
@@ -1257,27 +1255,66 @@ describe('the stage attributes are the form of an entry (Rule 8.1, change 0130)'
     expect(compile(sources[5]!).wgsl).toContain('@workgroup_size(64');
   });
 
-  it('compiles a stage call and its attribute to the same WGSL, GLSL and reflection', () => {
-    const pairs: [string, string][] = [
+  it('refuses export default on an entry, once, on "default", in both halves (change 0140)', () => {
+    // An entry takes its declaration's name (Rule 8.1). The entry is still read, so nothing
+    // else is said about it (Rule 12.4).
+    const refusal = (name: string) =>
+      `an entry takes its declaration's name; write "export function ${name}"`;
+    const spans = (source: string) => {
+      const service = createTypeshadeLanguageService();
+      service.openDocument('a.ts', source);
+      return {
+        compiler: compile(source).diagnostics.map((d) => [
+          d.category,
+          d.code,
+          source.slice(d.start, d.start + d.length),
+        ]),
+        editor: service
+          .getDiagnostics('a.ts')
+          .map((d) => [
+            d.severity,
+            d.code,
+            source.slice(d.span.start, d.span.start + d.span.length),
+          ]),
+      };
+    };
+    const sources: [string, string][] = [
       [
-        `export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> { return vec4(f32(i)); });\nexport const fs = fragment((p: builtin<"position", vec4>): location<0, vec4> => p * 0.5);`,
-        `@vertex\nexport function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> { return vec4(f32(i)); }\n@fragment\nexport function fs(p: builtin<"position", vec4>): location<0, vec4> { return p * 0.5; }`,
+        `"use typeshade";\n${BUF}@compute([8]) export default function k(${GID}) { buf[gid.x] = 1.; }\n`,
+        'k',
       ],
       [
-        `${BUF}export const k = compute([8, 4], function k(${GID}): void { buf[gid.x] = f32(gid.y); });`,
-        `${BUF}@compute([8, 4])\nexport function k(${GID}): void { buf[gid.x] = f32(gid.y); }`,
+        `"use typeshade";\n@fragment\nexport default function fs(): location<0, vec4> { return vec4(1.); }\n`,
+        'fs',
       ],
       [
-        `export const scale = workgroup_size([128], function scale(xs: array<f32>): void { for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * 2.; } });`,
-        `@workgroup_size([128])\nexport function scale(xs: array<f32>): void { for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * 2.; } }`,
+        `"use typeshade";\nexport default @vertex function vs(): builtin<"position", vec4> { return vec4(1.); }\n`,
+        'vs',
+      ],
+      // With no name, which only `default` allows: the placeholder of the rule's text.
+      [
+        `"use typeshade";\n@fragment export default function (): location<0, vec4> { return vec4(1.); }\n`,
+        'k',
       ],
     ];
-    const sig = (source: string) => {
-      const r = compile(`"use typeshade";\n${source}\n`);
-      expect(r.diagnostics).toEqual([]);
-      return JSON.stringify([r.wgsl, r.glsl, reflect(r.module)]);
-    };
-    for (const [call, attribute] of pairs) expect(sig(attribute)).toBe(sig(call));
+    for (const [source, name] of sources) {
+      expect(both(source), source).toEqual({
+        compiler: [['error', 'TS8028', refusal(name)]],
+        editor: [['typeshade', 'TS8028', refusal(name)]],
+      });
+      expect(spans(source), source).toEqual({
+        compiler: [['error', 'TS8028', 'default']],
+        editor: [['error', 'TS8028', 'default']],
+      });
+      expect(compile(source).wgsl).toBeUndefined();
+    }
+    // The valid neighbours: the same entries without `default`, and `export default` on a
+    // function that is no entry, which a host may import by any name.
+    const accepted = [
+      `"use typeshade";\n${BUF}@compute([8]) export function k(${GID}) { buf[gid.x] = 1.; }\n`,
+      `"use typeshade";\nexport default function half(x: f32): f32 { return x * 0.5; }\n@fragment export function fs(): location<0, vec4> { return vec4(half(1.)); }\n`,
+    ];
+    for (const source of accepted) expect(both(source), source).toEqual(clean);
   });
 
   it('refuses two stage attributes on one function, once, in both halves', () => {

@@ -3,6 +3,7 @@
 import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
+import { STAGE_CALLEES } from '../compiler/ts/stage-call.js';
 import { fileDeclaresType } from '../compiler/ts/type-map.js';
 import { isRemovedCall } from '../compiler/ts/removed-names.js';
 import { QUALIFIER_DECORATORS, usesDecoratedForm } from '../compiler/ts/decorated-form.js';
@@ -1619,10 +1620,8 @@ const SAME_MISTAKE: readonly SameMistake[] = [
   },
   {
     typescript: 2353,
-    typeshade: new Set(['TS8010', 'TS8028']),
-    reason:
-      'An object literal that names a field its struct does not have, or an option a stage call ' +
-      'does not take (`compute([64], f, { numerics: [...] })`, change 0131).',
+    typeshade: new Set(['TS8010']),
+    reason: 'An object literal that names a field its struct does not have.',
   },
   {
     typescript: 2561,
@@ -1703,11 +1702,10 @@ const SAME_MISTAKE: readonly SameMistake[] = [
   },
   {
     typescript: 2554,
-    typeshade: new Set(['TS8019', 'TS8003', 'TS8028']),
+    typeshade: new Set(['TS8019', 'TS8003']),
     reason:
       'The wrong number of arguments. For a `Math` member the compiler expands it says so as ' +
-      'TS8003 (`Math.hypot(x)`: `hypot expects 2 or 3 arguments.`), and for an options argument ' +
-      'to `workgroup_size`, which takes none (change 0131), as TS8028.',
+      'TS8003 (`Math.hypot(x)`: `hypot expects 2 or 3 arguments.`).',
   },
   {
     typescript: 2558,
@@ -2726,6 +2724,52 @@ const DECORATOR_REFUSALS: ReadonlySet<string> = new Set([
 const METHOD_DECORATOR_REFUSAL: ReadonlySet<string> = new Set([TS_CODES.CLASS_MEMBER]);
 
 /**
+ * Whether a TypeScript error is about a stage call the compiler refused (`TS8028` on the name
+ * called, Rules 6.7 and 8.1, changes 0130 and 0140): what TypeScript says of the call's
+ * arguments against the attribute's signature, which is the only one the ambient library
+ * declares for the name (TS2554 on `compute([8], f)`, TS2345 or TS2769 on its array). The
+ * refusal is the one diagnostic for the call (Rule 12.4). A report inside the body of the
+ * function the call wraps is about that body and stays.
+ */
+function isAboutRefusedStageCall(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  if (typeof diagnostic.code !== 'number') return false;
+  const code = diagnostic.code;
+  return compilerErrors.some((error) => {
+    if (error.code !== TS_CODES.ATTRIBUTE_NAME) return false;
+    const callee = nodeAtPosition(context.sourceFile, error.span.start);
+    const call = callee.parent;
+    if (
+      !ts.isIdentifier(callee) ||
+      !(STAGE_CALLEES as readonly string[]).includes(callee.text) ||
+      !ts.isCallExpression(call) ||
+      call.expression !== callee ||
+      ts.isDecorator(call.parent)
+    ) {
+      return false;
+    }
+    // The name called, which TypeScript reads before its declaration in
+    // `const vertex = vertex(f)` (TS2448).
+    if (within(diagnostic.span, error.span)) return true;
+    // What the call was to declare, `{ a }` in `const { a } = vertex(f)`: the call gives it
+    // nothing to read.
+    const declared = ts.isVariableDeclaration(call.parent) ? call.parent.name : undefined;
+    if (declared !== undefined && within(diagnostic.span, spanOfNode(declared, context.sourceFile)))
+      return true;
+    if (!CALL_CODES.has(code) || !within(diagnostic.span, spanOfNode(call, context.sourceFile)))
+      return false;
+    return !call.arguments.some(
+      (arg) =>
+        (ts.isFunctionExpression(arg) || ts.isArrowFunction(arg)) &&
+        within(diagnostic.span, spanOfNode(arg.body, context.sourceFile)),
+    );
+  });
+}
+
+/**
  * Whether a TypeScript error sits inside a decorator the compiler refuses whole, with one of
  * `DECORATOR_REFUSALS` on the decorator (Rule 6.7): TypeScript's TS1206 ("Decorators are not
  * valid here") or TS1249 (a decorator on an overload) on a declaration that takes none, TS1239
@@ -2826,6 +2870,8 @@ function isAboutRefusedIoArgument(
  *   about the value of one (`isAboutRefusedOperation`), goes;
  * - a TypeScript error inside a decorator the compiler refuses whole (`isInRefusedDecorator`)
  *   goes;
+ * - a TypeScript error about the arguments of a stage call the compiler refused
+ *   (`isAboutRefusedStageCall`) goes;
  * - a TypeScript constraint error on an IO attribute type's first argument repeats the
  *   compiler error spanning that type or its unknown builtin name (`isAboutRefusedIoArgument`);
  * - a TypeScript error that `SAME_MISTAKE` pairs by code with a compiler error, and whose span
@@ -2872,6 +2918,7 @@ export function mergeDiagnostics(
     if (isKnockOn(context, diagnostic, typescript)) return false;
     if (isAboutRefusedOperation(context, diagnostic, operatorRefusals)) return false;
     if (isInRefusedDecorator(context, diagnostic, compilerErrors)) return false;
+    if (isAboutRefusedStageCall(context, diagnostic, compilerErrors)) return false;
     if (isAboutRefusedIoArgument(context, diagnostic, compilerErrors)) return false;
     if (repeatsRefusal(context, diagnostic, refusals, compilerErrors)) return false;
     if (repeatsStrictModeRefusal(context, diagnostic, compilerErrors)) return false;

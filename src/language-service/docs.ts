@@ -125,20 +125,6 @@ export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
   out: "Written before a parameter, `@out p: T`: the parameter names a place of the caller's that the function writes before reading it and on every path. The caller passes a variable, which may have no value yet: `let s!: f32; add(a, b, s);`. WGSL `ptr<function, T>`, GLSL ES 3.00 `inout T`.",
 };
 
-/** One Markdown sentence per stage call of change 0111, the call spelling of an entry point and
- *  of a kernel function's workgroup size, which still compiles beside the stage attribute that
- *  replaces it (change 0130; refused later by change 0140). */
-export const STAGE_CALL_DOCS: Readonly<Record<string, string>> = {
-  vertex:
-    'The call form of a vertex-stage entry point, `export const vs = vertex(function vs(…) { … })`. The language writes the attribute, `@vertex export function vs(…) { … }`, and `tshc migrate` rewrites the call to it.',
-  fragment:
-    'The call form of a fragment-stage entry point, `export const fs = fragment(function fs(…) { … })`. The language writes the attribute, `@fragment export function fs(…) { … }`, and `tshc migrate` rewrites the call to it.',
-  compute:
-    'The call form of a compute-stage entry point with its workgroup size, `export const main = compute([64], function main(…) { … })`. The language writes the attribute, `@compute([64]) export function main(…) { … }`, and `tshc migrate` rewrites the call to it.',
-  workgroup_size:
-    "The call form of a kernel function's workgroup size, `export const scale = workgroup_size([128], function scale(xs: array<f32>) { … })`. The language writes the attribute, `@workgroup_size([128]) export function scale(…) { … }`, and `tshc migrate` rewrites the call to it.",
-};
-
 /** One Markdown sentence per attribute type of change 0111, the plain-TypeScript spelling of
  *  an entry input's or output's attribute. Each type means its value type. `inout` and `out`
  *  are the refused type form of a parameter qualifier (change 0137), kept in the ambient library

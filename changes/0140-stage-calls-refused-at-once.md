@@ -1,7 +1,7 @@
 ---
 id: '0140'
 title: The stage calls `vertex(f)`, `fragment(f)`, `compute([…], f)` and `workgroup_size([…], f)` and an `export default` entry are refused with `TS8028` with no warning release (amends change 0130 D4)
-status: accepted
+status: implemented
 rules:
   - '1.8'
   - '6.7'
@@ -24,7 +24,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0140, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Identity and status           | Proposal 0140, `status: implemented`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the direction of the session's coordinator, and revised the same day to answer the independent review of `ed8e32ee` and to record the owner's decision on the split into several pull requests. The date is the drafting date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                              |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-09, in Korean: "바로 거부" (refuse at once), asked whether the stage calls of change 0111 get change 0130's one warning release before the refusal, and "여러 PR, 마지막에 거부" (several pull requests, the refusal last), asked how the work is split. See Owner's decisions.                                                                                                                                                                                                                                                                                                                                                               |
 | Applicability / effectivity   | Expected: the proposed texts of change 0130 for Rules 1.8 (new, its Enforced by), 6.7 and 8.1, its "proposed rules, in short" items 4 to 6, its summary bullets for Rules 6.7 and 8.1, "The editor" item 2, the codes bullet of "What it touches", the OD-2 bullet of "Costs of the owner's decisions", D4, "Migration order", the milestones of its "Approval and plan record" and its "Configuration and validation record"; `docs/language-design.md` and `reqs/` (`RULE-0108.md`, `RULE-0607.md`, `RULE-0801.md`) when 0130 is implemented; `src/compiler/ts/stage-call.ts` and its test; `src/cli/migrate.ts`; `src/language-service/ambient.ts`; `CHANGELOG.md`. No release version is assigned. |
@@ -347,11 +347,100 @@ estimated.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require: the four pull requests and their commits;
-the call-to-attribute test of `tshc migrate`; both halves read on each refused form; the emit
-goldens unchanged for every migrated example; `bun run reqs:sync` and
-`python scripts/doorstop-check.py -C` with the changed items reviewed; and the document audit of
-the rules, the surface document and `reqs/`.
+**Delivery.** Four pull requests, each with `Change: 0130` and `Change: 0140`, by AI agents
+(Claude Code) at the coordinator's request. No release happened between them.
+
+1. Pull request #1147, merged into `main` as `10b2c859`: the attributes and the reversed
+   `tshc migrate`.
+2. Pull request #1151, merged as `ebd4249e`: the examples.
+3. Pull request #1154, merged as `c5ebeeed`: the tests, the journeys and the documents.
+4. Pull request #1159 (branch `claude/clever-ramanujan-yrfjsq-impl-0130-refuse`, base `main` at
+   `1f68634d`): the refusal. Commit `03341c81` holds the compiler, the language service, the
+   tests and the documents. The commit that adds this record follows it.
+
+**What pull request 4 delivered.**
+
+- The compiler: `refuseStageCalls` (`src/compiler/ts/stage-call.ts`) reports one `TS8028`, an
+  error, on the name called by each stage call, and on `default` of an `export default` entry.
+  The text for a stage call is `a stage is an attribute on the function declaration: write
+"@vertex export function vs(…)", or run "tshc migrate" (change 0130)`. It names
+  `@compute([8, 8])` and `@workgroup_size([128])` with the size as written. A stage call that
+  declares no entry is refused where it is lowered (`stageCallRefusalAt`,
+  `lower/expression-call.ts`).
+- One diagnostic for one mistake (Rule 12.4): the front end still reads a refused call as the
+  function declaration it stood for. A module with a refused call has no WGSL and no host face.
+- The language service: the ambient library declares no call signature for `vertex`,
+  `fragment`, `compute` or `workgroup_size`. `mergeDiagnostics` drops what TypeScript says of a
+  refused call's arguments (`isAboutRefusedStageCall`). Signature help offers nothing inside a
+  refused call. The document symbols, the semantic tokens and the completion filter read no
+  entry from a stage call.
+- `tshc migrate` keeps the call-to-attribute rewrite. `src/compiler/ts/stage-call.test.ts` and
+  `src/cli/migrate.test.ts` hold the file it writes for a refused form to compile.
+- Amendment A1: surface §78's example writes `@fragment export function fs(…)`, and the two
+  plain-`tsc` tests of `src/compiler/ts/attribute-types.test.ts` are removed.
+- `docs/language-design.md`: the Appendix B row for Rules 1.8, 6.7 and 8.1 is removed, and each
+  rule's Enforced by names the test. `CHANGELOG.md` carries the `### Removed` entry.
+
+**Functional verification** (2026-11-10; Linux container, Bun 1.4.4, Node 22.23.4, TypeScript
+5.6.3, vitest 5.0.5; on `03341c81`):
+
+- `npx tsc -p tsconfig.json --noEmit` and `npx tsc -p tsconfig.tests.json --noEmit`: pass.
+- `bun run lint` and `bun run format:check`: pass.
+- `bun run build`, then `npx vitest run` (the whole unit suite): 13606 passed, 9 failed in 2
+  files, `src/affected-tests.test.ts` (5) and `src/doc-test-selection.test.ts` (4). Both fail in
+  this container on `main` as well (environmental).
+- `src/compiler/ts/stage-call.test.ts`: 35 passed. Each test reads `compile()` and the language
+  service on the same source, with the code, the text and the text the range covers.
+- `bun run bake:goldens`: 355 passed, no golden changed. `bun run bake:api-surface` and
+  `bun run bake:author-names`: no file changed.
+- `bun run gate:compile`: 204 examples, WGSL on Tint 204, GLSL ES 3.00 on WebGL2 141, render
+  pipelines on Tint 132, failures 0.
+- `bun run gate:boundary`: pass, no budget raised.
+- `bun run gate:journeys`: pass.
+- `bun src/cli/bin.ts migrate --check examples journeys`: "209 files already in the language's
+  form."
+
+**Document audit** (2026-11-10): `bun scripts/changes.ts --base origin/main` passes;
+`bun run docs:refs`, 0 dead references; `bun run docs:impact`, no must-fix item, each review item
+read; `bun run reqs:sync`, then `doorstop review` of RULE-0108, RULE-0607, RULE-0801, RULE-0822,
+RULE-1204 and SURF-003 and `doorstop clear` of SURF-003, SURF-007, SURF-028, SURF-053, SURF-063,
+SURF-065, SURF-068, SURF-072 and SURF-074 after each was read;
+`python scripts/doorstop-check.py -C -e -F` passes.
+
+**Deviations.**
+
+- D-1. The text of a stage call that is no `const` at the top of the file or of a namespace
+  ends `at the top of the file or of a namespace (change 0130)` and does not name
+  `tshc migrate`, which does not rewrite that call. Disposition: closed; the code is `TS8028` and
+  the text names the attribute.
+- D-2. The text for `workgroup_size([n], f)` begins `a kernel's size is an attribute`, since a
+  kernel's size is no stage. Disposition: closed.
+- D-3. An option written after the function is named in the refusal of the call, `. The
+attribute takes no options: delete "diagnostic: [...]"`, and has no diagnostic of its own. The
+  option texts of changes 0131 and 0132 for a stage call are retired with the call (Rule 12.4).
+  Rule 6.7's sentence on options and surface §54 say so. Disposition: closed.
+- D-4. The text for `export default` writes the remedy in double quotes and with the entry's
+  name, `write "export function fs"`. This proposal writes it with backticks and `k`.
+  Disposition: closed; every other message quotes with double quotes.
+- D-5. Item 6 says the implementation chooses the means. The means is that the front end keeps
+  reading a refused call, so `src/compiler/ts/stage-call.ts` keeps the declaration it makes for
+  one. Disposition: closed.
+- D-6. Tests that "What it touches" does not name follow the change: the tests that wrote a
+  stage call for another purpose (`compute-stage-reachability.test.ts`,
+  `src/runtime/exported-binding.test.ts`, `kernel-workgroup.test.ts`, `entry-results.test.ts`,
+  `decorated-form.test.ts`, `diagnostic-removed.test.ts`, `numerics-removed.test.ts`,
+  `src/core/passes/derivative-rewrite.test.ts`, `src/language-service/new-entry-forms.test.ts`)
+  and `remedy-lines.test.ts`, which counts the new remedy site. The comparison of a stage call
+  with its attribute in `stage3.test.ts` became the comparison of the migrated file with the
+  attribute form in `stage-call.test.ts`. Disposition: closed.
+- D-7. Surface §7 gained two rows for the refusals. Change 0130 declares §7. Disposition: closed.
+- D-8. Pull request 4 pushed its first commit after the whole change passed the commit hooks,
+  not early, and opened its draft pull request after that push. Disposition: closed.
+
+**Status.** Every rule sentence, test and document this proposal declares is delivered, so
+pull request #1159 sets `status: implemented` (`changes/README.md`, lifecycle, step 4).
+`scripts/changes.ts` lists what a proposal declares and one diff does not touch. For this
+proposal it lists nothing on pull request #1159. The downstream work stays pending.
 
 ## What it owes downstream
 

@@ -349,17 +349,38 @@ export function fs(
   On an entry it is refused (`TS8028`):
   `"@workgroup_size" is WGSL's attribute, written here as @compute's argument: @compute([64]) or @compute([8, 8]); on a kernel function, @workgroup_size([n]).`
 
-**The stage calls of change 0111.** Change 0111 wrote an entry as a `const` that a stage call
-initializes: `vertex(f)`, `fragment(f)`, `compute([x, y?, z?], f)`, and `workgroup_size([n], f)`
-for a kernel function. That form is not the language's form (Rule 1.8, change 0130). Until the
-refusing pull request of change 0140 it still compiles, to the same WGSL and GLSL ES 3.00 as the
-attribute, with no diagnostic in either half (`docs/language-design.md`, Appendix B). A stage
-call takes no options after the function (changes 0131 and 0132): a leftover option is one
-`TS8028`, in the compiler and in the editor, and `workgroup_size` takes its two arguments alone. Change
-0140 refuses it, and an `export default` on an entry, with `TS8028`. `tshc migrate` rewrites
-each stage call to its attribute. A decorator on a parameter, `@builtin("vertex_index") i: u32`,
-is the decorated form of change 0111: it warns once (`TS8028`, §7), and `tshc migrate` rewrites
-it to the attribute type.
+**The stage calls of change 0111 are refused.** Change 0111 wrote an entry as a `const` that a
+stage call initializes: `vertex(f)`, `fragment(f)`, `compute([x, y?, z?], f)`, and
+`workgroup_size([n], f)` for a kernel function. That form is not the language's form (Rule 1.8,
+change 0130). The compiler and the editor refuse it with one `TS8028`, an error, on the name
+called (Rule 6.7, change 0140):
+
+```
+a stage is an attribute on the function declaration: write "@vertex export function vs(…)", or run "tshc migrate" (change 0130)
+```
+
+- The text names the attribute that replaces the call. For `compute([8, 8], f)` it names
+  `@compute([8, 8])`. For `workgroup_size([128], f)` it names `@workgroup_size([128])` and
+  begins `a kernel's size is an attribute`.
+- An entry written as an arrow function or a function expression through a stage call is
+  refused the same way (Rule 8.1).
+- An option written after the function is named in the same diagnostic:
+  `The attribute takes no options: delete "diagnostic: [...]"` (changes 0131 and 0132).
+- A stage call that is no `const` at the top of the file or of a namespace gets the same code:
+  a call in a function's body, in a `let`, in a list of constants, as a statement, or after
+  `export default`. Its text names the place of the declaration in place of `tshc migrate`.
+- `export default` on an entry is `TS8028` on `default` (Rule 8.1):
+  `an entry takes its declaration's name; write "export function k"`.
+- Nothing else is said about a refused entry (Rule 12.4): the compiler still reads the call as
+  the entry it stood for.
+- A function, a constant or a parameter that the file declares under the name `vertex`,
+  `fragment`, `compute` or `workgroup_size` is the file's (Rule 2.1). A call of it is not a
+  stage call.
+
+`tshc migrate` rewrites each stage call to its attribute, and an `export default` entry to a
+named one. A decorator on a parameter, `@builtin("vertex_index") i: u32`, is the decorated form
+of change 0111: it warns once (`TS8028`, §7), and `tshc migrate` rewrites it to the attribute
+type.
 
 ### What an entry may return
 
@@ -486,14 +507,16 @@ Same Expr / Stmt / FuncDecl / BindingDecl / StructDecl as the EDSL.
 4. **Field decorators** `@align` `@location` `@size` `@offset` `@ignore`.
 5. **`@vertex` / `@fragment`** + explicit builtin and `VsIn` locations.
 6. Reflect JSON + optional `.d.ts` for `declare` names.
-7. **Stage calls and attribute types** (change 0111): `vertex(f)`, `fragment(f)`,
-   `compute([…], f)`, `workgroup_size([…], f)`, `builtin<N, T>` and `location<I, T>`. The
-   decorators of steps 2, 4 and 5 stay accepted until the release after the migration release.
+7. **Attribute types** (change 0111): `builtin<N, T>` and `location<I, T>`. Change 0111 also
+   wrote a stage as a call, `vertex(f)`, `fragment(f)`, `compute([…], f)` and
+   `workgroup_size([…], f)`, which step 8 replaces. The decorators of steps 2 and 4 on a
+   parameter or a field stay accepted until the release after the migration release.
    A parameter qualifier is written before the parameter, `@inout a: f32` and `@out c: f32`
    (change 0137).
 8. **Stage attributes** (change 0130): `@vertex`, `@fragment`, `@compute([…])` and
    `@workgroup_size([n])` on the function declaration are the language's form, as in steps 2
-   and 5. The stage calls of step 7 compile until the refusing pull request of change 0140.
+   and 5. The stage calls of step 7 and `export default` on an entry are refused with `TS8028`
+   (change 0140, §3).
 
 Do not start Execution Graph or class methods before 2–4 are green. (Class methods landed as §26.)
 
@@ -521,6 +544,8 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | builtin parameter on an incompatible stage | stage mismatch |
 | `@compute` method on a class | an entry is declared at the top level, not on a class (Rule 8.1) |
 | `@diagnostic(…)` anywhere: on a function, a field, a parameter or a declaration | `TS8028`, an error, in the compiler and in the editor: `"@diagnostic(…)" is not a decorator the compiler reads (Rule 6.7). Delete it: the compiler rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5) and reports each other one with TS8052 and the reason. "tshc migrate" deletes it.` Change 0132 removed the filter, with no warning release (§54) |
+| a stage call of change 0111, `vertex(f)`, `fragment(f)`, `compute([…], f)` or `workgroup_size([…], f)`, and so an entry written as a `const`, an arrow function or a function expression through one, wherever it is written | `TS8028`, an error, once, on the name called, in the compiler and in the editor (Rule 6.7, changes 0130 and 0140): `a stage is an attribute on the function declaration: write "@vertex export function vs(…)", or run "tshc migrate" (change 0130)`. The text names the attribute with its size, and an option written after the function to delete. Nothing else is said about the refused entry. A declaration of the file under one of the four names is the file's, and a call of it is not refused (§3) |
+| `export default` on an entry | `TS8028`, an error, on `default`, in the compiler and in the editor (Rule 8.1, change 0140): `an entry takes its declaration's name; write "export function k"` (§3) |
 | a decorator of the decorated form where it is read: `@builtin`, `@location`, `@interpolate`, `@invariant` or `@blend_src` on a parameter or a field | a `TS8028` warning, one per decorator, in the compiler and in the editor, naming the new spelling (change 0111, the migration release): for an attribute the member's type, `write "pos: builtin<"position", vec4, { invariant: true }>"`. A decorator refused where it is written keeps that refusal alone. The release after it refuses each one. The editor drops TypeScript's TS1206 on a parameter's decorator only while `compile()` warns on it. A stage attribute on a function, `@vertex`, `@fragment`, `@compute(…)` or `@workgroup_size(…)`, is the entry's form (change 0130): no warning, and the editor drops its TS1206 in every file. A parameter qualifier, `@inout` or `@out`, is no decorated form and warns nowhere (change 0137). The editor reports no TS2564 (`strictPropertyInitialization: false`) |
 | the type form of a parameter qualifier, `inout<T>` or `out<T>`, in any type position: a parameter, a local, a result, a type alias, a generic argument or a field | a `TS8028` error, once, at the written `inout<…>`, in the compiler and in the editor (change 0137): `"inout<f32>" is the type form of a parameter qualifier, which the language does not have: write "@inout a: f32", or run "tshc migrate" (change 0137).`; away from a parameter, `… a qualifier is written before a parameter, as "@inout a: f32", and here the type is "f32"; "tshc migrate" rewrites a parameter's type form (change 0137).` |
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
@@ -7226,10 +7251,14 @@ filter is refused in the change that removed it, with no warning release, since 
 version had it (§7):
 
 ```
-A stage call takes no options; "diagnostic: [...]" is not one. Delete it: the compiler rewrites
-each implicit-LOD sample or derivative it can reach (Rule 8.5) and reports each other one with
-TS8052 and the reason. "tshc migrate" deletes it.
+"@diagnostic(…)" is not a decorator the compiler reads (Rule 6.7). Delete it: the compiler
+rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5) and reports each other
+one with TS8052 and the reason. "tshc migrate" deletes it.
 ```
+
+A `{ diagnostic: [...] }` option was written on a stage call, which is itself refused since
+change 0140 (§3). The refusal of the call names the option too:
+`The attribute takes no options: delete "diagnostic: [...]"`.
 
 `tshc migrate` deletes a `@diagnostic(…)` decorator and a stage call's `diagnostic` option. The
 front end emits no `diagnostic(...)` directive, and `CompileTsSourceResult` has no
@@ -11379,9 +11408,10 @@ function tick(base: vec3f, x: vec3f, spread: f32): vec3f {
   return mix(base, x, 0.) + spread * hash(base.xy);
 }
 
-export const fs = fragment(function fs(p: builtin<"position", vec4f>): vec4f {
+@fragment
+export function fs(p: builtin<"position", vec4f>): vec4f {
   return vec4f(tick(p.xyz, p.zyx, 0.5), 1.);
-});
+}
 ```
 
 The emitted `mix(base, x, 0.0)` stays until the compiler proves `base` and `x` finite. An author

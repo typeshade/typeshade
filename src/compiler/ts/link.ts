@@ -297,8 +297,9 @@ function fixedNameOf(stmt: ts.Statement): Unit['fixedName'] {
     return undefined;
   }
   if (!ts.isVariableStatement(stmt)) return undefined;
-  // `const vs = vertex(function vs(…) { … })`, the stage call of change 0111, is an entry; a
-  // `workgroup_size([…], f)` is a kernel function, which a host calls by its name too.
+  // A refused stage call (changes 0130 and 0140) is still read as what it stood for, so its
+  // refusal is the one diagnostic for it (Rule 12.4): an entry, or under `workgroup_size` a
+  // kernel function, which a host calls by its name too.
   const stage = stageCallOf(stmt);
   if (stage !== undefined) return declaresEntry(stage.callee) ? 'entry point' : undefined;
   const declared = hasModifier(stmt, ts.SyntaxKind.DeclareKeyword);

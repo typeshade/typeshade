@@ -1,7 +1,8 @@
 // === `tshc migrate`: a "use typeshade" file to the language's own forms ===
 //
 // Change 0130 (with change 0140): an entry's stage is an attribute on its function declaration,
-// and the stage calls of change 0111 are rewritten to it. The rewrite is textual and keeps every
+// and the stage calls of change 0111, which the compiler refuses (`TS8028`) with a text that
+// names this command, are rewritten to it. The rewrite is textual and keeps every
 // byte it does not need to change, so a file reads as its author wrote it:
 //
 //   export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut { … });

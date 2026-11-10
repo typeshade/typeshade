@@ -11,7 +11,7 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 const FILE = '/stages/main.shade.ts';
 const WORKGROUP = 'let shared: workgroup<f32>;';
 const entry = (stage: 'vertex' | 'fragment', body: string, name = 'main') =>
-  `export const ${name} = ${stage}(function ${name}(): vec4 { ${body} });`;
+  `@${stage} export function ${name}(): vec4 { ${body} }`;
 const memoryMessage = (stage: string) =>
   `"shared" is workgroup memory, which only a compute entry has; a ${stage} entry cannot read or write it.`;
 const barrierMessage = (name: string, stage: string) =>
@@ -207,7 +207,7 @@ for (const barrier of [false, true]) {
       [
         {
           text: 'main',
-          start: source.indexOf('const main') + 6,
+          start: source.indexOf('function main') + 9,
           code: barrier ? 'TS8034' : 'TS8033',
           message: barrier
             ? barrierMessage('workgroupBarrier', 'fragment')

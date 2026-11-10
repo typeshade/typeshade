@@ -81,6 +81,7 @@ import { crossedClampBounds } from '../loop-bound.js';
 import { refuseConstCall } from './const-call.js';
 import { parseSwizzle } from '../swizzle.js';
 import { libraryNameSentence } from '../type-map.js';
+import { stageCallRefusalAt } from '../stage-call.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
 import { isConsoleMethod } from '../../../core/console.js';
 
@@ -616,6 +617,13 @@ export function lowerCall(
   if (ts.isIdentifier(callee) && ctor === undefined && intrinsicId === undefined) {
     // One refused where it is declared said why there (roadmap 0.3 item T10, #92).
     if (scope.declarationRefused(callee.text)) return undefined;
+    // A stage name called where no `const` of the module declares an entry is the stage call
+    // changes 0130 and 0140 refuse, said once, on the name, with nothing of its arguments.
+    const stageCall = stageCallRefusalAt(callee, sourceFile);
+    if (stageCall !== undefined) {
+      pushDiag(diagnostics, sourceFile, callee, stageCall, TS_CODES.ATTRIBUTE_NAME);
+      return undefined;
+    }
     if (!unknownNameAlreadyReported(callee, callee.text, sourceFile, diagnostics))
       pushDiag(
         diagnostics,
