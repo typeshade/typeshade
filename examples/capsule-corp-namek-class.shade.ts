@@ -38,7 +38,7 @@ const GROUND = -1.04;
 const BAND_TOP = 0.08;
 const BAND_BOT = -0.52;
 
-const WIN_N = 12.0;
+const WIN_N = 12;
 const WIN_Y = -0.22;
 const WIN_A = 0.10;
 const WIN_BULGE = 0.06;
@@ -63,7 +63,7 @@ const BAY_DEPTH = 0.03;
 const LEG_R = 0.99;
 const SHOCK_Y = GROUND + 0.12;
 const BELLY_R = 0.26;
-const BELLY_Y = -sqrt(1.0 - BELLY_R * BELLY_R);
+const BELLY_Y = -sqrt(1 - BELLY_R * BELLY_R);
 const BELLY_EXT = 0.06;
 const SHAFT_R = 0.10;
 
@@ -77,8 +77,8 @@ const CORP_H = 0.10;
 
 const ADV = 0.78;
 
-const COAST_R = 10.0;
-const MESA_R = 18.0;
+const COAST_R = 10;
+const MESA_R = 18;
 
 const SW = 0.085;
 
@@ -87,9 +87,9 @@ const HATCH_W = 0.02;
 const HATCH_L = 0.09;
 const HATCH_D = 0.09;
 
-const SCUFFS = 10.0;
+const SCUFFS = 10;
 
-const DIRT_GRAIN = vec2(0.7, 0.0);
+const DIRT_GRAIN = vec2(0.7, 0);
 const DIRT_TILT = 0.3;
 
 // Material palette
@@ -127,17 +127,17 @@ const TRUNK = vec3(0.86, 0.88, 0.78);
 const LIG = normalize(vec3(-0.59, 0.36, 0.73));
 
 const CROSS: array<vec2, 4> = [
-  vec2(-1.0, 0.0),
-  vec2(1.0, 0.0),
-  vec2(0.0, -1.0),
-  vec2(0.0, 1.0)
+  vec2(-1, 0),
+  vec2(1, 0),
+  vec2(0, -1),
+  vec2(0, 1)
 ];
 
 const TET: array<vec3, 4> = [
-  vec3(1.0, -1.0, -1.0),
-  vec3(-1.0, -1.0, 1.0),
-  vec3(-1.0, 1.0, -1.0),
-  vec3(1.0)
+  vec3(1, -1, -1),
+  vec3(-1, -1, 1),
+  vec3(-1, 1, -1),
+  vec3(1)
 ];
 
 // ---------------------------------------------------------------------
@@ -182,17 +182,17 @@ class Noise {
   static value(p: vec2): f32 {
     const i = floor(p);
     const f = fract(p);
-    const q = f * f * (3.0 - 2.0 * f);
+    const q = f * f * (3 - 2 * f);
 
     return mix(
       mix(
         Noise.hash12(i),
-        Noise.hash12(i + vec2(1.0, 0.0)),
+        Noise.hash12(i + vec2(1, 0)),
         q.x
       ),
       mix(
-        Noise.hash12(i + vec2(0.0, 1.0)),
-        Noise.hash12(i + vec2(1.0, 1.0)),
+        Noise.hash12(i + vec2(0, 1)),
+        Noise.hash12(i + vec2(1, 1)),
         q.x
       ),
       q.y
@@ -202,7 +202,7 @@ class Noise {
   static fbm(p: vec2): f32 {
     const rotation = mat2(1.6, 1.2, -1.2, 1.6);
     let q = p;
-    let sum = 0.0;
+    let sum = 0;
     let amplitude = 0.5;
 
     for (let i = 0; i < 4; i++) {
@@ -221,9 +221,9 @@ class Noise {
   static wrapX(p: vec2, n: f32): f32 {
     const i = floor(p);
     const f = fract(p);
-    const q = f * f * (3.0 - 2.0 * f);
+    const q = f * f * (3 - 2 * f);
     const i0 = Noise.mod(i.x, n);
-    const i1 = Noise.mod(i.x + 1.0, n);
+    const i1 = Noise.mod(i.x + 1, n);
 
     return mix(
       mix(
@@ -232,8 +232,8 @@ class Noise {
         q.x
       ),
       mix(
-        Noise.hash12(vec2(i0, i.y + 1.0)),
-        Noise.hash12(vec2(i1, i.y + 1.0)),
+        Noise.hash12(vec2(i0, i.y + 1)),
+        Noise.hash12(vec2(i1, i.y + 1)),
         q.x
       ),
       q.y
@@ -243,13 +243,13 @@ class Noise {
   static fbmWrapX(p: vec2, n: f32): f32 {
     let q = p;
     let period = n;
-    let sum = 0.0;
+    let sum = 0;
     let amplitude = 0.5;
 
     for (let i = 0; i < 4; i++) {
       sum += amplitude * Noise.wrapX(q, period);
-      q = 2.0 * q + vec2(0.0, 5.3);
-      period *= 2.0;
+      q = 2 * q + vec2(0, 5.3);
+      period *= 2;
       amplitude *= 0.5;
     }
 
@@ -281,36 +281,36 @@ class SDF {
     const pa = p - a;
     const ba = b - a;
 
-    return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0));
+    return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0, 1));
   }
 
   static box(p: vec3, b: vec3): f32 {
     const q = abs(p) - b;
-    return length(max(q, vec3(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0);
+    return length(max(q, vec3(0))) + min(max(q.x, max(q.y, q.z)), 0);
   }
 
   static box2(p: vec2, b: vec2): f32 {
     const q = abs(p) - b;
-    return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0);
+    return length(max(q, vec2(0))) + min(max(q.x, q.y), 0);
   }
 
   static trapezoid(p: vec2, r1: f32, r2: f32, height: f32): f32 {
     const k1 = vec2(r2, height);
-    const k2 = vec2(r2 - r1, 2.0 * height);
+    const k2 = vec2(r2 - r1, 2 * height);
     const qx = abs(p.x);
     const q = vec2(qx, p.y);
 
     const ca = vec2(
-      qx - min(qx, q.y < 0.0 ? r1 : r2),
+      qx - min(qx, q.y < 0 ? r1 : r2),
       abs(q.y) - height
     );
 
     const cb =
       q -
       k1 +
-      k2 * clamp(dot(k1 - q, k2) / dot(k2, k2), 0.0, 1.0);
+      k2 * clamp(dot(k1 - q, k2) / dot(k2, k2), 0, 1);
 
-    const sign = cb.x < 0.0 && ca.y < 0.0 ? -1.0 : 1.0;
+    const sign = cb.x < 0 && ca.y < 0 ? -1 : 1;
 
     return sign * sqrt(min(dot(ca, ca), dot(cb, cb)));
   }
@@ -321,7 +321,7 @@ class SDF {
       abs(p.y - 0.5 * (y0 + y1)) - 0.5 * (y1 - y0)
     );
 
-    return min(max(d.x, d.y), 0.0) + length(max(d, vec2(0.0)));
+    return min(max(d.x, d.y), 0) + length(max(d, vec2(0)));
   }
 
   static coneY(p: vec3, rb: f32, rt: f32, y0: f32, y1: f32): f32 {
@@ -332,19 +332,19 @@ class SDF {
     );
 
     const k1 = vec2(rt, halfHeight);
-    const k2 = vec2(rt - rb, 2.0 * halfHeight);
+    const k2 = vec2(rt - rb, 2 * halfHeight);
 
     const ca = vec2(
-      q.x - min(q.x, q.y < 0.0 ? rb : rt),
+      q.x - min(q.x, q.y < 0 ? rb : rt),
       abs(q.y) - halfHeight
     );
 
     const cb =
       q -
       k1 +
-      k2 * clamp(dot(k1 - q, k2) / dot(k2, k2), 0.0, 1.0);
+      k2 * clamp(dot(k1 - q, k2) / dot(k2, k2), 0, 1);
 
-    const sign = cb.x < 0.0 && ca.y < 0.0 ? -1.0 : 1.0;
+    const sign = cb.x < 0 && ca.y < 0 ? -1 : 1;
 
     return sign * sqrt(min(dot(ca, ca), dot(cb, cb)));
   }
@@ -356,11 +356,11 @@ class SDF {
 
     const s = max(
       (h - radius) * q.x * q.x +
-        width * width * (h + radius - 2.0 * q.y),
+        width * width * (h + radius - 2 * q.y),
       h * q.x - width * q.y
     );
 
-    return s < 0.0
+    return s < 0
       ? length(q) - radius
       : q.x < width
         ? h - q.y
@@ -378,7 +378,7 @@ class SDF {
       abs(h - 0.5 * lengthAB) - 0.5 * lengthAB
     );
 
-    return min(max(d.x, d.y), 0.0) + length(max(d, vec2(0.0)));
+    return min(max(d.x, d.y), 0) + length(max(d, vec2(0)));
   }
 
   static capsule(p: vec3, a: vec3, b: vec3, radius: f32): f32 {
@@ -386,7 +386,7 @@ class SDF {
     const ba = b - a;
 
     return length(
-      pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0)
+      pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0, 1)
     ) - radius;
   }
 
@@ -440,7 +440,7 @@ class Ship {
   legCount: f32;
 
   constructor() {
-    this.legCount = 4.0;
+    this.legCount = 4;
   }
 
   flapOutline(s: vec3): f32 {
@@ -459,7 +459,7 @@ class Ship {
 
   flapHome(l: vec3): vec3 {
     const hinge = vec2(
-      sqrt(1.0 - FLAP_Y * FLAP_Y),
+      sqrt(1 - FLAP_Y * FLAP_Y),
       FLAP_Y
     );
 
@@ -477,7 +477,7 @@ class Ship {
     const home = this.flapHome(l);
 
     return max(
-      abs(length(home) - 1.0 + 0.5 * FLAP_T) - 0.5 * FLAP_T,
+      abs(length(home) - 1 + 0.5 * FLAP_T) - 0.5 * FLAP_T,
       this.flapOutline(home)
     );
   }
@@ -487,7 +487,7 @@ class Ship {
     const sag = 0.02;
 
     const hinge = vec2(
-      sqrt(1.0 - FLAP_Y * FLAP_Y),
+      sqrt(1 - FLAP_Y * FLAP_Y),
       FLAP_Y
     );
 
@@ -505,7 +505,7 @@ class Ship {
       abs(l.x) - FLAP_HW
     );
 
-    const lo = vec3(-0.1, GROUND, 0.0);
+    const lo = vec3(-0.1, GROUND, 0);
     const hi = vec3(0.1, y + sag + 0.02, LEG_R + 0.1);
 
     bounds = min(
@@ -517,10 +517,10 @@ class Ship {
     );
 
     if (bounds > min(best, 0.1)) {
-      return vec2(bounds, 5.0);
+      return vec2(bounds, 5);
     }
 
-    const c = l - vec3(0.0, 0.0, LEG_R);
+    const c = l - vec3(0, 0, LEG_R);
 
     let leg =
       SDF.cylinderY(
@@ -544,8 +544,8 @@ class Ship {
       leg,
       SDF.capsule(
         l,
-        vec3(0.0, y + sag, 0.6),
-        vec3(0.0, y, LEG_R),
+        vec3(0, y + sag, 0.6),
+        vec3(0, y, LEG_R),
         0.018
       )
     );
@@ -628,7 +628,7 @@ class Ship {
       )
     );
 
-    let result = vec2(leg, 5.0);
+    let result = vec2(leg, 5);
 
     result = SDF.union(
       result,
@@ -640,13 +640,13 @@ class Ship {
           GROUND + 0.006,
           GROUND + 0.064
         ) - 0.006,
-        6.0
+        6
       )
     );
 
     result = SDF.union(
       result,
-      vec2(this.flap(l), 10.0)
+      vec2(this.flap(l), 10)
     );
 
     return result;
@@ -654,10 +654,10 @@ class Ship {
 
   map(p: vec3): vec2 {
     const bound =
-      length(p - vec3(0.0, -0.3, 0.0)) - 1.6;
+      length(p - vec3(0, -0.3, 0)) - 1.6;
 
     if (bound > 0.25) {
-      return vec2(bound, 0.0);
+      return vec2(bound, 0);
     }
 
     const radius = length(p);
@@ -676,16 +676,16 @@ class Ship {
 
     const bay = max(
       this.flapOutline(l),
-      1.0 - FLAP_T - BAY_DEPTH - radius
+      1 - FLAP_T - BAY_DEPTH - radius
     );
 
     let result =
-      radius - 1.0 > -bay
-        ? vec2(radius - 1.0, 0.0)
-        : vec2(-bay, 11.0);
+      radius - 1 > -bay
+        ? vec2(radius - 1, 0)
+        : vec2(-bay, 11);
 
     if (BELLY_Y - p.y > result.x) {
-      result = vec2(BELLY_Y - p.y, 12.0);
+      result = vec2(BELLY_Y - p.y, 12);
     }
 
     result = SDF.union(
@@ -695,7 +695,7 @@ class Ship {
           radius - 1.022,
           abs(p.y - RING_Y) - RING_H
         ),
-        1.0
+        1
       )
     );
 
@@ -710,8 +710,8 @@ class Ship {
     result = SDF.union(
       result,
       vec2(
-        max(radius - 1.0 - DOOR_T, door),
-        4.0
+        max(radius - 1 - DOOR_T, door),
+        4
       )
     );
 
@@ -720,30 +720,30 @@ class Ship {
       horizontalRadius,
       p.y,
       WIN_N,
-      0.0
+      0
     );
 
     if (abs(windowFrame.index) > 0.5) {
       const center = vec3(
-        0.0,
+        0,
         WIN_Y,
-        sqrt(1.0 - WIN_Y * WIN_Y)
+        sqrt(1 - WIN_Y * WIN_Y)
       );
 
       const w = windowFrame.point - center;
       const h = dot(w, center);
       const glassRadius =
         (WIN_A * WIN_A + WIN_BULGE * WIN_BULGE) /
-        (2.0 * WIN_BULGE);
+        (2 * WIN_BULGE);
 
       result = SDF.union(
         result,
         vec2(
           length(
             windowFrame.point -
-            center * (1.0 + WIN_BULGE - glassRadius)
+            center * (1 + WIN_BULGE - glassRadius)
           ) - glassRadius,
-          2.0
+          2
         )
       );
 
@@ -756,7 +756,7 @@ class Ship {
               h
             )
           ) - 0.017,
-          3.0
+          3
         )
       );
     }
@@ -767,19 +767,19 @@ class Ship {
     );
 
     const bellyPoint =
-      p + vec3(0.0, BELLY_EXT, 0.0);
+      p + vec3(0, BELLY_EXT, 0);
 
     result = SDF.union(
       result,
       vec2(
         SDF.cutSphereBelow(
           bellyPoint,
-          1.0,
+          1,
           BELLY_Y
         ),
-        bellyPoint.y - BELLY_Y > length(bellyPoint) - 1.0
-          ? 12.0
-          : 0.0
+        bellyPoint.y - BELLY_Y > length(bellyPoint) - 1
+          ? 12
+          : 0
       )
     );
 
@@ -792,7 +792,7 @@ class Ship {
           BELLY_Y - BELLY_EXT - 0.01,
           BELLY_Y + 0.05
         ),
-        7.0
+        7
       )
     );
 
@@ -826,21 +826,21 @@ class NamekTree {
 
     const bound =
       length(
-        q - vec3(0.0, 0.5 * this.height, 0.0)
+        q - vec3(0, 0.5 * this.height, 0)
       ) -
       0.5 * this.height -
       this.radius -
       0.1;
 
     if (bound > 0.2) {
-      return vec2(bound, 8.0);
+      return vec2(bound, 8);
     }
 
     const taper =
       mix(
         0.018,
         0.012,
-        clamp(q.y / this.height, 0.0, 1.0)
+        clamp(q.y / this.height, 0, 1)
       );
 
     const trunk =
@@ -854,27 +854,27 @@ class NamekTree {
 
     const canopyCenter =
       q -
-      vec3(0.0, this.height, 0.0);
+      vec3(0, this.height, 0);
 
     const normal =
       canopyCenter /
       (length(canopyCenter) + 1e-4);
 
     const bump =
-      sin(9.0 * normal.x + 1.0) *
-      sin(9.0 * normal.y + 2.0) *
-      sin(9.0 * normal.z + 3.0);
+      sin(9 * normal.x + 1) *
+      sin(9 * normal.y + 2) *
+      sin(9 * normal.z + 3);
 
     const leaves =
       (
         length(canopyCenter) -
-        this.radius * (1.0 + 0.07 * bump)
+        this.radius * (1 + 0.07 * bump)
       ) *
       0.8;
 
     return SDF.union(
-      vec2(trunk, 8.0),
-      vec2(leaves, 9.0)
+      vec2(trunk, 8),
+      vec2(leaves, 9)
     );
   }
 
@@ -958,9 +958,9 @@ class NamekTrees {
       dot(oc, oc) +
       radius * radius;
 
-    return h > 0.0
+    return h > 0
       ? -b + sqrt(h)
-      : 0.0;
+      : 0;
   }
 }
 
@@ -989,8 +989,8 @@ class ShipDetails {
     lw: f32
   ): f32 {
     const mid = 0.5 * f32(n - 1);
-    const radius = 2.0 * mid * gap / PI;
-    const bendSign = bend < 0.0 ? -1.0 : 1.0;
+    const radius = 2 * mid * gap / PI;
+    const bendSign = bend < 0 ? -1 : 1;
 
     let distance = 1e9;
 
@@ -1002,15 +1002,15 @@ class ShipDetails {
       const fk = (f32(k) - mid) / mid;
 
       const h = vec4(
-        Noise.hash12(seed + f32(k) * 3.1 + 51.0),
-        Noise.hash12(seed + f32(k) * 5.7 + 63.0),
-        Noise.hash12(seed + f32(k) * 2.3 + 77.0),
-        Noise.hash12(seed + f32(k) * 4.9 + 89.0)
+        Noise.hash12(seed + f32(k) * 3.1 + 51),
+        Noise.hash12(seed + f32(k) * 5.7 + 63),
+        Noise.hash12(seed + f32(k) * 2.3 + 77),
+        Noise.hash12(seed + f32(k) * 4.9 + 89)
       );
 
       let base = vec2(
         gap * (f32(k) - mid),
-        bend * fk * fk + max(-bend, 0.0)
+        bend * fk * fk + max(-bend, 0)
       );
 
       base = mix(
@@ -1018,7 +1018,7 @@ class ShipDetails {
         radius *
           vec2(
             sin(0.5 * PI * fk),
-            bendSign * (1.0 - cos(0.5 * PI * fk))
+            bendSign * (1 - cos(0.5 * PI * fk))
           ),
         curl
       );
@@ -1029,7 +1029,7 @@ class ShipDetails {
       );
       const bladeLength =
         len *
-        (1.0 - spread * Noise.hash12(seed + f32(k) * 6.1 + 97.0));
+        (1 - spread * Noise.hash12(seed + f32(k) * 6.1 + 97));
 
       const angle = 0.5 * (h.z - 0.5);
 
@@ -1071,7 +1071,7 @@ class ShipDetails {
 
     const normal = normalize(p);
 
-    const lat = asin(clamp(normal.y, -1.0, 1.0));
+    const lat = asin(clamp(normal.y, -1, 1));
     const lon = atan(normal.x, normal.z);
 
     const lw = 0.2 * lineA * t;
@@ -1082,7 +1082,7 @@ class ShipDetails {
       const ring = floor(lat / cellA) + f32(j);
       const ringCells =
         max(
-          1.0,
+          1,
           floor(
             TAU *
             cos((ring + 0.5) * cellA) /
@@ -1126,7 +1126,7 @@ class ShipDetails {
 
         const east = vec3(
           cos(cellLon),
-          0.0,
+          0,
           -sin(cellLon)
         );
 
@@ -1167,7 +1167,7 @@ class ShipDetails {
           Noise.hash12(cell + 79.9)
         );
 
-        const count = 2 + i32(7.0 * g.w);
+        const count = 2 + i32(7 * g.w);
         const gap = 0.016 * (0.75 + 0.5 * h.x);
         const len = 0.001 + 0.044 * h.y * h.y;
         const bend =
@@ -1175,14 +1175,14 @@ class ShipDetails {
           gap *
           0.5 *
           f32(count - 1) *
-          (2.0 * h.z - 1.0);
+          (2 * h.z - 1);
         const curl = step(0.85, h.w);
 
         distance = min(
           distance,
           this.tickRow(
             local,
-            cell + 101.0,
+            cell + 101,
             count,
             gap,
             len,
@@ -1195,7 +1195,7 @@ class ShipDetails {
       }
     }
 
-    return 1.0 - smoothstep(-aa, aa, distance);
+    return 1 - smoothstep(-aa, aa, distance);
   }
 
   hatchedSheen(
@@ -1214,7 +1214,7 @@ class ShipDetails {
         0.1 *
         (
           Noise.value(
-            7.0 *
+            7 *
             vec2(
               dot(normal, viewRight),
               dot(normal, viewUp)
@@ -1232,17 +1232,17 @@ class ShipDetails {
       acos(
         clamp(
           dot(normal.xz, sheenCenter.xz) / w,
-          -1.0,
-          1.0
+          -1,
+          1
         )
       );
 
     const q = (c0 - m) / w;
 
-    let e = 0.0;
-    let de = 0.0;
+    let e = 0;
+    let de = 0;
 
-    if (abs(q) < 1.0) {
+    if (abs(q) < 1) {
       const lit = acos(q);
 
       e = rho * (lit - angle);
@@ -1256,7 +1256,7 @@ class ShipDetails {
         (
           w *
           max(
-            sqrt(1.0 - q * q),
+            sqrt(1 - q * q),
             0.05
           )
         );
@@ -1269,13 +1269,13 @@ class ShipDetails {
         abs(c0 - hm) /
         sqrt(
           max(
-            1.0 - hm * hm,
+            1 - hm * hm,
             1e-4
           )
         );
 
       const arc =
-        q > 0.0
+        q > 0
           ? angle
           : PI - angle;
 
@@ -1291,7 +1291,7 @@ class ShipDetails {
 
     const s =
       asin(
-        clamp(normal.y, -1.0, 1.0)
+        clamp(normal.y, -1, 1)
       ) /
       HATCH_W;
 
@@ -1303,7 +1303,7 @@ class ShipDetails {
 
     const fit =
       min(
-        1.0,
+        1,
         1.25 *
         rho /
         max(HATCH_L, HATCH_D)
@@ -1329,12 +1329,12 @@ class ShipDetails {
 
     const z =
       e +
-      lightLength * (1.0 - 2.0 * abs(u1)) -
-      darkLength * (1.0 - 2.0 * abs(u2));
+      lightLength * (1 - 2 * abs(u1)) -
+      darkLength * (1 - 2 * abs(u2));
 
     const dz =
       de +
-      2.0 *
+      2 *
       (
         darkLength * sign(u2) -
         lightLength * sign(u1)
@@ -1344,7 +1344,7 @@ class ShipDetails {
     return smoothstep(
       -aa,
       aa,
-      z / sqrt(1.0 + dz * dz)
+      z / sqrt(1 + dz * dz)
     );
   }
 }
@@ -1397,20 +1397,20 @@ class Lettering {
   }
 
   glyph(p: vec2, glyphId: i32): f32 {
-    let d = 0.0;
+    let d = 0;
 
     if (glyphId === 0) {
       d = min(
         this.arc(
           p,
-          vec2(0.0, 0.2),
+          vec2(0, 0.2),
           0.215,
           0.5,
           PI
         ),
         this.arc(
           p,
-          vec2(0.0, -0.2),
+          vec2(0, -0.2),
           0.215,
           PI,
           TAU - 0.5
@@ -1464,7 +1464,7 @@ class Lettering {
           p,
           -0.28,
           0.33,
-          0.0,
+          0,
           0.5
         )
       );
@@ -1475,7 +1475,7 @@ class Lettering {
           p,
           -0.28,
           -0.08,
-          0.0,
+          0,
           0.09
         )
       );
@@ -1484,7 +1484,7 @@ class Lettering {
         d,
         this.arc(
           p,
-          vec2(0.0, 0.205),
+          vec2(0, 0.205),
           0.21,
           -0.5 * PI,
           0.5 * PI
@@ -1496,7 +1496,7 @@ class Lettering {
           d,
           this.stroke(
             p,
-            vec2(0.0, 0.0),
+            vec2(0, 0),
             vec2(0.24, -0.6)
           )
         );
@@ -1505,14 +1505,14 @@ class Lettering {
       d = min(
         this.arc(
           p,
-          vec2(0.0, 0.2075),
+          vec2(0, 0.2075),
           0.2075,
           0.4,
           1.5 * PI
         ),
         this.arc(
           p,
-          vec2(0.0, -0.2075),
+          vec2(0, -0.2075),
           0.2075,
           PI + 0.4,
           2.5 * PI
@@ -1540,7 +1540,7 @@ class Lettering {
         d,
         this.arc(
           p,
-          vec2(0.0, -0.2),
+          vec2(0, -0.2),
           0.215,
           PI,
           TAU
@@ -1628,12 +1628,12 @@ class Lettering {
       asin(
         clamp(
           p.y / length(p),
-          -1.0,
-          1.0
+          -1,
+          1
         )
       );
 
-    let ink = 0.0;
+    let ink = 0;
 
     let caps = vec2(
       (longitude - CAPS_LON) * cos(CAPS_LAT),
@@ -1645,18 +1645,18 @@ class Lettering {
 
     if (
       abs(caps.y) < 0.6 &&
-      index >= 0.0 &&
-      index < 7.0
+      index >= 0 &&
+      index < 7
     ) {
       ink =
-        1.0 -
+        1 -
         smoothstep(
           -aa,
           aa,
           CAPS_H *
           this.glyph(
             vec2(
-              caps.x - (index - 3.0) * ADV,
+              caps.x - (index - 3) * ADV,
               caps.y
             ),
             i32(index)
@@ -1674,8 +1674,8 @@ class Lettering {
 
     if (
       abs(corp.y) < 0.6 &&
-      index >= 0.0 &&
-      index < 5.0
+      index >= 0 &&
+      index < 5
     ) {
       const glyphId: i32 =
         index < 0.5
@@ -1690,14 +1690,14 @@ class Lettering {
 
       ink = max(
         ink,
-        1.0 -
+        1 -
         smoothstep(
           -aa,
           aa,
           CORP_H *
           this.glyph(
             vec2(
-              corp.x - (index - 2.0) * ADV,
+              corp.x - (index - 2) * ADV,
               corp.y
             ),
             glyphId
@@ -1722,7 +1722,7 @@ class ShipMaterial {
       ShipMaterial.sphereExit(
         ro,
         rd,
-        vec3(0.0, -0.3, 0.0),
+        vec3(0, -0.3, 0),
         1.6 + pen
       );
 
@@ -1733,13 +1733,13 @@ class ShipMaterial {
         tmax
       );
 
-    tmax = min(tmax, 9.0);
+    tmax = min(tmax, 9);
 
     if (tmax < 0.02) {
-      return 1.0;
+      return 1;
     }
 
-    let result = 1.0;
+    let result = 1;
     let t = 0.02;
 
     for (let i = 0; i < 64; i++) {
@@ -1749,12 +1749,12 @@ class ShipMaterial {
       result =
         min(
           result,
-          10.0 * h / t
+          10 * h / t
         );
 
       t += clamp(h, 0.01, 0.3);
 
-      if (result < 0.0 || t > tmax) {
+      if (result < 0 || t > tmax) {
         break;
       }
     }
@@ -1793,7 +1793,7 @@ class ShipMaterial {
         dot(n, LIG)
       );
 
-    if (lightAmount > 0.0) {
+    if (lightAmount > 0) {
       lightAmount *=
         ShipMaterial.celShadow(
           p + n * 0.004,
@@ -1806,11 +1806,11 @@ class ShipMaterial {
     const lit =
       mix(
         SHADE,
-        vec3(1.0),
+        vec3(1),
         lightAmount
       );
 
-    let col = vec3(0.0);
+    let col = vec3(0);
 
     if (id < 0.5) {
       const cap =
@@ -1839,7 +1839,7 @@ class ShipMaterial {
         normalize(
           cross(
             viewDirection,
-            vec3(0.0, 1.0, 0.0)
+            vec3(0, 1, 0)
           )
         );
 
@@ -1859,7 +1859,7 @@ class ShipMaterial {
         ) *
         mix(
           0.7,
-          1.0,
+          1,
           lightAmount
         );
 
@@ -1879,7 +1879,7 @@ class ShipMaterial {
           INK,
           max(
             lettering.render(p, aa),
-            (1.0 - dark) *
+            (1 - dark) *
             details.scuffInk(
               p,
               t,
@@ -1894,7 +1894,7 @@ class ShipMaterial {
       col = HULL * lit;
 
       let ink =
-        1.0 -
+        1 -
         smoothstep(
           0.6 * lw - aa,
           0.6 * lw + aa,
@@ -1924,15 +1924,15 @@ class ShipMaterial {
           length(p.xz),
           p.y,
           WIN_N,
-          0.0
+          0
         );
 
       const q = windowFrame.point;
 
       const center = vec3(
-        0.0,
+        0,
         WIN_Y,
-        sqrt(1.0 - WIN_Y * WIN_Y)
+        sqrt(1 - WIN_Y * WIN_Y)
       );
 
       const w = vec2(
@@ -1940,7 +1940,7 @@ class ShipMaterial {
         dot(
           q - center,
           normalize(
-            vec3(0.0, 1.0, 0.0) -
+            vec3(0, 1, 0) -
             center * WIN_Y
           )
         )
@@ -1979,8 +1979,8 @@ class ShipMaterial {
       col =
         mix(
           col,
-          vec3(0.93, 0.98, 1.0),
-          1.0 -
+          vec3(0.93, 0.98, 1),
+          1 -
           smoothstep(
             -aa,
             aa,
@@ -1991,7 +1991,7 @@ class ShipMaterial {
       col *=
         mix(
           0.8,
-          1.0,
+          1,
           lightAmount
         );
     } else if (id < 3.5) {
@@ -2010,13 +2010,13 @@ class ShipMaterial {
 
       const top =
         length(p) -
-        1.0 -
+        1 -
         DOOR_T;
 
       col = HULL * lit;
 
       let ink =
-        1.0 -
+        1 -
         smoothstep(
           lw - aa,
           lw + aa,
@@ -2030,7 +2030,7 @@ class ShipMaterial {
       ink =
         max(
           ink,
-          1.0 -
+          1 -
           smoothstep(
             0.7 * lw - aa,
             0.7 * lw + aa,
@@ -2054,7 +2054,7 @@ class ShipMaterial {
         METAL *
         mix(
           vec3(0.50, 0.60, 0.78),
-          vec3(1.0),
+          vec3(1),
           lightAmount
         );
     } else if (id < 8.5) {
@@ -2081,8 +2081,8 @@ class ShipMaterial {
         0.15 *
         (
           Noise.value(
-            normal.xy * 9.0 +
-            normal.z * 5.0
+            normal.xy * 9 +
+            normal.z * 5
           ) -
           0.5
         );
@@ -2091,7 +2091,7 @@ class ShipMaterial {
         mix(
           LEAF * vec3(0.72, 0.78, 0.9),
           LEAF,
-          smoothstep(0.0, 0.04, k) *
+          smoothstep(0, 0.04, k) *
           ShipMaterial.celShadow(
             p + n * 0.01,
             LIG,
@@ -2116,7 +2116,7 @@ class ShipMaterial {
           atan(p.x, p.z),
           length(p.xz),
           p.y,
-          4.0,
+          4,
           LEG_LON
         );
 
@@ -2151,20 +2151,20 @@ class ShipMaterial {
     } else if (id < 11.5) {
       col =
         mix(
-          vec3(0.0),
+          vec3(0),
           HULL * lit,
           smoothstep(
             -aa,
             aa,
             length(p) -
-            1.0 +
+            1 +
             FLAP_T
           )
         );
     } else {
       col =
         mix(
-          vec3(0.0),
+          vec3(0),
           HULL * lit,
           smoothstep(
             -aa,
@@ -2192,9 +2192,9 @@ class ShipMaterial {
       dot(oc, oc) +
       radius * radius;
 
-    return h > 0.0
+    return h > 0
       ? -b + sqrt(h)
-      : 0.0;
+      : 0;
   }
 
   static mapCel(p: vec3, ship: Ship, trees: NamekTrees): vec2 {
@@ -2213,10 +2213,10 @@ class Terrain {
     return (
       length(x) -
       COAST_R -
-      7.0 *
+      7 *
       (
         Noise.fbm(
-          x * 0.09 + 7.0
+          x * 0.09 + 7
         ) -
         0.5
       )
@@ -2237,10 +2237,10 @@ class Terrain {
     field -=
       0.4 *
       (
-        1.0 -
+        1 -
         smoothstep(
           MESA_R,
-          30.0,
+          30,
           length(x)
         )
       );
@@ -2248,13 +2248,13 @@ class Terrain {
     field +=
       0.25 *
       (
-        1.0 -
+        1 -
         smoothstep(
-          3.0,
-          9.0,
+          3,
+          9,
           length(
             x -
-            vec2(-21.0, -22.0)
+            vec2(-21, -22)
           )
         )
       );
@@ -2287,7 +2287,7 @@ class Terrain {
       0.02 +
       0.002 * t;
 
-    let gradient = vec2(0.0);
+    let gradient = vec2(0);
 
     for (let i = 0; i < 4; i++) {
       gradient -=
@@ -2302,7 +2302,7 @@ class Terrain {
     return normalize(
       vec3(
         gradient.x,
-        2.0 * stepSize,
+        2 * stepSize,
         gradient.y
       )
     );
@@ -2316,7 +2316,7 @@ class Terrain {
     const ceil = GROUND + 1.9;
 
     const planeT =
-      rd.y < 0.0
+      rd.y < 0
         ? (GROUND - ro.y) / rd.y
         : 1e10;
 
@@ -2339,7 +2339,7 @@ class Terrain {
         sqrt(
           max(
             b * b - a * c,
-            0.0
+            0
           )
         )
       ) / a;
@@ -2363,7 +2363,7 @@ class Terrain {
 
       if (
         p.y > ceil &&
-        rd.y > 0.0
+        rd.y > 0
       ) {
         break;
       }
@@ -2372,7 +2372,7 @@ class Terrain {
         p.y -
         this.heightAt(p.xz);
 
-      if (clearance < 0.0) {
+      if (clearance < 0) {
         for (let j = 0; j < 6; j++) {
           const middle =
             0.5 *
@@ -2410,12 +2410,12 @@ class Terrain {
 
     return planeT < tmax
       ? planeT
-      : -1.0;
+      : -1;
   }
 
   static groundWarp(x: vec2): vec2 {
     const q = vec2(
-      Noise.fbm(x * 0.8 + 2.0),
+      Noise.fbm(x * 0.8 + 2),
       Noise.fbm(x * 0.8 + 8.3)
     );
 
@@ -2426,12 +2426,12 @@ class Terrain {
         vec2(
           Noise.fbm(
             x * 1.6 +
-            3.0 * q +
+            3 * q +
             1.7
           ),
           Noise.fbm(
             x * 1.6 +
-            3.0 * q +
+            3 * q +
             9.2
           )
         ) -
@@ -2461,8 +2461,8 @@ class Terrain {
     const tickHeight = 0.015;
     const gap = 0.02;
 
-    if (t > 12.0) {
-      return 0.0;
+    if (t > 12) {
+      return 0;
     }
 
     const eye = ro.y - GROUND;
@@ -2494,7 +2494,7 @@ class Terrain {
         cellSize
       );
 
-    let ink = 0.0;
+    let ink = 0;
 
     for (let j = -1; j <= 1; j++) {
       for (let i = -1; i <= 1; i++) {
@@ -2547,13 +2547,13 @@ class Terrain {
             ),
             eye *
             (
-              1.0 -
+              1 -
               alongRay /
               distanceToPoint
             )
           );
 
-        if (abs(local.x) > 5.0 * gap) {
+        if (abs(local.x) > 5 * gap) {
           continue;
         }
 
@@ -2569,7 +2569,7 @@ class Terrain {
         const count =
           3 +
           i32(
-            5.0 *
+            5 *
             Noise.hash12(
               cell + 31.7
             )
@@ -2579,11 +2579,11 @@ class Terrain {
           0.7 *
           tickHeight *
           (
-            2.0 *
+            2 *
             Noise.hash12(
               cell + 43.1
             ) -
-            1.0
+            1
           );
 
         const rowT =
@@ -2609,15 +2609,15 @@ class Terrain {
             gap,
             tickHeight,
             bend,
-            0.0,
-            0.0,
+            0,
+            0,
             lw
           );
 
         ink =
           max(
             ink,
-            1.0 -
+            1 -
             smoothstep(
               -aa,
               aa,
@@ -2630,10 +2630,10 @@ class Terrain {
     return (
       ink *
       (
-        1.0 -
+        1 -
         smoothstep(
-          8.0,
-          12.0,
+          8,
+          12,
           t
         )
       )
@@ -2656,15 +2656,15 @@ class Terrain {
       f32(n - 1);
 
     const radius =
-      2.0 *
+      2 *
       mid *
       gap /
       PI;
 
     const signBend =
-      bend < 0.0
-        ? -1.0
-        : 1.0;
+      bend < 0
+        ? -1
+        : 1;
 
     let distance = 1e9;
 
@@ -2681,22 +2681,22 @@ class Terrain {
         Noise.hash12(
           seed +
           f32(k) * 3.1 +
-          51.0
+          51
         ),
         Noise.hash12(
           seed +
           f32(k) * 5.7 +
-          63.0
+          63
         ),
         Noise.hash12(
           seed +
           f32(k) * 2.3 +
-          77.0
+          77
         ),
         Noise.hash12(
           seed +
           f32(k) * 4.9 +
-          89.0
+          89
         )
       );
 
@@ -2706,7 +2706,7 @@ class Terrain {
         bend *
         fk *
         fk +
-        max(-bend, 0.0)
+        max(-bend, 0)
       );
 
       base =
@@ -2717,7 +2717,7 @@ class Terrain {
             sin(0.5 * PI * fk),
             signBend *
             (
-              1.0 -
+              1 -
               cos(0.5 * PI * fk)
             )
           ),
@@ -2737,12 +2737,12 @@ class Terrain {
       const bladeLength =
         len *
         (
-          1.0 -
+          1 -
           spread *
           Noise.hash12(
             seed +
             f32(k) * 6.1 +
-            97.0
+            97
           )
         );
 
@@ -2788,8 +2788,8 @@ class Terrain {
           dot(ma, ma),
           1e-6
         ),
-        0.0,
-        1.0
+        0,
+        1
       );
 
     const h2 =
@@ -2799,8 +2799,8 @@ class Terrain {
           dot(bm, bm),
           1e-6
         ),
-        0.0,
-        1.0
+        0,
+        1
       );
 
     const d1 =
@@ -2824,7 +2824,7 @@ class Terrain {
       min(d1, d2) -
       width *
       mix(
-        1.0,
+        1,
         0.3 +
         0.7 *
         sqrt(
@@ -2947,9 +2947,9 @@ class Terrain {
           length(centerPixels) >
           0.35 *
           directionLength +
-          2.0 *
+          2 *
           screenSpacing +
-          2.0 *
+          2 *
           lw
         ) {
           continue;
@@ -2998,7 +2998,7 @@ class Terrain {
               Noise.hash12(
                 cell +
                 f32(k) * 7.3 +
-                91.0
+                91
               )
             );
 
@@ -3015,7 +3015,7 @@ class Terrain {
                 Noise.hash12(
                   cell +
                   f32(k) * 5.1 +
-                  97.0
+                  97
                 ) -
                 0.5
               )
@@ -3037,7 +3037,7 @@ class Terrain {
                   directionPixels *
                   halfLength,
                 0.95 * lw,
-                1.0
+                1
               )
             );
         }
@@ -3059,12 +3059,12 @@ class Terrain {
 
     const crowd =
       min(
-        1.0,
+        1,
         cellSize *
         cellSize *
         abs(determinant(jacobian)) /
         (
-          60.0 *
+          60 *
           lw *
           lw
         )
@@ -3105,7 +3105,7 @@ class Terrain {
             0.72,
             Noise.value(
               center * 2.2 +
-              71.0
+              71
             )
           );
 
@@ -3128,7 +3128,7 @@ class Terrain {
             centerPixels,
             centerPixels
           ) >
-          16.0 *
+          16 *
           lw *
           lw
         ) {
@@ -3139,7 +3139,7 @@ class Terrain {
           this.dirtField(
             this.groundWarp(center)
           ) < 0.03 ||
-          this.coast(center) > -1.0
+          this.coast(center) > -1
         ) {
           continue;
         }
@@ -3185,14 +3185,14 @@ class Terrain {
               centerPixels,
               centerPixels + edge,
               (
-                1.0 +
+                1 +
                 0.35 *
                 Noise.hash12(
                   cell + 57.7
                 )
               ) *
               lw,
-              0.0
+              0
             )
           );
       }
@@ -3208,8 +3208,8 @@ class Terrain {
     jacobian: mat2,
     lw: f32
   ): f32 {
-    if (t > 14.0) {
-      return 0.0;
+    if (t > 14) {
+      return 0;
     }
 
     const distance =
@@ -3230,7 +3230,7 @@ class Terrain {
 
     return (
       (
-        1.0 -
+        1 -
         smoothstep(
           -0.5,
           0.5,
@@ -3238,10 +3238,10 @@ class Terrain {
         )
       ) *
       (
-        1.0 -
+        1 -
         smoothstep(
-          10.0,
-          14.0,
+          10,
+          14,
           t
         )
       )
@@ -3260,7 +3260,7 @@ class Terrain {
     const normal =
       length(p.xz) > MESA_R
         ? this.normal(p.xz, t)
-        : vec3(0.0, 1.0, 0.0);
+        : vec3(0, 1, 0);
 
     const x = p.xz;
     const radius = length(x);
@@ -3278,7 +3278,7 @@ class Terrain {
           0.55,
           0.56,
           Noise.fbm(
-            warped * 1.1 + 3.0
+            warped * 1.1 + 3
           )
         )
       );
@@ -3306,12 +3306,12 @@ class Terrain {
       0.03 *
       (
         abs(
-          Noise.value(x * 5.0) -
+          Noise.value(x * 5) -
           0.5
         ) +
         0.5 *
         abs(
-          Noise.value(x * 11.0 + 7.0) -
+          Noise.value(x * 11 + 7) -
           0.5
         ) -
         0.35
@@ -3358,11 +3358,11 @@ class Terrain {
     grain.y +=
       0.8 *
       Noise.fbm(
-        x * 0.25 + 5.0
+        x * 0.25 + 5
       ) +
       0.12 *
       Noise.value(
-        x * 1.9 + 2.0
+        x * 1.9 + 2
       );
 
     let pattern =
@@ -3371,16 +3371,16 @@ class Terrain {
         Noise.fbm(
           vec2(
             0.45 * grain.x,
-            3.0 * grain.y
+            3 * grain.y
           ) +
-          27.0
+          27
         ) -
         0.5
       ) *
       (
         0.5 +
         Noise.value(
-          x * 0.6 + 31.0
+          x * 0.6 + 31
         )
       ) +
       0.7 *
@@ -3388,9 +3388,9 @@ class Terrain {
         Noise.value(
           vec2(
             1.2 * grain.x,
-            11.0 * grain.y
+            11 * grain.y
           ) +
-          41.0
+          41
         ) -
         0.5
       ) *
@@ -3402,7 +3402,7 @@ class Terrain {
             0.7 * grain.x,
             1.5 * grain.y
           ) +
-          13.0
+          13
         )
       );
 
@@ -3434,7 +3434,7 @@ class Terrain {
 
     if (
       dirt >
-      3.0 *
+      3 *
       fieldWidth *
       lw &&
       abs(
@@ -3446,8 +3446,8 @@ class Terrain {
           col,
           INK,
           smoothstep(
-            3.0,
-            5.0,
+            3,
+            5,
             dirt /
             fieldWidth /
             lw
@@ -3463,7 +3463,7 @@ class Terrain {
     }
 
     const outline =
-      1.0 -
+      1 -
       smoothstep(
         lw - 0.5,
         lw + 0.5,
@@ -3476,7 +3476,7 @@ class Terrain {
         0.45,
         0.5,
         Noise.value(
-          x * 16.0 + 5.0
+          x * 16 + 5
         )
       );
 
@@ -3486,7 +3486,7 @@ class Terrain {
         INK,
         outline *
         mix(
-          1.0,
+          1,
           dash,
           recede
         )
@@ -3518,10 +3518,10 @@ class Terrain {
       );
 
     const fade =
-      1.0 -
+      1 -
       smoothstep(
-        20.0,
-        45.0,
+        20,
+        45,
         t
       );
 
@@ -3531,7 +3531,7 @@ class Terrain {
       sin(
         1.3 *
         u.time -
-        6.0 *
+        6 *
         Noise.value(
           x * 0.4
         )
@@ -3543,7 +3543,7 @@ class Terrain {
         SEA,
         smoothstep(
           0.9,
-          1.0,
+          1,
           shoreDistance
         )
       );
@@ -3553,7 +3553,7 @@ class Terrain {
       lap;
 
     let foam =
-      1.0 -
+      1 -
       smoothstep(
         shore + 0.15,
         shore + 0.2,
@@ -3576,8 +3576,8 @@ class Terrain {
     const wave =
       Noise.value(
         vec2(
-          3.0 * radius +
-          3.0 * Noise.value(
+          3 * radius +
+          3 * Noise.value(
             x * 0.25
           ) +
           1.2 * u.time,
@@ -3585,7 +3585,7 @@ class Terrain {
         )
       ) *
       Noise.value(
-        x * 0.6 + 2.0
+        x * 0.6 + 2
       );
 
     foam =
@@ -3616,7 +3616,7 @@ class Terrain {
           shoreDistance
         ) *
         (
-          1.0 -
+          1 -
           step(
             0.02,
             height
@@ -3671,9 +3671,9 @@ class Terrain {
         vec2(
           dot(
             x,
-            vec2(2.0, 1.3)
+            vec2(2, 1.3)
           ) *
-          3.0,
+          3,
           height * 0.5
         )
       );
@@ -3685,7 +3685,7 @@ class Terrain {
         smoothstep(
           0.35,
           0.55,
-          1.0 - normal.y
+          1 - normal.y
         )
       );
 
@@ -3696,7 +3696,7 @@ class Terrain {
         dot(normal, LIG)
       );
 
-    if (radius < 12.0) {
+    if (radius < 12) {
       lightAmount *=
         ShipMaterial.celShadow(
           p + normal * 0.02,
@@ -3709,14 +3709,14 @@ class Terrain {
     col *=
       mix(
         SHADE * 0.95,
-        vec3(1.0),
+        vec3(1),
         lightAmount
       );
 
     return mix(
       col,
       HAZE,
-      1.0 -
+      1 -
       exp(-0.012 * t)
     );
   }
@@ -3728,14 +3728,14 @@ class Terrain {
 
 class Sky {
   static color(rd: vec3): vec3 {
-    const y = max(rd.y, 0.0);
+    const y = max(rd.y, 0);
 
     let col =
       mix(
         SKY_HZ,
         SKY_MID,
         smoothstep(
-          0.0,
+          0,
           0.12,
           y
         )
@@ -3752,21 +3752,21 @@ class Sky {
         )
       );
 
-    const cellCount = 19.0;
+    const cellCount = 19;
 
     const uv =
       vec2(
         atan(rd.x, rd.z) *
           (cellCount / TAU) +
           0.004 * u.time,
-        y * 26.0
+        y * 26
       );
 
     const clouds =
       Noise.fbmWrapX(
         uv *
-        vec2(1.0, 0.8) +
-        vec2(0.0, 3.0),
+        vec2(1, 0.8) +
+        vec2(0, 3),
         cellCount
       );
 
@@ -3782,7 +3782,7 @@ class Sky {
         y
       ) *
       (
-        1.0 -
+        1 -
         smoothstep(
           0.18,
           0.35,
@@ -3836,7 +3836,7 @@ class NamekScene {
   }
 
   private calcNormal(p: vec3): vec3 {
-    let normal = vec3(0.0);
+    let normal = vec3(0);
 
     for (let i = 0; i < 4; i++) {
       normal +=
@@ -3857,12 +3857,12 @@ class NamekScene {
     lineA: f32,
     pixA: f32
   ): MarchResult {
-    let edge = 0.0;
-    let windowEdge = 0.0;
+    let edge = 0;
+    let windowEdge = 0;
     let edgeT = 1e10;
 
     let t = 0.5;
-    let previous = vec2(1e10, -1.0);
+    let previous = vec2(1e10, -1);
 
     for (let i = 0; i < 180; i++) {
       const hit =
@@ -3897,15 +3897,15 @@ class NamekScene {
               previous.x
             ) /
             (pixA * t),
-            0.0,
-            1.0
+            0,
+            1
           );
 
         if (
           abs(
             previous.y -
             2.5
-          ) < 1.0
+          ) < 1
         ) {
           windowEdge =
             max(
@@ -3930,13 +3930,13 @@ class NamekScene {
       previous = hit;
       t += hit.x;
 
-      if (t > 24.0) {
+      if (t > 24) {
         break;
       }
     }
 
     return new MarchResult(
-      vec2(t, -1.0),
+      vec2(t, -1),
       edge,
       windowEdge,
       edgeT
@@ -3964,7 +3964,7 @@ class NamekScene {
       abs(
         march.hit.y -
         2.5
-      ) > 1.0
+      ) > 1
     ) {
       edge =
         max(
@@ -3974,7 +3974,7 @@ class NamekScene {
     }
 
     const shipHit =
-      march.hit.y >= 0.0;
+      march.hit.y >= 0;
 
     const terrainT =
       Terrain.march(
@@ -3982,15 +3982,15 @@ class NamekScene {
         rd,
         shipHit
           ? march.hit.x
-          : 400.0
+          : 400
       );
 
-    let col = vec3(0.0);
+    let col = vec3(0);
     let frontT = 1e10;
 
     if (
       shipHit &&
-      terrainT < 0.0
+      terrainT < 0
     ) {
       const p =
         ro +
@@ -4013,7 +4013,7 @@ class NamekScene {
 
       frontT =
         march.hit.x;
-    } else if (terrainT > 0.0) {
+    } else if (terrainT > 0) {
       col =
         Terrain.shade(
           ro +
@@ -4065,7 +4065,7 @@ class NamekScene {
       0.42 +
       TAU *
       u.time /
-      60.0 +
+      60 +
       pointer.x *
       TAU;
 
@@ -4078,7 +4078,7 @@ class NamekScene {
           u.time
         ) +
         pointer.y *
-        2.0,
+        2,
         0.03,
         1.1
       );
@@ -4087,9 +4087,9 @@ class NamekScene {
 
     const sceneTarget =
       vec3(
-        0.0,
+        0,
         -0.25,
-        0.0
+        0
       );
 
     const rayOrigin =
@@ -4113,7 +4113,7 @@ class NamekScene {
       normalize(
         cross(
           cameraForward,
-          vec3(0.0, 1.0, 0.0)
+          vec3(0, 1, 0)
         )
       );
 
@@ -4124,7 +4124,7 @@ class NamekScene {
       );
 
     const pixA =
-      2.0 /
+      2 /
       (
         resolution.y *
         focalLength
@@ -4139,7 +4139,7 @@ class NamekScene {
       focalLength;
 
     let col =
-      vec3(0.0);
+      vec3(0);
 
     for (let j = 0; j < AA; j++) {
       for (let i = 0; i < AA; i++) {
@@ -4156,7 +4156,7 @@ class NamekScene {
 
         const screenUV =
           (
-            2.0 *
+            2 *
             (
               fragCoord +
               offset
@@ -4197,7 +4197,7 @@ class NamekScene {
       col *
       vec3(
         0.94,
-        1.0,
+        1,
         0.96
       ) +
       vec3(
@@ -4223,20 +4223,20 @@ class NamekScene {
     col *=
       0.55 +
       0.45 *
-      (16.0 *
+      (16 *
         q.x *
         q.y *
-        (1.0 - q.x) *
-        (1.0 - q.y)) **
+        (1 - q.x) *
+        (1 - q.y)) **
         0.12;
 
     return vec4(
       clamp(
         col,
-        vec3(0.0),
-        vec3(1.0)
+        vec3(0),
+        vec3(1)
       ),
-      1.0
+      1
     );
   }
 }
@@ -4249,10 +4249,10 @@ interface VsOut {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & u32(1)) * 4.0 - 1.0;
-  const y = f32(vi >> u32(1)) * 4.0 - 1.0;
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
   const ndc = vec2(x, y);
-  return { pos: vec4(x, y, 0.0, 1.0), uv: ndc * 0.5 + vec2(0.5) };
+  return { pos: vec4(x, y, 0, 1), uv: ndc * 0.5 + vec2(0.5) };
 }
 
 // ---------------------------------------------------------------------

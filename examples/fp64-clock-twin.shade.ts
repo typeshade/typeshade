@@ -38,9 +38,9 @@ interface VsOut {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & 1) * 4. - 1.;
-  const y = f32(vi >> 1) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
 }
 
 @fragment
@@ -59,40 +59,40 @@ export function fs_clock(vo: VsOut): vec4 {
 
   // Each half gets its own dial: remap the half's uv to centred isotropic coords (y ±1 over
   // the height, x ±half-aspect over the half's width).
-  const halfUv = vo.uv.x * 2.0;
-  const sx = halfUv - (vo.uv.x < 0.5 ? 0.0 : 1.0);
+  const halfUv = vo.uv.x * 2;
+  const sx = halfUv - (vo.uv.x < 0.5 ? 0 : 1);
   const c = vec2(
-    (sx * 2.0 - 1.0) * ((U.resolution.x * 0.5) / U.resolution.y),
-    vo.uv.y * 2.0 - 1.0,
+    (sx * 2 - 1) * ((U.resolution.x * 0.5) / U.resolution.y),
+    vo.uv.y * 2 - 1,
   );
   const r = length(c);
   // Angle as a 0..1 turn, 12-o'clock = 0, clockwise, which matches the phase.
   const a01 = fract(0.25 - atan2(c.y, c.x) / 6.283185307179586);
 
   // Dial face: outer bezel ring, 12 tick marks, sweep hand + decay trail.
-  const px = 2. / U.resolution.y; // isotropic px size
-  const bezel = 1. - smoothstep(px * 1.5, px * 3.0, abs(r - 0.82) - 0.012);
-  const tickA = -abs(fract(a01 * 12.0) - 0.5) + 0.5; // 0 at each tick
+  const px = 2 / U.resolution.y; // isotropic px size
+  const bezel = 1 - smoothstep(px * 1.5, px * 3, abs(r - 0.82) - 0.012);
+  const tickA = -abs(fract(a01 * 12) - 0.5) + 0.5; // 0 at each tick
   const tick =
-    (1. - smoothstep(0.0, 0.035, tickA)) *
+    (1 - smoothstep(0, 0.035, tickA)) *
     smoothstep(0.62, 0.66, r) *
-    (1. - smoothstep(0.78, 0.8, r));
+    (1 - smoothstep(0.78, 0.8, r));
   // Angular distance BEHIND the hand (0 at the hand, growing clockwise-past).
-  const behind = fract(phase - a01 + 1.0);
+  const behind = fract(phase - a01 + 1);
   const hand =
-    (1. - smoothstep(0.0, 0.006, min(behind, 1. - behind))) *
+    (1 - smoothstep(0, 0.006, min(behind, 1 - behind))) *
     step(r, 0.6) *
     smoothstep(0.05, 0.1, r);
-  const trail = exp(behind * -5.0) * 0.35 * step(r, 0.58);
-  const hub = 1. - smoothstep(px * 2.0, px * 5.0, r);
+  const trail = exp(behind * -5) * 0.35 * step(r, 0.58);
+  const hub = 1 - smoothstep(px * 2, px * 5, r);
 
   const face = mix(vec3(0.03, 0.045, 0.08), vec3(0.05, 0.075, 0.12), r);
   const rgb =
     face +
-    vec3(0.85, 0.9, 1.0) * (bezel * 0.35) +
+    vec3(0.85, 0.9, 1) * (bezel * 0.35) +
     vec3(0.8, 0.85, 0.95) * (tick * 0.5) +
-    vec3(1.0, 0.72, 0.2) * hand +
-    vec3(1.0, 0.6, 0.15) * trail +
-    vec3(1.0, 0.85, 0.5) * hub;
-  return vec4(rgb, 1.);
+    vec3(1, 0.72, 0.2) * hand +
+    vec3(1, 0.6, 0.15) * trail +
+    vec3(1, 0.85, 0.5) * hub;
+  return vec4(rgb, 1);
 }

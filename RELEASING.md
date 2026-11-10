@@ -295,11 +295,12 @@ warns under the same option, and an export carries `@deprecated` in its JSDoc na
 replacement for one minor before the major that removes it. Before `1.0.0` a removal is a loud
 break the refusal itself explains, so it needs a minor and a migration line, not a window.
 
-**Open windows.** Each is a row until its flip lands.
+**Open windows.** None. Each open window is a row here until its flip lands.
 
-| Spelling                                                                          | Today | After the flip                                                                                                                                                                        | Flag                                              |
-| --------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| an integer-written literal in a declaration with no type annotation (`let i = 0`) | `f32` | `i32`, which is what WGSL concretizes an AbstractInt to and what a TypeScript reader expects of an array index (surface §13, #148). Warns from `0.1.0`; flips no earlier than `0.2.0` | `compile(src, { deprecations: true })` → `TS8053` |
+The one window that was open, the `i32` default of an integer-written literal in an unannotated
+declaration (#148, `TS8053`), is closed. Change 0134 replaced that default: the compiler infers <!-- doc-refs: skip — a retired code, named as retired -->
+a number's type from its uses and chooses `f32` where nothing decides (OD-7). No official
+release carried the warning, so the change owed no window (OD-6), and `TS8053` is retired. <!-- doc-refs: skip — a retired code, named as retired -->
 
 Nothing in this file publishes anything by itself. Every path to the registry goes through a
 release you create.

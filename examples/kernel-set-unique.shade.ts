@@ -31,6 +31,6 @@ export function latest(keys: array<u32>, values: array<f32>, last: Map<u32, f32>
 // A later loop reads the map: a key it does not hold reads as -1.
 export function lookup(keys: array<u32>, last: Map<u32, f32>, out: array<f32>) {
   for (let i: u32 = 0; i < keys.length; i++) {
-    out[i] = last.has(keys[i]) ? last.get(keys[i])! : -1.;
+    out[i] = last.has(keys[i]) ? last.get(keys[i])! : -1;
   }
 }

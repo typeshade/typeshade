@@ -1,0 +1,119 @@
+{
+  "seed": "0x00425eed",
+  "generator": "mulberry32; src/core/testing/libm-gate.ts",
+  "nan": "A NaN is hashed as the canonical NaN of its format, as an input and as a result, until milestone 1b of change 0042.",
+  "rows": [
+    {
+      "routine": "sinF32",
+      "set": "edges",
+      "count": 34,
+      "nanResults": 6,
+      "inputsSha256": "61cbcf59d43897ea085313bb703b44f6563b8a17bbca2654cddee132d491953b",
+      "resultsSha256": "3a3cb01e28b8ce5347389329efb4a38b92c8e702fa5a2b308a404ba7223dd8c4"
+    },
+    {
+      "routine": "sinF32",
+      "set": "bits",
+      "count": 250000,
+      "nanResults": 898,
+      "inputsSha256": "6145b0432a1ca06c8f9c1995711634ed3498a58a046e69a9ffc90b6193c1d24c",
+      "resultsSha256": "e1af78d8bab1f39517f5016f5585bc284cbb33f32945d4430362c22324f9e7c4"
+    },
+    {
+      "routine": "sinF32",
+      "set": "near",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "d5a600e70e967cfab45247165198ae8563efd359e6cfe5acd0337d8a1fd38c3c",
+      "resultsSha256": "ba91318858e010154dfecc2b8bccfd2bf5a864c33c7b1faf5509326c411181c9"
+    },
+    {
+      "routine": "cosF32",
+      "set": "edges",
+      "count": 34,
+      "nanResults": 6,
+      "inputsSha256": "61cbcf59d43897ea085313bb703b44f6563b8a17bbca2654cddee132d491953b",
+      "resultsSha256": "fd79ac6cfc6c208cd4d604230a9e1b7a804d3e58d1b707e1558f25d55ced5ec1"
+    },
+    {
+      "routine": "cosF32",
+      "set": "bits",
+      "count": 250000,
+      "nanResults": 898,
+      "inputsSha256": "6145b0432a1ca06c8f9c1995711634ed3498a58a046e69a9ffc90b6193c1d24c",
+      "resultsSha256": "d965afc18cc30e4d2af7f9675f396136d80c7300a979777ed023a895d4792289"
+    },
+    {
+      "routine": "cosF32",
+      "set": "near",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "d5a600e70e967cfab45247165198ae8563efd359e6cfe5acd0337d8a1fd38c3c",
+      "resultsSha256": "79507f974b9630a97526b3c7cea5fdc8e2f0568ba323c3c4bfe544c1bf5c4835"
+    },
+    {
+      "routine": "sinF64",
+      "set": "edges",
+      "count": 37,
+      "nanResults": 6,
+      "inputsSha256": "2ed70faf786e8d574ef40397ba32da5e84c2c0f82e20d43d466faa450e35bb5a",
+      "resultsSha256": "e24e2fd917f1abd4a37c935a1f7ccf7a6afff1ce09e3da89aef7b148e3a8805e"
+    },
+    {
+      "routine": "sinF64",
+      "set": "bits",
+      "count": 250000,
+      "nanResults": 104,
+      "inputsSha256": "78276abb776fd56ea572997f1f9fd2baf4343cb6336b2e232544635a5f03a440",
+      "resultsSha256": "d8db8d29b95e21c85cacb48dcc2709aca145f847b82d835129bca2a8f6e6e44b"
+    },
+    {
+      "routine": "sinF64",
+      "set": "near",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "d142d621eab3a2c98a800e6850da619db182ad3b474c7f2af1b2f863ae5dfbea",
+      "resultsSha256": "cb7de92da07aaba8223686055e793e49a7b6caf23d26bb425c79a7eea8416a5e"
+    },
+    {
+      "routine": "sinF64",
+      "set": "medium",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "3fb20a18448dc100d38ca041326adb2aba6b9476c4ff79afdcd46719e90398da",
+      "resultsSha256": "cd72d4d4220498e3094795cf9372728cee2bbd2348638df5f7b9ef00a0d838ff"
+    },
+    {
+      "routine": "cosF64",
+      "set": "edges",
+      "count": 37,
+      "nanResults": 6,
+      "inputsSha256": "2ed70faf786e8d574ef40397ba32da5e84c2c0f82e20d43d466faa450e35bb5a",
+      "resultsSha256": "fe5891f5d47a60f55597959046ed0dbf18f3fa37f5f578952efb3cbf2a248312"
+    },
+    {
+      "routine": "cosF64",
+      "set": "bits",
+      "count": 250000,
+      "nanResults": 104,
+      "inputsSha256": "78276abb776fd56ea572997f1f9fd2baf4343cb6336b2e232544635a5f03a440",
+      "resultsSha256": "4b80a91a60716fd50180441ae335a54d7b337a75e684bf6a5c721f80cde5f340"
+    },
+    {
+      "routine": "cosF64",
+      "set": "near",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "d142d621eab3a2c98a800e6850da619db182ad3b474c7f2af1b2f863ae5dfbea",
+      "resultsSha256": "d22776050d0195a69f3adddab3bc8b140693f5723aa77e0126111c671ffda793"
+    },
+    {
+      "routine": "cosF64",
+      "set": "medium",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "3fb20a18448dc100d38ca041326adb2aba6b9476c4ff79afdcd46719e90398da",
+      "resultsSha256": "f8b7f551e382a880c53ff9d0b9d0a455a3da32b11a12232e151d3531dba54cfb"
+    }
+  ]
+}

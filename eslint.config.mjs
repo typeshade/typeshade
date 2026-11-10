@@ -28,6 +28,9 @@ export default tseslint.config(
       'src/algorithms/view.ts',
       'src/random/face.ts',
       'src/random/view.ts',
+      // The JavaScript form of the libm, baked by scripts/bake-libm.ts (change 0042): generated
+      // code, as a host face is.
+      'src/core/libm/trig.generated.ts',
     ],
   },
   ...tseslint.configs.recommended,

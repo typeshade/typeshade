@@ -17,6 +17,8 @@ downstream:
   what: Update authoring guidance and numeric inference diagnostic fixtures; record this proposal in compiler-changes.md.
 ---
 
+<!-- doc-refs: skip-file — a proposal that names TS8053 and the files of its warning, which change 0134 retired and removed -->
+
 ## What changes
 
 An unannotated function-local `let` or `const` initialized by an integer-written literal may take the scalar integer type its declared uses require. For example, `let objectIndex = -1;` followed by `poo(objectIndex)` takes `i32` when `poo` declares an `i32` parameter. Parentheses and a leading minus are part of that literal.

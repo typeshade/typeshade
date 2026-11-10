@@ -24,10 +24,10 @@ interface Color {
 
 @vertex
 export function vs(vin: VsIn): VsOut {
-  return { pos: vec4(vin.position, 1.), uv: vin.uv };
+  return { pos: vec4(vin.position, 1), uv: vin.uv };
 }
 
 @fragment
 export function fs(v: VsOut): Color {
-  return { color: vec4(v.uv, 0.2, 1.) };
+  return { color: vec4(v.uv, 0.2, 1) };
 }

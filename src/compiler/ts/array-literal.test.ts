@@ -80,7 +80,7 @@ interface Out {
 
   it('leaves the inferred form f32, as §13 types an undeclared literal', () => {
     // `array(1, 2, 3)` states no element type, so each literal is the f32 `const x = 1` gives
-    // (#148's window); a typed element decides it.
+    // (Rule 5.1); a typed element decides it.
     expect(wgslOf(src('  const xs = array(1, 2, 3);\n  return xs[0];'))).toContain(
       'array<f32, 3>(1.0, 2.0, 3.0)',
     );

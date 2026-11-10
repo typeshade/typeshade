@@ -43,23 +43,23 @@ interface VsOut {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & 1) * 4. - 1.;
-  const y = f32(vi >> 1) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
 }
 
 @fragment
 export function fs_newton(vo: VsOut): vec4 {
-  const span = 10.0 ** -u.zoom_exp;
-  const half = vo.uv.x * 2.0;
-  const sx = half - (vo.uv.x < 0.5 ? 0.0 : 1.0);
+  const span = 10 ** -u.zoom_exp;
+  const half = vo.uv.x * 2;
+  const sx = half - (vo.uv.x < 0.5 ? 0 : 1);
   const dx = (sx - 0.5) * span;
-  const dy = (vo.uv.y - 0.5) * span * (u.resolution.y / u.resolution.x * 2.0);
+  const dy = (vo.uv.y - 0.5) * span * (u.resolution.y / u.resolution.x * 2);
 
   // Iterate to convergence; hand the FINAL z (narrowed) + step count out.
-  let fx = 0.; // final Re z
-  let fy = 0.; // final Im z
-  let it = 0.; // steps until the update went sub-epsilon
+  let fx = 0; // final Re z
+  let fy = 0; // final Im z
+  let it = 0; // steps until the update went sub-epsilon
   if (vo.uv.x < 0.5 || u.fp64 < 0.5) {
     // f32 twin: z0 from the narrowed center, so at deep zoom every pixel starts at the SAME
     // quantized point and the basins collapse flat.
@@ -67,18 +67,18 @@ export function fs_newton(vo: VsOut): vec4 {
     let zy = f32(u.center.y) + dy;
     for (let j: u32 = 0; j < 48; j++) {
       const z2x = zx * zx - zy * zy;
-      const z2y = zx * zy * 2.0;
-      const nx = z2x * zx - z2y * zy - 1.0; // Re(z^3-1)
+      const z2y = zx * zy * 2;
+      const nx = z2x * zx - z2y * zy - 1; // Re(z^3-1)
       const ny = z2x * zy + z2y * zx; // Im(z^3-1)
-      const gx = z2x * 3.0; // Re(3z^2)
-      const gy = z2y * 3.0;
-      const inv = 1.0 / (gx * gx + gy * gy);
+      const gx = z2x * 3; // Re(3z^2)
+      const gy = z2y * 3;
+      const inv = 1 / (gx * gx + gy * gy);
       const qx = (nx * gx + ny * gy) * inv;
       const qy = (ny * gx - nx * gy) * inv;
       zx = zx - qx;
       zy = zy - qy;
       if (qx * qx + qy * qy > 1e-14) {
-        it = it + 1.0;
+        it = it + 1;
       }
     }
     fx = zx;
@@ -91,12 +91,12 @@ export function fs_newton(vo: VsOut): vec4 {
     let zy = u.center.y + f64(dy);
     for (let j: u32 = 0; j < 48; j++) {
       const z2x = zx * zx - zy * zy;
-      const z2y = zx * zy * 2.0;
-      const nx = z2x * zx - z2y * zy - 1.0;
+      const z2y = zx * zy * 2;
+      const nx = z2x * zx - z2y * zy - 1;
       const ny = z2x * zy + z2y * zx;
-      const gx = z2x * 3.0;
-      const gy = z2y * 3.0;
-      const inv = 1.0 / (gx * gx + gy * gy);
+      const gx = z2x * 3;
+      const gy = z2y * 3;
+      const inv = 1 / (gx * gx + gy * gy);
       const qx = (nx * gx + ny * gy) * inv;
       const qy = (ny * gx - nx * gy) * inv;
       zx = zx - qx;
@@ -105,7 +105,7 @@ export function fs_newton(vo: VsOut): vec4 {
       // a comparison against an f32 literal on an f64 would be a df64 compare the original
       // does not run.
       if (f32(qx * qx + qy * qy) > 1e-14) {
-        it = it + 1.0;
+        it = it + 1;
       }
     }
     fx = f32(zx);
@@ -117,18 +117,18 @@ export function fs_newton(vo: VsOut): vec4 {
   // sqrt(3)/2, the imaginary part of the two non-real cube roots; the EDSL's R_IM was a
   // build-time JavaScript const, so it is inlined here, where a source const would be a
   // shader let the original does not have.
-  const d0 = (fx - 1.0) * (fx - 1.0) + fy * fy;
+  const d0 = (fx - 1) * (fx - 1) + fy * fy;
   const d1 = (fx + 0.5) * (fx + 0.5) + (fy - 0.8660254037844386) * (fy - 0.8660254037844386);
   const d2 = (fx + 0.5) * (fx + 0.5) + (fy + 0.8660254037844386) * (fy + 0.8660254037844386);
   const c0 = vec3(0.91, 0.34, 0.22); // root 1, vermilion
   const c1 = vec3(0.2, 0.66, 0.88); // root e^{2pi i/3}, sky
   const c2 = vec3(0.98, 0.78, 0.22); // root e^{-2pi i/3}, gold
   const base = (d0 <= d1 && d0 <= d2) ? c0 : (d1 <= d2 ? c1 : c2);
-  const speed = 1. - it / 48.;
+  const speed = 1 - it / 48;
   // Annotated for the EDITOR, not for the compiler. TypeScript types
   // `vec3 * scalar` as `number`, so `rgb` would lose its lanes and draw TS2345
   // at the `vec4(...)` that returns it, on a program that compiles (issue #43).
   // Emit-neutral: the WGSL and GLSL are byte-identical without it.
-  const rgb: vec3 = base * mix(0.25, 1.0, speed);
-  return vec4(rgb, 1.);
+  const rgb: vec3 = base * mix(0.25, 1, speed);
+  return vec4(rgb, 1);
 }

@@ -38,7 +38,7 @@ type Curve = (x: f32) => f32 | undefined;
 
 /** The square root, or nothing below zero. */
 function root(x: f32): f32 | undefined {
-  if (x < 0.) {
+  if (x < 0) {
     return undefined;
   }
   return sqrt(x);
@@ -52,7 +52,7 @@ function ramp(x: f32): f32 {
 /** Half of a positive value; the result type is inferred as `f32 | undefined` (Rule 8.19). The
  *  bare `return;` is the absent value, as TypeScript reads it (change 0099). */
 function halfOf(x: f32) {
-  if (x <= 0.) {
+  if (x <= 0) {
     return;
   }
   return x * 0.5;
@@ -80,11 +80,11 @@ function intersect(o: vec2, d: vec2, r: f32): Hit | undefined {
   const b = dot(o, d);
   const c = dot(o, o) - r * r;
   const disc = b * b - c;
-  if (disc < 0.) {
+  if (disc < 0) {
     return undefined;
   }
   const t = -b - sqrt(disc);
-  if (t < 0.) {
+  if (t < 0) {
     return undefined;
   }
   const h = new Hit();
@@ -100,26 +100,26 @@ function offsetOf(h: Hit | undefined, far: f32): f32 {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const xs: array<f32, 3> = [-1., 3., -1.];
-  const ys: array<f32, 3> = [-1., -1., 3.];
+  const xs: array<f32, 3> = [-1, 3, -1];
+  const ys: array<f32, 3> = [-1, -1, 3];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
-  return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
+  return { pos: vec4(p, 0, 1), uv: p * 0.5 + vec2(0.5, 0.5) };
 }
 
 @fragment
 export function fs(v: VsOut): Color {
-  const x = v.uv.x * 2. - 1.;
+  const x = v.uv.x * 2 - 1;
   // A local declared with no initializer starts absent; one path gives it a value.
   let shade: f32 | undefined;
   if (v.uv.y > 0.5) {
     shade = v.uv.y;
   }
-  const r = sampleOr(root, x, 0.) + sampleOr(ramp, v.uv.x, 0.);
+  const r = sampleOr(root, x, 0) + sampleOr(ramp, v.uv.x, 0);
   const g = nearest(root(x), halfOf(v.uv.y)) * (shade ?? 0.25);
-  const o = v.uv * 2. - vec2(1., 1.);
-  const hit = intersect(o - vec2(0., 2.), vec2(0., 1.), 0.5);
-  const b = offsetOf(hit, 0.);
-  const n = hit?.normal ?? vec2(0., 0.);
-  return { color: vec4(r, g, b * 0.5 + n.x * 0.25, 1.) };
+  const o = v.uv * 2 - vec2(1, 1);
+  const hit = intersect(o - vec2(0, 2), vec2(0, 1), 0.5);
+  const b = offsetOf(hit, 0);
+  const n = hit?.normal ?? vec2(0, 0);
+  return { color: vec4(r, g, b * 0.5 + n.x * 0.25, 1) };
 }

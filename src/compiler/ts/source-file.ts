@@ -55,10 +55,6 @@ import {
   type LinkedProgram,
   type LinkRoot,
 } from './link.js';
-import {
-  reportFieldLiteralDeprecations,
-  reportIntegerLiteralDeprecations,
-} from './integer-literal-deprecation.js';
 import { uniformityViolations, type UniformityViolation } from '../../core/passes/uniformity.js';
 import {
   reasonKey,
@@ -97,10 +93,10 @@ export interface CompileTsSourceOptions {
    * ignored in favor of `sourceFile.fileName`. */
   readonly sourceFile?: ts.SourceFile;
   /** When `true`, report the DEPRECATION warnings for spellings whose meaning is scheduled to
-   * change. One today: an integer-written literal in a declaration with no annotation or
-   * declared integer use still types as `f32` and will type as `i32` (§13, #148). Off by default, and off is
-   * the whole of the compiler's behaviour: the flag adds warnings and moves no emitted byte,
-   * so a build that turns it on and a build that does not produce the same shader. */
+   * change (Rule 13.10). No window is open today, so the flag reports nothing: change 0134
+   * retired the one warning it had. Off by default, and off is the whole of the compiler's
+   * behaviour: the flag adds warnings and moves no emitted byte, so a build that turns it on
+   * and a build that does not produce the same shader. */
   readonly deprecations?: boolean;
   /** No effect since change 0070, which spells a name a target reserves afresh instead of refusing
    *  it. Kept so that a caller that passes it still compiles. */
@@ -296,8 +292,6 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   reportMisplacedDirective(sourceFile, directive, diagnostics);
   openExpressionTable(sourceFile);
   analyzeSemantics(sourceFile, diagnostics);
-  // Opt-in, and additive: warnings only, no emitted byte moves (§13, #148).
-  if (options.deprecations === true) reportIntegerLiteralDeprecations(sourceFile, diagnostics);
   // The file's `"enable <extension>";` directives (§50), before anything that could emit.
   const enables = collectEnables(sourceFile, diagnostics);
   // A stage call and `export default` on an entry are refused here, once each (Rules 6.7 and
@@ -468,9 +462,6 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   }
   // A name nothing declares in a body no call lowered, which the lowering never read (Rule 2.1).
   reportUndeclaredValues(sourceFile, diagnostics);
-  // Field warnings use the actual declared type and leave refused initializers alone.
-  if (options.deprecations === true)
-    reportFieldLiteralDeprecations(sourceFile, diagnostics, symbols);
   // The decorated form of the migration release, read as written and warned once each
   // (change 0111, milestone 4).
   warnDecoratedForm(sourceFile, diagnostics);

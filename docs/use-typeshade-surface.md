@@ -8,7 +8,7 @@ North star: TypeScript syntax only where the TS parser already accepts it. No pr
 
 ```
 type Camera = { … }                             value struct (or interface, or class)
-interface VsIn { uv: location<0, vec2> }        entry I/O struct, the attribute in the type
+interface VsOut { pos: builtin<"position"> }    entry I/O struct, the attribute in the type
 declare const camera: uniform<T>                resource slot (host fills)
 declare const pixels: storage<T, "read_write">  resource slot, writable
 @compute([64]) export function k(…)             entry
@@ -20,7 +20,7 @@ GPU has three things. The grammar has three places.
 | GPU              | TypeShade                                      | Where the attribute is written                          |
 |------------------|------------------------------------------------|---------------------------------------------------------|
 | Buffer / UBO     | `declare const` + `uniform<T>` / `storage<T, A>` | In the type; a decorator is refused                     |
-| Value layout     | `class`, `interface` or `type` alias           | In the field's type, `location<0, vec2>`; `@align` on a class field |
+| Value layout     | `class`, `interface` or `type` alias           | In the field's type, when one is written: `builtin<"position">`, `location<0, vec2>`; `@align` on a class field |
 | Shader stage     | top-level function declaration                 | Before the declaration, `@vertex`, `@fragment`, `@compute([64])` |
 
 Do not put an entry method on a class. Do not use a class as a bind group.
@@ -201,10 +201,14 @@ optional member is the one where the three spellings used to disagree: an interf
 and a class emitted it as required. They refuse it alike now. An `extends` clause is inheritance (roadmap 0.3 item T5, §26): the base's fields come
 first and the derived ones after, so nothing is dropped.
 
-An entry I/O field carries its attribute in its type (change 0111): `location<n, T>` or
-`builtin<"...", T>`, and the options `interpolate`, `invariant` and `blend_src` as a third type
-argument (§53). Each type means `T`. A type carries in all three spellings, so a struct used as
-entry I/O — where WGSL requires a built-in or a location on every member — may be a `class`, an
+An entry I/O field writes its attribute in its type (change 0111, change 0135, §3). A built-in
+value is `builtin<"...">`, of the type WGSL gives it. Only
+`builtin<"clip_distances", array<f32, N>>` writes its type. Every other field is a user-defined
+input or output. `uv: vec2` leaves its location to the compiler, and `location<n, T>` states it,
+to fix a number or to carry an option. The options are an object type (§53): `invariant` is the
+second argument of `builtin<"...">`, and `interpolate` and `blend_src` are the third argument of
+`location<n, T, O>`. Each type means its value type. A type carries in all three spellings, so
+a struct used as entry I/O — where WGSL requires a built-in or a location on every member — may be a `class`, an
 `interface` or a `type`. A `class` field needs no initializer and no `!` (`view: mat4`): the
 stage that produces an entry I/O field fills it, and a struct field is zero until written. A
 written `!` is accepted and changes nothing (change 0130, D3).
@@ -229,10 +233,10 @@ interface VsIn {
 ```
 
 Of the attributes, the compiler applies `location`, `builtin`, `interpolate`, `invariant` and
-`blend_src` today (§53). `location<n, T>` and `builtin<"...", T>`, with an `interpolate` option,
+`blend_src` today (§53). `location<n, T>`, with an `interpolate` option, and `builtin<"...">`
 also apply to a bare entry PARAMETER, which is how a fragment entry that takes one varying
-writes it. The field decorators are refused
-rather than silently dropped, under two codes: `@align` on a field is `TS8010` ("@align on a
+writes it. A bare parameter with no attribute is a user-defined input too (§3). The field
+decorators are refused rather than silently dropped, under two codes: `@align` on a field is `TS8010` ("@align on a
 field is not applied"), so the `@align(16)` above is *(target)*; `@size` is `TS8028`, named as
 WGSL's attribute and not applied, since a field takes the size WGSL's layout gives its type
 (§51); `@offset` and `@ignore` are `TS8028` ("Unknown attribute"), because neither WGSL nor the
@@ -1320,25 +1324,13 @@ Calls through unresolved names or function values and direct calls to generic fu
 do not establish an integer type. A concrete member parameter such as `index: i32` can
 establish a demand inside a generic class; an unresolved parameter such as `index: T` cannot.
 
-**A window is open on the default (#148; the policy it follows is roadmap item 25, the
-deprecation-policy row, and `RELEASING.md` §7).** Everything above is
-about a position or use that DECLARES a type. Where nothing establishes one — `let i = 0`, `const K = 5`
-— the literal still takes `f32`, so `xs[i]` is `Index must be i32 or u32`. WGSL concretizes an
-abstract integer to `i32` when nothing else decides (wgsl.txt:3929-3933, 4100-4104), GLSL's `5`
-is an `int`, and a TypeScript reader expects `let i = 0` to index an array — so that default
-will change. It has NOT changed yet: this release carries the window, not the flip. A build
-that wants to see which of its lines the flip will move asks for the warning, which is off by
-default and moves no emitted byte. A local that already takes an integer type from its declared uses
-does not carry that warning. Unannotated class fields that take this default also carry it,
-including static and readonly fields:
-
-```ts
-compile(source, { deprecations: true });
-// TS8053 (warning): "i" is written as an integer and types as f32 today; it will type as i32
-// (§13, #148). Write "i = 0." to keep f32, or leave it and take i32.
-```
-
-`RELEASING.md` §7 is the policy the window follows and the list of the windows that are open.
+**No window is open on the default.** Everything above is about a position or use that
+DECLARES a type. Where nothing establishes one (`let i = 0`, `const K = 5`), the literal takes
+`f32` today, so `xs[i]` is `Index must be i32 or u32`. Change 0134 decided that a number takes
+its type from every place it reaches, with no default for an author to learn. It supersedes
+#148's flip of this default to `i32` and retired the warning `TS8053`, which announced that <!-- doc-refs: skip — a retired code, named as retired -->
+flip. `compile(source, { deprecations: true })` stays as the mechanism of Rule 13.10 and reports
+nothing until a window opens (`RELEASING.md` §7).
 
 ## 14. TypeScript shapes the parser already had
 
@@ -4538,8 +4530,8 @@ that name; the const holds a class, so it is no module constant and folds to not
 
 **A mixin may carry what a class carries.** A constructor, including one that calls `super(…)`
 over a base that has one; a static function, which becomes the applying class's; a field typed
-`builtin<"...", T>` or `location<n, T>`, or with the decorated form of the migration release,
-which reaches entry I/O the way any field does; a method
+`builtin<"...">` or `location<n, T>`, or with no attribute, or with the decorated form of the
+migration release, which reaches entry I/O the way any field does; a method
 reading a field of the base it was mixed over.
 
 **A name declared twice in the chain is an override, and the declaration closest to the value
@@ -5195,7 +5187,7 @@ of first appearance:
 "use typeshade";
 
 interface Color {
-  color: location<0, vec4>;
+  color: vec4;
 }
 
 @fragment
@@ -11359,7 +11351,7 @@ their emit goldens in `examples/__emit-goldens__/`.
 
 Change 0117 puts the 21 subgroup built-in functions of WGSL's `subgroups` extension on this
 surface, with WGSL's own names and signatures, and the two built-in values WGSL added beside the
-pair of §50: `@builtin("subgroup_id")` and `@builtin("num_subgroups")`, both `u32`, both compute
+pair of §50: `builtin<"subgroup_id">` and `builtin<"num_subgroups">`, both `u32`, both compute
 inputs. A subgroup is the set of invocations a device runs together in lockstep, between the
 adapter's `subgroupMinSize` and `subgroupMaxSize` wide; a subgroup function reads or folds the
 values of every lane of it in one instruction, with no workgroup memory and no barrier. The use
@@ -11372,7 +11364,7 @@ declare const src: storage<array<u32>>;
 declare const bins: storage<array<atomic<u32>>, "read_write">;
 
 @compute([64])
-export function main(@builtin("global_invocation_id") gid: vec3u): void {
+export function main(gid: builtin<"global_invocation_id">): void {
   const v = subgroupAdd(src[gid.x]); // the subgroup's sum, in every lane
   if (subgroupElect()) {
     atomicAdd(bins[0], v); // one atomic per subgroup instead of one per lane
@@ -11497,7 +11489,7 @@ or the call; the editor refuses the same programs over the generated declaration
 | `subgroupShuffle(x, i)` with `i` an `f32` | `TS8003 subgroupShuffle's lane must be a u32; got f32.` |
 | a vertex entry that reaches a subgroup call | `WGSL allows a subgroup built-in function in a fragment or compute stage only.` |
 | a call under a value the invocations do not share | `TS8052`, the sentence above (§54) |
-| `@builtin("subgroup_id")` on a fragment entry | `TS8025`, naming the compute stage |
+| `builtin<"subgroup_id">` on a fragment entry | `TS8025`, naming the compute stage |
 
 **Measured on Tint** (Chrome for Testing 153, SwiftShader, 2026-11-02, Rule 13.3): every function
 and the four values compile under `enable subgroups;`; a call without the directive is refused;

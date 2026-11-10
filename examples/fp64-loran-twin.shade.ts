@@ -43,18 +43,18 @@ interface VsOut {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & 1) * 4. - 1.;
-  const y = f32(vi >> 1) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
 }
 
 @fragment
 export function fs_loran(vo: VsOut): vec4 {
-  const span = 10.0 ** -u.zoom_exp;
-  const half = vo.uv.x * 2.0;
-  const sx = half - (vo.uv.x < 0.5 ? 0.0 : 1.0);
+  const span = 10 ** -u.zoom_exp;
+  const half = vo.uv.x * 2;
+  const sx = half - (vo.uv.x < 0.5 ? 0 : 1);
   const dx = (sx - 0.5) * span;
-  const dy = (vo.uv.y - 0.5) * span * (u.resolution.y / u.resolution.x * 2.0);
+  const dy = (vo.uv.y - 0.5) * span * (u.resolution.y / u.resolution.x * 2);
 
   const isF32 = vo.uv.x < 0.5 || u.fp64 < 0.5;
   // f64 chain: the vec64 `distance` reduction accumulates through the scalar df64 transforms,
@@ -80,20 +80,20 @@ export function fs_loran(vo: VsOut): vec4 {
 
   // Distance to the nearest band line, a triangle fold: continuous across the fract seam,
   // which is exactly where the line sits.
-  const dh = min(th, 1. - th);
-  const de = min(te, 1. - te);
+  const dh = min(th, 1 - th);
+  const de = min(te, 1 - te);
   const aaH = fwidth(dh) * 1.2 + 1e-4;
   const aaE = fwidth(de) * 1.2 + 1e-4;
-  const lineH = 1. - smoothstep(0., aaH, dh);
-  const lineE = 1. - smoothstep(0., aaE, de);
+  const lineH = 1 - smoothstep(0, aaH, dh);
+  const lineE = 1 - smoothstep(0, aaE, de);
 
   // Chart styling: deep sea, cyan hyperbolae (the position lines), faint amber ellipses (the
   // range net), a soft band tint to keep the field alive.
   const sea = mix(vec3(0.02, 0.07, 0.13), vec3(0.04, 0.12, 0.2), vo.uv.y);
   const rgb =
     sea +
-    vec3(0.0, 0.06, 0.08) * th + // band tint
+    vec3(0, 0.06, 0.08) * th + // band tint
     vec3(0.25, 0.95, 0.95) * (lineH * 0.9) +
     vec3(0.95, 0.7, 0.25) * (lineE * 0.35);
-  return vec4(rgb, 1.);
+  return vec4(rgb, 1);
 }

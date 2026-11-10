@@ -192,7 +192,7 @@ describe('df64 vec64 sin/cos = scalar sin/cos per lane', () => {
 });
 
 // ── Metamorphic gate: oracle(fp64Lower(m)) ≈ oracle(m) ──
-// The native-f64 oracle evaluates authored sin/cos as JS Math.sin/cos; the lowered
+// The native-f64 oracle evaluates authored sin/cos with the libm's f64 routines; the lowered
 // module runs the df64 emulation. In exact arithmetic they agree up to the Taylor
 // truncation floor (the reduction removes it from cancellation), so the two paths
 // track each other far past f32.

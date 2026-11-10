@@ -24,13 +24,13 @@ export function vs(i: builtin<"vertex_index">): Clip {
     x = 0.8;
   }
   if (i === 2) {
-    x = 0.;
+    x = 0;
     y = 0.8;
   }
-  return { pos: vec4(x, y, 0., 1.) };
+  return { pos: vec4(x, y, 0, 1) };
 }
 
 @fragment
 export function fs(): Color {
-  return { color: vec4(1., 0., 0., 1.) };
+  return { color: vec4(1, 0, 0, 1) };
 }

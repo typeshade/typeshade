@@ -39,21 +39,21 @@ interface Color {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & u32(1)) * 4. - 1.;
-  const y = f32(vi >> u32(1)) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) * 0.5 + vec2(0.5, 0.5) };
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x, y) * 0.5 + vec2(0.5, 0.5) };
 }
 
 @fragment
 export function fs(v: VsOut): Color {
-  const size = max(u.resolution, vec2(1., 1.));
-  let sum = vec3(0., 0., 0.);
-  let total = 0.;
+  const size = max(u.resolution, vec2(1, 1));
+  let sum = vec3(0, 0, 0);
+  let total = 0;
   for (let i = -4; i <= 4; i++) {
-    const w = exp(-f32(i * i) / 8.);
-    const at = (v.pos.xy + vec2(0., f32(i) * 1.5)) / size;
-    sum = sum + textureSampleLevel(blurX, smp, at, 0.).rgb * w;
+    const w = exp(-f32(i * i) / 8);
+    const at = (v.pos.xy + vec2(0, f32(i) * 1.5)) / size;
+    sum = sum + textureSampleLevel(blurX, smp, at, 0).rgb * w;
     total = total + w;
   }
-  return { color: vec4(sum / total, 1.) };
+  return { color: vec4(sum / total, 1) };
 }
