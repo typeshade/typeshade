@@ -118,10 +118,10 @@
     {
       "routine": "tanF32",
       "set": "edges",
-      "count": 40,
+      "count": 44,
       "nanResults": 6,
-      "inputsSha256": "00d8aad520e43e75d0831bdccb0d50907db6e7f063d7e692000ceefe4e0a3661",
-      "resultsSha256": "3580c5f547b5b7faeb65d75a86226abf7e8afcbbb000230f3e16125f2da57a93"
+      "inputsSha256": "a7cee845b82707da15abd2b126ed7c53a1e5efdc92da8918588987058da32daa",
+      "resultsSha256": "6f12383a08114c83a957edaba405dbb4b4da2b30dfaaf48755951e9d40f8a99a"
     },
     {
       "routine": "tanF32",
@@ -142,10 +142,10 @@
     {
       "routine": "tanF64",
       "set": "edges",
-      "count": 43,
+      "count": 47,
       "nanResults": 6,
-      "inputsSha256": "d8af1c4683ad2c3ce33e4f8b962b6a3e80a66627ce28fee828a19e7f75b29152",
-      "resultsSha256": "223de81a0f427eea88b21fa1354644b2d8de1a7e78b9e5abfa0d2555d2cde1f6"
+      "inputsSha256": "41ccd1bf9ff0580d7dd7cdcab664f37bb592dfd07cc9116554a4918227a65260",
+      "resultsSha256": "fbf7e16969f5d4dfc483c421343eb25c6628d468b1c315950f4f624197a4c9ac"
     },
     {
       "routine": "tanF64",
@@ -153,7 +153,7 @@
       "count": 250000,
       "nanResults": 104,
       "inputsSha256": "78276abb776fd56ea572997f1f9fd2baf4343cb6336b2e232544635a5f03a440",
-      "resultsSha256": "9e7ef23ccde05c0025a531d8a6868d66392422ae9b3e5a2f7eddce1d632bb93e"
+      "resultsSha256": "93bf646920d0d1f44cd69b643a224b1074ad5fc1d0ddd9ad78419ed454130176"
     },
     {
       "routine": "tanF64",
@@ -161,7 +161,7 @@
       "count": 250000,
       "nanResults": 0,
       "inputsSha256": "d142d621eab3a2c98a800e6850da619db182ad3b474c7f2af1b2f863ae5dfbea",
-      "resultsSha256": "436b23cc616713566ac78802a45a3ef19fc22ca83dd654d2e96d38b9dcef1a30"
+      "resultsSha256": "037a2776b5e62d60b725d63c5364c776f4af539ae430e2721e491b6b85955f39"
     },
     {
       "routine": "tanF64",
@@ -169,7 +169,7 @@
       "count": 250000,
       "nanResults": 0,
       "inputsSha256": "3fb20a18448dc100d38ca041326adb2aba6b9476c4ff79afdcd46719e90398da",
-      "resultsSha256": "fa5c76801d5dbc7f73eee2f3f45e4b884cc865b50ab51f83d76f433cff42db6e"
+      "resultsSha256": "0754464204fe593403ec69dc17ac640cb2a49ce588a90da73bc20b928f41d37d"
     }
   ]
 }

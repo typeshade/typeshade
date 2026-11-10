@@ -121,10 +121,12 @@ const EDGES_F64: readonly (readonly [number, number])[] = [
 ];
 
 /** The edge values that only `tan` takes, past the ones above: around 2^-27, below which
- *  tan(x) is x, and around 0.6744, from which the kernel runs on pi/4 - |x|. They are a list of
+ *  tan(x) is x, around 0.625, from which the kernel runs on pi/4 - |x|, and around 0.6744, where
+ *  fdlibm's kernel has that switch. They are a list of
  *  their own, so the sets of `sin` and `cos` keep their hashes. */
 const TAN_EDGES_F32: readonly number[] = [
-  0x31ffffff, 0x32000000, 0x3f2ca13f, 0x3f2ca140, 0xbf2ca140, 0x3f2ca141,
+  0x31ffffff, 0x32000000, 0x3f2ca13f, 0x3f2ca140, 0xbf2ca140, 0x3f2ca141, 0x3f1fffff, 0x3f200000,
+  0xbf200000, 0x3f200001,
 ];
 const TAN_EDGES_F64: readonly (readonly [number, number])[] = [
   [0x3e3fffff, 0xffffffff],
@@ -133,6 +135,10 @@ const TAN_EDGES_F64: readonly (readonly [number, number])[] = [
   [0x3fe59428, 0x00000000],
   [0xbfe59428, 0x00000000],
   [0x3fe59428, 0x00000001],
+  [0x3fe3ffff, 0xffffffff],
+  [0x3fe40000, 0x00000000],
+  [0xbfe40000, 0x00000000],
+  [0x3fe40000, 0x00000001],
 ];
 
 /** A set of inputs: its name, and its values. */
