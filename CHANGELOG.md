@@ -1942,6 +1942,19 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **The hover of an imported symbol reads the compiler's type, as a local one does** (Rule
+  12.7). A field, a function, a module constant, a module variable, an override and a binding
+  that another `"use typeshade"` file declares showed TypeScript's quick info in the importing
+  file: `vec2` where the declaring file shows `vec2<f32>`, `(alias) const HALF: 0.5` for
+  `const HALF: f32`, `number` for an instance of a generic function, a binding as its expanded
+  structure with no resource line, and a function without its `@inout` and `@out` qualifiers.
+  The editor now reads such a symbol in the linked program of the hovered file (Rule 3.9), so
+  the text is the one the declaring file shows, with no `(alias)` or `import` line. Signature
+  help of an imported function shows its qualifiers too. A method, a getter, a static function
+  and a member of a namespace or of an enum keep TypeScript's quick info, as they do in one
+  file. `src/language-service/imported-symbol-hover.test.ts` reads both halves on the same
+  files.
+
 - **A module constant with an expression rounds as a function does, in `'f32'` precision**
   (Rule 11.7). `const X: f32 = 100.7; const S: f32 = sin(X);` gave `S` the value of `sin` on the
   unrounded 100.7, rounded, on the CPU oracle and the CPU tier in `'f32'` precision, while

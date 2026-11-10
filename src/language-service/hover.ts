@@ -827,7 +827,11 @@ export function getHover(
   const sections = [`\`\`\`ts\n${display}\n\`\`\``];
   if (qualifier !== undefined) sections.push(referenceLine(declared!, qualifier));
   if (resource !== undefined) sections.push(resource);
-  sections.push(...entryLocationLines(analysis, sourceFile, uri, defs, declared, programs));
+  // The location line reads the definitions of a property alone, as it did before the hover
+  // asked for the definition of every identifier of a linked program: another name is no field,
+  // and must not start the analysis of another document.
+  const fieldDefs = property || declared !== undefined ? defs : [];
+  sections.push(...entryLocationLines(analysis, sourceFile, uri, fieldDefs, declared, programs));
   if (documentation) sections.push(documentation);
   return { contents: sections.join('\n\n'), range: rangeForSpan(sourceFile, quickInfo.textSpan) };
 }
