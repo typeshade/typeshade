@@ -362,14 +362,12 @@ export interface Componentwise {
  *  (`cpu-codegen.ts`), which calls `lane` once per component where the IR types say the
  *  arguments are vectors of one width, computes what the entry computes on the same values. */
 export const COMPONENTWISE = {
-  // The libm's routines (change 0042), not the engine's `Math.sin` and `Math.cos`: an `f64`
-  // operand, and every operand in `'f64'` precision, takes the `f64` routine. In `'f32'`
-  // precision the precision pass (`passes/precision.ts`) names the `f32` routine for an `f32`
-  // operand, as `__sinF32` and `__cosF32`, which no author can write and no writer emits.
+  // The libm's routines (change 0042), not the engine's `Math.sin` and `Math.cos`. Every
+  // operand takes the `f64` routine. In `'f32'` precision the precision pass rounds the result
+  // once to `f32` (`__fround`), so an `f32` operand has one answer on every CPU path: a call,
+  // a module constant and a compile-time fold.
   sin: { lane: (x: number): number => LIBM_TRIG.sinF64(x), vector: 0 },
   cos: { lane: (x: number): number => LIBM_TRIG.cosF64(x), vector: 0 },
-  __sinF32: { lane: (x: number): number => LIBM_TRIG.sinF32(x), vector: 0 },
-  __cosF32: { lane: (x: number): number => LIBM_TRIG.cosF32(x), vector: 0 },
   tan: { lane: Math.tan, vector: 0 },
   asin: { lane: Math.asin, vector: 0 },
   acos: { lane: Math.acos, vector: 0 },
@@ -466,8 +464,6 @@ export const BUILTINS: Record<string, Builtin> = {
   __fround: map1(Math.fround),
   sin: map1(CW.sin.lane),
   cos: map1(CW.cos.lane),
-  __sinF32: map1(CW.__sinF32.lane),
-  __cosF32: map1(CW.__cosF32.lane),
   tan: map1(CW.tan.lane),
   asin: map1(CW.asin.lane),
   acos: map1(CW.acos.lane),
@@ -775,7 +771,6 @@ export const BUILTINS: Record<string, Builtin> = {
     const v = x as number;
     return Number.isNaN(v) ? 0 : Math.min(2147483647, Math.max(-2147483648, Math.trunc(v)));
   },
-  __u32ToF64: (x) => (x as number) >>> 0,
   // pack a vec4<f32> (each in [0,1]) into u32 RGBA8; component 0 → low byte.
   // The length of the buffer the host bound (#46): the operand evaluates to the bound array
   // itself (or the struct member holding it), and its length is the answer the GPU gives.
@@ -897,8 +892,8 @@ export const BUILTINS: Record<string, Builtin> = {
 };
 
 /** The libm's routines (change 0042, milestone 1a), built once over the two tables above: the
- *  JavaScript form of `libm/trig.shade.ts`, which `sin`, `cos`, `__sinF32` and `__cosF32` of
- *  {@link COMPONENTWISE} call. Declared after the tables it reads; an entry calls it only when
+ *  JavaScript form of `libm/trig.shade.ts`, which `sin` and `cos` of {@link COMPONENTWISE}
+ *  call. Declared after the tables it reads; an entry calls it only when
  *  a program runs. Exported for the libm's gates and for a test that reads the libm's value. */
 export const LIBM_TRIG: LibmTrig = makeTrig({ B: BUILTINS, L: COMPONENTWISE, intDiv, intRem });
 

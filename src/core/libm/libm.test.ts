@@ -1,11 +1,13 @@
-// The libm's test (change 0042, milestone 1a): sin and cos, for f32 and for f64.
+// The libm's test (change 0042, milestone 1a): sin and cos, for an f32 and an f64 operand.
 //
 // It holds five things. The baked JavaScript form is the one the source gives. Every constant
 // derived from pi is the one a BigInt computation gives. The interpreter that walks the libm's
 // IR and the baked JavaScript form give the same bits (form against form). The JavaScript form
 // gives, in this engine, the results whose hashes `trig.gate.json` holds (engine against
 // engine: `scripts/libm-arm.ts` holds the same file under Bun). Each routine's error is under
-// 1 ULP on a sample, against an exact BigInt reference (decision N9).
+// 1 ULP on a sample, against an exact BigInt reference (decision N9). An f32 operand has one
+// answer on every CPU path: the f64 routine's result rounded once (the owner's decision of
+// 2026-11-10).
 
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -22,6 +24,7 @@ import type { ConstDecl, Expr } from '../ir/nodes.js';
 import {
   LIBM_GATE_COUNT,
   LIBM_ROUTINES,
+  libmFunctions,
   libmGateRows,
   libmInputs,
   littleEndianBytes,
@@ -44,6 +47,9 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const source = readFileSync(join(ROOT, LIBM_SOURCE), 'utf8');
 const compiled = compileLibmSource(source, LIBM_SOURCE);
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
+/** sin and cos as the gates measure them: for an f64 operand, and for an f32 operand. */
+const LIBM = libmFunctions(LIBM_TRIG);
+type Trig = Parameters<typeof libmFunctions>[0];
 
 describe('the libm source and its baked JavaScript form', () => {
   it('compiles with no diagnostic', () => {
@@ -103,11 +109,6 @@ describe('the constants derived from pi', () => {
     ]);
   });
 
-  it('pi/2 in a piece of 30 bits and the rest (F1, F1T)', () => {
-    const [f1, r1] = head(halfPi, 30n);
-    expect([value('F1'), value('F1T')]).toEqual([f1, rounded(r1)]);
-  });
-
   it('2/pi and pi/2 rounded, and the rest of pi/2 (INVPIO2, PIO2H, PIO2L)', () => {
     const one = 1n << BITS;
     expect(value('INVPIO2')).toBe(rounded((one * one) / halfPi));
@@ -158,10 +159,9 @@ describe('the constants derived from pi', () => {
 });
 
 describe('form against form: the interpreter on the libm IR and the baked JavaScript', () => {
-  const interpreter = compileModule(compiled.module, { precision: 'f32' }).fns as unknown as Record<
-    LibmRoutine,
-    (x: number) => number
-  >;
+  const interpreter = libmFunctions(
+    compileModule(compiled.module, { precision: 'f32' }).fns as unknown as Trig,
+  );
   // 40 000 seeded inputs of each set: the interpreter takes microseconds for one call.
   const COUNT = 40_000;
 
@@ -170,7 +170,7 @@ describe('form against form: the interpreter on the libm IR and the baked JavaSc
       let compared = 0;
       for (const set of libmInputs(routine, COUNT)) {
         const a = littleEndianBytes(libmResults(interpreter[routine], set.values));
-        const b = littleEndianBytes(libmResults(LIBM_TRIG[routine], set.values));
+        const b = littleEndianBytes(libmResults(LIBM[routine], set.values));
         expect([set.name, sha256(a.bytes), a.nans]).toEqual([set.name, sha256(b.bytes), b.nans]);
         compared += set.values.length;
       }
@@ -189,13 +189,12 @@ describe('form against form: the interpreter on the libm IR and the baked JavaSc
 
   it('the generated JavaScript of the libm module is the baked form, call for call', () => {
     // `compileModuleJs` builds the same factory with `new Function`; the baked one is its text.
-    const fresh = compileModuleJs(compiled.module, { precision: 'f32' }).fns as unknown as Record<
-      LibmRoutine,
-      (x: number) => number
-    >;
+    const fresh = libmFunctions(
+      compileModuleJs(compiled.module, { precision: 'f32' }).fns as unknown as Trig,
+    );
     for (const routine of LIBM_ROUTINES) {
       for (const set of libmInputs(routine, 2000)) {
-        for (const x of set.values) expect(fresh[routine](x)).toBe(LIBM_TRIG[routine](x));
+        for (const x of set.values) expect(fresh[routine](x)).toBe(LIBM[routine](x));
       }
     }
   });
@@ -218,7 +217,7 @@ describe('engine against engine: trig.gate.json', () => {
   });
 
   it('this engine makes the inputs and the results that the file hashes', () => {
-    expect(libmGateRows(LIBM_TRIG, sha256)).toEqual(file.rows);
+    expect(libmGateRows(LIBM, sha256)).toEqual(file.rows);
   });
 
   it('only a NaN or an infinite operand gives a NaN result', () => {
@@ -228,7 +227,7 @@ describe('engine against engine: trig.gate.json', () => {
       for (const set of libmInputs(routine, 20_000)) {
         for (const x of set.values) {
           if (Number.isFinite(x)) finite++;
-          if (Number.isNaN(LIBM_TRIG[routine](x)) === Number.isFinite(x))
+          if (Number.isNaN(LIBM[routine](x)) === Number.isFinite(x))
             wrong.push(`${routine}(${String(x)})`);
         }
       }
@@ -276,7 +275,7 @@ describe('the error is under 1 ULP (decision N9)', () => {
     let measured = 0;
     for (const x of sample) {
       if (!Number.isFinite(x)) continue;
-      const error = ulpError(LIBM_TRIG[routine](x), exactTrig(fn, x), format);
+      const error = ulpError(LIBM[routine](x), exactTrig(fn, x), format);
       if (error === undefined) continue;
       measured++;
       if (Math.abs(error) > max) {
@@ -321,16 +320,16 @@ export function lanes(v: vec3): vec3 { return sin(v) + cos(v.zyx); }
     expect(program.diagnostics).toEqual([]);
   });
 
-  it("in 'f32' precision an f32 operand takes the f32 routine and an f64 operand the f64 one", () => {
+  it("in 'f32' precision an f32 operand takes the f64 routine, rounded once", () => {
     for (const build of [compileModule, compileModuleJs]) {
       const fns = build(program.module, { precision: 'f32' }).fns as Record<
         string,
         (...a: unknown[]) => unknown
       >;
-      expect(fns['single']!(x)).toBe(fr(LIBM_TRIG.sinF32(fr(x)) - LIBM_TRIG.cosF32(fr(x))));
+      expect(fns['single']!(x)).toBe(fr(LIBM.sinF32(x) - LIBM.cosF32(x)));
       expect(fns['double']!(x)).toBe(LIBM_TRIG.sinF64(x) - LIBM_TRIG.cosF64(x));
       expect(fns['lanes']!([1, 2, 3])).toEqual(
-        [1, 2, 3].map((c, i) => fr(LIBM_TRIG.sinF32(c) + LIBM_TRIG.cosF32(3 - i))),
+        [1, 2, 3].map((c, i) => fr(LIBM.sinF32(c) + LIBM.cosF32(3 - i))),
       );
     }
   });
@@ -349,12 +348,72 @@ export function lanes(v: vec3): vec3 { return sin(v) + cos(v.zyx); }
   it('the tables hold the routines, not the engine Math', () => {
     expect(COMPONENTWISE.sin.lane).not.toBe(Math.sin);
     expect(COMPONENTWISE.cos.lane).not.toBe(Math.cos);
-    // The f64 nearest a multiple of pi/2: an engine's fdlibm and the libm round it alike, and
-    // the table's entry is the libm's routine on a vector too.
+    // The f64 nearest a multiple of pi/2. The libm is under 1 ULP from the exact value there.
+    // An engine's `Math.cos` need not be: on Bun 1.4.4 it is 7.95 ULP off. The table's entry is
+    // the libm's routine, on a scalar and on a vector.
     const hard = 6381956970095103 * 2 ** 797;
     expect(BUILTINS['cos']!(hard)).toBe(LIBM_TRIG.cosF64(hard));
     expect(BUILTINS['sin']!([1, hard])).toEqual([LIBM_TRIG.sinF64(1), LIBM_TRIG.sinF64(hard)]);
-    expect(BUILTINS['__sinF32']!(1)).toBe(LIBM_TRIG.sinF32(1));
-    expect(BUILTINS['__cosF32']!(1)).toBe(LIBM_TRIG.cosF32(1));
+    expect(
+      Math.abs(ulpError(LIBM_TRIG.cosF64(hard), exactTrig('cos', hard), F64_FORMAT)!),
+    ).toBeLessThan(1);
+    // No id of an f32 routine exists.
+    expect(Object.keys(BUILTINS).filter((k) => /F32$/.test(k) && k.startsWith('__'))).toEqual([]);
+  });
+});
+
+describe('an f32 operand has one answer on every CPU path', () => {
+  // 0.5251128077507019 is an f32. A routine of its own for an f32 operand gave another last
+  // bit for it than the f64 routine rounded once, so a module constant and a call differed.
+  const X = 0.5251128077507019;
+  const program = compile(`"use typeshade";
+const X: f32 = ${String(X)};
+const S: f32 = sin(X);
+const C: f32 = cos(X);
+export function moduleConstant(): vec2 { return vec2(S, C); }
+export function localConstant(): vec2 {
+  const s: f32 = sin(X);
+  const c: f32 = cos(X);
+  return vec2(s, c);
+}
+export function literal(): vec2 { return vec2(sin(${String(X)}), cos(${String(X)})); }
+export function call(x: f32): vec2 { return vec2(sin(x), cos(x)); }
+export function lanes(v: vec2): vec2 { return sin(v); }
+export function bound(): u32 {
+  let n: u32 = 0;
+  for (let i: u32 = 0; i < u32(sin(X) * 16.0); i++) { n++; }
+  return n;
+}
+`);
+  const want = [LIBM.sinF32(X), LIBM.cosF32(X)];
+
+  it('the operand is an f32, and the program compiles', () => {
+    expect(Math.fround(X)).toBe(X);
+    expect(program.diagnostics).toEqual([]);
+  });
+
+  for (const [engine, build] of [
+    ['the interpreter', compileModule],
+    ['the generated JavaScript', compileModuleJs],
+  ] as const) {
+    it(`${engine}: a module constant, a local constant, a literal operand and a call agree`, () => {
+      const fns = build(program.module, { precision: 'f32' }).fns as Record<
+        string,
+        (...a: unknown[]) => unknown
+      >;
+      expect(fns['moduleConstant']!()).toEqual(want);
+      expect(fns['localConstant']!()).toEqual(want);
+      expect(fns['literal']!()).toEqual(want);
+      expect(fns['call']!(X)).toEqual(want);
+      expect(fns['lanes']!([X, X])).toEqual([want[0], want[0]]);
+      // The loop's bound, which the front end folds with the same table (`loop-bound.ts`).
+      expect(fns['bound']!()).toBe(Math.trunc(Math.fround(want[0]! * 16)));
+    });
+  }
+
+  it('the compile-time fold reads the routine the run-time call reads', () => {
+    // `foldConstNumber` of `loop-bound.ts` and the f64 constant fold call `BUILTINS`.
+    expect(Math.fround(BUILTINS['sin']!(X) as number)).toBe(want[0]);
+    expect(Math.fround(BUILTINS['cos']!(X) as number)).toBe(want[1]);
   });
 });

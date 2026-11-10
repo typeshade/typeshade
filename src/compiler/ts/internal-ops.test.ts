@@ -6,10 +6,12 @@ import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileLibmSource } from './libm-source.js';
 import { INTERNAL_OPS } from './internal-ops.js';
-import { LIBM_F32 } from '../../core/passes/precision.js';
 import { BUILTINS } from '../../core/cpu-runtime.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { emitModule } from '../../core/backends/wgsl.js';
+import { emitGlslModule } from '../../core/backends/glsl.js';
+import { froundF32 } from '../../core/passes/precision.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { SHADE_DTS } from '../../language-service/ambient.js';
 
@@ -19,7 +21,6 @@ const CALLS: Readonly<Record<string, string>> = {
   __f64Lo: '__f64Lo(x)',
   __f64FromWords: '__f64FromWords(u32(1), u32(2))',
   __f64ToI32: '__f64ToI32(x)',
-  __u32ToF64: '__u32ToF64(u32(1))',
 };
 
 const program = (call: string): string =>
@@ -39,9 +40,8 @@ describe('an author cannot write a compiler-internal operation', () => {
     expect(Object.keys(CALLS).sort()).toEqual(Object.keys(INTERNAL_OPS).sort());
   });
 
-  // The ids the CPU engines alone carry: the internal operations, the libm's f32 routines and
-  // the rounding step.
-  const names = [...Object.keys(CALLS), ...Object.values(LIBM_F32), '__fround'];
+  // The ids the CPU engines alone carry: the internal operations and the rounding step.
+  const names = [...Object.keys(CALLS), '__fround'];
 
   for (const name of names) {
     it(`${name}: compile() and the language service refuse it as a name nothing declares`, () => {
@@ -83,15 +83,15 @@ describe('an author cannot write a compiler-internal operation', () => {
   it('an author who declares a function under an internal name calls that function', () => {
     const source = `"use typeshade";
 function __f64Hi(x: f32): f32 { return x + 1.0; }
-function __sinF32(x: f32): f32 { return x * 2.0; }
-export function f(x: f32): f32 { return __f64Hi(x) + __sinF32(x) + sin(x); }
+function __f64ToI32(x: f32): f32 { return x * 2.0; }
+export function f(x: f32): f32 { return __f64Hi(x) + __f64ToI32(x) + sin(x); }
 `;
     expect(compilerDiagnostics(source)).toEqual([]);
     expect(editorDiagnostics(source)).toEqual([]);
     const module = compile(source).module;
     const expected = Math.fround(
       Math.fround(Math.fround(0.5 + 1) + Math.fround(0.5 * 2)) +
-        (BUILTINS['__sinF32']!(0.5) as number),
+        Math.fround(BUILTINS['sin']!(0.5) as number),
     );
     for (const build of [compileModule, compileModuleJs]) {
       const f = build(module, { precision: 'f32' }).fns['f'] as (x: number) => number;
@@ -106,7 +106,6 @@ export function hi(x: f64): u32 { return __f64Hi(x); }
 export function lo(x: f64): u32 { return __f64Lo(x); }
 export function make(h: u32, l: u32): f64 { return __f64FromWords(h, l); }
 export function toInt(x: f64): i32 { return __f64ToI32(x); }
-export function fromUint(n: u32): f64 { return __u32ToF64(n); }
 `;
   const compiled = compileLibmSource(SOURCE, 'internal.shade.ts');
 
@@ -131,7 +130,6 @@ export function fromUint(n: u32): f64 { return __u32ToF64(n); }
       expect(
         [-3.9, 3.9, -0.5, NaN, 1e300, -1e300, 2147483647.5].map((v) => fns['toInt']!(v)),
       ).toEqual([-3, 3, 0, 0, 2147483647, -2147483648, 2147483647]);
-      expect(fns['fromUint']!(4294967295)).toBe(4294967295);
     }
   });
 
@@ -151,5 +149,38 @@ export function b(x: f64): u32 { return __f64Hi(x, x); }
 
   it('leaves the author compile as it was after the libm compile ran', () => {
     expect(compilerDiagnostics(program('__f64Hi(x)'))).toHaveLength(1);
+  });
+});
+
+describe('no shader writer spells a CPU-only operation', () => {
+  const carried = compileLibmSource(
+    `"use typeshade";
+export function hi(x: f64): u32 { return __f64Hi(x); }
+`,
+    'carried.shade.ts',
+  ).module;
+
+  it('the WGSL writer and the GLSL writer throw on a module that carries one, and name it', () => {
+    const sentence = 'typeshade/emit: "__f64Hi" is CPU-only and has no shader spelling';
+    expect(() => emitModule(carried)).toThrow(sentence);
+    expect(() => emitGlslModule(carried)).toThrow(sentence);
+  });
+
+  it('the rounding step of the precision pass is refused the same way', () => {
+    const rounded = froundF32(
+      compile(`"use typeshade";\nexport function f(x: f32): f32 { return x * 2.0; }\n`).module,
+    );
+    expect(() => emitModule(rounded)).toThrow('"__fround" is CPU-only');
+  });
+
+  it('a module that declares a function under the name is emitted, and calls it', () => {
+    const r = compile(`"use typeshade";
+function __f64Hi(x: f32): f32 { return x + 1.0; }
+@fragment export function fs(uv: location<0, vec2>): vec4 { return vec4(__f64Hi(uv.x), 0., 0., 1.); }
+`);
+    expect(r.diagnostics).toEqual([]);
+    // Each writer spells the declared function's name its own way, and calls it.
+    expect(r.wgsl).toContain('_f64Hi_(uv.x)');
+    expect(r.glsl?.fragment).toMatch(/f64Hi_?\(uv\.x\)/);
   });
 });

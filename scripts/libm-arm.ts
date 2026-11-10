@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { LIBM_TRIG } from '../src/core/cpu-runtime.js';
 import {
   LIBM_GATE_SEED,
+  libmFunctions,
   libmGateRows,
   type LibmGateFile,
   type LibmGateRow,
@@ -63,10 +64,11 @@ export function libmArm(): number {
   // The instrument first (AGENTS.md#gate-discipline): one result of one routine with its last
   // bit changed must be reported, or a match below says nothing.
   let calls = 0;
+  const libm = libmFunctions(LIBM_TRIG);
   const flipped: Record<LibmRoutine, (x: number) => number> = {
-    ...LIBM_TRIG,
+    ...libm,
     sinF64: (x) => {
-      const r = LIBM_TRIG.sinF64(x);
+      const r = libm.sinF64(x);
       return calls++ === 1000 ? r + r * 2 ** -52 : r;
     },
   };
@@ -76,13 +78,13 @@ export function libmArm(): number {
     return 1;
   }
   console.log(`instrument: a libm result with one bit changed was REPORTED (${planted[0]!})`);
-  const rows = libmGateRows(LIBM_TRIG, sha256);
+  const rows = libmGateRows(libm, sha256);
   const failures = differences(rows, file.rows);
   for (const f of failures) console.log(`FAIL  libm ${f}`);
   const total = rows.reduce((n, r) => n + r.count, 0);
   const nans = rows.reduce((n, r) => n + r.nanResults, 0);
   console.log(
-    `libm differential: ${engine()} · ${String(rows.length)} sets of ${String(new Set(rows.map((r) => r.routine)).size)} routines, ` +
+    `libm differential: ${engine()} · ${String(rows.length)} sets of sin and cos, for an f32 and an f64 operand, ` +
       `${String(total)} results held to ${LIBM_GATE_FILE} by hash (${String(nans)} NaN results hashed as the canonical NaN) · failures: ${String(failures.length)}`,
   );
   return failures.length;
@@ -94,7 +96,7 @@ if (import.meta.main) {
       seed: `0x${LIBM_GATE_SEED.toString(16).padStart(8, '0')}`,
       generator: 'mulberry32; src/core/testing/libm-gate.ts',
       nan: 'A NaN is hashed as the canonical NaN of its format, as an input and as a result, until milestone 1b of change 0042.',
-      rows: libmGateRows(LIBM_TRIG, sha256),
+      rows: libmGateRows(libmFunctions(LIBM_TRIG), sha256),
     };
     writeFileSync(join(ROOT, LIBM_GATE_FILE), `${JSON.stringify(file, null, 2)}\n`);
     console.log(`wrote ${LIBM_GATE_FILE} on ${engine()}`);

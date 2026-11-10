@@ -1,23 +1,32 @@
 "use typeshade";
 
-// ═══ The libm: sin and cos, for f32 and for f64 (change 0042, milestone 1a) ═══
+// ═══ The libm: sin and cos (change 0042, milestone 1a) ═══
+//
+// A NOTE FOR A READER IN AN EDITOR. The language service reports `TS8004 Unknown function` on
+// `__f64Hi`, `__f64Lo`, `__f64FromWords` and `__f64ToI32` in this file. That is correct for an
+// author's file: the names are compiler-internal operations, and no author can write them
+// (`src/compiler/ts/internal-ops.ts`). Only `compileLibmSource` lowers them, and
+// `src/core/libm/libm.test.ts` holds that this file compiles there with no diagnostic.
 //
 // One source for both code generators (decision N14). `scripts/bake-libm.ts` writes the
 // JavaScript form, `trig.generated.ts`, from this file. The interpreter and the generated
 // JavaScript of the CPU tier call that form in place of the engine's `Math.sin` and `Math.cos`.
+//
+// The routines take and return an `f64`. The result for an `f32` operand is the same routine's
+// result rounded once to `f32` (the owner's decision of 2026-11-10); there is no `f32` routine.
 //
 // The promise is an error under 1 ULP for each routine (decision N9). No routine claims a
 // correctly rounded result.
 //
 // A routine uses `f64` `+ - * /` and `floor`, comparisons, `i32` and `u32` arithmetic, constant
 // tables, and the compiler-internal operations of `src/compiler/ts/internal-ops.ts`: the two
-// words of an `f64` and the exact conversions. It uses no 64-bit integer and no `fma`.
+// words of an `f64` and the conversion to an `i32`. It uses no 64-bit integer and no `fma`.
 //
 // The methods are the published ones. The kernels on [-pi/4, pi/4] and their coefficients are
-// those of fdlibm (`k_sin.c`, `k_cos.c`) for `f64` and of FreeBSD (`k_sinf.c`, `k_cosf.c`) for
-// `f32`. The reduction below 2^20 * pi/2 is Cody and Waite's, with pi/2 in three pieces of 33
-// bits. The reduction above it is Payne and Hanek's, with 2/pi in pieces of 24 bits. Every
-// constant derived from pi is held to a BigInt computation by `libm.test.ts`.
+// those of fdlibm (`k_sin.c`, `k_cos.c`). The reduction below 2^20 * pi/2 is Cody and Waite's,
+// with pi/2 in three pieces of 33 bits. The reduction above it is Payne and Hanek's, with 2/pi
+// in pieces of 24 bits. Every constant derived from pi is held to a BigInt computation by
+// `libm.test.ts`.
 
 // The kernel of sin on [-pi/4, pi/4] (fdlibm).
 const S1: f64 = -0.16666666666666632;
@@ -33,15 +42,6 @@ const C3: f64 = 0.00002480158728947673;
 const C4: f64 = -2.7557314351390663e-7;
 const C5: f64 = 2.087572321298175e-9;
 const C6: f64 = -1.1359647557788195e-11;
-// The kernels of an f32 result, computed in f64 (FreeBSD).
-const FS1: f64 = -0.16666666641626524;
-const FS2: f64 = 0.008333329385889463;
-const FS3: f64 = -0.00019839334836096632;
-const FS4: f64 = 0.000002718311493989822;
-const FC0: f64 = -0.499999997251031;
-const FC1: f64 = 0.04166662332373906;
-const FC2: f64 = -0.001388676377460993;
-const FC3: f64 = 0.00002439044879627741;
 // 2/pi rounded, and 1.5 * 2^52: adding and subtracting it rounds an f64 to an integer.
 const INVPIO2: f64 = 0.6366197723675814;
 const TOINT: f64 = 6755399441055744;
@@ -50,9 +50,6 @@ const P1: f64 = 1.5707963267341256;
 const P2: f64 = 6.077100506303966e-11;
 const P3: f64 = 2.0222662487111665e-21;
 const P3T: f64 = 8.4784276603689e-32;
-// pi/2 in one piece of 30 bits, and the rest rounded.
-const F1: f64 = 1.570796325802803;
-const F1T: f64 = 9.920935796805404e-10;
 // pi/2 rounded, and the rest rounded.
 const PIO2H: f64 = 1.5707963267948966;
 const PIO2L: f64 = 6.123233995736766e-17;
@@ -106,38 +103,9 @@ function kcos(x: f64, y: f64): f64 {
   return w1 + (((1.0 - w1) - hz) + (z * r - x * y));
 }
 
-/** sin(x) for |x| <= pi/4, to the accuracy an f32 result needs. */
-function sindf(x: f64): f64 {
-  const z = x * x;
-  const w = z * z;
-  const r = FS3 + z * FS4;
-  const s = z * x;
-  return (x + s * (FS1 + z * FS2)) + s * w * r;
-}
-
-/** cos(x) for |x| <= pi/4, to the accuracy an f32 result needs. */
-function cosdf(x: f64): f64 {
-  const z = x * x;
-  const w = z * z;
-  const r = FC2 + z * FC3;
-  return ((1.0 + z * FC0) + w * FC1) + (w * z) * r;
-}
-
-/** sin(n * pi/2 + y0 + y1) for |y0| <= pi/4. `single` selects the kernels of an f32 result. */
-function quadrant(n: i32, y0: f64, y1: f64, single: bool): f64 {
+/** sin(n * pi/2 + y0 + y1) for |y0| <= pi/4. */
+function quadrant(n: i32, y0: f64, y1: f64): f64 {
   const q = n & 3;
-  if (single) {
-    if (q == 0) {
-      return sindf(y0);
-    }
-    if (q == 1) {
-      return cosdf(y0);
-    }
-    if (q == 2) {
-      return -sindf(y0);
-    }
-    return -cosdf(y0);
-  }
   if (q == 0) {
     return ksin(y0, y1, 1);
   }
@@ -164,7 +132,7 @@ function reduceMedium(x: f64, k: i32): f64 {
   const w = fn * P3T - (e2 + e3);
   const y0 = r3 - w;
   const y1 = (r3 - y0) - w;
-  return quadrant(__f64ToI32(fn) + k, y0, y1, false);
+  return quadrant(__f64ToI32(fn) + k, y0, y1);
 }
 
 /** sin(|x| + k * pi/2) for a finite f64 with |x| >= 2^20, whose words are `hi` and `lo`. Payne
@@ -178,7 +146,7 @@ function reduceMedium(x: f64, k: i32): f64 {
  *  2^24, which is a multiple of 4 once the product is scaled by 2^-22. The columns left out
  *  are below 2^-140 of a quarter turn. The nearest that a finite f64 comes to a multiple of
  *  pi/2 is above 2^-62 of a quarter turn, so the result keeps over 70 bits. */
-function reduceLarge(hi: u32, lo: u32, k: i32, single: bool): f64 {
+function reduceLarge(hi: u32, lo: u32, k: i32): f64 {
   const be = (hi >> 20) & 0x7ff;
   const t = (be - 1005) / 24 - 1;
   const sh = (be - 1005) % 24;
@@ -258,7 +226,7 @@ function reduceLarge(hi: u32, lo: u32, k: i32, single: bool): f64 {
     y0 = -y0;
     y1 = -y1;
   }
-  return quadrant(n + k, y0, y1, single);
+  return quadrant(n + k, y0, y1);
 }
 
 /** sin(x) for an f64. The error is under 1 ULP. */
@@ -278,7 +246,7 @@ export function sinF64(x: f64): f64 {
   if (ix < 0x413921fb) {
     return reduceMedium(x, 0);
   }
-  const r = reduceLarge(hi, __f64Lo(x), 0, false);
+  const r = reduceLarge(hi, __f64Lo(x), 0);
   if (hi >= 0x80000000) {
     return -r;
   }
@@ -302,55 +270,5 @@ export function cosF64(x: f64): f64 {
   if (ix < 0x413921fb) {
     return reduceMedium(x, 1);
   }
-  return reduceLarge(hi, __f64Lo(x), 1, false);
-}
-
-/** sin(|d| + k * pi/2) for an f32 past pi/4, as an f64 to round once. `d` is the f32 as an f64
- *  and `ix` its bits without the sign. */
-function reduceSingle(d: f64, ix: u32, k: i32): f64 {
-  const ad = abs(d);
-  if (ix < 0x4a800000) {
-    // |x| < 2^22: pi/2 as a piece of 30 bits and a tail, so fn * F1 is exact.
-    const fn = (ad * INVPIO2 + TOINT) - TOINT;
-    const y = (ad - fn * F1) - fn * F1T;
-    return quadrant(__f64ToI32(fn) + k, y, 0.0, true);
-  }
-  return reduceLarge(__f64Hi(ad), __f64Lo(ad), k, true);
-}
-
-/** sin(x) for an f32. The error is under 1 ULP. */
-export function sinF32(x: f32): f32 {
-  const u = bitcast<u32>(x);
-  const ix = u & 0x7fffffff;
-  if (ix <= 0x3f490fda) {
-    // |x| < 2^-12: sin(x) rounds to x, and this keeps the sign of a zero.
-    if (ix < 0x39800000) {
-      return x;
-    }
-    return f32(sindf(f64(x)));
-  }
-  if (ix >= 0x7f800000) {
-    return x - x;
-  }
-  const r = reduceSingle(f64(x), ix, 0);
-  if (u >= 0x80000000) {
-    return f32(-r);
-  }
-  return f32(r);
-}
-
-/** cos(x) for an f32. The error is under 1 ULP. */
-export function cosF32(x: f32): f32 {
-  const ix = bitcast<u32>(x) & 0x7fffffff;
-  if (ix <= 0x3f490fda) {
-    // |x| < 2^-12: cos(x) rounds to 1.
-    if (ix < 0x39800000) {
-      return 1.0;
-    }
-    return f32(cosdf(f64(x)));
-  }
-  if (ix >= 0x7f800000) {
-    return x - x;
-  }
-  return f32(reduceSingle(f64(x), ix, 1));
+  return reduceLarge(hi, __f64Lo(x), 1);
 }
