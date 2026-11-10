@@ -3,22 +3,25 @@ active: true
 derived: false
 level: 3
 links:
-- RULE-0108: DTqTv3GkOlZwue7-aaw03mDFm9fX5lyLFvft5uwJodY=
+- RULE-0108: 43bZ1DaVTE9M73oyG3SDoNOYOFJaT_vhpaVV8tUF4K0=
+- RULE-0201: ofdVxTODabYFXXK-lv0TvbyfVUV1b6DLZLioGpTvVcE=
 - RULE-0606: nfS5gw_7TvuoHTZQ6gSkpAKywJjGThS1mWGlFSsySnM=
-- RULE-0801: 0_hSnbk6jP4XMkd70axBV-MaR4j6YAkRflge4_w6kRQ=
+- RULE-0607: RHgMFWhF7JfCvwF5_NDsVqKVq6eCr6gGI4sXIByH9Q8=
+- RULE-0801: rxQ_qr87YlRMxgEKZznphlg3q7gUVy4j0dH5Zu8WB2o=
 - RULE-0802: WK2UrloI1kt3Um3fUlRk9YPrXsU-RW41nqtipEHbAMw=
 - RULE-0805: Kq2hCdlup1NA0l4vhuwirKDHJRnVjrkr0ZK9UUZFYbQ=
 - RULE-0807: yk8ipEbraGkGUnumzHLwSdV82CBTdMJU_QYyw6xWPPI=
 - RULE-0819: znlsvNQAUhUT-PIL-r-Rc5zQL5Pk2IeUpR0az1EVtLw=
-- RULE-0822: 0W4CyRKRGjWW4yryF7Id7ulPGnFDFYd_A7Udqy57L-Q=
+- RULE-0822: jYdvl4SSIwHmBGtsb6kdPhjsoFEW9Pu5kdleuQv-vIk=
+- RULE-1204: 99AhDPXpsQcYpjcTJ5e1hSIRxOP9RNn_Wv64Gf8rqWI=
 - RULE-1206: cxZ3W1P8f61AZD9IU4OoWoeyAczeH2kn2TZslZ5WPus=
 - RULE-1207: -5zmDylMuYrkLS3PqZL8I1PjjR-jIqAPGb3BPmfL-Lo=
 normative: true
 ref: ''
-reviewed: s2dYM5YqZZ0Rn2-weRXI669GfFUROpfUkz8lL-3Vb50=
+reviewed: kXQBjnaP5oL-TZ6ee0jyBZONhBo2QvnyaSNQnSnwkv8=
 source: docs/use-typeshade-surface.md §3
 ---
 
 # Entries — stage attributes and explicit builtins
 
-docs/use-typeshade-surface.md §3, "Entries — stage attributes and explicit builtins": the surface section that explains Rule 1.8, Rule 6.6, Rule 8.1, Rule 8.2, Rule 8.5, Rule 8.7, Rule 8.19, Rule 8.22, Rule 12.6, Rule 12.7.
+docs/use-typeshade-surface.md §3, "Entries — stage attributes and explicit builtins": the surface section that explains Rule 1.8, Rule 2.1, Rule 6.6, Rule 6.7, Rule 8.1, Rule 8.2, Rule 8.5, Rule 8.7, Rule 8.19, Rule 8.22, Rule 12.4, Rule 12.6, Rule 12.7.

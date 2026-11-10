@@ -200,23 +200,22 @@ function plainTscCodes(source: string): number[] {
 describe("the editor's TS1206 filter, and no TS2564 (change 0130)", () => {
   // A struct class with a field and no initializer: TS2564 under a plain `--strict`.
   const STRUCT = 'class S { a: f32; }\ndeclare const u: uniform<S>;\n';
-  const CALL = `"use typeshade";
-${STRUCT}export const fs = fragment(function fs(): vec4 { return vec4(u.a); });
-`;
   const ATTRIBUTE = `"use typeshade";
 ${STRUCT}@fragment
 export function fs(): vec4 { return vec4(u.a); }
 `;
 
   it('reports no TS2564: a field needs no initializer and no "!" (D3)', () => {
-    // A plain tsc --strict reports it; the TypeShade program sets strictPropertyInitialization
-    // to false, so neither TypeScript's half nor the merged list does.
-    expect(plainTscCodes(CALL)).toEqual([2564]);
-    expect(typescriptCodes(CALL)).toEqual([]);
-    expect(compile(CALL).diagnostics).toEqual([]);
-    expect(edited(CALL)).toEqual([]);
+    // A plain tsc --strict reports it, beside its TS1206 on the stage attribute; the TypeShade
+    // program sets strictPropertyInitialization to false, so neither TypeScript's half nor the
+    // merged list does.
+    expect(plainTscCodes(ATTRIBUTE)).toContain(2564);
+    expect(typescriptCodes(ATTRIBUTE)).toEqual([]);
+    expect(compile(ATTRIBUTE).diagnostics).toEqual([]);
+    expect(edited(ATTRIBUTE)).toEqual([]);
     // A written "!" is accepted and changes nothing.
-    expect(edited(CALL.replace('a: f32', 'a!: f32'))).toEqual([]);
+    expect(edited(ATTRIBUTE.replace('a: f32', 'a!: f32'))).toEqual([]);
+    expect(compile(ATTRIBUTE.replace('a: f32', 'a!: f32')).diagnostics).toEqual([]);
   });
 
   it('drops TS1206 on a stage attribute in every file, with no warning in either half', () => {

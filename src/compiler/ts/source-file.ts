@@ -15,7 +15,7 @@ import type {
   ModuleVarDecl,
   OverrideDecl,
 } from '../../core/ir/nodes.js';
-import { refuseStageOptions, stageCallOf } from './stage-call.js';
+import { refuseStageCalls, stageCallOf } from './stage-call.js';
 import { refuseQualifierTypes, warnDecoratedForm } from './decorated-form.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import { kernelLoopDiagnostics } from './kernel-loops.js';
@@ -286,9 +286,10 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   if (options.deprecations === true) reportIntegerLiteralDeprecations(sourceFile, diagnostics);
   // The file's `"enable <extension>";` directives (§50), before anything that could emit.
   const enables = collectEnables(sourceFile, diagnostics);
-  // A stage call takes no options (changes 0131 and 0132): an argument after its function is
-  // refused here, once, at the argument.
-  refuseStageOptions(sourceFile, diagnostics);
+  // A stage call and `export default` on an entry are refused here, once each (Rules 6.7 and
+  // 8.1, changes 0130 and 0140). The call is still read as the entry it stood for, so nothing
+  // else is said about it (Rule 12.4).
+  refuseStageCalls(sourceFile, diagnostics);
   const structs = collectStructs(sourceFile, diagnostics, symbols);
   // The structs, so a buffer binding's host-shareable rules can be read through its struct
   // type (§51) — collected first, which this order already guaranteed.
@@ -395,7 +396,7 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   // inside. It runs here, before the report, so `compile()` and the language service (which
   // runs this with `emit: false`) report the same TS8052 (Rule 12.7), and the three consumers
   // read the rewritten functions. No filter switches the rule off: change 0132 removed it, and
-  // a written one is refused (`TS8028`, `refuseStageOptions` and `builtin-check.ts`).
+  // a written one is refused (`TS8028`, `refuseStageCalls` and `builtin-check.ts`).
   {
     const shape = (): ModuleDecl => ({
       consts: [...consts],
@@ -788,7 +789,7 @@ export function reportCrossDeclarationCollisions(
 }
 
 /** The `function <name>` statement an entry was lowered from, or the `const <name> = stage(…)`
- *  statement of a stage call (change 0111), so a whole-module diagnostic can anchor at the
+ *  statement of a refused stage call (change 0140), so a whole-module diagnostic can anchor at the
  *  declaration rather than at the file's first line. `undefined` when the name names no
  *  top-level function, which {@link makeDiagnostic} already handles. */
 function entryDeclaration(sourceFile: ts.SourceFile, name: string): ts.Node | undefined {

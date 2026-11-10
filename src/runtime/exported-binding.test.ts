@@ -45,9 +45,10 @@ export declare const ps: storage<array<Particle, 4>, "read_write">;
 export declare const all: storage<array<Particle>, "read_write">;
 export declare const scale: uniform<f32>;
 
-export const step = compute([4], function step(id: builtin<"global_invocation_id", vec3u>) {
+@compute([4])
+export function step(id: builtin<"global_invocation_id", vec3u>) {
   ps[id.x].life = ps[id.x].life + camera.time * scale + all[0].life;
-});
+}
 `;
 
 function face() {

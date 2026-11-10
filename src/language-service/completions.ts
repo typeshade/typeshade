@@ -65,15 +65,6 @@ function enclosingStage(
   let node: ts.Node | undefined = nodeAtPosition(sourceFile, offset);
   while (node !== undefined && !ts.isParameter(node)) node = node.parent;
   const fn = node?.parent;
-  // A stage call's function, `vertex(function vs(i: builtin<"…", u32>) { … })` (change 0111).
-  if (fn !== undefined && (ts.isFunctionExpression(fn) || ts.isArrowFunction(fn))) {
-    const call = fn.parent;
-    if (ts.isCallExpression(call) && ts.isIdentifier(call.expression)) {
-      const callee = call.expression.text;
-      if (callee === 'vertex' || callee === 'fragment' || callee === 'compute') return callee;
-    }
-    return undefined;
-  }
   if (fn === undefined || !ts.isFunctionDeclaration(fn)) return undefined;
   for (const d of decoratorsOf(fn)) {
     const text = d.getText(sourceFile);

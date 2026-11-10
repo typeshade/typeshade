@@ -67,12 +67,19 @@ describe('a kernel function declares its workgroup size (proposal 0067)', () => 
     const konst = module(`const TILE: u32 = 128;\n${SCALE.replace('[128]', '[TILE]')}`);
     expect(compiled(konst)).toEqual([]);
     expect(edited(konst)).toEqual([]);
+  });
+
+  it('refuses the call form of change 0111 with one TS8028 in both halves (change 0140)', () => {
     const called = module(
       'export const scale = workgroup_size([128], function scale(out: array<f32>, a: array<f32>, k: f32): void {\n' +
         '  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = a[i] * k;\n  }\n});',
     );
-    expect(compiled(called)).toEqual([]);
-    expect(edited(called)).toEqual([]);
+    const refusal = [
+      "error TS8028 a kernel's size is an attribute on the function declaration: write " +
+        '"@workgroup_size([128]) export function scale(…)", or run "tshc migrate" (change 0130)',
+    ];
+    expect(compiled(called)).toEqual(refusal);
+    expect(edited(called)).toEqual(refusal);
   });
 
   it('gives the function a face whose loop runs at the declared size, and says the size is declared', () => {
