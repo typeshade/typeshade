@@ -1,0 +1,104 @@
+// ═══ The libm arm of the differential gate: the engines agree (change 0042, milestone 1a) ═══
+//
+// The libm promises the same bits on every engine that a gate runs. The repository holds one
+// file for that, `src/core/libm/trig.gate.json`: for each routine and each set of seeded inputs,
+// the hash of the inputs and the hash of the libm's results (`src/core/testing/libm-gate.ts`).
+//
+// This arm runs the JavaScript form on the engine that runs the script and holds it to the
+// file. `bun run gate:differential` runs it under Bun (JavaScriptCore). The unit test
+// `src/core/libm/libm.test.ts` holds the same form to the same file in Node (V8). So the two
+// engines agree when both pass. The WebAssembly form joins the file with its encoder
+// (milestone 1e).
+//
+// A NaN is hashed as the canonical NaN, as an input and as a result, until milestone 1b makes
+// the stored NaN canonical (`src/core/testing/libm-gate.ts`).
+//
+// `bun scripts/libm-arm.ts` runs the arm alone. `--write` writes the file from this engine's
+// results; run it only after a deliberate change of a routine or of the inputs.
+
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { LIBM_TRIG } from '../src/core/cpu-runtime.js';
+import {
+  LIBM_GATE_SEED,
+  libmGateRows,
+  type LibmGateFile,
+  type LibmGateRow,
+  type LibmRoutine,
+} from '../src/core/testing/libm-gate.js';
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+export const LIBM_GATE_FILE = 'src/core/libm/trig.gate.json';
+
+const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
+
+const engine = (): string => {
+  const v = process.versions as Record<string, string | undefined>;
+  return v['bun'] !== undefined ? `Bun ${v['bun']}` : `Node ${v['node'] ?? '?'}`;
+};
+
+/** The rows on which `actual` differs from `expected`, as sentences. */
+function differences(actual: readonly LibmGateRow[], expected: readonly LibmGateRow[]): string[] {
+  const out: string[] = [];
+  if (actual.length !== expected.length)
+    out.push(`${String(actual.length)} rows computed, ${String(expected.length)} in the file`);
+  for (const [i, a] of actual.entries()) {
+    const e = expected[i];
+    if (e === undefined) continue;
+    const key = `${a.routine} ${a.set}`;
+    if (a.routine !== e.routine || a.set !== e.set || a.count !== e.count)
+      out.push(`${key}: the file's row is ${e.routine} ${e.set} of ${String(e.count)}`);
+    else if (a.inputsSha256 !== e.inputsSha256) out.push(`${key}: the inputs differ`);
+    else if (a.resultsSha256 !== e.resultsSha256) out.push(`${key}: the results differ`);
+    else if (a.nanResults !== e.nanResults) out.push(`${key}: the count of NaN results differs`);
+  }
+  return out;
+}
+
+/** Run the arm. Returns the number of failures. */
+export function libmArm(): number {
+  const file = JSON.parse(readFileSync(join(ROOT, LIBM_GATE_FILE), 'utf8')) as LibmGateFile;
+  // The instrument first (AGENTS.md#gate-discipline): one result of one routine with its last
+  // bit changed must be reported, or a match below says nothing.
+  let calls = 0;
+  const flipped: Record<LibmRoutine, (x: number) => number> = {
+    ...LIBM_TRIG,
+    sinF64: (x) => {
+      const r = LIBM_TRIG.sinF64(x);
+      return calls++ === 1000 ? r + r * 2 ** -52 : r;
+    },
+  };
+  const planted = differences(libmGateRows(flipped, sha256), file.rows);
+  if (planted.length === 0) {
+    console.log('FAIL  libm arm: a result with one bit changed was not reported');
+    return 1;
+  }
+  console.log(`instrument: a libm result with one bit changed was REPORTED (${planted[0]!})`);
+  const rows = libmGateRows(LIBM_TRIG, sha256);
+  const failures = differences(rows, file.rows);
+  for (const f of failures) console.log(`FAIL  libm ${f}`);
+  const total = rows.reduce((n, r) => n + r.count, 0);
+  const nans = rows.reduce((n, r) => n + r.nanResults, 0);
+  console.log(
+    `libm differential: ${engine()} · ${String(rows.length)} sets of ${String(new Set(rows.map((r) => r.routine)).size)} routines, ` +
+      `${String(total)} results held to ${LIBM_GATE_FILE} by hash (${String(nans)} NaN results hashed as the canonical NaN) · failures: ${String(failures.length)}`,
+  );
+  return failures.length;
+}
+
+if (import.meta.main) {
+  if (process.argv.includes('--write')) {
+    const file: LibmGateFile = {
+      seed: `0x${LIBM_GATE_SEED.toString(16).padStart(8, '0')}`,
+      generator: 'mulberry32; src/core/testing/libm-gate.ts',
+      nan: 'A NaN is hashed as the canonical NaN of its format, as an input and as a result, until milestone 1b of change 0042.',
+      rows: libmGateRows(LIBM_TRIG, sha256),
+    };
+    writeFileSync(join(ROOT, LIBM_GATE_FILE), `${JSON.stringify(file, null, 2)}\n`);
+    console.log(`wrote ${LIBM_GATE_FILE} on ${engine()}`);
+  } else {
+    process.exitCode = libmArm() === 0 ? 0 : 1;
+  }
+}

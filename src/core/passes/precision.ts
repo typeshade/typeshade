@@ -53,6 +53,12 @@ const COMPUTES_VALUE = new Set([
   'overrideref',
 ]);
 
+/** The builtins the libm computes with a routine of its own for an `f32` operand (change 0042,
+ *  decision C1), by the id the precision pass gives the call. The CPU op library binds each id
+ *  to the routine (`COMPONENTWISE` in `cpu-runtime.ts`). No author can write one and no writer
+ *  emits one, as for `__fround`. The list holds the routines in the tree: `sin` and `cos`. */
+export const LIBM_F32: Readonly<Record<string, string>> = { sin: '__sinF32', cos: '__cosF32' };
+
 /** Rewrite `m` so its f32 arithmetic rounds to f32 after every operation. Idempotent. */
 export function froundF32(m: ModuleDecl): ModuleDecl {
   return {
@@ -96,6 +102,13 @@ function rounding(fn: FuncDecl): (e: Expr) => Expr {
     }
     if (!isF32ish(e.type) || !COMPUTES_VALUE.has(e.op)) return e;
     if (e.op === 'param' && byRef.has(e.name)) return e;
+    // A builtin the libm computes takes the libm's `f32` routine (change 0042): the routine
+    // reads an `f32` operand and rounds its result once. A call of a declared function
+    // (`declRef`) is not the builtin.
+    if (e.op === 'call' && e.declRef === undefined && Object.hasOwn(LIBM_F32, e.fn)) {
+      const libm: Expr = { ...e, fn: LIBM_F32[e.fn]! };
+      return { op: 'call', type: e.type, fn: '__fround', args: [libm] };
+    }
     return { op: 'call', type: e.type, fn: '__fround', args: [e] };
   };
 }

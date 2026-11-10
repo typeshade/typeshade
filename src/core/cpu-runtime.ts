@@ -19,6 +19,8 @@ import type { BinOp, ShaderType, StructDecl } from './ir/index.js';
 import type { CmpOp } from './ir/nodes.js';
 import {
   EXACT_BUILTINS,
+  intDiv,
+  intRem,
   maxNum,
   minNum,
   roundTiesToEven,
@@ -26,6 +28,7 @@ import {
   wrapInt,
   type NumKind,
 } from './scalar-arith.js';
+import { makeTrig, type LibmTrig } from './libm/index.js';
 import { pushedLength, startPushesAt } from './push-count.js';
 
 export { atomicStep, intDiv, intRem, scalarBin, wrapInt, type NumKind } from './scalar-arith.js';
@@ -105,6 +108,8 @@ const map1 =
     isArr(x) ? x.map((v) => f(v as number)) : f(x as number);
 
 const _bitcastView = new DataView(new ArrayBuffer(4));
+/** The eight bytes the internal `f64` word operations read and write (`__f64Hi` and the rest). */
+const _f64View = new DataView(new ArrayBuffer(8));
 
 /** One component of `bitcast<u32>`: the bits of `x` rounded to f32, read as a u32. */
 const f32BitsAsU32 = (x: number): number => {
@@ -357,8 +362,14 @@ export interface Componentwise {
  *  (`cpu-codegen.ts`), which calls `lane` once per component where the IR types say the
  *  arguments are vectors of one width, computes what the entry computes on the same values. */
 export const COMPONENTWISE = {
-  sin: { lane: Math.sin, vector: 0 },
-  cos: { lane: Math.cos, vector: 0 },
+  // The libm's routines (change 0042), not the engine's `Math.sin` and `Math.cos`: an `f64`
+  // operand, and every operand in `'f64'` precision, takes the `f64` routine. In `'f32'`
+  // precision the precision pass (`passes/precision.ts`) names the `f32` routine for an `f32`
+  // operand, as `__sinF32` and `__cosF32`, which no author can write and no writer emits.
+  sin: { lane: (x: number): number => LIBM_TRIG.sinF64(x), vector: 0 },
+  cos: { lane: (x: number): number => LIBM_TRIG.cosF64(x), vector: 0 },
+  __sinF32: { lane: (x: number): number => LIBM_TRIG.sinF32(x), vector: 0 },
+  __cosF32: { lane: (x: number): number => LIBM_TRIG.cosF32(x), vector: 0 },
   tan: { lane: Math.tan, vector: 0 },
   asin: { lane: Math.asin, vector: 0 },
   acos: { lane: Math.acos, vector: 0 },
@@ -455,6 +466,8 @@ export const BUILTINS: Record<string, Builtin> = {
   __fround: map1(Math.fround),
   sin: map1(CW.sin.lane),
   cos: map1(CW.cos.lane),
+  __sinF32: map1(CW.__sinF32.lane),
+  __cosF32: map1(CW.__cosF32.lane),
   tan: map1(CW.tan.lane),
   asin: map1(CW.asin.lane),
   acos: map1(CW.acos.lane),
@@ -740,6 +753,29 @@ export const BUILTINS: Record<string, Builtin> = {
     _bitcastView.setUint32(0, (x as number) >>> 0, true);
     return _bitcastView.getFloat32(0, true);
   },
+  // The compiler-internal operations of the libm's source (change 0042, Amendment A1). NOT
+  // authorable and never emitted: the front end lowers them only for the libm
+  // (`src/compiler/ts/internal-ops.ts`). The byte order is explicit, so the two words are the
+  // same on every host.
+  __f64Hi: (x) => {
+    _f64View.setFloat64(0, x as number, true);
+    return _f64View.getUint32(4, true);
+  },
+  __f64Lo: (x) => {
+    _f64View.setFloat64(0, x as number, true);
+    return _f64View.getUint32(0, true);
+  },
+  __f64FromWords: (hi, lo) => {
+    _f64View.setUint32(4, (hi as number) >>> 0, true);
+    _f64View.setUint32(0, (lo as number) >>> 0, true);
+    return _f64View.getFloat64(0, true);
+  },
+  // Truncation toward zero, a NaN to 0, a value past the range to the nearest bound.
+  __f64ToI32: (x) => {
+    const v = x as number;
+    return Number.isNaN(v) ? 0 : Math.min(2147483647, Math.max(-2147483648, Math.trunc(v)));
+  },
+  __u32ToF64: (x) => (x as number) >>> 0,
   // pack a vec4<f32> (each in [0,1]) into u32 RGBA8; component 0 → low byte.
   // The length of the buffer the host bound (#46): the operand evaluates to the bound array
   // itself (or the struct member holding it), and its length is the answer the GPU gives.
@@ -859,6 +895,12 @@ export const BUILTINS: Record<string, Builtin> = {
     return [s(n & 0xffff), s(n >>> 16)];
   },
 };
+
+/** The libm's routines (change 0042, milestone 1a), built once over the two tables above: the
+ *  JavaScript form of `libm/trig.shade.ts`, which `sin`, `cos`, `__sinF32` and `__cosF32` of
+ *  {@link COMPONENTWISE} call. Declared after the tables it reads; an entry calls it only when
+ *  a program runs. Exported for the libm's gates and for a test that reads the libm's value. */
+export const LIBM_TRIG: LibmTrig = makeTrig({ B: BUILTINS, L: COMPONENTWISE, intDiv, intRem });
 
 // GPU-only stubs (X-GIS #763 O3). textureSample needs the GPU's sampler/atlas; fwidth
 // needs neighbouring fragments — neither is computable in this per-invocation

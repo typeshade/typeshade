@@ -203,6 +203,23 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **`sin` and `cos` on the CPU are the libm's, not the engine's** (change 0042, milestone 1a).
+  The CPU oracle and the CPU tier computed `sin` and `cos` with the engine's `Math.sin` and
+  `Math.cos`, whose results ECMAScript leaves to the engine. They now compute them with routines
+  of the compiler's own libm, for an `f32` operand and for an `f64` operand, over every input. A
+  result may differ from before in the last bit, and it is the same on Node and on Bun. Each
+  routine's error is under 1 ULP; no routine claims a correctly rounded result. `Math.sin(t)` in
+  a `"use typeshade"` function may differ in the last bit from `Math.sin(t)` in host code. A
+  compile-time `f64` constant that calls `sin` or `cos` takes the libm's value, so its emitted
+  literal pair no longer depends on the engine that compiles. A GPU's `sin` and `cos` stay the
+  driver's. No syntax changes, and no author-facing name is added. The other 17 functions of the
+  libm's list are still the engine's. The caps of `scripts/bundle-budget.json` take the measured
+  gzip sizes for the two bundles that hold the CPU op library: `typeshade/algorithms` single
+  file 52,990 to 56,021 (+3,031), split initial and total 52,182 to 55,184; `typeshade/random`
+  single file 34,300 to 37,263 (+2,963), split initial and total 33,551 to 36,458.
+  `typeshade/runtime` (164,811), `typeshade/emit` (117,278) and `typeshade/fuse` (113,264) do
+  not change. The floors and the other caps do not change.
+
 - **A bare compute entry parameter is refused** (change 0135). `@compute([64]) export function
 c(x: u32)` compiled to `fn c(x: u32)`, which Tint refuses, with no diagnostic. It is `TS8029`
   now, in the sentence a `location<…>` on a compute entry has. `TS8029` no longer reports a

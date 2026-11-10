@@ -39,6 +39,7 @@ import {
   unknownValueSentence,
 } from './lower/expression.js';
 import { unknownFunctionSentence } from './lower/expression-call.js';
+import { internalOpOf } from './internal-ops.js';
 
 function push(
   diagnostics: TsCompilerDiagnostic[],
@@ -877,6 +878,8 @@ export function reportUndeclaredValues(
     const name = id.text;
     if (declared.has(name) || NOT_READ.has(name)) return;
     if (isLibraryValueName(name) && !LIBRARY_TYPE_NAMES.has(name)) return;
+    // A compiler-internal operation, in the libm's compile alone (change 0042).
+    if (internalOpOf(name) !== undefined) return;
     const use = useOf(id);
     if (use === undefined || covered(id)) return;
     const report = undeclaredValueReport(id, use);

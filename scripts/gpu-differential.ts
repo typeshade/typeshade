@@ -217,6 +217,7 @@ import { computeArm } from './gl-compute-arm.js';
 import { commonModulesArm } from './common-modules-arm.js';
 import { classArm } from './class-arm.js';
 import { residentFailureArm } from './resident-failure-arm.js';
+import { libmArm } from './libm-arm.js';
 import type { ShaderType, StructDecl } from '../src/index.js';
 
 const SEEDS = Number(process.env['TYPESHADE_DIFF_SEEDS'] ?? 48);
@@ -2878,20 +2879,23 @@ async function chainArm(page: Page): Promise<number> {
 
 async function main(): Promise<number> {
   const browserSettings = gateBrowserSettings(process.env);
-  // `TYPESHADE_DIFF_ARMS=kernel,chain,glsl,compute,common,class,failure` runs a subset; every arm by
-  // default.
+  // `TYPESHADE_DIFF_ARMS=libm,kernel,chain,glsl,compute,common,class,failure` runs a subset; every
+  // arm by default.
   const arms = new Set(
-    (process.env['TYPESHADE_DIFF_ARMS'] ?? 'kernel,chain,glsl,compute,common,class,failure').split(
-      ',',
-    ),
+    (
+      process.env['TYPESHADE_DIFF_ARMS'] ?? 'libm,kernel,chain,glsl,compute,common,class,failure'
+    ).split(','),
   );
+  // The libm (change 0042, milestone 1a): its JavaScript form on this script's engine, held to
+  // the file of seeded inputs and hashed results that the unit test holds it to in Node. It
+  // needs no browser, so it runs first.
+  let failures = arms.has('libm') ? libmArm() : 0;
   const server = await serve();
   const port = (server.address() as AddressInfo).port;
   const browser = await chromium.launch(browserSettings.launch).catch((error: unknown) => {
     server.close();
     throw error;
   });
-  let failures = 0;
   let primaryFailed = false;
   try {
     const url = `http://127.0.0.1:${String(port)}/`;
