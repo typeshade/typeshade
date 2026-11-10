@@ -302,8 +302,8 @@ export function log2F64(x0: f64): f64 {
 // formulas and special cases, and carry every step before the last as a head and a rest (two
 // doubles whose sum holds about 100 bits), with Dekker's exact product and Knuth's exact sum.
 // Each result is rounded once, at the end. The two kernels of this section take the place of
-// fdlibm's `expm1` and `log1p`, which are no author's function (change 0112 removed those
-// names): `hyperbolic` gives e^a - 1 and e^a as a head and a rest, and `lnOnePlus` takes
+// fdlibm's `expm1` and `log1p`. Change 0112 removed their bare names; `Math.expm1` and
+// `Math.log1p` still expand to `exp(x) - 1` and `log(x + 1)` and do not call them. `hyperbolic` gives e^a - 1 and e^a as a head and a rest, and `lnOnePlus` takes
 // ln(1 + v) of a head and a rest. Neither is a builtin: no table of the op library binds them.
 
 // 1 / n! for n from 3 to 16: the series of (e^r - 1 - r - r^2 / 2) / r^3.
@@ -480,7 +480,7 @@ function lnOnePlus(v1: f64, v2: f64, j: i32): f64 {
   return h + (sumErr(a1, l1) + (kf * LN2LO + l2));
 }
 
-/** The square root of q1 + q2, as its head. `sqrtRest` gives the rest. */
+/** The rest of the square root of q1 + q2, given its head s1. */
 function sqrtRest(q1: f64, q2: f64, s1: f64): f64 {
   return (((q1 - s1 * s1) - prodErr(s1, s1)) + q2) / (2.0 * s1);
 }
