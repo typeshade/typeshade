@@ -78,7 +78,7 @@ See `docs/use-typeshade-surface.md` §14 and §18.
 ### Importing
 
 A shader file imports nothing from the package: the types, the builtins and the stage
-functions are the language's own. Host code imports the compiler and the calls that read its result
+attributes are the language's own. Host code imports the compiler and the calls that read its result
 from the package root:
 
 ```ts
@@ -112,7 +112,8 @@ you never write costs nothing in your bundle:
   does not use it: [`docs/ir-builder.md`](docs/ir-builder.md) does.
 
 This package ships the compiler, and the small runtime a host import runs on. The shaders
-themselves live in your repository and import the package like any other dependency.
+themselves live in your repository, and your host code imports the package like any other
+dependency.
 
 ### How this guide is ordered
 
@@ -832,9 +833,10 @@ if (idx == 1) {
 
 ### for and while
 
-`for` is the counted loop: an integer counter, a constant step, and an exit that compares
-the counter to a bound the body does not write. The bound may be a value the program learns
-at run time, a uniform, a parameter or a storage array's `.length`.
+A `for` means what it means in TypeScript. The compiler records it as a counted loop when it
+has an integer counter, a constant step, and an exit that compares the counter to a bound the
+body does not write. The bound may be a value the program learns at run time, a uniform, a
+parameter or a storage array's `.length`. Any other `for` is an open loop, as a `while` is.
 
 ```ts
 let acc = 0.;
@@ -844,9 +846,9 @@ for (let i: u32 = 0; i < 64; i++) {
 ```
 
 The counter needs no annotation when its start is a non-negative literal and the bound is a
-`u32`; otherwise it is an `i32`. A step that moves the counter away from its bound is
-refused with `TS8007`, because the loop would not exit. `while (cond)` is the open loop, for
-a loop with no counter.
+`u32`; otherwise it is an `i32`. When the start, the bound and the step are
+constants, a step that moves the counter away from its bound is refused with `TS8007`, because
+the loop would not exit. `while (cond)` is the open loop, for a loop with no counter.
 
 ```ts
 let n: u32 = start;
