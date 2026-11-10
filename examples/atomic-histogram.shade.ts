@@ -31,7 +31,7 @@ declare const bins: storage<array<atomic<u32>>, "read_write">;
 declare const summary: storage<Summary, "read_write">;
 declare const firstValue: storage<atomic<u32>, "read_write">;
 
-const BINS: f32 = 8.;
+const BINS: f32 = 8;
 
 @compute([64, 1, 1])
 export function histogram(gid: builtin<"global_invocation_id">): void {
@@ -39,13 +39,13 @@ export function histogram(gid: builtin<"global_invocation_id">): void {
     return;
   }
   // A value in [0, 1) lands in one of eight bins; anything else is clamped to the edges.
-  const bin = u32(clamp(src[gid.x], 0., 0.999) * BINS);
+  const bin = u32(clamp(src[gid.x], 0, 0.999) * BINS);
   atomicAdd(bins[bin], 1);
   // The count before this invocation's own: 0 exactly once, for whichever invocation gets
   // there first. That one records the bits of its value.
   const before = atomicAdd(summary.count, 1);
   if (before === 0) {
-    atomicStore(firstValue, u32(src[gid.x] * 1000.));
+    atomicStore(firstValue, u32(src[gid.x] * 1000));
   }
   atomicMax(summary.maxBin, i32(bin));
 }

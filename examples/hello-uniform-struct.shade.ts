@@ -35,9 +35,9 @@ interface VsOut {
 // the triangle still covers the screen whatever the host sets `gain` to.
 @vertex
 export function vs(idx: builtin<"vertex_index">): VsOut {
-  const x = f32(idx & 1) * 4. - 1.;
-  const y = f32(idx >> 1) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, (y * 0.5 + 0.5) * u.gain) };
+  const x = f32(idx & 1) * 4 - 1;
+  const y = f32(idx >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x * 0.5 + 0.5, (y * 0.5 + 0.5) * u.gain) };
 }
 
 @fragment

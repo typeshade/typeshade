@@ -35,16 +35,16 @@ interface Color {
 export function shade(o: FsIn): vec4 {
   const d = o.uv - vec2(0.5, 0.5);
   const r = length(d);
-  return vec4(o.uv.x, o.uv.y, 1. - r, 1.);
+  return vec4(o.uv.x, o.uv.y, 1 - r, 1);
 }
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & u32(1)) * 4. - 1.;
-  const y = f32(vi >> u32(1)) * 4. - 1.;
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
   const uv = vec2(x, y) * 0.5 + vec2(0.5, 0.5);
   // The RETURN type says VsOut.
-  return { pos: vec4(x, y, 0., 1.), uv: uv };
+  return { pos: vec4(x, y, 0, 1), uv: uv };
 }
 
 @fragment

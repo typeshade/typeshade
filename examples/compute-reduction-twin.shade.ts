@@ -38,7 +38,7 @@ export function reduce_windows(gid: builtin<"global_invocation_id">): void {
 
   // Fold 8 (the original's WINDOW) elements: sum starts at 0, j in [0, 8), accumulate.
   const base = idx * 8;
-  let sum = 0.;
+  let sum = 0;
   for (let j: u32 = 0; j < 8; j++) {
     sum = sum + input[base + j];
   }

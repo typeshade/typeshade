@@ -51,9 +51,9 @@ interface VsOut {
 
 @vertex
 export function vs(idx: builtin<"vertex_index">): VsOut {
-  const x = f32(idx & 1) * 4. - 1.;
-  const y = f32(idx >> 1) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
+  const x = f32(idx & 1) * 4 - 1;
+  const y = f32(idx >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
 }
 
 // The whole numeric core, as a plain function so the CPU oracle can call it directly: the
@@ -95,5 +95,5 @@ export function fs(vo: VsOut): vec4 {
   // How far the two precisions have drifted apart, which is what the picture is about: 0
   // where f32 still holds the coordinate, and up to half a stripe once it cannot.
   const drift = abs(narrowed.z - flat);
-  return vec4(shade, drift, fract(narrowed.y * 0.5), 1.);
+  return vec4(shade, drift, fract(narrowed.y * 0.5), 1);
 }

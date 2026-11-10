@@ -40,9 +40,9 @@ interface VsOut {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & 1) * 4. - 1.;
-  const y = f32(vi >> 1) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
 }
 
 // Hash a cell coordinate into a stable point in [0,1]²: the per-cell feature seed.
@@ -56,7 +56,7 @@ export function fs(v: VsOut): vec4 {
   const p: vec2 = v.uv * U.cells;
   const cell: vec2 = floor(p);
   const f: vec2 = fract(p);
-  let md = 8.;
+  let md = 8;
   // The 3×3 scan, both counters signed and both starting below zero: the nearest feature
   // point may live in any adjacent cell.
   for (let j: i32 = -1; j <= 1; j++) {
@@ -69,6 +69,6 @@ export function fs(v: VsOut): vec4 {
     }
   }
   // Dark cores, cool cell walls.
-  const c: vec3 = vec3(md * md, md * md, md * md) * vec3(0.35, 0.6, 1.) + vec3(0.02, 0.03, 0.06);
-  return vec4(c, 1.);
+  const c: vec3 = vec3(md * md, md * md, md * md) * vec3(0.35, 0.6, 1) + vec3(0.02, 0.03, 0.06);
+  return vec4(c, 1);
 }

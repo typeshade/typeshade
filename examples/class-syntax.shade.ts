@@ -31,15 +31,15 @@ interface FsOut {
 // Fullscreen triangle, as `rng-method.shade.ts` draws it.
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & u32(1)) * 4. - 1.;
-  const y = f32(vi >> u32(1)) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x, y) };
 }
 
 /** A ring: a centre and a radius, and a band width kept above a minimum by its setter. */
 class Ring {
   static readonly MIN_WIDTH = 0.01;
-  static drawn = 0.;
+  static drawn = 0;
 
   #width = 0.05;
 
@@ -66,15 +66,15 @@ class Ring {
   }
 
   coverage(p: vec2): f32 {
-    return 1. - smoothstep(0., 0.012, this.#distance(p));
+    return 1 - smoothstep(0, 0.012, this.#distance(p));
   }
 
   static get unit(): Ring {
-    return new Ring(vec2(0.), 0.5);
+    return new Ring(vec2(0), 0.5);
   }
 
   static count(): void {
-    this.drawn += 1.;
+    this.drawn += 1;
   }
 }
 
@@ -89,5 +89,5 @@ export function fs(v: VsOut): FsOut {
   Ring.count();
   const ink = max(a.coverage(v.uv), b.coverage(v.uv));
   const tint = mix(vec3(0.07, 0.08, 0.14), vec3(0.95, 0.74, 0.32), ink);
-  return { color: vec4(tint * (Ring.drawn * 0.5), 1.) };
+  return { color: vec4(tint * (Ring.drawn * 0.5), 1) };
 }

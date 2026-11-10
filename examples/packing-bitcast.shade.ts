@@ -31,11 +31,11 @@ interface VsOut {
 export function vs(vi: builtin<"vertex_index">): VsOut {
   // `array(...)` with no type arguments: the element type and the count come from the
   // elements, as WGSL infers them.
-  const xs = array(-1., 3., -1.);
-  const ys = array(-1., -1., 3.);
+  const xs = array(-1, 3, -1);
+  const ys = array(-1, -1, 3);
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
-  return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
+  return { pos: vec4(p, 0, 1), uv: p * 0.5 + vec2(0.5, 0.5) };
 }
 
 @fragment
@@ -58,9 +58,9 @@ export function fs(v: VsOut): vec4 {
   // Not named `unorm`/`snorm`: both are WGSL reserved words, and an author-written local is not
   // renamed on the WGSL side the way `half` below is on the GLSL side, so Tint would refuse the
   // module. Measured through the gate.
-  const rgba8Bits: u32 = pack4x8unorm(vec4(v.uv, 0.25, 1.));
+  const rgba8Bits: u32 = pack4x8unorm(vec4(v.uv, 0.25, 1));
   const rgba8: vec4 = unpack4x8unorm(rgba8Bits);
-  const signed8Bits: u32 = pack4x8snorm(vec4(v.uv * 2. - vec2(1., 1.), -0.5, 1.));
+  const signed8Bits: u32 = pack4x8snorm(vec4(v.uv * 2 - vec2(1, 1), -0.5, 1));
   const signed8: vec4 = unpack4x8snorm(signed8Bits);
 
   // …and through the 16-bit ones, where GLSL has the builtin under another name and the
@@ -71,12 +71,12 @@ export function fs(v: VsOut): vec4 {
 
   // `bitcast` reinterprets the 32 bits rather than converting them: exponent bits of the
   // coordinate, masked down to something that reads as a gradient.
-  const bits: u32 = bitcast<u32>(v.uv.x + 1.);
-  const exponent: f32 = f32(extractBits(bits, 23, 8)) / 255.;
+  const bits: u32 = bitcast<u32>(v.uv.x + 1);
+  const exponent: f32 = f32(extractBits(bits, 23, 8)) / 255;
   const back: f32 = bitcast<f32>(bits);
   // The vector form (change 0044): each component's bits at once, and back again. Its `x` is
   // `back` by construction, so the picture does not move.
-  const pair: vec2u = bitcast<vec2u>(v.uv + vec2(1., 1.));
+  const pair: vec2u = bitcast<vec2u>(v.uv + vec2(1, 1));
   const backPair: vec2 = bitcast<vec2>(pair);
 
   // `quantizeToF16` on a vector: the precision an f16 pipeline would give this colour. Bound
@@ -86,10 +86,10 @@ export function fs(v: VsOut): vec4 {
 
   // `all` and `any` on a plain bool, which WGSL defines to return the bool itself.
   const lit: bool = back > 1.5 && backPair.x > 1.5;
-  const edge: f32 = select(0., 0.15, all(lit)) + select(0., 0.1, any(v.uv.x > 0.98));
+  const edge: f32 = select(0, 0.15, all(lit)) + select(0, 0.1, any(v.uv.x > 0.98));
 
-  const banded: f32 = f32(bands[1] + bands[3]) / 8.;
+  const banded: f32 = f32(bands[1] + bands[3]) / 8;
   const rgb: vec3 =
     coarse * 0.5 + vec3(rgba8.x, signed8.y * 0.5 + 0.5, s16.x * 0.5 + 0.5) * 0.4 + vec3(banded * 0.1);
-  return vec4(clamp(rgb + vec3(edge), vec3(0.), vec3(1.)), rgba8.w);
+  return vec4(clamp(rgb + vec3(edge), vec3(0), vec3(1)), rgba8.w);
 }

@@ -12,7 +12,7 @@
 
 const SURFACE_EPSILON: f32 = 0.001;
 const RAY_EPSILON: f32 = 0.003;
-const MAX_DISTANCE: f32 = 40.;
+const MAX_DISTANCE: f32 = 40;
 const MAX_STEPS: i32 = 96;
 const MAX_BOUNCES: i32 = 3;
 const SAMPLES_PER_PIXEL: i32 = 2;
@@ -67,12 +67,12 @@ class Material {
     viewDirection: vec3,
     lightDirection: vec3,
   ): vec3 {
-    const ndl = max(dot(normal, lightDirection), 0.);
-    const diffuse = this.albedo * (1. - this.metallic) * ndl;
+    const ndl = max(dot(normal, lightDirection), 0);
+    const diffuse = this.albedo * (1 - this.metallic) * ndl;
 
     const halfDirection = normalize(lightDirection + viewDirection);
-    const shininess = mix(16., 128., 1. - this.roughness);
-    const specular = max(dot(normal, halfDirection), 0.) ** shininess;
+    const shininess = mix(16, 128, 1 - this.roughness);
+    const specular = max(dot(normal, halfDirection), 0) ** shininess;
 
     const baseReflectance = mix(
       vec3(0.04),
@@ -80,14 +80,14 @@ class Material {
       this.metallic,
     );
     const fresnel = baseReflectance
-      + (vec3(1.) - baseReflectance)
-      * (1. - max(dot(normal, viewDirection), 0.)) ** 5.;
+      + (vec3(1) - baseReflectance)
+      * (1 - max(dot(normal, viewDirection), 0)) ** 5;
 
     return diffuse + fresnel * specular;
   }
 
   bounceWeight(): vec3 {
-    return mix(this.albedo, vec3(1.), this.metallic) * 0.65;
+    return mix(this.albedo, vec3(1), this.metallic) * 0.65;
   }
 }
 
@@ -104,12 +104,12 @@ abstract class SdfShape {
 
   normalAt(point: vec3): vec3 {
     const epsilon = 0.0015;
-    const dx = this.distanceTo(point + vec3(epsilon, 0., 0.))
-      - this.distanceTo(point - vec3(epsilon, 0., 0.));
-    const dy = this.distanceTo(point + vec3(0., epsilon, 0.))
-      - this.distanceTo(point - vec3(0., epsilon, 0.));
-    const dz = this.distanceTo(point + vec3(0., 0., epsilon))
-      - this.distanceTo(point - vec3(0., 0., epsilon));
+    const dx = this.distanceTo(point + vec3(epsilon, 0, 0))
+      - this.distanceTo(point - vec3(epsilon, 0, 0));
+    const dy = this.distanceTo(point + vec3(0, epsilon, 0))
+      - this.distanceTo(point - vec3(0, epsilon, 0));
+    const dz = this.distanceTo(point + vec3(0, 0, epsilon))
+      - this.distanceTo(point - vec3(0, 0, epsilon));
 
     return normalize(vec3(dx, dy, dz));
   }
@@ -151,10 +151,10 @@ namespace SDF {
 
     distanceTo(point: vec3): f32 {
       const local = abs(point - this.center) - this.halfSize;
-      const outside = max(local, vec3(0.));
+      const outside = max(local, vec3(0));
       const inside = min(
         max(local.x, max(local.y, local.z)),
-        0.,
+        0,
       );
       return length(outside) + inside;
     }
@@ -234,7 +234,7 @@ class PointLight {
 
   irradianceAt(point: vec3): vec3 {
     const offset = this.position - point;
-    const distanceSquared = max(dot(offset, offset), 1.);
+    const distanceSquared = max(dot(offset, offset), 1);
     return this.color * (this.intensity / distanceSquared);
   }
 }
@@ -256,7 +256,7 @@ class Camera {
 
   rayFor(ndc: vec2): Ray {
     const forward = normalize(this.lookAt - this.position);
-    const right = normalize(cross(forward, vec3(0., 1., 0.)));
+    const right = normalize(cross(forward, vec3(0, 1, 0)));
     const up = cross(right, forward);
     const scale = tan(this.fov * 0.5);
 
@@ -280,52 +280,52 @@ class Scene {
   constructor() {
     this.redSphere = new SDF.SdfSphere(
       vec3(-1.15, 0.2, -1.7),
-      1.0,
+      1,
       new Material(
         vec3(0.78, 0.12, 0.08),
-        0.,
+        0,
         0.4,
-        vec3(0.),
+        vec3(0),
       ),
     );
 
     this.blueBox = new SDF.SdfBox(
-      vec3(1.05, 0.25, -2.0),
+      vec3(1.05, 0.25, -2),
       vec3(0.75, 0.75, 0.75),
       new Material(
         vec3(0.08, 0.3, 0.84),
         0.2,
         0.3,
-        vec3(0.),
+        vec3(0),
       ),
     );
 
     this.goldTorus = new SDF.SdfTorus(
-      vec3(0., 1.35, -2.9),
+      vec3(0, 1.35, -2.9),
       0.72,
       0.24,
       new Material(
         vec3(0.95, 0.65, 0.1),
         0.9,
         0.12,
-        vec3(0.),
+        vec3(0),
       ),
     );
 
     this.ground = new SDF.SdfPlane(
-      -1.0,
+      -1,
       new Material(
         vec3(0.68, 0.72, 0.8),
-        0.,
+        0,
         0.92,
-        vec3(0.),
+        vec3(0),
       ),
     );
 
     this.light = new PointLight(
-      vec3(-2.5, 4.8, 2.0),
-      vec3(1.0, 0.88, 0.72),
-      70.,
+      vec3(-2.5, 4.8, 2),
+      vec3(1, 0.88, 0.72),
+      70,
     );
   }
 
@@ -361,7 +361,7 @@ class Scene {
   }
 
   raymarch(ray: Ray, maxDistance: f32): Hit {
-    let distance = 0.;
+    let distance = 0;
     let objectIndex: i32 = -1;
 
     for (let step: i32 = 0; step < MAX_STEPS; step++) {
@@ -380,7 +380,7 @@ class Scene {
       }
     }
 
-    return new Hit(-1., objectIndex);
+    return new Hit(-1, objectIndex);
   }
 
   normalAt(index: i32, point: vec3): vec3 {
@@ -432,8 +432,8 @@ class Renderer {
 
   trace(primaryRay: Ray, seed0: f32): vec3 {
     let ray = primaryRay;
-    let throughput = vec3(1.);
-    let radiance = vec3(0.);
+    let throughput = vec3(1);
+    let radiance = vec3(0);
     let seed = seed0;
 
     for (let bounce: i32 = 0; bounce < MAX_BOUNCES; bounce++) {
@@ -459,7 +459,7 @@ class Renderer {
       const diffuseDirection = cosineDirection(normal, seed);
       const reflectedDirection = reflectDirection(ray.direction, normal);
       const bounceAmount = material.metallic
-        + (1. - material.roughness) * 0.25;
+        + (1 - material.roughness) * 0.25;
       const nextDirection = normalize(
         mix(
           diffuseDirection,
@@ -487,9 +487,9 @@ class Renderer {
     const viewDirection = -ray.direction;
     const lightDirection = normalize(this.scene.light.position - point);
 
-    let visibility: f32 = 0.;
+    let visibility: f32 = 0;
     if (this.scene.isVisible(point, normal)) {
-      visibility = 1.;
+      visibility = 1;
     }
 
     return material.emission
@@ -505,7 +505,7 @@ class Renderer {
   sky(ray: Ray): vec3 {
     const horizon = vec3(0.12, 0.17, 0.28);
     const zenith = vec3(0.55, 0.72, 0.95);
-    const skyFactor = max(ray.direction.y, 0.);
+    const skyFactor = max(ray.direction.y, 0);
     return mix(horizon, zenith, skyFactor);
   }
 }
@@ -519,8 +519,8 @@ function cosineDirection(normal: vec3, seed: f32): vec3 {
   const tangent = normalize(
     cross(
       abs(normal.x) > 0.9
-        ? vec3(0., 1., 0.)
-        : vec3(1., 0., 0.),
+        ? vec3(0, 1, 0)
+        : vec3(1, 0, 0),
       normal,
     ),
   );
@@ -529,23 +529,23 @@ function cosineDirection(normal: vec3, seed: f32): vec3 {
   return normalize(
     tangent * (cos(phi) * radius)
       + bitangent * (sin(phi) * radius)
-      + normal * sqrt(1. - r2),
+      + normal * sqrt(1 - r2),
   );
 }
 
 function reflectDirection(direction: vec3, normal: vec3): vec3 {
-  return direction - normal * (2. * dot(direction, normal));
+  return direction - normal * (2 * dot(direction, normal));
 }
 
 function createCamera(time: f32): Camera {
   return new Camera(
     vec3(
       sin(time * 0.17) * 6.2,
-      2.0 + sin(time * 0.31) * 0.12,
+      2 + sin(time * 0.31) * 0.12,
       cos(time * 0.17) * 6.2,
     ),
-    vec3(0., 0.6, -1.8),
-    1.0,
+    vec3(0, 0.6, -1.8),
+    1,
   );
 }
 
@@ -581,8 +581,8 @@ function renderSample(
   const pixel = (ndc * 0.5 + vec2(0.5)) * resolution;
   const jitter = pixelJitter(pixel, frame, sample);
   const sampleNdc = ndc + vec2(
-    jitter.x * 2. / resolution.x,
-    jitter.y * 2. / resolution.y,
+    jitter.x * 2 / resolution.x,
+    jitter.y * 2 / resolution.y,
   );
   const ray = camera.rayFor(
     vec2(
@@ -598,17 +598,17 @@ function renderSample(
 }
 
 function toneMap(color: vec3): vec3 {
-  const mapped = color / (color + vec3(1.));
-  return mapped ** vec3(1. / 2.2);
+  const mapped = color / (color + vec3(1));
+  return mapped ** vec3(1 / 2.2);
 }
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & u32(1)) * 4. - 1.;
-  const y = f32(vi >> u32(1)) * 4. - 1.;
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
 
   return {
-    pos: vec4(x, y, 0., 1.),
+    pos: vec4(x, y, 0, 1),
     ndc: vec2(x, y),
   };
 }
@@ -619,7 +619,7 @@ export function fs(v: VsOut): vec4 {
   const scene = new Scene();
   const renderer = new Renderer(scene);
 
-  let color = vec3(0.);
+  let color = vec3(0);
   for (let sample: i32 = 0; sample < SAMPLES_PER_PIXEL; sample++) {
     color += renderSample(
       renderer,
@@ -632,5 +632,5 @@ export function fs(v: VsOut): vec4 {
   }
 
   color = toneMap(color / f32(SAMPLES_PER_PIXEL));
-  return vec4(color, 1.);
+  return vec4(color, 1);
 }

@@ -30,9 +30,9 @@ interface FsOut {
 // Fullscreen triangle, as `rng-method.shade.ts` draws it.
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & u32(1)) * 4. - 1.;
-  const y = f32(vi >> u32(1)) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x, y) };
 }
 
 /** Something that covers part of the screen, which a ring and a dot each supply. */
@@ -42,8 +42,8 @@ interface Mark {
 
 /** A point that moves: `step` changes its object. */
 class Mover {
-  pos: vec2 = vec2(0.);
-  vel: vec2 = vec2(0.);
+  pos: vec2 = vec2(0);
+  vel: vec2 = vec2(0);
   step(dt: f32): void {
     this.pos += this.vel * dt;
   }
@@ -57,7 +57,7 @@ class Ring implements Mark {
   // A field that holds a function: `Ring_cover(self_: Ring, p: vec2<f32>) -> f32`.
   cover = (p: vec2): f32 => {
     const d = abs(length(p - this.center.pos) - this.radius);
-    return 1. - smoothstep(this.width * 0.5, this.width, d);
+    return 1 - smoothstep(this.width * 0.5, this.width, d);
   };
   // Changes the ring through the `Mover` it holds.
   advance(dt: f32): void {
@@ -70,7 +70,7 @@ class Dot implements Mark {
   center: Mover = new Mover();
   size: f32 = 0.1;
   cover(p: vec2): f32 {
-    return 1. - smoothstep(this.size * 0.8, this.size, length(p - this.center.pos));
+    return 1 - smoothstep(this.size * 0.8, this.size, length(p - this.center.pos));
   }
 }
 
@@ -90,5 +90,5 @@ export function fs(v: VsOut): FsOut {
   let col = vec3(0.06, 0.07, 0.12);
   col = mix(col, vec3(0.95, 0.7, 0.3), coverOf(ring, v.uv));
   col = mix(col, vec3(0.3, 0.7, 0.95), coverOf(spot, v.uv));
-  return { color: vec4(col, 1.) };
+  return { color: vec4(col, 1) };
 }

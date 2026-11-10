@@ -61,11 +61,11 @@ export function paint(gid: builtin<"global_invocation_id">): void {
   // Read the accumulator, add to it, write it back: one binding, both ways.
   const seen = textureLoad(acc, at);
   const weight = seen.x + length(uv - vec2(0.5));
-  textureStore(acc, at, vec4(weight, 0., 0., 0.));
+  textureStore(acc, at, vec4(weight, 0, 0, 0));
 
-  const shade = smoothstep(0., 1., weight * 0.5);
-  textureStore(dst, at, vec4(uv.x, uv.y, shade, 1.));
+  const shade = smoothstep(0, 1, weight * 0.5);
+  textureStore(dst, at, vec4(uv.x, uv.y, shade, 1));
 
   // The same coordinate in an integer texture, as an id map is written.
-  textureStore(ids, at, vec4u(x % u32(256), y % u32(256), u32(1), u32(255)));
+  textureStore(ids, at, vec4u(x % 256, y % 256, 1, 255));
 }

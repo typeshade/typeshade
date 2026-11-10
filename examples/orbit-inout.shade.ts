@@ -53,10 +53,10 @@ class Body {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): vec4 {
-  const xs: array<f32, 3> = [-1., 3., -1.];
-  const ys: array<f32, 3> = [-1., -1., 3.];
+  const xs: array<f32, 3> = [-1, 3, -1];
+  const ys: array<f32, 3> = [-1, -1, 3];
   const i = i32(vi);
-  return vec4(xs[i], ys[i], 0., 1.);
+  return vec4(xs[i], ys[i], 0, 1);
 }
 
 @fragment
@@ -70,6 +70,6 @@ export function fs(frag: builtin<"position">): vec4 {
   for (let n = 0; n < 8; n++) {
     b.advance(0.05);
   }
-  const glow: f32 = 1. - smoothstep(0., 0.6, b.reach());
-  return vec4(glow, glow * 0.4 + b.spin * 0.1, 0.6 - glow * 0.3, 1.);
+  const glow: f32 = 1 - smoothstep(0, 0.6, b.reach());
+  return vec4(glow, glow * 0.4 + b.spin * 0.1, 0.6 - glow * 0.3, 1);
 }

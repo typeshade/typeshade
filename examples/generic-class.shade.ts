@@ -85,10 +85,10 @@ class Marked extends Slot<f32> {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): vec4 {
-  const xs: array<f32, 3> = [-1., 3., -1.];
-  const ys: array<f32, 3> = [-1., -1., 3.];
+  const xs: array<f32, 3> = [-1, 3, -1];
+  const ys: array<f32, 3> = [-1, -1, 3];
   const i = i32(vi);
-  return vec4(xs[i], ys[i], 0., 1.);
+  return vec4(xs[i], ys[i], 0, 1);
 }
 
 @fragment
@@ -100,14 +100,14 @@ export function fs(p: builtin<"position">): vec4 {
   const tint = new Slot<vec3>(vec3(0.95, 0.45, 0.28), vec3(0.18, 0.55, 0.92));
 
   const band = new Bag<f32>([0.2, 0.55, 0.9]);
-  const step = band.nth(i32(floor(uv.y * 3.)));
+  const step = band.nth(i32(floor(uv.y * 3)));
 
   // The type argument is left out, and the class's default supplies it.
   const level = new Level(0.35);
-  const edge = smoothstep(0., level.edge, uv.y) * Level.unit();
+  const edge = smoothstep(0, level.edge, uv.y) * Level.unit();
 
   const marked = new Marked(0.4, 0.8, 0.5);
 
   const k = gain.either(uv.x > 0.5) * step * marked.first() * marked.tag;
-  return vec4(tint.either(uv.y > 0.5) * k * edge, 1.);
+  return vec4(tint.either(uv.y > 0.5) * k * edge, 1);
 }

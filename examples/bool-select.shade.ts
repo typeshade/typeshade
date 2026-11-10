@@ -22,11 +22,11 @@ interface VsOut {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const xs: array<f32, 3> = [-1., 3., -1.];
-  const ys: array<f32, 3> = [-1., -1., 3.];
+  const xs: array<f32, 3> = [-1, 3, -1];
+  const ys: array<f32, 3> = [-1, -1, 3];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
-  return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
+  return { pos: vec4(p, 0, 1), uv: p * 0.5 + vec2(0.5, 0.5) };
 }
 
 @fragment
@@ -44,5 +44,5 @@ export function fs(v: VsOut): vec4 {
   } else if (!any(past)) {
     color = color * 0.6;
   }
-  return vec4(color, 1.);
+  return vec4(color, 1);
 }
