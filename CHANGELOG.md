@@ -30,6 +30,14 @@ repository is an official release yet: the `typeshade` package on npm holds only
   WGSL and GLSL ES 3.00, `reflect()` and the manifest keep their shapes, and report each
   location, written or given.
 
+- **The hover shows the location of a user-defined input or output** (change 0135, amendment
+  A1). Under the type, the editor's hover names what the value is and the location it stands
+  at, written or given by the compiler: `value between stages at @location(0)` on `uv: vec2`,
+  `vertex attribute at @location(1)`, `render target at @location(0)`, and
+  `returns a render target at @location(0)` on a fragment entry with a bare result. The number
+  is the one `reflect()` reports, read off the same IR. A built-in value, a field of a struct
+  no entry uses and a value refused with `TS8010` show no such line.
+
 - **Every `for` loop, and an entry's inferred result** (change 0136). A `for` that is not
   counted compiles as an open loop, as a `while` does (Rule 7.5): `for (;;)` with a `break`, an
   `f32` counter, a bound the body writes, an exit with another test, a header with no

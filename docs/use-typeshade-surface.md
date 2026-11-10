@@ -486,6 +486,11 @@ export function fs(v: VsOut): Color {
   location, written or given, in the same fields. A host that binds a vertex attribute or a
   render target by a number of its own writes `location<n, T>`, since reordering the fields
   renumbers the ones the compiler gives.
+- The editor's hover shows the same number under the type, written or given:
+  `value between stages at @location(0)` on `uv`, `vertex attribute at @location(1)`,
+  `render target at @location(0)`, and `returns a render target at @location(0)` on a fragment
+  entry with a bare result. A value with no location shows no such line: a built-in value, a
+  field of a struct no entry uses, and a value refused with `TS8010`.
 
 ### What an entry may return
 

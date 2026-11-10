@@ -697,6 +697,46 @@ request's description lists each command with its result.
 | 7   | A field whose `builtin<"clip_distances">` is refused is withheld from its struct. A write and a read of it say nothing more. A `const` declared from a read of it is not declared, so a later use of that `const` is `TS8022`.                                                                                                                                                                                         | Open: the withheld-field recovery predates this change; no issue names it yet.        |
 | 8   | `scripts/compile-gate.ts` gains the entry-I/O leg, which "What it touches" does not list. Rules 12.6 and 13.3 require the measurement.                                                                                                                                                                                                                                                                                 | Closed.                                                                               |
 
+**Delivery of amendment A1, the third decision (the hover).** Written on 2026-11-10 (UTC) by
+the AI agent (Claude Code) that implemented it, at the direction of the coordinating session.
+Its pull request records the delivered commit and each check with its result. This record
+closes deviation 5 of the table above.
+
+- Configuration: branch `claude/clever-ramanujan-yrfjsq-0135-hover`, based on `main` at
+  `d238dc27`. Tools: Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3, Vitest 5.0.5, Doorstop 3.2.
+- Delivered: `src/language-service/hover.ts` (`locationLine`). The hover adds one line under
+  the type, where a resource binding has its `@group`/`@binding` line: what the value is, in
+  the words of the table of item 2, and its location.
+
+  | Hovered                                                              | The line under the type                                                               |
+  | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+  | A field of a struct a vertex entry reads                             | `vertex attribute at @location(n)`                                                    |
+  | A field of a struct a vertex entry returns or a fragment entry reads | `value between stages at @location(n)`                                                |
+  | A field of a struct a fragment entry returns                         | `render target at @location(n)`                                                       |
+  | A field of a struct in two of those places                           | both, joined by "and", as `vertex attribute and value between stages at @location(n)` |
+  | A bare parameter of a vertex entry                                   | `vertex attribute at @location(n)`                                                    |
+  | A bare parameter of a fragment entry                                 | `value between stages at @location(n)`                                                |
+  | The name of a fragment entry with a bare result                      | `returns a render target at @location(0)`                                             |
+  | A field that writes a location, in a struct no entry uses            | `user-defined input or output at @location(n)`                                        |
+  | A built-in value, a field with no location, a value refused `TS8010` | no line                                                                               |
+
+- The hover computes no number (Rule 12.7). It reads the IR of the language service's cached
+  analysis, which `giveEntryLocations` numbered, with `ioAttrOf` and `retIoAttrOf`
+  (`src/core/ir/entry-io.ts`), the reader `reflect()` uses. `entryNode` of
+  `src/compiler/ts/entry-locations.ts` is exported for it. No public type changes:
+  `bun run bake:api-surface` changes no file.
+- Documents: surface §3, `docs/language-service-api.md`, `CHANGELOG.md`.
+- Functional validation: `src/language-service/entry-location-hover.test.ts`, 15 tests. Each
+  reads `compile()` (the diagnostics, the emitted `@location(n)`, `reflect()`) and the language
+  service's `getHover` on the same source, and holds the hover's number to `reflect()`'s.
+- Deviations from amendment A1:
+
+  | #   | Difference                                                                                                                                                                                                             | Disposition                                                   |
+  | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+  | A   | A field of a struct that another document declares shows TypeScript's quick info, as every imported symbol does, so it shows no location line. The hover joins a name to the compiler's facts by its span in one file. | Open: the owner decides whether a later change adds the line. |
+  | B   | The line names what the value is ("vertex attribute", "value between stages", "render target") beside the number. Amendment A1 asks for the location only.                                                             | Open: the owner reads the wording on the pull request.        |
+  | C   | A fragment entry's bare result has no declared name of its own, so its line shows on the entry's name.                                                                                                                 | Closed: the line says "returns a render target".              |
+
 **Remaining.** The downstream work of "What it owes downstream" is not started. The refusal of a
 written type in the release after the migration release (D1.2) is not part of this pull request.
 
