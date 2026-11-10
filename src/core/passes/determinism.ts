@@ -326,6 +326,13 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
   'i32',
   'u32',
   '__fround',
+  // The internal operations of the libm's source (change 0042), which only the CPU engines
+  // carry. The shader writers refuse one (`core/cpu-only-ids.ts`), so no driver computes one,
+  // and on the CPU each has one answer.
+  '__f64Hi',
+  '__f64Lo',
+  '__f64FromWords',
+  '__f64ToI32',
   'pack2x16float',
   'unpack2x16float',
   // The integer `abs` and `dot` (#154). Integer arithmetic is exact on every target: `abs` on
