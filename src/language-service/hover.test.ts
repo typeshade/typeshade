@@ -510,7 +510,7 @@ describe("getHover: an array's length is the type the compiler reads", () => {
 });
 
 describe('getHover: a symbol declared in another document', () => {
-  it("keeps TypeScript's quick info, since the compiler's table is this document's", () => {
+  it('reads the type the compiler gave it in the program, as the declaring document does', () => {
     const service = createTypeshadeLanguageService();
     service.openDocument(
       '/lib.ts',
@@ -523,9 +523,12 @@ describe('getHover: a symbol declared in another document', () => {
       '/main.ts',
       service.positionAt('/main.ts', main.indexOf('* K') + 2),
     );
-    // `K` is declared in `/lib.ts`, so `/main.ts`'s symbol table says nothing about it and
-    // TypeScript answers, exactly as before: a span belongs to the file it indexes.
-    expect(hover?.contents).toContain('const K: 1');
+    // `K` is declared in `/lib.ts`. The program of `/main.ts` links that file, and the hover
+    // reads the symbol the front end declared there (`importedSymbolAt`). TypeScript's quick
+    // info said `(alias) const K: 1`, a literal type where the compiler has an `f32`.
+    expect(hover?.contents).toBe('```ts\nconst K: f32\n```');
+    const lib = service.getHover('/lib.ts', { line: 1, character: 13 });
+    expect(lib?.contents).toBe(hover?.contents);
   });
 });
 
