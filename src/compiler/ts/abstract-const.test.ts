@@ -608,6 +608,25 @@ export function t(d: f64): f32 { return f32(K) + f32(f64(K) + d) + K / 2; }`;
     }
   });
 
+  it('a conversion is a declared type: u32(K) / 2 is the integer division, as u32(7) / 2 is', () => {
+    // Amendment A3, "먼저 별도 PR로 고치기": the fold of a scalar cast keeps its type (#1217),
+    // so each row is the typed value, the same as the written number gives.
+    const rows: [string, string, number][] = [
+      ['const K = 7;', 'return f32(u32(K) / 2);', 3],
+      ['const K = 7;', 'return f32(u32(K) * 3);', 21],
+      ['const K = 7;', 'return f32(u32(K) - 8);', 4294967295],
+      ['const A = 4294967295;', 'return f32(u32(A) + 1);', 0],
+      ['const K = 7;', 'return f32(i32(K) * 1000000000);', -1589934592],
+    ];
+    const program = (pre: string, body: string) =>
+      `"use typeshade";\n${pre}\nexport function t(): f32 { ${body} }\n`;
+    for (const [pre, body, value] of rows) {
+      expect(accepted(program(pre, body)).eval('t', [])).toBe(value);
+      const written = body.replace(/\b[KA]\b/, /= (\d+)/.exec(pre)?.[1] ?? '');
+      expect(accepted(program('', written)).eval('t', [])).toBe(value);
+    }
+  });
+
   it('a float-written counter against the constant keeps its f32, and K / 2 its 3.5', () => {
     // Compiled before the change, and gives the same 10.5 (the review of #1184, F3).
     const source = t(

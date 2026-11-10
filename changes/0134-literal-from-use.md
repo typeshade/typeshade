@@ -987,8 +987,10 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
     float division), and a `let` initialized from the constant keeps its origin when it is
     assigned another value later.
   - "먼저 별도 PR로 고치기": the fold of a scalar cast is fixed in pull request #1217, which
-    this part takes when it is on `main`. Until then the rows of a cast (`u32(K) / 2`,
-    `u32(K) * 3`, `u32(A) + 1`) keep the value the fold gives on `main`.
+    this part takes when it is on `main`. Pull request #1217 merged on `main` as `3b242e9b`
+    on 2026-11-10, and this part merged it in: the rows of a cast (`u32(K) / 2` is 3,
+    `u32(K) - 8` is 4294967295, `u32(A) + 1` is 0) give the typed value, the same as the
+    written number, and `abstract-const.test.ts` reads each in both halves.
   - "4a와 이어서 머지": part 3 and the first part of items 1 and 3 merge one after the other.
     The uses that are no division and that a `let` initialized from a constant makes refused
     (`let y = k;` then `vi + y`, `xs[y]`, `h(y)`, `switch (y)`, `xs[g()]`) are that part's to
