@@ -141,6 +141,13 @@ const GATHERED: DeterminismAccuracy = {
 };
 const EXACT: DeterminismAccuracy = { kind: 'exact' };
 
+/** Where `pow` parts from the CPU tiers past the bound it inherits: the pairs outside WGSL's
+ *  domain, and on GLSL ES 3.00 also x = 0 with y <= 0, where the CPU tiers give ECMA-262's
+ *  table (the owner's decision of 2026-11-10). Measured 2026-11-10 on Tint and on WebGL2,
+ *  both over SwiftShader: eleven special pairs part (Amendment A4 of change 0042). */
+const POW_NOTE =
+  "outside WGSL's domain (x < 0; x = 1 with y infinite; x infinite with y = 0), and on GLSL ES 3.00 also at x = 0 with y <= 0, a driver may give any value, while the CPU tiers give ECMA-262's: measured on Tint and on WebGL2 over SwiftShader, eleven special pairs part: (-2)^3 was 8 (CPU -8), (-2)^0.5 was 1.4142138 (CPU NaN), 1^Infinity, 1^-Infinity, 1^NaN and (-1)^Infinity were +Infinity (CPU NaN), Infinity^0 was +Infinity (CPU 1), (-0)^3 was +0 (CPU -0), 0^-1 and (-0)^-1 were 2^127 (CPU +Infinity and -Infinity), and (-Infinity)^3 was +Infinity (CPU -Infinity)";
+
 /** Every `bitcast` id (change 0045): one answer for an `f32` that is finite and normal. WGSL lets
  *  an implementation assume no NaN is present, which leaves a NaN's result indeterminate, and
  *  lets a bit reinterpretation flush a subnormal (§15.7.2); GLSL ES 3.00 lets a driver flush any
@@ -248,7 +255,9 @@ const F32_ACCURACY: Readonly<Record<string, DeterminismAccuracy>> = {
   quantizeToF16Vec2: target('correct result', QUANTIZE_NOTE),
   quantizeToF16Vec3: target('correct result', QUANTIZE_NOTE),
   quantizeToF16Vec4: target('correct result', QUANTIZE_NOTE),
-  pow: inherited('exp2(y * log2(x))'),
+  // The special pairs, measured on Tint and on WebGL2 (Rule 11.2): the comment on `pow` in
+  // `PORTABLE_INTRINSICS` (`core/intrinsics.ts`) holds the measured text.
+  pow: inherited('exp2(y * log2(x))', POW_NOTE),
   radians: inherited('x * 0.017453292519943295474'),
   reflect: inherited('x - 2 * dot(x, y) * y'),
   refract: inherited(

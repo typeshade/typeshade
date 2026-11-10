@@ -1,6 +1,6 @@
 "use typeshade";
 
-// ═══ The libm: exp, exp2, log, log2, ldexp and the hyperbolic functions (change 0042, 1a) ═══
+// ═══ The libm: exp, exp2, log, log2, ldexp, the hyperbolic functions and pow (change 0042, 1a) ═══
 //
 // A NOTE FOR A READER IN AN EDITOR. The language service reports `TS8004 Unknown function` on
 // `__f64Hi`, `__f64Lo` and `__f64FromWords` in this file. That is correct for an author's file:
@@ -12,13 +12,13 @@
 // `f32` operand is the routine's result rounded once to `f32`. `scripts/bake-libm.ts` writes
 // the JavaScript form, `explog.generated.ts`.
 //
-// The promise is an error under 1 ULP for `exp`, `exp2`, `log`, `log2` and the six hyperbolic
-// functions (decision N9).
+// The promise is an error under 1 ULP for `exp`, `exp2`, `log`, `log2`, the six hyperbolic
+// functions and `pow` (decision N9).
 // `ldexp` is exact scaling with one rounding, so it is correctly rounded.
 //
-// The hyperbolic functions are in this file because they need its scaling and its constants;
-// a source cannot call a function of another source. Their section says how they differ from
-// fdlibm. The methods are those of fdlibm, as FreeBSD and musl carry them: `e_exp.c`, `e_log.c`
+// The hyperbolic functions and `pow` are in this file because they need its scaling and its
+// constants; a source cannot call a function of another source. Their sections say how they
+// differ from fdlibm. The methods are those of fdlibm, as FreeBSD and musl carry them: `e_exp.c`, `e_log.c`
 // and `e_log2.c` with their coefficients, and musl's `scalbn.c` for the scaling. `exp2` is this
 // file's own: the nearest half-integer taken out, the kernel of `exp` on the rest times ln 2,
 // held as a head and a tail, and a product by sqrt(2) for an odd half-step. The notice of fdlibm:
@@ -673,8 +673,13 @@ export function atanhF64(x: f64): f64 {
 // kernel of `exp` on the rest times ln 2, scaled by `scale`. The special values are those of
 // ECMA-262's Number::exponentiate, which is what the engine's `Math.pow` gives (Rule 1.3):
 // x^0 is 1 for a NaN x, (+-1)^(+-Infinity) is a NaN, and a negative x with an odd integer y
-// keeps the sign. The one difference from fdlibm: a subnormal result is scaled by `scale`,
-// which rounds it once, as musl's `scalbn` does.
+// keeps the sign. Two differences from fdlibm:
+//
+// - For |y| > 2^31 and x within 2^-20 of 1, fdlibm takes log2(x) from the series
+//   t - t^2 / 2 + t^3 / 3 - t^4 / 4 of t = x - 1, and the product of t by the 24 bits of
+//   1 / ln 2 is not exact when t has more than 29 bits. Measured against MPFR, it gave 670 ULP
+//   for 1.0000001684596314^4204925455.0672526. Here every x takes the general reduction.
+// - A subnormal result is scaled by `scale`, which rounds it once, as musl's `scalbn` does.
 
 // 1.5, and log2(1.5) as a head of 32 bits and a tail.
 const BP1: f64 = 1.5;
@@ -696,9 +701,6 @@ const OVT: f64 = 8.0085662595372944372e-17;
 const CP: f64 = 9.61796693925975554329e-01;
 const CPH: f64 = 9.61796700954437255859e-01;
 const CPL: f64 = -7.02846165095275826516e-09;
-// 1 / ln 2 as a head of 24 bits and a tail.
-const IVLN2H: f64 = 1.44269502162933349609e+00;
-const IVLN2L: f64 = 1.92596299112661746887e-08;
 // 2^53.
 const TWO53: f64 = 9007199254740992;
 
@@ -809,9 +811,6 @@ export function powF64(x: f64, y: f64): f64 {
   if (xneg && yint == 1) {
     s = -1.0;
   }
-  // log2(|x|) as t1 + t2, with t1 of 32 bits.
-  let t1: f64 = 0.0;
-  let t2: f64 = 0.0;
   if (iy > 0x41e00000) {
     // |y| > 2^31.
     if (iy > 0x43f00000) {
@@ -840,73 +839,66 @@ export function powF64(x: f64, y: f64): f64 {
       }
       return s * two1023() * 2.0;
     }
-    // |1 - x| < 2^-20: log(x) is x - x^2 / 2 + x^3 / 3 - x^4 / 4 of t = x - 1.
-    const t = ax - 1.0;
-    const w = (t * t) * (0.5 - t * (0.3333333333333333333333 - t * 0.25));
-    const u = IVLN2H * t;
-    const v = t * IVLN2L - w * INVLN2;
-    t1 = head(u + v);
-    t2 = v - (t1 - u);
-  } else {
-    let n: i32 = 0;
-    let jx = ix;
-    let m = ax;
-    if (jx < 0x00100000) {
-      // A subnormal x: scale it up.
-      m = m * TWO53;
-      n = -53;
-      jx = __f64Hi(m);
-    }
-    n = n + i32(jx >> 20) - 0x3ff;
-    const jm = jx & 0x000fffff;
-    // m in [1, 2), then k = 1 for m in [sqrt(3/2), sqrt(3)), and m / 2 from sqrt(3).
-    jx = jm | 0x3ff00000;
-    let k: u32 = u32(0);
-    if (jm > 0x3988e) {
-      if (jm < 0xbb67a) {
-        k = u32(1);
-      } else {
-        n = n + 1;
-        jx = jx - 0x00100000;
-      }
-    }
-    m = __f64FromWords(jx, __f64Lo(m));
-    let bp: f64 = 1.0;
-    let dph: f64 = 0.0;
-    let dpl: f64 = 0.0;
-    if (k == 1) {
-      bp = BP1;
-      dph = DPH1;
-      dpl = DPL1;
-    }
-    // ss = (m - bp) / (m + bp) as sh + sl.
-    const u = m - bp;
-    const v = 1.0 / (m + bp);
-    const ss = u * v;
-    const sh = head(ss);
-    // m + bp: its head, made from the words of m, and its tail.
-    const th = __f64FromWords(((jx >> 1) | 0x20000000) + 0x00080000 + (k << 18), u32(0));
-    const tl = m - (th - bp);
-    const sl = v * ((u - sh * th) - sh * tl);
-    // log(m / bp).
-    let s2 = ss * ss;
-    let r = s2 * s2 * (PL1 + s2 * (PL2 + s2 * (PL3 + s2 * (PL4 + s2 * (PL5 + s2 * PL6)))));
-    r = r + sl * (sh + ss);
-    s2 = sh * sh;
-    const th2 = head(3.0 + s2 + r);
-    const tl2 = r - ((th2 - 3.0) - s2);
-    // ss (1 + ...) as u2 + v2, and 2 / (3 ln 2) times it.
-    const u2 = sh * th2;
-    const v2 = sl * th2 + tl2 * ss;
-    const ph = head(u2 + v2);
-    const pl = v2 - (ph - u2);
-    const zh = CPH * ph;
-    const zl = CPL * ph + pl * CP + dpl;
-    // log2(|x|) = n + dph + zh + zl.
-    const tn: f64 = f64(f32(n));
-    t1 = head(((zh + zl) + dph) + tn);
-    t2 = zl - (((t1 - tn) - dph) - zh);
   }
+  let e: i32 = 0;
+  let jx = ix;
+  let m = ax;
+  if (jx < 0x00100000) {
+    // A subnormal x: scale it up.
+    m = m * TWO53;
+    e = -53;
+    jx = __f64Hi(m);
+  }
+  e = e + i32(jx >> 20) - 0x3ff;
+  const jm = jx & 0x000fffff;
+  // m in [1, 2), then k = 1 for m in [sqrt(3/2), sqrt(3)), and m / 2 from sqrt(3).
+  jx = jm | 0x3ff00000;
+  let k: u32 = u32(0);
+  if (jm > 0x3988e) {
+    if (jm < 0xbb67a) {
+      k = u32(1);
+    } else {
+      e = e + 1;
+      jx = jx - 0x00100000;
+    }
+  }
+  m = __f64FromWords(jx, __f64Lo(m));
+  let bp: f64 = 1.0;
+  let dph: f64 = 0.0;
+  let dpl: f64 = 0.0;
+  if (k == 1) {
+    bp = BP1;
+    dph = DPH1;
+    dpl = DPL1;
+  }
+  // ss = (m - bp) / (m + bp) as sh + sl.
+  const lu = m - bp;
+  const lv = 1.0 / (m + bp);
+  const ss = lu * lv;
+  const sh = head(ss);
+  // m + bp: its head, made from the words of m, and its tail.
+  const th = __f64FromWords(((jx >> 1) | 0x20000000) + 0x00080000 + (k << 18), u32(0));
+  const tl = m - (th - bp);
+  const sl = lv * ((lu - sh * th) - sh * tl);
+  // log(m / bp).
+  let s2 = ss * ss;
+  let lr = s2 * s2 * (PL1 + s2 * (PL2 + s2 * (PL3 + s2 * (PL4 + s2 * (PL5 + s2 * PL6)))));
+  lr = lr + sl * (sh + ss);
+  s2 = sh * sh;
+  const th2 = head(3.0 + s2 + lr);
+  const tl2 = lr - ((th2 - 3.0) - s2);
+  // ss (1 + ...) as u2 + v2, and 2 / (3 ln 2) times it.
+  const u2 = sh * th2;
+  const v2 = sl * th2 + tl2 * ss;
+  const lph = head(u2 + v2);
+  const lpl = v2 - (lph - u2);
+  const zh = CPH * lph;
+  const zl = CPL * lph + lpl * CP + dpl;
+  // log2(|x|) = e + dph + zh + zl.
+  const tn: f64 = f64(f32(e));
+  // log2(|x|) as t1 + t2, with t1 of 32 bits.
+  const t1 = head(((zh + zl) + dph) + tn);
+  const t2 = zl - (((t1 - tn) - dph) - zh);
   // y = y1 + y2 with y1 of 32 bits, and (y1 + y2) (t1 + t2) as ph + pl.
   const y1 = __f64FromWords(hy, u32(0));
   const pl = (y - y1) * t1 + y * t2;

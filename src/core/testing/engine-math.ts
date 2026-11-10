@@ -23,7 +23,8 @@ export type EngineMathName =
   | 'tanh'
   | 'asinh'
   | 'acosh'
-  | 'atanh';
+  | 'atanh'
+  | 'pow';
 
 /** Run `f` with each function `names` of the engine's `Math` replaced by one that throws, and
  *  put the functions back afterwards, also when `f` throws. `f` is synchronous. */
