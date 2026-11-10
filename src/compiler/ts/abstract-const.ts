@@ -216,9 +216,22 @@ const projectedAnnotations = new WeakMap<ts.SourceFile, ReadonlySet<number>>();
 export function markProjectedAnnotations(
   sourceFile: ts.SourceFile,
   starts: readonly number[],
+  lengths?: readonly number[],
 ): void {
   projectedAnnotations.set(sourceFile, new Set(starts));
+  if (lengths === undefined) projectedSpans.delete(sourceFile);
+  else
+    projectedSpans.set(
+      sourceFile,
+      starts.map((at, i) => ({ at, length: lengths[i] ?? 0 })),
+    );
 }
+/** Each insertion of the projection, `[at, at + length)` in the projected text: what a named
+ *  edit is checked without, so the check compiles the author's text as `compile()` does. */
+const projectedSpans = new WeakMap<
+  ts.SourceFile,
+  readonly { readonly at: number; readonly length: number }[]
+>();
 
 /** Whether the declaration named by `name` has no annotation the author wrote. */
 export function hasNoWrittenType(
@@ -911,25 +924,27 @@ function lineOf(d: { readonly code?: string; readonly message: string }): string
   return `${d.code ?? ''}: ${d.message}`;
 }
 
-/** The errors of `sourceFile`'s text with `change` made, each as `code: message`. */
+/** The errors of `sourceFile`'s text with `change` made, each as `code: message`. In the editor
+ *  the projection's insertions are taken out first, so the author's text is compiled, with the
+ *  edit made, as `compile()` reads it; an insertion the change replaces goes with it. */
 function compileEdited(
   sourceFile: ts.SourceFile,
   change: { readonly start: number; readonly end: number; readonly text: string },
   check: DivisionEditCheck,
 ): string[] {
-  const text =
-    sourceFile.text.slice(0, change.start) + change.text + sourceFile.text.slice(change.end);
-  const shift = change.text.length - (change.end - change.start);
-  const projected = projectedAnnotations.get(sourceFile);
-  const starts =
-    projected === undefined
-      ? undefined
-      : [...projected]
-          .filter((at) => at < change.start || at >= change.end)
-          .map((at) => (at >= change.end ? at + shift : at));
+  const edits = [{ start: change.start, end: change.end, text: change.text }];
+  for (const { at, length } of projectedSpans.get(sourceFile) ?? []) {
+    if (at + length <= change.start || at >= change.end) {
+      edits.push({ start: at, end: at + length, text: '' });
+    }
+  }
+  let text = sourceFile.text;
+  for (const e of edits.sort((a, b) => b.start - a.start)) {
+    text = text.slice(0, e.start) + e.text + text.slice(e.end);
+  }
   checkingEdit = true;
   try {
-    return check(text, starts).map(lineOf);
+    return check(text, undefined).map(lineOf);
   } finally {
     checkingEdit = false;
   }

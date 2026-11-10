@@ -472,6 +472,11 @@ export class Projection {
     });
   }
 
+  /** The length of each insertion, in the order of `insertionStarts`. */
+  insertionLengths(): number[] {
+    return this.insertions.map((insertion) => insertion.text.length);
+  }
+
   /** Whether the two texts differ at all. */
   get isIdentity(): boolean {
     return this.insertions.length === 0;

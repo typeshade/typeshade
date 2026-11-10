@@ -330,7 +330,11 @@ export function createTypeshadeLanguageServiceWith(
     // item 2): a static field of written numbers keeps no fixed type under the analysis.
     const projection = tsHost.projectionOf(uri);
     if (projection !== undefined)
-      markProjectedAnnotations(sourceFile, projection.insertionStarts());
+      markProjectedAnnotations(
+        sourceFile,
+        projection.insertionStarts(),
+        projection.insertionLengths(),
+      );
     const entry: DocumentCacheEntry = { key, analysis: analyze(sourceFile, imports) };
     cache.set(uri, entry);
     return entry;

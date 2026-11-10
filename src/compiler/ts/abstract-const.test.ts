@@ -1317,6 +1317,9 @@ ${H3}export function t(vi: u32, x: f32, xs: array<f32, 8>): f32 {
     }
     // A static field the projection annotates: the declaration edit replaces that type.
     accepted(editOf(t('return xs[S.K / 2] + f32(h(S.K));', 'class S { static K = 7; }')));
+    // A field the projection annotates from the constant: the editor checks the edit on the
+    // author's text, as compile() does, and names the same edit.
+    accepted(editOf(t('h(k); return xs[A.n / 2];', 'const k = 7;\nclass A { static n = k; }')));
     // Where no edit compiles, the program holds a second mistake (an `f32` sum passed to a `u32`
     // parameter; a `u32` sum returned from an `f32` function, which `main` reported): the edit
     // that adds fewest errors is named, and each mismatch around the `/` is kept.
