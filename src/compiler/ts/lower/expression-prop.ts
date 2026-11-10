@@ -1,3 +1,4 @@
+import { markAbstractRead } from '../abstract-const.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { Expr } from '../../../core/ir/nodes.js';
@@ -224,7 +225,11 @@ function lowerPropertyAccessOf(
       const ref: Expr =
         binding.kind === 'modvar'
           ? { op: 'varref', type: binding.type, name: irNameOf(binding) }
-          : { op: 'constref', type: binding.type, name: binding.name };
+          : markAbstractRead(
+              { op: 'constref', type: binding.type, name: binding.name },
+              node,
+              binding.abstract,
+            );
       kernelStaticReadNames.set(ref, writtenText(node).replace(/\s+/g, ' ').trim());
       return ref;
     }

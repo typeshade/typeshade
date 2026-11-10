@@ -2,6 +2,7 @@
 //
 // Implements: Rule 6.3, Rule 7.4 (docs/language-design.md; traced in reqs/).
 
+import { abstractConstFor, hasNoWrittenType, recordModuleAbstractConst } from './abstract-const.js';
 import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
 import { isStageCall } from './stage-call.js';
@@ -963,12 +964,27 @@ function lowerOne(
     return undefined;
   }
   const value = k === 'f32' ? numeric : k === 'bool' ? numeric : Math.trunc(numeric);
+  // An unannotated constant of written numbers has no fixed type: each read takes the type the
+  // written number would take there (Rules 5.1 and 5.2, change 0134 item 2). Its declaration
+  // stays the `f32` one, which an `f32` read names.
+  const abstract =
+    hasNoWrittenType(decl, sourceFile) && k === 'f32' && !called
+      ? abstractConstFor(
+          ts.isPropertyDeclaration(decl) && ts.isClassLike(decl.parent) && decl.parent.name
+            ? `${decl.parent.name.text}.${decl.name.getText(sourceFile).replace(/^#/, '')}`
+            : decl.name.getText(sourceFile),
+          decl.initializer,
+          ts.isPropertyDeclaration(decl) ? 'static' : 'const',
+        )
+      : undefined;
+  if (abstract !== undefined) recordModuleAbstractConst(sourceFile, name, abstract);
   scope.define({
     kind: 'module',
     name,
     type,
     mutable: false,
     constValue: typeof folded === 'boolean' ? folded : value,
+    ...(abstract !== undefined ? { abstract } : {}),
   });
   scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'const', type });
   return called

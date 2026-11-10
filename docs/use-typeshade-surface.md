@@ -1031,6 +1031,38 @@ export function pick(i: i32): vec4 {
 }
 ```
 
+**A constant of a written number has no fixed type** (Rules 5.1 and 5.2, change 0134). A
+`const` with no annotation whose initializer is written numbers, or `+`, `-`, `*` and `/` over
+written numbers and such constants, takes its type where it is read. An integer-written one is
+an `i32`, a `u32`, an `f32` or an `f64` at each read. A float-written one (`const C = 0.1`) is
+an `f32` or an `f64`. Each read takes the type the written number would take in the same place:
+
+```ts
+"use typeshade";
+
+const K = 3;
+const N = 8;
+const C = 0.1;
+const M = K * 2; // a constant of no fixed type too; its value is ECMAScript's, 6
+
+export function sum(vi: u32, x: f32, d: f64, xs: array<f32, 8>): f32 {
+  let a = 0.;
+  for (let j = 0; j < N; j++) {
+    a += xs[j]; // N is an i32 beside j
+  }
+  const n = vi * K + u32(M); // K is 3u here; u32(M) converts the written number, 6u
+  return a + x * K + f32(d * C) + f32(n); // K is an f32 here; C carries the full double
+}
+```
+
+The emitted text keeps the declaration `const K: f32 = 3.0;`, and a read that takes `f32`
+names it. A read of another type writes the value: `vi * 3u`. So a constant that `f32` does
+not hold exactly is read at its exact value through a conversion or beside an `f64`:
+`const PRIME = 2654435761; vi * u32(PRIME)` multiplies by `2654435761u`. To keep the `f32`
+value, write the type: `const PRIME: f32 = 2654435761`. A function-local `const` and a static
+field that no code writes follow the same rule. §13 gives the rule for a `/` over such a
+constant.
+
 The value must be **constant**: a literal, a **whole** constant declared earlier in the file,
 a constructor over those, arithmetic over those with a divisor that is not zero, or a **math
 builtin** over those (`const K: f32 = sin(1.)`, `const UP: vec3 = normalize(vec3(1., 1., 0.))`,
@@ -1306,8 +1338,8 @@ literal. A shadowed local is a separate declaration, and a call from a closure c
 the outer local's type. Uses that demand conflicting concrete types, such as `i32` and
 `f32`, are refused with `TS8003`: write an annotation and cast the arguments that need
 another type. The initializer still has to fit the chosen integer type. Explicit annotations,
-casts, float-written initializers, module constants and loop induction variables keep their
-existing rules. For `new Hit(objectIndex)` or `hit.accept(objectIndex)`, the declared
+casts, float-written initializers and loop induction variables keep their existing rules. A
+`const` of a written number is a constant of no fixed type (below, and §12). For `new Hit(objectIndex)` or `hit.accept(objectIndex)`, the declared
 parameter supplies the same demand. An inherited constructor or method supplies its
 signature; an override supplies its own. `let selected: i32 = objectIndex` and
 `selected = objectIndex` take the explicitly typed destination's demand. Conversely,
@@ -1319,8 +1351,29 @@ Calls through unresolved names or function values and direct calls to generic fu
 do not establish an integer type. A concrete member parameter such as `index: i32` can
 establish a demand inside a generic class; an unresolved parameter such as `index: T` cannot.
 
+**A `const` of a written number takes its type at each read** (Rules 5.1 and 5.2, change 0134;
+§12 shows the forms). `const k = 1` in a function, `const K = 3` at module scope and a static
+field that no code writes are read as the written number is: `vi * K` is `vi * 3u`, `x * K`
+is an `f32` product, and `xs[K]` is an index. A `/` needs one more rule, because a written
+`7 / 2` is `3.5` and an integer division is `3`. A `/` is an integer division only when one
+operand has an integer type the author wrote. So `vi / K` with a `u32` `vi` divides integers,
+and `x / K` with an `f32` `x` divides floats. A `/` whose operands are all written numbers and
+constants of no fixed type is refused where another line reads one of those constants as an
+integer:
+
+```ts
+const N = 8;
+const HALF = N / 2; // refused when a loop bound reads N as an i32
+// TS8003: "N" is an i32 where another line reads it, and no operand of "N / 2" has a declared
+// type, so the "/" does not say which division it is. Write "const N: i32 = 8" for the integer
+// division, or "f32(N) / 2" for 4.
+```
+
+Where no line reads `N` as an integer, `N / 2` is the ECMAScript value, `4`, and `7 / 2` is
+`3.5`.
+
 **No window is open on the default.** Everything above is about a position or use that
-DECLARES a type. Where nothing establishes one (`let i = 0`, `const K = 5`), the literal takes
+DECLARES a type. Where nothing establishes one for a variable (`let i = 0`), the literal takes
 `f32` today, so `xs[i]` is `Index must be i32 or u32`. Change 0134 decided that a number takes
 its type from every place it reaches, with no default for an author to learn. It supersedes
 #148's flip of this default to `i32` and retired the warning `TS8053`, which announced that <!-- doc-refs: skip — a retired code, named as retired -->

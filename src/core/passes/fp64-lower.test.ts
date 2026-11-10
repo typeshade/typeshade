@@ -406,13 +406,15 @@ function half(x: f64): f64 {
     // as 'f32'". `vec2<f32>(1e+38, 0.0) * 4.0` is such an expression; df64_mul over the same
     // pair is a call, evaluated at run time, where the overflow is an infinity.
     const { module: m, diagnostics } = compile(`"use typeshade";
-const K = 1e38;
+const K: f32 = 1e38;
 const scale: override<f32> = 3e30;
 class U { c: f64; pad: vec2; }
 declare const u: uniform<U>;
 declare const dst: storage<array<f32>, "read_write">;
 @compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id">): void {
-  const k = 1e38;
+  // Each constant writes its type: an unannotated one has no fixed type (change 0134), so
+  // f64(k) would be the written f64(1e38), which the front end folds with the * 4..
+  const k: f32 = 1e38;
   const t: f64 = u.c + f64(dst[gid.x]);
   dst[1] = f32(f64(k) * 4. + u.c);
   dst[2] = f32(f64(K) * 4. + u.c);

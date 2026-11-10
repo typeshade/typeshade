@@ -461,6 +461,17 @@ export class Projection {
     );
   }
 
+  /** The offset, in the projected text, at which each insertion starts. An annotation that
+   *  starts at one is the projection's and not the author's (`abstract-const.ts`). */
+  insertionStarts(): number[] {
+    let shift = 0;
+    return this.insertions.map((insertion) => {
+      const at = insertion.at + shift;
+      shift += insertion.text.length;
+      return at;
+    });
+  }
+
   /** Whether the two texts differ at all. */
   get isIdentity(): boolean {
     return this.insertions.length === 0;

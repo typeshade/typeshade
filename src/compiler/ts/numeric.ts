@@ -20,6 +20,7 @@ import {
 import { fitsTarget, foldNumericLit, retargetIntLit } from './lit-coerce.js';
 import { authorTypeText } from './context.js';
 import { wrapInt } from '../../core/passes/opt/expr-utils.js';
+import { abstractLiteralOf } from './abstract-const.js';
 
 export const SCALAR_CAST: Readonly<Record<string, ShaderType>> = {
   f32: f32T,
@@ -68,6 +69,13 @@ export function retargetLit(expr: Expr, node: ts.Expression, peer: ShaderType): 
  *  type mismatch with nothing an author could write instead (#151 F64-02). An explicit call
  *  such as `f32(0.1)` is left alone: it says which precision it means. */
 function retargetF64Lit(expr: Expr, node: ts.Expression): Expr {
+  // A constant of no fixed type beside an `f64` carries the full double, as the written number
+  // does (Rule 5.2, change 0134 item 2); where it does not become one it is left as lowered.
+  const abstract = abstractLiteralOf(expr);
+  if (abstract !== undefined) {
+    const lifted = retargetF64Lit(abstract, node);
+    return lifted.op === 'lit' && isF64(lifted.type) ? lifted : expr;
+  }
   const folded = foldNumericLit(expr);
   if (folded.op !== 'lit' || typeof folded.value !== 'number') return folded;
   if (typeKey(folded.type) !== 'f32') return folded;

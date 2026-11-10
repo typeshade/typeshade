@@ -1,3 +1,4 @@
+import { abstractLiteralOf, isAbstractRead } from '../abstract-const.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { Expr } from '../../../core/ir/nodes.js';
@@ -1161,7 +1162,8 @@ function isBareNumericLiteral(node: ts.Expression): boolean {
   if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) {
     return isBareNumericLiteral(node.operand);
   }
-  return ts.isNumericLiteral(node);
+  // A constant of no fixed type has no type to lend either (change 0134 item 2).
+  return ts.isNumericLiteral(node) || isAbstractRead(node);
 }
 
 /** A bare integer literal argument of a builtin call takes the kind of the call's other
@@ -2560,7 +2562,8 @@ function vecArg(
  *  call's to type; `i32(0)` says what it is, and is answered like any other i32. */
 function isBareNumber(node: ts.Expression): boolean {
   const inner = ts.isPrefixUnaryExpression(node) ? node.operand : node;
-  return ts.isNumericLiteral(inner);
+  // A constant of no fixed type is read as its written number (change 0134 item 2).
+  return ts.isNumericLiteral(inner) || isAbstractRead(inner);
 }
 
 /** The source the author wrote for an argument, for the "Write f32(l)." half of a refusal.
@@ -2653,7 +2656,7 @@ function intArg(
   }
   // A NEGATED literal is a unop, not a lit, and reached the backend as `-(1.0)`. Folded first
   // so the range check below sees the number the author wrote.
-  const lit = foldNumericLit(arg);
+  const lit = foldNumericLit(abstractLiteralOf(arg) ?? arg);
   if (!isBareNumber(node) || lit.op !== 'lit' || typeof lit.value !== 'number') {
     const key = typeKey(arg.type);
     if (key === 'i32' || key === 'u32') return arg;

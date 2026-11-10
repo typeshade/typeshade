@@ -2,6 +2,7 @@
 //
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
+import { moduleAbstractConst } from '../abstract-const.js';
 import { attributeDecoratorsOf, isTypeDecorator } from '../attribute-types.js';
 import { variableRefused } from '../refused-names.js';
 import { moduleVarSourceName } from '../module-var-names.js';
@@ -3155,6 +3156,9 @@ export function functionScope(
       // a division by zero to the constant folder (#68). The initializer rides along instead.
       constValue: c.type.kind === 'scalar' ? c.cpuValue : undefined,
       indexConstValue: moduleIndexConst(c, scope),
+      ...(moduleAbstractConst(sourceFile, c.name) !== undefined
+        ? { abstract: moduleAbstractConst(sourceFile, c.name) }
+        : {}),
       ...(c.type.kind !== 'scalar' && c.valueExpr !== undefined ? { valueExpr: c.valueExpr } : {}),
     });
   }

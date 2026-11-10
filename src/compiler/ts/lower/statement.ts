@@ -2,6 +2,12 @@
 //
 // Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
 
+import {
+  abstractConstFor,
+  abstractLiteralOf,
+  abstractTreeOf,
+  type AbstractConst,
+} from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import { foldIndexConst } from '../index-bound.js';
 import ts from 'typescript';
@@ -577,7 +583,14 @@ function lowerDeclarationKind(
     return undefined;
   }
   let annotated: ShaderType | undefined;
-  if (decl.type === undefined) {
+  // A `const` of written numbers is a constant of no fixed type (change 0134 item 2): each read
+  // takes its own type, so the declared uses give the declaration none.
+  const writtenConst =
+    isConst &&
+    decl.type === undefined &&
+    decl.initializer !== undefined &&
+    abstractTreeOf(decl.initializer) !== undefined;
+  if (decl.type === undefined && !writtenConst) {
     const inferred = localNumericInference(decl, sourceFile);
     annotated = inferred?.type;
     if (inferred?.conflict !== undefined) {
@@ -805,6 +818,9 @@ function lowerDeclarationKind(
     aliasOf,
     decl.name,
     isConst ? foldIndexConst(init, scope) : undefined,
+    isConst && decl.type === undefined && typeKey(bindingType) === 'f32'
+      ? abstractConstFor(name, decl.initializer)
+      : undefined,
   );
   if (!bound) return undefined;
   // The statement carries the IR name, `p_1` for a `p` that shadows or follows another `p` in
@@ -1301,6 +1317,7 @@ function defineLocal(
   aliasOf?: string,
   nameNode: ts.Node = decl.name,
   indexConstValue?: number,
+  abstract?: AbstractConst,
 ): Binding | undefined {
   let bound: Binding;
   try {
@@ -1312,6 +1329,7 @@ function defineLocal(
       constValue,
       indexConstValue,
       ...(aliasOf !== undefined ? { aliasOf } : {}),
+      ...(abstract !== undefined ? { abstract } : {}),
     });
   } catch (e) {
     pushDiag(
@@ -1724,7 +1742,10 @@ function lowerBitwiseAssignOpTo(
   // Folded first, so a leading minus is part of the number: `y |= -2` reaches here as a unop
   // over a literal, which the `op === 'lit'` retype below never matched, and the author was
   // told their i32 target could not take an f32.
-  const folded = foldNumericLit(value);
+  // A constant of no fixed type is read as its written number (change 0134 item 2).
+  const folded = foldNumericLit(
+    abstractTreeOf(right)?.integerWritten === true ? (abstractLiteralOf(value) ?? value) : value,
+  );
   if (folded.op === 'lit' && typeof folded.value === 'number' && Number.isInteger(folded.value)) {
     if (folded.value < 0 && (isShift || typeKey(want) === 'u32')) {
       pushDiag(
@@ -1825,7 +1846,15 @@ function lowerAssignOpTo(
     );
     return undefined;
   }
-  if (value.op === 'lit' && typeof value.value === 'number' && isNumericScalar(target.type)) {
+  if (abstractLiteralOf(value) !== undefined && isNumericScalar(target.type)) {
+    // `n += K` with a constant of no fixed type: the read takes the target's integer type, as
+    // the written number does, and keeps the constant's name beside an `f32` (change 0134).
+    value = retargetLit(value, right, target.type);
+  } else if (
+    value.op === 'lit' &&
+    typeof value.value === 'number' &&
+    isNumericScalar(target.type)
+  ) {
     value = { op: 'lit', type: target.type, value: value.value };
   } else if (isVec(target.type) || isVec64(target.type) || isF64(target.type)) {
     // `v *= 2` with an integer vector target types the literal as the element kind; a

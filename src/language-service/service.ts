@@ -1,5 +1,6 @@
 // === createTypeshadeLanguageService: the TypeshadeLanguageService of design doc §4 ===
 
+import { markProjectedAnnotations } from '../compiler/ts/abstract-const.js';
 import ts from 'typescript';
 import { emitModule } from '../core/backends/wgsl.js';
 import { emitGlslModule } from '../core/backends/glsl.js';
@@ -278,6 +279,11 @@ export function createTypeshadeLanguageServiceWith(
     const key = dependencyKey(uri);
     const cached = cache.get(uri);
     if (cached && cached.key === key) return cached;
+    // The annotations the projection wrote into this text are not the author's (change 0134
+    // item 2): a static field of written numbers keeps no fixed type under the analysis.
+    const projection = tsHost.projectionOf(uri);
+    if (projection !== undefined)
+      markProjectedAnnotations(sourceFile, projection.insertionStarts());
     const entry: DocumentCacheEntry = { key, analysis: analyze(sourceFile, imports) };
     cache.set(uri, entry);
     return entry;

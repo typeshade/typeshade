@@ -11,6 +11,7 @@ import { resolveMathExpand } from '../math-alias.js';
 import { expandMath } from '../math-expand.js';
 import { lowerRandomHash } from '../random-hash.js';
 import { lowerScalarCast } from '../numeric.js';
+import { abstractLiteralOf } from '../abstract-const.js';
 import { foldConstNumber } from '../loop-bound.js';
 import { foldF64ModuleConst } from '../module-const-f64.js';
 import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
@@ -69,8 +70,12 @@ export function lowerScalarCastCall(
     );
     return undefined;
   }
-  const arg = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
-  if (!arg) return undefined;
+  const lowered = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
+  if (!lowered) return undefined;
+  // A cast is a read of a constant of no fixed type: `u32(K)` converts the written number, as
+  // `u32(3)` does, at its exact value (change 0134 item 2). `f32(K)` keeps the name: the
+  // constant is an `f32` there.
+  const arg = name === 'f32' || name === 'bool' ? lowered : (abstractLiteralOf(lowered) ?? lowered);
   const out = lowerScalarCast(
     name,
     arg,

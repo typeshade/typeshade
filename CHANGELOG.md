@@ -211,6 +211,38 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **A `const` of a written number has no fixed type; each read takes the type the written number
+  would take there** (change 0134 item 2; Rules 5.1 and 5.2, surface §12 and §13;
+  `docs/owner-decisions.md` OD-7). It covers a module `const`, a function-local `const` and a
+  static field that no code writes, with no annotation, whose initializer is written numbers or
+  `+ - * /` over written numbers and such constants. `const K = 3; vi * K` is `vi * 3u`, `x * K`
+  is an `f32` product, and `const N = 8; for (let j = 0; j < N; j++)` compiles. The emitted
+  declaration stays `const K: f32 = 3.0;`, and an `f32` read names it. No official release
+  carried the old meaning, so the change takes effect with no warning release (OD-6).
+  **Values that change**, each through a conversion or beside an `f64`, where the constant was
+  rounded to `f32` before:
+  - `const PRIME = 2654435761; vi * u32(PRIME)` multiplied by 2654435840 and multiplies by 2654435761.
+  - `const K = 16777217; vi + u32(K)` added 16777216 and adds 16777217.
+  - `const K = -16777219; i32(K)` read -16777220 and reads -16777219.
+  - `class S { static K = 16777217; }` with `u32(S.K)` read 16777216 and reads 16777217.
+  - `const K = 7; x * (K / 3)` with `x: f64` carried the `f32` quotient 2.3333332538604736 and
+    carries the double of 7 / 3. `const M = K / 3;` beside an `f64` does the same.
+  - `const C = 0.1;` beside an `f64` carried the `f32` value 0.10000000149011612 and carries the
+    double 0.1, as the written `x * 0.1` does.
+
+  **Newly refused** (`TS8003`): a `/` whose operands are all written numbers and constants of no
+  fixed type, where another line reads one of those constants as an integer. With
+  `function h(a: u32): u32`, `const k = 7; h(k); return f32(k / 2);` emitted `3.0`,
+  `const k = 7; const r = h(k); return r + k / 2;` emitted `r + 3u`, and
+  `const k = 7; h(k); return xs[k / 2];` emitted `xs[3u]`. `vi / k` with a declared `u32` `vi`
+  stays an integer division, and `x / N` with a declared `f32` `x` a float one.
+  **Migration:** to keep an `f32` constant, write its type (`const K: f32 = 16777217`). For a
+  refused `/`, write the constant's type for the integer division (`const k: u32 = 7`) or
+  convert the operand for the float one (`f32(k) / 2`), as the sentence says. One more program
+  changes: `f64(K)` on `const K = 1e38` is the written `f64(1e38)`, so `f64(K) * 4.` folds to a
+  double the emulation cannot hold and is refused as the written form is; write
+  `const K: f32 = 1e38` to keep the run-time product.
+
 - **`@vertex()` and `@fragment()` are refused, and so is a second `@workgroup_size([n])`** (Rules
   8.1 and 8.22; change 0130, amendment A1; the owner's decisions of 2026-11-10). Both forms
   compiled with no diagnostic in `compile()` and in the editor: the empty list was read as the

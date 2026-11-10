@@ -1,6 +1,7 @@
 // === Expression lowering ===
 //
 // Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
+import { markAbstractRead, noteAbstractDivision } from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js';
@@ -539,9 +540,17 @@ function lowerIdentifier(
       if (isOptional(binding.type)) {
         return lowerOptionalRead(node, binding, contextual, sourceFile, diagnostics);
       }
-      return { op: 'param', type: binding.type, name: irNameOf(binding) };
+      return markAbstractRead(
+        { op: 'param', type: binding.type, name: irNameOf(binding) },
+        node,
+        binding.abstract,
+      );
     case 'module':
-      return { op: 'constref', type: binding.type, name: binding.name };
+      return markAbstractRead(
+        { op: 'constref', type: binding.type, name: binding.name },
+        node,
+        binding.abstract,
+      );
     // A resource binding is a module-scope `var`, so it reads as a `varref` — the same shape
     // the fn() EDSL builds. `constref` here is what #14 was: invisible to the binding
     // reachability walk, which counts `varref` names alone. Spelled as an exhaustive switch
@@ -579,7 +588,11 @@ function lowerIdentifier(
       if (binding.kind === 'local' && isOptional(binding.type)) {
         return lowerOptionalRead(node, binding, contextual, sourceFile, diagnostics);
       }
-      return { op: 'varref', type: binding.type, name: irNameOf(binding) };
+      return markAbstractRead(
+        { op: 'varref', type: binding.type, name: irNameOf(binding) },
+        node,
+        binding.abstract,
+      );
     // A specialization constant is its own IR node: the optimizer must never fold an
     // overrideref, since its value is not known until the pipeline is built (#8 A7).
     case 'override':
@@ -821,6 +834,9 @@ function lowerBinary(
   const rightSetup =
     LOGICAL[node.operatorToken.kind] !== undefined ? scope.takeHoisted(rightMark) : [];
   if (!left || !right) return undefined;
+  // A `/` over constants of no fixed type and written numbers alone (change 0134, decisions Q10
+  // and Q11): recorded, and refused once the module's reads are known.
+  noteAbstractDivision(node, sourceFile);
   // `v === x` with an optional operand is ECMAScript's equality (Rule 7.10); any other
   // operator takes the `T`, which an optional nothing narrowed is not.
   const equality = lowerOptionalEquality(node, left, right, sourceFile, scope, diagnostics);

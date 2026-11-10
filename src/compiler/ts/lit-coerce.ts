@@ -8,13 +8,16 @@ import { f64T, isF64 } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
+import { abstractLiteralOf, isIntegerWrittenRead, noteIntegerRead } from './abstract-const.js';
 
 export function isIntegerLiteralNode(node: ts.Expression): boolean {
   if (ts.isParenthesizedExpression(node)) return isIntegerLiteralNode(node.expression);
   if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) {
     return isIntegerLiteralNode(node.operand);
   }
-  return ts.isNumericLiteral(node) && isIntegerWritten(node);
+  // A read of a constant of no fixed type stands where its written number could (item 2 of
+  // change 0134).
+  return (ts.isNumericLiteral(node) && isIntegerWritten(node)) || isIntegerWrittenRead(node);
 }
 
 /** Whether a numeric literal is written as an integer (Rule 5.1): `1`, `0x9e3779b9`, `0b1011`,
@@ -100,6 +103,21 @@ export function foldNumericLit(expr: Expr): Expr {
 }
 
 export function retargetIntLit(expr: Expr, node: ts.Expression, peer: ShaderType): Expr {
+  // A read of a constant of no fixed type, or arithmetic over such reads and written numbers,
+  // takes an integer peer's type as the written number would (Rule 5.1, change 0134 item 2).
+  // Beside anything else it is left as lowered, so an `f32` read keeps the constant's name.
+  const abstract = abstractLiteralOf(expr);
+  if (abstract !== undefined) {
+    if (!isIntScalar(peer)) return expr;
+    const out = retargetWrittenIntLit(abstract, node, peer);
+    if (out.op !== 'lit' || !isIntScalar(out.type)) return expr;
+    noteIntegerRead(expr, typeKey(out.type) === 'u32' ? 'u32' : 'i32');
+    return out;
+  }
+  return retargetWrittenIntLit(expr, node, peer);
+}
+
+function retargetWrittenIntLit(expr: Expr, node: ts.Expression, peer: ShaderType): Expr {
   const folded = foldNumericLit(expr);
   if (folded.op !== 'lit' || typeof folded.value !== 'number') return folded;
   if (!isIntScalar(peer)) return folded;
@@ -121,7 +139,8 @@ function stripParens(node: ts.Expression): ts.Expression {
  *  keeps whatever mismatch it had. */
 function retargetF64DeclaredLit(expr: Expr, node: ts.Expression): Expr {
   if (ts.isCallExpression(stripParens(node))) return expr;
-  const folded = foldNumericLit(expr);
+  // A constant of no fixed type read in a declared `f64` position carries the full double.
+  const folded = foldNumericLit(abstractLiteralOf(expr) ?? expr);
   if (folded.op !== 'lit' || typeof folded.value !== 'number') return expr;
   if (typeKey(folded.type) !== 'f32') return expr;
   return { op: 'lit', type: f64T, value: folded.value };
@@ -227,7 +246,7 @@ export function outOfRangeIntLit(
     );
   }
   if (!isIntegerLiteralTree(inner)) return undefined;
-  const folded = foldNumericLit(expr);
+  const folded = foldNumericLit(abstractLiteralOf(expr) ?? expr);
   if (folded.op !== 'lit' || typeof folded.value !== 'number') return undefined;
   if (!Number.isInteger(folded.value) || fitsTarget(folded.value, target)) return undefined;
   return { value: folded.value, node: inner };
