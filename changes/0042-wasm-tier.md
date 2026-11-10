@@ -1,7 +1,7 @@
 ---
 id: '0042'
 title: A kernel function, a `@compute` entry and a full-screen draw run on a WebAssembly tier between WebGL2 and the JavaScript CPU tier, in the one memory region of change 0138, with the oracle's bits on every engine
-status: draft
+status: accepted
 rules:
   - '1.3'
   - '7.2'
@@ -54,7 +54,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0042`, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Identity and status           | Change proposal `0042`, `status: accepted`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Date and attribution          | First written 2026-10-05 (Asia/Seoul) by the repository's coding agent at the owner's direction, from design issue [#459](https://github.com/typeshade/typeshade/issues/459). Revised twice on 2026-11-10 (UTC) by an AI agent (Claude Code) at the owner's direction: first against proposal 0138 with the owner's eight answers, then with the owner's seven further answers and the independent review. Each date is an authoring date. None is an approval date. Git authorship is not an approval signature.           |
 | Request source                | The owner (Seungup). The first draft: the owner's intent "typeshade wasm" and the measurements of #459. The revisions: the owner's answers in the Claude Code session of 2026-11-10 (Owner's decisions), and Amendment A4 of proposal 0138, which requires this revision.                                                                                                                                                                                                                                                   |
 | Applicability / Effectivity   | The call layer (`src/core/host-kernel.ts`, `host-entry.ts`, `host-draw.ts`, `host-compute.ts`, `resident.ts`, `tiers.ts`), the op library and the oracle (`src/core/cpu-runtime.ts`, `oracle.ts`, `cpu-codegen.ts`), a new encoder and a new libm beside them, the region (`src/runtime/region.ts`), the CPU backend of the RHI (`src/rhi/cpu.ts`), the generated module (`src/compiler/ts/host-face.ts`, `src/vite.ts`, `tshc`), `typeshade/runtime/internal`, the documents named below, and the downstream repositories. |
@@ -829,16 +829,23 @@ No finding is open. The revision that answers the findings has not been reviewed
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require:
-
-- the owner's decision on this proposal and its pull request reference;
-- the approved revision of this file and its scope;
-- the final rule number and surface sections against the tree at that time;
-- the order of the milestones of stage 1.
-
-The owner's fifteen decisions of 2026-11-10 (Owner's decisions) are answers to questions. They
-are not the acceptance of this proposal. No responsibility, milestone date, duration or cost is
-assigned by this draft.
+- **Decision.** The owner accepted this proposal on 2026-11-10 in the Claude Code session
+  ("수락 + 머지"), after the fifteen decisions of Owner's decisions and the independent review
+  record. The direction is accepted now. Each open question is decided by the owner before the
+  milestone that needs it starts (Open questions by milestone). The merge of pull request
+  [#1162](https://github.com/typeshade/typeshade/pull/1162) with `status: accepted` records the
+  acceptance.
+- **Approved scope.** The front matter as it stands, the stages and the milestones of stage 1.
+  The revision that answers the independent review was not reviewed a second time; the owner
+  accepted it with that stated.
+- **The libm's source.** Asked whether the libm is one `"use typeshade"` source or two
+  hand-written texts held by a test (N14), the owner chose "먼저 작은 실험": before milestone 1a,
+  one function (`sin`) is written in TypeShade and its JavaScript form and the interpreter are
+  held to the same bits. The result decides N14, and is reported to the owner.
+- **Responsibilities.** Implementation is not yet assigned. Each implementing pull request
+  carries `Change: 0042`. The prerequisite pull request (the tier names) comes first.
+- **Milestones.** Stage 1 in the order 1a to 1h. Duration and cost are not estimated. The rule
+  number and the surface sections are fixed against the tree at each implementing pull request.
 
 ### Configuration and validation record
 
