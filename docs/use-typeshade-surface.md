@@ -490,7 +490,8 @@ export function fs(v: VsOut): Color {
   `value between stages at @location(0)` on `uv`, `vertex attribute at @location(1)`,
   `render target at @location(0)`, and `returns a render target at @location(0)` on a fragment
   entry with a bare result. A value with no location shows no such line: a built-in value, a
-  field of a struct no entry uses, and a value refused with `TS8010`.
+  field of a struct no entry uses, and a value refused with `TS8010`. A field of a struct that
+  another file declares shows the number it has in the program that imports it (§68).
 
 ### What an entry may return
 

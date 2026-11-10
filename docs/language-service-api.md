@@ -522,7 +522,8 @@ since those names are not declarations TypeScript would carry a JSDoc for.
 
 Three kinds of name keep TypeScript's quick info instead. One this document does not declare (an
 imported symbol, a host-side declaration) is not in this document's table at all, since a span
-means nothing without the file it indexes. One the front end could not lower is never recorded
+means nothing without the file it indexes (its location line, below, is joined through the
+linked program). One the front end could not lower is never recorded
 either, so `for (let j = 0; ...)`, which the loop-induction check rejects, still hovers as
 `let j: number`, and so does `let a = d * 2.` where `d: f64` and the multiplication was refused:
 the front end's own diagnostic on the same line says why. And a data class name keeps
@@ -547,10 +548,38 @@ location in a struct no entry uses shows `user-defined input or output at @locat
 backends use (`ioAttrOf` and `retIoAttrOf`, `src/core/ir/entry-io.ts`). So the hover, the emitted
 `@location(n)` and `reflect()` name one number (Rule 12.7). A value with no location in the IR
 shows no line: a built-in value, a field of a struct no entry uses that writes none, and a field
-or parameter the front end refused to number (`TS8010`). A field of a struct that another
-document declares keeps TypeScript's quick info, as every imported symbol does, so it shows no
-line. `src/language-service/entry-location-hover.test.ts` holds each case to `reflect()` on the
-same source.
+or parameter the front end refused to number (`TS8010`).
+`src/language-service/entry-location-hover.test.ts` holds each case to `reflect()` on the same
+source.
+
+A field of a struct that another document declares (`v.uv`, where
+`import { VsOut } from "./io.shade.ts"` brought the struct) keeps TypeScript's quick info for
+its signature, as every imported symbol does, and gains the same line. A program is a document
+and the shader files it imports (Rule 3.9), and the cached analysis of a document is the
+analysis of its program. The number is the one that program has, which `compile()` and
+`reflect()` of the hovered document give.
+
+- The join is the declaration, not the name. TypeScript resolves the hovered name to a file and
+  an offset. The linker kept, for every span of the linked source, the file and the offsets
+  the author wrote (`LinkedProgram.map`, `src/compiler/ts/link.ts`). `linkedFieldAt`
+  (`src/language-service/hover.ts`) finds the field the front end declared there, through
+  `linkedCompileOf` (`src/compiler/ts/source-file.ts`). A renamed import
+  (`import { VsOut as V }`), a re-export, a namespace and a second struct of the same name in
+  the importing file each reach the right field.
+- A field whose struct no entry of the hovered document's program reads or returns is read in
+  the programs of the other open documents that link the declaring file. This is the hover in
+  the declaring file, `io.shade.ts`, whose own program has no entry. When every such program
+  that uses the struct gives the field one number, the line names that number and everything
+  the field is in those programs. When two programs give it two numbers, or one refused to
+  number it, the line is left out, since no one number is true of the field there. The hover
+  in each program's own document shows that program's number. A document that is not open is
+  no program to the service.
+- The hover starts no analysis of its own. Each program it reads is the cache entry of an open
+  document, the one that document's diagnostics, symbols and tokens read, made once for each
+  version of the document and of what it imports.
+
+`src/language-service/entry-location-hover-imports.test.ts` holds each case to `reflect()` of
+the linked program, and counts the analyses.
 
 Syntax errors are their own case, not part of the stage-3 checks above. `compileTsSource`,
 `compileTsSources`, and `compile()` surface TypeScript's own parse errors (an unclosed

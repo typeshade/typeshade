@@ -4,7 +4,7 @@ import ts from 'typescript';
 import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
 import { entryNode } from '../compiler/ts/entry-locations.js';
 import { qualifiersOf } from '../compiler/ts/lower/references.js';
-import type { CompileTsSourceResult } from '../compiler/ts/source-file.js';
+import { linkedCompileOf, type CompileTsSourceResult } from '../compiler/ts/source-file.js';
 import type { DeclaredSymbol } from '../compiler/ts/symbols.js';
 import { ioAttrOf, retIoAttrOf } from '../core/ir/entry-io.js';
 import type { FuncDecl } from '../core/ir/nodes.js';
@@ -97,6 +97,10 @@ function resourceBindingLine(
 /** Whether `f` is an entry whose user-defined inputs and outputs stand at locations. */
 const isRenderEntry = (f: FuncDecl): boolean => f.stage === 'vertex' || f.stage === 'fragment';
 
+/** What a field of a struct can be, in the words of Rule 6.6's table and in the order a line
+ *  names them. */
+const ROLES = ['vertex attribute', 'value between stages', 'render target'] as const;
+
 /** What a field of the struct `struct` is, by where the entries of `analysis` put the struct, in
  *  the words of Rule 6.6's table. Empty for a struct no vertex or fragment entry reads or
  *  returns. */
@@ -108,11 +112,99 @@ function rolesOfStruct(analysis: CompileTsSourceResult, struct: string): string[
     f.stage === 'vertex' ? is(f.ret) : f.params.some((p) => is(p.type)),
   );
   const target = entries.some((f) => f.stage === 'fragment' && is(f.ret));
-  return [
-    ...(attribute ? ['vertex attribute'] : []),
-    ...(between ? ['value between stages'] : []),
-    ...(target ? ['render target'] : []),
-  ];
+  return ROLES.filter((_, i) => [attribute, between, target][i]);
+}
+
+/** What one program says of a struct's field: what the field is there (`rolesOfStruct`), and
+ *  the location its IR carries, written or given. */
+interface FieldFacts {
+  readonly roles: readonly string[];
+  readonly location: number | undefined;
+}
+
+/** What the program of `analysis` says of the field `name` of its struct `struct`, by the name
+ *  the module emits the struct under. `undefined` when the module holds no such field. */
+function fieldFacts(
+  analysis: CompileTsSourceResult,
+  struct: string | undefined,
+  name: string,
+): FieldFacts | undefined {
+  const decl = analysis.structs.find((s) => s.decl.name === struct)?.decl;
+  const field = decl?.fields.find((f) => f.name === name);
+  if (decl === undefined || field === undefined) return undefined;
+  return { roles: rolesOfStruct(analysis, decl.name), location: ioAttrOf(field).location };
+}
+
+/** The line for a field, from what one program says of it. */
+function fieldLine(facts: FieldFacts | undefined): string | undefined {
+  if (facts?.location === undefined) return undefined;
+  const what = facts.roles.length > 0 ? facts.roles.join(' and ') : 'user-defined input or output';
+  return `${what} at @location(${String(facts.location)})`;
+}
+
+/**
+ * The field that the program of `analysis` declares at offset `start` of `fileName`, a file the
+ * program links: the entry itself, or one it imports, directly or through another (Rule 3.9).
+ *
+ * The join is the declaration, by its file and its position. The linker lowered the program as
+ * one source and kept, for every span of it, the file and the offsets the author wrote
+ * (`LinkedProgram.map`), so a field is found where TypeScript says the hovered name is declared,
+ * whatever the importing file calls its struct (`import { VsOut as V }`), however the import
+ * reaches it (a re-export, a namespace) and whatever name the module emits the struct under
+ * (`io_VsOut`, when two files declare a `VsOut`). The symbol's `struct` is that emitted name,
+ * which is the name `analysis.structs` knows it by. `undefined` for a single-file program and
+ * for a declaration the program did not keep.
+ */
+function linkedFieldAt(
+  analysis: CompileTsSourceResult,
+  fileName: string,
+  start: number,
+): DeclaredSymbol | undefined {
+  const linked = linkedCompileOf(analysis);
+  if (linked === undefined) return undefined;
+  for (const symbol of linked.symbols) {
+    if (symbol.kind !== 'field') continue;
+    const written = linked.linked.map(symbol.start, symbol.start + symbol.length);
+    if (written?.file.name === fileName && written.start === start) return symbol;
+  }
+  return undefined;
+}
+
+/**
+ * The line for a field that the hovered document's own program gives no place among its
+ * entries: the field's declaration at offset `start` of `fileName`, as the `programs` that link
+ * that file have it. Each program is another open document's cached analysis, the one
+ * `compile()` and `reflect()` of that document give.
+ *
+ * One number is true of the field only when every program that uses its struct agrees on it.
+ * Then the line names the number and everything the field is in those programs. A struct that
+ * two programs number differently (a vertex input after another attribute in one program and
+ * first in the other), or that one of them refused to number (`TS8010`), has no one location,
+ * and the line is left out: the hover in each program's own document shows that program's
+ * number. A struct that no program uses among its entries has the line of a written location,
+ * as it has in one file.
+ */
+function fieldLineAcross(
+  programs: readonly CompileTsSourceResult[],
+  fileName: string,
+  start: number,
+): string | undefined {
+  const found: FieldFacts[] = [];
+  for (const program of programs) {
+    const field = linkedFieldAt(program, fileName, start);
+    const facts = field && fieldFacts(program, field.struct, field.name);
+    if (facts !== undefined) found.push(facts);
+  }
+  // The programs that use the struct among their entries decide. Where none does, the field
+  // has at most the location it writes, which every program reads the same.
+  const used = found.filter((f) => f.roles.length > 0);
+  const deciding = used.length > 0 ? used : found;
+  const first = deciding[0];
+  if (first === undefined || deciding.some((f) => f.location !== first.location)) return undefined;
+  return fieldLine({
+    roles: ROLES.filter((role) => deciding.some((f) => f.roles.includes(role))),
+    location: first.location,
+  });
 }
 
 /**
@@ -127,7 +219,8 @@ function rolesOfStruct(analysis: CompileTsSourceResult, struct: string): string[
  * location in the IR gets no line: a built-in value, a field of a struct no entry uses, and a
  * field or parameter the front end refused to number (`TS8010`).
  *
- * - A `field`: the location of that field of its struct, wherever the struct is used.
+ * - A field of a struct has its line from `entryLocationLine`, which reads it across the files
+ *   of the program.
  * - A `param` of a vertex or fragment entry that is no struct: a vertex attribute, or a value
  *   between stages.
  * - A `function` that is a fragment entry with a bare result: the render target it returns.
@@ -139,16 +232,6 @@ function locationLine(
 ): string | undefined {
   const at = (what: string, location: number | undefined): string | undefined =>
     location === undefined ? undefined : `${what} at @location(${String(location)})`;
-  if (declared.kind === 'field') {
-    const decl = analysis.structs.find((s) => s.decl.name === declared.struct)?.decl;
-    const field = decl?.fields.find((f) => f.name === declared.name);
-    if (decl === undefined || field === undefined) return undefined;
-    const roles = rolesOfStruct(analysis, decl.name);
-    return at(
-      roles.length > 0 ? roles.join(' and ') : 'user-defined input or output',
-      ioAttrOf(field).location,
-    );
-  }
   if (declared.kind !== 'param' && declared.kind !== 'function') return undefined;
   // The entry the declaration belongs to: the function whose name, or whose parameter, it is.
   let node: ts.Node | undefined = nodeAt(sourceFile, declared.start);
@@ -169,6 +252,52 @@ function locationLine(
     ioAttrOf(param).location,
   );
 }
+
+/**
+ * The line for the user-defined input or output under the cursor (`locationLine`), which for a
+ * field holds across the files of a program (Rule 3.9):
+ *
+ * - `declared`, a field the front end recorded in this document, is read in this document's
+ *   program.
+ * - A field that another document declares (`v.uv`, where `import { VsOut } from "./io.shade.ts"`
+ *   brought the struct) is found in this document's program by the declaration `defs` resolves
+ *   it to (`linkedFieldAt`). Its number is the one `reflect()` gives for this document.
+ * - A field whose struct no entry of this document's program reads or returns is read in the
+ *   programs of the other open documents that link the declaring file (`fieldLineAcross`). This
+ *   is the declaring file's view of a struct that the files importing it use: the front end
+ *   records nothing for a struct its own file never uses, so the declaration `defs` names is
+ *   the whole join. `programs` is asked only then.
+ */
+function entryLocationLine(
+  analysis: CompileTsSourceResult,
+  sourceFile: ts.SourceFile,
+  uri: string,
+  defs: readonly ts.DefinitionInfo[],
+  declared: DeclaredSymbol | undefined,
+  programs: HoverPrograms,
+): string | undefined {
+  if (declared !== undefined && declared.kind !== 'field')
+    return locationLine(analysis, sourceFile, declared);
+  const places =
+    declared !== undefined
+      ? [{ fileName: uri, start: declared.start }]
+      : defs.map((d) => ({ fileName: d.fileName, start: d.textSpan.start }));
+  for (const at of places) {
+    const field = declared ?? linkedFieldAt(analysis, at.fileName, at.start);
+    const own = field && fieldFacts(analysis, field.struct, field.name);
+    if (own !== undefined && own.roles.length > 0) return fieldLine(own);
+    const line = fieldLineAcross(programs(at.fileName), at.fileName, at.start) ?? fieldLine(own);
+    if (line !== undefined) return line;
+  }
+  return undefined;
+}
+
+/**
+ * The analyses of the other open documents whose programs link the file `declaringUri`, each
+ * the service's cached analysis of that document (`entryOf`, `service.ts`). The hover asks for
+ * them only for a field its own document's program gives no place among its entries.
+ */
+export type HoverPrograms = (declaringUri: string) => readonly CompileTsSourceResult[];
 
 /**
  * How a `ShaderType` is spelled in a hover: the WGSL spelling for everything a backend can
@@ -351,7 +480,9 @@ function declarationLine(
  * line says why), and the documentation section of every hover. A resource binding also gains
  * one line from `analysis`: its access mode, address space and `@group`/`@binding` slot. A
  * user-defined input or output of an entry gains one too: what it is and its location, written
- * or given by the compiler (Rule 6.6, change 0135).
+ * or given by the compiler (Rule 6.6, change 0135). A field has that line across the files of a
+ * program: `programs` gives the analyses of the other open documents that link a file, for a
+ * field this document's program gives no place among its entries (`entryLocationLine`).
  */
 export function getHover(
   languageService: ts.LanguageService,
@@ -359,6 +490,7 @@ export function getHover(
   uri: string,
   offset: number,
   analysis: CompileTsSourceResult,
+  programs: HoverPrograms = () => [],
 ): TypeshadeHover | undefined {
   // The touching rule: a caret at the end of a name answers for that name (#56). TypeScript's
   // own quick info already works that way, which is why the fall-through below looked right at
@@ -399,18 +531,27 @@ export function getHover(
 
   const quickInfo = languageService.getQuickInfoAtPosition(uri, offset);
   if (!quickInfo) return undefined;
-  // At most one definition query per hover, shared by the two answers that need it, and only
+  // At most one definition query per hover, shared by the answers that need it, and only
   // when one of them could use the result. Both key off the identifier's text: a recorded
   // symbol's span covers the declared name, so a definition that lands on one necessarily has
   // that name, and a binding is matched by name outright. An identifier this document declares
   // nothing of that name for (`max`, `vec3`, an imported symbol) therefore cannot change either
   // answer, and no longer pays TypeScript for a resolution nobody reads.
-  const mayResolve =
+  //
+  // The location line of a field is the third answer, and it is asked for every property: the
+  // front end records a field of this document only when the document uses its struct, and a
+  // field that an imported document declares never, so no name of this document's stands for
+  // either (`entryLocationLine`). Such a property still takes no recorded symbol of another
+  // name as its declaration.
+  const named =
     ts.isIdentifier(node) &&
     (analysis.symbols.some((s) => s.name === node.text) ||
       analysis.bindings.some((b) => b.name === node.text));
-  const defs = mayResolve ? (languageService.getDefinitionAtPosition(uri, offset) ?? []) : [];
-  const declared = declaredSymbolAt(analysis, uri, defs);
+  const property =
+    ts.isIdentifier(node) && quickInfo.kind === ts.ScriptElementKind.memberVariableElement;
+  const defs =
+    named || property ? (languageService.getDefinitionAtPosition(uri, offset) ?? []) : [];
+  const declared = named ? declaredSymbolAt(analysis, uri, defs) : undefined;
   // A module variable is recorded as a binding, and the module's variables tell the two apart.
   const moduleVar = declared !== undefined && analysis.vars.some((v) => v.name === declared.name);
   // An `@inout` or `@out` parameter is a `param` to the symbol table, and its declaration
@@ -433,8 +574,7 @@ export function getHover(
   const sections = [`\`\`\`ts\n${display}\n\`\`\``];
   if (qualifier !== undefined) sections.push(referenceLine(declared!, qualifier));
   if (resource !== undefined) sections.push(resource);
-  const location =
-    declared !== undefined ? locationLine(analysis, sourceFile, declared) : undefined;
+  const location = entryLocationLine(analysis, sourceFile, uri, defs, declared, programs);
   if (location !== undefined) sections.push(location);
   if (documentation) sections.push(documentation);
   return { contents: sections.join('\n\n'), range: rangeForSpan(sourceFile, quickInfo.textSpan) };
