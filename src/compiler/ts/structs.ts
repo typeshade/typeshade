@@ -410,7 +410,6 @@ export function collectStructs(
         continue;
       }
       if (!reachable.has(candidate.name)) {
-        const before = diagnostics.length;
         for (const member of candidate.members) {
           if (ts.isPropertySignature(member)) checkUncollectedIo(member, sourceFile, diagnostics);
         }
@@ -418,12 +417,7 @@ export function collectStructs(
         // uses it (the owner's decision of 2026-11-10, #1186): what its entry-IO attributes say
         // of the struct alone is the declaring file's mistake, and a program that imports the
         // struct adds nothing to it (Rule 12.4).
-        if (
-          diagnostics.length === before &&
-          (ts.getModifiers(stmt as ts.HasModifiers) ?? []).some(
-            (m) => m.kind === ts.SyntaxKind.ExportKeyword,
-          )
-        )
+        if (exportsDeclaration(sourceFile, stmt, candidate.name))
           checkUnusedExportedIo(candidate, sourceFile, diagnostics);
         continue;
       }
@@ -2362,6 +2356,25 @@ function readFieldOptions(
   return { interpolate, blendSrc };
 }
 
+/** Whether `sourceFile` exports the declaration `stmt` of `name`: with `export` on it, or by
+ *  its name in an export list of the file's own, `export { S }` and `export type { S as T }`. */
+function exportsDeclaration(sourceFile: ts.SourceFile, stmt: ts.Statement, name: string): boolean {
+  if (
+    (ts.getModifiers(stmt as ts.HasModifiers) ?? []).some(
+      (m) => m.kind === ts.SyntaxKind.ExportKeyword,
+    )
+  )
+    return true;
+  return sourceFile.statements.some(
+    (st) =>
+      ts.isExportDeclaration(st) &&
+      st.moduleSpecifier === undefined &&
+      st.exportClause !== undefined &&
+      ts.isNamedExports(st.exportClause) &&
+      st.exportClause.elements.some((el) => (el.propertyName ?? el.name).text === name),
+  );
+}
+
 /** How the two sentences about where an option belongs begin. */
 const INTERPOLATE_PLACE = 'The interpolate option belongs on a location<…> field:';
 const INVARIANT_PLACE = 'The invariant option belongs on builtin<"position">:';
@@ -2374,9 +2387,11 @@ const INVARIANT_PLACE = 'The invariant option belongs on builtin<"position">:';
  * the same nodes with the same sentences, so a program that imports the struct and the declaring
  * file's own program report one diagnostic (Rule 12.4).
  *
- * Nothing is collected: the struct stays out of the module. A declaration whose fields are not
- * all shader types (a host-shaped `export interface Config { seed: number }`) says nothing
- * here, as before.
+ * Nothing is collected: the struct stays out of the module. A field whose attribute is refused
+ * where it is written (`checkUncollectedIo`) has said so, and nothing is added. Two kinds of
+ * declaration say nothing here, as before: one whose fields are not all shader types (a host-shaped
+ * `export interface Config { seed: number }`), and an interface that extends another, whose
+ * fields are not its own alone.
  */
 function checkUnusedExportedIo(
   candidate: Candidate,

@@ -1963,23 +1963,28 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
-- **A program's refusal of an imported declaration is shown in the program's own file**
-  (Rules 3.9 and 12.7, #1186). A refusal that only the program makes, about a declaration an
-  imported file holds, was located in the imported file. That file's own program accepts the
+- **A program's refusal of an imported declaration is shown in the file that makes it**
+  (Rules 3.9 and 12.7, #1186). A refusal that only a use makes, about a declaration an imported
+  file holds, was located in the imported file. That file's own program accepts the
   declaration, so the editor showed the refusal in no document, and `tshc check` passed a
-  folder that `compile()` refused. `compile()` now reports it in the file the program starts
-  from, at the use: a field of an imported struct that an entry gives no location (`TS8010`),
-  or whose type cannot cross (`TS8003`, `TS8038`), on the entry's parameter or result, and a
-  refusal in the body of an imported generic function, of a method of an imported generic class
-  or of an imported function that takes a function on the use the entry file writes (the
-  outermost call, the first `Box<P>`). An entry the entry file re-exports has it on the
-  re-export. The editor's diagnostic carries the declaration as related information. A program
-  of one file and what the imported file's own program reports are reported where they were.
-  An interface or a type alias that a file exports is now checked in that file though nothing
-  there uses it: two fields at one location, one `blend_src` of a pair, `interpolate` on a
-  `builtin<…>`, `invariant` off `position` and a written location on a `bool` are reported at
-  the declaration, once. The importing document no longer shows TypeScript's `never` error for
-  a write of an imported `builtin<N>` field that the compiler refused.
+  folder that `compile()` refused. An error now stands in the first file that reports it when
+  compiled on its own: the file that holds what it is about, then each file that holds a use,
+  then each file on the way of imports up to the file the compile starts from. It stands on
+  that file's use: the entry's parameter or result for a field of an imported struct with no
+  location (`TS8010`) or of a type that cannot cross (`TS8003`, `TS8038`); the outermost call
+  for the body of an imported generic function or of a function that takes a function; the
+  first `Box<P>` for a method of an imported generic class. A file that writes no use has it on
+  its re-export of the entry, else on its import. The editor's diagnostic carries the place the
+  error is about as related information. A program of one file, a warning, and a mistake of an
+  imported file itself are reported where they were, once.
+  An interface or a type alias that a file exports (with `export`, or in an export list) is now
+  checked in that file though nothing there uses it: two fields at one location, one
+  `blend_src` of a pair, `interpolate` on a `builtin<…>`, `invariant` off `position` and a
+  written location on a `bool` are reported at the declaration. Not checked this way: an
+  interface that extends another, a declaration with a field that is no shader type, and a
+  struct the file neither exports nor uses. The importing document no longer shows
+  TypeScript's `never` error for a write of an imported `builtin<N>` field that the compiler
+  refused.
 - **A module constant with an expression rounds as a function does, in `'f32'` precision**
   (Rule 11.7). `const X: f32 = 100.7; const S: f32 = sin(X);` gave `S` the value of `sin` on the
   unrounded 100.7, rounded, on the CPU oracle and the CPU tier in `'f32'` precision, while

@@ -215,6 +215,28 @@ export function sortDiagnosticsByPosition(diagnostics: TsCompilerDiagnostic[]): 
   diagnostics.sort((a, b) => a.start - b.start || a.length - b.length);
 }
 
+/**
+ * Puts the diagnostics of `fileName` in a list that holds several files in document order, in
+ * place, among themselves: each stays in a slot one of them held, and the diagnostics of the
+ * other files stay where they are. A linked program's list holds what it reports in the files
+ * it imports beside what it reports in the file it starts from (#1186).
+ */
+export function sortFileDiagnosticsByPosition(
+  diagnostics: TsCompilerDiagnostic[],
+  fileName: string,
+): void {
+  const slots: number[] = [];
+  diagnostics.forEach((d, i) => {
+    if (d.fileName === fileName) slots.push(i);
+  });
+  const own = slots
+    .map((i) => diagnostics[i]!)
+    .sort((a, b) => a.start - b.start || a.length - b.length);
+  slots.forEach((slot, i) => {
+    diagnostics[slot] = own[i]!;
+  });
+}
+
 // === A refusal a use makes, about a declaration another file of the program holds (#1186) ===
 //
 // Some refusals are true of a program and not of the file that declares what they name: an
@@ -283,4 +305,18 @@ export function setRelatedSites(
  *  reported at a use names. Empty for a diagnostic that stands where its mistake is. */
 export function relatedSitesOf(diagnostic: TsCompilerDiagnostic): readonly DiagnosticSite[] {
   return RELATED.get(diagnostic) ?? [];
+}
+
+const WRITTEN_MESSAGE = new WeakMap<TsCompilerDiagnostic, string>();
+
+/** Records the sentence of `diagnostic` with each name as its own file writes it: `helper` for
+ *  the `lib_helper` a linked program emits where two of its files declare a `helper`. */
+export function setWrittenMessage(diagnostic: TsCompilerDiagnostic, message: string): void {
+  if (message !== diagnostic.message) WRITTEN_MESSAGE.set(diagnostic, message);
+}
+
+/** The sentence of `diagnostic` with each name as its own file writes it. Two programs that
+ *  report one mistake of one file say this same sentence, whatever each emits the names as. */
+export function writtenMessageOf(diagnostic: TsCompilerDiagnostic): string {
+  return WRITTEN_MESSAGE.get(diagnostic) ?? diagnostic.message;
 }

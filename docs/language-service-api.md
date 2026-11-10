@@ -586,8 +586,9 @@ analysis of its program. The number is the one that program has, which `compile(
     code is read off that program's own diagnostic about the field (`refusalCode`), the one
     `compile()` of the program reports, so a field of a type that cannot cross reads
     `(TS8003)`. One open program that refuses the field gives one such line, and two give
-    two. The program reports that diagnostic in its own document, at the parameter or the
-    result that takes the struct, and the field is its related location (§8, #1186).
+    two. The program reports that diagnostic in the file that owns it (§8, #1186): at the
+    parameter or the result that takes the struct, or on the name of the re-export that brings
+    the entry in. The field is its related location.
   - A program that links the file and uses the struct in no entry has no line. A built-in
     value has none.
   - The hover in each program's own document shows that program's number, and no file. A
@@ -1030,19 +1031,21 @@ Document versions, for either adapter:
   errors in imported shader files, with each file's own URI and range. Any error in the
   program leaves `text: ''`. The document's cached diagnostics stay unchanged;
   `getDiagnostics(uri)` remains the list located in that document and does not emit.
-  A mistake of an imported file itself is located in that file, and that file's document shows
-  it. An error that the program reports in an imported file, and that the imported file's own
-  program does not report, is located in the program's own document, at the use that makes it
-  one (#1186). An entry that gives a field of an imported struct no location has it on the
-  parameter or the result that takes the struct (`TS8010`). A refusal in the body of an
-  imported generic function has it on the outermost call the document writes that makes the
-  instance. One in a method of an imported generic class has it where the document first writes
-  the instance (`Box<P>`), and an imported generic interface where the document first names it.
-  When the document writes no use (it re-exports an entry of another file), the error stands on
-  the import or the re-export that reaches the file. The imported file's document shows
-  nothing. The diagnostic carries the place in the imported file as `relatedInformation`, with
-  that file's URI and range; two refusals that land on one use with one sentence are one
-  diagnostic with both places.
+  An error of a program is located in one file (#1186, `src/compiler/ts/program-refusals.ts`):
+  the first of these that reports the same error (the same place, code and sentence as written)
+  when it is compiled as its own program. The order is the file that holds what the error is
+  about, then each file that holds a use of it, then each file on the way of imports up to the
+  document's own file, which is the last. So a mistake of an imported file itself is located in
+  that file, and that file's document shows it. A refusal that only a use makes is located in
+  the file that writes the use, and a file above that one shows nothing. In the owning file the
+  error stands on the outermost use the file writes: the parameter or the result that takes a
+  struct (`TS8010`), the call that makes an instance of a generic function, the first type that
+  writes an instance of a generic class (`Box<P>`) or names a generic interface. A file that
+  writes no use has it on its re-export of the entry point that holds the use (the name), else
+  on the module specifier of its import of the file below. The diagnostic carries the place the
+  error is about as `relatedInformation`, with that file's URI and range. Two refusals that
+  land on one use with one sentence are one diagnostic with both places; on an import they
+  stay two. A warning stays where it is written.
 - Nothing in the service is asynchronous. Cancellation is the adapter's concern (drop results
   whose version is stale).
 

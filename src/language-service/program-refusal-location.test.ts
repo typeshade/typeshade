@@ -13,6 +13,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { compile } from '../compiler/ts/compile.js';
+import { compileTsSources } from '../compiler/ts/module.js';
 import { relatedSitesOf } from '../compiler/ts/diagnostic.js';
 import { runCli, type CliHost } from '../cli/run.js';
 import { createTypeshadeLanguageService, type TypeshadeLanguageService } from './service.js';
@@ -535,6 +536,386 @@ export function fs(v: Pair<vec3>): vec4 {
   });
 });
 
+describe('the file that owns an error reports it, and no file above it (#1186)', () => {
+  const D = '/p/d.shade.ts';
+  /** `b.shade.ts` makes the instance of `same` at its own struct, and exports a function. */
+  const MIDDLE = `"use typeshade";
+import { same } from "./io.shade.ts";
+interface P {
+  a: f32;
+}
+export function fb(x: f32): f32 {
+  const p: P = { a: x };
+  return same(p, p) ? x : 0.;
+}
+`;
+  const ABOVE = (from: string): string => `"use typeshade";
+import { fb } from "${from}";
+${VS}@fragment
+export function fs(v: VsOut): vec4 {
+  return vec4(fb(v.uv.x), 0., v.uv);
+}
+`;
+
+  it('a mistake of a file in the middle: in that file, at its use, and not in the file above', () => {
+    const files: Files = { [IO]: SAME, [B]: MIDDLE, [A]: ABOVE('./b.shade.ts') };
+    const inMiddle = refused('same(p, p)', ['io.shade.ts: a === b']);
+    // The program of `a.shade.ts` reports it once, in `b.shade.ts`; its own document is clean.
+    bothSay(files, { [B]: [inMiddle], [A]: [inMiddle] });
+  });
+
+  it('three files above the mistake: still once, in the file that makes the instance', () => {
+    const files: Files = {
+      [IO]: SAME,
+      [B]: MIDDLE,
+      [C]: `"use typeshade";\nexport { fb } from "./b.shade.ts";\n`,
+      [D]: `"use typeshade";\nexport { fb } from "./c.shade.ts";\n`,
+      [A]: ABOVE('./d.shade.ts'),
+    };
+    const inMiddle = refused('same(p, p)', ['io.shade.ts: a === b']);
+    bothSay(files, { [B]: [inMiddle], [C]: [inMiddle], [D]: [inMiddle], [A]: [inMiddle] });
+  });
+
+  it('a private name two files declare: the mistake of the imported file is reported once', () => {
+    // The linked program emits the library's `helper` as `lib_helper`, and its sentence names
+    // it so. It is the mistake the library's own program reports about `helper`.
+    const LIB = '/p/lib.shade.ts';
+    const files: Files = {
+      [LIB]: `"use typeshade";
+function helper(x: f32): f32 {
+  return x;
+}
+export function f(x: f32): f32 {
+  return helper(x, x);
+}
+`,
+      [B]: `"use typeshade";
+import { f } from "./lib.shade.ts";
+function helper(x: f32): f32 {
+  return x * 2.;
+}
+${VS}@fragment
+export function fs(v: VsOut): vec4 {
+  return vec4(f(helper(v.uv.x)), 0., v.uv);
+}
+`,
+    };
+    const own: Said = {
+      code: 'TS8019',
+      message: '"helper" expects 1 argument(s), got 2.',
+      file: 'lib.shade.ts',
+      at: 'helper(x, x)',
+      related: [],
+    };
+    expect(compilerSays(files, LIB)).toEqual([own]);
+    expect(compilerSays(files, B)).toEqual([
+      { ...own, message: '"lib_helper" expects 1 argument(s), got 2.' },
+    ]);
+    const service = opened(files);
+    expect(editorSays(service, files, LIB)).toEqual([own]);
+    expect(editorSays(service, files, B)).toEqual([]);
+    const ran = check(files);
+    expect(ran.status).toBe(1);
+    expect(ran.text.match(/ - error /g)).toHaveLength(1);
+    expect(ran.text).toContain(`lib.shade.ts:6:10 - error TS8019: ${own.message}`);
+  });
+
+  it('the same sentence at another place of the imported file is another mistake', () => {
+    // `io.shade.ts` compares two `Q` itself, which its own program reports. The entry file
+    // makes the instance of `same` at `Q`: the same code and sentence, at another site.
+    const files: Files = {
+      [IO]: `"use typeshade";
+export interface Q {
+  a: f32;
+}
+export function same<T>(a: T, b: T): bool {
+  return a === b;
+}
+export function own(q: Q): bool {
+  return q === q;
+}
+`,
+      [B]: `"use typeshade";
+import { same, Q } from "./io.shade.ts";
+${VS}@fragment
+export function fs(v: VsOut): vec4 {
+  const q: Q = { a: v.uv.x };
+  return vec4(same(q, q) ? 1. : 0., 0., v.uv);
+}
+`,
+    };
+    const message = NO_IDENTITY.replace('=== P', '=== Q');
+    const inIo: Said = { code: 'TS8003', message, file: 'io.shade.ts', at: 'q === q', related: [] };
+    const atCall: Said = {
+      code: 'TS8003',
+      message,
+      file: 'b.shade.ts',
+      at: 'same(q, q)',
+      related: ['io.shade.ts: a === b'],
+    };
+    // `own` is no part of the program of `b.shade.ts`: nothing it holds reaches it.
+    bothSay(files, { [IO]: [inIo], [B]: [atCall] });
+  });
+
+  it('another sentence at the same place of the imported file is another mistake', () => {
+    // `io.shade.ts` makes the instance of `same` at its own `Q`. The entry file makes the one
+    // at `P`: the same site and code, and another sentence.
+    const files: Files = {
+      [IO]: `"use typeshade";
+interface Q {
+  a: f32;
+}
+export function same<T>(a: T, b: T): bool {
+  return a === b;
+}
+export function own(x: f32): bool {
+  const q: Q = { a: x };
+  return same(q, q);
+}
+`,
+      [B]: USES('same', '  return vec4(same(p, p) ? 1. : 0., 0., v.uv);'),
+    };
+    const inIo: Said = {
+      code: 'TS8003',
+      message: NO_IDENTITY.replace('=== P', '=== Q'),
+      file: 'io.shade.ts',
+      at: 'a === b',
+      related: [],
+    };
+    expect(compilerSays(files, IO)).toEqual([inIo]);
+    expect(compilerSays(files, B)).toEqual([refused('same(p, p)', ['io.shade.ts: a === b'])]);
+    const service = opened(files);
+    expect(editorSays(service, files, IO)).toEqual([inIo]);
+    expect(editorSays(service, files, B)).toEqual(compilerSays(files, B));
+  });
+
+  it('two files that import each other, each with a bad instance of the other: the compile ends', () => {
+    const files: Files = {
+      [IO]: `"use typeshade";
+import { eq } from "./b.shade.ts";
+interface Q {
+  a: f32;
+}
+export function same<T>(a: T, b: T): bool {
+  return a === b;
+}
+export function viaB(x: f32): bool {
+  const q: Q = { a: x };
+  return eq(q, q);
+}
+`,
+      [B]: `"use typeshade";
+import { same, viaB } from "./io.shade.ts";
+interface P {
+  a: f32;
+}
+export function eq<T>(a: T, b: T): bool {
+  return b === a;
+}
+${VS}@fragment
+export function fs(v: VsOut): vec4 {
+  const p: P = { a: v.uv.x };
+  return vec4(same(p, p) ? 1. : 0., viaB(v.uv.y) ? 1. : 0., v.uv);
+}
+`,
+    };
+    const atCall = refused('same(p, p)', ['io.shade.ts: a === b']);
+    // `eq` is declared in `b.shade.ts`, whose own program holds the instance that
+    // `io.shade.ts` makes: the mistake is reported in the body of `eq`, once.
+    const inBody: Said = {
+      code: 'TS8003',
+      message: NO_IDENTITY.replace('=== P', '=== Q'),
+      file: 'b.shade.ts',
+      at: 'b === a',
+      related: [],
+    };
+    expect(compilerSays(files, IO)).toEqual([inBody]);
+    expect(compilerSays(files, B)).toEqual([inBody, atCall]);
+    const service = opened(files);
+    expect(editorSays(service, files, B)).toEqual([inBody, atCall]);
+    expect(editorSays(service, files, IO)).toEqual([]);
+  });
+
+  it("a package's own mistake: in the package's file, and not on the import that names it", () => {
+    const INDEX = '/p/node_modules/shade-lib/src/index.shade.ts';
+    const files: Files = {
+      '/p/node_modules/shade-lib/package.json': JSON.stringify({
+        name: 'shade-lib',
+        version: '1.0.0',
+        exports: {
+          '.': { typeshade: './src/index.shade.ts' },
+          './*': { typeshade: './src/*.shade.ts' },
+        },
+      }),
+      '/p/node_modules/shade-lib/src/same.shade.ts': SAME,
+      [INDEX]: MIDDLE.replace('./io.shade.ts', './same.shade.ts'),
+      [A]: ABOVE('shade-lib'),
+    };
+    const inPackage: Said = {
+      ...refused('same(p, p)', ['same.shade.ts: a === b']),
+      file: 'index.shade.ts',
+    };
+    expect(compilerSays(files, A)).toEqual([inPackage]);
+    expect(compilerSays(files, INDEX)).toEqual([inPackage]);
+    const service = createTypeshadeLanguageService({ readDocument: (name) => files[name] });
+    service.openDocument(A, files[A]!);
+    service.openDocument(INDEX, files[INDEX]!);
+    expect(editorSays(service, files, A)).toEqual([]);
+    expect(editorSays(service, files, INDEX)).toEqual([inPackage]);
+  });
+
+  it('a warning of an imported file stays in that file', () => {
+    const files: Files = {
+      [IO]: `"use typeshade";
+export interface FsIn {
+  pos: builtin<"position", vec4>;
+}
+`,
+      [B]: `"use typeshade";
+import { FsIn } from "./io.shade.ts";
+@fragment
+export function fs(v: FsIn): vec4 {
+  return vec4(v.pos.x, 0., 0., 1.);
+}
+`,
+    };
+    const said = compile(files[B]!, {
+      fileName: B,
+      readDocument: (name) => files[name],
+    }).diagnostics;
+    expect(said.map((d) => [d.category, d.code, short(d.fileName)])).toEqual([
+      ['warning', 'TS8028', 'io.shade.ts'],
+    ]);
+    const service = opened(files);
+    expect(service.getDiagnostics(B)).toEqual([]);
+    expect(service.getDiagnostics(IO).map((d) => [d.severity, d.code])).toEqual([
+      ['warning', 'TS8028'],
+    ]);
+    expect(check(files).status).toBe(0);
+  });
+
+  it('a re-export that names two things, and a re-export of a re-export: on the entry name', () => {
+    const FRAG = '/p/frag.shade.ts';
+    const frag = `"use typeshade";
+import { FsIn } from "./io.shade.ts";
+interface Wide {
+  pos: builtin<"position">;
+  n: vec3;
+  uv: vec2;
+}
+@vertex
+export function wide(i: builtin<"vertex_index">): Wide {
+  return { pos: vec4(0., 0., 0., 1.), n: vec3(0.), uv: vec2(f32(i), 0.) };
+}
+export function helper(x: f32): f32 {
+  return x;
+}
+@fragment
+export function fs(v: FsIn): vec4 {
+  return vec4(v.n, v.uv.x);
+}
+`;
+    // `helper` is a function with a body and no stage: the refusal is about `fs`.
+    bothSay(
+      {
+        [IO]: FS_IN,
+        [FRAG]: frag,
+        [B]: `"use typeshade";\nexport { helper, fs as frag } from "./frag.shade.ts";\n${VS}`,
+      },
+      { [B]: [{ ...NO_LOCATION, at: 'fs' }] },
+    );
+    // An `export *` names nothing: the refusal stands on its module specifier.
+    bothSay(
+      {
+        [IO]: FS_IN,
+        [FRAG]: frag.replace('export function wide', 'function wide'),
+        [B]: `"use typeshade";\nexport * from "./frag.shade.ts";\n${VS.replace('function vs(', 'function vs2(')}`,
+      },
+      { [B]: [{ ...NO_LOCATION, at: '"./frag.shade.ts"' }] },
+    );
+  });
+
+  it('several files the compile starts from: a use in one of them is where it stands', () => {
+    const F = '/p/f.shade.ts';
+    const sources = [
+      { fileName: A, source: `"use typeshade";\n${VS}` },
+      {
+        fileName: F,
+        source: `"use typeshade";
+import { same } from "./io.shade.ts";
+interface P {
+  a: f32;
+}
+@fragment
+export function fs(): vec4 {
+  const p: P = { a: 1. };
+  return vec4(same(p, p) ? 1. : 0.);
+}
+`,
+      },
+      { fileName: IO, source: SAME },
+    ];
+    const said = compileTsSources(sources).diagnostics.map((d) => [
+      d.code,
+      short(d.fileName),
+      sources
+        .find((x) => x.fileName.endsWith(short(d.fileName)))!
+        .source.slice(d.start, d.start + d.length),
+      relatedSitesOf(d).map((x) => short(x.fileName)),
+    ]);
+    expect(said).toEqual([['TS8003', 'f.shade.ts', 'same(p, p)', ['io.shade.ts']]]);
+  });
+
+  it('the entry file keeps document order beside the diagnostics of another file', () => {
+    const E = '/p/e.shade.ts';
+    const files: Files = {
+      [IO]: SAME,
+      [E]: `"use typeshade";\nexport function bad(x: f32): f32 {\n  return x + true;\n}\n`,
+      [B]: `"use typeshade";
+import { bad } from "./e.shade.ts";
+import { same } from "./io.shade.ts";
+interface P {
+  a: f32;
+}
+${VS}@fragment
+export function fs(v: VsOut): vec4 {
+  const p: P = { a: bad(v.uv.x) };
+  const k: i32 = 1.5;
+  const y = same(p, p);
+  const m: i32 = 2.5;
+  return vec4(y ? 1. : 0., f32(k + m), v.uv);
+}
+`,
+    };
+    const inEntry = compilerSays(files, B).filter((d) => d.file === 'b.shade.ts');
+    expect(inEntry.map((d) => d.at)).toEqual(['k: i32 = 1.5', 'same(p, p)', 'm: i32 = 2.5']);
+    expect(compilerSays(files, B).filter((d) => d.file === 'e.shade.ts')).toHaveLength(1);
+    expect(editorSays(opened(files), files, B).map((d) => d.at)).toEqual(inEntry.map((d) => d.at));
+  });
+
+  it('an imported generic interface named twice: at the first type that names it', () => {
+    const files: Files = {
+      [IO]: `"use typeshade";\nexport interface Pair<T> {\n  a: T;\n  uv: vec2;\n}\n`,
+      [B]: `"use typeshade";
+import { Pair } from "./io.shade.ts";
+${VS}function first(v: Pair<vec2>): f32 {
+  return v.a.x;
+}
+@fragment
+export function fs(v: Pair<vec3>): vec4 {
+  return vec4(v.a, v.uv.x);
+}
+`,
+    };
+    expect(compilerSays(files, B).map((d) => [d.code, d.at, d.related])).toEqual([
+      ['TS8010', 'Pair<vec2>', ['io.shade.ts: Pair']],
+    ]);
+    expect(editorSays(opened(files), files, B).map((d) => [d.code, d.at])).toEqual([
+      ['TS8010', 'Pair<vec2>'],
+    ]);
+  });
+});
+
 describe('what does not move (#1186)', () => {
   it('a program of one file keeps the diagnostic on the field, with no related site', () => {
     const files: Files = {
@@ -555,18 +936,20 @@ export function fs(v: FsIn): vec4 {
   it('a generic function of the entry file keeps the diagnostic in its body', () => {
     const files: Files = {
       [B]: `"use typeshade";
-function twice<T>(x: T): T {
-  return x + x;
+interface P {
+  a: f32;
+}
+function same<T>(a: T, b: T): bool {
+  return a === b;
 }
 ${VS}@fragment
 export function fs(v: VsOut): vec4 {
-  return vec4(twice(true) ? 1. : 0., v.uv, 1.);
+  const p: P = { a: v.uv.x };
+  return vec4(same(p, p) ? 1. : 0., 0., v.uv);
 }
 `,
     };
-    expect(compilerSays(files, B).map((d) => [d.code, d.file, d.at, d.related])).toEqual([
-      ['TS8003', 'b.shade.ts', 'x + x', []],
-    ]);
+    bothSay(files, { [B]: [refused('a === b', [])] });
   });
 
   it('a mistake of the imported file itself stays in that file, in both halves', () => {
@@ -810,6 +1193,43 @@ export function fs(v: S): vec4 {
     const files: Files = { [IO]: io, [B]: USER };
     expect(compilerSays(files, B).filter((d) => d.code === 'TS8003')).toEqual(said);
     expect(editorSays(opened(files), files, B).filter((d) => d.code === 'TS8003')).toEqual([]);
+  });
+
+  it('a struct exported by an export list, and a type alias: checked the same way', () => {
+    const clash = (name: string): Said => ({
+      code: 'TS8010',
+      message: `Struct "${name}" puts "a" and "b" both at location<3, …>; each slot carries one value.`,
+      file: 'io.shade.ts',
+      at: name,
+      related: [],
+    });
+    const fields = '  a: location<3, vec2>;\n  b: location<3, vec2>;\n';
+    bothSay(
+      {
+        [IO]: `"use typeshade";\ninterface S {\n${fields}}\ntype T = {\n${fields}};\nexport { S };\nexport type { T as U };\nexport type V = {\n${fields}};\n`,
+      },
+      { [IO]: [clash('S'), clash('T'), clash('V')] },
+    );
+  });
+
+  it('the limits: an interface that extends another, and one already refused, add nothing', () => {
+    // An interface that extends another is not read while nothing uses it: its fields are not
+    // its own alone.
+    bothSay(
+      {
+        [IO]: `"use typeshade";\ninterface Base {\n  k: f32;\n}\nexport interface S extends Base {\n  a: location<3, vec2>;\n  b: location<3, vec2>;\n}\n`,
+      },
+      {},
+    );
+    // A field whose attribute is refused where it is written says that once; the struct-wide
+    // checks do not run beside it.
+    const said = compilerSays(
+      {
+        [IO]: `"use typeshade";\nexport interface S {\n  p: builtin<"positon">;\n  a: location<3, vec2>;\n  b: location<3, vec2>;\n}\n`,
+      },
+      IO,
+    );
+    expect(said.map((d) => d.code)).toEqual(['TS8024']);
   });
 
   it('the valid neighbour, and a struct the file does not export, say nothing', () => {

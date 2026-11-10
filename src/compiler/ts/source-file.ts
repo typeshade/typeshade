@@ -45,10 +45,8 @@ import {
   dropRepeatedDiagnostics,
   sortDiagnosticsByPosition,
   makeDiagnostic,
-  relatedSitesOf,
-  setRelatedSites,
+  sortFileDiagnosticsByPosition,
   syntaxDiagnostics,
-  usesOf,
 } from './diagnostic.js';
 import { collectEnables } from './enables.js';
 import {
@@ -65,7 +63,8 @@ import {
   type DerivativeRewriteReason,
 } from '../../core/passes/derivative-rewrite.js';
 import { checkBuiltinTypeForms } from './builtin-type-form.js';
-import { entryNode, giveEntryLocations } from './entry-locations.js';
+import { giveEntryLocations } from './entry-locations.js';
+import { locateProgramErrors } from './program-refusals.js';
 import { resolveSpecifierFile } from './specifier.js';
 import { interstageMismatches } from '../../core/passes/lint/rules/interstage-io.js';
 import {
@@ -636,128 +635,32 @@ function compileLinked(
       endCharacter: e.character + 1,
     };
   };
-  // A refusal that only this program makes, about a declaration an imported file holds, stands
-  // in the entry file, at the use that makes it one (#1186): the imported file's own program
-  // accepts the declaration, so its document has nothing to show. What the imported file's own
-  // program reports too is that file's mistake, and stays in it.
-  const ownPrograms = new Map<string, ReadonlySet<string> | undefined>();
-  /** The errors the program that starts from the imported file `name` reports in that file. */
-  const ownErrors = (file: LinkedProgram['files'][number]): ReadonlySet<string> | undefined => {
-    if (ownPrograms.has(file.name)) return ownPrograms.get(file.name);
-    // A file that is being compiled as its own program further out (two files that import each
-    // other) has no answer yet: its diagnostics stay where they are.
-    if (OWN_PROGRAMS_RUNNING.has(file.name)) return undefined;
-    OWN_PROGRAMS_RUNNING.add(file.name);
-    let own: ReadonlySet<string> | undefined;
-    try {
-      const { result } = compileTsProgram(file.sourceFile.text, {
+  // Where each error of the program stands (#1186, `program-refusals.ts`).
+  const located = locateProgramErrors({
+    entry,
+    linked,
+    linkedSource: sourceFile,
+    roots: new Set([entry.fileName, ...(options.roots ?? []).map((r) => r.fileName)]),
+    errors: inner.diagnostics.flatMap((d) => {
+      const mapped = mapDiagnostic(d);
+      return mapped === undefined ? [] : [{ raised: d, mapped }];
+    }),
+    resolve: (from, specifier) =>
+      options.resolveImport?.(from, specifier) ??
+      resolveSpecifierFile(from, specifier, options.readDocument),
+    ownProgram: (file) =>
+      compileTsProgram(file.sourceFile.text, {
         ...options,
         fileName: file.name,
         sourceFile: undefined,
         roots: undefined,
         emit: false,
-      });
-      own = new Set(
-        result.diagnostics.filter((x) => x.fileName === file.name).map(programRefusalKey),
-      );
-    } finally {
-      OWN_PROGRAMS_RUNNING.delete(file.name);
-    }
-    ownPrograms.set(file.name, own);
-    return own;
-  };
-  /** The import or re-export of the entry file through which the program reaches `file`: the
-   *  place a refusal stands when no use of the entry file makes it (an entry point the entry
-   *  file re-exports uses the declaration in its own file). */
-  let reach: ((file: string) => ts.Node | undefined) | undefined;
-  const importReaching = (file: string): ts.Node | undefined =>
-    (reach ??= importsReaching(entry, linked, options))(file);
-  const located: TsCompilerDiagnostic[] = [];
-  for (const d of inner.diagnostics) {
-    const mapped = mapDiagnostic(d);
-    if (mapped === undefined) continue;
-    const declaring = linked.files.find((f) => f.name === mapped.fileName);
-    if (
-      mapped.category !== 'error' ||
-      mapped.fileName === entryFile.name ||
-      declaring === undefined ||
-      ownErrors(declaring)?.has(programRefusalKey(mapped)) !== false
-    ) {
-      located.push(mapped);
-      continue;
-    }
-    // The outermost use the entry file writes: the call of a function that holds the inner use.
-    let at: { start: number; end: number } | undefined;
-    let through: string | undefined;
-    for (const use of [...usesOf(d)].reverse()) {
-      const u = linked.map(use.start, use.end);
-      if (u === undefined) continue;
-      if (u.file.name === entryFile.name) {
-        at = u;
-        break;
-      }
-      through ??= u.file.name;
-    }
-    if (at === undefined) {
-      const node = importReaching(through ?? mapped.fileName) ?? importReaching(mapped.fileName);
-      if (node !== undefined) at = { start: node.getStart(entry), end: node.getEnd() };
-    }
-    if (at === undefined) {
-      located.push(mapped);
-      continue;
-    }
-    const us = entry.getLineAndCharacterOfPosition(at.start);
-    const ue = entry.getLineAndCharacterOfPosition(at.end);
-    const moved: TsCompilerDiagnostic = {
-      ...mapped,
-      fileName: entry.fileName,
-      start: at.start,
-      length: at.end - at.start,
-      line: us.line + 1,
-      character: us.character + 1,
-      endLine: ue.line + 1,
-      endCharacter: ue.character + 1,
-    };
-    setRelatedSites(moved, [
-      {
-        fileName: mapped.fileName,
-        start: mapped.start,
-        length: mapped.length,
-        line: mapped.line,
-        character: mapped.character,
-        endLine: mapped.endLine,
-        endCharacter: mapped.endCharacter,
-      },
-    ]);
-    // A second refusal that lands on the same use with the same sentence is the same report
-    // (Rule 12.4): the first keeps the related site of each.
-    const same = located.find(
-      (x) =>
-        x.fileName === moved.fileName &&
-        x.start === moved.start &&
-        x.length === moved.length &&
-        x.code === moved.code &&
-        x.message === moved.message,
-    );
-    if (same === undefined) {
-      located.push(moved);
-      continue;
-    }
-    const sites = [...relatedSitesOf(same)];
-    for (const site of relatedSitesOf(moved)) {
-      if (
-        !sites.some(
-          (x) => x.fileName === site.fileName && x.start === site.start && x.length === site.length,
-        )
-      )
-        sites.push(site);
-    }
-    setRelatedSites(same, sites);
-  }
+      }).result.diagnostics,
+  });
   diagnostics.push(...located);
   // Document order, as the editor lists them (Rules 12.5 and 12.7): a refusal that moved to its
   // use stands among the entry file's own.
-  sortDiagnosticsByPosition(diagnostics);
+  sortFileDiagnosticsByPosition(diagnostics, entry.fileName);
   remapSpans(linked, [
     ...inner.funcs,
     ...inner.consts,
@@ -1117,71 +1020,4 @@ function unreachedMessage(v: UniformityViolation, reason: DerivativeRewriteReaso
         `compute the gradients before ${past}: ${unreachedReason(reason)}. Move the call above ` +
         `${past} and select from its result, or call textureSampleLevel or textureSampleGrad ` +
         `with the level or the gradients you want.`;
-}
-
-/** The imported files whose own program is being compiled to learn what it reports, outermost
- *  first (`compileLinked`). */
-const OWN_PROGRAMS_RUNNING = new Set<string>();
-
-/** What makes two diagnostics of one file the same report. */
-const programRefusalKey = (d: TsCompilerDiagnostic): string =>
-  [d.start, d.length, d.code ?? '', d.message].join('\u0000');
-
-/**
- * For the entry file of `linked`: the function that gives, for a file of the program, the import
- * or re-export of the entry file through which the program reaches it, the first in the entry
- * file's order. The node is the specifier that names an entry point of that file where the
- * declaration re-exports one (`fs` in `export { fs } from "./frag.shade.ts"`), else the
- * declaration's module specifier.
- */
-function importsReaching(
-  entry: ts.SourceFile,
-  linked: LinkedProgram,
-  options: ProgramOptions,
-): (file: string) => ts.Node | undefined {
-  const resolve = (from: string, specifier: string): string | undefined =>
-    options.resolveImport?.(from, specifier) ??
-    resolveSpecifierFile(from, specifier, options.readDocument);
-  const byName = new Map(linked.files.map((f) => [f.name, f.sourceFile]));
-  const targets = (file: ts.SourceFile, from: string): { node: ts.Statement; to: string }[] => {
-    const out: { node: ts.Statement; to: string }[] = [];
-    for (const st of file.statements) {
-      if (!ts.isImportDeclaration(st) && !ts.isExportDeclaration(st)) continue;
-      const specifier = st.moduleSpecifier;
-      if (specifier === undefined || !ts.isStringLiteral(specifier)) continue;
-      const to = resolve(from, specifier.text);
-      if (to !== undefined && byName.has(to)) out.push({ node: st, to });
-    }
-    return out;
-  };
-  /** Every file the program reaches from `from`, itself included. */
-  const reached = (from: string, seen = new Set<string>()): Set<string> => {
-    if (seen.has(from)) return seen;
-    seen.add(from);
-    const file = byName.get(from);
-    if (file !== undefined) for (const t of targets(file, from)) reached(t.to, seen);
-    return seen;
-  };
-  const direct = targets(entry, entry.fileName).map((t) => ({ ...t, reach: reached(t.to) }));
-  return (file) => {
-    const found = direct.find((t) => t.to === file) ?? direct.find((t) => t.reach.has(file));
-    if (found === undefined) return undefined;
-    const st = found.node;
-    // The entry point of that file the declaration re-exports, where it names one.
-    if (
-      found.to === file &&
-      ts.isExportDeclaration(st) &&
-      st.exportClause !== undefined &&
-      ts.isNamedExports(st.exportClause)
-    ) {
-      const source = byName.get(file);
-      const isEntry = (name: string): boolean =>
-        source !== undefined && entryNode(source, name) !== undefined;
-      const named = st.exportClause.elements.find((el) =>
-        isEntry((el.propertyName ?? el.name).text),
-      );
-      if (named !== undefined) return named;
-    }
-    return (st as ts.ImportDeclaration | ts.ExportDeclaration).moduleSpecifier;
-  };
 }
