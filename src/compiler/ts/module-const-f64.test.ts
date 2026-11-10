@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileModule } from '../../core/oracle.js';
-import { LIBM_TRIG } from '../../core/cpu-runtime.js';
+import { LIBM } from '../../core/cpu-runtime.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { fp64Lower } from '../../core/passes/fp64-lower.js';
 import { splitF64 } from '../../core/fp64/df64-lib.js';
@@ -77,7 +77,7 @@ describe('f64 module constants', () => {
     ['f64((-f32(0.1)))', -Math.fround(0.1)],
     ['f64(f32(0.1) + f32(0.2))', Math.fround(Math.fround(0.1) + Math.fround(0.2))],
     ['f64(f32(f64(1 / 3)))', Math.fround(1 / 3)],
-    ['f64(sin(0.1))', Math.fround(LIBM_TRIG.sinF64(Math.fround(0.1)))],
+    ['f64(sin(0.1))', Math.fround(LIBM.sinF64(Math.fround(0.1)))],
     ['f64(ceil(0.1))', 1],
     ['f64(f32(firstLeadingBit(i32(-1))))', -1],
     ['f64(f32(firstLeadingBit(u32(4294967295))))', 31],
@@ -93,7 +93,7 @@ describe('f64 module constants', () => {
     valueOf('f64(A)', Math.fround(0.1), 'const A: f32 = 0.1;');
     valueOf('f64((A + 1) - A)', 0, 'const A: f32 = 16777216;');
     // Prior builtin declarations retain their own old double fold and GPU expression.
-    valueOf('f64(A)', Math.fround(LIBM_TRIG.sinF64(0.1)), 'const A: f32 = sin(0.1);');
+    valueOf('f64(A)', Math.fround(LIBM.sinF64(0.1)), 'const A: f32 = sin(0.1);');
     valueOf('f64(B)', 1, 'const A: f32 = 16777216; const B: f32 = abs((A + 1) - A);');
     valueOf('A / 2', Math.PI, 'const A: f64 = 2 * Math.PI;');
     valueOf('f64(1 / ((A + 0.5) - A - 0.5))', -2, 'const A: f32 = 16777216;', true);
@@ -112,14 +112,14 @@ describe('f64 module constants', () => {
   it('folds exactly the existing ten f64 builtins through the oracle definitions', () => {
     const cases = [
       ['abs', 'abs(f64(-0.1))', 0.1],
-      ['cos', 'cos(f64(0.1))', LIBM_TRIG.cosF64(0.1)],
+      ['cos', 'cos(f64(0.1))', LIBM.cosF64(0.1)],
       ['floor', 'floor(f64(-0.1))', -1],
       ['fract', 'fract(f64(1.25))', 0.25],
       ['max', 'max(f64(0.1), f64(0.2))', 0.2],
       ['min', 'min(f64(0.1), f64(0.2))', 0.1],
       ['mix', 'mix(f64(2), f64(5), f32(0.1))', 2 + 3 * Math.fround(0.1)],
       ['round', 'round(f64(2.5))', 2],
-      ['sin', 'sin(f64(0.1))', LIBM_TRIG.sinF64(0.1)],
+      ['sin', 'sin(f64(0.1))', LIBM.sinF64(0.1)],
       ['sqrt', 'sqrt(f64(2))', Math.sqrt(2)],
     ] as const;
     expect(cases.map(([name]) => name)).toEqual(F64_SCALAR_TWINS);

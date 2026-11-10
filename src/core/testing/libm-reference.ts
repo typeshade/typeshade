@@ -106,19 +106,149 @@ export function exactTrig(fn: 'sin' | 'cos', x: number): Exact {
   return { num: quadrant >= 2 ? -sum : sum, scale: Q > 0n ? Q : 0n };
 }
 
+const LN2_BITS = 2400n;
+/** ln 2 * 2^bits, by 2 * atanh(1/3). */
+export function ln2Fixed(bits: bigint): bigint {
+  const guard = 32n;
+  const one = 1n << (bits + guard);
+  let power = one / 3n;
+  let sum = 0n;
+  for (let n = 1n; power !== 0n; n += 2n) {
+    sum += power / n;
+    power /= 9n;
+  }
+  return (2n * sum) >> guard;
+}
+const LN2 = ln2Fixed(LN2_BITS);
+/** ln 2 in the scale `q`, for `q` up to `LN2_BITS`. */
+const ln2At = (q: bigint): bigint => {
+  if (q > LN2_BITS) throw new Error('the reference needs more bits of ln 2');
+  return LN2 >> (LN2_BITS - q);
+};
+
+/** e^(r / 2^q) * 2^q for |r / 2^q| <= 1, by the Taylor series. */
+function expSeries(r: bigint, q: bigint): bigint {
+  let term = 1n << q;
+  let sum = 0n;
+  for (let n = 1n; term !== 0n; n++) {
+    sum += term;
+    term = shift(term * r, -q) / n;
+  }
+  return sum;
+}
+
+/** e^x of a finite f64 `x`, or 2^x when `base2`. */
+function exactPower(x: number, base2: boolean): Exact {
+  if (!Number.isFinite(x)) throw new Error('the reference takes a finite number');
+  const { m, e } = exactOf(x);
+  const q = WORK_BITS + 80n;
+  if (base2) {
+    // x = k + r with k the nearest integer, exactly; 2^x = 2^k * e^(r ln 2).
+    const X = shift(m, e + 1100n);
+    const half = 1n << 1099n;
+    const k = (X + half) >> 1100n;
+    const R = X - (k << 1100n);
+    const r = shift(R * ln2At(q), -1100n);
+    return { num: expSeries(r, q), scale: q - k };
+  }
+  // x = k ln 2 + r, in a scale that holds x exactly or to WORK_BITS bits past a tiny x.
+  const base = 1200n;
+  const X = shift(m, e + base);
+  const ln2 = ln2At(base);
+  const k =
+    (2n * X + ln2) / (2n * ln2) -
+    (2n * X + ln2 < 0n && (2n * X + ln2) % (2n * ln2) !== 0n ? 1n : 0n);
+  const R = X - k * ln2;
+  return { num: expSeries(shift(R, q - base), q), scale: q - k };
+}
+
+/** e^x of a finite f64 `x`. */
+export const exactExp = (x: number): Exact => exactPower(x, false);
+/** 2^x of a finite f64 `x`. */
+export const exactExp2 = (x: number): Exact => exactPower(x, true);
+
+/** ln of the positive rational `num / 2^scale`, with about WORK_BITS significant bits. */
+export function exactLogOf(v: Exact): Exact {
+  if (v.num <= 0n) throw new Error('the reference takes a positive number');
+  // v = 2^k * y with y in [3/4, 3/2).
+  let k = bitLength(v.num) - 1n - v.scale;
+  let den = 1n << (bitLength(v.num) - 1n);
+  if (4n * v.num >= 6n * den) {
+    den <<= 1n;
+    k += 1n;
+  }
+  // ln y = 2 atanh(s), s = (y - 1) / (y + 1) = (num - den) / (num + den).
+  const top = v.num - den;
+  if (top === 0n) {
+    const q = WORK_BITS + 80n;
+    return { num: k * ln2At(q), scale: q };
+  }
+  // The scale gives s WORK_BITS significant bits.
+  const q = WORK_BITS + 80n + (bitLength(v.num + den) - bitLength(top));
+  const s = (top << q) / (v.num + den);
+  const s2 = shift(s * s, -q);
+  let power = s;
+  let sum = 0n;
+  for (let n = 1n; power !== 0n; n += 2n) {
+    sum += power / n;
+    // Toward zero, so a negative power reaches zero.
+    power = (power * s2) / (1n << q);
+  }
+  return { num: 2n * sum + k * ln2At(q), scale: q };
+}
+
+/** A finite f64 as an exact value. */
+export function exactValue(x: number): Exact {
+  const { m, e } = exactOf(x);
+  return e >= 0n ? { num: m << e, scale: 0n } : { num: m, scale: -e };
+}
+
+/** ln(x) of a positive finite f64 `x`. */
+export const exactLog = (x: number): Exact => exactLogOf(exactValue(x));
+
+/** log2(x) of a positive finite f64 `x`. */
+export function exactLog2(x: number): Exact {
+  const l = exactLog(x);
+  if (l.num === 0n) return l;
+  // The quotient by ln 2 keeps the significant bits of ln x.
+  const q = WORK_BITS + 80n;
+  return { num: (l.num << q) / ln2At(q), scale: l.scale };
+}
+
 /** The format of a result: its precision in bits and the exponent of its smallest unit. */
 export interface FloatFormat {
   readonly precision: bigint;
   readonly minUlpExponent: bigint;
+  /** The exponent of the first power of two past the largest finite value. */
+  readonly overflowExponent: bigint;
 }
-export const F32_FORMAT: FloatFormat = { precision: 24n, minUlpExponent: -149n };
-export const F64_FORMAT: FloatFormat = { precision: 53n, minUlpExponent: -1074n };
+export const F32_FORMAT: FloatFormat = {
+  precision: 24n,
+  minUlpExponent: -149n,
+  overflowExponent: 128n,
+};
+export const F64_FORMAT: FloatFormat = {
+  precision: 53n,
+  minUlpExponent: -1074n,
+  overflowExponent: 1024n,
+};
 
 /** The signed distance of the finite result `got` from the exact value, in units in the last
  *  place of the format at the exact value. The unit is that of the exact value's binade, and
- *  never below the format's smallest unit. Undefined when the exact value is zero. */
+ *  never below the format's smallest unit. Undefined when the exact value is zero. An infinite
+ *  result measures 0 where an infinity is the correctly rounded result, and infinity elsewhere. */
 export function ulpError(got: number, exact: Exact, format: FloatFormat): number | undefined {
-  if (!Number.isFinite(got)) return Infinity;
+  if (Number.isNaN(got)) return Infinity;
+  if (!Number.isFinite(got)) {
+    // An infinity is the correctly rounded result when the exact value is at or past the
+    // largest finite value plus half a unit, with the infinity's sign.
+    const p = format.precision;
+    const bound = ((1n << (p + 1n)) - 1n) << (format.overflowExponent - p - 1n);
+    const magnitude = abs(exact.num);
+    const past =
+      exact.scale >= 0n ? magnitude >= bound << exact.scale : magnitude << -exact.scale >= bound;
+    return past && got > 0 === exact.num > 0n ? 0 : Infinity;
+  }
   if (exact.num === 0n) return got === 0 ? 0 : undefined;
   const { m, e } = exactOf(got);
   // The exponent of the unit: 2^(floor(log2 |exact|) - precision + 1).

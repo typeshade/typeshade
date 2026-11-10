@@ -227,6 +227,21 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   `tshc migrate` rewrites neither form: the author deletes `()` or the second attribute. No
   official release accepted the refused forms (OD-6).
 
+- **`exp`, `exp2`, `log`, `log2` and `ldexp` on the CPU are the libm's** (change 0042, milestone
+  1a, slice 2). The CPU oracle and the CPU tier computed them with the engine's `Math.exp`,
+  `Math.log`, `Math.log2` and `**`, whose results ECMAScript leaves to the engine. They now
+  compute them with routines of the compiler's own libm, one for each function, on an `f64`;
+  the result for an `f32` operand is that result rounded once. A result may differ from before
+  in the last bit, and it is the same on Node and on Bun. The error of `exp`, `exp2`, `log` and
+  `log2` is under 1 ULP. `exp2` of an integer is the exact power of two, and `log2` of a power
+  of two is its exact exponent. `ldexp` is the exact product rounded once: `x * 2 ** e` rounded
+  twice for a subnormal result. A GPU's functions stay the driver's. No syntax changes, and no
+  author-facing name is added. The caps of `scripts/bundle-budget.json` take the measured gzip
+  sizes for the two bundles that hold the CPU op library: `typeshade/algorithms` single file
+  55,438 to 56,681 (+1,243), split initial and total 54,595 to 55,861; `typeshade/random`
+  single file 36,707 to 37,946 (+1,239), split initial and total 35,909 to 37,138. The floors
+  and the other caps do not change.
+
 - **`sin` and `cos` on the CPU are the libm's, not the engine's** (change 0042, milestone 1a).
   The CPU oracle and the CPU tier computed `sin` and `cos` with the engine's `Math.sin` and
   `Math.cos`, whose results ECMAScript leaves to the engine. They now compute them with routines

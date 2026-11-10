@@ -28,7 +28,7 @@ import {
   wrapInt,
   type NumKind,
 } from './scalar-arith.js';
-import { makeTrig, type LibmTrig } from './libm/index.js';
+import { makeLibm, type Libm } from './libm/index.js';
 import { pushedLength, startPushesAt } from './push-count.js';
 
 export { atomicStep, intDiv, intRem, scalarBin, wrapInt, type NumKind } from './scalar-arith.js';
@@ -366,8 +366,8 @@ export const COMPONENTWISE = {
   // operand takes the `f64` routine. In `'f32'` precision the precision pass rounds the result
   // once to `f32` (`__fround`), so an `f32` operand has one answer on every CPU path: a call,
   // a module constant and a compile-time fold.
-  sin: { lane: (x: number): number => LIBM_TRIG.sinF64(x), vector: 0 },
-  cos: { lane: (x: number): number => LIBM_TRIG.cosF64(x), vector: 0 },
+  sin: { lane: (x: number): number => LIBM.sinF64(x), vector: 0 },
+  cos: { lane: (x: number): number => LIBM.cosF64(x), vector: 0 },
   tan: { lane: Math.tan, vector: 0 },
   asin: { lane: Math.asin, vector: 0 },
   acos: { lane: Math.acos, vector: 0 },
@@ -378,11 +378,11 @@ export const COMPONENTWISE = {
   asinh: { lane: Math.asinh, vector: 0 },
   acosh: { lane: Math.acosh, vector: 0 },
   atanh: { lane: Math.atanh, vector: 0 },
-  exp: { lane: Math.exp, vector: 0 },
-  log: { lane: Math.log, vector: 0 },
-  log2: { lane: Math.log2, vector: 0 },
+  exp: { lane: (x: number): number => LIBM.expF64(x), vector: 0 },
+  log: { lane: (x: number): number => LIBM.logF64(x), vector: 0 },
+  log2: { lane: (x: number): number => LIBM.log2F64(x), vector: 0 },
   sqrt: { lane: Math.sqrt, vector: 0 },
-  exp2: { lane: (x: number): number => 2 ** x, vector: 0 },
+  exp2: { lane: (x: number): number => LIBM.exp2F64(x), vector: 0 },
   inverseSqrt: { lane: (x: number): number => 1 / Math.sqrt(x), vector: 0 },
   trunc: { lane: Math.trunc, vector: 0 },
   round: { lane: roundTiesToEven, vector: 0 },
@@ -398,7 +398,9 @@ export const COMPONENTWISE = {
   // FLOOR-mod (see `mod` below), not JS `%`.
   mod: { lane: (a: number, b: number): number => a - b * Math.floor(a / b), vector: 0 },
   pow: { lane: Math.pow, vector: 0 },
-  ldexp: { lane: (x: number, e: number): number => x * 2 ** e, vector: 0 },
+  // Exact scaling with one rounding (the libm), not `x * 2 ** e`, which rounds twice for a
+  // subnormal result and whose `**` ECMAScript leaves to the engine.
+  ldexp: { lane: (x: number, e: number): number => LIBM.ldexpF64(x, e), vector: 0 },
   // One rounding of the exact product and sum (see `fma` below).
   fma: { lane: (x: number, y: number, z: number): number => Math.fround(x * y + z), vector: 0 },
   min: { lane: minNum, vector: 'any' },
@@ -892,10 +894,10 @@ export const BUILTINS: Record<string, Builtin> = {
 };
 
 /** The libm's routines (change 0042, milestone 1a), built once over the two tables above: the
- *  JavaScript form of `libm/trig.shade.ts`, which `sin` and `cos` of {@link COMPONENTWISE}
- *  call. Declared after the tables it reads; an entry calls it only when
+ *  JavaScript form of each family's source under `libm/`, which the entries of
+ *  {@link COMPONENTWISE} call (`sin`, `cos`, `exp`, `exp2`, `log`, `log2`, `ldexp`). Declared after the tables it reads; an entry calls it only when
  *  a program runs. Exported for the libm's gates and for a test that reads the libm's value. */
-export const LIBM_TRIG: LibmTrig = makeTrig({ B: BUILTINS, L: COMPONENTWISE, intDiv, intRem });
+export const LIBM: Libm = makeLibm({ B: BUILTINS, L: COMPONENTWISE, intDiv, intRem });
 
 // GPU-only stubs (X-GIS #763 O3). textureSample needs the GPU's sampler/atlas; fwidth
 // needs neighbouring fragments — neither is computable in this per-invocation
