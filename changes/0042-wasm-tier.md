@@ -968,6 +968,65 @@ routine that exists.
 the internal operations with `sin` and `cos` (#1168); the other 17 functions; the rule text of
 Rules 1.3, 9.4 and 11.24; the split by function; the sweep against CORE-MATH.
 
+### A3. No monotonic promise; the fdlibm notice; `exp2`; what the first seven functions measured (2026-11-10)
+
+**Delivered so far.** [observed result] Seven of the 19 functions are on `main` at `fbd151af`:
+`sin` and `cos` ([#1168](https://github.com/typeshade/typeshade/pull/1168)), `exp`, `exp2`,
+`log`, `log2` and `ldexp` ([#1181](https://github.com/typeshade/typeshade/pull/1181)), and a
+second method for `exp2` ([#1199](https://github.com/typeshade/typeshade/pull/1199)). Each
+pull request had an independent review. No review found an operand at or above 1 ULP.
+
+| Function     | Largest error measured for an `f64` operand | Measured by                                       |
+| ------------ | ------------------------------------------- | ------------------------------------------------- |
+| `sin`, `cos` | 0.794 ULP                                   | the review of #1168, about 10.8 million operands  |
+| `exp`        | 0.9217 ULP                                  | the review of #1181, 7.8 million focused operands |
+| `exp2`       | 0.7718 ULP                                  | #1199 after its review, 115 million operands      |
+| `log`        | 0.8518 ULP                                  | the review of #1181                               |
+| `log2`       | 0.8615 ULP                                  | the review of #1181                               |
+| `ldexp`      | correctly rounded                           | the review of #1181, 8.4 million cases            |
+
+Each number is the largest of a sample. None is a proved bound. An `f32` result measured at
+most 0.5009 ULP before Amendment A2 and 0.5000 ULP after it.
+
+**Decision, monotonic results.** The review of #1181 found that `exp2` was not monotonic at
+two pairs of operands near −0.4973 and −0.4977, each inside 1 ULP. Asked on 2026-11-10 whether
+the libm promises monotonic results as well, the owner chose "약속하지 않음". The promise stays
+the engine identity and an error under 1 ULP. A step that decreases where the exact function
+increases is recorded when a review finds one, and it is no defect. The alternative was to
+promise it. Cost recorded: a caller that needs a monotonic function cannot rest on the libm.
+[observed result] After #1199 a scan of about 366 million consecutive doubles found no such
+step in `exp2`.
+
+**Decision, the fdlibm notice.** The kernels and the coefficients of `sin`, `cos`, `exp`,
+`log` and `log2` are fdlibm's, whose licence grants use "provided that this notice is
+preserved". Asked on 2026-11-10 how far the notice goes, the owner chose "소스 + NOTICE + 생성
+파일": the notice is in each libm source, in `NOTICE` (which the package ships), and in the
+header of each baked file. The alternatives were the sources only, or a preserved comment in
+each built bundle as well. Cost recorded: a minified bundle carries no notice. This is the
+owner's decision and no legal advice.
+
+**`exp2`.** The proposal named no method for `exp2`. [observed result] The first method
+(#1181: the nearest integer out, the kernel of `exp` on the rest) measured up to 0.9282 ULP.
+Asked on 2026-11-10, the owner chose "머지, exp2는 뒤에 개선" and then "빠진 항을 더한 뒤 머지".
+The method on `main` takes the nearest half-integer out. Its kernel runs on half the range. An
+odd half-step multiplies by the square root of 2, held as a head and a tail, with all four
+terms of the product.
+
+**Open, a subnormal result.** [observed result] `exp` and `exp2` round a subnormal result
+twice: once in the last sum and once in the scaling. The review of #1199 measured 0.834 ULP at
+most for such a result before the last change, and 0.7718 ULP after it. It is under 1 ULP.
+Next action: none planned; the sweep against CORE-MATH measures it again.
+
+**Open, compile-time refusals.** `CONST_CALLS` in `src/compiler/ts/loop-bound.ts` still reads
+the engine's `Math` for the range and domain refusals of `exp`, `exp2`, `log`, `log2` and
+`ldexp`. It gives no CPU value. Next action: a later slice of milestone 1a reads it.
+
+**Two bugs that the libm work found and that are fixed.** Neither is part of this proposal.
+An author's function named `__fround` was taken for the rounding step
+([#1178](https://github.com/typeshade/typeshade/pull/1178)). A module constant's expression did
+not round as `f32` arithmetic does in `'f32'` precision
+([#1190](https://github.com/typeshade/typeshade/pull/1190)).
+
 ## What it owes downstream
 
 The downstream repositories were not searched for this revision. Each item below is expected
