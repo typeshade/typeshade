@@ -138,7 +138,7 @@ function kcos(x: f64, y: f64): f64 {
  *
  *  From 0.625 the kernel runs on a = pi/4 - |x|, which is small, and
  *  tan(pi/4 - a) = 1 - 2 (t - t^2 / (1 + t)) for t = tan(a). d = pi/4 rounded less |x| is
- *  exact, and so is 1 - 2 d. So the result is 1 - 2 d less twice a small term, which holds the
+ *  exact, and so are 1 - 2 d and, for the reciprocal, -1 - 2 d. So the result is 1 - 2 d less twice a small term, which holds the
  *  rest of a, r and t^2 / (1 + t). fdlibm rounds a, and rounds the difference a - (...).
  *
  *  The reciprocal is computed with a head of 32 bits of the sum and of the quotient, so the

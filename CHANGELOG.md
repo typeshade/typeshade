@@ -252,8 +252,9 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   of 0.9277 measures 0.0723. `tan` still does not decrease around each threshold. Every special
   value stays. A CPU result of `tan` for an `f64` operand may differ from before in the last bit:
   3,428 of 249,896 on every bit pattern and about 6,800 of 250,000 on [-100, 100). No `f32` result
-  of the gate sets changed. `sin` and `cos` do not change. A call on [-pi/4, pi/4] takes 18.2 ns on
-  Bun 1.4.4 (13.6 before) and 18.8 ns on Node 22.23.4 (19.4 before). The caps of
+  of the gate sets changed. `sin` and `cos` do not change. A call on [-pi/4, pi/4] measured 18.2 ns on
+  Bun 1.4.4 (13.6 before) and 18.8 ns on Node 22.23.4 (19.4 before) in one run; the review's
+  runs on Bun gave differences from -0.2 to +9.9 ns, so the change is within run-to-run noise. The caps of
   `scripts/bundle-budget.json` take the measured gzip sizes: `typeshade/algorithms` single file
   59,287 to 59,492 (+205), split initial and total 58,364 to 58,555; `typeshade/random` single file
   40,462 to 40,679 (+217), split initial and total 39,623 to 39,798. The floors and the other caps
