@@ -298,6 +298,12 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   // 8.1, changes 0130 and 0140). The call is still read as the entry it stood for, so nothing
   // else is said about it (Rule 12.4).
   refuseStageCalls(sourceFile, diagnostics);
+  // The type a `builtin<N, …>` writes: the migration form warned, and `builtin<"clip_distances">`
+  // refused, once each (Rule 6.6, change 0135). Read before the structs and the bodies: a field
+  // refused here is withheld from its struct, and a name declared from a read of it binds
+  // nothing, so each use of that name finds this refusal standing and says nothing more
+  // (Rule 12.4, `refused-names.ts`, #1185).
+  checkBuiltinTypeForms(sourceFile, diagnostics);
   const structs = collectStructs(sourceFile, diagnostics, symbols);
   // The structs, so a buffer binding's host-shareable rules can be read through its struct
   // type (§51) — collected first, which this order already guaranteed.
@@ -465,9 +471,6 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   // The decorated form of the migration release, read as written and warned once each
   // (change 0111, milestone 4).
   warnDecoratedForm(sourceFile, diagnostics);
-  // The type a `builtin<N, …>` writes: the migration form warned, and `builtin<"clip_distances">`
-  // refused, once each (Rule 6.6, change 0135).
-  checkBuiltinTypeForms(sourceFile, diagnostics);
   dropRepeatedDiagnostics(diagnostics);
   sortDiagnosticsByPosition(diagnostics);
   let wgsl: string | undefined;
