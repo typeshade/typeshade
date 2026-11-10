@@ -207,8 +207,8 @@ value is `builtin<"...">`, of the type WGSL gives it. Only
 input or output. `uv: vec2` leaves its location to the compiler, and `location<n, T>` states it,
 to fix a number or to carry an option. The options are an object type (§53): `invariant` is the
 second argument of `builtin<"...">`, and `interpolate` and `blend_src` are the third argument of
-`location<n, T, O>`. Each type means its value type. A type carries in all three spellings, so a struct used as
-entry I/O — where WGSL requires a built-in or a location on every member — may be a `class`, an
+`location<n, T, O>`. Each type means its value type. A type carries in all three spellings, so
+a struct used as entry I/O — where WGSL requires a built-in or a location on every member — may be a `class`, an
 `interface` or a `type`. A `class` field needs no initializer and no `!` (`view: mat4`): the
 stage that produces an entry I/O field fills it, and a struct field is zero until written. A
 written `!` is accepted and changes nothing (change 0130, D3).
@@ -235,8 +235,8 @@ interface VsIn {
 Of the attributes, the compiler applies `location`, `builtin`, `interpolate`, `invariant` and
 `blend_src` today (§53). `location<n, T>`, with an `interpolate` option, and `builtin<"...">`
 also apply to a bare entry PARAMETER, which is how a fragment entry that takes one varying
-writes it. A bare parameter with no attribute is a user-defined input too (§3). The field decorators are refused
-rather than silently dropped, under two codes: `@align` on a field is `TS8010` ("@align on a
+writes it. A bare parameter with no attribute is a user-defined input too (§3). The field
+decorators are refused rather than silently dropped, under two codes: `@align` on a field is `TS8010` ("@align on a
 field is not applied"), so the `@align(16)` above is *(target)*; `@size` is `TS8028`, named as
 WGSL's attribute and not applied, since a field takes the size WGSL's layout gives its type
 (§51); `@offset` and `@ignore` are `TS8028` ("Unknown attribute"), because neither WGSL nor the
