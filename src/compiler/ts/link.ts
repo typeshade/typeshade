@@ -886,6 +886,111 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     }
   }
 
+  /** Whether `id` is the size of an array type: `N` in `array<f32, N>`, the one place where a
+   *  type names a value (#1194). */
+  const isArraySize = (id: ts.Identifier): boolean => {
+    const size = id.parent;
+    const arrayType = size.parent;
+    return (
+      ts.isTypeReferenceNode(arrayType) &&
+      ts.isIdentifier(arrayType.typeName) &&
+      arrayType.typeName.text === 'array' &&
+      arrayType.typeArguments?.[1] === size
+    );
+  };
+  /** Per file, the values its module scope holds by name: its own top-level declarations and
+   *  its import bindings. */
+  const moduleValues = new Map<ProgramFile, Map<string, ts.Symbol>>();
+  /** Whether the alias `symbol` reaches its target only through a type-only import or export:
+   *  `import type { N }`, `import { type N }`, `export type { N } from`, or `export type * from`
+   *  on the way. That imports no value, so it sizes no array: the owner's decision of
+   *  2026-11-10 on pull request #1200. */
+  const importsTypeOnly = (symbol: ts.Symbol, seen = new Set<ts.Symbol>()): boolean => {
+    if ((symbol.flags & ts.SymbolFlags.Alias) === 0 || seen.has(symbol)) return false;
+    seen.add(symbol);
+    const decl = symbol.declarations?.[0];
+    if (decl === undefined) return false;
+    if (ts.isTypeOnlyImportOrExportDeclaration(decl)) return true;
+    // `import { N } from "./c"` and `export { N } from "./c"` name a module, whose export of
+    // `N` may come through an `export *`, which leaves no alias symbol to walk.
+    const spec = ts.isImportSpecifier(decl) || ts.isExportSpecifier(decl) ? decl : undefined;
+    const from =
+      spec === undefined
+        ? undefined
+        : ts.isImportSpecifier(spec)
+          ? spec.parent.parent.parent.moduleSpecifier
+          : spec.parent.parent.moduleSpecifier;
+    if (spec === undefined || from === undefined) {
+      const next = checker.getImmediateAliasedSymbol(symbol);
+      return next !== undefined && importsTypeOnly(next, seen);
+    }
+    const module = checker.getSymbolAtLocation(from);
+    const name = (spec.propertyName ?? spec.name).text;
+    return module !== undefined && exportedTypeOnly(module, name, seen) === true;
+  };
+  /** How `module` exports `name`: `true` when every way it does is type-only, `false` when one
+   *  way is a value, as TypeScript reads a value use; `undefined` when it does not export it.
+   *  A way that comes back to a module already on the walk is a cycle, which TypeScript refuses
+   *  (TS2303, TS2308) and which brings no value: it counts as type-only, so the verdict does not
+   *  depend on the module the walk starts from. */
+  const exportedTypeOnly = (
+    module: ts.Symbol,
+    name: string,
+    seen: Set<ts.Symbol>,
+  ): boolean | undefined => {
+    if (seen.has(module)) return true;
+    seen.add(module);
+    const own = module.exports?.get(ts.escapeLeadingUnderscores(name));
+    if (own !== undefined) return importsTypeOnly(own, seen);
+    let typeOnly: boolean | undefined;
+    const sf = module.declarations?.find(ts.isSourceFile);
+    for (const st of sf?.statements ?? []) {
+      if (!ts.isExportDeclaration(st) || st.exportClause !== undefined) continue;
+      const target = st.moduleSpecifier && checker.getSymbolAtLocation(st.moduleSpecifier);
+      if (target === undefined) continue;
+      if (!checker.getExportsOfModule(target).some((e) => e.name === name)) continue;
+      const via = st.isTypeOnly ? true : exportedTypeOnly(target, name, seen);
+      if (via === false) return false;
+      if (via === true) typeOnly = true;
+    }
+    return typeOnly;
+  };
+  /** The top-level value an array's size names in `f`: its unit and its name there.
+   *  TypeScript's checker reads the name as a type, so it does not answer. The front end reads
+   *  the name as the module's override of that name (`sizeOverrides` in `module-vars.ts`),
+   *  whatever a function declares under it. So the linker reads the value that the file's
+   *  module scope holds. A parameter or a local does not hide it, and a type of the same name
+   *  does not stand for it. `'refused'` is a name whose import was refused. `undefined` is a
+   *  name the file's module scope gives no value, a type-only import among them. */
+  const sizeValueOf = (
+    f: ProgramFile,
+    id: ts.Identifier,
+  ): { unit: Unit; name: string } | 'refused' | undefined => {
+    let values = moduleValues.get(f);
+    if (values === undefined) {
+      values = new Map();
+      // An import's binding is an alias, which is in scope only when asked for.
+      const flags = ts.SymbolFlags.Value | ts.SymbolFlags.Alias;
+      for (const s of checker.getSymbolsInScope(f.sf, flags)) values.set(s.name, s);
+      moduleValues.set(f, values);
+    }
+    const local = values.get(id.text);
+    if (local === undefined || importsTypeOnly(local)) return undefined;
+    const symbol = resolveAlias(local);
+    if (symbol === undefined) return 'refused';
+    for (const d of symbol.declarations ?? []) {
+      // `type N = f32` beside `const N` declares one symbol, and the size is the value.
+      if (ts.isInterfaceDeclaration(d) || ts.isTypeAliasDeclaration(d)) continue;
+      const stmt = topStatementOf(d);
+      const unit = stmt === undefined ? undefined : unitOfStatement.get(stmt);
+      const name = (d as { name?: ts.Node }).name;
+      if (unit !== undefined && name !== undefined && ts.isIdentifier(name)) {
+        return { unit, name: name.text };
+      }
+    }
+    return undefined;
+  };
+
   /** Every name every file writes, which a generated name must not take. */
   const written = new Set<string>();
   /** Per statement, the names it uses and TypeScript resolves to nothing: a builtin, or a
@@ -900,6 +1005,8 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     readonly name: string;
   }
   const usesOf = new Map<ProgramFile, Use[]>();
+  /** Each array size that names no value of its own file's module scope. */
+  const unresolvedSizes: { readonly file: ProgramFile; readonly id: ts.Identifier }[] = [];
   for (const f of order) {
     const uses: Use[] = [];
     usesOf.set(f, uses);
@@ -918,6 +1025,23 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
         written.add(id.text);
         if (!isUse(id)) continue;
         const p = id.parent;
+        if (isArraySize(id)) {
+          const size = sizeValueOf(f, id);
+          if (size === 'refused') {
+            silence(f, id);
+            continue;
+          }
+          if (size !== undefined) {
+            uses.push({ id, unit: size.unit, name: size.name });
+            from?.refs.add(size.unit);
+            continue;
+          }
+          // No value of this file's: a mistake, a type, a namespace or a type-only import. It
+          // must not read another file's declaration of the name, so it is written under a name
+          // nothing declares, and the front end says what one file says of it (TS8002).
+          unresolvedSizes.push({ file: f, id });
+          continue;
+        }
         let symbol = ts.isShorthandPropertyAssignment(p)
           ? checker.getShorthandAssignmentValueSymbol(p)
           : checker.getSymbolAtLocation(id);
@@ -1072,69 +1196,78 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
   /** A binding, an entry point or an override whose name another already holds: refused, and
    *  left out of the linked source, so the one-file checks do not report it a second time. */
   const dropped = new Set<Unit>();
-  // The entry, then each file in the order it was read, which is import order.
-  for (const f of order) {
-    if (!keptFiles.has(f)) continue;
-    const called = new Set<string>();
-    for (const [other, g] of globals) if (other !== f) for (const n of g.keys()) called.add(n);
-    for (const u of units) {
-      if (u.file !== f || !kept.has(u)) continue;
-      for (const id of u.names) {
-        const k = key(f, id.text);
-        if (emitted.has(k)) continue;
-        const clash = taken.has(id.text);
-        const hides = called.has(id.text);
-        if (!clash && !hides) {
-          emitted.set(k, id.text);
-          taken.add(id.text);
-          owner.set(id.text, f);
-          continue;
-        }
-        if (u.fixedName !== undefined) {
-          if (clash) {
-            const first = owner.get(id.text)!;
-            diagnostics.push(
-              makeDiagnostic(
-                f.sf,
-                id,
-                `${u.fixedName === 'binding' ? 'Binding' : u.fixedName === 'override' ? 'Override' : 'Entry point'} "${id.text}" is ` +
-                  `declared in both "${first.name}" and "${f.name}". A program is one module, ` +
-                  `and the host knows ${u.fixedName === 'binding' ? 'a' : 'an'} ${u.fixedName} ` +
-                  `by its name; rename one.`,
-                TS_CODES.DUPLICATE_SYMBOL,
-              ),
-            );
-            dropped.add(u);
-          } else {
-            // Another file names it without importing it, which would read this declaration.
-            for (const [other, g] of globals) {
-              if (other === f) continue;
-              for (const use of g.get(id.text) ?? []) {
-                diagnostics.push(
-                  makeDiagnostic(
-                    other.sf,
-                    use,
-                    `Unknown identifier "${id.text}". Declare it in this file, or import it ` +
-                      `from another shader module.`,
-                    TS_CODES.UNKNOWN_NAME,
-                  ),
-                );
+  // The entry, then each file in the order it was read, which is import order. A type alias
+  // emits nothing, so it names itself last: one never takes the name an override, a binding or
+  // an entry point of another file holds.
+  for (const aliases of [false, true])
+    for (const f of order) {
+      if (!keptFiles.has(f)) continue;
+      const called = new Set<string>();
+      for (const [other, g] of globals) if (other !== f) for (const n of g.keys()) called.add(n);
+      for (const u of units) {
+        if (u.file !== f || !kept.has(u)) continue;
+        if (ts.isTypeAliasDeclaration(u.stmt) !== aliases) continue;
+        for (const id of u.names) {
+          const k = key(f, id.text);
+          if (emitted.has(k)) continue;
+          const clash = taken.has(id.text);
+          const hides = called.has(id.text);
+          if (!clash && !hides) {
+            emitted.set(k, id.text);
+            taken.add(id.text);
+            owner.set(id.text, f);
+            continue;
+          }
+          if (u.fixedName !== undefined) {
+            if (clash) {
+              const first = owner.get(id.text)!;
+              diagnostics.push(
+                makeDiagnostic(
+                  f.sf,
+                  id,
+                  `${u.fixedName === 'binding' ? 'Binding' : u.fixedName === 'override' ? 'Override' : 'Entry point'} "${id.text}" is ` +
+                    `declared in both "${first.name}" and "${f.name}". A program is one module, ` +
+                    `and the host knows ${u.fixedName === 'binding' ? 'a' : 'an'} ${u.fixedName} ` +
+                    `by its name; rename one.`,
+                  TS_CODES.DUPLICATE_SYMBOL,
+                ),
+              );
+              dropped.add(u);
+            } else {
+              // Another file names it without importing it, which would read this declaration.
+              for (const [other, g] of globals) {
+                if (other === f) continue;
+                for (const use of g.get(id.text) ?? []) {
+                  diagnostics.push(
+                    makeDiagnostic(
+                      other.sf,
+                      use,
+                      `Unknown identifier "${id.text}". Declare it in this file, or import it ` +
+                        `from another shader module.`,
+                      TS_CODES.UNKNOWN_NAME,
+                    ),
+                  );
+                }
               }
             }
+            emitted.set(k, id.text);
+            taken.add(id.text);
+            continue;
           }
-          emitted.set(k, id.text);
-          taken.add(id.text);
-          continue;
+          const name = fresh(stemOf(f), id.text);
+          emitted.set(k, name);
+          taken.add(name);
+          owner.set(name, f);
         }
-        const name = fresh(stemOf(f), id.text);
-        emitted.set(k, name);
-        taken.add(name);
-        owner.set(name, f);
       }
     }
-  }
   const emittedName = (unit: Unit, name: string): string =>
     emitted.get(key(unit.file, name)) ?? name;
+  // A use of a declaration the module refused and left out reads nothing, or another file's
+  // declaration of the name. The refusal is the one diagnostic for it (Rule 12.4).
+  for (const [f, uses] of usesOf) {
+    for (const use of uses) if (dropped.has(use.unit)) silence(f, use.id);
+  }
 
   // ── 5. The linked source ───────────────────────────────────────────────────────────────
   /** Units of an imported file that keep their `export`: what the entry re-exports under the
@@ -1284,6 +1417,13 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
           );
         }
       }
+    }
+    for (const size of unresolvedSizes) {
+      const stmt = size.file === f ? topStatementOf(size.id) : undefined;
+      if (stmt === undefined || !carries(f, stmt)) continue;
+      const name = fresh(stemOf(f), size.id.text);
+      taken.add(name);
+      edits.push({ start: size.id.getStart(f.sf), end: size.id.getEnd(), text: name });
     }
     for (const use of usesOf.get(f) ?? []) {
       const stmt = topStatementOf(use.id);

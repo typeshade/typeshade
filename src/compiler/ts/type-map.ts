@@ -45,6 +45,7 @@ import {
 } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
+import { writtenName } from './context.js';
 import { boundTypeArgument } from './generics.js';
 import { genericStructName, isGenericClass } from './generic-structs.js';
 import { TS_CODES, type TsCode } from './codes.js';
@@ -1237,7 +1238,7 @@ function mapGeneric(
           sourceFile,
           nNode,
           `The outer size of a workgroup array must name an integer override with a positive ` +
-            `default; "${sizeName}" does not.`,
+            `default; "${writtenName(nNode.typeName)}" does not.`,
         );
         return undefined;
       }
@@ -1395,7 +1396,9 @@ function mapGeneric(
     diagnostics,
     sourceFile,
     typeNode,
-    `Type arguments are not supported yet (got "${name}<...>").`,
+    `Type arguments are not supported yet (got "${
+      ts.isIdentifier(typeNode.typeName) ? writtenName(typeNode.typeName) : name
+    }<...>").`,
   );
   return undefined;
 }
