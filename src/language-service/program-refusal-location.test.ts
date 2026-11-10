@@ -577,8 +577,8 @@ export function fs(v: VsOut): vec4 {
   });
 
   it('a private name two files declare: the mistake of the imported file is reported once', () => {
-    // The linked program emits the library's `helper` as `lib_helper`, and its sentence names
-    // it so. It is the mistake the library's own program reports about `helper`.
+    // The linked program emits the library's `helper` as `lib_helper`. It is the mistake the
+    // library's own program reports about `helper`.
     const LIB = '/p/lib.shade.ts';
     const files: Files = {
       [LIB]: `"use typeshade";
@@ -608,9 +608,9 @@ export function fs(v: VsOut): vec4 {
       related: [],
     };
     expect(compilerSays(files, LIB)).toEqual([own]);
-    expect(compilerSays(files, B)).toEqual([
-      { ...own, message: '"lib_helper" expects 1 argument(s), got 2.' },
-    ]);
+    // The linked program emits the library's `helper` as `lib_helper`; its sentence names the
+    // declaration as the library writes it.
+    expect(compilerSays(files, B)).toEqual([own]);
     const service = opened(files);
     expect(editorSays(service, files, LIB)).toEqual([own]);
     expect(editorSays(service, files, B)).toEqual([]);
@@ -1381,6 +1381,92 @@ export function fs(v: VsOut): vec4 {
       expect(ran.text.split('\n').filter((line) => line.startsWith('b.shade.ts:'))).toEqual([]);
     });
   }
+
+  // An import's alias, and a name of the importing file that the linker gives the imported
+  // declaration's emitted name to avoid: the sentence names the declaration as its file writes
+  // it, and the mistake is the imported file's own, once (#1186).
+  const USER = (imports: string, own = '', call = 'l2'): string => `"use typeshade";
+import { ${imports} } from "./lib.shade.ts";
+${own}${VS}@fragment
+export function fs(v: VsOut): vec4 {
+  return vec4(${call}(vec3(v.uv, 0.)), 0., 0., 1.);
+}
+`;
+  const ASYNC_LUM = `"use typeshade";\nexport async function lum(c: vec3): f32 {\n  return c.x;\n}\n`;
+  const ASYNC_SAID =
+    '"lum" is async, and a shader function runs to completion in one call: there is no event loop to wait on. Remove "async" and each "await".';
+  const NAMED: readonly (readonly [string, Files, string, string])[] = [
+    ['an alias', { [LIB]: ASYNC_LUM, [B]: USER('lum as l2') }, 'TS8013', ASYNC_SAID],
+    [
+      'an alias, a duplicate',
+      { [LIB]: TWICE('export '), [B]: USER('lum as l2') },
+      'TS8023',
+      'Duplicate function "lum".',
+    ],
+    [
+      'an alias, and a declaration of the same name in the importing file',
+      {
+        [LIB]: ASYNC_LUM,
+        [B]: USER('lum as l2', 'function lum(c: vec3): f32 {\n  return l2(c) * 2.;\n}\n', 'lum'),
+      },
+      'TS8013',
+      ASYNC_SAID,
+    ],
+    [
+      'a declaration of the same name in the importing file, a duplicate',
+      {
+        [LIB]: `${TWICE('export ')}export function lum2(c: vec3): f32 {\n  return lum(c);\n}\n`,
+        [B]: USER('lum2', 'function lum(c: vec3): f32 {\n  return lum2(c);\n}\n', 'lum'),
+      },
+      'TS8023',
+      'Duplicate function "lum".',
+    ],
+  ];
+  for (const [name, files, code, message] of NAMED) {
+    it(`${name}: once, in the imported file, in the words it writes`, () => {
+      const own = compilerSays(files, LIB).filter((d) => d.code === code);
+      expect(own.map((d) => [d.file, d.message])).toEqual([['lib.shade.ts', message]]);
+      const inProgram = compilerSays(files, B).filter((d) => d.code === code);
+      expect(inProgram.map((d) => [d.file, d.message, d.related])).toEqual([
+        ['lib.shade.ts', message, []],
+      ]);
+      const service = opened(files);
+      expect(editorSays(service, files, B).filter((d) => d.code.startsWith('TS8'))).toEqual([]);
+      const ran = check(files);
+      expect(ran.status).toBe(1);
+      expect(ran.text.match(new RegExp(` - error ${code}:`, 'g'))).toHaveLength(1);
+      expect(ran.text).not.toContain('lib_');
+    });
+  }
+
+  it('the same mistake in both files: once in each, each in its own words', () => {
+    const files: Files = {
+      [LIB]: ASYNC_LUM,
+      [B]: `"use typeshade";
+import { lum as l2 } from "./lib.shade.ts";
+export async function lum(c: vec3): f32 {
+  return l2(c);
+}
+${VS}@fragment
+export function fs(v: VsOut): vec4 {
+  return vec4(lum(vec3(v.uv, 0.)), 0., 0., 1.);
+}
+`,
+    };
+    const said = (list: readonly Said[]): string[][] =>
+      list.filter((d) => d.code === 'TS8013').map((d) => [d.file, d.message]);
+    expect(said(compilerSays(files, LIB))).toEqual([['lib.shade.ts', ASYNC_SAID]]);
+    expect(said(compilerSays(files, B))).toEqual([
+      ['lib.shade.ts', ASYNC_SAID],
+      ['b.shade.ts', ASYNC_SAID],
+    ]);
+    const service = opened(files);
+    expect(said(editorSays(service, files, B))).toEqual([['b.shade.ts', ASYNC_SAID]]);
+    expect(said(editorSays(service, files, LIB))).toEqual([['lib.shade.ts', ASYNC_SAID]]);
+    const ran = check(files);
+    expect(ran.text.match(/ - error TS8013:/g)).toHaveLength(2);
+    expect(ran.text).not.toContain('lib_');
+  });
 
   it('a mistake in the body of an imported generic function stays in that file, once', () => {
     // The declaring file's own program reports the unknown name, so the program that

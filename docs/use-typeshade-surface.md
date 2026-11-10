@@ -9585,8 +9585,8 @@ expression in the first file; else the outermost use the file writes; else its r
 entry point that holds the use; else its import of the file below. The error stands in the first
 candidate that reports the same error at that place when it is compiled on its own, and at that
 place: the same code and sentence, about the same span, reported on the same span. Two spans are
-the same when they end together and start together or with only `export`, `default`,
-whitespace and comments between their starts; a nested expression is another span. So an error
+the same when they end together and start together or with only `export`, optionally
+`default`, and whitespace and comments between their starts; a nested expression is another span. So an error
 located in an imported file is one that file reports there when it is compiled on its own, and a
 mistake of a file in the middle of a chain of imports is reported in that file and not again in each file above it. A
 middle file whose own program reports the refusal at another of its calls (it makes the

@@ -17,8 +17,8 @@
 // 2. The OWNER is the first file of the chain that reports the same mistake at the same place
 //    when it is compiled as its own program: the same code and sentence as written, the same
 //    site, at the same place. Two spans are the same when they end together and start together
-//    or with only `export`, `default`, whitespace and comments between their starts
-//    (`samePlace`). The file the compile starts from is its own program, so it owns
+//    or with only `export`, optionally `default`, and whitespace and comments between their
+//    starts (`samePlace`). The file the compile starts from is its own program, so it owns
 //    what reaches it. The program reports the error once, in the owner, at the owner's place.
 //    The site is the error's related place when the error does not stand on it.
 // 3. A document lists what is located in it. So the owner's document shows the error, and no
@@ -43,14 +43,7 @@
 import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import type { LinkedFile, LinkedProgram } from './link.js';
-import {
-  relatedSitesOf,
-  setRelatedSites,
-  setWrittenMessage,
-  usesOf,
-  writtenMessageOf,
-  type DiagnosticSite,
-} from './diagnostic.js';
+import { relatedSitesOf, setRelatedSites, usesOf, type DiagnosticSite } from './diagnostic.js';
 import { attributeDecoratorsOf } from './attribute-types.js';
 import { stageCallOf } from './stage-call.js';
 
@@ -63,8 +56,8 @@ interface Span {
 
 /**
  * Whether two spans of one file are one node: the same span, or the same end with nothing but
- * `export`, `default`, whitespace and comments between the two starts. Two programs map one node
- * back to its file through different linked sources: the linker drops an imported declaration's
+ * `export`, optionally `default`, and whitespace and comments between the two starts. Two
+ * programs map one node back to its file through different linked sources: the linker drops an imported declaration's
  * `export` and `default` with the whitespace after them, so a comment after them stays, and the
  * node maps from the token after it, where the file's own program reads it from `export`. Two
  * nested expressions are two places (`a + a` inside `b + (a + a)`).
@@ -104,7 +97,7 @@ function mistakesOf(diagnostics: readonly TsCompilerDiagnostic[]): Mistakes {
   for (const d of diagnostics) {
     if (d.category !== 'error') continue;
     const related = relatedSitesOf(d);
-    const key = mistakeKey(d.code, writtenMessageOf(d));
+    const key = mistakeKey(d.code, d.message);
     const list = out.get(key) ?? [];
     out.set(key, list);
     for (const site of related.length > 0 ? related : [d]) list.push({ site, places: [d] });
@@ -157,6 +150,20 @@ interface ProgramError {
   readonly mapped: TsCompilerDiagnostic;
 }
 
+/** Whether `node` is a declaration the linker may give an emitted name: a function, a class,
+ *  an interface, a type alias, an enum, a namespace or a variable. */
+function declaresModuleName(node: ts.Node): boolean {
+  return (
+    ts.isFunctionDeclaration(node) ||
+    ts.isClassDeclaration(node) ||
+    ts.isInterfaceDeclaration(node) ||
+    ts.isTypeAliasDeclaration(node) ||
+    ts.isEnumDeclaration(node) ||
+    ts.isModuleDeclaration(node) ||
+    ts.isVariableDeclaration(node)
+  );
+}
+
 /** Whether `statement` declares an entry point named `name`: a decorated function or a stage
  *  call. */
 function declaresEntry(statement: ts.Statement, name: string): boolean {
@@ -193,14 +200,18 @@ export function locateProgramErrors(input: {
   const { entry, linked, linkedSource, roots, errors } = input;
   const files = new Map(linked.files.map((f) => [f.name, f]));
 
-  // The sentence of each diagnostic as written: the names the linker emitted under another
-  // spelling, read back off the linked source.
+  // The sentence of each diagnostic as written: each name the linker emitted under another
+  // spelling, read back as the file that declares it writes it. Only a declaration's own name
+  // is read: the module has one namespace, so each emitted name has one declaration, and an
+  // import's alias (`lum as l2`), which declares nothing of the module, never renames it.
   let renames: ReadonlyMap<string, string> | undefined;
   const written = (message: string): string => {
     if (renames === undefined) {
       const found = new Map<string, string>();
       const visit = (node: ts.Node): void => {
         if (ts.isIdentifier(node)) {
+          const parent = node.parent as ts.Node & { readonly name?: ts.Node };
+          if (parent.name !== node || !declaresModuleName(parent)) return;
           const m = linked.map(node.getStart(linkedSource), node.getEnd());
           const text = m?.file.sourceFile.text.slice(m.start, m.end);
           if (text !== undefined && text !== node.text && /^[A-Za-z_$][\w$]*$/.test(text))
@@ -281,8 +292,14 @@ export function locateProgramErrors(input: {
     /** The diagnostics that stand on a use, where a second one of the same sentence joins. */
     const onUse = new Set<TsCompilerDiagnostic>();
     let ways: ReturnType<typeof importWays> | undefined;
-    for (const { raised, mapped } of errors) {
-      setWrittenMessage(mapped, written(mapped.message));
+    for (const error of errors) {
+      const { raised } = error;
+      // The sentence names each declaration as its file writes it, never as the module emits it
+      // (`lib_lum` for the `lum` of `lib.shade.ts` beside another `lum`): an emitted name is the
+      // compiler's, and no author wrote it (docs/language-design.md §2.1).
+      const said = written(error.mapped.message);
+      const mapped =
+        said === error.mapped.message ? error.mapped : { ...error.mapped, message: said };
       const site = files.get(mapped.fileName);
       // A warning, a span of text the linker wrote and what the entry file holds stay as they
       // are.
@@ -290,7 +307,7 @@ export function locateProgramErrors(input: {
         out.push(mapped);
         continue;
       }
-      const key = mistakeKey(mapped.code, writtenMessageOf(mapped));
+      const key = mistakeKey(mapped.code, mapped.message);
       // The chain after the site: each use's file with its outermost use, innermost first.
       const chain: Place[] = [];
       for (const use of usesOf(raised)) {
@@ -339,7 +356,6 @@ export function locateProgramErrors(input: {
         endLine: e.line + 1,
         endCharacter: e.character + 1,
       };
-      setWrittenMessage(moved, writtenMessageOf(mapped));
       const related: DiagnosticSite = {
         fileName: mapped.fileName,
         start: mapped.start,

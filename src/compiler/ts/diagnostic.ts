@@ -306,17 +306,3 @@ export function setRelatedSites(
 export function relatedSitesOf(diagnostic: TsCompilerDiagnostic): readonly DiagnosticSite[] {
   return RELATED.get(diagnostic) ?? [];
 }
-
-const WRITTEN_MESSAGE = new WeakMap<TsCompilerDiagnostic, string>();
-
-/** Records the sentence of `diagnostic` with each name as its own file writes it: `helper` for
- *  the `lib_helper` a linked program emits where two of its files declare a `helper`. */
-export function setWrittenMessage(diagnostic: TsCompilerDiagnostic, message: string): void {
-  if (message !== diagnostic.message) WRITTEN_MESSAGE.set(diagnostic, message);
-}
-
-/** The sentence of `diagnostic` with each name as its own file writes it. Two programs that
- *  report one mistake of one file say this same sentence, whatever each emits the names as. */
-export function writtenMessageOf(diagnostic: TsCompilerDiagnostic): string {
-  return WRITTEN_MESSAGE.get(diagnostic) ?? diagnostic.message;
-}

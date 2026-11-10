@@ -1130,8 +1130,8 @@ Document versions, for either adapter:
   at that place, and at that place. "The same error" is the same code, the same sentence with
   each name as its file writes it, and the same span of what it is about; "at that place" is the
   same span as the place. Two spans are the same when they end together and start together or
-  with only `export`, `default`, whitespace and comments between their starts, which the linked
-  program can drop. A nested expression is another span. So a mistake of an imported file itself is located in that
+  with only `export`, optionally `default`, and whitespace and comments between their starts,
+  which the linked program can drop. A nested expression is another span. So a mistake of an imported file itself is located in that
   file, and that file's document shows it. A refusal that only a use makes is located in the
   first file of the chain that reports it at its place: the file that writes the use when its
   own program makes the refusal there, and a file above it shows nothing. A file whose own
