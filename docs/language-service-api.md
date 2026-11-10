@@ -571,10 +571,21 @@ analysis of its program. The number is the one that program has, which `compile(
   the programs of the other open documents that link the declaring file. This is the hover in
   the declaring file, `io.shade.ts`, whose own program has no entry. When every such program
   that uses the struct gives the field one number, the line names that number and everything
-  the field is in those programs. When two programs give it two numbers, or one refused to
-  number it, the line is left out, since no one number is true of the field there. The hover
-  in each program's own document shows that program's number. A document that is not open is
-  no program to the service.
+  the field is in those programs, and no file. When two programs give it two numbers, or one
+  refused to number it (`TS8010`), no one number is true of the field there. The hover then
+  shows one line for each program that numbers the field, with the file the program starts
+  from: `vertex attribute at @location(1) in a.shade.ts` and
+  `vertex attribute at @location(2) in b.shade.ts`. Each line is a paragraph of the hover's
+  `contents`, and each says what the field is in its own program.
+  - The lines stand in the order of the documents' uris, compared as strings. The order in
+    which the documents were opened does not change the hover.
+  - A file is named by its base name, which is what an import of it ends in. Two programs
+    with one base name each take as many directories as tell them apart:
+    `in lit/main.shade.ts` and `in unlit/main.shade.ts`.
+  - A program that refused the field has no line. `compile()` of that program and
+    `getCompiledOutput` of its document report the `TS8010`.
+  - The hover in each program's own document shows that program's number, and no file. A
+    document that is not open is no program to the service.
 - The hover starts no analysis of its own. Each program it reads is the cache entry of an open
   document, the one that document's diagnostics, symbols and tokens read, made once for each
   version of the document and of what it imports.

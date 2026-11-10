@@ -38,8 +38,10 @@ repository is an official release yet: the `typeshade` package on npm holds only
   is the one `reflect()` reports, read off the same IR. A built-in value, a field of a struct
   no entry uses and a value refused with `TS8010` show no such line. A field of a struct that
   another file declares shows the line too, in the importing file and in the declaring file,
-  with the number of the linked program (Rule 3.9). The declaring file shows no line when two
-  open programs that import it give the field two numbers.
+  with the number of the linked program (Rule 3.9). When two open programs that import the
+  declaring file give the field two numbers, the declaring file shows one line for each
+  program, with its file: `vertex attribute at @location(1) in a.shade.ts` and
+  `vertex attribute at @location(2) in b.shade.ts`.
 
 - **Every `for` loop, and an entry's inferred result** (change 0136). A `for` that is not
   counted compiles as an open loop, as a `while` does (Rule 7.5): `for (;;)` with a `break`, an

@@ -171,40 +171,70 @@ function linkedFieldAt(
 }
 
 /**
- * The line for a field that the hovered document's own program gives no place among its
+ * How the lines of one hover name the documents `uris`: each by its base name
+ * (`a.shade.ts`), which is what an import of it ends in. Where two of them have one base name,
+ * each takes as many of its directories as tell it from the others (`lit/a.shade.ts` and
+ * `unlit/a.shade.ts`), and the whole uri where no shorter text does.
+ */
+function shownNames(uris: readonly string[]): ReadonlyMap<string, string> {
+  const segments = new Map(uris.map((uri) => [uri, uri.split(/[\\/]/).filter((s) => s !== '')]));
+  const tail = (uri: string, n: number): string => segments.get(uri)!.slice(-n).join('/');
+  const out = new Map<string, string>();
+  for (const uri of uris) {
+    const own = segments.get(uri)!;
+    let n = 1;
+    while (n < own.length && uris.some((u) => u !== uri && tail(u, n) === tail(uri, n))) n++;
+    out.set(uri, n < own.length ? tail(uri, n) : uri);
+  }
+  return out;
+}
+
+/**
+ * The lines for a field that the hovered document's own program gives no place among its
  * entries: the field's declaration at offset `start` of `fileName`, as the `programs` that link
  * that file have it. Each program is another open document's cached analysis, the one
  * `compile()` and `reflect()` of that document give.
  *
- * One number is true of the field only when every program that uses its struct agrees on it.
- * Then the line names the number and everything the field is in those programs. A struct that
- * two programs number differently (a vertex input after another attribute in one program and
- * first in the other), or that one of them refused to number (`TS8010`), has no one location,
- * and the line is left out: the hover in each program's own document shows that program's
- * number. A struct that no program uses among its entries has the line of a written location,
- * as it has in one file.
+ * The programs that use the field's struct among their entries decide.
+ *
+ * - Every one gives the field one number: one line, with that number and everything the field
+ *   is in those programs, and no file, since the line is true of each.
+ * - They differ (a vertex input after another attribute in one program and first in the other,
+ *   or a field that one program numbers and another refuses with `TS8010`): one line for each
+ *   program that numbers the field, with the file the program starts from, `… in a.shade.ts`
+ *   (the owner's decision of 2026-11-10, change 0135). The lines stand in the order of the
+ *   documents' uris, so the hover does not depend on which document was opened first. A program
+ *   that refused the field has no line: `compile()` of that program reports the refusal.
+ * - No program uses the struct among its entries: the field has at most the location it
+ *   writes, which every program reads the same, and the line is the one it has in one file.
  */
-function fieldLineAcross(
-  programs: readonly CompileTsSourceResult[],
+function fieldLinesAcross(
+  programs: readonly HoverProgram[],
   fileName: string,
   start: number,
-): string | undefined {
-  const found: FieldFacts[] = [];
+): readonly string[] {
+  const found: { readonly uri: string; readonly facts: FieldFacts }[] = [];
   for (const program of programs) {
-    const field = linkedFieldAt(program, fileName, start);
-    const facts = field && fieldFacts(program, field.struct, field.name);
-    if (facts !== undefined) found.push(facts);
+    const field = linkedFieldAt(program.analysis, fileName, start);
+    const facts = field && fieldFacts(program.analysis, field.struct, field.name);
+    if (facts !== undefined) found.push({ uri: program.uri, facts });
   }
-  // The programs that use the struct among their entries decide. Where none does, the field
-  // has at most the location it writes, which every program reads the same.
-  const used = found.filter((f) => f.roles.length > 0);
+  const used = found.filter((f) => f.facts.roles.length > 0);
   const deciding = used.length > 0 ? used : found;
   const first = deciding[0];
-  if (first === undefined || deciding.some((f) => f.location !== first.location)) return undefined;
-  return fieldLine({
-    roles: ROLES.filter((role) => deciding.some((f) => f.roles.includes(role))),
-    location: first.location,
-  });
+  if (first === undefined) return [];
+  if (deciding.every((f) => f.facts.location === first.facts.location)) {
+    const line = fieldLine({
+      roles: ROLES.filter((role) => deciding.some((f) => f.facts.roles.includes(role))),
+      location: first.facts.location,
+    });
+    return line === undefined ? [] : [line];
+  }
+  const numbered = deciding
+    .filter((f) => f.facts.location !== undefined)
+    .sort((a, b) => (a.uri < b.uri ? -1 : a.uri > b.uri ? 1 : 0));
+  const names = shownNames(numbered.map((f) => f.uri));
+  return numbered.map((f) => `${fieldLine(f.facts)!} in ${names.get(f.uri)!}`);
 }
 
 /**
@@ -219,7 +249,7 @@ function fieldLineAcross(
  * location in the IR gets no line: a built-in value, a field of a struct no entry uses, and a
  * field or parameter the front end refused to number (`TS8010`).
  *
- * - A field of a struct has its line from `entryLocationLine`, which reads it across the files
+ * - A field of a struct has its line from `entryLocationLines`, which reads it across the files
  *   of the program.
  * - A `param` of a vertex or fragment entry that is no struct: a vertex attribute, or a value
  *   between stages.
@@ -263,21 +293,23 @@ function locationLine(
  *   brought the struct) is found in this document's program by the declaration `defs` resolves
  *   it to (`linkedFieldAt`). Its number is the one `reflect()` gives for this document.
  * - A field whose struct no entry of this document's program reads or returns is read in the
- *   programs of the other open documents that link the declaring file (`fieldLineAcross`). This
- *   is the declaring file's view of a struct that the files importing it use: the front end
- *   records nothing for a struct its own file never uses, so the declaration `defs` names is
- *   the whole join. `programs` is asked only then.
+ *   programs of the other open documents that link the declaring file (`fieldLinesAcross`).
+ *   This is the declaring file's view of a struct that the files importing it use: the front
+ *   end records nothing for a struct its own file never uses, so the declaration `defs` names
+ *   is the whole join. `programs` is asked only then. It is the one case with more than one
+ *   line: programs that give the field different numbers each have a line, with their file.
  */
-function entryLocationLine(
+function entryLocationLines(
   analysis: CompileTsSourceResult,
   sourceFile: ts.SourceFile,
   uri: string,
   defs: readonly ts.DefinitionInfo[],
   declared: DeclaredSymbol | undefined,
   programs: HoverPrograms,
-): string | undefined {
+): readonly string[] {
+  const one = (line: string | undefined): readonly string[] => (line === undefined ? [] : [line]);
   if (declared !== undefined && declared.kind !== 'field')
-    return locationLine(analysis, sourceFile, declared);
+    return one(locationLine(analysis, sourceFile, declared));
   const places =
     declared !== undefined
       ? [{ fileName: uri, start: declared.start }]
@@ -285,19 +317,26 @@ function entryLocationLine(
   for (const at of places) {
     const field = declared ?? linkedFieldAt(analysis, at.fileName, at.start);
     const own = field && fieldFacts(analysis, field.struct, field.name);
-    if (own !== undefined && own.roles.length > 0) return fieldLine(own);
-    const line = fieldLineAcross(programs(at.fileName), at.fileName, at.start) ?? fieldLine(own);
-    if (line !== undefined) return line;
+    if (own !== undefined && own.roles.length > 0) return one(fieldLine(own));
+    const across = fieldLinesAcross(programs(at.fileName), at.fileName, at.start);
+    const lines = across.length > 0 ? across : one(fieldLine(own));
+    if (lines.length > 0) return lines;
   }
-  return undefined;
+  return [];
+}
+
+/** The program of one open document: the document's uri, and the service's cached analysis of
+ *  it (`entryOf`, `service.ts`). */
+export interface HoverProgram {
+  readonly uri: string;
+  readonly analysis: CompileTsSourceResult;
 }
 
 /**
- * The analyses of the other open documents whose programs link the file `declaringUri`, each
- * the service's cached analysis of that document (`entryOf`, `service.ts`). The hover asks for
- * them only for a field its own document's program gives no place among its entries.
+ * The programs of the other open documents that link the file `declaringUri`. The hover asks
+ * for them only for a field its own document's program gives no place among its entries.
  */
-export type HoverPrograms = (declaringUri: string) => readonly CompileTsSourceResult[];
+export type HoverPrograms = (declaringUri: string) => readonly HoverProgram[];
 
 /**
  * How a `ShaderType` is spelled in a hover: the WGSL spelling for everything a backend can
@@ -482,7 +521,8 @@ function declarationLine(
  * user-defined input or output of an entry gains one too: what it is and its location, written
  * or given by the compiler (Rule 6.6, change 0135). A field has that line across the files of a
  * program: `programs` gives the analyses of the other open documents that link a file, for a
- * field this document's program gives no place among its entries (`entryLocationLine`).
+ * field this document's program gives no place among its entries (`entryLocationLines`). Where
+ * those programs give the field different numbers, each has a line of its own, with its file.
  */
 export function getHover(
   languageService: ts.LanguageService,
@@ -541,7 +581,7 @@ export function getHover(
   // The location line of a field is the third answer, and it is asked for every property: the
   // front end records a field of this document only when the document uses its struct, and a
   // field that an imported document declares never, so no name of this document's stands for
-  // either (`entryLocationLine`). Such a property still takes no recorded symbol of another
+  // either (`entryLocationLines`). Such a property still takes no recorded symbol of another
   // name as its declaration.
   const named =
     ts.isIdentifier(node) &&
@@ -574,8 +614,7 @@ export function getHover(
   const sections = [`\`\`\`ts\n${display}\n\`\`\``];
   if (qualifier !== undefined) sections.push(referenceLine(declared!, qualifier));
   if (resource !== undefined) sections.push(resource);
-  const location = entryLocationLine(analysis, sourceFile, uri, defs, declared, programs);
-  if (location !== undefined) sections.push(location);
+  sections.push(...entryLocationLines(analysis, sourceFile, uri, defs, declared, programs));
   if (documentation) sections.push(documentation);
   return { contents: sections.join('\n\n'), range: rangeForSpan(sourceFile, quickInfo.textSpan) };
 }
