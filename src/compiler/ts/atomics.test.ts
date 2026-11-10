@@ -28,7 +28,7 @@ declare const bins: storage<array<atomic<u32>>, "read_write">;
 declare const total: storage<atomic<u32>, "read_write">;
 class Stats { hits: atomic<u32>; peak: atomic<i32>; }
 declare const stats: storage<Stats, "read_write">;
-@compute([64, 1, 1]) export function histogram(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function histogram(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= src.length) {
     return;
   }
@@ -88,7 +88,7 @@ describe('atomics: the WGSL', () => {
   it('a bare integer literal takes the atomic element type, u32 or i32', () => {
     const r = compile(`"use typeshade";
 declare const counts: storage<array<atomic<i32>>, "read_write">;
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   atomicSub(counts[gid.x], 3);
   atomicStore(counts[0], -1);
 }
@@ -134,7 +134,7 @@ describe('atomics: the CPU backends', () => {
     const src = `"use typeshade";
 declare const xs: storage<array<atomic<u32>>, "read_write">;
 declare const out: storage<array<u32>, "read_write">;
-@compute([1, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   out[0] = atomicLoad(xs[0]);
   out[1] = atomicExchange(xs[1], 42);
   out[2] = atomicAnd(xs[2], 65280);
@@ -159,7 +159,7 @@ declare const out: storage<array<u32>, "read_write">;
   it('an atomic<i32> wraps as a signed integer', () => {
     const src = `"use typeshade";
 declare const xs: storage<array<atomic<i32>>, "read_write">;
-@compute([1, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   atomicAdd(xs[0], 1);
   atomicSub(xs[1], 1);
 }
@@ -176,7 +176,7 @@ describe('atomics: the optimizer and the effect table', () => {
   it('keeps two atomicAdds on one location and never merges them', () => {
     const r = compile(`"use typeshade";
 declare const bins: storage<array<atomic<u32>>, "read_write">;
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   atomicAdd(bins[gid.x], 1);
   atomicAdd(bins[gid.x], 1);
 }
@@ -191,7 +191,7 @@ declare const bins: storage<array<atomic<u32>>, "read_write">;
         ? ''
         : `"use typeshade";
 declare const bins: storage<array<atomic<u32>>, "read_write">;
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   atomicAdd(bins[gid.x], 1);
   atomicAdd(bins[gid.x], 1);
 }
@@ -207,7 +207,7 @@ declare const bins: storage<array<atomic<u32>>, "read_write">;
     const src = `"use typeshade";
 declare const bins: storage<array<atomic<u32>>, "read_write">;
 declare const out: storage<array<u32>, "read_write">;
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   const a = atomicLoad(bins[gid.x]);
   atomicStore(bins[gid.x], 5);
   const b = atomicLoad(bins[gid.x]);
@@ -233,7 +233,7 @@ function bump(i: u32): void {
 function peek(i: u32): u32 {
   return atomicLoad(bins[i]);
 }
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   bump(gid.x);
   atomicStore(bins[0], peek(gid.x));
 }
@@ -338,10 +338,10 @@ declare const b: storage<array<atomic<f32>>, "read_write">;
     // (wgsl.txt:15342). Nothing checked the stage, so the module emitted clean and Tint refused
     // it. A fragment entry is legal and stays so.
     const vs = (body: string): string => `"use typeshade"
-interface Clip { pos: builtin<"position", vec4> }
+interface Clip { pos: builtin<"position"> }
 declare const total: storage<atomic<u32>, "read_write">
 ${body}
-@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index">): Clip {
   const n = ${body === '' ? 'atomicAdd(total, 1)' : 'bump()'}
   return { pos: vec4(f32(n), 0., 0., 1.) }
 }
@@ -357,9 +357,9 @@ ${body}
     // Every atomic builtin, not just the one: the set is read off the intrinsic catalogue.
     expect(
       errorsOf(`"use typeshade";
-interface Clip { pos: builtin<"position", vec4>; }
+interface Clip { pos: builtin<"position">; }
 declare const total: storage<atomic<u32>, "read_write">;
-@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index">): Clip {
   const n = atomicLoad(total);
   return { pos: vec4(f32(n), 0., 0., 1.) };
 }
@@ -398,7 +398,7 @@ describe('atomicCompareExchangeWeak answers a struct WGSL will not let you name'
   const CAS = `"use typeshade";
 declare const lock: storage<atomic<u32>, "read_write">;
 declare const o: storage<array<u32>, "read_write">;
-@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   const r = atomicCompareExchangeWeak(lock, 0, 7);
   o[0] = r.old_value;
   o[1] = r.exchanged ? 1 : 0;
@@ -443,7 +443,7 @@ declare const o: storage<array<u32>, "read_write">;
       compileTsSource(`"use typeshade"
 declare const lock: storage<atomic<u32>, "read_write">
 declare const o: storage<array<u32>, "read_write">
-@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   const r = ${call}
   o[0] = r.old_value
 }
@@ -467,7 +467,7 @@ declare const o: storage<array<u32>, "read_write">
     const r = compile(`"use typeshade";
 declare const lock: storage<atomic<i32>, "read_write">;
 declare const o: storage<array<i32>, "read_write">;
-@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   const r = atomicCompareExchangeWeak(lock, -1, 7);
   o[0] = r.old_value;
 }
@@ -479,7 +479,7 @@ declare const o: storage<array<i32>, "read_write">;
       compileTsSource(`"use typeshade";
 declare const lock: storage<atomic<u32>>;
 declare const o: storage<array<u32>, "read_write">;
-@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   const r = atomicCompareExchangeWeak(lock, 0, 7);
   o[0] = r.old_value;
 }
@@ -506,7 +506,7 @@ describe('a lockstep dispatch performs atomic operations in the phased order (ch
   const APPEND = `"use typeshade";
 declare const count: storage<atomic<u32>, "read_write">;
 declare const slots: storage<array<u32>, "read_write">;
-@compute([4, 1, 1]) export function append(li: builtin<"local_invocation_index", u32>): void {
+@compute([4, 1, 1]) export function append(li: builtin<"local_invocation_index">): void {
   const first = atomicAdd(count, 1);
   slots[first] = li * 10;
   const second = atomicAdd(count, 1);

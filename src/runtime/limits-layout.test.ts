@@ -142,7 +142,7 @@ const DOUBLES = `"use typeshade";
 class Zoom { cx: f64; scale: f64; }
 declare const zoom: uniform<Zoom>;
 declare const out: storage<array<f32>, "read_write">;
-@compute([4]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function main(gid: builtin<"global_invocation_id">) {
   const x: f64 = zoom.cx + f64(f32(gid.x)) * zoom.scale;
   console.log("x", f32(x));
   out[gid.x] = f32(fract(x * 1000));

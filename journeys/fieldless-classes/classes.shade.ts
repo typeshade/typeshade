@@ -21,7 +21,7 @@ declare const out: storage<array<f32>, "read_write">;
 export function empty(): Empty { return new Empty(); }
 
 @compute([64])
-export function main(gid: builtin<"global_invocation_id", vec3u>): void {
+export function main(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= xs.length) { return; }
   const scene = new Scene();
   out[gid.x] = scene.sample(xs[gid.x]) + samples.before + samples.after;

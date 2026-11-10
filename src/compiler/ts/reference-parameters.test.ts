@@ -15,9 +15,9 @@ import { optimize } from '../../core/passes/opt/optimize.js';
 import { autoVars } from '../../core/passes/opt/index.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
-const FRAGMENT = `interface VsOut { pos: builtin<"position", vec4>; uv: location<0, vec2>; }
+const FRAGMENT = `interface VsOut { pos: builtin<"position">; uv: location<0, vec2>; }
 interface Color { color: location<0, vec4>; }
-@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(vi: builtin<"vertex_index">): VsOut {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
 }
 @fragment export function fs(v: VsOut): Color { return { color: vec4(run(), v.uv.x, 0., 1.) }; }`;
@@ -205,7 +205,7 @@ export function run(): f32 { let x: f32 = 1.; const f = (): f32 => { x += 1.; re
 class Ray { origin: vec3; dir: vec3; }
 declare const rays: storage<array<Ray>, "read_write">;
 function advance(@inout r: Ray, t: f32): void { r.origin = r.origin + r.dir * t; }
-@compute([64, 1, 1]) export function main(id: builtin<"global_invocation_id", vec3u>): void { advance(rays[id.x], 2.); }`);
+@compute([64, 1, 1]) export function main(id: builtin<"global_invocation_id">): void { advance(rays[id.x], 2.); }`);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('fn advance(r: ptr<storage, Ray, read_write>, t: f32)');
     expect(r.wgsl).toContain('advance(&rays[id.x], 2.0);');

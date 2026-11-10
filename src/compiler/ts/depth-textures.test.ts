@@ -38,7 +38,7 @@ declare const shadowSmp: sampler_comparison`;
 
 const fragment = (body: string, decls = DECLS): string => `"use typeshade"
 ${decls}
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
 ${body}
 }
 `;
@@ -185,7 +185,7 @@ describe('what is fragment-only, and what is not', () => {
   const compute = (call: string): string => `"use typeshade"
 ${DECLS}
 declare const out: storage<array<f32>, "read_write">
-@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   out[gid.x] = ${call}
 }
 `;
@@ -217,7 +217,7 @@ describe('a plain read of a depth texture is refused for now, with the reason', 
     const errors = errorsOf(`"use typeshade";
 let shadowMap: texture_depth_2d;
 declare const shadowSmp: sampler_comparison;
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(textureSampleCompare(shadowMap, shadowSmp, p.xy, 0.5));
 }
 `);

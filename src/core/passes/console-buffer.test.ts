@@ -30,7 +30,7 @@ function scaleOf(v: f32): f32 {
   }
   return s;
 }
-@compute([8]) export function scale(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([8]) export function scale(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= xs.length) {
     return;
   }
@@ -103,7 +103,7 @@ class P {
   pos: vec2;
   speed: f32;
 }
-@compute([8]) export function scale(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([8]) export function scale(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= 2) {
     return;
   }
@@ -160,7 +160,7 @@ function bump(): u32 {
   n = n + 1;
   return n;
 }
-@compute([1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1]) export function k(gid: builtin<"global_invocation_id">): void {
   console.log(bump());
   out[gid.x] = n;
 }`;
@@ -186,10 +186,10 @@ function lift(x: f32): f32 {
   console.log(x);
   return x;
 }
-@vertex export function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex export function vs(vi: builtin<"vertex_index">): vec4 {
   return vec4(lift(f32(vi)), 0., 0., 1.);
 }
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(lift(p.x));
 }`;
     expect(warn(src)).toEqual([
@@ -206,7 +206,7 @@ function lift(x: f32): f32 {
   it('with an argument that has no fixed size', () => {
     const src = `"use typeshade";
 declare const xs: storage<array<f32>>;
-@compute([1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1]) export function k(gid: builtin<"global_invocation_id">): void {
   console.log(xs);
 }`;
     expect(warn(src)).toEqual([
@@ -225,7 +225,7 @@ declare const xs: storage<array<f32>>;
     const reads = Array.from({ length: 8 }, (_, i) => `b${i}[0] = 1.;`).join('\n  ');
     const src = `"use typeshade";
 ${decls}
-@compute([1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1]) export function k(gid: builtin<"global_invocation_id">): void {
   ${reads}
   console.log(gid.x);
 }`;

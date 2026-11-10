@@ -57,7 +57,7 @@ export declare const image: texture_2d<f32>;
 export declare const smp: sampler;
 
 @compute([4])
-export function step(id: builtin<"global_invocation_id", vec3u>) {
+export function step(id: builtin<"global_invocation_id">) {
   const i = id.x;
   ps[i].life = ps[i].life + ro[i].life + four[0].life + scale + tint.x + hidden.w + one.life + weights[0] + textureSampleLevel(image, smp, vec2(0.), 0.).x;
 }

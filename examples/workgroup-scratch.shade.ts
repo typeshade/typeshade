@@ -36,8 +36,8 @@ function tally(x: f32): void {
 
 @compute([64, 1, 1])
 export function scratch(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
 ): void {
   if (gid.x >= src.length) {
     return;

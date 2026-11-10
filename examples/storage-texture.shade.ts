@@ -43,7 +43,7 @@ declare const acc: texture_storage_2d<"r32float", "read_write">;
 declare const ids: texture_storage_2d<"rgba8uint", "write">;
 
 @compute([64, 1, 1])
-export function paint(gid: builtin<"global_invocation_id", vec3u>): void {
+export function paint(gid: builtin<"global_invocation_id">): void {
   // One invocation per texel, addressed as a row-major index into the image: the workgroup is
   // one-dimensional (§25), so the two coordinates come out of the index rather than out of
   // `gid.y`. The guard is the standard one — a dispatch covers whole workgroups, so the last

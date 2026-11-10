@@ -22,8 +22,8 @@ class Uniforms {
 declare const U: uniform<Uniforms>;
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 // Centred, isotropic screen coordinates: y spans ±1 over the height and x spans
@@ -34,7 +34,7 @@ function screenCoords(uv: vec2, resolution: vec2): vec2 {
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };

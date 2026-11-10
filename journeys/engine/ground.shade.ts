@@ -35,7 +35,7 @@ interface VsIn {
 }
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   world: location<0, vec3>;
 }
 

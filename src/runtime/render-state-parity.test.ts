@@ -20,7 +20,7 @@ import { createRuntime } from './runtime.js';
 // A uniform block, which WebGL2 takes as a std140 struct (the GLSL writer refuses a bare vec4).
 const DRAW = `"use typeshade";
 interface VsIn { pos: location<0, vec2>; }
-interface VsOut { p: builtin<"position", vec4>; }
+interface VsOut { p: builtin<"position">; }
 interface Color { c: location<0, vec4>; }
 class Tint { c: vec4; }
 declare const tint: uniform<Tint>;

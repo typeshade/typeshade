@@ -36,7 +36,7 @@ function intersect(o: vec3, d: vec3, a: vec3, b: vec3, c: vec3): f32 {
 }
 
 @compute([64])
-export function trace(gid: builtin<"global_invocation_id", vec3u>) {
+export function trace(gid: builtin<"global_invocation_id">) {
   if (gid.x >= rays.length) {
     return;
   }

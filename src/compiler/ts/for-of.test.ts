@@ -32,7 +32,7 @@ describe('for-of over an array', () => {
     const src = `"use typeshade";
 declare const data: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
-@compute([64]) export function sum(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function sum(gid: builtin<"global_invocation_id">) {
   let s = 0;
   for (const x of data) {
     s += x;
@@ -137,7 +137,7 @@ export function nested(): f32 {
   it('emits a sized array loop in GLSL ES 3.00 too', () => {
     const r = compile(`"use typeshade";
 const WEIGHTS: array<f32, 9> = [0.05, 0.09, 0.12, 0.15, 0.18, 0.15, 0.12, 0.09, 0.05];
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   let c = 0;
   for (const w of WEIGHTS) {
     c += w * p.x;

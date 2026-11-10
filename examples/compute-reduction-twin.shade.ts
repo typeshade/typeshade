@@ -30,7 +30,7 @@ declare const output: storage<array<f32>, "read_write">;
 declare const params: uniform<vec4u>;
 
 @compute([64, 1, 1])
-export function reduce_windows(gid: builtin<"global_invocation_id", vec3u>): void {
+export function reduce_windows(gid: builtin<"global_invocation_id">): void {
   const idx = gid.x;
   if (idx >= params.x) {
     return;

@@ -36,7 +36,7 @@ declare const shadowSmp: sampler_comparison;
 declare const cascades: texture_depth_2d_array;
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): vec4 {
+export function vs(vi: builtin<"vertex_index">): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
@@ -44,7 +44,7 @@ export function vs(vi: builtin<"vertex_index", u32>): vec4 {
 }
 
 @fragment
-export function fs(p: builtin<"position", vec4>): vec4 {
+export function fs(p: builtin<"position">): vec4 {
   const uv: vec2 = fract(p.xy * 0.004);
   // A stand-in for the light-space depth of this fragment.
   const depthHere = 0.5 + 0.25 * sin(uv.x * 6.2831);

@@ -16,7 +16,7 @@ declare const a7: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
 
 @compute([64])
-export function main(gid: builtin<"global_invocation_id", vec3u>): void {
+export function main(gid: builtin<"global_invocation_id">): void {
   const i = gid.x;
   if (i >= out.length) {
     return;

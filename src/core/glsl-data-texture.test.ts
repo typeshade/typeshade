@@ -12,9 +12,9 @@ const program = (decl: string, read: string): string => `'use typeshade';
 class Ints { a: u32; b: f32; c: i32; d: vec2; }
 class Floats { a: f32; b: f32; d: vec2; }
 ${decl}
-class VsOut { pos: builtin<"position", vec4>; }
+class VsOut { pos: builtin<"position">; }
 class Color { color: location<0, vec4>; }
-@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(vi: builtin<"vertex_index">): VsOut {
   const o = new VsOut();
   o.pos = vec4(0., 0., 0., 1.);
   return o;

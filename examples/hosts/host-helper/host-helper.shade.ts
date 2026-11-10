@@ -22,7 +22,7 @@ export function height(p: vec2): f32 {
 }
 
 @fragment
-export function fs(p: builtin<"position", vec4>): vec4 {
+export function fs(p: builtin<"position">): vec4 {
   const h = height(p.xy / view.size);
   return vec4(h, h, h, 1.);
 }

@@ -377,8 +377,9 @@ const fullscreenCpu = (i: number): readonly number[] => [
   1,
 ];
 
-/** The tier a draw manifest is made for: each binds a little differently. */
-type DrawTier = 'webgpu' | 'webgl2' | 'cpu';
+/** The tier a draw manifest is made for: each binds a little differently. One of `TIERS`
+ *  (`./tiers.ts`), so the names are written there only. */
+type DrawTier = Tier;
 
 /** A buffer binding's layout in a draw manifest: its packed bytes as 32-bit words. The call layer
  *  checks and packs each value at the call (`frameOf`), so a value the host changes before the

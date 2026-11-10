@@ -257,7 +257,7 @@ export function g(x: f32): f32 { return fract(x) + random(x); }
 interface Color {
   color: location<0, vec4>;
 }
-@fragment export function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position">): Color {
   const v = g(p.x);
   return { color: vec4(v, v, v, 1.) };
 }
@@ -364,7 +364,7 @@ describe('an entry point named like a builtin (Rule 3.2)', () => {
 interface Color {
   color: location<0, vec4>;
 }
-@fragment export function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position">): Color {
   return { color: vec4(fract(p.x), random(p.y), 0., 1.) };
 }
 `),

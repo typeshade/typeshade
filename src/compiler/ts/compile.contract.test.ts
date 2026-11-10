@@ -13,14 +13,14 @@ const CLIP_COLOR = `
 "use typeshade";
 
 interface Clip {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
 
 interface Color {
   color: location<0, vec4>;
 }
 
-@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index">): Clip {
   return { pos: vec4(0., 0., 0., 1.) };
 }
 
@@ -32,7 +32,7 @@ interface Color {
 const COMPUTE_ONLY = `
 "use typeshade";
 
-@compute([64]) export function main(gid: builtin<"global_invocation_id", vec3<u32>>): void {
+@compute([64]) export function main(gid: builtin<"global_invocation_id">): void {
   const x = gid.x;
 }
 `;
@@ -41,10 +41,10 @@ const VERTEX_ONLY = `
 "use typeshade";
 
 interface Clip {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
 
-@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index">): Clip {
   return { pos: vec4(0., 0., 0., 1.) };
 }
 `;
@@ -66,7 +66,7 @@ interface Color {
 const RENDER_PLUS_COMPUTE =
   CLIP_COLOR +
   `
-@compute([1]) export function cs(g: builtin<"global_invocation_id", vec3<u32>>): void {
+@compute([1]) export function cs(g: builtin<"global_invocation_id">): void {
   const x = g.x;
 }
 `;
@@ -79,22 +79,22 @@ declare const img: storage<array<f32>, "read_write">;
 declare const acc: storage<array<atomic<u32>, 1>, "read_write">;
 
 interface Clip {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
 
 interface Color {
   color: location<0, vec4>;
 }
 
-@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index">): Clip {
   return { pos: vec4(0., 0., 0., 1.) };
 }
 
-@fragment export function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position">): Color {
   return { color: vec4(img[u32(p.x)], 0., 0., 1.) };
 }
 
-@compute([4]) export function cs(g: builtin<"global_invocation_id", vec3<u32>>): void {
+@compute([4]) export function cs(g: builtin<"global_invocation_id">): void {
   atomicAdd(acc[0], 1);
   img[g.x] = 2.;
 }
@@ -106,7 +106,7 @@ const RENDER_PLUS_TEXTURE_COMPUTE =
   CLIP_COLOR +
   `
 declare const t: texture_storage_2d<"rgba8snorm", "write">;
-@compute([4]) export function cs(g: builtin<"global_invocation_id", vec3<u32>>): void {
+@compute([4]) export function cs(g: builtin<"global_invocation_id">): void {
   textureStore(t, vec2<i32>(i32(g.x), 0), vec4<f32>(1., 0., 0., 1.));
 }
 `;
@@ -118,14 +118,14 @@ const GLSL_UNSUPPORTED_BINDING = `
 declare const m: storage<array<mat4, 2>>;
 
 interface Clip {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
 
 interface Color {
   color: location<0, vec4>;
 }
 
-@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index">): Clip {
   return { pos: vec4(0., 0., 0., 1.) };
 }
 

@@ -16,9 +16,9 @@ import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
-const FRAGMENT = `interface VsOut { pos: builtin<"position", vec4>; uv: location<0, vec2>; }
+const FRAGMENT = `interface VsOut { pos: builtin<"position">; uv: location<0, vec2>; }
 interface Color { color: location<0, vec4>; }
-@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(vi: builtin<"vertex_index">): VsOut {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
 }`;
 
@@ -152,7 +152,7 @@ function run(): f32 {
 class Cell { a: f32; b: f32; }
 let tile: workgroup<array<Cell, 64>>;
 const out = storage<array<f32>, "read_write">();
-@compute([64]) export function main(i: builtin<"local_invocation_index", u32>) {
+@compute([64]) export function main(i: builtin<"local_invocation_index">) {
   tile[i].a = f32(i);
   const c = tile[(i + u32(1)) % u32(64)];
   workgroupBarrier();
@@ -249,7 +249,7 @@ function run(): f32 {
     const source = `"use typeshade";
 const claimed = storage<atomic<u32>, "read_write">();
 const out = storage<array<u32>, "read_write">();
-@compute([64]) export function cs(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function cs(gid: builtin<"global_invocation_id">) {
   const claim = atomicCompareExchangeWeak(claimed, u32(0), gid.x + u32(1));
   out[gid.x] = claim.old_value;
 }`;
@@ -264,7 +264,7 @@ const out = storage<array<u32>, "read_write">();
 class Hit { t: f32; n: vec3f; }
 const out = storage<array<Hit>, "read_write">();
 function probe(k: f32): Hit { return { t: k * 2., n: vec3f(k) }; }
-@compute([64]) export function main(g: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function main(g: builtin<"global_invocation_id">) {
   out[g.x] = probe(f32(g.x));
 }`;
     const r = compile(source);

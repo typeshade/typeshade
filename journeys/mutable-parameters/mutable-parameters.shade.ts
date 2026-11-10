@@ -14,7 +14,7 @@ class Painter {
 declare const out: storage<array<f32>, "read_write">;
 
 @compute([1])
-export function paint(gid: builtin<"global_invocation_id", vec3u>) {
+export function paint(gid: builtin<"global_invocation_id">) {
   const col = vec3(f32(gid.x) / 8., 0.25, 0.5);
   const painter = new Painter();
   const result = painter.shade(col);

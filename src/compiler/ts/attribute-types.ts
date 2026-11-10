@@ -4,10 +4,17 @@
 // attribute written in its type, which a plain `tsc --strict` accepts, in place of a decorator
 // on a parameter or a field, which it refuses on a function's parameter (TS1206).
 //
-//   i: builtin<'vertex_index', u32>             the parameter `@builtin("vertex_index") i: u32`
-//   pos: builtin<'position', vec4, { invariant: true }>
+//   i: builtin<'vertex_index'>                  the parameter `@builtin("vertex_index") i: u32`
+//   pos: builtin<'position', { invariant: true }>
+//   cd: builtin<'clip_distances', array<f32, 4>>
 //   id: location<1, u32, { interpolate: 'flat' }>
 //   b: location<0, vec4, { blend_src: 1 }>
+//
+// A built-in value takes its type from WGSL (`WGSL_BUILTIN_TYPES`, change 0135, decision D1.2),
+// so `builtin<N>` writes none and an option is its second argument. `clip_distances` is the one
+// name whose type the author chooses, and it keeps its type argument. A written type that WGSL
+// fixes, `builtin<'vertex_index', u32>`, is the migration form: it is still read, and
+// `builtin-type-form.ts` warns on it (`TS8028`).
 //
 // The type form of a parameter qualifier, `x: inout<f32>` and `y: out<f32>`, is not the
 // language's form: a qualifier is written before the parameter, `@inout x: f32` (Rule 8.25,
@@ -32,8 +39,43 @@ export const ATTRIBUTE_TYPES: Readonly<Record<string, number>> = {
   out: 0,
 };
 
-/** The options an attribute type's third argument may name, each a decorator of its own. */
+/** The longest `array<f32, N>` WGSL's built-in value table lets `clip_distances` be. */
+export const MAX_CLIP_DISTANCES = 8;
+
+/** The options an attribute type's options argument may name, each a decorator of its own. */
 const OPTIONS = ['interpolate', 'invariant', 'blend_src'] as const;
+
+/** The arguments of an attribute type after its first: the value's type, where one is written,
+ *  and the options. A `location<n, T, O>` writes both in place. A `builtin<N>` writes no type,
+ *  and an options object is then its second argument, `builtin<'position', { invariant: true }>`
+ *  (change 0135, decision D1.3); the migration form `builtin<N, T, O>` writes the type second
+ *  and the options third. An options object is an object type literal, which no built-in
+ *  value's type is. */
+export function attributeArgumentsOf(ref: ts.TypeReferenceNode): {
+  readonly value?: ts.TypeNode;
+  readonly options?: ts.TypeNode;
+} {
+  const args = ref.typeArguments ?? [];
+  const name = (ref.typeName as ts.Identifier).text;
+  if (name === 'inout' || name === 'out') return args[0] === undefined ? {} : { value: args[0] };
+  const second = args[1];
+  if (name === 'builtin' && second !== undefined && ts.isTypeLiteralNode(second))
+    return { options: second };
+  return {
+    ...(second === undefined ? {} : { value: second }),
+    ...(args[2] === undefined ? {} : { options: args[2] }),
+  };
+}
+
+/** The name a `builtin<"…">` writes, or undefined when its first argument is no string. */
+export function builtinNameOf(ref: ts.TypeReferenceNode): string | undefined {
+  const first = ref.typeArguments?.[0];
+  if (first === undefined || !ts.isLiteralTypeNode(first)) return undefined;
+  const literal = first.literal;
+  return ts.isStringLiteral(literal) || ts.isNoSubstitutionTemplateLiteral(literal)
+    ? literal.text
+    : undefined;
+}
 
 /** Whether `node` is the builtin id of a `builtin<"…", T>` type, the one string position of an
  *  attribute type with a closed vocabulary: hover and completion read it as they read the
@@ -68,7 +110,7 @@ export function isAttributeType(node: ts.TypeNode | undefined): node is ts.TypeR
 export function valueTypeOf(node: ts.TypeNode): ts.TypeNode {
   let at: ts.TypeNode = node;
   while (isAttributeType(at)) {
-    const value = at.typeArguments?.[ATTRIBUTE_TYPES[(at.typeName as ts.Identifier).text]!];
+    const value = attributeArgumentsOf(at).value;
     if (value === undefined) return at;
     at = value;
   }
@@ -134,7 +176,7 @@ export function typeDecoratorsOf(node: ts.Node): readonly ts.Decorator[] {
     } else {
       const literal = literalOf(args[0]);
       decorator(name, literal === undefined ? [] : [literal], ref);
-      const options = args[2];
+      const options = attributeArgumentsOf(ref).options;
       if (options !== undefined && ts.isTypeLiteralNode(options)) {
         for (const member of options.members) {
           if (!ts.isPropertySignature(member) || !ts.isIdentifier(member.name)) continue;
@@ -157,7 +199,7 @@ export function typeDecoratorsOf(node: ts.Node): readonly ts.Decorator[] {
         }
       }
     }
-    at = args[ATTRIBUTE_TYPES[name.text]!];
+    at = attributeArgumentsOf(ref).value;
   }
   cache.set(node, out);
   return out;

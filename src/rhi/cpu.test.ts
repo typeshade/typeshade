@@ -119,11 +119,11 @@ declare const cells: storage<array<Cell>, "read_write">;
 declare const count: storage<array<atomic<u32>>, "read_write">;
 let tile: workgroup<array<f32, 4>>;
 @compute([4, 2, 1]) export function scan(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
-  li: builtin<"local_invocation_index", u32>,
-  wid: builtin<"workgroup_id", vec3u>,
-  nwg: builtin<"num_workgroups", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
+  li: builtin<"local_invocation_index">,
+  wid: builtin<"workgroup_id">,
+  nwg: builtin<"num_workgroups">,
 ): void {
   const i = gid.y * u32(8) + gid.x;
   tile[lid.x] = tile[lid.x] + src[i] * params.scale;
@@ -227,7 +227,7 @@ describe('a dispatch on the CPU backend', () => {
 
 // ─── refusals ────────────────────────────────────────────────────────────────────────────────
 
-const FULL = `@vertex export function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> {
+const FULL = `@vertex export function vs(i: builtin<"vertex_index">): builtin<"position"> {
   const p = vec2(f32((i << u32(1)) & u32(2)), f32(i & u32(2)));
   return vec4(p * 2. - vec2(1., 1.), 0., 1.);
 }`;
@@ -304,7 +304,7 @@ ${FULL}
 declare const tex: texture_2d<f32>;
 declare const smp: sampler;
 ${FULL}
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return textureSample(tex, smp, p.xy);
 }
 `);
@@ -315,7 +315,7 @@ ${FULL}
     );
     const derivative = cpuProgramOf(`"use typeshade";
 ${FULL}
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(dpdx(p.x), 0., 0., 1.);
 }
 `);
@@ -356,7 +356,7 @@ describe('a pass into a canvas', () => {
     expect(device.toNative(canvas)).toBe(context);
     const program = cpuProgramOf(`"use typeshade";
 ${FULL}
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(floor(p.x) / 255., floor(p.y) / 255., 0.2, 1.);
 }
 `);

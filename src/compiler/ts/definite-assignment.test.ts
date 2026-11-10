@@ -14,7 +14,7 @@ import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
-const FRAGMENT = `interface VsOut { pos: builtin<"position", vec4>; }
+const FRAGMENT = `interface VsOut { pos: builtin<"position">; }
 @vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.) }; }
 interface Color { color: location<0, vec4>; }
 @fragment export function fs(): Color { return { color: vec4(run(), 0., 0., 1.) }; }`;

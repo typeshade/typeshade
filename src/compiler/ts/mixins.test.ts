@@ -219,7 +219,7 @@ function WithUv() {
   };
 }
 class Varyings extends WithUv() {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
 @vertex export function vs(): Varyings {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0.) };

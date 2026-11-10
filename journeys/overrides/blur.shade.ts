@@ -13,7 +13,7 @@ declare const input: storage<array<f32>>;
 declare const output: storage<array<f32>, "read_write">;
 
 @compute([64])
-export function blur(gid: builtin<"global_invocation_id", vec3u>) {
+export function blur(gid: builtin<"global_invocation_id">) {
   const n = i32(input.length);
   const i = i32(gid.x);
   if (i >= n) {

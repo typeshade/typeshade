@@ -19,7 +19,7 @@ declare const ys: storage<array<f32>, "read_write">;
 // One invocation for each element. The entry checks its own bound, as WGSL runs it: the host
 // dispatches whole workgroups of WIDTH, including a partly occupied last group.
 @compute([WIDTH])
-export function scale(gid: builtin<"global_invocation_id", vec3u>) {
+export function scale(gid: builtin<"global_invocation_id">) {
   if (gid.x >= xs.length) {
     return;
   }

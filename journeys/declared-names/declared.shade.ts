@@ -22,7 +22,7 @@ function mix(a: f32, b: f32): f32 {
 }
 
 @compute([64])
-export function main(gid: builtin<"global_invocation_id", vec3u>) {
+export function main(gid: builtin<"global_invocation_id">) {
   if (gid.x * 4 >= out.length) {
     return;
   }

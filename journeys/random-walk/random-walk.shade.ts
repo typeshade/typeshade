@@ -45,7 +45,7 @@ declare const params: uniform<Params>;
 declare const out: storage<array<f32>, "read_write">;
 
 @compute([64])
-export function walk(gid: builtin<"global_invocation_id", vec3u>) {
+export function walk(gid: builtin<"global_invocation_id">) {
   if (gid.x * 3 >= out.length) {
     return;
   }

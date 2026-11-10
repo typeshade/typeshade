@@ -1208,7 +1208,7 @@ export function f(i: u32): f32 {
   }
   return r;
 }
-@compute([1, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   buf[gid.x + 1] = f(gid.x);
 }
 `);

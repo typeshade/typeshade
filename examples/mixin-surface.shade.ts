@@ -71,7 +71,7 @@ class TintedBar extends Tinted(Bar) {
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): vec4 {
+export function vs(vi: builtin<"vertex_index">): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
@@ -79,7 +79,7 @@ export function vs(vi: builtin<"vertex_index", u32>): vec4 {
 }
 
 @fragment
-export function fs(frag: builtin<"position", vec4>): vec4 {
+export function fs(frag: builtin<"position">): vec4 {
   const p: vec2 = frag.xy * 0.004;
   const disc = new TintedDisc(vec2(0.6, 0.6), 0.35, 0.08, vec3(0.95, 0.4, 0.25));
   const bar = new TintedBar(vec2(1.4, 0.), 0.25, 0.05, vec3(0.2, 0.55, 0.9));

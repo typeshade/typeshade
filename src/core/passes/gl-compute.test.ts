@@ -85,8 +85,8 @@ declare const ka: uniform<f32>;
 declare const kb: uniform<f32>;
 let scratch: workgroup<array<f32, 64>>;
 function put(i: u32) { b[i] = kb + scratch[63 - i]; }
-@compute([64]) export function first(gid: builtin<"global_invocation_id", vec3u>) { a[gid.x] = ka; }
-@compute([64]) export function second(i: builtin<"local_invocation_index", u32>) {
+@compute([64]) export function first(gid: builtin<"global_invocation_id">) { a[gid.x] = ka; }
+@compute([64]) export function second(i: builtin<"local_invocation_index">) {
   scratch[i] = 1.;
   workgroupBarrier();
   put(i);
@@ -190,7 +190,7 @@ let row: workgroup<array<f32, 8>>;
 function texel(t: texture_2d<f32>, i: u32): f32 {
   return textureLoad(t, vec2i(i32(i), 0), 0).y;
 }
-@compute([8]) export function main(li: builtin<"local_invocation_index", u32>) {
+@compute([8]) export function main(li: builtin<"local_invocation_index">) {
   row[li] = texel(photo, li) + f32(textureLoad(ids, vec2i(0), 0).x);
   workgroupBarrier();
   out[li] = row[(li + 1) % 8] + textureSampleLevel(photo, smp, vec2f(0.5), 0.).x;
@@ -222,7 +222,7 @@ declare const cfg: uniform<half>;
 declare const texture: texture_2d<f32>;
 declare const smp: sampler;
 declare const out: storage<array<f32>, "read_write">;
-@compute([8]) export function main(li: builtin<"local_invocation_index", u32>) {
+@compute([8]) export function main(li: builtin<"local_invocation_index">) {
   out[li] = cfg.scale + textureSampleLevel(texture, smp, vec2f(0.5), 0.).x;
 }
 `,
@@ -313,7 +313,7 @@ declare const point: texture_depth_cube;
 declare const smp: sampler;
 declare const cmp: sampler_comparison;
 declare const out: storage<array<f32>, "read_write">;
-@compute([4]) export function main(li: builtin<"local_invocation_index", u32>) {
+@compute([4]) export function main(li: builtin<"local_invocation_index">) {
   const a = textureLoad(layers, vec2i(i32(li), 0), 1, 0).x;
   const b = f32(textureLoad(vol, vec3i(i32(li), 0, 0), 0).x);
   const c = textureSampleLevel(env, smp, vec3f(1., 0., 0.), 0.).y;
@@ -353,7 +353,7 @@ declare const acc: texture_storage_2d<"r32float", "read_write">;
 declare const img: texture_storage_2d<"rgba8unorm", "write">;
 declare const lay: texture_storage_2d_array<"rgba32uint", "write">;
 declare const src: texture_storage_2d<"rgba8snorm", "read">;
-@compute([4, 4]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4, 4]) export function main(gid: builtin<"global_invocation_id">) {
   const at = vec2i(gid.xy);
   const seen = textureLoad(acc, at).x + textureLoad(src, at).y;
   textureStore(acc, at, vec4f(seen + f32(textureDimensions(acc).x), 0., 0., 0.));
@@ -441,7 +441,7 @@ declare const out: storage<array<f32>, "read_write">;
 let scratch: workgroup<array<f32, 4>>;
 function fract(x: f32): f32 { return x - floor(x) + 0.5; }
 function clamp(x: f32, lo: f32, hi: f32): f32 { return x + lo + hi; }
-@compute([4]) export function main(i: builtin<"local_invocation_index", u32>) {
+@compute([4]) export function main(i: builtin<"local_invocation_index">) {
   scratch[i] = fract(out[i]) + random(out[i]) * 0.;
   workgroupBarrier();
   out[i] = clamp(scratch[3 - i], 1., 2.);
@@ -488,7 +488,7 @@ describe('an emulated double kept in state across a barrier (#970)', () => {
   const source = (local: string, use: string): string => `"use typeshade";
 declare const data: storage<array<f32>, "read_write">;
 let tile: workgroup<array<f32, 64>>;
-@compute([64, 1, 1]) export function fftSmallDouble(li: builtin<"local_invocation_index", u32>): void {
+@compute([64, 1, 1]) export function fftSmallDouble(li: builtin<"local_invocation_index">): void {
   ${local}
   tile[li] = data[li];
   workgroupBarrier();
@@ -571,7 +571,7 @@ let tile: workgroup<array<f32, 64>>;
 declare const mu: uniform<mat2<f64>>;
 declare const data: storage<array<f32>, "read_write">;
 let tile: workgroup<array<f32, 64>>;
-@compute([64, 1, 1]) export function mm(li: builtin<"local_invocation_index", u32>): void {
+@compute([64, 1, 1]) export function mm(li: builtin<"local_invocation_index">): void {
   const m = transpose(mu);
   tile[li] = data[li];
   workgroupBarrier();

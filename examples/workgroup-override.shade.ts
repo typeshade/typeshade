@@ -18,8 +18,8 @@ let tile: workgroup<array<f32, WG_SIZE>>;
 
 @compute([WG_SIZE])
 export function copy(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
 ): void {
   if (gid.x < src.length) {
     tile[lid.x] = src[gid.x];

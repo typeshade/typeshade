@@ -205,7 +205,7 @@ function witnessFor(row: CoreDefRow, stage: Stage, elem: Elem = 'f32'): string |
   if (stage === 'compute') {
     const sinkDecl = sink === null ? '' : 'declare const out: storage<array<f32>, "read_write">\n';
     const body = sink === null ? `  ${call}` : `  const r = ${call}\n  out[gid.x] = ${sink}`;
-    return `${head}${sinkDecl}@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+    return `${head}${sinkDecl}@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
 ${body}
 }
 `;
@@ -218,7 +218,7 @@ ${body}
     return `${head}class Clip {
   @builtin("position") pos: vec4;
 }
-@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index">): Clip {
 ${body}
 }
 `;

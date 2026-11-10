@@ -148,11 +148,11 @@ class Uniforms {
 declare const U: uniform<Uniforms>;
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 
-@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
@@ -998,7 +998,7 @@ describe('a mistake belongs to the file it is in (Rule 3.9)', () => {
 // is read by both halves on the same files, and they refuse it alike, with the same mistake in
 // the same file (Rule 12.7).
 describe('a mistake in an imported file holds back the shader text in both halves (Rule 3.9, #202)', () => {
-  const MAIN = `${D}import { pick } from "./lib.shade.ts";\n@fragment export function fs(p: builtin<"position", vec4>): vec4 {\n  return vec4(pick(i32(p.x)));\n}\n`;
+  const MAIN = `${D}import { pick } from "./lib.shade.ts";\n@fragment export function fs(p: builtin<"position">): vec4 {\n  return vec4(pick(i32(p.x)));\n}\n`;
   const MAIN_URI = '/p/main.shade.ts';
   const LIB_URI = '/p/lib.shade.ts';
   const lib = (body: string): string => `${D}export function pick(k: i32): f32 {\n${body}\n}\n`;
@@ -1119,7 +1119,7 @@ describe('a mistake in an imported file holds back the shader text in both halve
 
   it('holds the text back for a mistake two files away', () => {
     const program: Files = {
-      [MAIN_URI]: `${D}import { pick } from "./mid.shade.ts";\n@fragment export function fs(p: builtin<"position", vec4>): vec4 {\n  return vec4(pick(i32(p.x)));\n}\n`,
+      [MAIN_URI]: `${D}import { pick } from "./mid.shade.ts";\n@fragment export function fs(p: builtin<"position">): vec4 {\n  return vec4(pick(i32(p.x)));\n}\n`,
       '/p/mid.shade.ts': `${D}import { pick as inner } from "./lib.shade.ts";\nexport function pick(k: i32): f32 {\n  return inner(k);\n}\n`,
       [LIB_URI]: lib('  return true;'),
     };
@@ -1131,7 +1131,7 @@ describe('a mistake in an imported file holds back the shader text in both halve
 
   it('reports every mistake of every imported file, each in its own file, in the order compile() gives them', () => {
     const program: Files = {
-      [MAIN_URI]: `${D}import { pick } from "./lib.shade.ts";\nimport { boost, damp } from "./more.shade.ts";\n@fragment export function fs(p: builtin<"position", vec4>): vec4 {\n  return vec4(damp(boost(pick(i32(p.x)))));\n}\n`,
+      [MAIN_URI]: `${D}import { pick } from "./lib.shade.ts";\nimport { boost, damp } from "./more.shade.ts";\n@fragment export function fs(p: builtin<"position">): vec4 {\n  return vec4(damp(boost(pick(i32(p.x)))));\n}\n`,
       [LIB_URI]: lib('  return true;'),
       '/p/more.shade.ts': `${D}export function boost(x: f32): f32 {\n  return zork(x);\n}\nexport function damp(x: f32): f32 {\n  return false;\n}\n`,
     };
@@ -1151,7 +1151,7 @@ describe('a mistake in an imported file holds back the shader text in both halve
     // first; the editor's list for the document is what is located in it (Rule 3.9), so the
     // pane gives that list as it stands and then what the front end reports in the imports.
     const program: Files = {
-      [MAIN_URI]: `${D}import { pick } from "./lib.shade.ts";\nfunction own(k: i32): f32 {\n  return false;\n}\n@fragment export function fs(p: builtin<"position", vec4>): vec4 {\n  return vec4(pick(i32(p.x)) + own(1));\n}\n`,
+      [MAIN_URI]: `${D}import { pick } from "./lib.shade.ts";\nfunction own(k: i32): f32 {\n  return false;\n}\n@fragment export function fs(p: builtin<"position">): vec4 {\n  return vec4(pick(i32(p.x)) + own(1));\n}\n`,
       [LIB_URI]: lib('  return true;'),
     };
     const reference = errorsOf(program);

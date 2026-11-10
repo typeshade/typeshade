@@ -540,13 +540,13 @@ class Voice {
   static OFFSET: u32 = 1;
 }
 declare const data: storage<array<u32>, "read_write">;
-@compute([4]) export function fill(Voice_OFFSET: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function fill(Voice_OFFSET: builtin<"global_invocation_id">) {
   data[Voice_OFFSET.x] = Voice_OFFSET.x + Voice.OFFSET;
 }
 @vertex export function vs(Voice_OFFSET: location<0, vec2>): vec4 {
   return vec4(Voice_OFFSET + vec2(f32(Voice.OFFSET)), 0., 1.);
 }
-@compute([4]) export function idle(Voice_OFFSET: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function idle(Voice_OFFSET: builtin<"global_invocation_id">) {
   data[Voice_OFFSET.x] = 0;
 }
 `;
@@ -878,10 +878,10 @@ class Voice {
   }
 }
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   Voice_shift: location<0, f32>;
 }
-@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index">): VsOut {
   const x = f32(i) * 0.5;
   return { pos: vec4(x, x, 0., 1.), Voice_shift: x };
 }

@@ -41,14 +41,14 @@ const hoverAt = (src: string, needle: string, offset = 0): string | undefined =>
 };
 
 const VS_OUT = `interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }`;
 
 describe('an entry with no return type returns what its body says (Rule 8.19)', () => {
   it('emits a bare vec4 vertex result as the position, and a bare fragment result at location 0', () => {
     const src = `"use typeshade";
-@vertex export function vs(vi: builtin<"vertex_index", u32>) {
+@vertex export function vs(vi: builtin<"vertex_index">) {
   return vec4(f32(vi), 0., 0., 1.);
 }
 @fragment export function fs() {
@@ -71,11 +71,11 @@ describe('an entry with no return type returns what its body says (Rule 8.19)', 
   it('takes a struct value as its result, and a literal the struct its names match', () => {
     const src = `"use typeshade";
 ${VS_OUT}
-@vertex export function vs(vi: builtin<"vertex_index", u32>) {
+@vertex export function vs(vi: builtin<"vertex_index">) {
   const x = f32(vi);
   return { pos: vec4(x, x, 0., 1.), uv: vec2(x, x) };
 }
-@vertex export function vs2(vi: builtin<"vertex_index", u32>) {
+@vertex export function vs2(vi: builtin<"vertex_index">) {
   const o: VsOut = { pos: vec4(0., 0., 0., 1.), uv: vec2(f32(vi), 0.) };
   return o;
 }
@@ -105,8 +105,8 @@ ${VS_OUT}
     // (;;)`: `Color` is named nowhere else, and the emit is the example's.
     const after = example
       .replace(
-        'function vs(vi: builtin<"vertex_index", u32>): VsOut {',
-        'function vs(vi: builtin<"vertex_index", u32>) {',
+        'function vs(vi: builtin<"vertex_index">): VsOut {',
+        'function vs(vi: builtin<"vertex_index">) {',
       )
       .replace('function fs(v: VsOut): Color {', 'function fs(v: VsOut) {')
       .replace('while (true) {', 'for (;;) {');
@@ -138,7 +138,7 @@ declare const frame: uniform<Frame>;
     const src = `"use typeshade";
 ${VS_OUT}
 interface Color { color: location<0, vec4> }
-export const vs = vertex((i: builtin<"vertex_index", u32>) => ({ pos: vec4(f32(i), 0., 0., 1.), uv: vec2(0., 0.) }));
+export const vs = vertex((i: builtin<"vertex_index">) => ({ pos: vec4(f32(i), 0., 0., 1.), uv: vec2(0., 0.) }));
 export const fs = fragment((v: VsOut) => ({ color: vec4(v.uv, 0., 1.) }));
 `;
     const refusals = [
@@ -189,16 +189,16 @@ function first(p: P): vec4 { return p.a; }
     // A vertex entry that returns nothing has no position: one diagnostic, not the three the
     // missing return type gave before (issue #1129).
     const nothing = `"use typeshade";
-@vertex export function vs(vi: builtin<"vertex_index", u32>) {
+@vertex export function vs(vi: builtin<"vertex_index">) {
   const x = f32(vi);
 }
 `;
     expect(errorsOf(nothing)).toEqual([
-      'TS8020 "vs" is a vertex entry, so it returns the position: a vec4, which is the position on its own, or a struct with a field typed builtin<"position", vec4>. It returns nothing.',
+      'TS8020 "vs" is a vertex entry, so it returns the position: a vec4, which is the position on its own, or a struct with a field typed builtin<"position">. It returns nothing.',
     ]);
     // A compute entry returns nothing.
     const compute = `"use typeshade";
-@compute([64]) export function k(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function k(gid: builtin<"global_invocation_id">) {
   return f32(gid.x);
 }
 `;

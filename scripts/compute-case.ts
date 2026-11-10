@@ -46,7 +46,7 @@ declare const pairs: storage<array<vec2f64>, "read_write">;
 declare const triples: storage<array<vec3f64>, "read_write">;
 declare const quads: storage<array<vec4f64>, "read_write">;
 declare const checks: storage<array<f32>, "read_write">;
-@compute([4]) export function main(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([4]) export function main(gid: builtin<"global_invocation_id">): void {
   const i = gid.x;
   const x = f64(1.) + f64(0.000000007450580596923828125) * f64(f32(i + 1));
   scalar[i] = x;
@@ -72,7 +72,7 @@ function lum(c: vec4f): f32 {
   return c.x * 0.25 + c.y * 0.5 + c.z * 0.25;
 }
 
-@compute([8, 1, 1]) export function blurRow(li: builtin<"local_invocation_index", u32>): void {
+@compute([8, 1, 1]) export function blurRow(li: builtin<"local_invocation_index">): void {
   const dims = textureDimensions(photo);
   for (let y: u32 = 0; y < dims.y; y++) {
     row[li] = lum(textureLoad(photo, vec2i(i32(li), i32(y)), 0));
@@ -93,7 +93,7 @@ function rotation(k: u32, n: u32): vec2f {
   return vec2f(f32(cos(angle)), f32(sin(angle)));
 }
 
-@compute([64, 1, 1]) export function twiddle(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function twiddle(gid: builtin<"global_invocation_id">): void {
   const w = rotation(gid.x, 64);
   data[gid.x] = data[gid.x] * w.x + w.y;
 }
@@ -108,7 +108,7 @@ function rotation(k: u32, n: u32): vec2f {
   return vec2f(f32(cos(angle)), f32(sin(angle)));
 }
 
-@compute([64, 1, 1]) export function butterfly(li: builtin<"local_invocation_index", u32>): void {
+@compute([64, 1, 1]) export function butterfly(li: builtin<"local_invocation_index">): void {
   tile[li] = data[li];
   workgroupBarrier();
   const k = li % 32;
@@ -125,7 +125,7 @@ function rotation(k: u32, n: u32): vec2f {
 declare const data: storage<array<f32>, "read_write">;
 let tile: workgroup<array<f32, 64>>;
 
-@compute([64, 1, 1]) export function across(li: builtin<"local_invocation_index", u32>): void {
+@compute([64, 1, 1]) export function across(li: builtin<"local_invocation_index">): void {
   const k = li % 32;
   const angle: f64 = f64(-6.283185307179586) * f64(f32(k)) / f64(64.);
   const w = vec2f64(cos(angle), sin(angle));
@@ -208,7 +208,7 @@ declare const smp: sampler;
 declare const cmp: sampler_comparison;
 declare const out: storage<array<f32>, "read_write">;
 
-@compute([64, 1, 1]) export function handles(li: builtin<"local_invocation_index", u32>): void {
+@compute([64, 1, 1]) export function handles(li: builtin<"local_invocation_index">): void {
   const x = i32(li % 4);
   const y = i32((li / 4) % 4);
   const z = i32(li / 16);
@@ -252,7 +252,7 @@ declare const img: texture_storage_2d<"rgba8unorm", "write">;
 declare const ids: texture_storage_2d<"r32uint", "write">;
 let row: workgroup<array<f32, 8>>;
 
-@compute([8, 1, 1]) export function paint(lid: builtin<"local_invocation_id", vec3u>, wid: builtin<"workgroup_id", vec3u>): void {
+@compute([8, 1, 1]) export function paint(lid: builtin<"local_invocation_id">, wid: builtin<"workgroup_id">): void {
   const at = vec2i(i32(lid.x), i32(wid.x));
   const seen = textureLoad(acc, at).x;
   row[lid.x] = seen;

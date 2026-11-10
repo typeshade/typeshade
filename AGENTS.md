@@ -124,7 +124,9 @@ describes it.
   under every name a writer renames (change 0029), and a divisor or shift amount that is a float
   constant converted to an integer, which Tint refuses unless the writer settles it (#578), and an
   early-return entry named `main` or ending in `_`, whose GLSL wrapper ANGLE refused (#612),
-  the calls of a builtin whose constant neighbours the front end refuses (#613), and a parameter
+  the calls of a builtin whose constant neighbours the front end refuses (#613), the entry inputs
+  and outputs that take their location from the compiler beside a compute entry's user-defined
+  input, which the front end refuses and Tint must refuse too (change 0135), and a parameter
   or a local named like a function its function calls, and an entry parameter named like a helper
   function, which Tint and ANGLE refused until the writers respelled them (#1010), and the
   conformance suite of the render hardware interface on its WebGPU and WebGL2 backends (change

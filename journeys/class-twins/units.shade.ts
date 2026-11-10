@@ -164,7 +164,7 @@ declare const output: storage<array<f32>, "read_write">;
 
 /** Steps one filter of the bank through its block, one invocation per filter. */
 @compute([64])
-export function bank(gid: builtin<"global_invocation_id", vec3u>): void {
+export function bank(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= poles.length) {
     return;
   }
@@ -179,7 +179,7 @@ declare const played: storage<array<f32>, "read_write">;
 
 /** Plays one wavetable voice for a block, one invocation per voice. */
 @compute([64])
-export function play(gid: builtin<"global_invocation_id", vec3u>): void {
+export function play(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= voices.length) {
     return;
   }

@@ -5,7 +5,7 @@ describe('hardcoded triangle entries', () => {
   it('uses an explicit vertex_index param', () => {
     const r = compileTsSource(`
       "use typeshade";
-      @vertex export function vs(i: builtin<"vertex_index", u32>): vec4 {
+      @vertex export function vs(i: builtin<"vertex_index">): vec4 {
         return vec4(0., 0., 0., 1.);
       }
     `);

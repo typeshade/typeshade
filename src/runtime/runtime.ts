@@ -87,7 +87,9 @@ export interface RuntimeOptions<D extends object = object> {
   readonly emit?: (manifest: Pack, options: { readonly console?: boolean }) => Pack;
 }
 
-/** The tier a program runtime runs on (change 0054). */
+/** The tier a program runtime runs on (change 0054). This is the program runtime's own list. It
+ *  is not `TIERS` (`../core/tiers.ts`), the tiers a call may run on, and it is written here on
+ *  purpose: a tier that the call layer gains does not join this list with it (change 0042). */
 type RuntimeTier = 'webgpu' | 'webgl2';
 
 /** How `rt.load()` loads a program. */

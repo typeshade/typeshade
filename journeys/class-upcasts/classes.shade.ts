@@ -29,7 +29,7 @@ function result(first: f32, material: Material, last: f32): f32 {
 function next(): f32 { count += 1.; return count; }
 
 @compute([64])
-export function main(gid: builtin<"global_invocation_id", vec3u>): void {
+export function main(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= xs.length) { return; }
   const concrete = new LeafMaterial(xs[gid.x], 10.);
   const leaf = new Leaf(concrete);

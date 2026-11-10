@@ -18,8 +18,8 @@
 // each omit a different argument.
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 const WARM: vec3 = vec3(1., 0.72, 0.42);
@@ -38,7 +38,7 @@ function bands(uv: vec2, tint: vec3 = WARM, count: f32 = 6.): vec3 {
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);

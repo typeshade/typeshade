@@ -71,7 +71,7 @@ for (const [name, body] of Object.entries(bodies)) {
     declare const output: storage<array<f32>, "read_write">;
     function stamp(i: u32): void { output[i] = 0.; }
     ${body}
-    @compute([64]) export function main(gid: builtin<"global_invocation_id", vec3u>): void {
+    @compute([64]) export function main(gid: builtin<"global_invocation_id">): void {
       if (gid.x < ${n}) output[gid.x] = evaluate(gid.x);
     }`;
   sources[name] = source;

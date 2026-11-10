@@ -225,7 +225,7 @@ describe('compileTsSources keeps the structs and bindings compileTsSource accept
   const STRUCT = `"use typeshade";
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 
@@ -243,7 +243,7 @@ declare const smp: sampler;
 `;
   const STORAGE = `"use typeshade";
 declare const heights: storage<array<f32>, "read_write">;
-@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   heights[gid.x] = 1.;
 }
 `;
@@ -283,7 +283,7 @@ declare const heights: storage<array<f32>, "read_write">;
           fileName: 'types.ts',
           source: `"use typeshade";
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 export function make(p: vec2): VsOut {

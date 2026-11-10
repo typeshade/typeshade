@@ -5,7 +5,7 @@
 // writes nothing, so a one-pixel scissor still records one line (surface §66).
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 
@@ -15,7 +15,7 @@ interface Color {
 
 /** A fullscreen triangle, with `uv` running from 0 at the top left to 1 at the bottom right. */
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(i32(vi) / 2) * 4 - 1;
   const y = f32(i32(vi) % 2) * 4 - 1;
   return { pos: vec4(x, y, 0, 1), uv: vec2(x * 0.5 + 0.5, 0.5 - y * 0.5) };

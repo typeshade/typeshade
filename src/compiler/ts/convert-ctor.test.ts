@@ -55,7 +55,7 @@ describe('a vector converts to another element kind', () => {
   it('converts a swizzle: vec2(gid.xy)', () => {
     const r = compileTsSource(`
       "use typeshade";
-      @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>) {
+      @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">) {
         let uv = vec2(gid.xy);
         uv = uv;
       }

@@ -16,7 +16,7 @@ const SOURCE = `"use typeshade";
 class Frame { time: f32; scale: f32; }
 declare const frame: uniform<Frame>;
 function tint(c: vec2): f32 { return c.x; }
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   const uv = p.xy * frame.scale; const bad: i32 = 1.5;
   const t = tint(uv) + uv.x;
   return vec4(uv.x, uv.y, t, 1);
@@ -330,7 +330,7 @@ export function f(p: bool, q: bool, r: bool, u: u32): bool {
 function both(pa: bool, qa: bool): bool {
   return pa & qa;
 }
-@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   const p = gid.x > u32(2);
   const q = gid.x < u32(9);
   const r = (p | q) & both(p, q);

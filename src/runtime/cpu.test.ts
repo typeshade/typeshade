@@ -29,7 +29,7 @@ class Params {
 declare const params: uniform<Params>;
 declare const xs: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
-@compute([4, 1, 1]) export function scale(g: builtin<"global_invocation_id", vec3u>): void {
+@compute([4, 1, 1]) export function scale(g: builtin<"global_invocation_id">): void {
   out[g.x] = xs[g.x] * params.scale + f32(g.x);
 }
 `;
@@ -39,7 +39,7 @@ class Tint {
   c: vec4;
 }
 declare const tint: uniform<Tint>;
-@vertex export function vs(q: location<0, vec2>): builtin<"position", vec4> {
+@vertex export function vs(q: location<0, vec2>): builtin<"position"> {
   return vec4(q, 0., 1.);
 }
 @fragment export function fs(): vec4 {

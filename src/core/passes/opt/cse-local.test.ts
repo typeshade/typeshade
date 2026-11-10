@@ -321,7 +321,7 @@ function run(k: f32): vec4f {
   b.bump(k);
   return vec4f(b.sum(), b.sum(), 0., 1.);
 }
-@fragment export function fs(p: builtin<"position", vec4f>): Color {
+@fragment export function fs(p: builtin<"position">): Color {
   return { color: run(p.x) };
 }`;
 

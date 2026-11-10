@@ -221,12 +221,12 @@ describe('the host view (Rule 8.21)', () => {
   it('types the default export with the bindings each entry reaches (change 0030)', () => {
     const f = face(`"use typeshade";
 class View { viewProj: mat4x4; time: f32; }
-interface VsOut { pos: builtin<"position", vec4>; uv: location<0, vec2>; }
+interface VsOut { pos: builtin<"position">; uv: location<0, vec2>; }
 declare const view: uniform<View>;
 declare const cells: storage<array<vec2>>;
 declare const albedo: texture_2d<f32>;
 declare const samp: sampler;
-@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index">): VsOut {
   return { pos: view.viewProj * vec4(cells[i], 0., 1.), uv: cells[i] };
 }
 @fragment export function fs(v: VsOut): vec4 { return textureSample(albedo, samp, v.uv); }
@@ -853,7 +853,7 @@ export function read(p: Probe): f32 { return p.value; }
 declare const out: storage<array<u32>, "read_write">;
 
 /** Fills \`out\` with the index of each invocation. */
-@compute([64]) export function fill(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function fill(gid: builtin<"global_invocation_id">) {
   out[gid.x] = gid.x;
 }
 `);
@@ -891,7 +891,7 @@ export function scale(a: array<f32>, s: f32): void {
     const f = face(`"use typeshade";
 
 /** Paints the position. */
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return p;
 }
 `);
@@ -1123,15 +1123,15 @@ export function total(a: array<f32>): f32 {
   return sum;
 }
 
-@compute([64]) export function fill(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function fill(gid: builtin<"global_invocation_id">) {
   out[gid.x] = gid.x;
 }
 
-@compute([8]) export function sized(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([8]) export function sized(gid: builtin<"global_invocation_id">) {
   fixed[gid.x] = k;
 }
 
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return p;
 }
 

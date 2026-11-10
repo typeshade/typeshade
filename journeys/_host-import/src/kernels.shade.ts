@@ -12,7 +12,7 @@ declare const sums: storage<array<f32>, "read_write">;
 declare const scratch: storage<array<f32>, "read_write">;
 
 @compute([64])
-export function scale(gid: builtin<"global_invocation_id", vec3u>) {
+export function scale(gid: builtin<"global_invocation_id">) {
   if (gid.x >= xs.length) {
     return;
   }
@@ -21,9 +21,9 @@ export function scale(gid: builtin<"global_invocation_id", vec3u>) {
 
 @compute([64])
 export function blockSum(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
-  wid: builtin<"workgroup_id", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
+  wid: builtin<"workgroup_id">,
 ) {
   scratch[gid.x] = xs[gid.x];
   storageBarrier();
@@ -37,7 +37,7 @@ export function blockSum(
 }
 
 @compute([4])
-export function report(gid: builtin<"global_invocation_id", vec3u>) {
+export function report(gid: builtin<"global_invocation_id">) {
   console.log("x", gid.x, xs[gid.x]);
 }
 
@@ -56,8 +56,8 @@ export function planGroups() {
 
 @compute([8])
 export function markGroups(
-  gid: builtin<"global_invocation_id", vec3u>,
-  nw: builtin<"num_workgroups", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  nw: builtin<"num_workgroups">,
 ) {
   if (gid.x < marks.length) {
     marks[gid.x] = nw.x * 1000 + gid.x;

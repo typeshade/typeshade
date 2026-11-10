@@ -5,6 +5,8 @@
 // the WGSL, the GLSL ES 3.00 and the diagnostic codes the example gives as written.
 // A parameter qualifier stays written before the parameter, `@inout v: f32`, and the type form of
 // change 0111, `v: inout<f32>`, is rewritten back to it (Rule 8.25, change 0137).
+// A built-in value's written type that WGSL fixes is deleted, `builtin<"vertex_index">` (Rule 6.6,
+// change 0135).
 
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -21,20 +23,20 @@ describe('migrateSource', () => {
     const before = `"use typeshade";
 // A comment the rewrite keeps.
 class VsOut {
-  pos!: builtin<"position", vec4, { invariant: true }>;
+  pos!: builtin<"position", { invariant: true }>;
   @location(0) uv: vec2;
   c!: location<1, vec4>;
 }
 declare const out: storage<array<f32>, "read_write">;
 function put(@out v: f32): void { v = 2.; }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+export const vs = vertex(function vs(i: builtin<"vertex_index">): VsOut {
   let b!: f32;
   put(b);
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(b, 0.), c: vec4(1.) };
 });
 export const fs = fragment((v: VsOut): location<0, vec4> => v.c * v.uv.x);
 namespace N {
-  export const main = compute([8, 8], function main(gid: builtin<"global_invocation_id", vec3u>): void {
+  export const main = compute([8, 8], function main(gid: builtin<"global_invocation_id">): void {
     out[gid.x] = 1.;
   });
 }
@@ -45,14 +47,14 @@ export const scale = workgroup_size([128], function (xs: array<f32>) {
     const after = `"use typeshade";
 // A comment the rewrite keeps.
 class VsOut {
-  pos: builtin<"position", vec4, { invariant: true }>;
+  pos: builtin<"position", { invariant: true }>;
   uv: location<0, vec2>;
   c: location<1, vec4>;
 }
 declare const out: storage<array<f32>, "read_write">;
 function put(@out v: f32): void { v = 2.; }
 @vertex
-export function vs(i: builtin<"vertex_index", u32>): VsOut {
+export function vs(i: builtin<"vertex_index">): VsOut {
   let b: f32;
   put(b);
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(b, 0.), c: vec4(1.) };
@@ -61,7 +63,7 @@ export function vs(i: builtin<"vertex_index", u32>): VsOut {
 export function fs(v: VsOut): location<0, vec4> { return v.c * v.uv.x; }
 namespace N {
   @compute([8, 8])
-  export function main(gid: builtin<"global_invocation_id", vec3u>): void {
+  export function main(gid: builtin<"global_invocation_id">): void {
     out[gid.x] = 1.;
   }
 }
@@ -117,6 +119,60 @@ function both(@inout a: f32): void { a = 1.; }
     expect(migrateSource(result.text).changes).toBe(0);
   });
 
+  it("deletes a built-in value's written type that WGSL fixes (change 0135, decision D1.2)", () => {
+    const before = `"use typeshade";
+interface VsOut {
+  pos: builtin<"position", vec4, { invariant: true }>;
+  cd: builtin<"clip_distances", array<f32, 2>>;
+  uv: location<0, vec2>;
+}
+class Legacy {
+  @builtin("position") @invariant pos: vec4;
+  @builtin("clip_distances") cd: array<f32, 2>;
+}
+@vertex
+export function vs(i: builtin<'vertex_index', u32>, n: builtin<"instance_index", u32>): VsOut {
+  return { pos: vec4(f32(i + n)), cd: [0., 0.], uv: vec2(0.) };
+}
+@fragment
+export function fs(v: VsOut, @builtin("front_facing") ff: bool, bad: builtin<"sample_index", f32>): vec4 {
+  return vec4(v.uv, ff ? 1. : 0., bad);
+}
+`;
+    const after = `"use typeshade";
+interface VsOut {
+  pos: builtin<"position", { invariant: true }>;
+  cd: builtin<"clip_distances", array<f32, 2>>;
+  uv: location<0, vec2>;
+}
+class Legacy {
+  pos: builtin<"position", { invariant: true }>;
+  cd: builtin<"clip_distances", array<f32, 2>>;
+}
+@vertex
+export function vs(i: builtin<'vertex_index'>, n: builtin<"instance_index">): VsOut {
+  return { pos: vec4(f32(i + n)), cd: [0., 0.], uv: vec2(0.) };
+}
+@fragment
+export function fs(v: VsOut, ff: builtin<"front_facing">, bad: builtin<"sample_index", f32>): vec4 {
+  return vec4(v.uv, ff ? 1. : 0., bad);
+}
+`;
+    // `clip_distances` keeps its type, a written location stays, and a type that is not WGSL's
+    // (`TS8003`) is the author's to correct. The decorated form goes straight to the short form.
+    const result = migrateSource(before);
+    expect(result.text).toBe(after);
+    expect(result.skipped).toEqual([]);
+    expect(migrateSource(after).changes).toBe(0);
+    // The compiler warns on exactly the types the rewrite deletes, and on none afterwards.
+    const warned = (text: string): string[] =>
+      compile(text)
+        .diagnostics.filter((d) => /has the type WGSL gives it/.test(d.message))
+        .map((d) => text.slice(d.start, d.start + d.length));
+    expect(warned(before)).toEqual(['vec4', 'u32', 'u32']);
+    expect(warned(after)).toEqual([]);
+  });
+
   it('leaves a type form that is no parameter of a module function, and names it', () => {
     const result = migrateSource(`"use typeshade";
 type R = inout<f32>;
@@ -134,7 +190,7 @@ export function f(): f32 { let x: out<f32> = 1.; return x; }
   it('names an entry, "export default" being no name (Rule 8.1)', () => {
     const before = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-@compute([8]) export default function k(gid: builtin<"global_invocation_id", vec3u>) { out[gid.x] = 1.; }
+@compute([8]) export default function k(gid: builtin<"global_invocation_id">) { out[gid.x] = 1.; }
 `;
     const after = before.replace('export default function', 'export function');
     expect(migrateSource(before)).toEqual({ text: after, changes: 1, skipped: [] });
@@ -151,7 +207,7 @@ declare const out: storage<array<f32>, "read_write">;
   it("keeps a file in the language's form as it is", () => {
     const source = `"use typeshade";
 @vertex
-export function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> { return vec4(f32(i)); }
+export function vs(i: builtin<"vertex_index">): builtin<"position"> { return vec4(f32(i)); }
 @fragment export function fs(): location<0, vec4> { return vec4(1.); }
 `;
     expect(migrateSource(source)).toEqual({ text: source, changes: 0, skipped: [] });

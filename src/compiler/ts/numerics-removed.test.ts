@@ -54,7 +54,7 @@ describe('a leftover numerics option (change 0131)', () => {
   };
   const sources: Readonly<Record<string, string>> = {
     vertex: `"use typeshade";
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> {
+export const vs = vertex(function vs(i: builtin<"vertex_index">): builtin<"position"> {
   return vec4(f32(i), 0., 0., 1.);
 }, { numerics: ["finite-math"] });
 `,
@@ -64,7 +64,7 @@ export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
 }, { numerics: ["finite-math"] });
 `,
     compute: `"use typeshade";
-export const main = compute([64], function main(g: builtin<"global_invocation_id", vec3u>): void {
+export const main = compute([64], function main(g: builtin<"global_invocation_id">): void {
 }, { numerics: ["finite-math"] });
 `,
   };

@@ -15,7 +15,7 @@ declare const points: storage<array<vec3f64>>;
 declare const inside: storage<array<f32>, "read_write">;
 
 @compute([64])
-export function test(gid: builtin<"global_invocation_id", vec3u>) {
+export function test(gid: builtin<"global_invocation_id">) {
   const i = gid.x;
   if (i >= inside.length) {
     return;

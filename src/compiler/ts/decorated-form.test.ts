@@ -80,16 +80,16 @@ const FILTER = '@diagnostic("off", "derivative_uniformity")\n';
  *  stage attribute (change 0130) and a qualifier (change 0137) are the language's forms and have
  *  none. */
 const WARNINGS = [
-  warns('@builtin("position")', 'write "pos: builtin<"position", vec4, { invariant: true }>"'),
-  warns('@invariant', 'write "pos: builtin<"position", vec4, { invariant: true }>"'),
+  warns('@builtin("position")', 'write "pos: builtin<"position", { invariant: true }>"'),
+  warns('@invariant', 'write "pos: builtin<"position", { invariant: true }>"'),
   warns('@location(0)', 'write "uv: location<0, vec2>"'),
   warns('@location(1)', 'write "id: location<1, u32, { interpolate: "flat" }>"'),
   warns('@interpolate("flat")', 'write "id: location<1, u32, { interpolate: "flat" }>"'),
-  warns('@builtin("vertex_index")', 'write "i: builtin<"vertex_index", u32>"'),
+  warns('@builtin("vertex_index")', 'write "i: builtin<"vertex_index">"'),
   'error TS8028 "@diagnostic(…)" is not a decorator the compiler reads (Rule 6.7). Delete it: ' +
     'the compiler rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5) and ' +
     'reports each other one with TS8052 and the reason. "tshc migrate" deletes it.',
-  warns('@builtin("global_invocation_id")', 'write "gid: builtin<"global_invocation_id", vec3u>"'),
+  warns('@builtin("global_invocation_id")', 'write "gid: builtin<"global_invocation_id">"'),
 ];
 
 describe('the decorated form warns once on each decorator, in both halves (TS8028)', () => {
@@ -233,7 +233,7 @@ export function fs(): vec4 { return vec4(u.a); }
 @fragment
 export function fs(@builtin("position") p: vec4): vec4 { return p; }
 `;
-    const said = [warns('@builtin("position")', 'write "p: builtin<"position", vec4>"')];
+    const said = [warns('@builtin("position")', 'write "p: builtin<"position">"')];
     expect(typescriptCodes(source)).toEqual([]);
     expect(compiled(source)).toEqual(said);
     expect(edited(source)).toEqual(said);

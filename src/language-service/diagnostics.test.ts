@@ -404,7 +404,7 @@ describe('a wrong shape still reports when the call also does arithmetic (issue 
     keepsReporting(
       '"use typeshade"\n' +
         'interface VsOut {\n' +
-        '  pos: builtin<"position", vec4>\n' +
+        '  pos: builtin<"position">\n' +
         '  uv: location<0, vec2>\n' +
         '}\n' +
         '@fragment export function fs(vo: VsOut): vec4 {\n' +
@@ -418,7 +418,7 @@ describe('a wrong shape still reports when the call also does arithmetic (issue 
     const source =
       '"use typeshade"\n' +
       'interface VsOut {\n' +
-      '  pos: builtin<"position", vec4>\n' +
+      '  pos: builtin<"position">\n' +
       '  uv: location<0, vec2>\n' +
       '}\n' +
       '@fragment export function fs(vo: VsOut): vec4 {\n' +
@@ -1338,7 +1338,7 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
     'declare const src: storage<array<f32>>\n' +
     'let tile: workgroup<array<f32, 64>>\n' +
     'let calls: u32\n' +
-    '@compute([64, 1, 1]) export function k(lid: builtin<"local_invocation_id", vec3u>): void {\n' +
+    '@compute([64, 1, 1]) export function k(lid: builtin<"local_invocation_id">): void {\n' +
     '  tile[lid.x] = src[lid.x] + f32(calls)\n' +
     '}\n';
 
@@ -1407,7 +1407,7 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
       '"use typeshade"\n' +
       'declare const dst: storage<array<f32>, "read_write">\n' +
       'let tile: workgroup<array<f32, 64>>\n' +
-      '@compute([64, 1, 1]) export function k(lid: builtin<"local_invocation_id", vec3u>): void {\n' +
+      '@compute([64, 1, 1]) export function k(lid: builtin<"local_invocation_id">): void {\n' +
       '  tile[lid.x] = 1.\n' +
       '  let x: f32\n' +
       '  dst[lid.x] = x + tile[lid.x]\n' +
@@ -1427,7 +1427,7 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
       '"use typeshade"\n' +
       'declare const dst: storage<array<f32>, "read_write">\n' +
       'let tile: workgroup<array<f32, 64>>\n' +
-      '@compute([64, 1, 1]) export function k(lid: builtin<"local_invocation_id", vec3u>): void {\n' +
+      '@compute([64, 1, 1]) export function k(lid: builtin<"local_invocation_id">): void {\n' +
       '  let tile: f32\n' +
       '  dst[lid.x] = tile\n' +
       '}\n';
@@ -1445,7 +1445,7 @@ describe('an override-sized workgroup array draws no TS2749', () => {
       '"use typeshade"\n' +
       'const WG_SIZE: override<u32> = 64;\n' +
       'let tile: workgroup<array<f32, WG_SIZE>>;\n' +
-      '@compute([WG_SIZE]) export function k(lid: builtin<"local_invocation_id", vec3u>): void {\n' +
+      '@compute([WG_SIZE]) export function k(lid: builtin<"local_invocation_id">): void {\n' +
       '  tile[lid.x] = 1.;\n' +
       '}\n';
 

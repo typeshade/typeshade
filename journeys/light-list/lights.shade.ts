@@ -19,7 +19,7 @@ function glowAt(q: vec2) {
 }
 
 @compute([64])
-export function shade(gid: builtin<"global_invocation_id", vec3u>) {
+export function shade(gid: builtin<"global_invocation_id">) {
   if (gid.x * 3 >= out.length) {
     return;
   }

@@ -129,7 +129,7 @@ export function pack4xU8(v: vec4u): u32 {
 describe('repack, the load-time emitter (change 0025)', () => {
   const src = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-@compute([4]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function main(gid: builtin<"global_invocation_id">) {
   console.log("x", gid.x);
   out[gid.x] = f32(gid.x);
 }

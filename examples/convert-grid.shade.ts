@@ -20,16 +20,16 @@
 // the gate to reach the constructors.
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 interface Color {
-  color: location<0, vec4>;
+  color: vec4;
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   // vec2<u32> → vec2<f32>: WGSL `vec2<f32>(v)`, GLSL `vec2(v)`.
   const bits = vec2u(vi & u32(1), vi >> u32(1));
   const corner = vec2(bits);

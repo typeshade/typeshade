@@ -42,7 +42,7 @@ declare const xs: storage<array<f32>>;
 declare const ys: storage<array<f32>, "read_write">;
 declare const pts: storage<array<vec2>, "read_write">;
 
-@compute([8]) export function scale(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([8]) export function scale(gid: builtin<"global_invocation_id">) {
   if (gid.x >= xs.length) {
     return;
   }
@@ -109,7 +109,7 @@ declare const b: storage<array<f32>, "read_write">;
 declare const c: storage<array<f32>, "read_write">;
 declare const d: storage<array<f32>, "read_write">;
 
-@compute([4]) export function fill(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function fill(gid: builtin<"global_invocation_id">) {
   if (gid.x >= a.length) {
     return;
   }
@@ -145,7 +145,7 @@ declare const d: storage<array<f32>, "read_write">;
 declare const xs: storage<array<f64>>;
 declare const ys: storage<array<f64>, "read_write">;
 
-@compute([4]) export function twice(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function twice(gid: builtin<"global_invocation_id">) {
   if (gid.x >= xs.length) {
     return;
   }

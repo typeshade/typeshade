@@ -44,7 +44,7 @@ class Pair<T> {
     return this.a;
   }
 }
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   const s = new Pair<f32>();
   const v = new Pair<vec3>();
   return vec4(v.first() * s.first(), 1.);

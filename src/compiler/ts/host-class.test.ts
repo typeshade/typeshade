@@ -365,7 +365,7 @@ export function lit(k: f32): Lit {
   return { k: k };
 }
 
-@fragment export function fs(pos: builtin<"position", vec4>): vec4 {
+@fragment export function fs(pos: builtin<"position">): vec4 {
   const l = new Lit();
   return vec4(l.k, Probe.bright(), 0., 1.);
 }
@@ -483,7 +483,7 @@ declare const cfg: uniform<OnePole>;
 declare const bank: storage<array<OnePole>, "read_write">;
 declare const outs: storage<array<f32>, "read_write">;
 
-@compute([64]) export function tickAll(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function tickAll(gid: builtin<"global_invocation_id">) {
   if (gid.x >= bank.length) {
     return;
   }

@@ -68,7 +68,18 @@ describe('a builtin type error belongs to the field declaration', () => {
     it(`accepts the vec4 neighbour through a ${name} on both shader targets`, () => {
       const source = `"use typeshade";\n${declaration('vec4')}${entries(entryType.replace('T', 'vec4'), 'vec4')}`;
       const { result, compiler } = both(source);
-      expect(compiler).toEqual([]);
+      // The written `vec4` is WGSL's, so it is the migration form: one warning, no error
+      // (change 0135, decision D1.2; `builtin-type-form.test.ts`).
+      // A generic class writes `T`, which the instance binds: the declaration writes no type
+      // that is WGSL's, so nothing is said of it.
+      expect(compiler).toEqual(
+        name === 'generic class'
+          ? []
+          : [
+              'TS8028 "position" has the type WGSL gives it, vec4: write builtin<"position">, or run "tshc migrate".',
+            ],
+      );
+      expect(result.diagnostics.every((d) => d.category === 'warning')).toBe(true);
       expect(result.wgsl).toContain('@builtin(position) pos: vec4<f32>');
       expect(result.glsl?.vertex).toBeDefined();
       expect(result.glsl?.fragment).toBeDefined();
@@ -98,7 +109,7 @@ describe('a builtin type error belongs to the field declaration', () => {
 
   it('keeps the stage check when a correctly typed field is used in the wrong entry', () => {
     const { compiler } = both(`"use typeshade";
-interface Input { i: builtin<"vertex_index", u32>; }
+interface Input { i: builtin<"vertex_index">; }
 @fragment export function fs(v: Input): vec4 { return vec4(f32(v.i)); }`);
     expect(compiler).toEqual([
       'TS8025 Builtin "vertex_index" is not a valid fragment input; it is a vertex input.',

@@ -21,12 +21,12 @@
 // and an inferred result (`halfOf` writes no result type and returns `undefined` beside a value).
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 interface Color {
-  color: location<0, vec4>;
+  color: vec4;
 }
 
 class Hit {
@@ -99,7 +99,7 @@ function offsetOf(h: Hit | undefined, far: f32): f32 {
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);

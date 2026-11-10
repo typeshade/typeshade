@@ -4,7 +4,7 @@
 // and a fragment that writes the unsigned values 7, 8, 9 and 10 to an rgba8uint target.
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
 
 interface Color {
@@ -12,7 +12,7 @@ interface Color {
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(i32(vi) / 2) * 4 - 1;
   const y = f32(i32(vi) % 2) * 4 - 1;
   return { pos: vec4(x, y, 0.5, 1) };

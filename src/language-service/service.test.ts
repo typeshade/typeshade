@@ -131,9 +131,9 @@ describe('getDiagnostics: a broken program', () => {
     const text =
       '"use typeshade";\n' +
       'interface Clip {\n' +
-      '  pos: builtin<"position", vec4>\n' +
+      '  pos: builtin<"position">\n' +
       '}\n' +
-      '@vertex function vs(i: builtin<"vertex_index", u32>): Clip {\n' +
+      '@vertex function vs(i: builtin<"vertex_index">): Clip {\n' +
       '  return { pos: vec4(0., 0., 0., 1.) }\n' +
       '}\n';
     service.openDocument('unexported.ts', text);
@@ -330,7 +330,7 @@ describe('getDiagnostics: a broken program', () => {
     const text =
       '"use typeshade";\n' +
       'namespace N {\n' +
-      '  @fragment export function fs(p: builtin<"position", vec4>): vec4 { return p; }\n' +
+      '  @fragment export function fs(p: builtin<"position">): vec4 { return p; }\n' +
       '}\n';
     service.openDocument('ns-entry.ts', text);
     expect(service.getDiagnostics('ns-entry.ts')).toEqual([]);
@@ -387,7 +387,7 @@ describe('getCompiledOutput', () => {
     const service = createTypeshadeLanguageService();
     const text =
       '"use typeshade";\n' +
-      '@compute([64, 1, 1]) export function cs(id: builtin<"global_invocation_id", vec3u>): void {\n' +
+      '@compute([64, 1, 1]) export function cs(id: builtin<"global_invocation_id">): void {\n' +
       '  const x = id.x\n' +
       '}\n';
     service.openDocument('compute.ts', text);
@@ -452,7 +452,7 @@ describe('getCompiledOutput', () => {
     const main =
       '"use typeshade";\n' +
       'import { pick } from "./lib.js";\n' +
-      '@fragment export function fs(p: builtin<"position", vec4>): vec4 {\n' +
+      '@fragment export function fs(p: builtin<"position">): vec4 {\n' +
       '  return vec4(pick(i32(p.x)));\n' +
       '}\n';
     const start = lib.indexOf('pick');
@@ -518,7 +518,7 @@ describe('getDiagnostics: Stage 3 TypeShade checks (design doc §10 step 5)', ()
     const service = createTypeshadeLanguageService();
     const text =
       '"use typeshade";\n' +
-      '@vertex export function vs(f: builtin<"front_facing", bool>): vec4 {\n' +
+      '@vertex export function vs(f: builtin<"front_facing">): vec4 {\n' +
       '  return vec4(0., 0., 0., 1.)\n' +
       '}\n';
     service.openDocument('builtin-stage.ts', text);

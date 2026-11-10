@@ -170,10 +170,10 @@ describe('the std140 block lists the struct fields in host order (Proposal 0070,
   const SRC = `"use typeshade";
 class Frame { time: f32; count: u32; scale: f32; }
 declare const frame: uniform<Frame>;
-@vertex export function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex export function vs(vi: builtin<"vertex_index">): vec4 {
   return vec4(f32(vi), 0., 0., 1.);
 }
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(frame.time * frame.scale + f32(frame.count), p.x, 0., 1.);
 }
 `;
@@ -290,10 +290,10 @@ describe('the std140 block of a nested struct with respelled fields follows refl
 class Inner { half: f32; texture: u32; }
 class Frame { inner: Inner; time: f32; }
 declare const frame: uniform<Frame>;
-@vertex export function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex export function vs(vi: builtin<"vertex_index">): vec4 {
   return vec4(f32(vi), 0., 0., 1.);
 }
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(frame.inner.half, f32(frame.inner.texture), frame.time, p.x);
 }
 `;
@@ -364,7 +364,7 @@ describe('bare-uniform allocation follows the linked block, not the logical valu
   const source = `"use typeshade";
 declare const U: uniform<f32>;
 declare const V: uniform<f32>;
-@vertex export function vs(vi: builtin<"vertex_index", u32>): builtin<"position", vec4> {
+@vertex export function vs(vi: builtin<"vertex_index">): builtin<"position"> {
   return vec4(f32(vi), 0., 0., 1.);
 }
 @fragment export function fs(): location<0, vec4> { return vec4(U, V, 0., 1.); }`;

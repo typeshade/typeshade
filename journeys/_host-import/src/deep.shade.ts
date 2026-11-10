@@ -14,7 +14,7 @@ declare const zoom: uniform<Zoom>;
 /** A band whose position an `f32` would lose: `x` is near 12 345.678 and moves by a millionth
  *  per pixel, and the band is the fraction of `x * 1000`. */
 @fragment
-export function deep(p: builtin<"position", vec4>): vec4 {
+export function deep(p: builtin<"position">): vec4 {
   const x: f64 = zoom.cx + f64(p.x) * zoom.scale;
   return vec4(f32(fract(x * 1000)), p.y / 32, 0, 1);
 }

@@ -126,7 +126,7 @@ function g(p: f32): f32 {
   it('a local that shadows a resource binding is renamed; the binding keeps its name', () => {
     const r = compile(`"use typeshade";
 declare const dst: storage<array<f32>, "read_write">;
-@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id">): void {
   if (gid.x > 0) {
     const dst = 2.;
     return;

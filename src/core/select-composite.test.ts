@@ -28,7 +28,7 @@ class Ray {
     this.o = o;
   }
 }
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   const r1 = new Ray(vec3(1., 0., 0.));
   const r2 = new Ray(vec3(0., 1., 0.));
   const r = p.x > 0.5 ? r1 : r2;
@@ -68,7 +68,7 @@ describe('a conditional on a struct becomes a slot and an if, on both targets', 
 
 describe('an array conditional, which the same driver refuses the same way', () => {
   const ARRAYS = `"use typeshade";
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   const xs: array<f32, 2> = [1., 2.];
   const ys: array<f32, 2> = [3., 4.];
   const zs = p.x > 0.5 ? xs : ys;
@@ -89,7 +89,7 @@ describe('an array conditional, which the same driver refuses the same way', () 
 describe('what is left alone', () => {
   it('a scalar and a vector conditional keep the operator each target has', () => {
     const r = compile(`"use typeshade";
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   const a = p.x > 0.5 ? 1. : 2.;
   const v = p.y > 0.5 ? vec3(1., 0., 0.) : vec3(0., 1., 0.);
   return vec4(v * a, 1.);
@@ -110,7 +110,7 @@ class Ray {
     this.o = o;
   }
 }
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   const r1 = new Ray(vec3(1., 0., 0.));
   const r2 = new Ray(vec3(0., 1., 0.));
   const a = p.x > 0.5 ? r1 : r2;

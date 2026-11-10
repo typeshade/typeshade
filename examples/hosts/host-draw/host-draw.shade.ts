@@ -20,7 +20,7 @@ declare const frame: uniform<Frame>;
 // A full-screen fragment entry reads no builtin but `position`, and writes one colour, so a host
 // draws it into a canvas with no vertex entry of its own.
 @fragment
-export function fs(p: builtin<"position", vec4>): vec4 {
+export function fs(p: builtin<"position">): vec4 {
   const uv = p.xy / frame.size;
   const wave = 0.5 + 0.5 * sin(6.2831853 * uv.x + frame.time);
   return vec4(uv.x, uv.y, wave, 1.);

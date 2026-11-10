@@ -5,7 +5,7 @@
 // Each colour is a multiple of 1/16, so the harness holds the readback to a rounding step.
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
 
 interface Color {
@@ -14,7 +14,7 @@ interface Color {
 
 /** A fullscreen triangle, in front of a depth target cleared to its default, 1. */
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(i32(vi) / 2) * 4 - 1;
   const y = f32(i32(vi) % 2) * 4 - 1;
   return { pos: vec4(x, y, 0.5, 1) };

@@ -33,14 +33,14 @@ class Sky {
 
 declare const sky: uniform<Sky>;
 
-@vertex export function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex export function vs(vi: builtin<"vertex_index">): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   return vec4(xs[i], ys[i], sky.z, 1.);
 }
 
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return sky.color;
 }
 `,
@@ -61,7 +61,7 @@ interface VsIn {
   return vec4(v.position, 1.);
 }
 
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return tint.color;
 }
 `,
@@ -76,11 +76,11 @@ class Tint {
 declare const verts: storage<array<vec4>>;
 declare const tint: uniform<Tint>;
 
-@vertex export function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex export function vs(vi: builtin<"vertex_index">): vec4 {
   return verts[vi];
 }
 
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return tint.color;
 }
 `,

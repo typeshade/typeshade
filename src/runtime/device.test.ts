@@ -762,8 +762,8 @@ describe('two owners', () => {
 const COUNTED = `"use typeshade";
 declare const marks: storage<array<u32>, "read_write">;
 @compute([2]) export function mark(
-  gid: builtin<"global_invocation_id", vec3u>,
-  nw: builtin<"num_workgroups", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  nw: builtin<"num_workgroups">,
 ) {
   if (gid.x < marks.length) {
     marks[gid.x] = nw.x;
@@ -1414,7 +1414,7 @@ const ENABLED: override<bool> = true;
 let tile: workgroup<array<f64, WIDTH>>;
 declare const values: storage<array<f64>, "read_write">;
 declare const gain: uniform<f64>;
-@compute([WIDTH]) export function scale(gid: builtin<"global_invocation_id", vec3u>, lid: builtin<"local_invocation_id", vec3u>) {
+@compute([WIDTH]) export function scale(gid: builtin<"global_invocation_id">, lid: builtin<"local_invocation_id">) {
   if (gid.x < values.length) {
     tile[lid.x] = values[gid.x];
     values[gid.x] = ENABLED ? tile[lid.x] * gain : f64(-1.);

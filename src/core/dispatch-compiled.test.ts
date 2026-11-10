@@ -24,9 +24,9 @@ function lcg(x: u32): u32 {
   return (x * 1664525 + 1013904223) & 1023;
 }
 @compute([8, 1, 1]) export function trace(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
-  wid: builtin<"workgroup_id", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
+  wid: builtin<"workgroup_id">,
 ): void {
   let s: u32 = seeds[gid.x];
   let e: f32 = 0.;
@@ -99,7 +99,7 @@ describe('dispatch on the codegen runs a barrier-free entry compiled (#467)', ()
   it('tags each console event with its invocation, as the oracle does', () => {
     const src = `"use typeshade";
 declare const out: storage<array<u32>, "read_write">;
-@compute([2, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([2, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   console.log(gid.x);
   out[gid.x] = gid.x;
 }
@@ -131,7 +131,7 @@ let tile: workgroup<array<f32, 4>>;
 function sync(): void {
   workgroupBarrier();
 }
-@compute([4, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>, lid: builtin<"local_invocation_id", vec3u>): void {
+@compute([4, 1, 1]) export function k(gid: builtin<"global_invocation_id">, lid: builtin<"local_invocation_id">): void {
   tile[lid.x] = src[gid.x];
   sync();
   out[gid.x] = tile[3 - lid.x];
