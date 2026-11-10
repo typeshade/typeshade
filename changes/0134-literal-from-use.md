@@ -792,6 +792,61 @@ example of each option was shown (`OD-4`). Each decision is the agent's recommen
   which the front matter declares, carry these readings when items 1 to 3 are implemented.
 - Status: `status: accepted` does not change.
 
+### Amendment A2. The owner's decisions on the review of item 2 (2026-11-10)
+
+Pull request #1184 implements item 2. An independent review of it at `827bc9e1` found programs
+that this text does not decide, and one place where the delivered sentence differs from this
+text. The owner decided each in the Claude Code session on 2026-11-10, after the programs and
+their values on `main` and on the pull request were shown (`OD-4`). Each decision is the
+agent's recommendation.
+
+- [decision, owner, 2026-11-10] "캐스트도 세기". A cast is a read. With `const K = 7;`,
+  `u32(K)` reads `K` as an integer, so `f32(u32(K)) + f32(K / 2)` is refused (`TS8003`), as the
+  Division paragraph refuses `h(K); f32(K / 2)`.
+- [decision, owner, 2026-11-10] "거부". A `/` that reaches such a constant through an operator,
+  a builtin, a conditional or a derived constant. With `const k = 7; h(k);`, each of these
+  computed 3 on `main` (the first computed 1) and would compute 3.5 (1.5) with no diagnostic:
+  `(k % 4) / 2`, `max(k, 1) / 2`, `abs(k) / 2`, `(x > 0 ? k : 1) / 2`, `(k | 1) / 2`,
+  `const m = k * 2;` then `m / 4`, `const m = k;` then `m / 2`. Each is refused (`TS8003`), for
+  the reason of the direct `k / 2`: no operand of the `/` has a declared type. No program
+  changes its value through a division without a diagnostic.
+- [decision, owner, 2026-11-10] "거부". The same through a `let`. With
+  `const k = 7; h(k); let y = k;`, `f32(y / 2)` computed 3 on `main`. It is refused
+  (`TS8003`), as the derived constant is.
+- [decision, owner, 2026-11-10] "규칙대로 두고 기록". Arithmetic that is not a division keeps
+  Rule 5.1: each read takes the type the written number would take. With `const k = 7; h(k);`,
+  `f32(k - 8)` is -1 (4294967295 on `main`) and `f32(k * 1000000000)` is 7000000000
+  (2705032704 on `main`), as `f32(7 - 8)` and `f32(7 * 1000000000)` are. "Values that change"
+  is read with these two rows.
+- [decision, owner, 2026-11-10] "편집기를 컴파일러에 맞춤". A read in another file is a read.
+  With `export const K = 7;` and `x * (K / 2)` in one file, and `vi * K` in a file that imports
+  it, the program is refused (`TS8003`), and the editor and `tshc check` report what `compile()`
+  reports (Rule 12.7).
+- [decision, owner, 2026-11-10] "하나만, 수정안으로 기록". The sentence of the refused `/`.
+  The Division paragraph says "The sentence names the two fixes". The review found places where
+  one of the two fixes leaves another diagnostic, which Rule 12.5 forbids. The sentence names
+  one fix, the one that compiles at that place. Where the other read is an integer position:
+  `Write "const k: u32 = 7" for the integer division.` Elsewhere:
+  `Write "f32(k) / 2" for the float division.`, with each such constant of the operand
+  converted (`(f32(k) + 1) / 2`). A test applies the named fix and holds the result to compile
+  in both halves. The Division paragraph's sentence about the two fixes is read with this
+  limit.
+- [decision, owner, 2026-11-10] "직접 쓴 형태도 컴파일". With `q: u32`, `q += K * 2` compiles
+  (6) and the written `q += 3 * 2` is refused on `main`, while `q = q + 3 * 2` compiles. The
+  written form is a defect of the compound assignment, which retargets one literal only. A pull
+  request of its own fixes it. It is no part of this change.
+- [decision, owner, 2026-11-10] "4a, 4b로 나누기". Items 1 and 3 are delivered in two pull
+  requests. The first carries a function's `let`, the division refusals and the counter of an
+  open `for`. The second carries module variables, class fields and a function's result that
+  its callers decide. After the first, the rule text says which declarations still take `f32`.
+- Correction of a measured fact. The implementing agent reported that the CPU oracle on `main`
+  already computed the exact value of a constant. That holds for the `'f64'` precision oracle
+  only. The `'f32'` precision oracle, which the gates hold against a device, recorded the
+  rounded value (`const K = 16777217; vi + u32(K)` gave 16777216), as "Today" says.
+- Affects: no front-matter field. Rule 5.1 and surface §12 and §13, which the front matter
+  declares, carry these readings.
+- Status: `status: accepted` does not change.
+
 ### Configuration and validation record
 
 This record does not yet apply. Delivery will require the implementation pull requests with
