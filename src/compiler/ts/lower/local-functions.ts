@@ -495,6 +495,7 @@ export function captureBindings(
         ...(of.constValue !== undefined ? { constValue: of.constValue } : {}),
         // A captured constant of no fixed type is still one in the local function (change 0134).
         ...(of.abstract !== undefined ? { abstract: of.abstract } : {}),
+        ...(of.inferred !== undefined ? { inferred: of.inferred } : {}),
         irName: param.name,
         capture: {
           of,

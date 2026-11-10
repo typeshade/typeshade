@@ -1,3 +1,4 @@
+import { isOpenCounter, noteOpenCounter } from '../use-inference.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
@@ -126,6 +127,8 @@ function lowerForLoop(
     // loop declares, when the header declares exactly one.
     const pre: Stmt[] = [];
     let counter: (Stmt & { s: 'var' }) | undefined;
+    // The one `let` of the header, when it is an unannotated integer-written literal.
+    let writtenCounter: ts.VariableDeclaration | undefined;
     const init = node.initializer;
     if (init !== undefined && ts.isVariableDeclarationList(init)) {
       const isLet = (init.flags & ts.NodeFlags.Let) !== 0;
@@ -135,7 +138,19 @@ function lowerForLoop(
         // one reads the earlier ones in order.
         const mark = single ? undefined : scope.hoistMark();
         let lowered: Stmt[];
-        if (isLet && isHeaderCounter(decl, sourceFile)) {
+        // The counter of a `for` that is not counted is a value its uses decide (Rule 5.1,
+        // Amendment A1 of change 0134): an earlier pass of this compile found the loop open, so
+        // the declaration is lowered as the `let` it is.
+        if (
+          single &&
+          isLet &&
+          decl.type === undefined &&
+          decl.initializer !== undefined &&
+          isIntegerLiteralTree(decl.initializer)
+        ) {
+          writtenCounter = decl;
+        }
+        if (isLet && isHeaderCounter(decl, sourceFile) && !isOpenCounter(sourceFile, decl)) {
           const one = lowerHeaderCounter(node, decl, sourceFile, scope, diagnostics);
           if (!one) return undefined;
           // The `for` header's own statements never pass through `lowerStatement`, so the
@@ -210,6 +225,9 @@ function lowerForLoop(
       // a name that is unknown or read-only), is the update's own error, said as it was.
       const own = aside.filter((d) => d.category === 'error' && d.code !== TS_CODES.LOOP_INDUCTION);
       if (own.length > 0) {
+        // A step the counter's integer type refuses (`i *= 2.5`) is no counted step: the loop
+        // is open, and the next pass types the counter from its uses.
+        if (writtenCounter !== undefined) noteOpenCounter(sourceFile, writtenCounter);
         diagnostics.push(...aside);
         return undefined;
       }
@@ -254,6 +272,7 @@ function lowerForLoop(
         { s: 'for', init: counter!, cond, update: update[0]!, body, counted: countedFact(counted) },
       ];
     }
+    if (writtenCounter !== undefined) noteOpenCounter(sourceFile, writtenCounter);
     return openFor(pre, cond, update, body, scope);
   } finally {
     scope.exitLoop();

@@ -1,3 +1,4 @@
+import { softDemands } from '../use-inference.js';
 import {
   logicalTypeKey as typeKey,
   absentLiteral,
@@ -114,7 +115,8 @@ function lowerIndexOf(
     }
     return { op: 'index', type: (base.type as { elem: ShaderType }).elem, base, idx };
   }
-  idx = retargetIntLit(idx, node.argumentExpression, i32T);
+  // An index asks for an integer of no kind of a value its uses decide (change 0134 item 1).
+  idx = softDemands(() => retargetIntLit(idx!, node.argumentExpression, i32T));
   const ik = typeKey(idx.type);
   if (ik !== 'i32' && ik !== 'u32') {
     pushDiag(diagnostics, sourceFile, node, 'Index must be i32 or u32.', TS_CODES.TYPE_MISMATCH);

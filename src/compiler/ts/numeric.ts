@@ -21,6 +21,7 @@ import { fitsTarget, foldNumericLit, retargetIntLit } from './lit-coerce.js';
 import { authorTypeText } from './context.js';
 import { wrapInt } from '../../core/passes/opt/expr-utils.js';
 import { abstractLiteralOf } from './abstract-const.js';
+import { noteDemand } from './use-inference.js';
 
 export const SCALAR_CAST: Readonly<Record<string, ShaderType>> = {
   f32: f32T,
@@ -54,6 +55,7 @@ function stripParens(node: ts.Expression): ts.Expression {
  *  scalar peer behaves as before). Against an emulated double — a `vec64` or, since #151, a
  *  scalar `f64` — it is {@link retargetF64Lit}. */
 export function retargetLit(expr: Expr, node: ts.Expression, peer: ShaderType): Expr {
+  noteDemand(expr, peer);
   if (isF64(peer) || isVec64(peer)) return retargetF64Lit(expr, node);
   return retargetIntLit(expr, node, literalPeerType(peer));
 }

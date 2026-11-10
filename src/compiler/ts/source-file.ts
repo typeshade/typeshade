@@ -3,6 +3,12 @@
 // Implements: Rule 8.1 (docs/language-design.md; traced in reqs/): an entry point is a function
 // declaration with one stage attribute, which `lower/function.ts` reads (change 0130).
 
+import {
+  beginUseInference,
+  beginUseInferencePass,
+  endUseInferencePass,
+  settleUseInference,
+} from './use-inference.js';
 import { reportAbstractDivisions, resetAbstractConsts } from './abstract-const.js';
 import { withoutKernelLoops } from './lower/kernel-methods.js';
 import ts from 'typescript';
@@ -230,6 +236,12 @@ export function compileTsProgram(source: string, options: ProgramOptions = {}): 
 type ProgramOptions = CompileTsSourceOptions & { readonly roots?: readonly LinkRoot[] };
 type ProgramCompile = { readonly result: CompileTsSourceResult; readonly linked?: LinkedCompile };
 
+/** The most passes the use inference of one compile takes (Rule 5.1, change 0134). Each pass
+ *  but the last decides at least one value, so a chain of values that decide each other
+ *  (`b += a` after `a += vi`) takes one pass a link. A longer chain keeps its undecided values
+ *  as `f32`, and their integer uses are refused as before. */
+const MAX_INFERENCE_PASSES = 16;
+
 function compileOneSource(source: string, options: ProgramOptions): ProgramCompile {
   const sourceFile =
     options.sourceFile ??
@@ -240,6 +252,23 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
       true,
       ts.ScriptKind.TS,
     );
+  // A written number takes its type from its uses (Rule 5.1, change 0134 item 1): the module is
+  // lowered, the demands its uses made are settled into decisions, and it is lowered again
+  // with them until no decision is new (`use-inference.ts`). The last pass is the compile.
+  beginUseInference(sourceFile);
+  for (let pass = 1; ; pass++) {
+    const outer = beginUseInferencePass(sourceFile);
+    let compiled: ProgramCompile;
+    try {
+      compiled = compileOnePass({ ...options, sourceFile }, sourceFile);
+    } finally {
+      endUseInferencePass(outer);
+    }
+    if (pass >= MAX_INFERENCE_PASSES || !settleUseInference(sourceFile)) return compiled;
+  }
+}
+
+function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): ProgramCompile {
   const diagnostics: TsCompilerDiagnostic[] = [];
   const symbols: DeclaredSymbol[] = [];
   const directive = findUseTypeshadeDirective(sourceFile);

@@ -9,6 +9,7 @@ import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
 import { abstractLiteralOf, isIntegerWrittenRead, noteIntegerRead } from './abstract-const.js';
+import { noteDemand } from './use-inference.js';
 
 export function isIntegerLiteralNode(node: ts.Expression): boolean {
   if (ts.isParenthesizedExpression(node)) return isIntegerLiteralNode(node.expression);
@@ -103,6 +104,9 @@ export function foldNumericLit(expr: Expr): Expr {
 }
 
 export function retargetIntLit(expr: Expr, node: ts.Expression, peer: ShaderType): Expr {
+  // A value whose type its uses decide takes this peer's type, as a written number does: the
+  // use is recorded, and the next pass lowers the value with it (`use-inference.ts`).
+  noteDemand(expr, peer);
   // A read of a constant of no fixed type, or arithmetic over such reads and written numbers,
   // takes an integer peer's type as the written number would (Rule 5.1, change 0134 item 2).
   // Beside anything else it is left as lowered, so an `f32` read keeps the constant's name.
@@ -169,6 +173,7 @@ function retargetF64DeclaredLit(expr: Expr, node: ts.Expression): Expr {
  *  A conditional is retargeted through its arms, so `c ? 1 : 2` in a u32 position is a
  *  `select` of two u32 literals rather than a select of two f32 ones. */
 export function retargetIntLitCtx(expr: Expr, node: ts.Expression, target: ShaderType): Expr {
+  noteDemand(expr, target);
   // A DECLARED f64 is the one non-integer context that retypes a literal, and for the same
   // reason the integer contexts do: the type is stated, so the written number means a value
   // of it. `const k: f64 = 0.1` lowered `0.1` to an f32 and then reported "cannot let/const k

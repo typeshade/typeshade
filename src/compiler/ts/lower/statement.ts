@@ -3,6 +3,16 @@
 // Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
 
 import {
+  decidedType,
+  inferenceConflict,
+  inferredDivisionMessage,
+  markInferredRead,
+  noteIntegerUse,
+  noteStoredType,
+  useInferenceActive,
+  type InferredValue,
+} from '../use-inference.js';
+import {
   abstractConstFor,
   abstractLiteralOf,
   abstractTreeOf,
@@ -100,13 +110,21 @@ import { refusedBySemantics } from '../semantic.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
 import { localNumericInference } from '../local-numeric-inference.js';
-import { foldNumericLit } from '../lit-coerce.js';
+import { foldNumericLit, isIntScalar, isIntegerLiteralTree } from '../lit-coerce.js';
 import { constShiftAmountOutOfRange, foldConstComponents, foldConstValue } from '../loop-bound.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
 import { unknownNameSentence } from '../unknown-names.js';
 import { publicFieldNames } from './expression-prop.js';
 import { recordOf } from '../key-types.js';
+
+/** The value an assignment to `left` writes, when its uses have not decided its type yet. */
+function undecidedTarget(left: ts.Expression, scope: LoweringScope): InferredValue | undefined {
+  const inner = ts.isParenthesizedExpression(left) ? left.expression : left;
+  if (!ts.isIdentifier(inner)) return undefined;
+  const value = scope.resolve(inner.text)?.inferred;
+  return value !== undefined && value.type === undefined ? value : undefined;
+}
 
 const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusEqualsToken]: '+',
@@ -590,11 +608,36 @@ function lowerDeclarationKind(
     decl.type === undefined &&
     decl.initializer !== undefined &&
     abstractTreeOf(decl.initializer) !== undefined;
+  // A `let` of an integer-written literal takes its type from its uses (Rule 5.1, change 0134
+  // item 1): from its declared uses (changes 0036 and 0037), or from the decision an earlier
+  // pass of this compile settled (`use-inference.ts`). Undecided, it is the `f32` the compiler
+  // chooses, and each read records what its use asks.
+  let inferredValue: InferredValue | undefined;
   if (decl.type === undefined && !writtenConst) {
     const inferred = localNumericInference(decl, sourceFile);
     annotated = inferred?.type;
     if (inferred?.conflict !== undefined) {
       pushDiag(diagnostics, sourceFile, decl.name, inferred.conflict, TS_CODES.TYPE_MISMATCH);
+    }
+    const candidate =
+      !isConst &&
+      decl.initializer !== undefined &&
+      isIntegerLiteralTree(decl.initializer) &&
+      useInferenceActive(sourceFile);
+    if (candidate && inferred?.conflict === undefined) {
+      if (annotated === undefined) {
+        const conflict = inferenceConflict(sourceFile, decl);
+        if (conflict !== undefined) {
+          pushDiag(diagnostics, sourceFile, decl.name, conflict, TS_CODES.TYPE_MISMATCH);
+        }
+        annotated = decidedType(sourceFile, decl);
+      }
+      inferredValue = {
+        decl,
+        name,
+        written: decl.initializer!.getText(sourceFile).replace(/\s+/g, ' '),
+        ...(annotated !== undefined ? { type: annotated } : {}),
+      };
     }
   }
   if (decl.type) {
@@ -821,6 +864,7 @@ function lowerDeclarationKind(
     isConst && decl.type === undefined && typeKey(bindingType) === 'f32'
       ? abstractConstFor(name, decl.initializer)
       : undefined,
+    inferredValue,
   );
   if (!bound) return undefined;
   // The statement carries the IR name, `p_1` for a `p` that shadows or follows another `p` in
@@ -1318,6 +1362,7 @@ function defineLocal(
   nameNode: ts.Node = decl.name,
   indexConstValue?: number,
   abstract?: AbstractConst,
+  inferred?: InferredValue,
 ): Binding | undefined {
   let bound: Binding;
   try {
@@ -1330,6 +1375,7 @@ function defineLocal(
       indexConstValue,
       ...(aliasOf !== undefined ? { aliasOf } : {}),
       ...(abstract !== undefined ? { abstract } : {}),
+      ...(inferred !== undefined ? { inferred } : {}),
     });
   } catch (e) {
     pushDiag(
@@ -1655,6 +1701,8 @@ function lowerAssign(
   // did through lowerAssignOp.
   value = retargetIntLitCtx(value, right, want);
   value = reportIntLitRange(value, right, want, sourceFile, diagnostics) ?? value;
+  // `k = vi` gives a value its uses decide the type of what it stores (change 0134 item 1).
+  noteStoredType(undecidedTarget(left, scope), value, value.type);
   if (typeKey(want) !== typeKey(value.type)) {
     pushDiag(
       diagnostics,
@@ -1719,6 +1767,8 @@ function lowerBitwiseAssignOpTo(
   }
   const k = typeKey(target.type);
   if (k !== 'i32' && k !== 'u32') {
+    // `f |= 4` makes a value its uses decide an integer (change 0134 item 1).
+    noteIntegerUse(undecidedTarget(left, scope));
     pushDiag(
       diagnostics,
       sourceFile,
@@ -1834,6 +1884,18 @@ function lowerAssignOpTo(
   // `s += h.k` with an optional nothing narrowed: the test to write (Rule 7.10, change 0093).
   if (!isOptional(target.type) && refuseOptionalUse(value, right, sourceFile, diagnostics))
     return undefined;
+  // `k /= 2` is a `/` (decision Q11): refused where the target is an integer by inference and
+  // the value has no type the author wrote.
+  if (bop === '/' && isIntScalar(target.type)) {
+    const inner = ts.isParenthesizedExpression(left) ? left.expression : left;
+    if (ts.isIdentifier(inner))
+      markInferredRead(target, inner, scope.resolve(inner.text)?.inferred);
+    const refusal = inferredDivisionMessage(left, right, '/=', () => 'let', sourceFile);
+    if (refusal !== undefined) {
+      pushDiag(diagnostics, sourceFile, left, refusal, TS_CODES.TYPE_MISMATCH);
+      return undefined;
+    }
+  }
   // The same refusal `a / b` gets in lowerBinary (#68): a divisor proven zero is undefined on
   // every invocation, and `x /= 0.` is the same program as `x = x / 0.`.
   if ((bop === '/' || bop === '%') && foldConstComponents(value, scope)?.some((v) => v === 0)) {
@@ -1862,6 +1924,8 @@ function lowerAssignOpTo(
     // vec64 or f64 target makes the literal an f64 so the full double reaches the fp64 pass.
     value = retargetLit(value, right, target.type);
   }
+  // `n += vi` gives a value its uses decide the type of what it adds (change 0134 item 1).
+  noteStoredType(undecidedTarget(left, scope), value, value.type);
   if (typeKey(target.type) !== typeKey(value.type)) {
     // `v += s` with a vector target and a scalar of its element kind follows the same
     // broadcast rule as `v + s`; the result must still be the target's own type.
