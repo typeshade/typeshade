@@ -1,12 +1,13 @@
 ---
 id: '0135'
 title: An entry's built-in value takes its type from WGSL, and a user-defined input or output takes its location from the compiler, so an author writes builtin<"vertex_index"> and uv: vec2
-status: accepted
+status: implemented
 rules:
   - '6.6'
   - '6.8'
   - '8.2'
   - '8.19'
+  - '10.1'
   - '12.1'
 surface:
   - 1
@@ -61,7 +62,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0135, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Identity and status           | Proposal 0135, `status: implemented`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the owner's direction, and revised the same day after the independent review and the owner's decision on `OD-5` (both recorded below). The dates are drafting and revision dates. They are not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-09, in Korean. The owner asked which parts of the supported surface push onto the author work that the language or the compiler should do, judged against `OD-3`. From an audit of the surface, the owner chose two items of entry I/O for this proposal: the type written in `builtin<"vertex_index", u32>`, and the number written in `location<0, vec2>`. No GitHub issue is recorded.                                                                                                                                                                                                                                                                                                                                                              |
 | Applicability / effectivity   | Expected: `docs/language-design.md` Rules 6.6, 6.8 and 8.2, §2.3 (prose, not a rule) and Appendix B's Rule 6.6 row, `docs/use-typeshade-surface.md` §3, §7 and §53, `reqs/`, `src/compiler/ts/attribute-types.ts`, `src/compiler/ts/builtin-check.ts`, `src/compiler/ts/structs.ts`, `src/compiler/ts/lower/function.ts` (the entry I/O checks and `checkStructBuiltinFields`), `src/compiler/ts/source-file.ts` (the interstage check), `src/core/passes/lint/rules/interstage-io.ts`, `src/language-service/ambient.ts` (the `builtin` type) and the language service's diagnostic merge, `src/cli/migrate.ts`, `CHANGELOG.md`, and the examples (edited, none added or removed). The emitted WGSL, the emitted GLSL ES 3.00, `reflect()` and the manifest keep their shapes. No release version is assigned. |
@@ -689,8 +690,8 @@ the sentence was shown before and after (`OD-4`).
 
 ### Configuration and validation record
 
-The front-matter `status` stays `accepted`: the deviations below that are open wait for the
-owner. This record states what pull request #1161 delivers. It was written on 2026-11-10 (UTC) by
+The front-matter `status` is `implemented` since pull request #1183 ("Status", at the end of
+this record). "Open items" there lists what is open. This record states what pull request #1161 delivers. It was written on 2026-11-10 (UTC) by
 the AI agent (Claude Code) that implemented the change, at the direction of the coordinating
 session. The merge of pull request #1161 records the delivered commit; this file does not name
 the hash of the commit that contains it.
@@ -746,16 +747,16 @@ request's description lists each command with its result.
 
 **Deviations from the approved text.**
 
-| #   | Difference                                                                                                                                                                                                                                                                                                                                                                                                             | Disposition                                                                         |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| 1   | The table of item 2 numbers a vertex attribute by its entry and a vertex result by its struct. It does not say what a struct gets when two places give one field two numbers (one struct as an input of two vertex entries at two offsets). The emitted struct has one set of locations. The implementation refuses the field with `TS8010`, in a sentence this proposal does not give, and asks for `location<n, T>`. | Open: the owner decides whether the refusal and its sentence hold.                  |
-| 2   | Surface sections other than §3, §7 and §53, and Rules 8.19 and 12.1, write `builtin<N, T>` in their examples; the remedy of `src/compiler/ts/foreign-names.ts` that Rule 12.1 describes now names `builtin<"position">`. The front matter does not declare them, so they keep the migration form, which compiles with the warning. Surface §69 names a vertex entry's "`location<n, T>` inputs".                       | Closed by pull request #1171, under Amendment A1 (the record below).                |
-| 3   | The compute sentence of `TS8029` for a value with no attribute says "is a user-defined input", where the sentence for a written location says "is at a location<…>". The value is at no location, so the approved wording would be untrue (Rule 12.5).                                                                                                                                                                 | Closed: the tail of the sentence, which the proposal quotes, is unchanged.          |
-| 4   | `tshc migrate` rewrites item 1 only. A written `location<n, T>` stays valid, so the command does not delete one.                                                                                                                                                                                                                                                                                                       | Closed: the examples' locations were dropped by a script and held to emit identity. |
-| 5   | The hover does not show the location the compiler gives a field. The proposal recommends it and does not require it.                                                                                                                                                                                                                                                                                                   | Open: not started. `reflect()` and the emitted WGSL show each number.               |
-| 6   | `src/core/passes/lint/rules/interstage-io.ts` is unchanged. The pass writes the location into the IR before the interstage check reads it.                                                                                                                                                                                                                                                                             | Closed.                                                                             |
-| 7   | A field whose `builtin<"clip_distances">` is refused is withheld from its struct. A write and a read of it say nothing more. A `const` declared from a read of it is not declared, so a later use of that `const` is `TS8022`.                                                                                                                                                                                         | Open: the withheld-field recovery predates this change; no issue names it yet.      |
-| 8   | `scripts/compile-gate.ts` gains the entry-I/O leg, which "What it touches" does not list. Rules 12.6 and 13.3 require the measurement.                                                                                                                                                                                                                                                                                 | Closed.                                                                             |
+| #   | Difference                                                                                                                                                                                                                                                                                                                                                                                                             | Disposition                                                                                                                                                             |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | The table of item 2 numbers a vertex attribute by its entry and a vertex result by its struct. It does not say what a struct gets when two places give one field two numbers (one struct as an input of two vertex entries at two offsets). The emitted struct has one set of locations. The implementation refuses the field with `TS8010`, in a sentence this proposal does not give, and asks for `location<n, T>`. | Closed: the owner decided that the refusal and its sentence hold (Amendment A1, "거부 유지", 2026-11-10, recorded by pull request #1167). The cost stands under `OD-3`. |
+| 2   | Surface sections other than §3, §7 and §53, and Rules 8.19 and 12.1, write `builtin<N, T>` in their examples; the remedy of `src/compiler/ts/foreign-names.ts` that Rule 12.1 describes now names `builtin<"position">`. The front matter does not declare them, so they keep the migration form, which compiles with the warning. Surface §69 names a vertex entry's "`location<n, T>` inputs".                       | Closed by pull request #1171, under Amendment A1 (the record below).                                                                                                    |
+| 3   | The compute sentence of `TS8029` for a value with no attribute says "is a user-defined input", where the sentence for a written location says "is at a location<…>". The value is at no location, so the approved wording would be untrue (Rule 12.5).                                                                                                                                                                 | Closed: the tail of the sentence, which the proposal quotes, is unchanged.                                                                                              |
+| 4   | `tshc migrate` rewrites item 1 only. A written `location<n, T>` stays valid, so the command does not delete one.                                                                                                                                                                                                                                                                                                       | Closed: the examples' locations were dropped by a script and held to emit identity.                                                                                     |
+| 5   | The hover does not show the location the compiler gives a field. The proposal recommends it and does not require it.                                                                                                                                                                                                                                                                                                   | Closed by pull requests #1169 and #1179, under Amendment A1 ("구현"): the two hover deliveries below.                                                                   |
+| 6   | `src/core/passes/lint/rules/interstage-io.ts` is unchanged. The pass writes the location into the IR before the interstage check reads it.                                                                                                                                                                                                                                                                             | Closed.                                                                                                                                                                 |
+| 7   | A field whose `builtin<"clip_distances">` is refused is withheld from its struct. A write and a read of it say nothing more. A `const` declared from a read of it is not declared, so a later use of that `const` is `TS8022`.                                                                                                                                                                                         | Closed by pull request #1188 (merged into `main` as `e3c2a1cd`), which fixed issue #1185. It is no part of this change.                                                 |
+| 8   | `scripts/compile-gate.ts` gains the entry-I/O leg, which "What it touches" does not list. Rules 12.6 and 13.3 require the measurement.                                                                                                                                                                                                                                                                                 | Closed.                                                                                                                                                                 |
 
 **Delivery of amendment A1, the third decision (the hover).** Written on 2026-11-10 (UTC) by
 the AI agent (Claude Code) that implemented it, at the direction of the coordinating session.
@@ -846,6 +847,86 @@ its result.
   Each reads `compile()` of the linked program (the diagnostics, the emitted `@location(n)`,
   `reflect()`) and the language service's `getHover` on the same files, and holds the hover's
   number to `reflect()`'s.
+
+**The owner's decision on the declaring file's hover (2026-11-10).** The owner decided it in
+the Claude Code session, after pull request #1179 was merged into `main` as `34cea187` and the
+hover was shown before and after (`OD-4`).
+
+- [fact] After pull request #1179, the hover in the declaring file showed no line where two
+  open programs that link the file gave a field two numbers. Each entry file is a program of
+  its own (Rule 3.9) and numbers the struct itself (Rule 6.8).
+- [decision, owner, 2026-11-10] "두 번호를 파일과 함께". The declaring file shows each number
+  with the file of its program:
+
+  ```
+  (property) VsIn.uv: vec2
+  vertex attribute at @location(1) in a.shade.ts
+  vertex attribute at @location(2) in b.shade.ts
+  ```
+
+- When every program gives the field one number, the line stays as it is, with no file. The
+  hover in an entry file stays that file's own number.
+- [fact] The first delivery of that decision gave a program that refused the field no line.
+  Measured on `34cea187`: the `TS8010` of such a program lies in the declaring file, so
+  `getDiagnostics` shows it in no document.
+- [decision, owner, 2026-11-10] "거부도 한 줄로 표시". The declaring file's hover also shows one
+  line for a program that refuses the field:
+
+  ```
+  (property) FsIn.n: vec3
+  value between stages at @location(1) in a.shade.ts
+  no location in b.shade.ts (TS8010)
+  ```
+
+**Delivery of the declaring file's hover, each program with its file.** Written on 2026-11-10
+(UTC) by the AI agent (Claude Code) that implemented it, at the direction of the coordinating
+session. Pull request #1182 records the delivered commit and each check with its result.
+
+- Configuration: branch `claude/clever-ramanujan-yrfjsq-0135-hover3`, based on `main` at
+  `34cea187`. Tools: Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3, Vitest 5.0.5, Doorstop 3.2.
+- Delivered: `src/language-service/hover.ts` (`fieldLinesAcross`, `refusalCode`, `shownNames`,
+  `entryLocationLines`, `HoverProgram`) and `src/language-service/service.ts`
+  (`programsLinking`, which now gives each program with its document's uri). This table
+  replaces the third row of the table of the delivery above. The other rows hold.
+
+  | Hovered, at its declaration, in a file whose own program does not use the struct | The lines under the type                                                          |
+  | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+  | The open programs that use the struct give the field one number                  | one line, with no file (unchanged)                                                |
+  | They give it different numbers                                                   | one line for each program, as `vertex attribute at @location(1) in a.shade.ts`    |
+  | One program numbers the field and another refused to number it                   | the line of the first, with its file, and `no location in b.shade.ts (TS8010)`    |
+  | Every program refused to number it                                               | `no location in <file> (TS8010)` for each program, also where one program is open |
+  | The programs agree on the number and differ in what the field is                 | one line that names both, with no file (unchanged)                                |
+  | The programs differ in the number and in what the field is                       | one line for each program, each with what the field is in that program            |
+  | A program that links the file and uses the struct in no entry; a built-in value  | no line                                                                           |
+
+- Order: the lines stand in the order of the documents' uris, compared as strings. The order
+  in which the documents were opened does not change the hover.
+- The file: its base name, which is what an import of the file ends in. The linker's messages
+  name a file by the import specifier or by its whole path, and the service knows no
+  workspace root to make a path relative to. Two programs with one base name each take as
+  many directories as tell them apart (`in lit/main.shade.ts`, `in unlit/main.shade.ts`).
+- The code of a refusal is read, not written: `refusalCode` takes it from the error that the
+  program's own analysis reports on the field, the one `compile()` of that program reports. A
+  field of a type that cannot cross reads `(TS8003)`.
+- Each line is a paragraph of the hover's `contents`, as the one line is today.
+- The hover still computes no number (Rule 12.7): each line is the location in the IR of that
+  program's cached analysis. No analysis is added: the test that counts them is unchanged.
+- No public type changes: `bun run bake:api-surface` changes no file.
+- Documents: surface §3, `docs/language-service-api.md`, `CHANGELOG.md`.
+- Functional validation: `src/language-service/entry-location-hover-imports.test.ts`, 17 tests.
+  The cases of this delivery read `compile()` and `reflect()` of each program and the language
+  service's `getHover` on the same files: two programs, three programs, two programs with one
+  base name, a difference in number and in kind, one program that refuses, every program that
+  refuses, one open program that refuses, a program that uses the struct in no entry, the
+  declaring file after an importing document closes and opens again, and the documents opened
+  in another order. Each refusal line's code is asserted beside the code of `compile()`'s
+  diagnostic on the field.
+- Deviations from the decisions:
+
+  | #   | Difference                                                                                                                                                                                                            | Disposition                                                                                                                                                                                                                                          |
+  | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | A   | The first delivery gave a program that refused the field no line, as first asked.                                                                                                                                     | Closed: the owner's decision "거부도 한 줄로 표시", delivered in the same pull request.                                                                                                                                                              |
+  | B   | `getDiagnostics` shows the diagnostic of a refusing program in no document: it lies in the declaring file, which another document's program imports. This predates the hover. The hover's line now names the refusal. | Open: issue #1186. The owner decided on 2026-11-10 that the compiler reports such a refusal in the importing program's file, at the use, with the declaring site as related information, in a pull request of its own. It is no part of change 0135. |
 
 **Remaining.** The downstream work of "What it owes downstream" is not started. The refusal of a
 written type in the release after the migration release (D1.2) is not part of this pull request.
@@ -969,6 +1050,101 @@ session. Its pull request records the delivered commit and each check with its r
 | A   | Amendment A3 counts five sentences and names two in `docs/language-service-api.md`. A third sentence there, the `getCompletions` row, says the same thing as the string-completion note, so it is edited with it.                                                                                                                                                                                                                                                                           | Closed.                                                       |
 | B   | Other sentences still name a built-in value by the decorated form, and amendment A3 does not list them: `README.md` ("`@builtin(...)` ids"), `examples/README.md` ("the `@vertex` / `@builtin(...)` decorators"), `docs/debugging.md` ("carrying `@builtin(...)` or `@location(n)`"), four places of `docs/language-service-api.md` (the `getSemanticTokens` row, the `TS8025` row, the `BUILTIN_DOCS` sentence, the rename note) and the text of Rules 10.1 and 12.1. They are not edited. | Open: the owner decides whether a later amendment moves them. |
 | C   | Proposals 0111 and 0130 quote the older clause of Rule 6.6 as their own text. They record what each proposal approved, and they stay.                                                                                                                                                                                                                                                                                                                                                       | Closed.                                                       |
+
+**Status: `implemented` (2026-11-10).** Written on 2026-11-10 (UTC) by the AI agent (Claude
+Code) that audited the record, at the direction of the coordinating session. Pull request #1183
+sets the status.
+
+- [decision, owner, 2026-11-10] "지금 implemented". The owner chose it in the Claude Code
+  session, after the audit and the two options were shown (`OD-4`): `implemented` now, with the
+  refusal of decision D1.2 as pending work, or `accepted` until the release that refuses.
+- The decision follows the "Status" sentence of Amendment A1: the pull request that finishes
+  the work sets `implemented` (`changes/README.md`, lifecycle, step 4), and the refusal of a
+  written type in the release after the migration release is the work of that release.
+- The delivering pull requests, in order: #1161 (items 1 and 2), #1171 (Amendment A1, the
+  documents), #1169 and #1179 (Amendment A1, the hover), #1176 (Amendment A2), #1180
+  (Amendment A3) and #1182 (the declaring file's hover, each program with its file), which is
+  the last one.
+- Audit on `main` at `34cea187`: Rules 6.6, 6.8, 8.2, 8.19 and 12.1, §2.3 and Appendix B carry
+  the approved texts. The surface document writes `builtin<N, T>` with a type only for
+  `clip_distances`, in the description of the migration form (§3, §7) and in one refusal row
+  (§53). `bun src/cli/bin.ts migrate --check examples journeys` finds nothing to rewrite. The
+  sentences of `TS8003`, `TS8010`, `TS8028` and `TS8029` are the approved ones, and the tests
+  of "The editor (Rule 12.7)" exist.
+- This is the first proposal that is `implemented` with a refusal still pending. No check
+  reminds a later session of that refusal. It is tracked in two places: the row below, and the
+  entry "A built-in value's written type" under "Deprecated" in `CHANGELOG.md`, which says that
+  the release after the migration release refuses the written type.
+- `implemented` makes `scripts/downstream-impact.ts` ask each downstream repository to record
+  0135 in its `compiler-changes.md` when its pin moves (`changes/README.md`, lifecycle, step 5).
+
+**Open items, as of 2026-11-10 (UTC).**
+
+| Item                                                                                                                | State                                                                                                            | Next action                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The refusal of a written type that WGSL fixes (decision D1.2)                                                       | Pending. It is the work of the release after the migration release. No official release exists (`OD-6`).         | The release that follows the migration release delivers it.                                                                                                                      |
+| Deviation 7 of pull request #1161: a follow-on `TS8022` after a refused `builtin<"clip_distances">` field           | Closed. Pull request #1188 (merged as `e3c2a1cd`) fixed issue #1185.                                             | Fix in pull request #1188, open (Rule 12.4). No part of this change.                                                                                                             |
+| Deviation B of the delivery of Amendment A3: sentences outside the amendment that name the decorated form           | Closed. Amendment A4 (2026-11-10) lists the nine sentences, and "Delivery of Amendment A4" records their edit.   | None.                                                                                                                                                                            |
+| Deviation B of pull request #1182: `getDiagnostics` shows a program's diagnostic in an imported file in no document | Open. Issue #1186. It predates the hover and is no part of this change.                                          | A pull request of its own: the compiler reports the refusal in the importing program's file, at the use, with the declaring site as related information (the owner, 2026-11-10). |
+| The downstream work of "What it owes downstream"                                                                    | Not started. `changes/README.md` (lifecycle, steps 4 and 5) tracks it apart from the compiler repository's work. | Each repository does it when its pin moves.                                                                                                                                      |
+
+Every other deviation of this record is closed.
+
+### Amendment A4. Nine more sentences name a built-in value as `builtin<"...">` (2026-11-10)
+
+Pull request #1180 (Amendment A3) listed nine sentences that name a built-in value in the
+decorated form `@builtin(...)` and that Amendment A3 does not cover. Each was measured in both
+forms on `main` at `34cea187`. The owner decided them in the Claude Code session on 2026-11-10
+("수정안 후 고치기"), on the agent's recommendation.
+
+- [fact] Eight of the nine are true today, and true of `builtin<"...">` too. They name the form
+  that compiles with a `TS8028` warning as if it were the form in use. One is outdated
+  (`docs/debugging.md`).
+- [decision, owner, 2026-11-10] The documents name the language's form. The sentences become:
+
+  | Place                                                 | Old                                                                                                      | New                                                                                                                |
+  | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+  | `README.md`, the editor's list                        | "… the `Math` aliases, `@builtin(...)` ids."                                                             | "… the `Math` aliases, the ids of `builtin<"...">`."                                                               |
+  | `examples/README.md`                                  | "… and the `@vertex` / `@builtin(...)` decorators are attribute syntax."                                 | "… and the `@vertex` attribute and the `builtin<"...">` type are the language's own syntax."                       |
+  | `docs/debugging.md`                                   | "… explicit parameters carrying `@builtin(...)` or `@location(n)`, and `reflect()` already reports them" | "… explicit parameters, each a `builtin<"...">` value or a user-defined input at a location, and `reflect()` …"    |
+  | `docs/language-service-api.md`, `getSemanticTokens`   | "builtin strings inside `@builtin(...)`"                                                                 | "builtin strings inside `builtin<"...">` and the decorated `@builtin(...)`"                                        |
+  | `docs/language-service-api.md`, the lookup tables     | "the attributes and the `@builtin` ids keep their lookup tables"                                         | "the attributes and the built-in value ids keep their lookup tables"                                               |
+  | `docs/language-service-api.md`, the `TS8025` row      | "A `@builtin(...)` id used as the wrong stage's input or output"                                         | "A built-in value (`builtin<"...">` or the decorated `@builtin("...")`) used as the wrong stage's input or output" |
+  | `docs/language-service-api.md`, the rename note       | "a `@builtin(...)` id"                                                                                   | "a built-in value's id, in `builtin<"...">` or `@builtin(...)`"                                                    |
+  | Rule 10.1, its example                                | "(`@builtin("clip_distances")` derives `enable clip_distances;`)"                                        | "(`builtin<"clip_distances", array<f32, N>>` derives `enable clip_distances;`)"                                    |
+  | Rule 12.1, the list of names the compiler cannot find | "an attribute, a `@builtin` id, an extension, an import"                                                 | "an attribute, a built-in value's id, an extension, an import"                                                     |
+
+- In Rule 10.1 and Rule 12.1 only the words above change; no rule changes what it requires.
+- Affects: the front matter `rules` gains 10.1 (12.1 is declared since Amendment A1), and
+  `reqs/rules/RULE-1001.md` and `RULE-1201.md` follow. One pull request, with `Change: 0135`,
+  delivers it.
+- Status: `status: implemented` does not change. This amendment is open work until its pull
+  request merges, as Amendment A1 of change 0130 was.
+
+### Delivery of Amendment A4 (2026-11-10)
+
+This section states what the pull request that carries it delivers. The coordinating session
+(Claude Code) wrote it on 2026-11-10 (UTC). The base is `main` at `eeb7df1b`.
+
+**Delivered.** The nine sentences of Amendment A4's table read as its "New" column says, in
+`README.md`, `examples/README.md`, `docs/debugging.md`, `docs/language-service-api.md` (four
+sentences) and `docs/language-design.md` (Rule 10.1 and Rule 12.1). `reqs/rules/RULE-1001.md` and
+`reqs/rules/RULE-1201.md` follow from `bun run reqs:sync`. No source file and no test changes.
+
+**Document audit.** `RULE-1001` and `RULE-1201` were read and reviewed. The links
+`SURF-007 → RULE-1201` and `SURF-050 → RULE-1001` were cleared after surface §7 and §50 were read
+against the two rules: neither rule changes what it requires, and both sections stay true.
+
+**Deviations.**
+
+- A. Surface §7's row for an undeclared name keeps the words "a `@builtin` id", and so do comments
+  in `src/compiler/ts/unknown-names.ts`, `src/compiler/ts/foreign-names.ts` and
+  `src/core/backends/capability-reachability.test.ts`. Amendment A4 does not list them, and the
+  decorated form `@builtin("...")` is still read, so no sentence is false. Disposition: open, for
+  the owner to decide.
+- B. `src/core/coverage/wgsl.ts` cites `docs/language-design.md:1125-1129` as evidence for
+  Rule 10.1, and the rule is at line 1333. The reference was stale on the base. Disposition: open,
+  no part of this change.
 
 ## What it owes downstream
 

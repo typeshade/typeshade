@@ -13,9 +13,9 @@
 // It runs on the CPU engines only — `compileModule(m, { precision: 'f32' })` and its codegen
 // twin — and never before a WGSL/GLSL writer, which would reject `__fround` as unknown.
 
-import type { Expr, FuncDecl, ModuleDecl, ShaderType, Stmt } from '../ir/index.js';
+import type { ConstDecl, Expr, FuncDecl, ModuleDecl, ShaderType, Stmt } from '../ir/index.js';
 import { mapStmtExpr } from '../ir/visit.js';
-import { mapStmt } from './opt/ir-transform.js';
+import { mapExpr, mapStmt } from './opt/ir-transform.js';
 
 /** f32 scalar or a vector of f32 — the values the GPU rounds and the host does not. */
 const isF32ish = (t: ShaderType): boolean =>
@@ -56,8 +56,18 @@ const COMPUTES_VALUE = new Set([
 /** Rewrite `m` so its f32 arithmetic rounds to f32 after every operation. Idempotent. */
 export function froundF32(m: ModuleDecl): ModuleDecl {
   const declared = new Set(m.funcs.map((f) => f.name));
+  // A module constant whose value is an expression (a builtin call the compiler leaves to the
+  // target, a vector or an array literal) computes on the CPU as a function body does: each
+  // `f32` operation rounds, and an `f32` constant it reads is read rounded. Without this the
+  // expression ran in `f64` on unrounded operands, so `const S: f32 = sin(X)` and `sin(X)` in
+  // a function gave different bits, and the GPU, which reads `X` as an `f32`, agreed with the
+  // function.
+  const constant = rounding(undefined, declared);
   return {
     ...m,
+    consts: m.consts.map((c): ConstDecl =>
+      c.valueExpr === undefined ? c : { ...c, valueExpr: mapExpr(c.valueExpr, constant) },
+    ),
     funcs: m.funcs.map((fn): FuncDecl => {
       const f = rounding(fn, declared);
       return { ...fn, body: fn.body.map((s) => mapStmt(compoundRounds(s), f)) };
@@ -83,9 +93,10 @@ function compoundRounds(s: Stmt): Stmt {
 }
 
 /** The rewrite for one function's body, which knows the parameters it takes by reference and
- *  the names of the functions the module declares. */
-function rounding(fn: FuncDecl, declared: ReadonlySet<string>): (e: Expr) => Expr {
-  const byRef = new Set(fn.params.flatMap((p) => (p.mode === 'inout' ? [p.name] : [])));
+ *  the names of the functions the module declares; with no function, the rewrite for a module
+ *  constant's expression, which has no parameter. */
+function rounding(fn: FuncDecl | undefined, declared: ReadonlySet<string>): (e: Expr) => Expr {
+  const byRef = new Set((fn?.params ?? []).flatMap((p) => (p.mode === 'inout' ? [p.name] : [])));
   // The rounding step, and not a call of a function the module declares under its name: a
   // call the front end resolved to a declaration carries `declRef` (Rule 9.5), and the CPU
   // engines route it to that function (`callKind` in `cpu-codegen.ts`, `evalExpr` in
