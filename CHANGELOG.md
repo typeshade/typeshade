@@ -1920,6 +1920,13 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A function an author names `__fround` is called on the CPU** (Rule 9.5). The `'f32'`
+  precision pass read the name alone and took a call of such a function for its own rounding
+  step, so `__fround(x)` gave `x` rounded on the CPU oracle and the CPU tier, while the emitted
+  WGSL and GLSL called the author's function. The pass now reads the declaration, as the CPU
+  engines do. A function named like another CPU-only id (`__f64Hi`, `__f64Lo`,
+  `__f64FromWords`, `__f64ToI32`) was already called.
+
 - **An argument on `@vertex` or `@fragment` is refused, not dropped** (Rules 8.1 and 6.7, change
   0130). `@fragment({ diagnostic: ["off", "derivative_uniformity"] })` and `@vertex(1)` compiled
   with no diagnostic in `compile()` and in the editor, and the argument was read by nothing. An author whom the
