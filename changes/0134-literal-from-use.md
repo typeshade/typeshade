@@ -895,6 +895,34 @@ shapes this text accepts are refused. The owner decided each in the Claude Code 
   declares, carry these readings.
 - Status: `status: accepted` does not change.
 
+### Amendment A4. The owner's decisions on the third review of item 2 (2026-11-10)
+
+A third independent review of pull request #1184 at `345d3ae8` found three places that
+Amendments A1 to A3 do not decide. The owner decided each in the Claude Code session on
+2026-11-10, after the programs and their values on `main` and on the pull request were shown
+(`OD-4`). Each decision is the agent's recommendation. A fourth decision of the same day, on the
+counter, is recorded here too.
+
+- [decision, owner, 2026-11-10] "`main`과 같이 u32 유지". A loop counter whose start is an
+  expression over a constant of no fixed type, such as `const k = 7; h(k); for (let j = k + 1;
+…)`, keeps the type it had on `main` (here `u32`), as A3 says for a counter that starts at the
+  constant.
+- [decision, owner, 2026-11-10] "선언된 타입으로 보기". A typed constructor (`vec3u(…)`,
+  `vec2<u32>(…)`, and the same forms for `i32` and `f32`) is a declared type. Like a cast, it
+  ends the origin that A3 carries: with `const k = 7; h(k);`, `f32(vec3u(k, 1, 2).x / 2)` is 3,
+  as on `main`.
+- [decision, owner, 2026-11-10] "거부 유지하고 목록에 기록". A generic parameter or result
+  declares no type, so the origin passes through it: `id(k) / 2` with
+  `function id<T>(a: T): T` is refused (`TS8003`). It compiled on `main` (3), and the pull
+  request lists it among the programs newly refused.
+- [decision, owner, 2026-11-10] "수용하고 수정안 A4로 기록". The quotient's own read is not
+  another read. With `const K = 8;`, `let j: u32 = K / 2` is `4u`, as the written `8 / 2` is,
+  and so are `h(K / 2)`, `vi + K / 2` and `u32(K / 2)`. A `/` is refused only where a read other
+  than the one that holds the quotient makes the constant an integer.
+- Affects: no front-matter field. Rule 5.1 and surface §12 and §13, which the front matter
+  declares, carry these readings.
+- Status: `status: accepted` does not change.
+
 ### Configuration and validation record
 
 The change is delivered in parts. `status: accepted` stays until every part is delivered and
