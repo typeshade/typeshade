@@ -883,13 +883,26 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
   /** Per file, the values its module scope holds by name: its own top-level declarations and
    *  its import bindings. */
   const moduleValues = new Map<ProgramFile, Map<string, ts.Symbol>>();
+  /** Whether the alias `symbol` reaches its target through a type-only import or export
+   *  (`import type { N }`, `import { type N }`, `export type { N } from`). That imports no value,
+   *  so it sizes no array: the owner's decision of 2026-11-10 on pull request #1200. */
+  const importsTypeOnly = (symbol: ts.Symbol): boolean => {
+    const seen = new Set<ts.Symbol>();
+    for (let s: ts.Symbol | undefined = symbol; s !== undefined && !seen.has(s);) {
+      if ((s.flags & ts.SymbolFlags.Alias) === 0) return false;
+      seen.add(s);
+      if (s.declarations?.some((d) => ts.isTypeOnlyImportOrExportDeclaration(d))) return true;
+      s = checker.getImmediateAliasedSymbol(s);
+    }
+    return false;
+  };
   /** The top-level value an array's size names in `f`: its unit and its name there.
    *  TypeScript's checker reads the name as a type, so it does not answer. The front end reads
    *  the name as the module's override of that name (`sizeOverrides` in `module-vars.ts`),
    *  whatever a function declares under it. So the linker reads the value that the file's
    *  module scope holds. A parameter or a local does not hide it, and a type of the same name
    *  does not stand for it. `'refused'` is a name whose import was refused. `undefined` is a
-   *  name the file's module scope gives no value. */
+   *  name the file's module scope gives no value, a type-only import among them. */
   const sizeValueOf = (
     f: ProgramFile,
     id: ts.Identifier,
@@ -903,7 +916,7 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
       moduleValues.set(f, values);
     }
     const local = values.get(id.text);
-    if (local === undefined) return undefined;
+    if (local === undefined || importsTypeOnly(local)) return undefined;
     const symbol = resolveAlias(local);
     if (symbol === undefined) return 'refused';
     for (const d of symbol.declarations ?? []) {

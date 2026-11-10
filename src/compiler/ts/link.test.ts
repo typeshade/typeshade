@@ -1302,6 +1302,71 @@ describe("an array's size is a use of the value it names (Rule 3.9, Rule 12.7, #
     });
   });
 
+  describe('a type-only import sizes no array (the owner, 2026-11-10)', () => {
+    // `import type` imports no value, and the size is a value. The one-file analogue, a size
+    // that names a type and no override, is TS8002, and so is each program here, as on `main`.
+    const one: Files = { '/p/main.shade.ts': `${D}type N = u32;\n${TILE}${MAIN}` };
+    const PROGRAMS: readonly (readonly [string, Files, string])[] = [
+      [
+        '`import type { N }`',
+        {
+          '/p/main.shade.ts': `${D}import type { N } from "./lib.shade.ts";\n${TILE}${MAIN}`,
+          '/p/lib.shade.ts': `${D}${SIZE}`,
+        },
+        '/p/main.shade.ts:3:39',
+      ],
+      [
+        '`import { type N }`',
+        {
+          '/p/main.shade.ts': `${D}import { type N } from "./lib.shade.ts";\n${TILE}${MAIN}`,
+          '/p/lib.shade.ts': `${D}${SIZE}`,
+        },
+        '/p/main.shade.ts:3:39',
+      ],
+      [
+        '`export type { N } from` on the way',
+        {
+          '/p/main.shade.ts': `${D}import { N } from "./mid.shade.ts";\n${TILE}${MAIN}`,
+          '/p/mid.shade.ts': `${D}export type { N } from "./lib.shade.ts";\n`,
+          '/p/lib.shade.ts': `${D}${SIZE}`,
+        },
+        '/p/main.shade.ts:3:39',
+      ],
+      [
+        'an imported file that sizes its array through `import type`',
+        {
+          '/p/main.shade.ts': `${D}${IMPORT}${MAIN}`,
+          '/p/lib.shade.ts': `${D}import type { N } from "./mid.shade.ts";\n${TILE}`,
+          '/p/mid.shade.ts': `${D}${SIZE}`,
+        },
+        '/p/lib.shade.ts:3:39',
+      ],
+    ];
+    for (const [name, files, where] of PROGRAMS) {
+      it(`${name}: TS8002 for the three readers, as one file says of a type`, () => {
+        expect(errorsOf(one)).toEqual([`/p/main.shade.ts:3:39 TS8002 ${SENTENCE}`]);
+        expect(errorsOf(files)).toEqual([`${where} TS8002 ${SENTENCE}`]);
+        expect(compiled(files).wgsl).toBeUndefined();
+        const file = where.slice(0, where.indexOf(':'));
+        expect(typeshadeOf(edited(files, file))).toEqual([`TS8002 ${SENTENCE}`]);
+        expect(checkStatus(one)).toBe(1);
+        expect(checkStatus(files)).toBe(1);
+      });
+    }
+
+    it('the same when a value use keeps the override: TS8022, since the module then has it', () => {
+      // The front end would read the size as the override the module holds, so the linker
+      // reports the size as a name this file does not import as a value. `main` compiled it.
+      const files: Files = {
+        '/p/main.shade.ts': `${D}import { type N, count } from "./lib.shade.ts";\n${TILE}@compute([1]) export function main() { tile[0] = f32(count()); }\n`,
+        '/p/lib.shade.ts': `${D}${SIZE}export function count(): u32 { return N; }\n`,
+      };
+      expect(errorsOf(files)).toEqual([`/p/main.shade.ts:3:39 TS8022 ${IMPORT_IT}`]);
+      expect(typeshadeOf(edited(files))).toEqual([`TS8022 ${IMPORT_IT}`]);
+      expect(checkStatus(files)).toBe(1);
+    });
+  });
+
   it('the program of #1194 reads in two files as it reads in one: TS8099 on its array pattern', () => {
     // The issue's entry destructures the array, which an array sized by an override does not
     // allow in one file either (the owner's decision of 2026-11-10). Split in two, it was
