@@ -217,7 +217,9 @@ samples, size, over }`.
   leaves its bits open; `sin`, `exp`, `pow` and the other functions WebAssembly has no
   instruction for are routines the same lowering writes. The runtime instantiates a module the
   build wrote; it builds no code at run time. A page whose Content Security Policy refuses
-  WebAssembly (`'wasm-unsafe-eval'` absent) needs a path: open question Q12.
+  WebAssembly (`'wasm-unsafe-eval'` absent) needs a path: open question Q12. Amendment A4
+  (2026-11-10) changes this rule: the WebAssembly tier stands beside the generated JavaScript,
+  which stays for the synchronous helper call and for a page that refuses WebAssembly.
 - **R17. Memory comes from one serialized region.** Every resource of R7 to R9 (a uniform, a
   storage array, a staging copy) is allocated from one global region: the linear memory of the
   WebAssembly module of R16, or one `ArrayBuffer` where WebAssembly cannot run. Each resource
@@ -633,6 +635,39 @@ sits under it.
   binding refuses `dispose()`, since it lives as long as its module). Next action for each: a
   decision with milestone 3, when calls take resources.
 - Affects: R10 (the sized-by-the-host case). No front-matter entry changes.
+- Status: `status: accepted` does not change.
+
+### A4. The WebAssembly tier stands beside the JavaScript CPU tier; one global region (2026-11-10)
+
+- [fact] Why. Before milestone 2, the author's session read draft proposal 0042
+  (`changes/0042-wasm-tier.md`, a WebAssembly tier, with the measurements of issue #459) and
+  `docs/typeshade-plan.md` (unit R2). They conflict with decision 14 and with R16, which put
+  WebAssembly "in place of today's generated JavaScript":
+  - 0042 keeps the JavaScript CPU tier and rejects replacing it. A synchronous helper call
+    (Rule 8.21) cannot wait for a module: a browser's main thread refuses the synchronous
+    compilation of a module over 4 KB, and for a small call the boundary costs what the
+    arithmetic costs (#459, D2). A page whose Content Security Policy lacks `'wasm-unsafe-eval'`
+    falls to the JavaScript tier and loses speed only.
+  - Unit R2 of the plan gives each device owner its own `WebAssembly.Memory`; R17 gives one
+    global region.
+- [decision, owner, 2026-11-10] Asked which holds, with one host example under each: "JS 옆에
+  병행". Decision 14 and R16 are amended. The WebAssembly tier stands beside the JavaScript CPU
+  tier, as proposal 0042 designs it: the asynchronous work (a kernel function, a `@compute`
+  entry, a full-screen draw, and the graphs and render compositions of this proposal) runs on
+  WebAssembly where it can, and the synchronous helper call and a page that refuses WebAssembly
+  run on the generated JavaScript. Both are the oracle's generated code and give its bits
+  (Rule 11.7); the differential gate holds each to the oracle. This also answers Q12's
+  remainder: the path under such a Content Security Policy is the JavaScript tier.
+- [decision, owner, 2026-11-10] On the region: "전역 하나". R17 stands: one global region, the
+  linear memory of the WebAssembly tier, shared by every device. Unit R2 of
+  `docs/typeshade-plan.md` is written again to say so when milestone 2 is implemented. Cost
+  recorded: every device of a page shares wasm32's 4 GiB.
+- [fact] Milestone 2 is carried out under proposal 0042, which is a draft with seven open
+  questions of its own (#459) and no independent review record. It must be reviewed, revised
+  against this proposal (the region of R17 as its memory; the resources of R7 to R9 as its
+  arrays) and accepted by the owner before any implementation. This proposal does not repeat
+  its design. Q10 (the bundle and build cost) moves to 0042.
+- Affects: R16, decision 14, Q10, Q12, milestone 2. No front-matter entry changes.
 - Status: `status: accepted` does not change.
 
 ## What it owes downstream
