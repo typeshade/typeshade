@@ -412,6 +412,27 @@ describe('each threshold of each routine', () => {
   });
 });
 
+describe('the operand of the largest error that the sweep of this pull request measured', () => {
+  // The sweep measured each function on 20,000,000 operands or more against MPFR. Each operand
+  // here is its largest error. It is held under a bound just above the measure, so that a
+  // change of a routine that makes it worse shows here.
+  const largest: readonly (readonly [Name, number, number])[] = [
+    ['sinh', 0.3493638228436742, 0.5823],
+    ['cosh', -260.974161251268, 0.526],
+    ['tanh', -0.18094031851877287, 0.5674],
+    ['asinh', -0.37314244950492825, 0.5711],
+    ['acosh', 1.0647352818039222, 0.5661],
+    ['atanh', 0.176011555926467, 0.5667],
+  ];
+  for (const [name, x, measured] of largest) {
+    it(`${name}(${String(x)}): ${String(measured)} ULP`, () => {
+      const e = error(name, x);
+      expect(e).toBeLessThan(measured + 0.01);
+      expect(e).toBeGreaterThan(measured - 0.02);
+    });
+  }
+});
+
 describe('the CPU tier calls the libm for the six hyperbolic functions', () => {
   const X = 0.5251128077507019;
   const program = compile(`"use typeshade";
