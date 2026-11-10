@@ -865,26 +865,38 @@ hover was shown before and after (`OD-4`).
 
 - When every program gives the field one number, the line stays as it is, with no file. The
   hover in an entry file stays that file's own number.
+- [fact] The first delivery of that decision gave a program that refused the field no line.
+  Measured on `34cea187`: the `TS8010` of such a program lies in the declaring file, so
+  `getDiagnostics` shows it in no document.
+- [decision, owner, 2026-11-10] "거부도 한 줄로 표시". The declaring file's hover also shows one
+  line for a program that refuses the field:
 
-**Delivery of the declaring file's hover, each number with its file.** Written on 2026-11-10
+  ```
+  (property) FsIn.n: vec3
+  value between stages at @location(1) in a.shade.ts
+  no location in b.shade.ts (TS8010)
+  ```
+
+**Delivery of the declaring file's hover, each program with its file.** Written on 2026-11-10
 (UTC) by the AI agent (Claude Code) that implemented it, at the direction of the coordinating
-session. Its pull request records the delivered commit and each check with its result.
+session. Pull request #1182 records the delivered commit and each check with its result.
 
 - Configuration: branch `claude/clever-ramanujan-yrfjsq-0135-hover3`, based on `main` at
   `34cea187`. Tools: Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3, Vitest 5.0.5, Doorstop 3.2.
-- Delivered: `src/language-service/hover.ts` (`fieldLinesAcross`, `shownNames`,
+- Delivered: `src/language-service/hover.ts` (`fieldLinesAcross`, `refusalCode`, `shownNames`,
   `entryLocationLines`, `HoverProgram`) and `src/language-service/service.ts`
   (`programsLinking`, which now gives each program with its document's uri). This table
-  replaces the third row of the table of the delivery above; the other rows hold.
+  replaces the third row of the table of the delivery above. The other rows hold.
 
-  | Hovered, at its declaration, in a file whose own program does not use the struct | The lines under the type                                                       |
-  | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-  | The open programs that use the struct give the field one number                  | one line, with no file (unchanged)                                             |
-  | They give it different numbers                                                   | one line for each program, as `vertex attribute at @location(1) in a.shade.ts` |
-  | One program numbers the field and another refused to number it (`TS8010`)        | one line for each program that numbers it, with its file; none for the other   |
-  | Every program refused to number it                                               | no line (unchanged)                                                            |
-  | The programs agree on the number and differ in what the field is                 | one line that names both, with no file (unchanged)                             |
-  | The programs differ in the number and in what the field is                       | one line for each program, each with what the field is in that program         |
+  | Hovered, at its declaration, in a file whose own program does not use the struct | The lines under the type                                                          |
+  | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+  | The open programs that use the struct give the field one number                  | one line, with no file (unchanged)                                                |
+  | They give it different numbers                                                   | one line for each program, as `vertex attribute at @location(1) in a.shade.ts`    |
+  | One program numbers the field and another refused to number it                   | the line of the first, with its file, and `no location in b.shade.ts (TS8010)`    |
+  | Every program refused to number it                                               | `no location in <file> (TS8010)` for each program, also where one program is open |
+  | The programs agree on the number and differ in what the field is                 | one line that names both, with no file (unchanged)                                |
+  | The programs differ in the number and in what the field is                       | one line for each program, each with what the field is in that program            |
+  | A program that links the file and uses the struct in no entry; a built-in value  | no line                                                                           |
 
 - Order: the lines stand in the order of the documents' uris, compared as strings. The order
   in which the documents were opened does not change the hover.
@@ -892,22 +904,28 @@ session. Its pull request records the delivered commit and each check with its r
   name a file by the import specifier or by its whole path, and the service knows no
   workspace root to make a path relative to. Two programs with one base name each take as
   many directories as tell them apart (`in lit/main.shade.ts`, `in unlit/main.shade.ts`).
+- The code of a refusal is read, not written: `refusalCode` takes it from the error that the
+  program's own analysis reports on the field, the one `compile()` of that program reports. A
+  field of a type that cannot cross reads `(TS8003)`.
 - Each line is a paragraph of the hover's `contents`, as the one line is today.
 - The hover still computes no number (Rule 12.7): each line is the location in the IR of that
   program's cached analysis. No analysis is added: the test that counts them is unchanged.
 - No public type changes: `bun run bake:api-surface` changes no file.
 - Documents: surface §3, `docs/language-service-api.md`, `CHANGELOG.md`.
-- Functional validation: `src/language-service/entry-location-hover-imports.test.ts`, 16 tests.
+- Functional validation: `src/language-service/entry-location-hover-imports.test.ts`, 17 tests.
   The cases of this delivery read `compile()` and `reflect()` of each program and the language
   service's `getHover` on the same files: two programs, three programs, two programs with one
-  base name, a difference in number and in kind, one program that refuses, the declaring file
-  after an importing document closes and opens again, and the documents opened in another
-  order.
-- Deviations from the decision:
+  base name, a difference in number and in kind, one program that refuses, every program that
+  refuses, one open program that refuses, a program that uses the struct in no entry, the
+  declaring file after an importing document closes and opens again, and the documents opened
+  in another order. Each refusal line's code is asserted beside the code of `compile()`'s
+  diagnostic on the field.
+- Deviations from the decisions:
 
-  | #   | Difference                                                                                                                                                                                                                                                                                                                                        | Disposition                                                         |
-  | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-  | A   | Where one program numbers the field and another refuses it, the one line names its file. The refusing program has no line. Measured: the `TS8010` of that program is reported at the field, in the declaring file, so `getDiagnostics` shows it in no document. `compile()` and `getCompiledOutput` of the refusing program's document report it. | Open: the owner decides whether the declaring file names a refusal. |
+  | #   | Difference                                                                                                                                                                                                            | Disposition                                                                             |
+  | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+  | A   | The first delivery gave a program that refused the field no line, as first asked.                                                                                                                                     | Closed: the owner's decision "거부도 한 줄로 표시", delivered in the same pull request. |
+  | B   | `getDiagnostics` shows the diagnostic of a refusing program in no document: it lies in the declaring file, which another document's program imports. This predates the hover. The hover's line now names the refusal. | Open: an issue is to be filed. It is no part of change 0135.                            |
 
 **Remaining.** The downstream work of "What it owes downstream" is not started. The refusal of a
 written type in the release after the migration release (D1.2) is not part of this pull request.

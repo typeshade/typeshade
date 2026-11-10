@@ -41,7 +41,8 @@ repository is an official release yet: the `typeshade` package on npm holds only
   with the number of the linked program (Rule 3.9). When two open programs that import the
   declaring file give the field two numbers, the declaring file shows one line for each
   program, with its file: `vertex attribute at @location(1) in a.shade.ts` and
-  `vertex attribute at @location(2) in b.shade.ts`.
+  `vertex attribute at @location(2) in b.shade.ts`. A program that refused the field has the
+  line `no location in b.shade.ts (TS8010)`.
 
 - **Every `for` loop, and an entry's inferred result** (change 0136). A `for` that is not
   counted compiles as an open loop, as a `while` does (Rule 7.5): `for (;;)` with a `break`, an

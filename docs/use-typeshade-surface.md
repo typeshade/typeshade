@@ -499,7 +499,8 @@ export function fs(v: VsOut): Color {
   declaring file, where the open programs that import it give the field different numbers,
   the hover shows one line for each program, with its file:
   `vertex attribute at @location(1) in a.shade.ts` and
-  `vertex attribute at @location(2) in b.shade.ts`.
+  `vertex attribute at @location(2) in b.shade.ts`. A program that refused the field has its
+  line too, with the code of its diagnostic: `no location in b.shade.ts (TS8010)`.
 
 ### What an entry may return
 

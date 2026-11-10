@@ -120,6 +120,8 @@ function rolesOfStruct(analysis: CompileTsSourceResult, struct: string): string[
 interface FieldFacts {
   readonly roles: readonly string[];
   readonly location: number | undefined;
+  /** Whether the field is a built-in value, which stands at no location. */
+  readonly builtin?: boolean;
 }
 
 /** What the program of `analysis` says of the field `name` of its struct `struct`, by the name
@@ -132,7 +134,12 @@ function fieldFacts(
   const decl = analysis.structs.find((s) => s.decl.name === struct)?.decl;
   const field = decl?.fields.find((f) => f.name === name);
   if (decl === undefined || field === undefined) return undefined;
-  return { roles: rolesOfStruct(analysis, decl.name), location: ioAttrOf(field).location };
+  const attr = ioAttrOf(field);
+  return {
+    roles: rolesOfStruct(analysis, decl.name),
+    location: attr.location,
+    builtin: attr.builtin !== undefined,
+  };
 }
 
 /** The line for a field, from what one program says of it. */
@@ -199,12 +206,13 @@ function shownNames(uris: readonly string[]): ReadonlyMap<string, string> {
  *
  * - Every one gives the field one number: one line, with that number and everything the field
  *   is in those programs, and no file, since the line is true of each.
- * - They differ (a vertex input after another attribute in one program and first in the other,
- *   or a field that one program numbers and another refuses with `TS8010`): one line for each
- *   program that numbers the field, with the file the program starts from, `… in a.shade.ts`
- *   (the owner's decision of 2026-11-10, change 0135). The lines stand in the order of the
- *   documents' uris, so the hover does not depend on which document was opened first. A program
- *   that refused the field has no line: `compile()` of that program reports the refusal.
+ * - They differ (a vertex input after another attribute in one program and first in the other),
+ *   or one of them refused the field: one line for each program, with the file the program
+ *   starts from (the owner's decisions of 2026-11-10, change 0135). A program that numbers the
+ *   field has `… at @location(1) in a.shade.ts`. A program that refused it has
+ *   `no location in b.shade.ts (TS8010)`, with the code of that program's own diagnostic on the
+ *   field (`refusalCode`). The lines stand in the order of the documents' uris, so the hover
+ *   does not depend on which document was opened first.
  * - No program uses the struct among its entries: the field has at most the location it
  *   writes, which every program reads the same, and the line is the one it has in one file.
  */
@@ -213,28 +221,65 @@ function fieldLinesAcross(
   fileName: string,
   start: number,
 ): readonly string[] {
-  const found: { readonly uri: string; readonly facts: FieldFacts }[] = [];
+  const found: {
+    readonly uri: string;
+    readonly facts: FieldFacts;
+    readonly refusal: string | undefined;
+  }[] = [];
   for (const program of programs) {
     const field = linkedFieldAt(program.analysis, fileName, start);
     const facts = field && fieldFacts(program.analysis, field.struct, field.name);
-    if (facts !== undefined) found.push({ uri: program.uri, facts });
+    if (facts !== undefined)
+      found.push({
+        uri: program.uri,
+        facts,
+        refusal: refusalCode(program.analysis, facts, fileName, start),
+      });
   }
   const used = found.filter((f) => f.facts.roles.length > 0);
   const deciding = used.length > 0 ? used : found;
   const first = deciding[0];
   if (first === undefined) return [];
-  if (deciding.every((f) => f.facts.location === first.facts.location)) {
+  const refused = deciding.some((f) => f.refusal !== undefined);
+  if (!refused && deciding.every((f) => f.facts.location === first.facts.location)) {
     const line = fieldLine({
       roles: ROLES.filter((role) => deciding.some((f) => f.facts.roles.includes(role))),
       location: first.facts.location,
     });
     return line === undefined ? [] : [line];
   }
-  const numbered = deciding
-    .filter((f) => f.facts.location !== undefined)
+  const shown = deciding
+    .filter((f) => f.facts.location !== undefined || f.refusal !== undefined)
     .sort((a, b) => (a.uri < b.uri ? -1 : a.uri > b.uri ? 1 : 0));
-  const names = shownNames(numbered.map((f) => f.uri));
-  return numbered.map((f) => `${fieldLine(f.facts)!} in ${names.get(f.uri)!}`);
+  const names = shownNames(shown.map((f) => f.uri));
+  return shown.map((f) =>
+    f.facts.location !== undefined
+      ? `${fieldLine(f.facts)!} in ${names.get(f.uri)!}`
+      : `no location in ${names.get(f.uri)!} (${f.refusal!})`,
+  );
+}
+
+/**
+ * The code of the diagnostic with which the program of `analysis` refused to give the field at
+ * offset `start` of `fileName` a location, or `undefined` when it did not refuse it: the field
+ * has a location, it is a built-in value, or the program reports no error on it. The code is
+ * read off the program's own diagnostics, the ones `compile()` of its document reports, so the
+ * hover names no code the compiler did not give (Rule 12.7).
+ */
+function refusalCode(
+  analysis: CompileTsSourceResult,
+  facts: FieldFacts,
+  fileName: string,
+  start: number,
+): string | undefined {
+  if (facts.location !== undefined || facts.builtin === true) return undefined;
+  return analysis.diagnostics.find(
+    (d) =>
+      d.category === 'error' &&
+      d.fileName === fileName &&
+      d.start <= start &&
+      start < d.start + d.length,
+  )?.code;
 }
 
 /**
