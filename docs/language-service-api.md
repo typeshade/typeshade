@@ -478,14 +478,14 @@ names the compiler's refusals translate (#218), is exported beside it.
 A test whose subject is TypeScript's own view (the ambient lib, the filters of §6) reads the two
 halves unmerged, through `createTypeshadeLanguageServiceWith(host, analyze, { merge: false })`.
 
-| Method                                                                               | TypeScript Language Service (over the ambient lib)                                                                                      | TypeShade layer                                                                                                                                                                                                                                                                                                                                       |
-| ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `getDiagnostics`                                                                     | syntax and semantic diagnostics, filtered (§6)                                                                                          | `compileTsSource`-style analysis of the front-end only (no emit), with `range` from `node.getStart()`/`node.getEnd()`; stage-3 checks: builtin name allow-list (`WgslBuiltinName`), builtin-to-stage compatibility, `@compute` workgroup shape, missing return annotation as an error                                                                 |
-| `getCompletions`                                                                     | user symbols in scope (functions, struct fields, resources, locals), keywords                                                           | context items: after `@` the attribute list, inside `builtin<"` and the decorated `@builtin("` the `WgslBuiltinName` list filtered by the enclosing stage, in a type position `SUPPORTED_TYPE_NAMES`, snippets for `vec2/3/4(...)`, entry function templates                                                                                          |
-| `getHover`                                                                           | quick info for a symbol this document does not declare (an imported one, a host-side one), and the documentation section of every hover | the COMPILER's type for every name the front end declared in this document, read off `CompileTsSourceResult.symbols`; documentation table for GPU types, attributes and builtins, shared with the site's reference pages; a resource binding's address space and `@group`/`@binding` slot; the location of a user-defined input or output of an entry |
-| `getDefinition`, `getReferences`, `rename`, `getDocumentSymbols`, `getSignatureHelp` | TypeScript, unchanged                                                                                                                   | symbol kinds re-labelled (`entry`, `resource`, `struct`) using the front-end's collected declarations                                                                                                                                                                                                                                                 |
-| `getSemanticTokens`                                                                  | TypeScript classifications                                                                                                              | GPU types as `type`+`gpu`, entries as `function`+`entry`, resources, builtin strings inside `builtin<"...">` and the decorated `@builtin(...)`                                                                                                                                                                                                        |
-| `getCompiledOutput`                                                                  | none                                                                                                                                    | `compileTsSource` / GLSL emit, on demand                                                                                                                                                                                                                                                                                                              |
+| Method                                                                               | TypeScript Language Service (over the ambient lib)                                                                                            | TypeShade layer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getDiagnostics`                                                                     | syntax and semantic diagnostics, filtered (§6)                                                                                                | `compileTsSource`-style analysis of the front-end only (no emit), with `range` from `node.getStart()`/`node.getEnd()`; stage-3 checks: builtin name allow-list (`WgslBuiltinName`), builtin-to-stage compatibility, `@compute` workgroup shape, missing return annotation as an error                                                                                                                                                                                                                    |
+| `getCompletions`                                                                     | user symbols in scope (functions, struct fields, resources, locals), keywords                                                                 | context items: after `@` the attribute list, inside `builtin<"` and the decorated `@builtin("` the `WgslBuiltinName` list filtered by the enclosing stage, in a type position `SUPPORTED_TYPE_NAMES`, snippets for `vec2/3/4(...)`, entry function templates                                                                                                                                                                                                                                             |
+| `getHover`                                                                           | quick info for a symbol the document's program does not declare (a host-side one), for a member, and the documentation section of every hover | the COMPILER's type for every name the front end declared in this document, read off `CompileTsSourceResult.symbols`, and for a field, a function, a module constant, a module variable, an override and a binding that another file of the document's program declares; documentation table for GPU types, attributes and builtins, shared with the site's reference pages; a resource binding's address space and `@group`/`@binding` slot; the location of a user-defined input or output of an entry |
+| `getDefinition`, `getReferences`, `rename`, `getDocumentSymbols`, `getSignatureHelp` | TypeScript; signature help adds each `@inout` and `@out` qualifier, also for an imported function                                             | symbol kinds re-labelled (`entry`, `resource`, `struct`) using the front-end's collected declarations                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `getSemanticTokens`                                                                  | TypeScript classifications                                                                                                                    | GPU types as `type`+`gpu`, entries as `function`+`entry`, resources, builtin strings inside `builtin<"...">` and the decorated `@builtin(...)`                                                                                                                                                                                                                                                                                                                                                           |
+| `getCompiledOutput`                                                                  | none                                                                                                                                          | `compileTsSource` / GLSL emit, on demand                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 The type in a hover's first line is the front end's, not TypeScript's. The ambient GPU scalars
 brand `number` optionally (`number & { readonly [f32Tag]?: true }`), so a bare literal is
@@ -521,10 +521,95 @@ declared function names, so a new builtin cannot land undocumented. The GPU type
 and the built-in value ids keep their lookup tables (`TYPE_DOCS`, `ATTRIBUTE_DOCS`, `BUILTIN_DOCS`),
 since those names are not declarations TypeScript would carry a JSDoc for.
 
-Three kinds of name keep TypeScript's quick info instead. One this document does not declare (an
-imported symbol, a host-side declaration) is not in this document's table at all, since a span
-means nothing without the file it indexes (its location line, below, is joined through the
-linked program). One the front end could not lower is never recorded
+A name that another `"use typeshade"` file declares reads the type it has in that file. A program is
+a document and the shader files it imports (Rule 3.9), and the cached analysis of a document is
+the analysis of its program. This document's table holds this document's spans only, so the
+hover joins by the declaration: TypeScript resolves the hovered name to a file and an offset,
+and the linker's map (`LinkedProgram.map`) gives the symbol the front end declared there
+(`importedSymbolAt`, `src/language-service/hover.ts`).
+
+- It serves an imported field, function, module constant, module variable, override and
+  binding, read by name, through a re-export or through `import * as`. `HALF` of
+  `export const HALF = 0.5` hovers as `const HALF: f32` in both files, where TypeScript's quick
+  info was `(alias) const HALF: 0.5`.
+- A function shows the `@inout` and `@out` qualifiers of its parameters (Rule 8.25).
+- A binding shows its resource line, with the slot it has in the hovered document's program.
+- The name is the one the hovered document writes. `bp` of `import { bump as bp }` hovers as
+  `function bp(@inout v: f32): void`, as signature help shows it, and `k` of
+  `import { HALF as k }` as `const k: f32`.
+- A struct, in the type of a value and as the owner of a field, is named from its declaration
+  (`structNamesOf`), never by a search of the text:
+  1. The compiler's type carries the name the module emits. The linker's map gives the
+     declaration behind it: the file and the offset where the author declared the struct, and
+     its declared part as the author wrote it, the namespaces around it and its identifier
+     (`Stage_VsOut`, where the module emits `lib_Stage_VsOut`).
+  2. Where the hovered document imports that declaration under exactly one name, the struct
+     reads by that name, wherever it stands: `(property) L.dir: vec3<f32>`, `let far: L` and
+     `function lum(l: L): f32` for `import { Light as L, lum }`, and `Lamp` for
+     `import { Lamp }` where another file has `export { Light as Lamp }`. Otherwise it reads by
+     its declared name: a struct the document does not import by name (one it reaches through
+     `import * as`, or only as the type of an imported function's parameter), and a struct it
+     imports under two names.
+  3. So a name the linker generated is never shown as a struct's declared part. The module
+     emits a declaration under a name of its own where two files declare one name
+     (`lib_Light`, `lib_Light_2`, `lib_HALF`). And a name an author wrote is never changed: a
+     field's, a parameter's, the hovered symbol's own, and any identifier that holds such a name
+     as a part (`lib_Light_gain`).
+  4. The arguments of an instance of a generic class keep the module's spelling, since the
+     table records no link from an instance to the declarations of its arguments: `Crate_f32`
+     for `import { Box as Crate }`, and `Box_lib_Light` where the argument is a struct the
+     linker renamed.
+  - When a document imports one declaration under two or more names, the struct reads by its
+    declared name (the owner's decision of 2026-11-10).
+  - The names a document imports are read again whenever any document changes, since they are
+    places in other files.
+- A function's parameters are those of its declaration: each with its qualifier and the name
+  the author wrote. The front end keeps no parameter that takes a function, so the hover
+  joins the parameters it kept to the declaration by their place, not by their position.
+- A call of an overloaded function reads the implementation, the declaration with a body,
+  which the front end lowers: `function bump(@inout v: f32, k: f32): void`, in one file and
+  across an import. Signature help lists every overload signature, as TypeScript writes each,
+  with no qualifier, and TypeScript marks the active one.
+- The hover has no marker of the import: TypeScript's `(alias)` and `import HALF` lines are
+  not shown, so one symbol has one text.
+- A field that its own file's program gives no symbol, since the front end records a field
+  only where a program uses its struct, is read in the programs of the open documents that
+  import the file, as its location line is, where they give it one type.
+- An import that the hovered document's program does not keep, since no code uses it yet, is
+  read in the declaring document's own program when that document is open. A declaration the
+  hovered program keeps and the hover refuses (instances of different types, a member, the
+  name of a struct) is never read there: another program's instance is not this one's type. A binding has no
+  resource line then: the hovered document's program does not bind it. When the declaring
+  document is not open, such an import keeps TypeScript's quick info.
+- The hover asks TypeScript for one definition for each identifier of a program that links
+  another file. What it reads of other documents is cached analyses, each made once for each
+  version of its document:
+  - a name the document's program declares reads this document's analysis alone;
+  - an import the program does not keep reads the declaring document's analysis, and no other,
+    and a name the program keeps (an imported type name included) reads no other analysis;
+  - a field reads the analyses of the open documents that link its declaring file, as its
+    location line does.
+- The names a hover needs are made once: an index of a program's structs and parameters for
+  each analysis, and the names a document imports for each version of the document, and only
+  when a hover has a struct to name.
+
+Six kinds of name keep TypeScript's quick info instead. One that no file of the document's
+program declares (a host-side declaration) is in no table. A member is recorded under a longer
+name than the hovered one (`Ray.reach` for a method, a getter and a static function, `Ray_UP`
+for a static field, `Tone_map` for a member of a namespace, `Mode_Lit` for a member of an
+enum), so it reads as TypeScript's quick info across an import. In the file that declares it,
+a member reads as TypeScript's quick info too, except where the file also declares a name of the
+member's short name: then the hover takes the member's own symbol, and shows the compiler's
+type under the module's name, `function Tone_map(x: f32): f32` and `const Tone_GAMMA: f32` for
+a file that declares a function `map` and a constant `GAMMA` beside `namespace Tone`. A declaration that the front end lowered as instances of different types, a generic
+function or a field of a generic class with two instances in the program, has no one type: each
+use keeps TypeScript's quick info, which names the instance of that use
+(`twice<vec3>(x: vec3): vec3`), in one file and across an import. A field that the instances
+type alike (a field of a mixin, a field of a generic class whose type is no type parameter)
+keeps the compiler's type, and TypeScript's name for its owner, since no one struct owns it:
+`(property) Box<f32>.n: vec2<f32>`. The name of an imported
+struct, class, namespace or enum keeps TypeScript's `(alias)` and `import` lines. One
+the front end could not lower is never recorded
 either, so `for (let j = 0; ...)`, which the loop-induction check rejects, still hovers as
 `let j: number`, and so does `let a = d * 2.` where `d: f64` and the multiplication was refused:
 the front end's own diagnostic on the same line says why. And a data class name keeps
@@ -554,8 +639,8 @@ or parameter the front end refused to number (`TS8010`).
 source.
 
 A field of a struct that another document declares (`v.uv`, where
-`import { VsOut } from "./io.shade.ts"` brought the struct) keeps TypeScript's quick info for
-its signature, as every imported symbol does, and gains the same line. A program is a document
+`import { VsOut } from "./io.shade.ts"` brought the struct) reads the compiler's type in its
+signature, as above, and gains the same line. A program is a document
 and the shader files it imports (Rule 3.9), and the cached analysis of a document is the
 analysis of its program. The number is the one that program has, which `compile()` and
 `reflect()` of the hovered document give.
