@@ -8142,6 +8142,8 @@ const ps = zeros(Particle, 1024);
 ps.at(3).vel.set(0, 1, 0);
 const seeded = array(Particle, [{ life: 1 }, { life: 2 }]); // the other fields are zero
 const all = await ps.read(); // Particle[], each an instance of the class
+ps.resize(2048); // the first 1024 keep their values, the others are zero
+ps.set([{ life: 1 }]); // the length of the data, and its values
 ```
 
 Each uniform and storage array is a byte range of one memory region (R17 of change 0138), an
@@ -8153,6 +8155,15 @@ a scalar's number, or the typed view of a vector, a matrix or an array of scalar
 its stride (a matrix column of three rows has a fourth, unused lane). An `f64` field is two `f32`
 halves in the region, so its `get` returns the joined number or a new `Float64Array`. A host that
 writes through a view sets `needsUpdate = true`. A new resource is dirty over its whole range.
+
+A buffer's length is the host's to set (change 0138, Amendment A3). `ps.resize(n)` gives it `n`
+elements: the ones that fit keep their values, and a new one is zero. `ps.set(data)` gives it the
+length of `data` and its values, as `array(Particle, data)` reads them: a field that an element
+does not name is zero. A `data` with a value that does not fit throws and changes nothing. Each
+of the two gives the buffer another range of the region and marks its whole range dirty. An
+accessor that `at` returned before reads the new range. An accessor of an element that is gone
+throws a `TypeError`: `ps[1].life: ps was resized, and this element is no longer in it. Take the
+accessor again with at().`
 
 A resource is freed by `dispose()` or when the garbage collector reclaims it. Where the runtime
 has `Symbol.dispose`, a resource has `[Symbol.dispose]()` as well, which `using` calls at the end
@@ -8171,6 +8182,8 @@ milestone 3 of change 0138.
 resource. `export declare const camera: uniform<Camera>` is a `Uniform<Camera>` in the host, and
 `export declare const ps: storage<array<Particle, 64>, "read_write">` a `Buffer<Particle>` of 64
 elements, each laid out by the exported class's layouts and made once by the generated module.
+`export declare const all: storage<array<Particle>, "read_write">`, which states no size, is a
+`Buffer<Particle>` whose length the host sets (Amendment A3).
 
 ```ts
 // scene.shade.ts
@@ -8189,10 +8202,32 @@ camera.pos.set(0, 2, 5); // a field, through its accessor
 camera.set({ time: now / 1000 }); // `camera = …` is a type error: an import is read-only
 ```
 
-The binding lives as long as its module, so its `dispose()` throws a `TypeError`. A storage array
-with no size has no length to make, and a scalar, a vector, a struct no exported class declares,
-one `storage<T>`, a texture and a sampler have no resource of their own yet: the view declares
-each `never`, with the reason. An entry call still takes the binding's value in its bindings
+```ts
+// scene.shade.ts
+export declare const all: storage<array<Particle>, "read_write">;
+```
+
+```ts
+// host.ts
+import { all } from './scene.shade.ts';
+
+all.resize(1024); // 1024 zeroed elements
+all.at(0).pos.set(0, 1, 0);
+all.set(loaded); // or: the length of `loaded`, and its values
+```
+
+The shader file does not state the size of `all`, so the host sets it with `resize(n)` or
+`set(data)`. Until then `all.length` is 0, and `at` and `read` throw a `TypeError` that names the
+binding: `all.at(): all is a storage array with no size that scene.shade.ts exports, and its
+length is not set. Call all.resize(n) or all.set(data) first.` A length of 0 that the host set is
+a length: `read()` then gives an empty array. A storage array that states its size keeps it:
+`ps.resize(8)` on the 64 elements above throws a `TypeError`, and so does a `set(data)` of
+another length.
+
+The binding lives as long as its module, so its `dispose()` throws a `TypeError`. A scalar, a
+vector, a struct no exported class declares, an array of scalars or vectors, one `storage<T>`, a
+texture and a sampler have no resource of their own yet: the view declares each `never`, with the
+reason. An entry call still takes the binding's value in its bindings
 object; binding the exported resource at a call is milestone 3 of change 0138.
 
 **The default device** (change 0138, Amendment A2; Rule 11.8). A device is opened by
