@@ -569,7 +569,7 @@ session. The merge of pull request #1161 records the delivered commit; this file
 the hash of the commit that contains it.
 
 **Delivered configuration.** Branch `claude/clever-ramanujan-yrfjsq-impl-0135`, based on `main`
-at `b5ff3963`. Tools: Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3, Vitest 5.0.5, Playwright's
+at `b5ff3963`, with `main` at `2efdff61` merged; the checks below ran again after that merge. Tools: Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3, Vitest 5.0.5, Playwright's
 `chromium_headless_shell-1248` on SwiftShader, Doorstop 3.2.
 
 **Delivered, by item of "What it touches".**
