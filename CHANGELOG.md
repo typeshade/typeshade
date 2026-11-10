@@ -1828,6 +1828,18 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **An argument on `@vertex` or `@fragment` is refused, not dropped** (Rules 8.1 and 6.7, change
+  0130). `@fragment({ diagnostic: ["off", "derivative_uniformity"] })` and `@vertex(1)` compiled
+  with no diagnostic in `compile()` and in the editor, and the argument was read by nothing. An author whom the
+  refusal of a stage call told to delete an option, and who moved the option onto the attribute,
+  got no word. Each is now one `TS8028`, an error, on the attribute, in both halves:
+  `"@fragment" takes no argument: write "@fragment" and delete "({ diagnostic: ["off", "derivative_uniformity"] })" (Rule 8.1).`
+  A type argument on a stage attribute or on `@workgroup_size`, `@compute<f32>([8])`, is refused
+  with the sentence `@vertex<f32>` already had. The function is still read as the entry, so
+  nothing else is said about it. `@vertex`, `@fragment`, `@compute`, `@compute()`,
+  `@compute([8])` and `@workgroup_size([128])` compile as before, with the same emit. No official
+  release accepted the refused forms (OD-6).
+
 - **A flat value comes from the first vertex on WebGL2, as on WebGPU** (Rules 1.6 and 11.5; the
   open item of change 0120, M3). The WebGL2 backend of the render hardware interface
   (`src/rhi/webgl2.ts`) took a `flat` interstage value from the last vertex of a primitive, as

@@ -1331,6 +1331,142 @@ describe('the stage attributes are the form of an entry (Rule 8.1, change 0130)'
     });
   });
 
+  // #1159's refusal of a stage call tells the author to delete its option. An author who moved
+  // the option onto the attribute, `@fragment({ diagnostic: [...] })`, got no word: the argument
+  // was dropped in both halves. The attribute never reaches WGSL with its argument, so no Tint
+  // refusal stands behind this one (Rule 12.6 does not apply).
+  describe('an argument nothing reads on a stage attribute is refused (Rules 8.1 and 6.7)', () => {
+    /** Both halves on one source, with the text each diagnostic covers. */
+    const spans = (source: string) => {
+      const service = createTypeshadeLanguageService();
+      service.openDocument('a.ts', source);
+      return {
+        compiler: compile(source).diagnostics.map((d) => [
+          d.category,
+          d.code,
+          d.message,
+          source.slice(d.start, d.start + d.length),
+        ]),
+        editor: service
+          .getDiagnostics('a.ts')
+          .map((d) => [
+            d.severity,
+            d.code,
+            d.message,
+            source.slice(d.span.start, d.span.start + d.span.length),
+          ]),
+      };
+    };
+    /** One `TS8028`, an error, on `covered`, in both halves, and no shader text. */
+    const refusedOnce = (source: string, message: string, covered: string) => {
+      expect(spans(source), source).toEqual({
+        compiler: [['error', 'TS8028', message, covered]],
+        editor: [['error', 'TS8028', message, covered]],
+      });
+      expect(both(source).editor, source).toEqual([['typeshade', 'TS8028', message]]);
+      expect(compile(source).wgsl, source).toBeUndefined();
+    };
+    const vs = (attr: string) =>
+      `"use typeshade";\n${attr}\nexport function vs(): builtin<"position", vec4> { return vec4(1.); }\n`;
+    const fs = (attr: string) =>
+      `"use typeshade";\n${attr}\nexport function fs(): location<0, vec4> { return vec4(1.); }\n`;
+    const k = (attr: string) =>
+      `"use typeshade";\n${BUF}const E: u32 = 1;\n${attr}\nexport function k(${GID}) { buf[gid.x] = 1.; }\n`;
+    const scale = (attr: string) =>
+      `"use typeshade";\nconst E: u32 = 1;\n${attr}\nexport function scale(xs: array<f32>, out: array<f32>) { for (let i = 0; i < xs.length; i++) { out[i] = xs[i] * 2.; } }\n`;
+    const noArgument = (name: string, written: string) =>
+      `"@${name}" takes no argument: write "@${name}" and delete "(${written})" (Rule 8.1).`;
+    const notApplied = (written: string) =>
+      `"${written}" is not applied: an attribute is written "@name" or "@name(...)". Remove it.`;
+
+    it('refuses an argument on @vertex or @fragment, once, on the attribute, in both halves', () => {
+      const cases: [(attr: string) => string, string, string][] = [
+        [vs, 'vertex', '1'],
+        [vs, 'vertex', '1, 2'],
+        [fs, 'fragment', '{}'],
+        [fs, 'fragment', '{ diagnostic: ["off", "derivative_uniformity"] }'],
+        [fs, 'fragment', '{ numerics: ["finite-math"] }'],
+        // A name nothing declares draws no second diagnostic in either half (Rule 12.4).
+        [fs, 'fragment', 'undefinedName'],
+        [fs, 'fragment', '[8]'],
+      ];
+      for (const [program, name, written] of cases) {
+        const attr = `@${name}(${written})`;
+        refusedOnce(program(attr), noArgument(name, written), attr);
+      }
+      // In a namespace, and in the order `export @fragment function`.
+      refusedOnce(
+        `"use typeshade";\nnamespace N { @fragment(1) export function fs(): location<0, vec4> { return vec4(1.); } }\n`,
+        noArgument('fragment', '1'),
+        '@fragment(1)',
+      );
+      refusedOnce(
+        `"use typeshade";\nexport @fragment(1) function fs(): location<0, vec4> { return vec4(1.); }\n`,
+        noArgument('fragment', '1'),
+        '@fragment(1)',
+      );
+      // The entry is still read: a second entry of the file is not reported as the only one,
+      // and the refused one is not reported as missing.
+      refusedOnce(
+        `"use typeshade";\n@vertex(1)\nexport function vs(): builtin<"position", vec4> { return vec4(1.); }\n@fragment\nexport function fs(): location<0, vec4> { return vec4(1.); }\n`,
+        noArgument('vertex', '1'),
+        '@vertex(1)',
+      );
+    });
+
+    it('refuses a type argument on a stage attribute or @workgroup_size, as "@name<T>" is', () => {
+      for (const [program, attr] of [
+        [vs, '@vertex<f32>'],
+        [vs, '@vertex<f32>()'],
+        // One attribute is one refusal: the argument is not reported beside the type argument.
+        [vs, '@vertex<f32>(1)'],
+        [fs, '@fragment<f32>()'],
+        [k, '@compute<f32>([8])'],
+        [k, '@compute<f32>()'],
+        [scale, '@workgroup_size<f32>([128])'],
+      ] as const)
+        refusedOnce(program(attr), notApplied(attr), attr);
+    });
+
+    it("keeps @compute's and @workgroup_size's own refusal of an argument (TS8037)", () => {
+      const shape = (written: string) =>
+        `compute takes an array of one to three whole numbers, "@compute([64, 1, 1])"; "${written}" is not a workgroup shape.`;
+      const extent = (written: string) =>
+        `workgroup_size takes an array of one whole number, as "@workgroup_size([64])", or a module constant in it, as "@workgroup_size([TILE])"; "${written}" is not one.`;
+      for (const [source, message] of [
+        [k('@compute([8], E)'), shape('[8], E')],
+        [k('@compute([8], { diagnostic: [] })'), shape('[8], { diagnostic: [] }')],
+        [k('@compute({ workgroup: [8, 8, 1] })'), shape('{ workgroup: [8, 8, 1] }')],
+        [scale('@workgroup_size'), extent('@workgroup_size')],
+        [scale('@workgroup_size()'), extent('@workgroup_size()')],
+        [scale('@workgroup_size([128], E)'), extent('[128], E')],
+      ] as const) {
+        expect(both(source), source).toEqual({
+          compiler: [['error', 'TS8037', message]],
+          editor: [['typeshade', 'TS8037', message]],
+        });
+      }
+    });
+
+    it('still reads the valid neighbours, with no diagnostic and the same emit', () => {
+      for (const [source, emitted] of [
+        [vs('@vertex'), '@vertex'],
+        [fs('@fragment'), '@fragment'],
+        [k('@compute'), '@compute @workgroup_size(64)'],
+        [k('@compute()'), '@compute @workgroup_size(64)'],
+        [k('@compute([8])'), '@compute @workgroup_size(8)'],
+        [k('@compute([8, 8, 1])'), '@compute @workgroup_size(8, 8)'],
+        [k('@compute([E, 8])'), '@compute @workgroup_size(E, 8)'],
+      ] as const) {
+        expect(both(source), source).toEqual(clean);
+        expect(compile(source).wgsl, source).toContain(emitted);
+      }
+      const kernel = scale('@workgroup_size([128])');
+      expect(both(kernel)).toEqual(clean);
+      expect(compile(kernel).wgsl).toBeDefined();
+    });
+  });
+
   it("names the attribute in @compute's TS8037, in both halves (Rule 8.7)", () => {
     for (const [arg, written] of [
       ['[1, 2, 3, 4]', '[1, 2, 3, 4]'],
