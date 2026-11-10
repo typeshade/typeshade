@@ -195,7 +195,7 @@ A spelling of the bridge, under any name, must not be a third option.
 
 ### 2.3. Corollary for built-in values
 
-A built-in value such as `position` or `global_invocation_id` is an argument of `@builtin("...")`, not a name of the library.
+A built-in value such as `position` or `global_invocation_id` is an argument of `builtin<"...">`, not a name of the library.
 The compiler checks the string against WGSL's list ([Built-in Inputs and Outputs](https://gpuweb.github.io/gpuweb/wgsl/#builtin-inputs-outputs)) and reports `TS8024` for a name outside it and `TS8025` for a name on the wrong stage.
 The type of a built-in value is WGSL's too, and the compiler reads it from the same list (`WGSL_BUILTIN_TYPES`), so `builtin<"vertex_index">` writes no type (Rule 6.6, change 0135).
 
@@ -519,7 +519,7 @@ A written `n` is always the location. Where a user-defined value stands decides 
 
 A fragment input that is a field of the struct a vertex entry returns has that struct's locations. A value between stages is linked by its name, as GLSL ES 3.00 links a varying.
 In the mixed case each struct keeps its written numbers: with `interface A { pos: builtin<"position">; uv: location<0, vec2>; n: vec3 }` and `interface B { pos: builtin<"position">; n: location<0, vec3> }`, `A.n` is 1, the lowest number no written field of `A` holds, and `B.n` stays 0, as written. If `B` is a fragment input and writes no number on `n`, `B.n` takes the location `n` has in the vertex results; with `A` the only one, that is 1.
-An entry I/O struct may be a `class`, an `interface` or a `type` (Rule 6.9), and a field of one carries its attribute in its type and needs no initializer and no `!`; a written `!` is accepted and changes nothing, and the language service sets `strictPropertyInitialization: false` in the TypeShade program, since an entry I/O field is filled by the stage that produces it, not by an initializer.
+An entry I/O struct may be a `class`, an `interface` or a `type` (Rule 6.9), and a field of one writes its attribute in its type where it writes one (a user-defined input or output may leave its location to the compiler), and needs no initializer and no `!`; a written `!` is accepted and changes nothing, and the language service sets `strictPropertyInitialization: false` in the TypeShade program, since an entry I/O field is filled by the stage that produces it, not by an initializer.
 No attribute decorator is written on an entry's parameter or on a field of an entry I/O struct: `@builtin("...")` or `@location(n)` there stays accepted with a `TS8028` warning until the release that refuses it (change 0111, D5), and the language service hides TypeScript's TS1206 on it only while `compile()` warns. A parameter qualifier on a function of the file is no entry I/O attribute (Rule 8.25).
 
 - Rationale: an implicit stage input hides a dependency, and the input stays an explicit parameter or field. WGSL refuses an entry I/O member with no attribute, and the emitted WGSL keeps an explicit attribute on each one: that requirement binds the emitted module and not the TypeShade source (OD-1, Rule 1.1). The compiler knows the type of a built-in value and can count a location, so the author writes neither (OD-3). An input or an output is a value that flows in or out, so its attribute, when it is written, is part of its type (Rule 1.8, OD-5).
