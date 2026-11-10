@@ -1,7 +1,7 @@
 // Stable diagnostic codes (Phase 10 / 12). Messages stay readable.
 //
 // Numbering: `TS8` + a zero-padded sequential number, assigned in the order a code was added.
-// A gap (8011, 8012 and 8078 are retired) is never reused. `UNSUPPORTED` (TS8099) is the one deliberate
+// A gap (8011, 8012, 8053 and 8078 are retired) is never reused. `UNSUPPORTED` (TS8099) is the one deliberate
 // exception to "sequential": it is the catch-all for a diagnostic whose site does not yet
 // deserve its own code, so it stays parked past the sequential range instead of at its head.
 //
@@ -199,12 +199,10 @@ export const TS_CODES = {
    *  loop's condition, the left side of `&&` or `||`, the condition of a `?:` WGSL writes as an
    *  `if`), or after a `return`, `break` or `continue` taken under one (§54). */
   UNIFORMITY: 'TS8052',
-  /** A DEPRECATION warning, not an error: an undecided integer-written declaration still
-   *  defaults to `f32` and will default to `i32` (§13, #148). A declared use that already
-   *  establishes an integer type carries no warning.
-   *  Reported only when the caller asks for it with `deprecations: true`; the compiler's
-   *  warning does not change the chosen type. */
-  INT_LITERAL_DEPRECATION: 'TS8053',
+  // TS8053 was `INT_LITERAL_DEPRECATION`, the warning of #148's window: an undecided
+  // integer-written declaration "types as f32 today; it will type as i32". Change 0134 infers a
+  // number's type from its uses and keeps no default for an author to learn, so the warning has
+  // no true text. The number is retired and not reused.
   /** `eval` or `arguments` bound by a variable, a parameter or a function, which ECMAScript's
    *  strict mode, and TypeScript with it, lets no declaration do (Rule 2.1). The code once also
    *  refused a name a target reserves (#103); since change 0070 such a name takes a fresh

@@ -7,12 +7,13 @@ links:
 - RULE-0502: 80xey5tZFc7gZha_2af7M4HJdz6kbeyew7fsuMt8diY=
 - RULE-0504: CXAu-Ujhd7W62nl4dCyRPmt9q7s9DNjXq9eQAYUckmU=
 - RULE-0505: CWT9etTOBhqjd2LtMs46V11RoOPT8hdKURHLsY_Lfnc=
+- RULE-1310: null
 normative: true
 ref: ''
-reviewed: qdmtJCpZwb5avBv_VmMObEOqHJf-ta4x-oycgAQo0sg=
+reviewed: rRGJhLXnOsr4UONrZS12sB7pvKLVf5rtzfYLC_IbMtg=
 source: docs/use-typeshade-surface.md §13
 ---
 
 # Integer literals
 
-docs/use-typeshade-surface.md §13, "Integer literals": the surface section that explains Rule 5.1, Rule 5.2, Rule 5.4, Rule 5.5.
+docs/use-typeshade-surface.md §13, "Integer literals": the surface section that explains Rule 5.1, Rule 5.2, Rule 5.4, Rule 5.5, Rule 13.10.

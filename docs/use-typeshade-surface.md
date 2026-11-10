@@ -1319,25 +1319,13 @@ Calls through unresolved names or function values and direct calls to generic fu
 do not establish an integer type. A concrete member parameter such as `index: i32` can
 establish a demand inside a generic class; an unresolved parameter such as `index: T` cannot.
 
-**A window is open on the default (#148; the policy it follows is roadmap item 25, the
-deprecation-policy row, and `RELEASING.md` §7).** Everything above is
-about a position or use that DECLARES a type. Where nothing establishes one — `let i = 0`, `const K = 5`
-— the literal still takes `f32`, so `xs[i]` is `Index must be i32 or u32`. WGSL concretizes an
-abstract integer to `i32` when nothing else decides (wgsl.txt:3929-3933, 4100-4104), GLSL's `5`
-is an `int`, and a TypeScript reader expects `let i = 0` to index an array — so that default
-will change. It has NOT changed yet: this release carries the window, not the flip. A build
-that wants to see which of its lines the flip will move asks for the warning, which is off by
-default and moves no emitted byte. A local that already takes an integer type from its declared uses
-does not carry that warning. Unannotated class fields that take this default also carry it,
-including static and readonly fields:
-
-```ts
-compile(source, { deprecations: true });
-// TS8053 (warning): "i" is written as an integer and types as f32 today; it will type as i32
-// (§13, #148). Write "i = 0." to keep f32, or leave it and take i32.
-```
-
-`RELEASING.md` §7 is the policy the window follows and the list of the windows that are open.
+**No window is open on the default.** Everything above is about a position or use that
+DECLARES a type. Where nothing establishes one (`let i = 0`, `const K = 5`), the literal takes
+`f32` today, so `xs[i]` is `Index must be i32 or u32`. Change 0134 decided that a number takes
+its type from every place it reaches, with no default for an author to learn. It supersedes
+#148's flip of this default to `i32` and retired the warning `TS8053`, which announced that <!-- doc-refs: skip — a retired code, named as retired -->
+flip. `compile(source, { deprecations: true })` stays as the mechanism of Rule 13.10 and reports
+nothing until a window opens (`RELEASING.md` §7).
 
 ## 14. TypeScript shapes the parser already had
 

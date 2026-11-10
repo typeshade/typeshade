@@ -59,7 +59,8 @@ export interface CheckOptions {
    *  a package's `package.json`, which the resolution reads to find a package. Omitted, an
    *  import of a file outside the checked set is reported as unresolved. */
   readonly readDocument?: (uri: string) => string | undefined;
-  /** Also report the deprecation warnings `compile({ deprecations: true })` reports (§13). */
+  /** Also report the deprecation warnings `compile({ deprecations: true })` reports (Rule
+   *  13.10). No window is open today, so it adds nothing. */
   readonly deprecations?: boolean;
 }
 
@@ -168,7 +169,8 @@ export function checkOpenDocument(
     .map((d) => fromService(doc, d));
   // The compiler's own run adds what the service does not compute, and nothing else: the
   // backends' verdict (`TS8015`, which an analysis with `emit: false` never reaches) and the
-  // opt-in deprecations (`TS8053`). Every other front-end diagnostic is already in the
+  // opt-in deprecation warnings of Rule 13.10, of which there is none today (change 0134
+  // retired `TS8053`, so `deprecations` is passed on and adds nothing). Every other front-end diagnostic is already in the
   // service's list, which keeps the compiler's report where TypeScript and the compiler report
   // one mistake (`mergeDiagnostics`, Rule 12.4: an unknown name is the compiler's `TS8004` or
   // `TS8022` with its "Did you mean", and TypeScript's `TS2552` beside it is dropped), or was
@@ -183,7 +185,7 @@ export function checkOpenDocument(
     ...(options.deprecations === true ? { deprecations: true } : {}),
   });
   for (const d of compiled.diagnostics) {
-    if (d.code !== TS_CODES.BACKEND && d.code !== TS_CODES.INT_LITERAL_DEPRECATION) continue;
+    if (d.code !== TS_CODES.BACKEND) continue;
     if (d.fileName !== doc.uri) continue;
     const row = fromCompiler(doc, d);
     if (!found.some((f) => sameReport(f, row))) found.push(row);

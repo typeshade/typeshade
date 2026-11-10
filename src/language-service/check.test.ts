@@ -197,7 +197,7 @@ interface FsOut {
     expect(report.diagnostics).toEqual([]);
   });
 
-  it('reports the deprecation warnings only when asked (§13)', () => {
+  it('reports no deprecation warning, asked or not: no window is open (Rule 13.10)', () => {
     const text = `"use typeshade";
 export function f(): f32 {
   let i = 0;
@@ -207,7 +207,8 @@ export function f(): f32 {
 `;
     expect(checkDocuments([doc('d.shade.ts', text)]).diagnostics).toEqual([]);
     const asked = checkDocuments([doc('d.shade.ts', text)], { deprecations: true });
-    expect(asked.diagnostics.map((d) => `${d.severity} ${d.code}`)).toEqual(['warning TS8053']);
+    // Change 0134 retired TS8053, the one warning the option had.
+    expect(asked.diagnostics).toEqual([]);
   });
 
   it('finds no error in any example shader, the corpus the compile gate proves valid', () => {
