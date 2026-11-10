@@ -1027,6 +1027,74 @@ An author's function named `__fround` was taken for the rounding step
 not round as `f32` arithmetic does in `'f32'` precision
 ([#1190](https://github.com/typeshade/typeshade/pull/1190)).
 
+### A4. `pow` keeps ECMAScript's special values; what the next eleven functions measured (2026-11-10)
+
+**Delivered so far.** [observed result] Eighteen of the 19 functions are on `main` at
+`93a9e863`: `tan`, `asin`, `acos`, `atan` and `atan2`
+([#1207](https://github.com/typeshade/typeshade/pull/1207)), a second kernel for `tan`
+([#1214](https://github.com/typeshade/typeshade/pull/1214)), and `sinh`, `cosh`, `tanh`,
+`asinh`, `acosh` and `atanh` ([#1215](https://github.com/typeshade/typeshade/pull/1215)). Each
+pull request had an independent review. No review found an operand at or above 1 ULP.
+
+| Function | Largest error measured for an `f64` operand | Measured by                                            |
+| -------- | ------------------------------------------- | ------------------------------------------------------ |
+| `tan`    | 0.6753 ULP                                  | #1214, 72 million operands; its review measured 0.6663 |
+| `asin`   | 0.7283 ULP                                  | the review of #1207                                    |
+| `acos`   | 0.7897 ULP                                  | the review of #1207                                    |
+| `atan`   | 0.8569 ULP                                  | the review of #1207                                    |
+| `atan2`  | 0.8564 ULP                                  | the review of #1207                                    |
+| `sinh`   | 0.5854 ULP                                  | the review of #1215, 73.75 million operands in all six |
+| `cosh`   | 0.5298 ULP                                  | the review of #1215                                    |
+| `tanh`   | 0.5714 ULP                                  | the review of #1215                                    |
+| `asinh`  | 0.5738 ULP                                  | the review of #1215                                    |
+| `acosh`  | 0.5670 ULP                                  | the review of #1215                                    |
+| `atanh`  | 0.5697 ULP                                  | the review of #1215                                    |
+
+Each number is the largest of a sample. None is a proved bound. Before #1214 the kernel of
+`tan` measured up to 0.9277 ULP; after it, 0.6926 ULP.
+
+**Decision, the special values of `pow`.** Two rules give different answers for some pairs of
+`a ** b` and `Math.pow`. Rule 1.3 gives the oracle "ECMAScript's result for a form borrowed
+from ECMAScript". Surface §10 and Rule 7.2 lower `a ** b` to WGSL's `pow(a, b)`, and Rule 9.4
+lowers a `Math` member to "the WGSL builtin of the same meaning". WGSL leaves `pow` indeterminate
+for x < 0, for x = 1 with y infinite and for x infinite with y = 0.
+
+- Asked on 2026-11-10, the owner first chose "측정 후 다시 결정": measure the targets first
+  (Rule 11.2).
+- [observed result] On 2026-11-10 (`main` at `a86de5c3`, Chromium 153.0.8010.12, Dawn and Tint
+  over SwiftShader Vulkan, ANGLE over SwiftShader Vulkan, results read back as bits), Tint at run
+  time and WebGL2 gave the same bits on all 18 pairs measured. They differ from ECMAScript on 12:
+  `(-2) ** 3` gives 8, `(-2) ** 0.5` gives 1.4142138, `1 ** ±Infinity`, `(-1) ** Infinity` and
+  `1 ** NaN` give +Infinity, `Infinity ** 0` gives +Infinity, `(-0) ** 3` gives +0,
+  `(-0) ** -1` and `0 ** -1` give 2^127, and `(-Infinity) ** 3` gives +Infinity. They agree with
+  ECMAScript on `(-2) ** 2`, `NaN ** 0`, `0 ** 0`, `(-0) ** ±2` and `Infinity ** -1`. The formula
+  exp2(y × log2(x)) in `f32` differs from SwiftShader on most of these pairs as well. Tint's
+  constant evaluator refuses each pair outside the domain that a literal can spell.
+- So no choice makes the CPU give the targets' bits. The other difference, the sign of a zero,
+  is one that GLSL ES 3.00 (§4.5.1) lets a driver drop, and Tint folds the literal `-0.0` to +0.
+- Asked again on 2026-11-10, the owner chose "A + GPU 차이 기록": the CPU `pow` keeps the
+  special values of ECMA-262 that `Math.pow` gives (Rule 1.3), and the libm's routine keeps them
+  too. The measured differences are recorded as Rule 11.2 asks: on the `pow` row of
+  `INTRINSICS` and in the determinism report (surface §38).
+- The alternatives were WGSL's value where WGSL fixes one (`(-0) ** 3` +0, `(-0) ** -1`
+  +Infinity) and ECMAScript's elsewhere, or the values SwiftShader gave. Cost recorded: the CPU
+  and a GPU give different results for these pairs, as they did before. Only SwiftShader was
+  measured; a hardware driver may give other values.
+
+**Side finding.** [observed result] `export const K: f32 = (-0.) ** 3.;` emits `pow(0.0, 3.0)`
+in WGSL and in GLSL: the literal loses the sign of its zero. Both targets may drop that sign,
+so no target result changes. Next action: none planned; it is recorded here.
+
+**Open, compile-time refusals.** `CONST_CALLS` in `src/compiler/ts/loop-bound.ts` reads the
+engine's `Math` for the range and domain refusals of `exp`, `exp2`, `log`, `log2`, `ldexp`,
+`sinh`, `cosh` and `pow`, and `src/compiler/ts/lower/const-call.ts` reads `Math.pow` for the
+value a refusal names. Neither gives a CPU value. This widens the open item of Amendment A3.
+Next action: a later slice of milestone 1a reads them.
+
+**Open, internal routines at run time.** `LIBM` carries the internal routines of each family
+(`hyperbolic`, `lnOnePlus`, `sqrtRest`, `sumErr`, `prodErr` and the earlier kernels). Next
+action: the slice that splits the libm by function (Amendment A2).
+
 ## What it owes downstream
 
 The downstream repositories were not searched for this revision. Each item below is expected
