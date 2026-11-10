@@ -673,13 +673,12 @@ export function atanhF64(x: f64): f64 {
 // kernel of `exp` on the rest times ln 2, scaled by `scale`. The special values are those of
 // ECMA-262's Number::exponentiate, which is what the engine's `Math.pow` gives (Rule 1.3):
 // x^0 is 1 for a NaN x, (+-1)^(+-Infinity) is a NaN, and a negative x with an odd integer y
-// keeps the sign. Two differences from fdlibm:
-//
-// - For |y| > 2^31 and x within 2^-20 of 1, fdlibm takes log2(x) from the series
-//   t - t^2 / 2 + t^3 / 3 - t^4 / 4 of t = x - 1, and the product of t by the 24 bits of
-//   1 / ln 2 is not exact when t has more than 29 bits. Measured against MPFR, it gave 670 ULP
-//   for 1.0000001684596314^4204925455.0672526. Here every x takes the general reduction.
-// - A subnormal result is scaled by `scale`, which rounds it once, as musl's `scalbn` does.
+// keeps the sign. One difference from fdlibm: for |y| > 2^31 and x within 2^-20 of 1, fdlibm
+// takes log2(x) from the series t - t^2 / 2 + t^3 / 3 - t^4 / 4 of t = x - 1, and the product of
+// t by the 24 bits of 1 / ln 2 is not exact when t has more than 29 bits. Measured against MPFR,
+// it gave 670 ULP for 1.0000001684596314^4204925455.0672526. Here every x takes the general
+// reduction. Every result is scaled by `scale` (musl's `scalbn`): exact for a normal result, and
+// one rounding for a subnormal one, as fdlibm's `scalbn` gives; no result changes.
 
 // 1.5, and log2(1.5) as a head of 32 bits and a tail.
 const BP1: f64 = 1.5;

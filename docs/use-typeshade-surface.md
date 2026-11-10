@@ -5295,9 +5295,11 @@ and a sweep of all 278 legal exponents against a WGSL driver found no disagreeme
 part from the oracle. The CPU tiers give ECMA-262's table: `(-2) ** 3` is -8, `1 ** Infinity`
 is NaN, `NaN ** 0` is 1, `(-0) ** 3` is -0 and `(-0) ** -1` is -Infinity. WGSL leaves x < 0,
 x = 1 with an infinite y and an infinite x with y = 0 outside its domain, and GLSL ES 3.00
-leaves x < 0, and x = 0 with y <= 0, undefined. Measured on 2026-11-10 on Chromium
-153.0.8010.12, Tint at run time and WebGL2 (ANGLE), both over SwiftShader Vulkan, with the
-operands read from a buffer, eleven special pairs part (Amendment A4 of change 0042):
+leaves x < 0, and x = 0 with y <= 0, undefined. Inside WGSL's domain, the bound inherited from
+exp2(y * log2(x)) does not hold an infinite result, and no target is held to the sign of a zero.
+Measured on 2026-11-10 on Chromium 153.0.8010.12, Tint at run time and WebGL2 (ANGLE), both over
+SwiftShader Vulkan, with the operands read from a buffer, eleven special pairs part (Amendment A4
+of change 0042):
 
 | Pair              | The CPU tiers (ECMA-262) | Tint and WebGL2 (SwiftShader) |
 | ----------------- | ------------------------ | ----------------------------- |
@@ -5312,8 +5314,8 @@ operands read from a buffer, eleven special pairs part (Amendment A4 of change 0
 
 `(-2, 2)`, `(0, 0)`, `(NaN, 0)`, `(-0, 2)`, `(-0, -2)` and `(Infinity, -1)` agreed. `(2, 0.5)`
 gave 1.4142138, 2 ULP from ECMAScript: an accuracy point inside the bound WGSL inherits, not a
-special pair. A constant `**` outside WGSL's domain is refused by the front end (TS8003), as
-Tint refuses it.
+special pair. A constant `**` that Tint's constant evaluator refuses, x < 0 or x = 0 with y <= 0,
+is refused by the front end first (TS8003).
 
 **One operation at a time.** `accuracyOf(op)` answers for a single builtin id, operator or matrix
 product: `{ kind: 'exact' }` when there is one answer on both targets, otherwise the kind and

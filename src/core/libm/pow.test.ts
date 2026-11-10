@@ -136,6 +136,7 @@ describe("the special pairs of ECMA-262's Number::exponentiate", () => {
 
   it('every pair of the edge set gives the engine Math.pow result, in f64 and in f32', () => {
     let compared = 0;
+    const approximated = { f32: 0, f64: 0 };
     for (const c of CASES) {
       const fr = c.format === 'f32' ? Math.fround : (v: number): number => v;
       const set = c.sets(1).find((s) => s.name === 'edges')!;
@@ -146,8 +147,9 @@ describe("the special pairs of ECMA-262's Number::exponentiate", () => {
         // A pair with a special operand (a zero, an infinity, a NaN, x = ±1), and a result that
         // overflows or underflows, is ECMA-262's table: its bits are held. Every other result is
         // the routine's approximation, and an engine's `Math.pow` need not round it the same
-        // way (V8 gives 1 for 0.9999999999999999 ** -1, whose nearest double is
-        // 1.0000000000000002), so it is held within 2^-51 of the engine's.
+        // way (JavaScriptCore under Bun gives 1 for 0.9999999999999999 ** -1, whose nearest
+        // double is 1.0000000000000002, which V8 under Node gives), so it is held within 2^-51
+        // of the engine's, and within 1 ULP of the exact value.
         const special =
           !Number.isFinite(x) ||
           !Number.isFinite(y) ||
@@ -157,11 +159,18 @@ describe("the special pairs of ECMA-262's Number::exponentiate", () => {
           !Number.isFinite(want) ||
           want === 0;
         if (special) same(got, want, `${c.routine}(${String(x)}, ${String(y)})`);
-        else expect(Math.abs(got - want) <= Math.abs(want) * 2 ** -51).toBe(true);
+        else {
+          expect(Math.abs(got - want) <= Math.abs(want) * 2 ** -51).toBe(true);
+          const e = ulpError(got, exact(x, y), c.format === 'f32' ? F32_FORMAT : F64_FORMAT);
+          expect([c.routine, x, y, Math.abs(e!) < 1]).toEqual([c.routine, x, y, true]);
+          approximated[c.format]++;
+        }
         compared++;
       }
     }
     expect(compared).toBeGreaterThan(1700);
+    // The pairs held to the exact value: 306 for an f64 and 264 for an f32.
+    expect(approximated).toEqual({ f32: 264, f64: 306 });
   });
 
   it('x^1 is x, x^-1 is 1 / x, x^2 is x * x and x^0.5 is the square root, as one rounding', () => {
