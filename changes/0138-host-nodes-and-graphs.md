@@ -670,6 +670,30 @@ sits under it.
 - Affects: R16, decision 14, Q10, Q12, milestone 2. No front-matter entry changes.
 - Status: `status: accepted` does not change.
 
+### A5. Q4 and Q14 answered, and milestone 3 before milestone 2 (2026-11-10)
+
+- [fact] Why. Milestone 3 (non-blocking calls) needs Q4 and Q14 (the table of the approval
+  record). Milestone 2 is carried out under proposal 0042 (Amendment A4), whose milestone 1a is
+  not finished and whose milestones 1b to 1h are not started.
+- [decision, owner, 2026-11-10] Q4, when a recorded call is submitted: "둘 다: 마이크로태스크 끝
+  - read/show에서 즉시". The runtime submits the calls recorded in a microtask when that microtask
+    ends. A `read()` or a `show` submits at once the calls recorded before it. The author writes no
+    submit (OD-3). The alternatives were the end of the microtask only, or `read()` and `show` only.
+    Cost recorded: calls with an `await` between them go in separate submissions.
+- [decision, owner, 2026-11-10] Q14, back-pressure: "show가 같은 캔버스의 이전 프레임을
+  기다림". At most one frame waits for each canvas: a `show` on a canvas waits for that canvas's
+  previous frame before it submits. No computation is dropped, and the author writes no
+  back-pressure code (OD-3). The alternatives were a runtime that drops frames for display, or a
+  host that decides. Cost recorded: when the GPU is slow, the canvas updates at the GPU's rate.
+- [decision, owner, 2026-11-10] Order: "마일스톤 3을 먼저". Milestone 3 is implemented before
+  milestone 2. [inference] Milestone 3 needs only the JavaScript CPU tier, WebGPU and WebGL2. The
+  approval record's sentence "1 to 9 in the order of the Draft impact estimate" holds for the
+  other milestones. Cost recorded: the WebAssembly tier comes later.
+- [fact] The open deviations D1 to D7 of milestone 1 (Amendment A3) are each asked of the owner
+  with the first pull request of milestone 3.
+- Affects: Q4, Q14, the order of milestones 2 and 3. No front-matter entry changes.
+- Status: `status: accepted` does not change.
+
 ## What it owes downstream
 
 - **typeshade.github.io** (`typeshade/web`, `apps/typeshade`). Every host page and Playground
