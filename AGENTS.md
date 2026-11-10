@@ -141,7 +141,8 @@ describes it.
 - `bun run gate:differential`: first the libm arm (`scripts/libm-arm.ts`, change 0042): the
   JavaScript form of the libm's routines, under Bun, held by hash to the seeded inputs and
   results of each family's gate file (`src/core/libm/trig.gate.json`,
-  `src/core/libm/explog.gate.json`, `src/core/libm/invtrig.gate.json`), which the family's test
+  `src/core/libm/explog.gate.json`, `src/core/libm/invtrig.gate.json`,
+  `src/core/libm/hyper.gate.json`), which the family's test
   under `src/core/libm/` holds in Node.
   Then generated kernel functions (`generateKernelModule(seed, { exact: true })`)
   lowered and dispatched on headless WebGPU as `callKernel` dispatches them, every array they
