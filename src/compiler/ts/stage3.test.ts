@@ -1394,6 +1394,20 @@ describe('the stage attributes are the form of an entry (Rule 8.1, change 0130)'
         const attr = `@${name}(${written})`;
         refusedOnce(program(attr), noArgument(name, written), attr);
       }
+      // The sentence names the attribute to write (Rule 12.5). Written over the range the
+      // refusal covers, it compiles with no diagnostic in either half, with the emit of the
+      // attribute alone (`remedy-lines.test.ts` counts this sentence and cannot paste it: it
+      // is no `const` or `let` line).
+      for (const [program, name, written] of cases) {
+        const source = program(`@${name}(${written})`);
+        const [d] = compile(source).diagnostics;
+        const named = /write "(@[a-z]+)"/.exec(d!.message)?.[1];
+        expect(named, d!.message).toBe(`@${name}`);
+        const fixed = source.slice(0, d!.start) + named! + source.slice(d!.start + d!.length);
+        expect(fixed).toBe(program(`@${name}`));
+        expect(both(fixed), fixed).toEqual(clean);
+        expect(compile(fixed).wgsl, fixed).toContain(`@${name}`);
+      }
       // In a namespace, and in the order `export @fragment function`.
       refusedOnce(
         `"use typeshade";\nnamespace N { @fragment(1) export function fs(): location<0, vec4> { return vec4(1.); } }\n`,
