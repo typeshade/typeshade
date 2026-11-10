@@ -5,6 +5,9 @@ import { compileModule } from '../oracle.js';
 import { compileModuleJs } from '../cpu-codegen.js';
 import { froundF32 } from './precision.js';
 import { compile } from '../../compiler/ts/compile.js';
+import { CPU_ONLY_IDS } from '../cpu-only-ids.js';
+import { startDebugSession } from '../debug/session.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 // X-GIS #2426 — the f32 oracle mode. The default oracle is f64 BY DESIGN (it is the algebra
 // reference); this pass makes the same IR evaluate as a correctly-rounding f32 machine, so a
@@ -225,5 +228,71 @@ describe('froundF32 — the f32 oracle mode', () => {
 
   it('defaults to f64 — an omitted option changes nothing', () => {
     expect(compileModule(addModule).fns.k!(0.1)).toBe(compileModule(addModule, {}).fns.k!(0.1));
+  });
+});
+
+// A function an author declares under the name of a CPU-only id is that function (Rule 9.5).
+// The pass read the name `__fround` alone, dropped the author's call and kept its argument, so
+// `__fround(x)` gave `x` rounded on the interpreter and on the generated JavaScript. The emitted
+// WGSL and GLSL called the author's function, so the CPU and the GPU disagreed.
+describe('an author-declared function named like a CPU-only id', () => {
+  const editorDiagnostics = (source: string): string[] => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', source);
+    return service.getDiagnostics('a.ts').map((d) => `${String(d.code)} ${String(d.message)}`);
+  };
+
+  for (const id of CPU_ONLY_IDS) {
+    const source = `"use typeshade";
+function ${id}(x: f32): f32 { return x * 2.0 + 0.1; }
+export function once(x: f32): f32 { return ${id}(x) + 0.25; }
+export function twice(x: f32): f32 { return ${id}(${id}(x)); }
+export function lanes(v: vec2): vec2 { return vec2(${id}(v.x), ${id}(v.y)); }
+@fragment export function fs(uv: location<0, vec2>): vec4 { return vec4(once(uv.x), twice(uv.y), 0., 1.); }
+`;
+    const fr = Math.fround;
+    const own = (x: number): number => fr(fr(fr(x) * 2) + fr(0.1));
+
+    it(`${id}: compile() and the language service accept the declaration and the calls`, () => {
+      const r = compile(source);
+      expect(r.diagnostics).toEqual([]);
+      expect(editorDiagnostics(source)).toEqual([]);
+      // Both writers emit the author's function and call it.
+      expect(r.wgsl).toMatch(/fn \w+\(x: f32\) -> f32 \{\n {2}return \(\(x \* 2\.0\) \+ 0\.1\);/);
+      expect(r.glsl?.fragment).toContain('* 2.0) + 0.1)');
+    });
+
+    it(`${id}: the interpreter, the generated JavaScript and the stepper call the author's function`, () => {
+      const module = compile(source).module;
+      const x = 0.3;
+      for (const precision of ['f32', 'f64'] as const) {
+        const want =
+          precision === 'f32'
+            ? { once: fr(own(x) + 0.25), twice: own(own(x)) }
+            : { once: x * 2 + 0.1 + 0.25, twice: (x * 2 + 0.1) * 2 + 0.1 };
+        for (const build of [compileModule, compileModuleJs]) {
+          const fns = build(module, { precision }).fns as Record<
+            string,
+            (...a: unknown[]) => unknown
+          >;
+          expect(fns['once']!(x)).toBe(want.once);
+          expect(fns['twice']!(x)).toBe(want.twice);
+          if (precision === 'f32') expect(fns['lanes']!([x, 1])).toEqual([own(x), own(1)]);
+        }
+        const stepper = startDebugSession(module, 'once', [x], { precision });
+        stepper.continue();
+        expect(stepper.result).toBe(want.once);
+      }
+    });
+
+    it(`${id}: the pass stays idempotent on such a module`, () => {
+      const once = froundF32(compile(source).module);
+      expect(froundF32(once)).toEqual(once);
+    });
+  }
+
+  it('the rounding step itself is still collapsed: a second application adds no wrapper', () => {
+    const once = froundF32(addModule);
+    expect(froundF32(once)).toEqual(once);
   });
 });

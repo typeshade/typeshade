@@ -55,10 +55,11 @@ const COMPUTES_VALUE = new Set([
 
 /** Rewrite `m` so its f32 arithmetic rounds to f32 after every operation. Idempotent. */
 export function froundF32(m: ModuleDecl): ModuleDecl {
+  const declared = new Set(m.funcs.map((f) => f.name));
   return {
     ...m,
     funcs: m.funcs.map((fn): FuncDecl => {
-      const f = rounding(fn);
+      const f = rounding(fn, declared);
       return { ...fn, body: fn.body.map((s) => mapStmt(compoundRounds(s), f)) };
     }),
   };
@@ -81,18 +82,25 @@ function compoundRounds(s: Stmt): Stmt {
   };
 }
 
-/** The rewrite for one function's body, which knows the parameters it takes by reference. */
-function rounding(fn: FuncDecl): (e: Expr) => Expr {
+/** The rewrite for one function's body, which knows the parameters it takes by reference and
+ *  the names of the functions the module declares. */
+function rounding(fn: FuncDecl, declared: ReadonlySet<string>): (e: Expr) => Expr {
   const byRef = new Set(fn.params.flatMap((p) => (p.mode === 'inout' ? [p.name] : [])));
+  // The rounding step, and not a call of a function the module declares under its name: a
+  // call the front end resolved to a declaration carries `declRef` (Rule 9.5), and the CPU
+  // engines route it to that function (`callKind` in `cpu-codegen.ts`, `evalExpr` in
+  // `oracle.ts`). Reading the name alone dropped such a call and kept its argument.
+  const isRounding = (c: Expr): boolean =>
+    c.op === 'call' && c.fn === '__fround' && !(c.declRef !== undefined && declared.has(c.fn));
   return (e: Expr): Expr => {
     // `mapExpr` rewrites BOTTOM-UP, so on a second application an existing wrapper's argument
     // is re-wrapped before the wrapper itself is seen. Collapsing `__fround(__fround(x))` here
     // — where the inner one has just been re-created — is what makes the pass exactly
     // idempotent instead of merely value-idempotent (fround(fround(x)) === fround(x), but an
     // IR that grows on every application is a footgun).
-    if (e.op === 'call' && e.fn === '__fround') {
+    if (e.op === 'call' && isRounding(e)) {
       const inner = e.args[0];
-      return inner !== undefined && inner.op === 'call' && inner.fn === '__fround' ? inner : e;
+      return inner !== undefined && isRounding(inner) ? inner : e;
     }
     if (!isF32ish(e.type) || !COMPUTES_VALUE.has(e.op)) return e;
     if (e.op === 'param' && byRef.has(e.name)) return e;
