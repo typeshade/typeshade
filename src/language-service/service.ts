@@ -16,7 +16,7 @@ import {
   mergeDiagnostics,
 } from './diagnostics.js';
 import { getCompletions } from './completions.js';
-import { getHover } from './hover.js';
+import { getHover, type HoverProgram } from './hover.js';
 import {
   getDefinition,
   getDocumentSymbols,
@@ -284,19 +284,21 @@ export function createTypeshadeLanguageServiceWith(
   }
 
   /**
-   * The analysis of every open document other than `uri` whose program links `declaringUri`
-   * (Rule 3.9): what the hover in `uri` reads for a field that `declaringUri` declares and that
-   * the program of `uri` gives no place among its entries (`hover.ts`, `entryLocationLine`).
+   * The program of every open document other than `uri` that links `declaringUri` (Rule 3.9),
+   * with the document's uri: what the hover in `uri` reads for a field that `declaringUri`
+   * declares and that the program of `uri` gives no place among its entries (`hover.ts`,
+   * `entryLocationLines`).
    * Each is that document's own cache entry, the one its diagnostics, symbols and tokens read,
    * so a hover adds no analysis that the service does not keep: an open document is analysed
    * once per version, here or at its own first request.
    */
-  function programsLinking(uri: string, declaringUri: string): CompileTsSourceResult[] {
-    const out: CompileTsSourceResult[] = [];
+  function programsLinking(uri: string, declaringUri: string): HoverProgram[] {
+    const out: HoverProgram[] = [];
     for (const open of tsHost.openUris()) {
       if (open === uri || !dependenciesOf(open).includes(declaringUri)) continue;
       const sourceFile = sourceFileOf(open);
-      if (sourceFile !== undefined) out.push(entryOf(open, sourceFile).analysis);
+      if (sourceFile !== undefined)
+        out.push({ uri: open, analysis: entryOf(open, sourceFile).analysis });
     }
     return out;
   }
