@@ -240,7 +240,8 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   sizes for the two bundles that hold the CPU op library: `typeshade/algorithms` single file
   55,438 to 56,681 (+1,243), split initial and total 54,595 to 55,861; `typeshade/random`
   single file 36,707 to 37,946 (+1,239), split initial and total 35,909 to 37,138. The floors
-  and the other caps do not change.
+  and the other caps do not change. The libm derives from fdlibm: `NOTICE`, the libm sources and
+  their baked forms carry fdlibm's notice.
 
 - **`sin` and `cos` on the CPU are the libm's, not the engine's** (change 0042, milestone 1a).
   The CPU oracle and the CPU tier computed `sin` and `cos` with the engine's `Math.sin` and

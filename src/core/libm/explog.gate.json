@@ -264,8 +264,8 @@
       "set": "edges",
       "count": 140,
       "nanResults": 14,
-      "inputsSha256": "6f317b08615d3ddadd53e0c5941bb82d7404c3bdad2e256b1d70bdde98b6ba24",
-      "resultsSha256": "3433d04438f587859850d46fc72ef7ae1f0197ca7548eb07063459af91d39a14"
+      "inputsSha256": "08d2a3860e1124f9f5cac960efb2b9ef35063270eea29ace4005147966c0f625",
+      "resultsSha256": "3f3e3b1784b541537260e6eb3481099df26566eb333f7a0bd7879a33cec48b60"
     },
     {
       "routine": "ldexpF32",

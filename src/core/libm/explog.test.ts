@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { bakeLibm, libmGenerated, libmSource } from '../../../scripts/bake-libm.js';
 import { compileLibmSource } from '../../compiler/ts/libm-source.js';
 import { compile } from '../../compiler/ts/compile.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { compileModuleJs } from '../cpu-codegen.js';
 import { BUILTINS, LIBM } from '../cpu-runtime.js';
 import { compileModule } from '../oracle.js';
@@ -261,18 +262,6 @@ describe('form against form: the interpreter on the IR and the baked JavaScript'
       }
     }
   });
-
-  it('sees a difference: one result with its last bit changed gives another hash', () => {
-    const set = CASES.find((c) => c.routine === 'expF64')!.sets(1000)[2]!;
-    const good = caseResults(
-      CASES.find((c) => c.routine === 'expF64')!,
-      set,
-    );
-    const bad = Float64Array.from(good);
-    const at = bad.findIndex((v) => Number.isFinite(v) && v > 1e-300);
-    bad[at] = bad[at]! * (1 + 2 ** -52);
-    expect(sha256(littleEndianBytes(bad).bytes)).not.toBe(sha256(littleEndianBytes(good).bytes));
-  });
 });
 
 describe('engine against engine: explog.gate.json', () => {
@@ -288,6 +277,35 @@ describe('engine against engine: explog.gate.json', () => {
 
   it('this engine makes the inputs and the results that the file hashes', () => {
     expect(caseRows(CASES, sha256)).toEqual(file.rows);
+  });
+
+  it('sees a wrong routine: one result of log with its last bit changed is reported', () => {
+    // The gate's own proof (AGENTS.md#gate-discipline): the same rows, computed over a libm
+    // whose `log` is one unit off for one operand, differ from the file in that case's set.
+    const wrong = 0.6281260318251352;
+    const cases = explogCases({
+      ...LIBM,
+      logF64: (x) => (x === wrong ? LIBM.logF64(x) * (1 + 2 ** -52) : LIBM.logF64(x)),
+    }).filter((c) => c.routine === 'logF64');
+    expect(LIBM.logF64(wrong) * (1 + 2 ** -52)).not.toBe(LIBM.logF64(wrong));
+    // The operand is put into the case's edge set, so the changed routine is called with it.
+    const good = CASES.filter((c) => c.routine === 'logF64');
+    const withOperand = (cs: typeof cases): typeof cases =>
+      cs.map((c) => ({
+        ...c,
+        sets: (count?: number) =>
+          c
+            .sets(count)
+            .map((s) =>
+              s.name === 'edges' ? { ...s, values: Float64Array.from([...s.values, wrong]) } : s,
+            ),
+      }));
+    const a = caseRows(withOperand(good), sha256);
+    const b = caseRows(withOperand(cases), sha256);
+    expect(a.map((r) => r.inputsSha256)).toEqual(b.map((r) => r.inputsSha256));
+    expect(a.filter((r, i) => r.resultsSha256 !== b[i]!.resultsSha256).map((r) => r.set)).toEqual([
+      'edges',
+    ]);
   });
 
   it('the input bytes of a function of two operands hold both', () => {
@@ -414,12 +432,76 @@ describe('the error is under 1 ULP (decision N9), and ldexp is correctly rounded
           const v = exactValue(x);
           const error = ulpError(c.f(x, n), { num: v.num, scale: v.scale - BigInt(n) }, format[i]!);
           measured++;
-          // Half a unit or less; a tie may go either way in this measure, and the next test
-          // holds the ties.
+          // Half a unit or less. A tie measures half a unit whichever way it goes, and the
+          // next test holds the ties.
           expect([x, n, Math.abs(error!) <= 0.5]).toEqual([x, n, true]);
         }
       }
       expect(measured).toBeGreaterThan(3000);
+    }
+  });
+});
+
+describe('ldexp rounds a tie to even, for an f64 and for an f32 result', () => {
+  const f64 = CASES.find((k) => k.routine === 'ldexpF64')!;
+  const f32 = CASES.find((k) => k.routine === 'ldexpF32')!;
+  // The smallest subnormal of each format.
+  const U64 = 5e-324;
+  const U32 = 1.401298464324817e-45;
+
+  it('f64: half a unit goes to the even neighbour', () => {
+    // 0.5, 1.5 and 2.5 units are ties; 1.25 and 1.75 are not.
+    expect(f64.f(1, -1075)).toBe(0);
+    expect(f64.f(3, -1075)).toBe(2 * U64);
+    expect(f64.f(5, -1075)).toBe(2 * U64);
+    expect(f64.f(7, -1075)).toBe(4 * U64);
+    expect(f64.f(5, -1076)).toBe(U64);
+    expect(f64.f(7, -1076)).toBe(2 * U64);
+    expect(Object.is(f64.f(-1, -1075), -0)).toBe(true);
+    expect(f64.f(-3, -1075)).toBe(-2 * U64);
+  });
+
+  it('f32: half a unit goes to the even neighbour', () => {
+    expect(f32.f(1, -150)).toBe(0);
+    expect(f32.f(3, -150)).toBe(2 * U32);
+    expect(f32.f(5, -150)).toBe(2 * U32);
+    expect(f32.f(7, -150)).toBe(4 * U32);
+    expect(f32.f(5, -151)).toBe(U32);
+    expect(f32.f(7, -151)).toBe(2 * U32);
+    expect(Object.is(f32.f(-1, -150), -0)).toBe(true);
+    expect(f32.f(-3, -150)).toBe(-2 * U32);
+    // The largest f32 scaled down to just under one unit rounds to one unit, and 2^128 is an
+    // overflow.
+    expect(f32.f(3.4028234663852886e38, -277)).toBe(U32);
+    expect(f32.f(1, 128)).toBe(Infinity);
+    expect(f32.f(1, 127)).toBe(1.7014118346046923e38);
+  });
+});
+
+describe('the exponent of ldexp is an i32 for an author', () => {
+  // `ldexpF64` takes any number from JavaScript and checks nothing: (1, 0.5) and (1, NaN) give
+  // no meaningful value. No author reaches that, because both halves refuse an exponent that
+  // is not an `i32`.
+  const editor = (source: string): string[] => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', source);
+    return service.getDiagnostics('a.ts').map((d) => `${String(d.code)} ${String(d.message)}`);
+  };
+  const program = (exponent: string, declare = ''): string =>
+    `"use typeshade";\nexport function f(x: f32${declare}): f32 {\n  return ldexp(x, ${exponent});\n}\n`;
+
+  it('an i32 exponent compiles on both halves', () => {
+    for (const source of [program('3'), program('n', ', n: i32')]) {
+      expect(compile(source).diagnostics).toEqual([]);
+      expect(editor(source)).toEqual([]);
+    }
+  });
+
+  it('an f32 exponent and a u32 exponent are refused on both halves, in the same words', () => {
+    for (const source of [program('0.5'), program('y', ', y: f32'), program('u', ', u: u32')]) {
+      const fromCompiler = compile(source).diagnostics.map((d) => `${d.code} ${d.message}`);
+      expect([source, fromCompiler.length]).toEqual([source, 1]);
+      expect(editor(source)).toEqual(fromCompiler);
     }
   });
 });

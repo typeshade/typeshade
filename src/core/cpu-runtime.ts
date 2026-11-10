@@ -364,8 +364,9 @@ export interface Componentwise {
 export const COMPONENTWISE = {
   // The libm's routines (change 0042), not the engine's `Math.sin` and `Math.cos`. Every
   // operand takes the `f64` routine. In `'f32'` precision the precision pass rounds the result
-  // once to `f32` (`__fround`), so an `f32` operand has one answer on every CPU path: a call,
-  // a module constant and a compile-time fold.
+  // once to `f32` (`__fround`), so there is no second routine whose result could differ. The
+  // operand is the value the caller holds: a call rounds an `f32` operand before the routine
+  // reads it, and a compile-time fold reads the operand as it is written.
   sin: { lane: (x: number): number => LIBM.sinF64(x), vector: 0 },
   cos: { lane: (x: number): number => LIBM.cosF64(x), vector: 0 },
   tan: { lane: Math.tan, vector: 0 },

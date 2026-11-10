@@ -172,7 +172,9 @@ export function exp2F64(x: f64): f64 {
   return scale(kexp(p, -(pe + r * LN2TAIL)), k);
 }
 
-/** x * 2^n for an f64, correctly rounded. */
+/** x * 2^n for an f64, correctly rounded. `n` is an `i32`: the builtin's exponent has that type,
+ *  so no author's program hands this routine anything else. The JavaScript form checks nothing
+ *  at run time; a caller that hands it a number that is no `i32` gets no promise. */
 export function ldexpF64(x: f64, n: i32): f64 {
   return scale(x, n);
 }

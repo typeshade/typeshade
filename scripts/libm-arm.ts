@@ -40,9 +40,28 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const LIBM_GATE_FILE = 'src/core/libm/trig.gate.json';
 
 /** The families after `trig`, each with its gate file `src/core/libm/<family>.gate.json`. */
-const CASE_FAMILIES: readonly (readonly [string, () => LibmCase[]])[] = [
-  ['explog', () => explogCases(LIBM)],
+const CASE_FAMILIES: readonly (readonly [string, (libm: typeof LIBM) => LibmCase[]])[] = [
+  ['explog', (libm) => explogCases(libm)],
 ];
+
+/** `LIBM` with a result of the routine `name` changed in its last bit, once in every 50,000
+ *  finite, non-zero results, so that each case of the routine meets one. The rounding of an
+ *  `f32` case hides the bit; the `f64` case must report it. The instrument of a family plants
+ *  it and requires a report. */
+function withOneBitChanged(name: keyof typeof LIBM): typeof LIBM {
+  let seen = 0;
+  const routine = LIBM[name] as (x: number, n: number) => number;
+  return {
+    ...LIBM,
+    [name]: (x: number, n: number): number => {
+      const r = routine(x, n);
+      if (!Number.isFinite(r) || r === 0 || Math.abs(r) < 1e-300) return r;
+      return seen++ % 50_000 === 1000 ? r + r * 2 ** -52 : r;
+    },
+  };
+}
+/** The routine of each family whose result the instrument changes. */
+const PLANTED: Readonly<Record<string, keyof typeof LIBM>> = { explog: 'logF64' };
 const caseFile = (family: string): string => `src/core/libm/${family}.gate.json`;
 
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -105,7 +124,23 @@ export function libmArm(): number {
   let failed = failures.length;
   for (const [family, cases] of CASE_FAMILIES) {
     const expected = JSON.parse(readFileSync(join(ROOT, caseFile(family)), 'utf8')) as LibmCaseFile;
-    const computed = caseRows(cases(), sha256);
+    // The instrument of this family: one changed bit of one routine's result must be reported.
+    const routine = PLANTED[family]!;
+    const reported = differences(
+      caseRows(cases(withOneBitChanged(routine)), sha256),
+      expected.rows,
+    );
+    if (reported.length === 0) {
+      console.log(
+        `FAIL  libm ${family}: a result of ${routine} with one bit changed was not reported`,
+      );
+      failed += 1;
+      continue;
+    }
+    console.log(
+      `instrument: a result of ${routine} with one bit changed was REPORTED (${reported[0]!})`,
+    );
+    const computed = caseRows(cases(LIBM), sha256);
     const wrong = differences(computed, expected.rows);
     for (const f of wrong) console.log(`FAIL  libm ${family} ${f}`);
     console.log(
@@ -132,7 +167,7 @@ if (import.meta.main) {
         seed: file.seed,
         generator: 'mulberry32; src/core/testing/libm-cases.ts',
         nan: file.nan,
-        rows: caseRows(cases(), sha256),
+        rows: caseRows(cases(LIBM), sha256),
       };
       writeFileSync(join(ROOT, caseFile(family)), `${JSON.stringify(next, null, 2)}\n`);
       console.log(`wrote ${caseFile(family)} on ${engine()}`);
