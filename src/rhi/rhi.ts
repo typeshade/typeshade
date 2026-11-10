@@ -374,6 +374,9 @@ export interface RhiNativeKinds {
 
 /** A device: the objects it makes, the commands it runs, and its capabilities. */
 export interface RhiDevice {
+  /** The RHI's backend. This list is not `TIERS` (`../core/tiers.ts`), the tiers a call may run
+   *  on, and it is written here on purpose: a tier that is a code form of the software backend
+   *  runs on the backend `'cpu'` and adds no backend (change 0042). */
   readonly backend: 'webgpu' | 'webgl2' | 'cpu';
   readonly caps: RhiCaps;
   /** The native device: a `GPUDevice` on WebGPU, a `WebGL2RenderingContext` on WebGL2, and none
