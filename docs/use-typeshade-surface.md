@@ -337,12 +337,15 @@ export function fs(
 - A stage attribute takes no options: change 0131 removed `numerics` (§78), and change 0132
   removed `diagnostic`, whose work the compiler's rewrite does (Rule 8.5, §54). A written
   `@diagnostic(…)` is refused (`TS8028`), in the compiler and in the editor (§7).
-- `@vertex` and `@fragment` take no argument. An argument written on one is refused (`TS8028`),
-  on the attribute, in the compiler and in the editor, and the function is still read as the
-  entry (Rule 8.1):
+- `@vertex` and `@fragment` take no argument list. An argument written on one is refused
+  (`TS8028`), on the attribute, in the compiler and in the editor, and the function is still read
+  as the entry (Rule 8.1):
   `"@fragment" takes no argument: write "@fragment" and delete "({ diagnostic: ["off", "derivative_uniformity"] })" (Rule 8.1).`
-  The text quotes the argument as written. An argument that `@compute` or `@workgroup_size`
-  cannot read is `TS8037`, as above and below.
+  The text quotes the argument as written. The empty list, `@vertex()` or `@fragment()`, is
+  refused the same way, since a stage has one spelling (change 0130, amendment A1):
+  `"@vertex" takes no argument: write "@vertex" and delete "()" (Rule 8.1).`
+  `@compute()` stays accepted: its empty list means the default size (Rule 8.7). An argument
+  that `@compute` or `@workgroup_size` cannot read is `TS8037`, as above and below.
 - A type argument on a stage attribute or on `@workgroup_size` is refused (`TS8028`), as every
   decorator that is not a name is (Rule 6.7):
   `"@compute<f32>([8])" is not applied: an attribute is written "@name" or "@name(...)". Remove it.`
@@ -357,6 +360,10 @@ export function fs(
   `"workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Declare "f" without it.`
   On an entry it is refused (`TS8028`):
   `"@workgroup_size" is WGSL's attribute, written here as @compute's argument: @compute([64]) or @compute([8, 8]); on a kernel function, @workgroup_size([n]).`
+  A function takes at most one `@workgroup_size([n])`. A second one is refused (`TS8028`), on
+  the second attribute, in the compiler and in the editor, as a second stage attribute is, and
+  the first one sets the size (Rule 8.22; change 0130, amendment A1):
+  `"@workgroup_size([16])" is a second "@workgroup_size" on "scale", after "@workgroup_size([8])": a function takes at most one "@workgroup_size([n])"; delete "@workgroup_size([16])" (Rule 8.22).`
 
 **The stage calls of change 0111 are refused.** Change 0111 wrote an entry as a `const` that a
 stage call initializes: `vertex(f)`, `fragment(f)`, `compute([x, y?, z?], f)`, and
@@ -555,7 +562,8 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | `@diagnostic(…)` anywhere: on a function, a field, a parameter or a declaration | `TS8028`, an error, in the compiler and in the editor: `"@diagnostic(…)" is not a decorator the compiler reads (Rule 6.7). Delete it: the compiler rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5) and reports each other one with TS8052 and the reason. "tshc migrate" deletes it.` Change 0132 removed the filter, with no warning release (§54) |
 | a stage call of change 0111, `vertex(f)`, `fragment(f)`, `compute([…], f)` or `workgroup_size([…], f)`, and so an entry written as a `const`, an arrow function or a function expression through one, wherever it is written | `TS8028`, an error, once, on the name called, in the compiler and in the editor (Rule 6.7, changes 0130 and 0140): `a stage is an attribute on the function declaration: write "@vertex export function vs(…)", or run "tshc migrate" (change 0130)`. The text names the attribute with its size, and an option written after the function to delete. Nothing else is said about the refused entry. A declaration of the file under one of the four names is the file's, and a call of it is not refused (§3) |
 | `export default` on an entry | `TS8028`, an error, on `default`, in the compiler and in the editor (Rule 8.1, change 0140): `an entry takes its declaration's name; write "export function k"` (§3) |
-| an argument on `@vertex` or `@fragment`: `@vertex(1)`, `@fragment({ … })` | `TS8028`, an error, once, on the attribute, in the compiler and in the editor (Rule 8.1): `"@vertex" takes no argument: write "@vertex" and delete "(1)" (Rule 8.1).` The function is still read as the entry (§3). A type argument, `@compute<f32>([8])`, is the row "a decorator that is not a name" above |
+| an argument or an empty argument list on `@vertex` or `@fragment`: `@vertex(1)`, `@fragment({ … })`, `@vertex()`, `@fragment()` | `TS8028`, an error, once, on the attribute, in the compiler and in the editor (Rule 8.1): `"@vertex" takes no argument: write "@vertex" and delete "(1)" (Rule 8.1).`, and for the empty list `… delete "()" (Rule 8.1).` (change 0130, amendment A1). The function is still read as the entry (§3). `@compute()` is accepted (Rule 8.7). A type argument, `@compute<f32>([8])`, is the row "a decorator that is not a name" above |
+| a second `@workgroup_size([n])` on one function | `TS8028`, an error, on the second attribute, and on each further one, in the compiler and in the editor (Rule 8.22; change 0130, amendment A1): `"@workgroup_size([16])" is a second "@workgroup_size" on "scale", after "@workgroup_size([8])": a function takes at most one "@workgroup_size([n])"; delete "@workgroup_size([16])" (Rule 8.22).` The first one sets the size (§3, §65) |
 | a decorator of the decorated form where it is read: `@builtin`, `@location`, `@interpolate`, `@invariant` or `@blend_src` on a parameter or a field | a `TS8028` warning, one per decorator, in the compiler and in the editor, naming the new spelling (change 0111, the migration release): for an attribute the member's type, `write "pos: builtin<"position", vec4, { invariant: true }>"`. A decorator refused where it is written keeps that refusal alone. The release after it refuses each one. The editor drops TypeScript's TS1206 on a parameter's decorator only while `compile()` warns on it. A stage attribute on a function, `@vertex`, `@fragment`, `@compute(…)` or `@workgroup_size(…)`, is the entry's form (change 0130): no warning, and the editor drops its TS1206 in every file. A parameter qualifier, `@inout` or `@out`, is no decorated form and warns nowhere (change 0137). The editor reports no TS2564 (`strictPropertyInitialization: false`) |
 | the type form of a parameter qualifier, `inout<T>` or `out<T>`, in any type position: a parameter, a local, a result, a type alias, a generic argument or a field | a `TS8028` error, once, at the written `inout<…>`, in the compiler and in the editor (change 0137): `"inout<f32>" is the type form of a parameter qualifier, which the language does not have: write "@inout a: f32", or run "tshc migrate" (change 0137).`; away from a parameter, `… a qualifier is written before a parameter, as "@inout a: f32", and here the type is "f32"; "tshc migrate" rewrites a parameter's type form (change 0137).` |
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
@@ -8419,7 +8427,7 @@ The editor shows the same warning. Only a kernel function's loops are candidates
 entry, a helper or a fragment shader stays per-invocation code, as it always was.
 
 **The workgroup size.** A kernel function's workgroup size is the compiler's choice: in this version 64 for a loop that does not reduce (Rule 8.22). A kernel function may state the size with the optional attribute `@workgroup_size([128])` on its declaration, `@workgroup_size([128]) export function scale(xs: array<f32>) { … }` (change 0130): one whole number in the array, or a `u32` or `i32` module constant, as `@compute` reads its extent (§3). Each loop that does not reduce runs at that size on WebGPU. A loop that reduces runs in workgroups of 256 (Rule 7.2), so a size on a function with such a loop is refused:
-`"total" has a loop that reduces, which always runs in workgroups of 256. Declare "total" without workgroup_size, or put the reduction in a function of its own.` (`TS8077`). The size changes how long a loop takes. It does not change what the loop writes, since each element comes from its own index. WebGL2 and the CPU tier have no workgroup and ignore it.
+`"total" has a loop that reduces, which always runs in workgroups of 256. Declare "total" without workgroup_size, or put the reduction in a function of its own.` (`TS8077`). A function takes at most one `@workgroup_size([n])`: a second one is refused (`TS8028`) on the second attribute, in the compiler and in the editor, and the text names the attribute to delete (§3; change 0130, amendment A1). The size changes how long a loop takes. It does not change what the loop writes, since each element comes from its own index. WebGL2 and the CPU tier have no workgroup and ignore it.
 
 **The call.** A host file imports a kernel function like any export (§64) and awaits it:
 

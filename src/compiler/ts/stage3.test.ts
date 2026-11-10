@@ -1428,6 +1428,62 @@ describe('the stage attributes are the form of an entry (Rule 8.1, change 0130)'
       );
     });
 
+    // Change 0130, amendment A1 (the owner's decision of 2026-11-10): a stage has one spelling,
+    // so the empty list is refused as an argument is. `@compute()` is not: its empty list means
+    // the default size (Rule 8.7), and the neighbours below pin it.
+    it('refuses the empty argument list on @vertex or @fragment, once, in both halves', () => {
+      const cases: [(attr: string) => string, string, string][] = [
+        [vs, 'vertex', '@vertex()'],
+        [fs, 'fragment', '@fragment()'],
+        // The text names the list as "()", whatever is written between the parentheses.
+        [vs, 'vertex', '@vertex( )'],
+        [fs, 'fragment', '@fragment(/* none */)'],
+      ];
+      for (const [program, name, attr] of cases) {
+        const source = program(attr);
+        refusedOnce(source, noArgument(name, ''), attr);
+        // The line the refusal names, written over the range it covers, is the bare attribute's
+        // program: it compiles with no diagnostic in either half, with the same emit.
+        const [d] = compile(source).diagnostics;
+        const named = /write "(@[a-z]+)"/.exec(d!.message)?.[1];
+        expect(named, d!.message).toBe(`@${name}`);
+        const fixed = source.slice(0, d!.start) + named! + source.slice(d!.start + d!.length);
+        expect(fixed).toBe(program(`@${name}`));
+        expect(both(fixed), fixed).toEqual(clean);
+        expect(compile(fixed).wgsl, fixed).toContain(`@${name}`);
+      }
+      expect(noArgument('vertex', '')).toBe(
+        '"@vertex" takes no argument: write "@vertex" and delete "()" (Rule 8.1).',
+      );
+      expect(noArgument('fragment', '')).toBe(
+        '"@fragment" takes no argument: write "@fragment" and delete "()" (Rule 8.1).',
+      );
+      // In a namespace, and in the order `export @vertex() function`.
+      refusedOnce(
+        `"use typeshade";\nnamespace N { @vertex() export function vs(): builtin<"position", vec4> { return vec4(1.); } }\n`,
+        noArgument('vertex', ''),
+        '@vertex()',
+      );
+      refusedOnce(
+        `"use typeshade";\nexport @fragment() function fs(): location<0, vec4> { return vec4(1.); }\n`,
+        noArgument('fragment', ''),
+        '@fragment()',
+      );
+      // The entry is still read (Rule 12.4): the other entry of the file is not reported as
+      // the only one, and the refused one is not reported as missing.
+      refusedOnce(
+        `"use typeshade";\n@vertex()\nexport function vs(): builtin<"position", vec4> { return vec4(1.); }\n@fragment\nexport function fs(): location<0, vec4> { return vec4(1.); }\n`,
+        noArgument('vertex', ''),
+        '@vertex()',
+      );
+      // A type argument before the empty list keeps its one diagnostic (Rule 6.7): the list is
+      // not reported beside it.
+      refusedOnce(vs('@vertex<f32>()'), notApplied('@vertex<f32>()'), '@vertex<f32>()');
+      // The emit of the accepted spellings is the same text, attribute for attribute.
+      expect(compile(k('@compute()')).wgsl).toBe(compile(k('@compute')).wgsl);
+      expect(compile(k('@compute')).wgsl).toContain('@compute @workgroup_size(64)');
+    });
+
     it('refuses a type argument on a stage attribute or @workgroup_size, as "@name<T>" is', () => {
       for (const [program, attr] of [
         [vs, '@vertex<f32>'],

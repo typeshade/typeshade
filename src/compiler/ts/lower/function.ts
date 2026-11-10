@@ -3734,6 +3734,8 @@ export interface KernelWorkgroupAttr {
   readonly anchor: ts.Decorator | ts.CallExpression;
   /** The extent, or undefined when the argument is not one positive whole number. */
   readonly size?: number;
+  /** Each `@workgroup_size` written after the first on the same function (Rule 8.22). */
+  readonly further?: readonly ts.Decorator[];
 }
 
 /** Reads the argument of a kernel function's `@workgroup_size` (Rule 8.7's grammar, one extent):
@@ -3803,19 +3805,40 @@ function settleKernelWorkgroup(
     message: string,
     code: TsCode,
     category: TsCompilerDiagnostic['category'] = 'error',
+    at: ts.Node = d,
   ) => {
-    const start = d.getStart(sourceFile);
+    const start = at.getStart(sourceFile);
     if (diagnostics.some((x) => x.start === start && x.message === message)) return;
-    diagnostics.push(makeDiagnostic(sourceFile, d, message, code, category));
+    diagnostics.push(makeDiagnostic(sourceFile, at, message, code, category));
   };
+  // Each `@workgroup_size` written after the first (change 0130, amendment A1).
+  const further = attr.further ?? [];
   // Each message names the attribute, the form an author writes (change 0130), whichever form
   // was written.
   if (!kernel || !isExported(node)) {
-    once(
-      `"workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Declare "${node.name?.text ?? 'this function'}" without it.`,
-      TS_CODES.ATTRIBUTE_NAME,
-    );
+    // The function takes none, so each one written is refused for that, at its own attribute.
+    for (const at of [d, ...further])
+      once(
+        `"workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Declare "${node.name?.text ?? 'this function'}" without it.`,
+        TS_CODES.ATTRIBUTE_NAME,
+        'error',
+        at,
+      );
     return undefined;
+  }
+  // A function takes at most one `@workgroup_size([n])` (Rule 8.22, change 0130, amendment A1):
+  // each further one is refused at its own attribute, as a second stage attribute is, and the
+  // first one sets the size. The text names what to delete (Rule 12.5).
+  for (const second of further) {
+    const written = second.getText(sourceFile);
+    once(
+      `"${written}" is a second "@workgroup_size" on "${node.name?.text ?? 'this function'}", ` +
+        `after "${d.getText(sourceFile)}": a function takes at most one "@workgroup_size([n])"; ` +
+        `delete "${written}" (Rule 8.22).`,
+      TS_CODES.ATTRIBUTE_NAME,
+      'error',
+      second,
+    );
   }
   if (attr.size === undefined) {
     // The argument as written: the call's first, or the decorator's list.
@@ -4117,21 +4140,25 @@ function parseStage(
     );
     return true;
   };
-  // `@vertex` and `@fragment` take no argument (Rule 8.1): an argument written on one is read
-  // by nothing, so it is refused and not dropped. The stage is still read, so nothing else is
-  // said about the entry (Rule 12.4).
+  // `@vertex` and `@fragment` take no argument list (Rule 8.1, change 0130, amendment A1): an
+  // argument written on one is read by nothing, so it is refused and not dropped, and the empty
+  // list, `@vertex()`, is refused with it, since a stage has one spelling. `@compute()` is not:
+  // its empty list means the default size (Rule 8.7). The stage is still read, so nothing else
+  // is said about the entry (Rule 12.4).
   const refuseArguments = (d: ts.Decorator, name: 'vertex' | 'fragment'): void => {
-    if (!ts.isCallExpression(d.expression) || d.expression.arguments.length === 0) return;
+    if (!ts.isCallExpression(d.expression)) return;
     const args = d.expression.arguments;
-    const written = sourceFile.text.slice(
-      args[0]!.getStart(sourceFile),
-      args[args.length - 1]!.end,
-    );
+    // The arguments as written; the empty list is named as `()`.
+    const written =
+      args.length === 0
+        ? ''
+        : sourceFile.text.slice(args[0]!.getStart(sourceFile), args[args.length - 1]!.end);
     refuseAttribute(
       d,
       `"@${name}" takes no argument: write "@${name}" and delete "(${written})" (Rule 8.1).`,
     );
   };
+  const furtherWorkgroups: ts.Decorator[] = [];
   for (const d of decos) {
     const stageName = /^@(vertex|fragment|compute)\b/.exec(d.getText(sourceFile))?.[1];
     if (stageName !== undefined && stageName !== firstStage) continue;
@@ -4139,8 +4166,12 @@ function parseStage(
     // A function that is not an entry may be a kernel function, which takes one extent of
     // `@workgroup_size` (Rule 8.22). Whether it is one is known once its parameters are read.
     if (!isEntry && /^@workgroup_size\b/.test(d.getText(sourceFile))) {
-      refuseTypeArguments(d);
-      kernelWorkgroup ??= kernelWorkgroupOf(d, consts);
+      const typed = refuseTypeArguments(d);
+      // The first one sets the size. Each further one is kept for `settleKernelWorkgroup`, which
+      // refuses it on a kernel function (Rule 8.22, change 0130, amendment A1); one that a type
+      // argument already refused is not refused twice (Rule 12.4).
+      if (kernelWorkgroup === undefined) kernelWorkgroup = kernelWorkgroupOf(d, consts);
+      else if (!typed && ts.isDecorator(kernelWorkgroup.anchor)) furtherWorkgroups.push(d);
       continue;
     }
     checkAttributeName(
@@ -4166,7 +4197,10 @@ function parseStage(
     workgroupShape,
     workgroupSizeOverrides,
     workgroupSizeExpressions,
-    kernelWorkgroup,
+    kernelWorkgroup:
+      kernelWorkgroup !== undefined && furtherWorkgroups.length > 0
+        ? { ...kernelWorkgroup, further: furtherWorkgroups }
+        : kernelWorkgroup,
   };
 }
 

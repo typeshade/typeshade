@@ -186,6 +186,21 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **`@vertex()` and `@fragment()` are refused, and so is a second `@workgroup_size([n])`** (Rules
+  8.1 and 8.22; change 0130, amendment A1; the owner's decisions of 2026-11-10). Both forms
+  compiled with no diagnostic in `compile()` and in the editor: the empty list was read as the
+  bare attribute, and the first of two `@workgroup_size` set the size. Each is now one `TS8028`,
+  an error, in both halves. The empty list is refused on the attribute, since a stage has one
+  spelling:
+  `"@vertex" takes no argument: write "@vertex" and delete "()" (Rule 8.1).`
+  A second `@workgroup_size([n])` on one function is refused on the second attribute, and each
+  further one on its own, as a second stage attribute is:
+  `"@workgroup_size([16])" is a second "@workgroup_size" on "scale", after "@workgroup_size([8])": a function takes at most one "@workgroup_size([n])"; delete "@workgroup_size([16])" (Rule 8.22).`
+  The function is still read as the entry, and the kernel function keeps its first size, so
+  nothing else is said. `@vertex`, `@fragment`, `@compute`, `@compute()` (the default size, Rule
+  8.7), `@compute([8])` and one `@workgroup_size([8])` compile as before, with the same emit.
+  `tshc migrate` rewrites neither form: the author deletes `()` or the second attribute. No
+  official release accepted the refused forms (OD-6).
 - **A parameter qualifier is written before the parameter, `@inout a: f32` and `@out c: f32`
   (§70, Rule 8.25, change 0137).** It is the language's form: neither half warns on it, and the
   editor drops TypeScript's TS1206 on it, keeps hover and signature help in that form, and no
