@@ -2003,10 +2003,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   an integer-typed expression of literals with ECMAScript doubles, so `f32(u32(7) / 2)` emitted
   `3.5`, `f32(i32(-7) / 2)` emitted `-3.5`, `f32(u32(7) - 8)` emitted `-1.0`,
   `f32(i32(2147483647) + 1)` emitted `2147483648.0` and `f32(u32(7) * u32(1000000000))` emitted
-  `7000000000.0`, in WGSL, in GLSL ES 3.00 and on the CPU oracle. `xs[u32(7) / 2]` and
+  `7000000000.0`, and `f32(-i32(-2147483648))` emitted `2147483648.0`, in WGSL, in GLSL ES 3.00
+  and on the CPU oracle. `xs[u32(7) / 2]` and
   `vi + u32(7) / 2` failed in the backend (`TS8015`, `SD0017 u32 literal 3.5`). The fold now
   follows the target's integer rule, as the optimizer's constant folder does: `3`, `-3`,
-  `4294967295`, `-2147483648`, `2705032704`, `xs[3]` and `vi + 3u`. A written number keeps its
+  `4294967295`, `-2147483648`, `2705032704`, `-2147483648`, `xs[3]` and `vi + 3u`. A written number keeps its
   ECMAScript value (`7 / 2` is `3.5`). No example, journey or golden changes.
 
 - **A module constant with an expression rounds as a function does, in `'f32'` precision**

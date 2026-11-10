@@ -65,6 +65,10 @@ describe('a scalar cast of a written number is a value of its type', () => {
     typed('f32(u32(7) * u32(1000000000))', '2705032704.0', 2705032704);
   });
 
+  it('-i32(-2147483648) wraps as an i32 negation does (2147483648 before)', () => {
+    typed('f32(-i32(-2147483648))', '-2147483648.0', -2147483648);
+  });
+
   it('xs[u32(7) / 2] indexes element 3 (a backend failure before)', () => {
     typed('xs[u32(7) / 2]', 'xs[3]', 4);
   });
