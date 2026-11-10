@@ -30,14 +30,14 @@ interface VsOut {
 // ±aspect over the width, so one unit covers the same pixels on both axes.
 function screenCoords(uv: vec2, resolution: vec2): vec2 {
   const asp = resolution.x / resolution.y;
-  return vec2((uv.x * 2. - 1.) * asp, uv.y * 2. - 1.);
+  return vec2((uv.x * 2 - 1) * asp, uv.y * 2 - 1);
 }
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & 1) * 4. - 1.;
-  const y = f32(vi >> 1) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
 }
 
 // An exact integer hash (lowbias32 with xxHash's primes): every target and the CPU oracle
@@ -62,10 +62,10 @@ function noise(p: vec2): f32 {
   // `u` is annotated for the EDITOR, not the compiler: TypeScript types `vec2 * scalar` as
   // `number`, so `u.x` and `u.y` two lines down would be TS2339 on a program that compiles
   // (issue #43). Emit-neutral: the WGSL and GLSL are byte-identical without it.
-  const u: vec2 = f * f * (vec2(3.) - f * 2.);
+  const u: vec2 = f * f * (vec2(3) - f * 2);
   return mix(
-    mix(hash(i), hash(i + vec2(1., 0.)), u.x),
-    mix(hash(i + vec2(0., 1.)), hash(i + vec2(1., 1.)), u.x),
+    mix(hash(i), hash(i + vec2(1, 0)), u.x),
+    mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x),
     u.y,
   );
 }
@@ -78,7 +78,7 @@ function fbm(p: vec2): f32 {
 
 // Iridescent cosine palette: 0.5 + 0.5·cos(2π(t + phase)).
 function palette(t: f32): vec3 {
-  const ph = vec3(0.0, 0.33, 0.67);
+  const ph = vec3(0, 0.33, 0.67);
   return vec3(0.5) + cos((t + ph) * 6.283) * 0.5;
 }
 
@@ -95,12 +95,12 @@ export function fs(vo: VsOut): vec4 {
   const af = abs(am - sector * 0.5);
   const q = vec2(cos(af), sin(af)) * r;
   // wedge pattern: swirling fbm + concentric rings
-  const v = fbm(q * 3. + vec2(t * 0.12, -(t * 0.09)));
-  const rings = sin(r * 9. - t * 0.8) * 0.5 + 0.5;
+  const v = fbm(q * 3 + vec2(t * 0.12, -(t * 0.09)));
+  const rings = sin(r * 9 - t * 0.8) * 0.5 + 0.5;
   const col = palette(v * 0.7 + rings * 0.15 + r * 0.3 - t * 0.03);
   // the fbm field doubles as a brightness relief so the wedges keep depth
   const relief = v * 0.9 + 0.35;
   // vignette so the fold's outer edge fades instead of clipping
-  const vig = 1. - smoothstep(0.55, 1.25, r);
-  return vec4(col * relief * vig, 1.);
+  const vig = 1 - smoothstep(0.55, 1.25, r);
+  return vec4(col * relief * vig, 1);
 }

@@ -24,10 +24,10 @@ declare const depthMs: texture_depth_multisampled_2d;
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): vec4 {
-  const xs: array<f32, 3> = [-1., 3., -1.];
-  const ys: array<f32, 3> = [-1., -1., 3.];
+  const xs: array<f32, 3> = [-1, 3, -1];
+  const ys: array<f32, 3> = [-1, -1, 3];
   const i = i32(vi);
-  return vec4(xs[i], ys[i], 0., 1.);
+  return vec4(xs[i], ys[i], 0, 1);
 }
 
 @fragment
@@ -42,10 +42,10 @@ export function fs(p: builtin<"position">): vec4 {
   const s2 = textureLoad(msaa, c, 2);
   const s3 = textureLoad(msaa, c, 3);
   const n = f32(textureNumSamples(msaa));
-  const colour: vec4 = (s0 + s1 + s2 + s3) / max(n, 1.);
+  const colour: vec4 = (s0 + s1 + s2 + s3) / max(n, 1);
   // The nearest depth of the texel's first two samples, from the multisampled depth attachment.
   const depth = min(textureLoad(depthMs, c, 0), textureLoad(depthMs, c, 1));
   const size = textureDimensions(msaa);
-  const vignette = 1. - 0.5 * length(p.xy / vec2(f32(size.x), f32(size.y)) - 0.5);
-  return vec4(colour.rgb * vignette * (1. - depth * 0.25), 1.);
+  const vignette = 1 - 0.5 * length(p.xy / vec2(f32(size.x), f32(size.y)) - 0.5);
+  return vec4(colour.rgb * vignette * (1 - depth * 0.25), 1);
 }

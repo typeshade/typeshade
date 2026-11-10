@@ -45,12 +45,12 @@ function intersect(o: vec2, d: vec2, r: f32): Hit {
   const disc = b * b - c;
   h.t = 1e3;
   h.radius = r;
-  if (disc < 0.) {
+  if (disc < 0) {
     return h;
   }
   const t = -b - sqrt(disc);
-  if (t < 0.) {
-    h.t = 0.;
+  if (t < 0) {
+    h.t = 0;
     return h;
   }
   h.t = t;
@@ -68,9 +68,9 @@ function circle(t: f32): Hit {
  *  path, and `?.` and `??` where the author prefers one expression. */
 function shadeOf(h: Hit, light: vec2): f32 {
   if (h.normal !== undefined) {
-    return max(dot(h.normal, light), 0.) + (h.radius ?? 0.) * 0.1;
+    return max(dot(h.normal, light), 0) + (h.radius ?? 0) * 0.1;
   }
-  return h.t * 0.5 + (h?.radius ?? 0.);
+  return h.t * 0.5 + (h?.radius ?? 0);
 }
 
 /** `x`, or `x` held to `limit` where one is given: an omitted argument is the absent value. */
@@ -83,31 +83,31 @@ function clampTo(x: f32, limit?: f32): f32 {
 
 /** The sum of the samples that are there, over an array of optionals. */
 function sampleAll(samples: array<f32 | undefined, 4>): f32 {
-  let s = 0.;
+  let s = 0;
   for (let i = 0; i < 4; i++) {
-    s += samples[i] ?? 0.;
+    s += samples[i] ?? 0;
   }
   return s;
 }
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const xs: array<f32, 3> = [-1., 3., -1.];
-  const ys: array<f32, 3> = [-1., -1., 3.];
+  const xs: array<f32, 3> = [-1, 3, -1];
+  const ys: array<f32, 3> = [-1, -1, 3];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
-  return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
+  return { pos: vec4(p, 0, 1), uv: p * 0.5 + vec2(0.5, 0.5) };
 }
 
 @fragment
 export function fs(v: VsOut): Color {
-  const o = v.uv * 2. - vec2(1., 1.);
-  const hit = intersect(o - vec2(0., 2.), vec2(0., 1.), 0.5);
+  const o = v.uv * 2 - vec2(1, 1);
+  const hit = intersect(o - vec2(0, 2), vec2(0, 1), 0.5);
   const flat = circle(v.uv.x);
-  const r = shadeOf(hit, normalize(vec2(0.3, 1.)));
-  const g = shadeOf(flat, vec2(0., 1.));
+  const r = shadeOf(hit, normalize(vec2(0.3, 1)));
+  const g = shadeOf(flat, vec2(0, 1));
   // Some indices hold a value, and the others hold nothing.
   const samples: array<f32 | undefined, 4> = [v.uv.x, undefined, v.uv.y, undefined];
   const b = clampTo(sampleAll(samples), 0.75) + clampTo(v.uv.x * 0.1);
-  return { color: vec4(r, g, b, 1.) };
+  return { color: vec4(r, g, b, 1) };
 }

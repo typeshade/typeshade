@@ -53,27 +53,27 @@ export function normalMatrix(model: mat4): mat3 {
 
 @vertex
 export function vs(idx: builtin<"vertex_index">): VsOut {
-  const x = f32(idx & 1) * 4. - 1.;
-  const y = f32(idx >> 1) * 4. - 1.;
+  const x = f32(idx & 1) * 4 - 1;
+  const y = f32(idx >> 1) * 4 - 1;
   const n = normalMatrix(u.model);
   // A handedness flip: `determinant` on a 3×3, which no shape but a square one has.
-  const handed: f32 = determinant(n) < 0. ? -1. : 1.;
+  const handed: f32 = determinant(n) < 0 ? -1 : 1;
   // `m * v` is the column-vector product; the normal rides it.
   // Annotated for the same reason `hello-uniform-struct` annotates its local: TypeScript
   // types arithmetic on a branded matrix or vector as `number`, so a product needs to be told
   // what it is. The compiler knows; only the editor needs the note.
-  const normal: vec3 = n * vec3(0., 0., handed);
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5), normal: normal };
+  const normal: vec3 = n * vec3(0, 0, handed);
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5), normal: normal };
 }
 
 @fragment
 export function fs(vo: VsOut): vec4 {
   // From columns, and scaled either way round — `m * s` and `s * m` are both the spec's
   // component-wise scaling and both emit as written.
-  const basis = mat3(vec3(1., 0., 0.), vec3(0., 1., 0.), vec3(0., 0., 1.));
-  const scaled: mat3 = 0.5 * basis * 2.;
+  const basis = mat3(vec3(1, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1));
+  const scaled: mat3 = 0.5 * basis * 2;
   // A NON-SQUARE matrix and its transpose: mat2x3 (2 columns of 3) becomes mat3x2.
-  const wide = mat2x3(vo.uv.x, vo.uv.y, 1., vo.uv.y, vo.uv.x, 1.);
+  const wide = mat2x3(vo.uv.x, vo.uv.y, 1, vo.uv.y, vo.uv.x, 1);
   const tall: mat3x2 = transpose(wide);
   // `v * m` is the row-vector product: a vec3 against a mat2x3 gives a vec2.
   const row: vec2 = vo.normal * wide;
@@ -84,5 +84,5 @@ export function fs(vo: VsOut): vec4 {
   // this function on the CPU oracle and pins the residual at exactly 0.
   const col: vec2 = tall * vo.normal;
   const rgb: vec3 = scaled * u.tint * vec3(row.x, col.y, abs(row.y - col.y));
-  return vec4(rgb, 1.);
+  return vec4(rgb, 1);
 }

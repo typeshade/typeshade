@@ -51,6 +51,6 @@ export function blur(
     tile[up * 8 + lid.x] +
     tile[down * 8 + lid.x];
   if (gid.x < size.x && gid.y < size.y) {
-    dst[gid.y * size.x + gid.x] = sum / 5.;
+    dst[gid.y * size.x + gid.x] = sum / 5;
   }
 }

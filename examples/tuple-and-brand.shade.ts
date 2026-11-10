@@ -25,7 +25,7 @@
 declare const m: unique symbol;
 type Meters = f32 & { readonly [m]: 'm' };
 
-const HORIZON: f32 = 8.;
+const HORIZON: f32 = 8;
 
 /** The near and far distance a ray is marched between, as a pair. */
 function bounds(scale: Meters): [near: f32, far: f32] {
@@ -39,15 +39,15 @@ function mid(span: [f32, f32]): f32 {
 
 /** The corner of the fullscreen triangle at `i`, as an x and a y. */
 function corner(i: i32): [x: f32, y: f32] {
-  const xs: array<f32, 3> = [-1., 3., -1.];
-  const ys: array<f32, 3> = [-1., -1., 3.];
+  const xs: array<f32, 3> = [-1, 3, -1];
+  const ys: array<f32, 3> = [-1, -1, 3];
   return [xs[i], ys[i]];
 }
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): vec4 {
   const c = corner(i32(vi));
-  return vec4(c[0], c[1], 0., 1.);
+  return vec4(c[0], c[1], 0, 1);
 }
 
 @fragment
@@ -57,5 +57,5 @@ export function fs(p: builtin<"position">): vec4 {
   // A list written straight into a parameter that declares `[f32, f32]`, which is the one
   // position that used to need `array<f32, 2>(...)` spelled out.
   const depth = mid([span[0], span[1]]);
-  return vec4(uv.x, uv.y, depth / HORIZON, 1.);
+  return vec4(uv.x, uv.y, depth / HORIZON, 1);
 }

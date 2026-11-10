@@ -39,10 +39,10 @@ function pair<T>(a: T, b: T): array<T, 2> {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): vec4 {
-  const xs: array<f32, 3> = [-1., 3., -1.];
-  const ys: array<f32, 3> = [-1., -1., 3.];
+  const xs: array<f32, 3> = [-1, 3, -1];
+  const ys: array<f32, 3> = [-1, -1, 3];
   const i = i32(vi);
-  return vec4(pick(vi === u32(0), head(xs), xs[i]), ys[i], 0., 1.);
+  return vec4(pick(vi === 0, head(xs), xs[i]), ys[i], 0, 1);
 }
 
 @fragment
@@ -55,5 +55,5 @@ export function fs(p: builtin<"position">): vec4 {
   const steps: array<u32, 3> = [2, 3, 5];
   const band = f32(head(steps)) * 0.1;
   const span = pair(uv.x, uv.y);
-  return vec4(tint * gain * (span[0] + span[1] + band), 1.);
+  return vec4(tint * gain * (span[0] + span[1] + band), 1);
 }

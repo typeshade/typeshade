@@ -38,18 +38,18 @@ interface VsOut {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & 1) * 4. - 1.;
-  const y = f32(vi >> 1) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
 }
 
 @fragment
 export function fs_checker(vo: VsOut): vec4 {
-  const span = 10.0 ** -u.zoom_exp;
-  const half = vo.uv.x * 2.0;
-  const sx = half - (vo.uv.x < 0.5 ? 0.0 : 1.0);
+  const span = 10 ** -u.zoom_exp;
+  const half = vo.uv.x * 2;
+  const sx = half - (vo.uv.x < 0.5 ? 0 : 1);
   const dx = (sx - 0.5) * span;
-  const dy = (vo.uv.y - 0.5) * span * (u.resolution.y / u.resolution.x * 2.0);
+  const dy = (vo.uv.y - 0.5) * span * (u.resolution.y / u.resolution.x * 2);
 
   const isF32 = vo.uv.x < 0.5 || u.fp64 < 0.5;
   // f64 path: floor/fract in extended precision, only RESULTS narrow. `u.center.x` is a lane
@@ -78,15 +78,15 @@ export function fs_checker(vo: VsOut): vec4 {
   // analytic pixel size in WORLD units, span over the half-width in px: fwidth(fract(x)) would
   // spike across the cell seam itself.
   const chk = step(0.25, par);
-  const edge = min(min(fx, 1. - fx), min(fy, 1. - fy));
+  const edge = min(min(fx, 1 - fx), min(fy, 1 - fy));
   const pixw = span / (u.resolution.x * 0.5);
-  const line = smoothstep(0., pixw * 1.5 + 1e-9, edge);
+  const line = smoothstep(0, pixw * 1.5 + 1e-9, edge);
   const ivory = vec3(0.93, 0.9, 0.82);
   const slate = vec3(0.23, 0.29, 0.36);
   // Annotated for the EDITOR, not for the compiler. TypeScript types
   // `vec3 * scalar` as `number`, so `rgb` would lose its lanes and draw TS2345
   // at the `vec4(...)` that returns it, on a program that compiles (issue #43).
   // Emit-neutral: the WGSL and GLSL are byte-identical without it.
-  const rgb: vec3 = mix(ivory, slate, chk) * mix(0.35, 1.0, line);
-  return vec4(rgb, 1.);
+  const rgb: vec3 = mix(ivory, slate, chk) * mix(0.35, 1, line);
+  return vec4(rgb, 1);
 }

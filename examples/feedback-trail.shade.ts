@@ -29,15 +29,15 @@ interface Color {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & u32(1)) * 4. - 1.;
-  const y = f32(vi >> u32(1)) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) * 0.5 + vec2(0.5, 0.5) };
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x, y) * 0.5 + vec2(0.5, 0.5) };
 }
 
 @fragment
 export function fs(v: VsOut): Color {
   const hdr = textureLoad(trail, vec2i(v.pos.xy), 0).rgb;
-  const mapped = hdr / (hdr + vec3(1., 1., 1.));
+  const mapped = hdr / (hdr + vec3(1, 1, 1));
   const ground = vec3(0.03, 0.03, 0.06);
-  return { color: vec4(ground + mapped, 1.) };
+  return { color: vec4(ground + mapped, 1) };
 }

@@ -48,9 +48,9 @@ class VsOut {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & 1) * 4. - 1.;
-  const y = f32(vi >> 1) * 4. - 1.;
-  const p = vec4(x, y, 0., 1.);
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  const p = vec4(x, y, 0, 1);
   let o = new VsOut();
   o.pos = p;
   o.uv = vec2(x * 0.5 + 0.5, y * 0.5 + 0.5);
@@ -75,5 +75,5 @@ interface FsIn {
 @fragment
 export function fs(v: FsIn): vec4 {
   // Whatever survives the four planes is shaded normally.
-  return vec4(v.uv, 0.5, 1.);
+  return vec4(v.uv, 0.5, 1);
 }

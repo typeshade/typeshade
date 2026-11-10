@@ -30,7 +30,7 @@ let calls: u32;
 
 function tally(x: f32): void {
   calls = calls + 1;
-  const bin: u32 = x < 0. ? 0 : 1;
+  const bin: u32 = x < 0 ? 0 : 1;
   atomicAdd(seen[bin], 1);
 }
 
@@ -44,7 +44,7 @@ export function scratch(
   }
   tile[lid.x] = src[gid.x] * src[gid.x];
   tally(src[gid.x]);
-  tally(tile[lid.x] - 1.);
+  tally(tile[lid.x] - 1);
   dst[gid.x] = tile[lid.x];
   counts[gid.x] = calls;
 }

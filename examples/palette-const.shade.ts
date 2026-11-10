@@ -18,13 +18,13 @@
 // (`const N: i32 = 4` → `4.0`), which is issue #13 and #17's fix, so an example that used one
 // could not compile on either backend yet.
 
-const UP = vec3(0., 1., 0.);
-const SKY: vec4 = vec4(0.36, 0.55, 0.85, 1.);
+const UP = vec3(0, 1, 0);
+const SKY: vec4 = vec4(0.36, 0.55, 0.85, 1);
 const STOPS: array<f32, 3> = array<f32, 3>(0.2, 0.5, 0.8);
 const PALETTE = array<vec4, 3>(
-  vec4(0.95, 0.55, 0.2, 1.),
-  vec4(0.2, 0.7, 0.45, 1.),
-  vec4(0.55, 0.3, 0.8, 1.),
+  vec4(0.95, 0.55, 0.2, 1),
+  vec4(0.2, 0.7, 0.45, 1),
+  vec4(0.55, 0.3, 0.8, 1),
 );
 const HALF: f32 = 0.5;
 const GREY = vec3(HALF, HALF, HALF);
@@ -40,10 +40,10 @@ interface Color {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & u32(1)) * 4. - 1.;
-  const y = f32(vi >> u32(1)) * 4. - 1.;
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
   // UP.y is 1., so this is the same triangle with the constant read once per vertex.
-  return { pos: vec4(x, y * UP.y, 0., 1.), uv: vec2(x, y) };
+  return { pos: vec4(x, y * UP.y, 0, 1), uv: vec2(x, y) };
 }
 
 @fragment
@@ -60,5 +60,5 @@ export function fs(v: VsOut): Color {
     band = PALETTE[2];
   }
   const tinted: vec3 = band.rgb * HALF + GREY * HALF;
-  return { color: vec4(tinted, 1.) };
+  return { color: vec4(tinted, 1) };
 }

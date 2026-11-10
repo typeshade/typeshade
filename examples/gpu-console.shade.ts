@@ -28,8 +28,8 @@ declare const xs: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
 
 function doubled(v: f32): f32 {
-  const s = v * 2.;
-  if (s > 10.) {
+  const s = v * 2;
+  if (s > 10) {
     console.warn("large value", s);
   }
   return s;
@@ -42,7 +42,7 @@ export function main(gid: builtin<"global_invocation_id">): void {
   }
   const x = xs[gid.x];
   const sample: Sample = { value: x, scaled: vec2(x, x * 0.5) };
-  console.log("i =", gid.x, sample, x > 1., mat2x2(1., 0., 0., x));
-  console.table(mat2x2(1., 0., 0., x));
+  console.log("i =", gid.x, sample, x > 1, mat2x2(1, 0, 0, x));
+  console.table(mat2x2(1, 0, 0, x));
   out[gid.x] = doubled(x);
 }

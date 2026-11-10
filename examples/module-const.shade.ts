@@ -34,9 +34,9 @@ interface VsOut {
 // Oversized fullscreen triangle — 3 verts, no vertex buffer.
 @vertex
 export function vs(idx: builtin<"vertex_index">): VsOut {
-  const x = f32(idx & 1) * 4. - 1.;
-  const y = f32(idx >> 1) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
+  const x = f32(idx & 1) * 4 - 1;
+  const y = f32(idx >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
 }
 
 // A checkerboard: TILES sets the frequency, PHASE shifts which square is lit, GAMMA shapes
@@ -49,5 +49,5 @@ export function fs(vo: VsOut): vec4 {
   const ramp = vo.uv.y ** GAMMA;
   const dark = ramp * 0.25;
   const v = parity === 0 ? (INVERT ? dark : ramp) : (INVERT ? ramp : dark);
-  return vec4(v, v, v, 1.);
+  return vec4(v, v, v, 1);
 }

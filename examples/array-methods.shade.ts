@@ -31,9 +31,9 @@ interface FsOut {
 // Fullscreen triangle, as `rng-method.shade.ts` draws it.
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & u32(1)) * 4. - 1.;
-  const y = f32(vi >> u32(1)) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x, y) };
 }
 
 class Light {
@@ -46,9 +46,9 @@ class Light {
 export function fs(v: VsOut): FsOut {
   const p = v.uv;
   const lights = array<Light, 3>(
-    { pos: vec2(-0.5, -0.3), radius: 0.35, color: vec3(1., 0.45, 0.2) },
-    { pos: vec2(0.45, -0.1), radius: 0.3, color: vec3(0.2, 0.6, 1.) },
-    { pos: vec2(0., 0.5), radius: 0.25, color: vec3(0.4, 1., 0.5) },
+    { pos: vec2(-0.5, -0.3), radius: 0.35, color: vec3(1, 0.45, 0.2) },
+    { pos: vec2(0.45, -0.1), radius: 0.3, color: vec3(0.2, 0.6, 1) },
+    { pos: vec2(0, 0.5), radius: 0.25, color: vec3(0.4, 1, 0.5) },
   );
   // How far the pixel is from each light, and from the nearest.
   const d = lights.map((l) => distance(l.pos, p));
@@ -60,12 +60,12 @@ export function fs(v: VsOut): FsOut {
   });
   // A lighter disc inside any light, and a dimmer field far from every one.
   if (lights.some((l) => distance(l.pos, p) < l.radius)) {
-    col = mix(col, vec3(1.), 0.15);
+    col = mix(col, vec3(1), 0.15);
   }
   if (d.every((x) => x > 0.7)) {
     col *= 0.6;
   }
   // A ring at 0.2 around the nearest light.
-  col += vec3(1. - smoothstep(0., 0.012, abs(nearest - 0.2)));
-  return { color: vec4(col, 1.) };
+  col += vec3(1 - smoothstep(0, 0.012, abs(nearest - 0.2)));
+  return { color: vec4(col, 1) };
 }
