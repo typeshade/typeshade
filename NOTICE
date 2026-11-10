@@ -14,6 +14,7 @@ libm sources and their baked forms:
 
   src/core/libm/trig.shade.ts      src/core/libm/trig.generated.ts
   src/core/libm/explog.shade.ts    src/core/libm/explog.generated.ts
+  src/core/libm/invtrig.shade.ts   src/core/libm/invtrig.generated.ts
 
 and what the build makes of them under dist/. The notice of fdlibm:
 
