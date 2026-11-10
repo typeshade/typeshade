@@ -1970,11 +1970,17 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `const HALF: f32`, `number` for an instance of a generic function, a binding as its expanded
   structure with no resource line, and a function without its `@inout` and `@out` qualifiers.
   The editor now reads such a symbol in the linked program of the hovered file (Rule 3.9), so
-  the text is the one the declaring file shows, with no `(alias)` or `import` line. Signature
-  help of an imported function shows its qualifiers too. A method, a getter, a static function
-  and a member of a namespace or of an enum keep TypeScript's quick info, as they do in one
-  file. `src/language-service/imported-symbol-hover.test.ts` reads both halves on the same
-  files.
+  the type is the one the declaring file shows, with no `(alias)` or `import` line. The name is
+  the one the hovered file writes: `bp` of `import { bump as bp }` reads
+  `function bp(@inout v: f32): void`. Signature help of an imported function shows its
+  qualifiers too. A name the linker generated (`lib_Light`) no longer shows in a hover, in a
+  type or in a parameter's name, in the importing file's own symbols included. A generic
+  function or class with two instances in a program keeps TypeScript's quick info at each use,
+  where the hover showed every use the first instance. An override reads the compiler's type
+  in its own file too: `override<bool>` is `const flag: bool`, where it read `boolean`. A
+  method, a getter, a static member and a member of a namespace or of an enum keep
+  TypeScript's quick info, as they do in one file.
+  `src/language-service/imported-symbol-hover.test.ts` reads both halves on the same files.
 
 - **A module constant with an expression rounds as a function does, in `'f32'` precision**
   (Rule 11.7). `const X: f32 = 100.7; const S: f32 = sin(X);` gave `S` the value of `sin` on the

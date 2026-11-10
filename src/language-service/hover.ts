@@ -4,7 +4,11 @@ import ts from 'typescript';
 import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
 import { entryNode } from '../compiler/ts/entry-locations.js';
 import { qualifiersOf } from '../compiler/ts/lower/references.js';
-import { linkedCompileOf, type CompileTsSourceResult } from '../compiler/ts/source-file.js';
+import {
+  linkedCompileOf,
+  type CompileTsSourceResult,
+  type LinkedCompile,
+} from '../compiler/ts/source-file.js';
 import type { DeclaredSymbol } from '../compiler/ts/symbols.js';
 import { ioAttrOf, retIoAttrOf } from '../core/ir/entry-io.js';
 import type { FuncDecl } from '../core/ir/nodes.js';
@@ -434,10 +438,34 @@ export function spellShaderType(t: ShaderType): string {
   }
 }
 
+/** What the hover shows of `symbol` but its name: its kind, its struct and each type. Two symbols
+ *  at one declaration with one such text read the same in a hover. */
+const shapeOf = (symbol: DeclaredSymbol): string =>
+  [
+    symbol.kind,
+    symbol.struct ?? '',
+    spellShaderType(symbol.type),
+    ...(symbol.params ?? []).map((p) => spellShaderType(p.type)),
+  ].join('|');
+
+/**
+ * The one symbol among `at`, the symbols the front end recorded at one declaration, or
+ * `undefined` when they differ. The front end lowers a generic function and a generic class
+ * once for each instance (`twice_f32`, `twice_vec3`; `Box_f32`, `Box_vec3`), and records each
+ * instance at the one declaration. No one of them is the type of every call, and a hover must
+ * not show a call the type of another instance (Rule 12.7), so such a declaration keeps
+ * TypeScript's quick info, which names the instance of the call.
+ */
+function oneOf(at: readonly DeclaredSymbol[]): DeclaredSymbol | undefined {
+  const first = at[0];
+  return first !== undefined && at.every((s) => shapeOf(s) === shapeOf(first)) ? first : undefined;
+}
+
 /**
  * The symbol the front end declared at the position `defs` resolves to, or `undefined` when
- * TypeScript resolves the identifier to another file (an imported document, the ambient lib) or
- * to something the front end never lowered.
+ * TypeScript resolves the identifier to another file (an imported document, the ambient lib), to
+ * something the front end never lowered, or to a declaration it lowered as more than one
+ * instance (`oneOf`).
  *
  * The join is the declaration's start offset: a `DeclaredSymbol` spans the declared NAME
  * identifier, which is exactly what `getDefinitionAtPosition` returns for a local, a parameter,
@@ -452,30 +480,26 @@ function declaredSymbolAt(
 ): DeclaredSymbol | undefined {
   for (const def of defs) {
     if (def.fileName !== uri) continue;
-    const hit = analysis.symbols.find((s) => s.start === def.textSpan.start);
-    if (hit !== undefined) return hit;
+    const at = analysis.symbols.filter((s) => s.start === def.textSpan.start);
+    if (at.length > 0) return oneOf(at);
   }
   return undefined;
 }
 
-/** A symbol that another file of the program declares, as the hover shows it. */
+/** A symbol that another file declares, as the hover shows it. */
 interface ImportedSymbol {
-  /** The symbol, under the names the declaring file writes: `name` is the declared name, and a
-   *  field's `struct` the name its struct has in that file. */
+  /** The symbol as the program that declares it has it, under the names its module emits. */
   readonly symbol: DeclaredSymbol;
-  /** The symbol as the linked program has it, under the names the module emits. */
-  readonly emitted: DeclaredSymbol;
   /** The declaring file, and the offset of the declared name in it. */
   readonly sourceFile: ts.SourceFile;
   readonly start: number;
-}
-
-/** The names of the namespaces around `node`, the outermost first. */
-function namespacesAround(node: ts.Node): string[] {
-  const out: string[] = [];
-  for (let n: ts.Node | undefined = node.parent; n !== undefined; n = n.parent)
-    if (ts.isModuleDeclaration(n) && ts.isIdentifier(n.name)) out.unshift(n.name.text);
-  return out;
+  /** Whether the symbol is a module variable, which the table records as a binding. */
+  readonly moduleVar: boolean;
+  /** The linked program the symbol was read in, whose generated names its types may carry.
+   *  `undefined` for a program of one file, which generates none. */
+  readonly linked: LinkedCompile | undefined;
+  /** The resource binding the symbol is in the hovered document's program, if it is one. */
+  readonly binding: CompileTsSourceResult['bindings'][number] | undefined;
 }
 
 /**
@@ -486,17 +510,14 @@ function namespacesAround(node: ts.Node): string[] {
  * as `Ray.reach`, a member of a namespace as `Tone_map` and a member of an enum as `Mode_Lit`.
  * This is the same line, read off the declaration:
  *
- * - a `field` is a property of an interface, a type literal or a class that is not static;
+ * - a `field` is a property of an interface, a type literal or a class;
  * - every other kind is a function or a variable declared at the top of its file.
  */
 function readsFromCompiler(kind: DeclaredSymbol['kind'], name: ts.Node): boolean {
   const decl = name.parent;
-  if (kind === 'field')
-    return (
-      ts.isPropertySignature(decl) ||
-      (ts.isPropertyDeclaration(decl) &&
-        !(ts.getCombinedModifierFlags(decl) & ts.ModifierFlags.Static))
-    );
+  // A static field is no `field` to the table: the front end records it as a constant under a
+  // longer name (`Ray_UP`), so it never reaches this arm.
+  if (kind === 'field') return ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl);
   if (kind === 'function') return ts.isFunctionDeclaration(decl) && ts.isSourceFile(decl.parent);
   if (kind === 'const' || kind === 'binding' || kind === 'override')
     return (
@@ -512,20 +533,15 @@ function readsFromCompiler(kind: DeclaredSymbol['kind'], name: ts.Node): boolean
  * The symbol that the program of `analysis` declares where `defs` resolves the hovered name to,
  * in a file `declaredIn` takes that the program links (Rule 3.9): an imported field, function,
  * module constant, module variable, override or binding. `undefined` for a single-file program,
- * for a declaration the program did not keep, and for a member, which keeps TypeScript's quick
- * info as it does in one file (`readsFromCompiler`).
+ * for a declaration the program did not keep, for one it lowered as more than one instance
+ * (`oneOf`), and for a member, which keeps TypeScript's quick info as it does in one file
+ * (`readsFromCompiler`).
  *
  * The join is the declaration, by its file and its position, as `linkedFieldAt` joins a field:
  * the linker kept, for every span of the linked source, the file and the offsets the author
  * wrote (`LinkedProgram.map`). So the type is the one the front end gave the declaration in THIS
  * program, the program `compile()` of the hovered document compiles (Rule 12.7), and the hover
- * computes none. The first symbol at the declaration answers, as the first one does in one file
- * (`declaredSymbolAt`).
- *
- * The module emits a declaration under a name of its own where two files declare one name
- * (`io_VsOut`), and the author never wrote that name. The hover shows the name as the declaring
- * file has it: the declared name, read off the declaring file's text, and for a field the name
- * of its struct there, which is the emitted name without the prefix the linker gave it.
+ * computes none.
  */
 function importedSymbolAt(
   analysis: CompileTsSourceResult,
@@ -534,40 +550,151 @@ function importedSymbolAt(
 ): ImportedSymbol | undefined {
   const linked = linkedCompileOf(analysis);
   if (linked === undefined) return undefined;
-  const writtenAt = (symbol: DeclaredSymbol) =>
-    linked.linked.map(symbol.start, symbol.start + symbol.length);
   for (const def of defs) {
     if (!declaredIn(def.fileName)) continue;
-    for (const emitted of linked.symbols) {
-      const written = writtenAt(emitted);
+    const at: DeclaredSymbol[] = [];
+    let sourceFile: ts.SourceFile | undefined;
+    for (const symbol of linked.symbols) {
+      const written = linked.linked.map(symbol.start, symbol.start + symbol.length);
       if (written?.file.name !== def.fileName || written.start !== def.textSpan.start) continue;
-      const sourceFile = written.file.sourceFile;
-      const name = nodeAt(sourceFile, written.start);
-      if (name === undefined || !ts.isIdentifier(name)) return undefined;
-      if (!readsFromCompiler(emitted.kind, name)) return undefined;
-      let struct = emitted.struct;
-      if (emitted.kind === 'field' && struct !== undefined) {
-        // The struct's name in the declaring file: its namespaces and its declared name, as
-        // the front end joins them, and whatever follows them in the emitted name (the
-        // arguments of an instance of a generic class).
-        const owner = linked.symbols.find((s) => s.kind === 'struct' && s.name === struct);
-        const at = owner && writtenAt(owner);
-        const ownerName = at && nodeAt(at.file.sourceFile, at.start);
-        if (ownerName !== undefined && ts.isIdentifier(ownerName)) {
-          const local = [...namespacesAround(ownerName), ownerName.text].join('_');
-          const from = struct.indexOf(local);
-          if (from === 0 || (from > 0 && struct[from - 1] === '_')) struct = struct.slice(from);
-        }
-      }
-      return {
-        symbol: { ...emitted, name: name.text, ...(struct !== undefined ? { struct } : {}) },
-        emitted,
-        sourceFile,
-        start: written.start,
-      };
+      at.push(symbol);
+      sourceFile = written.file.sourceFile;
     }
+    if (sourceFile === undefined) continue;
+    const symbol = oneOf(at);
+    const name = nodeAt(sourceFile, def.textSpan.start);
+    if (symbol === undefined || name === undefined || !ts.isIdentifier(name)) return undefined;
+    if (!readsFromCompiler(symbol.kind, name)) return undefined;
+    return {
+      symbol,
+      sourceFile,
+      start: def.textSpan.start,
+      moduleVar: analysis.vars.some((v) => v.name === symbol.name),
+      linked,
+      binding:
+        symbol.kind === 'binding'
+          ? analysis.bindings.find((b) => b.name === symbol.name)
+          : undefined,
+    };
   }
   return undefined;
+}
+
+/**
+ * The symbol of a name that the hovered document imports and its own program does not keep (an
+ * import no code uses yet), read in the declaring document's own program, when that document is
+ * open: `programs` gives it among the programs that link the declaring file. The type is the one
+ * the declaring file's hover shows. The hovered document's program has no such binding, so a
+ * binding has no resource line here. `sourceFileOf` gives the declaring file as TypeScript holds
+ * it, the text the declaring document's analysis read.
+ */
+function unlinkedSymbolAt(
+  defs: readonly ts.DefinitionInfo[],
+  uri: string,
+  programs: HoverPrograms,
+  sourceFileOf: (fileName: string) => ts.SourceFile | undefined,
+): ImportedSymbol | undefined {
+  for (const def of defs) {
+    if (def.fileName === uri) continue;
+    const declaring = programs(def.fileName).find((p) => p.uri === def.fileName);
+    const sourceFile = sourceFileOf(def.fileName);
+    if (declaring === undefined || sourceFile === undefined) continue;
+    const symbol = declaredSymbolAt(declaring.analysis, def.fileName, [def]);
+    const name = nodeAt(sourceFile, def.textSpan.start);
+    if (symbol === undefined || name === undefined || !ts.isIdentifier(name)) continue;
+    // The declaring file's hover reads a symbol under the hovered name alone.
+    if (symbol.name !== name.text || !readsFromCompiler(symbol.kind, name)) continue;
+    return {
+      symbol,
+      sourceFile,
+      start: def.textSpan.start,
+      moduleVar: declaring.analysis.vars.some((v) => v.name === symbol.name),
+      linked: linkedCompileOf(declaring.analysis),
+      binding: undefined,
+    };
+  }
+  return undefined;
+}
+
+/** `text` with each name of `names` that stands in it as an identifier, or as the head of one
+ *  the front end built from it (`lib_Box` in `lib_Box_f32`), replaced by what the map gives. */
+function renamed(text: string, names: ReadonlyMap<string, string>): string {
+  let out = text;
+  for (const [from, to] of names) {
+    if (!out.includes(from)) continue;
+    const word = from.replace(/[$]/g, '\\$&');
+    out = out.replace(new RegExp(`(?<![A-Za-z0-9$])${word}(?![A-Za-z0-9$])`, 'g'), to);
+  }
+  return out;
+}
+
+/**
+ * The names the linker generated for the program of `linked`, each with the name the author
+ * wrote. Where two files declare one name, the module emits one of them under a name of its own
+ * (`lib_Light`, `lib_K`, Rule 3.2), and the front end spells a type and a parameter by that
+ * name. No author wrote it, and no file of the program may write it (`fresh`,
+ * `src/compiler/ts/link.ts`), so a hover replaces it wherever it stands: in a struct's name, in
+ * the type of a value and in a parameter's name. The pair is read, not guessed: the name in the
+ * linked source at a symbol's span, and the text the author wrote at the span the linker maps it
+ * to (`LinkedProgram.map`).
+ */
+function generatedNames(linked: LinkedCompile): ReadonlyMap<string, string> {
+  const known = generated.get(linked);
+  if (known !== undefined) return known;
+  const out = new Map<string, string>();
+  for (const symbol of linked.symbols) {
+    const end = symbol.start + symbol.length;
+    const emitted = linked.sourceFile.text.slice(symbol.start, end);
+    const at = linked.linked.map(symbol.start, end);
+    if (at === undefined) continue;
+    const written = at.file.sourceFile.text.slice(at.start, at.end);
+    if (written !== emitted && written !== '') out.set(emitted, written);
+  }
+  generated.set(linked, out);
+  return out;
+}
+const generated = new WeakMap<LinkedCompile, ReadonlyMap<string, string>>();
+
+/**
+ * The structs that `sourceFile` imports under a name of its own (`import { Light as L }`), each
+ * by the name the module of `linked` emits it under, with that name of its own. A hover in a
+ * file shows a name as that file writes it (the owner's decision of 2026-11-10), so the type of
+ * a value and the struct of a field read `L` there. A struct the file reaches another way (a
+ * namespace import, the type of an imported function's parameter) keeps its declared name.
+ */
+function importedStructNames(
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker | undefined,
+  linked: LinkedCompile,
+): ReadonlyMap<string, string> {
+  const out = new Map<string, string>();
+  if (checker === undefined) return out;
+  for (const stmt of sourceFile.statements) {
+    if (!ts.isImportDeclaration(stmt)) continue;
+    const bindings = stmt.importClause?.namedBindings;
+    if (bindings === undefined || !ts.isNamedImports(bindings)) continue;
+    for (const spec of bindings.elements) {
+      if (spec.propertyName === undefined) continue;
+      const alias = checker.getSymbolAtLocation(spec.name);
+      const target =
+        alias !== undefined && alias.flags & ts.SymbolFlags.Alias
+          ? checker.getAliasedSymbol(alias)
+          : undefined;
+      const decl = target?.declarations?.[0];
+      const name = decl === undefined ? undefined : ts.getNameOfDeclaration(decl);
+      if (decl === undefined || name === undefined) continue;
+      const fileName = decl.getSourceFile().fileName;
+      const start = name.getStart();
+      for (const symbol of linked.symbols) {
+        if (symbol.kind !== 'struct') continue;
+        const end = symbol.start + symbol.length;
+        const at = linked.linked.map(symbol.start, end);
+        if (at?.file.name !== fileName || at.start !== start) continue;
+        out.set(linked.sourceFile.text.slice(symbol.start, end), spec.name.text);
+      }
+    }
+  }
+  return out;
 }
 
 /** The qualifier written on the parameter the front end recorded as `param`, `@inout` or `@out`
@@ -579,28 +706,15 @@ function qualifierOfParam(sourceFile: ts.SourceFile, param: DeclaredSymbol): str
 }
 
 /** The qualifier of each parameter of the function whose name is declared at offset `start` of
- *  `sourceFile`, by name. */
+ *  `sourceFile`, in the order of the parameters. The order is the join: the module may emit a
+ *  parameter under a name of its own. */
 function qualifiersOfFunction(
   sourceFile: ts.SourceFile,
   start: number,
-): ReadonlyMap<string, string> {
+): readonly (string | undefined)[] {
   let node: ts.Node | undefined = nodeAt(sourceFile, start);
   while (node !== undefined && !ts.isFunctionDeclaration(node)) node = node.parent;
-  const out = new Map<string, string>();
-  for (const p of node?.parameters ?? []) {
-    const q = qualifiersOf(p)[0];
-    if (q !== undefined && ts.isIdentifier(p.name)) out.set(p.name.text, q.name);
-  }
-  return out;
-}
-
-/** The first result of `f` over `items` that is not `undefined`. */
-function firstDefined<T, U>(items: readonly T[], f: (item: T) => U | undefined): U | undefined {
-  for (const item of items) {
-    const found = f(item);
-    if (found !== undefined) return found;
-  }
-  return undefined;
+  return (node?.parameters ?? []).map((p) => qualifiersOf(p)[0]?.name);
 }
 
 /** The innermost node of `sourceFile` that starts at or covers `pos`. */
@@ -638,7 +752,7 @@ function referenceLine(param: DeclaredSymbol, qualifier: string): string {
 function declarationLine(
   symbol: DeclaredSymbol,
   moduleVar: boolean,
-  qualifiers: ReadonlyMap<string, string> = new Map(),
+  qualifiers: readonly (string | undefined)[] = [],
 ): string | undefined {
   const type = spellShaderType(symbol.type);
   switch (symbol.kind) {
@@ -648,9 +762,9 @@ function declarationLine(
       return `(parameter) ${symbol.name}: ${type}`;
     case 'const':
       return `const ${symbol.name}: ${type}`;
-    // An override reads as TypeScript reads it in the file that declares it, `const tint: f32`.
-    // The front end records none in one file's table under the hovered name, so this arm is
-    // the hover of an override that another file declares.
+    // An override is declared `const` (Rule 6.1), and its type is the compiler's: `override<bool>`
+    // reads `const flag: bool`, as the emitted `override flag: bool` does, where TypeScript's
+    // quick info said `boolean`.
     case 'override':
       return `const ${symbol.name}: ${type}`;
     // A binding keeps `const name: T`, the shape TypeScript already uses for it: the address
@@ -665,8 +779,8 @@ function declarationLine(
       return `${moduleVar ? 'let' : 'const'} ${symbol.name}: ${type}`;
     case 'function': {
       const params = (symbol.params ?? [])
-        .map((p) => {
-          const q = qualifiers.get(p.name);
+        .map((p, i) => {
+          const q = qualifiers[i];
           // The qualifier as an author writes it, before the parameter: `@inout v: f32`
           // (Rule 8.25, change 0137).
           return `${q !== undefined ? `@${q} ` : ''}${p.name}: ${spellShaderType(p.type)}`;
@@ -690,8 +804,12 @@ function declarationLine(
  * the declaration TypeScript resolves the identifier to. TypeScript's own inference cannot be
  * trusted for it: the ambient GPU scalars brand `number` optionally, so `let x = 1.` infers
  * plain `number` where the front end lowered an `f32`, and `const half = 0.5` infers the literal
- * type `0.5`. Everything else keeps TypeScript's quick info: a symbol declared in another
- * document, a host-side declaration, a data class name (`class Vertex` already says it), a
+ * type `0.5`. A field, a function, a module constant, a module variable, an override and a
+ * binding that another file of the document's program declares are read in that program too, by
+ * their declaration (`importedSymbolAt`), under the name this document writes. Everything else
+ * keeps TypeScript's quick info: a host-side declaration, a member (a method, a getter, a static
+ * function, a member of a namespace or of an enum), a data class name (`class Vertex` already
+ * says it), a declaration the front end lowered as more than one instance (`oneOf`), a
  * declaration the front end refused to lower and so never recorded (its own diagnostic on that
  * line says why), and the documentation section of every hover. A resource binding also gains
  * one line from `analysis`: its access mode, address space and `@group`/`@binding` slot. A
@@ -749,11 +867,11 @@ export function getHover(
   const quickInfo = languageService.getQuickInfoAtPosition(uri, offset);
   if (!quickInfo) return undefined;
   // At most one definition query per hover, shared by the answers that need it, and only
-  // when one of them could use the result. Both key off the identifier's text: a recorded
+  // when one of them could use the result. Two key off the identifier's text: a recorded
   // symbol's span covers the declared name, so a definition that lands on one necessarily has
-  // that name, and a binding is matched by name outright. An identifier this document declares
-  // nothing of that name for (`max`, `vec3`, an imported symbol) therefore cannot change either
-  // answer, and no longer pays TypeScript for a resolution nobody reads.
+  // that name, and a binding is matched by name outright. In a program of one file, an
+  // identifier this document declares nothing of that name for (`max`, `vec3`) therefore cannot
+  // change either answer, and pays TypeScript for no resolution.
   //
   // The location line of a field is the third answer, and it is asked for every property: the
   // front end records a field of this document only when the document uses its struct, and a
@@ -769,35 +887,57 @@ export function getHover(
   // The fourth answer is a symbol that another file of the program declares (Rule 3.9): no
   // name of this document's table stands for it, so a program that links another file asks
   // for the definition of every identifier.
-  const linked = ts.isIdentifier(node) && linkedCompileOf(analysis) !== undefined;
+  const linkedCompile = linkedCompileOf(analysis);
+  const linked = ts.isIdentifier(node) && linkedCompile !== undefined;
   const defs =
     named || property || linked ? (languageService.getDefinitionAtPosition(uri, offset) ?? []) : [];
   const own = named ? declaredSymbolAt(analysis, uri, defs) : undefined;
-  // A name this document does not declare is read in this document's program, where another
-  // file of it declares the name. A field this document declares and its own program gives no
-  // symbol (the front end records a field only where its file uses the struct) is read in the
-  // program of an open document that links this file, as its location line is.
-  const imported =
-    own !== undefined || !ts.isIdentifier(node)
-      ? undefined
-      : (importedSymbolAt(analysis, defs, (fileName) => fileName !== uri) ??
-        (property && defs.some((d) => d.fileName === uri)
-          ? firstDefined(programs(uri), (p) =>
-              importedSymbolAt(p.analysis, defs, (fileName) => fileName === uri),
-            )
-          : undefined));
+  const typescript = languageService.getProgram();
+  // A name this document does not declare is read, in this order:
+  // - in this document's program, where another file of it declares the name;
+  // - for a field this document declares and its own program gives no symbol (the front end
+  //   records a field only where its file uses the struct), in the programs of the open
+  //   documents that link this file, as its location line is, where they agree (`oneOf`);
+  // - for a name this document imports and its program does not keep (no code uses it yet), in
+  //   the declaring document's own program, when that document is open.
+  const elsewhere = (): ImportedSymbol | undefined => {
+    const inProgram = importedSymbolAt(analysis, defs, (fileName) => fileName !== uri);
+    if (inProgram !== undefined) return inProgram;
+    if (property && defs.some((d) => d.fileName === uri)) {
+      const found = programs(uri)
+        .map((p) => importedSymbolAt(p.analysis, defs, (fileName) => fileName === uri))
+        .filter((f) => f !== undefined);
+      // The struct's name is each program's own, so only the type decides here.
+      const first = found[0];
+      const agree = found.every(
+        (f) => spellShaderType(f.symbol.type) === spellShaderType(first!.symbol.type),
+      );
+      return agree ? first : undefined;
+    }
+    return unlinkedSymbolAt(defs, uri, programs, (fileName) => typescript?.getSourceFile(fileName));
+  };
+  const imported = own !== undefined || !ts.isIdentifier(node) ? undefined : elsewhere();
   // `declared` is this document's own symbol: the answers below that read this document's
   // source at the symbol's offset take it alone.
   const declared = own;
-  const shown = own ?? imported?.symbol;
+  // A symbol another file declares shows the name this document writes for it: the hovered
+  // name, `bp` of `import { bump as bp }`, as signature help shows it (the owner's decision of
+  // 2026-11-10). A field's name is the same in every file.
+  const shown =
+    own ??
+    (imported === undefined
+      ? undefined
+      : { ...imported.symbol, name: (node as ts.Identifier).text });
   // A module variable is recorded as a binding, and the module's variables tell the two apart,
   // by the name the module emits.
-  const emittedName = own?.name ?? imported?.emitted.name;
-  const moduleVar = emittedName !== undefined && analysis.vars.some((v) => v.name === emittedName);
+  const moduleVar =
+    own !== undefined
+      ? analysis.vars.some((v) => v.name === own.name)
+      : imported?.moduleVar === true;
   // An `@inout` or `@out` parameter is a `param` to the symbol table, and its declaration
   // carries the qualifier (Rule 8.25).
   const qualifier = declared?.kind === 'param' ? qualifierOfParam(sourceFile, declared) : undefined;
-  const display =
+  const compilers =
     (qualifier !== undefined
       ? `(parameter) @${qualifier} ${declared!.name}: ${spellShaderType(declared!.type)}`
       : undefined) ??
@@ -811,18 +951,30 @@ export function getHover(
               ? qualifiersOfFunction(sourceFile, own.start)
               : qualifiersOfFunction(imported!.sourceFile, imported!.start),
         )
-      : undefined) ??
-    ts.displayPartsToString(quickInfo.displayParts);
-  const documentation = ts.displayPartsToString(quickInfo.documentation);
-  // A binding that another file declares has its slot in this document's program, under the
-  // name the module emits.
-  const importedBinding =
-    imported?.emitted.kind === 'binding'
-      ? analysis.bindings.find((b) => b.name === imported.emitted.name)
+      : undefined);
+  // The compiler's line spells a struct and a parameter by the name the module emits. Each
+  // name the linker generated reads as the author wrote it, and a struct this document imports
+  // under a name of its own reads by that name. The names are those of the program the symbol
+  // was read in, which is this document's unless another program answered.
+  const readIn = imported !== undefined ? imported.linked : linkedCompile;
+  const aliases =
+    readIn !== undefined && readIn === linkedCompile
+      ? importedStructNames(sourceFile, typescript?.getTypeChecker(), readIn)
       : undefined;
+  const display =
+    compilers === undefined
+      ? ts.displayPartsToString(quickInfo.displayParts)
+      : readIn === undefined
+        ? compilers
+        : renamed(
+            aliases === undefined ? compilers : renamed(compilers, aliases),
+            generatedNames(readIn),
+          );
+  const documentation = ts.displayPartsToString(quickInfo.documentation);
+  // A binding that another file declares has its slot in this document's program.
   const resource =
-    importedBinding !== undefined
-      ? bindingLine(importedBinding)
+    imported?.binding !== undefined
+      ? bindingLine(imported.binding)
       : resourceBindingLine(analysis, sourceFile, uri, defs, node);
   const sections = [`\`\`\`ts\n${display}\n\`\`\``];
   if (qualifier !== undefined) sections.push(referenceLine(declared!, qualifier));

@@ -210,13 +210,13 @@ export function fs(v: V): VsOut {
     // The imported `VsOut.uv`, a value between stages at 1.
     expect(reflected(files, MAIN, 'vs', 'outputs', 'uv')).toBe(1);
     expect(reflected(files, MAIN, 'fs', 'inputs', 'uv')).toBe(1);
-    const imported = withLine(
-      '(property) VsOut.uv: vec2<f32>',
-      'value between stages at @location(1)',
-    );
+    // The importing file calls the struct `V`, and its hover shows that name. The declaring
+    // file shows the name it declares.
+    const line = 'value between stages at @location(1)';
+    const imported = withLine('(property) V.uv: vec2<f32>', line);
     expect(hover(files, MAIN, 'v.uv', 2)).toBe(imported);
     expect(hover(files, MAIN, 'uv: vec2(0')).toBe(imported);
-    expect(hover(files, IO, 'uv:')).toBe(imported);
+    expect(hover(files, IO, 'uv:')).toBe(withLine('(property) VsOut.uv: vec2<f32>', line));
     // The importing file's own `VsOut.uv`, a render target at 0.
     expect(reflected(files, MAIN, 'fs', 'outputs', 'uv')).toBe(0);
     const own = withLine('(property) VsOut.uv: vec4<f32>', 'render target at @location(0)');

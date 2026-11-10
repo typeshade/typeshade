@@ -284,6 +284,10 @@ describe('the hover of a symbol another document declares is the compiler’s (R
     expect(atDeclaration('bump(@inout')).toBe(
       bare('function bump(@inout v: f32, @out w: f32, k: f32): void'),
     );
+    // A generic function has no instance in the library's own program. Only a field is read
+    // in the program of a document that imports the file, so the declaration keeps
+    // TypeScript's generic text, though each importing program lowers one instance.
+    expect(atDeclaration('twice<T')).toBe(bare('function twice<T extends f32 | vec3>(x: T): T'));
     expect(atDeclaration('HALF = ')).toBe(bare('const HALF: f32'));
     expect(atDeclaration('AXIS = ')).toBe(bare('const AXIS: vec3<f32>'));
     expect(atDeclaration('frame: u32')).toBe(bare('let frame: u32'));
@@ -318,6 +322,38 @@ describe('the hover of a symbol another document declares is the compiler’s (R
       for (const name of [ONE, ...IMPORTERS]) expect(inFs(name, use), name).toBe(text);
   });
 
+  it('a static field keeps TypeScript’s quick info, as it does in one file', () => {
+    // The front end records a static field as a constant under a longer name (`Ray_UP`).
+    const declarations = `
+export class Ray {
+  t: f32;
+  static readonly UP = vec3(0., 1., 0.);
+}
+`;
+    const body = `
+@fragment
+export function fs(): vec4 {
+  const r = new Ray();
+  return vec4(r.t + Ray.UP.y, 0., 0., 1.);
+}
+`;
+    const files: Files = {
+      [ONE]: `"use typeshade";${declarations}${body}`,
+      [LIB]: `"use typeshade";${declarations}`,
+      [MAIN]: `"use typeshade";\nimport { Ray } from "./lib.shade.ts";${body}`,
+    };
+    const statics = opened(files);
+    for (const name of [ONE, MAIN]) {
+      expect(errorsOf(files, name)).toEqual([]);
+      expect(compiled(files, name).wgsl).toContain(
+        'const Ray_UP: vec3<f32> = vec3<f32>(0.0, 1.0, 0.0);',
+      );
+      expect(hoverAt(statics, files, name, 'Ray.UP', 4, 'fs()'), name).toBe(
+        bare('(property) Ray.UP: vec3'),
+      );
+    }
+  });
+
   it('signature help of an imported function shows its qualifiers (Rule 8.25)', () => {
     // The compiler takes both as pointers, and the test above holds the emit to that.
     const label = ['bump(@inout v: f32, @out w: f32, k: f32): void'];
@@ -332,54 +368,198 @@ describe('the hover of a symbol another document declares is the compiler’s (R
   });
 });
 
-describe('the name a hover shows is the declaring file’s, not the module’s', () => {
+describe('the name a hover shows is the one the hovered file writes, never the module’s', () => {
   it('a renamed import, beside declarations of the same names in the importing file', () => {
-    // Both files declare `Light`, `HALF` and `shade`. The module emits the library's under
-    // names of its own, which no author wrote.
+    // Both files declare `Light`, `HALF`, `shade` and `frame`. The module emits the library's
+    // under names of its own, which no author wrote. The importing file reads each under an
+    // alias, and the hover shows the alias, as signature help does (the owner's decision of
+    // 2026-11-10).
     const files: Files = {
       [LIB]: `"use typeshade";
 export interface Light {
   dir: vec3;
 }
 export const HALF = 0.5;
-export function shade(n: vec3): f32 {
+export let frame: u32 = 0;
+export const tint: override<f32> = 0.85;
+declare const scene: uniform<Light>;
+export { scene };
+export function shade(@inout n: vec3, k: f32): f32 {
+  n = n * k;
   return n.x;
 }
 `,
       [MAIN]: `"use typeshade";
-import { Light as L, HALF as H, shade as s } from "./lib.shade.ts";
+import { Light as L, HALF as H, frame as fr, tint as tn, scene as sc, shade as s } from "./lib.shade.ts";
 interface Light {
   dir: vec4;
 }
 const HALF = vec2(0.5, 0.5);
+const frame = 2.;
 function shade(n: vec4): f32 {
   return n.w;
 }
 @fragment
 export function fs(): vec4 {
-  const far: L = { dir: vec3(0., 0., 1.) };
+  let far: L = { dir: vec3(0., 0., 1.) };
   const near: Light = { dir: vec4(0., 0., 1., 1.) };
-  return vec4(s(far.dir) * H, shade(near.dir), HALF.x, 1.);
+  const a = s(far.dir, H) + f32(fr) * tn + sc.dir.x;
+  return vec4(a, shade(near.dir), HALF.x, frame);
 }
 `,
     };
     expect(errorsOf(files, MAIN)).toEqual([]);
     const wgsl = compiled(files, MAIN).wgsl!;
     expect(wgsl).toContain('struct lib_Light {');
+    expect(wgsl).toContain('  dir: vec3<f32>,');
     expect(wgsl).toContain('const lib_HALF: f32 = 0.5;');
-    expect(wgsl).toContain('fn lib_shade(n: vec3<f32>) -> f32 {');
+    expect(wgsl).toContain('var<private> lib_frame: u32 = 0u;');
+    expect(wgsl).toContain('override tint: f32 = 0.85;');
+    expect(wgsl).toContain('@group(0) @binding(0) var<uniform> scene: lib_Light;');
+    expect(wgsl).toContain('fn lib_shade(n: ptr<function, vec3<f32>>, k: f32) -> f32 {');
     const service = opened(files);
     const at = (needle: string, skip = 0) => hoverAt(service, files, MAIN, needle, skip, 'fs()');
-    // The library's, under the names the library writes.
-    expect(at('far.dir', 4)).toBe(bare('(property) Light.dir: vec3<f32>'));
-    expect(at('* H', 2)).toBe(bare('const HALF: f32'));
-    expect(at('s(far')).toBe(bare('function shade(n: vec3<f32>): f32'));
+    // The library's, under the names this file gives them.
+    expect(at('far.dir', 4)).toBe(bare('(property) L.dir: vec3<f32>'));
+    expect(at('far: L')).toBe(bare('let far: L'));
+    expect(at(', H)', 2)).toBe(bare('const H: f32'));
+    // A module variable stays `let`: the module's variable is found under its emitted name,
+    // and this file's own `frame` is a constant.
+    expect(at('fr)')).toBe(bare('let fr: u32'));
+    expect(at('tn +')).toBe(bare('const tn: f32'));
+    expect(at('sc.dir')).toBe(lines('const sc: L', 'uniform resource at @group(0) @binding(0)'));
+    expect(at('s(far')).toBe(bare('function s(@inout n: vec3<f32>, k: f32): f32'));
+    expect(signaturesAt(service, files, MAIN, '= s(')).toEqual([
+      's(@inout n: vec3<f32>, k: f32): f32'.replace('vec3<f32>', 'vec3'),
+    ]);
+    // In the library, under the names the library writes.
     expect(hoverAt(service, files, LIB, 'HALF = ')).toBe(bare('const HALF: f32'));
-    expect(hoverAt(service, files, LIB, 'shade(n')).toBe(bare('function shade(n: vec3<f32>): f32'));
+    expect(hoverAt(service, files, LIB, 'shade(@inout')).toBe(
+      bare('function shade(@inout n: vec3<f32>, k: f32): f32'),
+    );
+    expect(hoverAt(service, files, LIB, 'dir: vec3;')).toBe(
+      bare('(property) Light.dir: vec3<f32>'),
+    );
     // The importing file's own, unchanged.
     expect(at('near.dir', 5)).toBe(bare('(property) Light.dir: vec4<f32>'));
+    expect(at('near: Light')).toBe(bare('const near: Light'));
     expect(at('HALF.x')).toBe(bare('const HALF: vec2<f32>'));
+    expect(at('frame);')).toBe(bare('const frame: f32'));
     expect(at('shade(near')).toBe(bare('function shade(n: vec4<f32>): f32'));
+  });
+
+  it('a name the linker generated shows nowhere in a hover: a type, a parameter, a struct', () => {
+    // The importing file declares its own `Light` and `K`, and imports neither by name. The
+    // module emits the library's as `lib_Light` and `lib_K`, and the library's parameter `K`
+    // as `lib_K`. Each reads as the library writes it.
+    const files: Files = {
+      [LIB]: `"use typeshade";
+export interface Light {
+  power: f32;
+}
+export interface Scene {
+  key: Light;
+  all: array<Light, 2>;
+}
+export const K = 0.25;
+export const DEF: Light = { power: 1. };
+declare const one: uniform<Light>;
+export { one };
+export function lum(l: Light, scale: f32): f32 {
+  return l.power * scale * K;
+}
+export function mk(): Light {
+  return { power: K };
+}
+export function third(K: f32): f32 {
+  return K / 3.;
+}
+`,
+      [MAIN]: `"use typeshade";
+import { Scene, DEF, one, lum, mk, third } from "./lib.shade.ts";
+interface Light {
+  c: f32;
+}
+const K = 2.;
+function inner(third: f32): f32 {
+  return third * K;
+}
+@fragment
+export function fs(): vec4 {
+  const mine: Light = { c: 1. };
+  const made = mk();
+  const sc: Scene = { key: made, all: [DEF, one] };
+  const a = lum(sc.key, K) + third(1.) + lum(sc.all[0], 1.) + inner(mine.c);
+  return vec4(a, DEF.power, one.power, 1.);
+}
+`,
+    };
+    expect(errorsOf(files, MAIN)).toEqual([]);
+    const wgsl = compiled(files, MAIN).wgsl!;
+    expect(wgsl).toContain('struct lib_Light {');
+    expect(wgsl).toContain('const lib_K: f32 = 0.25;');
+    expect(wgsl).toContain('fn lum(l: ptr<function, lib_Light>, scale: f32) -> f32 {');
+    expect(wgsl).toContain('  key: lib_Light,');
+    // This file's own parameter `third` is emitted under a generated name too.
+    expect(wgsl).toContain('fn inner(main_third: f32) -> f32 {');
+    const service = opened(files);
+    const at = (needle: string, skip = 0) => hoverAt(service, files, MAIN, needle, skip, 'fs()');
+    const texts = [
+      [at('lum(sc.key'), 'function lum(l: Light, scale: f32): f32'],
+      [at('mk()'), 'function mk(): Light'],
+      [at('third(1.)'), 'function third(K: f32): f32'],
+      [at('DEF, one'), 'const DEF: Light'],
+      [at('made = '), 'const made: Light'],
+      [at('sc.key', 3), '(property) Scene.key: Light'],
+      [at('sc.all', 3), '(property) Scene.all: array<Light, 2>'],
+      // This file's own, which the module emits under their written names.
+      [at('mine: Light'), 'const mine: Light'],
+      [at('inner(mine'), 'function inner(third: f32): f32'],
+    ] as const;
+    for (const [hover, text] of texts) expect(hover).toBe(bare(text));
+    expect(at('one.power')).toBe(
+      lines('const one: Light', 'uniform resource at @group(0) @binding(0)'),
+    );
+    for (const [hover] of texts) expect(hover).not.toMatch(/lib_|main_/);
+    // The library shows the same texts for its own declarations.
+    expect(hoverAt(service, files, LIB, 'lum(l')).toBe(
+      bare('function lum(l: Light, scale: f32): f32'),
+    );
+    expect(hoverAt(service, files, LIB, 'third(K')).toBe(bare('function third(K: f32): f32'));
+  });
+
+  it('a file named as the struct it declares: the linker’s prefix is the struct’s own name', () => {
+    const NAMED = '/p/Light.shade.ts';
+    const files: Files = {
+      [NAMED]: `"use typeshade";
+export interface Light {
+  power: f32;
+}
+export function glow(l: Light): f32 {
+  return l.power;
+}
+`,
+      [MAIN]: `"use typeshade";
+import { glow } from "./Light.shade.ts";
+interface Light {
+  c: f32;
+}
+@fragment
+export function fs(): vec4 {
+  const own: Light = { c: 1. };
+  return vec4(glow({ power: own.c }), 0., 0., 1.);
+}
+`,
+    };
+    expect(errorsOf(files, MAIN)).toEqual([]);
+    expect(compiled(files, MAIN).wgsl).toContain('struct Light_Light {');
+    const service = opened(files);
+    expect(hoverAt(service, files, MAIN, 'glow(', 0, 'fs()')).toBe(
+      bare('function glow(l: Light): f32'),
+    );
+    expect(hoverAt(service, files, MAIN, 'power:', 0, 'fs()')).toBe(
+      bare('(property) Light.power: f32'),
+    );
   });
 
   it('an imported file that is not open is read through the host', () => {
@@ -417,5 +597,155 @@ describe('the hover of an imported symbol runs no analysis that the service does
     for (const needle of ['HALF }', 'shade(l', 'scene.power', 'frame)'])
       hoverAt(service, files, MAIN, needle, 0, 'fs()');
     expect(runs).toEqual([MAIN]);
+  });
+});
+
+describe('a declaration lowered as more than one instance keeps TypeScript’s quick info', () => {
+  // The front end lowers a generic function and a generic class once for each instance, and
+  // records each at the one declaration. A hover must not show a call the type of another
+  // instance (Rule 12.7).
+  const GENERIC = `
+export function twice<T extends f32 | vec3>(x: T): T {
+  return x;
+}
+export class Box<T extends f32 | vec3> {
+  v: T;
+}
+`;
+  const USES = `
+@fragment
+export function fs(): vec4 {
+  const q = twice(vec3(2.));
+  const p = twice(1.);
+  const bf = new Box<f32>();
+  const bv = new Box<vec3>();
+  return vec4(q.x + p + bf.v + bv.v.x, 0., 0., 1.);
+}
+`;
+  const files: Files = {
+    [ONE]: `"use typeshade";${GENERIC}${USES}`,
+    [LIB]: `"use typeshade";${GENERIC}`,
+    [MAIN]: `"use typeshade";\nimport { twice, Box } from "./lib.shade.ts";${USES}`,
+  };
+  const service = opened(files);
+  const at = (name: string, needle: string, skip = 0) =>
+    hoverAt(service, files, name, needle, skip, 'fs()');
+
+  it('both programs emit both instances', () => {
+    for (const name of [ONE, MAIN]) {
+      expect(errorsOf(files, name)).toEqual([]);
+      const wgsl = compiled(files, name).wgsl!;
+      for (const declaration of [
+        'fn twice_vec3(x: vec3<f32>) -> vec3<f32> {',
+        'fn twice_f32(x: f32) -> f32 {',
+        'struct Box_f32 {',
+        'struct Box_vec3 {',
+      ])
+        expect(wgsl, `${name}: ${declaration}`).toContain(declaration);
+    }
+  });
+
+  it('each call of a generic function names its own instance', () => {
+    expect(at(MAIN, 'twice(vec3')).toBe(bare('(alias) twice<vec3>(x: vec3): vec3\nimport twice'));
+    expect(at(MAIN, 'twice(1.')).toBe(bare('(alias) twice<1>(x: 1): 1\nimport twice'));
+    expect(at(ONE, 'twice(vec3')).toBe(bare('function twice<vec3>(x: vec3): vec3'));
+    expect(at(ONE, 'twice(1.')).toBe(bare('function twice<1>(x: 1): 1'));
+    // No hover shows a call the other instance.
+    expect(at(MAIN, 'twice(1.')).not.toContain('vec3');
+    expect(at(ONE, 'twice(1.')).not.toContain('vec3');
+  });
+
+  it('each field of a generic class names its own instance', () => {
+    for (const name of [ONE, MAIN]) {
+      expect(at(name, 'bf.v', 3), name).toBe(bare('(property) Box<f32>.v: f32'));
+      expect(at(name, 'bv.v', 3), name).toBe(bare('(property) Box<vec3>.v: vec3'));
+    }
+    // At the declaration, which is no one instance, the text is the generic one.
+    expect(hoverAt(service, files, LIB, 'v: T')).toBe(
+      bare('(property) Box<T extends f32 | vec3>.v: T extends f32 | vec3'),
+    );
+  });
+
+  it('a generic function’s declaration in the library is not read in an importing program', () => {
+    // The library's own program lowers no instance. Only a field is read in the program of a
+    // document that imports the file.
+    expect(hoverAt(service, files, LIB, 'twice<T')).toBe(
+      bare('function twice<T extends f32 | vec3>(x: T): T'),
+    );
+  });
+});
+
+describe('an import the hovered file’s program does not keep', () => {
+  const files: Files = {
+    [LIB]: `"use typeshade";
+export const K = 0.5;
+export const J: u32 = 3;
+export function g(@inout a: f32): f32 {
+  a = a + 1.;
+  return a;
+}
+`,
+    [MAIN]: `"use typeshade";
+import { K, J, g } from "./lib.shade.ts";
+@fragment
+export function fs(): vec4 {
+  return vec4(f32(J), 0., 0., 1.);
+}
+`,
+  };
+
+  it('reads the declaring document’s own program, when that document is open', () => {
+    // `K` and `g` are imported and not used yet, so the program of `main.shade.ts` drops them.
+    expect(errorsOf(files, MAIN)).toEqual([]);
+    const wgsl = compiled(files, MAIN).wgsl!;
+    expect(wgsl).toContain('const J: u32 = 3u;');
+    expect(wgsl).not.toContain('const K');
+    expect(wgsl).not.toContain('fn g(');
+    // The library's own program holds them, as the types its hover shows.
+    expect(compiled(files, LIB).wgsl).toContain('const K: f32 = 0.5;');
+    const service = opened(files);
+    const inImport = (needle: string) => hoverAt(service, files, MAIN, needle, 0, 'import {');
+    expect(inImport('K,')).toBe(bare('const K: f32'));
+    expect(inImport('g }')).toBe(bare('function g(@inout a: f32): f32'));
+    expect(inImport('J,')).toBe(bare('const J: u32'));
+    expect(hoverAt(service, files, LIB, 'K = ')).toBe(bare('const K: f32'));
+  });
+
+  it('keeps TypeScript’s quick info when the declaring document is not open', () => {
+    const service = createTypeshadeLanguageService({ readDocument: (uri) => files[uri] });
+    service.openDocument(MAIN, files[MAIN]!);
+    expect(hoverAt(service, files, MAIN, 'K,', 0, 'import {')).toBe(
+      bare('(alias) const K: 0.5\nimport K'),
+    );
+    // A used import is read in this document's program, open or not.
+    expect(hoverAt(service, files, MAIN, 'J,', 0, 'import {')).toBe(bare('const J: u32'));
+  });
+});
+
+describe('an override in the file that declares it reads the compiler’s type', () => {
+  it('override<bool> is `bool`, and an exported override has no `export` line', () => {
+    const SOLO = '/p/solo.shade.ts';
+    const files: Files = {
+      [SOLO]: `"use typeshade";
+export const flag: override<bool> = true;
+const bias: override<f32> = 0.5;
+export { bias };
+@fragment
+export function fs(): vec4 {
+  return vec4(flag ? bias : 0., 0., 0., 1.);
+}
+`,
+    };
+    expect(errorsOf(files, SOLO)).toEqual([]);
+    const wgsl = compiled(files, SOLO).wgsl!;
+    expect(wgsl).toContain('override flag: bool = true;');
+    expect(wgsl).toContain('override bias: f32 = 0.5;');
+    const service = opened(files);
+    // TypeScript's quick info said `const flag: boolean`.
+    expect(hoverAt(service, files, SOLO, 'flag: override')).toBe(bare('const flag: bool'));
+    expect(hoverAt(service, files, SOLO, 'flag ?')).toBe(bare('const flag: bool'));
+    // TypeScript's quick info said `(alias) const bias: f32` and `export bias`.
+    expect(hoverAt(service, files, SOLO, 'bias }')).toBe(bare('const bias: f32'));
+    expect(hoverAt(service, files, SOLO, 'bias :')).toBe(bare('const bias: f32'));
   });
 });
