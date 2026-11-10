@@ -1,7 +1,7 @@
 ---
 id: '0135'
 title: An entry's built-in value takes its type from WGSL, and a user-defined input or output takes its location from the compiler, so an author writes builtin<"vertex_index"> and uv: vec2
-status: accepted
+status: implemented
 rules:
   - '6.6'
   - '6.8'
@@ -61,7 +61,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0135, `status: accepted`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Identity and status           | Proposal 0135, `status: implemented`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Date and attribution          | Drafted 2026-11-09 (UTC) by an AI agent (Claude Code) at the owner's direction, and revised the same day after the independent review and the owner's decision on `OD-5` (both recorded below). The dates are drafting and revision dates. They are not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-09, in Korean. The owner asked which parts of the supported surface push onto the author work that the language or the compiler should do, judged against `OD-3`. From an audit of the surface, the owner chose two items of entry I/O for this proposal: the type written in `builtin<"vertex_index", u32>`, and the number written in `location<0, vec2>`. No GitHub issue is recorded.                                                                                                                                                                                                                                                                                                                                                              |
 | Applicability / effectivity   | Expected: `docs/language-design.md` Rules 6.6, 6.8 and 8.2, §2.3 (prose, not a rule) and Appendix B's Rule 6.6 row, `docs/use-typeshade-surface.md` §3, §7 and §53, `reqs/`, `src/compiler/ts/attribute-types.ts`, `src/compiler/ts/builtin-check.ts`, `src/compiler/ts/structs.ts`, `src/compiler/ts/lower/function.ts` (the entry I/O checks and `checkStructBuiltinFields`), `src/compiler/ts/source-file.ts` (the interstage check), `src/core/passes/lint/rules/interstage-io.ts`, `src/language-service/ambient.ts` (the `builtin` type) and the language service's diagnostic merge, `src/cli/migrate.ts`, `CHANGELOG.md`, and the examples (edited, none added or removed). The emitted WGSL, the emitted GLSL ES 3.00, `reflect()` and the manifest keep their shapes. No release version is assigned. |
@@ -689,8 +689,8 @@ the sentence was shown before and after (`OD-4`).
 
 ### Configuration and validation record
 
-The front-matter `status` stays `accepted`. "Open items" at the end of this record lists what
-is open. This record states what pull request #1161 delivers. It was written on 2026-11-10 (UTC) by
+The front-matter `status` is `implemented` since pull request #1183 ("Status", at the end of
+this record). "Open items" there lists what is open. This record states what pull request #1161 delivers. It was written on 2026-11-10 (UTC) by
 the AI agent (Claude Code) that implemented the change, at the direction of the coordinating
 session. The merge of pull request #1161 records the delivered commit; this file does not name
 the hash of the commit that contains it.
@@ -970,20 +970,44 @@ session. Its pull request records the delivered commit and each check with its r
 | B   | Other sentences still name a built-in value by the decorated form, and amendment A3 does not list them: `README.md` ("`@builtin(...)` ids"), `examples/README.md` ("the `@vertex` / `@builtin(...)` decorators"), `docs/debugging.md` ("carrying `@builtin(...)` or `@location(n)`"), four places of `docs/language-service-api.md` (the `getSemanticTokens` row, the `TS8025` row, the `BUILTIN_DOCS` sentence, the rename note) and the text of Rules 10.1 and 12.1. They are not edited. | Open: the owner decides whether a later amendment moves them. |
 | C   | Proposals 0111 and 0130 quote the older clause of Rule 6.6 as their own text. They record what each proposal approved, and they stay.                                                                                                                                                                                                                                                                                                                                                       | Closed.                                                       |
 
-**Open items, as of 2026-11-10 (UTC), on `main` at `34cea187`.** Written by the AI agent
-(Claude Code) that audited the record, at the direction of the coordinating session.
+**Status: `implemented` (2026-11-10).** Written on 2026-11-10 (UTC) by the AI agent (Claude
+Code) that audited the record, at the direction of the coordinating session. Pull request #1183
+sets the status.
 
-| Item                                                                                                      | State                                                                                                            | Next action                                                 |
-| --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| Deviation 7 of pull request #1161: a follow-on `TS8022` after a refused `builtin<"clip_distances">` field | Open. A defect with no issue yet.                                                                                | File the issue, then fix it (Rule 12.4).                    |
-| Deviation B of the delivery of Amendment A3: sentences outside the amendment that name the decorated form | Open.                                                                                                            | The owner decides whether a later amendment moves them.     |
-| The refusal of a written type that WGSL fixes (decision D1.2)                                             | Not started. It is the work of the release after the migration release. No official release exists (`OD-6`).     | The release that follows the migration release delivers it. |
-| The downstream work of "What it owes downstream"                                                          | Not started. `changes/README.md` (lifecycle, steps 4 and 5) tracks it apart from the compiler repository's work. | Each repository does it when its pin moves.                 |
+- [decision, owner, 2026-11-10] "지금 implemented". The owner chose it in the Claude Code
+  session, after the audit and the two options were shown (`OD-4`): `implemented` now, with the
+  refusal of decision D1.2 as pending work, or `accepted` until the release that refuses.
+- The decision follows the "Status" sentence of Amendment A1: the pull request that finishes
+  the work sets `implemented` (`changes/README.md`, lifecycle, step 4), and the refusal of a
+  written type in the release after the migration release is the work of that release.
+- The delivering pull requests, in order: #1161 (items 1 and 2), #1171 (Amendment A1, the
+  documents), #1169 and #1179 (Amendment A1, the hover), #1176 (Amendment A2), #1180
+  (Amendment A3) and #1182 (the declaring file's hover, each program with its file), which is
+  the last one.
+- Audit on `main` at `34cea187`: Rules 6.6, 6.8, 8.2, 8.19 and 12.1, §2.3 and Appendix B carry
+  the approved texts. The surface document writes `builtin<N, T>` with a type only for
+  `clip_distances`, in the description of the migration form (§3, §7) and in one refusal row
+  (§53). `bun src/cli/bin.ts migrate --check examples journeys` finds nothing to rewrite. The
+  sentences of `TS8003`, `TS8010`, `TS8028` and `TS8029` are the approved ones, and the tests
+  of "The editor (Rule 12.7)" exist.
+- This is the first proposal that is `implemented` with a refusal still pending. No check
+  reminds a later session of that refusal. It is tracked in two places: the row below, and the
+  entry "A built-in value's written type" under "Deprecated" in `CHANGELOG.md`, which says that
+  the release after the migration release refuses the written type.
+- `implemented` makes `scripts/downstream-impact.ts` ask each downstream repository to record
+  0135 in its `compiler-changes.md` when its pin moves (`changes/README.md`, lifecycle, step 5).
 
-Every other deviation of this record is closed. The items of "What it touches" and of
-Amendments A1, A2 and A3 are delivered on `main` at `34cea187`, as the delivery records above
-state. This record does not change `status`: the owner decides whether the proposal is
-`implemented` with the refusal of D1.2 as pending work, or stays `accepted` until that release.
+**Open items, as of 2026-11-10 (UTC).**
+
+| Item                                                                                                                | State                                                                                                            | Next action                                                 |
+| ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| The refusal of a written type that WGSL fixes (decision D1.2)                                                       | Pending. It is the work of the release after the migration release. No official release exists (`OD-6`).         | The release that follows the migration release delivers it. |
+| Deviation 7 of pull request #1161: a follow-on `TS8022` after a refused `builtin<"clip_distances">` field           | Open. A defect of the withheld-field recovery, which predates this change. An issue is to be filed.              | Fix it under that issue (Rule 12.4).                        |
+| Deviation B of the delivery of Amendment A3: sentences outside the amendment that name the decorated form           | Open.                                                                                                            | The owner decides whether a later amendment moves them.     |
+| Deviation B of pull request #1182: `getDiagnostics` shows a program's diagnostic in an imported file in no document | Open. It predates the hover and is no part of this change. An issue is to be filed.                              | Fix it under that issue.                                    |
+| The downstream work of "What it owes downstream"                                                                    | Not started. `changes/README.md` (lifecycle, steps 4 and 5) tracks it apart from the compiler repository's work. | Each repository does it when its pin moves.                 |
+
+Every other deviation of this record is closed.
 
 ## What it owes downstream
 
