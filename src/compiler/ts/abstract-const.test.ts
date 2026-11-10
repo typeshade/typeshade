@@ -1234,3 +1234,167 @@ export function t(x: f64): f64 { return x * D; }`;
     expect(accepted(source).eval('t', [1])).toBe(0.1);
   });
 });
+
+describe('the third review of #1184', () => {
+  const H3 = `function h(a: u32): u32 { return a; }\nfunction id<T>(a: T): T { return a; }\n`;
+  const t = (body: string, pre = ''): string => `"use typeshade";
+${pre}
+${H3}export function t(vi: u32, x: f32, xs: array<f32, 8>): f32 {
+  ${body}
+}`;
+  const XS = [1, 2, 3, 4, 5, 6, 7, 8];
+  const EDIT =
+    /^"(.+?)" is (?:a u32|an i32) where another line reads it, and no operand of "(.+)" has a declared type, so the "\/=?" does not say which division it is\. Write "(.+)" for the (?:integer|float) division\.$/s;
+
+  /** Requires one refusal of a `/` in both halves, the same text in each, and returns the
+   *  source with the edit it names made. */
+  const editOf = (source: string): string => {
+    const result = compile(source);
+    const lines = result.diagnostics.map((d) => `${d.code}: ${d.message}`);
+    expect(lines).toHaveLength(1);
+    expect(editor(source)).toEqual(lines);
+    const d = result.diagnostics[0]!;
+    const m = EDIT.exec(d.message);
+    expect(m).not.toBeNull();
+    const [, , written, edit] = m!;
+    if (/^(const|let|static) /.test(edit!))
+      return source.replace(edit!.replace(/: (u32|i32|f32)/, ''), edit!);
+    const at = source.indexOf(written!);
+    expect(at).toBeGreaterThanOrEqual(0);
+    return source.slice(0, at) + edit + source.slice(at + written!.length);
+  };
+
+  it('F1: a closure or a local function that captures a marked let carries its origin', () => {
+    for (const body of [
+      'const k = 7; h(k); let y = k; const g = () => y; return f32(g() / 2);',
+      'const k = 7; h(k); let y = k; const g = () => f32(y / 2); return g();',
+      'const k = 7; h(k); let y = k; function g() { return y; } return f32(g() / 2);',
+      'const k = 7; h(k); let y = k; const g = () => { y /= 2; }; g(); return f32(y);',
+    ]) {
+      // Each was 3.5, silently, at 345d3ae8 (base: the integer division 3).
+      accepted(editOf(t(body)));
+    }
+  });
+
+  it('F2: the editor refuses a / over a local function result as compile() does', () => {
+    for (const body of [
+      'const k = 7; h(k); const g = () => k + 1; return f32(g() / 2);',
+      'const k = 7; h(k); const g = () => { return k + 1; }; return f32(g() / 2);',
+      'const k = 7; h(k); function g() { return k + 1; } return f32(g() / 2);',
+      'const k = 7; h(k); const g = () => x > 0 ? k : 1; return f32(g() / 2);',
+    ]) {
+      accepted(editOf(t(body)));
+    }
+    // A method and a getter, whose result type the projection writes too.
+    accepted(
+      editOf(
+        t(
+          'const c = new C(); return f32(c.m() / 2) + f32(h(K));',
+          'const K = 7;\nclass C { m() { return K + 1; } }',
+        ),
+      ),
+    );
+    // A recursive function is one mistake in both halves (F8).
+    const recursive = t(
+      'return f32(g(2) / 2);',
+      'function g(n: u32) { const k = 7; h(k); if (n > 0) { return g(n - 1); } return k; }',
+    );
+    const lines = compile(recursive).diagnostics.map((d) => `${d.code}: ${d.message}`);
+    expect(lines.map((l) => l.slice(0, 6))).toEqual(['TS8031']);
+    expect(editor(recursive)).toEqual(lines);
+  });
+
+  it('F3: the named edit compiles where the quotient stands', () => {
+    for (const body of [
+      'const k = 7; h(k); return f32(-k / 2);',
+      'const k = 7; h(k); return f32(Math.trunc(k) / 2);',
+      'const k = 7; h(k); return f32(sign(k) / 2);',
+      'const k = 7; h(k); return f32(vec3(k, 1, 2).x / 2);',
+      'const k = 7; h(k); let w = 3; return f32((k + w) / 2);',
+      'const k = 7; h(k); const [a, b] = [k, 1]; return f32(a / 2 + b);',
+    ]) {
+      accepted(editOf(t(body)));
+    }
+    // A static field the projection annotates: the declaration edit replaces that type.
+    accepted(editOf(t('return xs[S.K / 2] + f32(h(S.K));', 'class S { static K = 7; }')));
+    // Where no edit compiles, the program holds a second mistake (an `f32` sum passed to a `u32`
+    // parameter; a `u32` sum returned from an `f32` function, which `main` reported): the edit
+    // that adds fewest errors is named, and each mismatch around the `/` is kept.
+    for (const [body, mismatch] of [
+      ['const k = 7; h(k); return f32(h(x + k / 2));', 'Argument 1 of "h" type mismatch.'],
+      ['const k = 7; h(k); return vi + k / 2;', 'Type mismatch: cannot + u32 and f32'],
+    ]) {
+      const source = t(body!);
+      const lines = compile(source).diagnostics.map((d) => d.message);
+      expect(lines).toEqual([
+        expect.stringContaining(mismatch!),
+        expect.stringContaining('Write "const k: u32 = 7" for the integer division.'),
+      ]);
+      expect(editor(source).map((l) => l.replace(/^TS\d+: /, ''))).toEqual(lines);
+    }
+  });
+
+  it('F4: a typed constructor declares its type and ends the origin (Amendment A4)', () => {
+    for (const body of [
+      'const k = 7; h(k); return f32(vec3u(k, 1, 2).x / 2);',
+      'const k = 7; h(k); return f32((vec3u(k, 3, 1) / 2).x);',
+      'const k = 7; h(k); return f32(vec2<u32>(k, 1).x / 2);',
+    ]) {
+      expect(accepted(t(body)).eval('t', [1, 1, XS])).toBe(3);
+    }
+  });
+
+  it('F6: a conversion that starts a counter declares its type', () => {
+    const loop = (start: string) =>
+      `let a = 0.; for (let j = ${start}; j < 8; j++) { a += f32(h(j)); } return a;`;
+    expect(accepted(t(`const k = 7; h(k); ${loop('u32(k)')}`)).eval('t', [1, 1, XS])).toBe(7);
+    expect(accepted(t(loop('u32(K)'), 'const K = 3;')).eval('t', [1, 1, XS])).toBe(25);
+    // The written form, refused on `main` (the fold made its counter an `i32`), compiles too.
+    expect(accepted(t(loop('u32(3)'))).eval('t', [1, 1, XS])).toBe(25);
+    // An annotated counter declares its type: a `/` over it is the typed division.
+    expect(
+      accepted(
+        t(
+          'const k = 3; h(k); let a = 0.; for (let j: u32 = k; j < 8; j++) { a += f32(j / 2); } return a;',
+        ),
+      ).eval('t', [1, 1, XS]),
+    ).toBe(1 + 2 + 2 + 3 + 3);
+  });
+
+  it('F7: a pattern binding carries the origin of the element it reads', () => {
+    expect(
+      accepted(t('const k = 7; h(k); const [a, b] = [k, 1]; return f32(b / 2);')).eval('t', [
+        1,
+        1,
+        XS,
+      ]),
+    ).toBe(0.5);
+    accepted(editOf(t('const k = 7; h(k); const [a, b] = [k, 1]; return f32(a / 2);')));
+  });
+
+  it('F10: a generic parameter declares no type, so id(k) / 2 is refused (Amendment A4)', () => {
+    accepted(editOf(t('const k = 7; h(k); return f32(id(k) / 2);')));
+  });
+
+  it('a float-written value through a function result makes a float division', () => {
+    // Pins `noteCarriedReturn`'s float (mutant X14).
+    expect(
+      accepted(
+        t('return f32(g() / 2) + f32(h(K));', 'const K = 7;\nfunction g() { return K * 0.5; }'),
+      ).eval('t', [1, 1, XS]),
+    ).toBe(1.75 + 7);
+    // A let of written numbers alone adds no origin and declares no type: a float-written one
+    // makes a float division.
+    expect(
+      accepted(t('const k = 7; h(k); let w = 3.5; return f32((k + w) / 2);')).eval('t', [1, 1, XS]),
+    ).toBe(5.25);
+  });
+
+  it('a counter whose start holds a / is refused once', () => {
+    // Pins `containsDivision` (mutant C01): the start is not lowered a second time.
+    const source = t(
+      'const k = 7; h(k); let a = 0.; for (let j = k / 2; j < 8; j++) { a += 1.; } return a;',
+    );
+    accepted(editOf(source));
+  });
+});

@@ -550,10 +550,14 @@ function lowerIdentifier(
       if (isOptional(binding.type)) {
         return lowerOptionalRead(node, binding, contextual, sourceFile, diagnostics);
       }
-      return markAbstractRead(
-        { op: 'param', type: binding.type, name: irNameOf(binding) },
+      return markCarriedRead(
+        markAbstractRead(
+          { op: 'param', type: binding.type, name: irNameOf(binding) },
+          node,
+          binding.abstract,
+        ),
         node,
-        binding.abstract,
+        binding.carries,
       );
     case 'module':
       return markAbstractRead(
@@ -602,11 +606,10 @@ function lowerIdentifier(
         // A loop counter's start lowered again at its type on `main` reads the constant as
         // that integer (`withReadTypes`, Amendment A3 of change 0134).
         const forced = readTypeFor(binding.abstract);
+        // The read is a typed value there, not a written number (`isAbstractRead`), so a peer
+        // literal takes its type (`Math.max(k, 1)`, `k >> 1`).
         if (forced !== undefined && binding.abstract !== undefined) {
-          // A conversion of the typed value, as the read of a typed local was on `main`: a bare
-          // literal would take its peer's type again (`Math.max(k, 1)`, `k >> 1`).
-          const value: Expr = { op: 'lit', type: forced, value: binding.abstract.value };
-          return { op: 'call', type: forced, fn: typeKey(forced), args: [value] };
+          return { op: 'lit', type: forced, value: binding.abstract.value };
         }
       }
       return markCarriedRead(

@@ -3,7 +3,11 @@
 // Implements: Rule 8.1 (docs/language-design.md; traced in reqs/): an entry point is a function
 // declaration with one stage attribute, which `lower/function.ts` reads (change 0130).
 
-import { reportAbstractDivisions, resetAbstractConsts } from './abstract-const.js';
+import {
+  markProjectedAnnotations,
+  reportAbstractDivisions,
+  resetAbstractConsts,
+} from './abstract-const.js';
 import { withoutKernelLoops } from './lower/kernel-methods.js';
 import ts from 'typescript';
 import type {
@@ -472,7 +476,19 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   reportUndeclaredValues(sourceFile, diagnostics);
   // A `/` over a constant of no fixed type that some read made an integer (change 0134,
   // decisions Q10 and Q11), known only now that every read was lowered.
-  reportAbstractDivisions(sourceFile, diagnostics);
+  reportAbstractDivisions(sourceFile, diagnostics, (text, starts) => {
+    const edited = ts.createSourceFile(
+      sourceFile.fileName,
+      text,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    if (starts !== undefined) markProjectedAnnotations(edited, starts);
+    return compileTsSource(text, { sourceFile: edited, emit: false }).diagnostics.filter(
+      (d) => d.category === 'error',
+    );
+  });
   // The decorated form of the migration release, read as written and warned once each
   // (change 0111, milestone 4).
   warnDecoratedForm(sourceFile, diagnostics);

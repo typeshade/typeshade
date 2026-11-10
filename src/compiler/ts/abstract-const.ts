@@ -261,6 +261,7 @@ export function resetAbstractConsts(sourceFile: ts.SourceFile): void {
   byDeclName.delete(sourceFile);
   divisionsOf.delete(sourceFile);
   nodeMarks.delete(sourceFile);
+  carriedByFunction.delete(sourceFile);
 }
 
 export function moduleAbstractConst(
@@ -343,12 +344,13 @@ export function markCarriedRead<E extends Expr>(
   node: ts.Node,
   carried: Carried | undefined,
 ): E {
-  if (carried !== undefined && carried.reaches.length > 0) carriedByNode.set(node, carried);
+  if (carried !== undefined) carriedByNode.set(node, carried);
   return expr;
 }
 
 /** What a new variable carries: the origin of its initializer, with the variable's own text for
- *  a remedy; `undefined` when the initializer reaches no constant of no fixed type. */
+ *  a remedy; `undefined` when the initializer passes a declared type. An initializer of written
+ *  numbers alone carries an origin that reaches no constant. */
 export function carriedBy(
   keyword: 'let' | 'const',
   name: string,
@@ -357,7 +359,9 @@ export function carriedBy(
   isBuiltin: (name: string) => boolean,
 ): Carried | undefined {
   const origin = originOf(initializer, isBuiltin);
-  if (origin === undefined || origin.reaches.length === 0) return undefined;
+  // A variable of written numbers alone reaches no constant, and it declares no type either:
+  // beside a value that does reach one, it adds nothing (`let w = 3;` then `(k + w) / 2`).
+  if (origin === undefined) return undefined;
   return {
     ...origin,
     variable: {
@@ -491,6 +495,15 @@ export function noteIntegerContext(
 
 const CASTS: ReadonlySet<string> = new Set(['f32', 'f64', 'i32', 'u32', 'bool']);
 
+/** Whether `call` constructs a vector or a matrix of a written component type: `vec3u(…)`,
+ *  `vec2f(…)`, `mat2x2f(…)`, or a type argument `vec2<u32>(…)`. */
+function isTypedConstructor(call: ts.CallExpression): boolean {
+  const callee = call.expression;
+  if (!ts.isIdentifier(callee)) return false;
+  if (/^(vec[234]|mat[234]x[234])[uifh]$/.test(callee.text)) return true;
+  return /^(vec[234]|mat[234]x[234])$/.test(callee.text) && (call.typeArguments?.length ?? 0) > 0;
+}
+
 /** The origin of `node` (Amendment A3, "보수적 추적 규칙"): the constants of no fixed type it
  *  comes from, through every expression and binding with no declared type between. A written
  *  number has an empty origin. A read of such a constant, a variable, a loop counter or a call
@@ -550,6 +563,9 @@ export function originOf(
       : originOf(inner.expression, isBuiltin);
   }
   if (ts.isElementAccessExpression(inner)) return originOf(inner.expression, isBuiltin);
+  // A typed constructor (`vec3u(k, 1, 2)`, `vec2<u32>(k, 1)`) declares its type, as a cast
+  // does, and ends the origin (Amendment A4 of change 0134, PR #1224, "선언된 타입으로 보기").
+  if (ts.isCallExpression(inner) && isTypedConstructor(inner)) return undefined;
   if (ts.isCallExpression(inner) && inner.arguments.length > 0) {
     const callee = inner.expression;
     const builtin =
@@ -608,7 +624,7 @@ function isBitwise(node: ts.Node): boolean {
 function originLeaves(node: ts.Node): ts.Node[] {
   const out: ts.Node[] = [];
   const visit = (n: ts.Node): void => {
-    if (readByNode.has(n) || carriedByNode.has(n)) out.push(n);
+    if (readByNode.has(n) || (carriedByNode.get(n)?.reaches.length ?? 0) > 0) out.push(n);
     else ts.forEachChild(n, visit);
   };
   visit(node);
@@ -684,6 +700,104 @@ export function isAbstractDivisionRefusal(d: {
  *    a whole (`f32(k | 1) / 2`).
  *  - A `/=` names the variable declared with the type it has: an integer keeps the integer
  *    division, an `f32` the float one. */
+/** One edit a refusal can name: the text to write, the division it makes, and how it changes
+ *  the source, to check that it compiles where the quotient stands (Rule 5.1). */
+interface DivisionEdit {
+  readonly text: string;
+  readonly kind: 'integer' | 'float';
+  /** `[start, end)` of the source and the text that replaces it; `undefined` when the edit is
+   *  not checked (a `/=` names its variable's declaration). */
+  readonly change?: { readonly start: number; readonly end: number; readonly text: string };
+}
+
+/** The edits a refusal of `division` can name, the preferred one first. An integer position
+ *  asks the constant declared with its type, or each value with the origin converted to it; a
+ *  float position asks the conversion to `f32`; each other form follows as a fallback. */
+function divisionEdits(
+  info: AbstractConst,
+  read: { readonly type: 'i32' | 'u32' },
+  division: {
+    readonly node: ts.BinaryExpression;
+    readonly asked?: 'i32' | 'u32';
+    readonly anyInteger?: boolean;
+  },
+  sourceFile: ts.SourceFile,
+): DivisionEdit[] {
+  const { node } = division;
+  if (node.operatorToken.kind === ts.SyntaxKind.SlashEqualsToken) {
+    const variable = carriedByNode.get(stripParens(node.left))?.variable;
+    const integer = variable?.type === 'i32' || variable?.type === 'u32';
+    return [
+      {
+        kind: integer ? 'integer' : 'float',
+        text:
+          variable === undefined
+            ? `${node.left.getText(sourceFile)} = f32(${node.left.getText(sourceFile)}) / ${node.right.getText(sourceFile)}`
+            : `${variable.keyword} ${variable.name}: ${variable.type} = ${variable.init}`,
+      },
+    ];
+  }
+  const short = writtenText(info.nameNode).replace(/^#/, '');
+  const replace = (text: string) => ({
+    start: node.getStart(sourceFile),
+    end: node.getEnd(),
+    text,
+  });
+  const converted = (type: string): DivisionEdit => {
+    const text = withOriginsConverted(node, type, sourceFile);
+    return { kind: type === 'f32' ? 'float' : 'integer', text, change: replace(text) };
+  };
+  const declared = (type: 'i32' | 'u32'): DivisionEdit | undefined => {
+    if (!sameFile(info.nameNode, node) || !info.integerReads.every((r) => r.type === type)) {
+      return undefined;
+    }
+    const decl = info.nameNode.parent as ts.VariableDeclaration | ts.PropertyDeclaration;
+    // After the name, in place of a type the projection wrote there.
+    const at = info.nameNode.getEnd();
+    const change = { start: at, end: decl.type?.getEnd() ?? at, text: `: ${type}` };
+    return { kind: 'integer', text: `${info.keyword} ${short}: ${type} = ${info.written}`, change };
+  };
+  const other: 'i32' | 'u32' = read.type === 'u32' ? 'i32' : 'u32';
+  const out: (DivisionEdit | undefined)[] = [];
+  if (division.asked !== undefined) {
+    // An index takes either integer type: the other reads' type, when they agree, keeps them.
+    const type =
+      division.anyInteger === true && info.integerReads.every((r) => r.type === read.type)
+        ? read.type
+        : division.asked;
+    out.push(declared(type), converted(type), converted(type === 'u32' ? 'i32' : 'u32'));
+    out.push(converted('f32'));
+  } else {
+    out.push(converted('f32'), declared(read.type), converted(read.type), converted(other));
+  }
+  const seen = new Set<string>();
+  return out.filter((e): e is DivisionEdit => {
+    if (e === undefined || seen.has(e.text)) return false;
+    seen.add(e.text);
+    return true;
+  });
+}
+
+/** The refusal's sentence, naming `edit`. */
+function divisionSentence(
+  info: AbstractConst,
+  read: { readonly type: 'i32' | 'u32' },
+  node: ts.BinaryExpression,
+  edit: DivisionEdit,
+  sourceFile: ts.SourceFile,
+): string {
+  const written = writtenText(node).replace(/\s+/g, ' ');
+  const direct = originLeaves(node).find((leaf) => readByNode.get(leaf as ts.Expression) === info);
+  const subject = direct !== undefined ? writtenText(direct) : info.name;
+  const operator = node.operatorToken.getText(sourceFile);
+  return (
+    `"${subject}" is ${read.type === 'u32' ? 'a u32' : 'an i32'} ${ANOTHER_READ} ` +
+    `"${written}" has a declared type, so the "${operator}" does not say which division it is. ` +
+    `Write "${edit.text}" for the ${edit.kind} division.`
+  );
+}
+
+/** The refusal of `division` with its preferred edit, unchecked. */
 export function abstractDivisionMessage(
   info: AbstractConst,
   read: { readonly type: 'i32' | 'u32' },
@@ -694,53 +808,29 @@ export function abstractDivisionMessage(
   },
   sourceFile: ts.SourceFile,
 ): string {
-  const { node } = division;
-  const written = writtenText(node).replace(/\s+/g, ' ');
-  const direct = originLeaves(node).find((leaf) => readByNode.get(leaf as ts.Expression) === info);
-  const subject = direct !== undefined ? writtenText(direct) : info.name;
-  const short = writtenText(info.nameNode).replace(/^#/, '');
-  const operator = node.operatorToken.getText(sourceFile);
-  let edit: string;
-  let kind: 'integer' | 'float';
-  if (node.operatorToken.kind === ts.SyntaxKind.SlashEqualsToken) {
-    const variable = carriedByNode.get(stripParens(node.left))?.variable;
-    const integer = variable?.type === 'i32' || variable?.type === 'u32';
-    kind = integer ? 'integer' : 'float';
-    edit =
-      variable === undefined
-        ? `${node.left.getText(sourceFile)} = f32(${node.left.getText(sourceFile)}) / ${node.right.getText(sourceFile)}`
-        : `${variable.keyword} ${variable.name}: ${variable.type} = ${variable.init}`;
-    void sourceFile;
-  } else if (division.asked !== undefined) {
-    kind = 'integer';
-    // An index takes either integer type: the other reads' type, when they agree, keeps them.
-    const type =
-      division.anyInteger === true && info.integerReads.every((r) => r.type === read.type)
-        ? read.type
-        : division.asked;
-    const declarable =
-      sameFile(info.nameNode, node) && info.integerReads.every((r) => r.type === type);
-    edit = declarable
-      ? `${info.keyword} ${short}: ${type} = ${info.written}`
-      : withOriginsConverted(node, type, sourceFile);
-  } else {
-    kind = 'float';
-    edit = withOriginsConverted(node, 'f32', sourceFile);
-  }
-  return (
-    `"${subject}" is ${read.type === 'u32' ? 'a u32' : 'an i32'} ${ANOTHER_READ} ` +
-    `"${written}" has a declared type, so the "${operator}" does not say which division it is. ` +
-    `Write "${edit}" for the ${kind} division.`
-  );
+  const edit = divisionEdits(info, read, division, sourceFile)[0]!;
+  return divisionSentence(info, read, division.node, edit, sourceFile);
 }
 
 /** Reports each `/` recorded by {@link noteAbstractDivision} that reaches a constant another
  *  read made an integer, once for the outermost such `/`. The quotient's own read
  *  (`let j: u32 = K / 2`) is not another read: the written `8 / 2` is `4u` there, and so is
  *  the constant's. Call it after the whole module was lowered. */
+/** Compiles `text`, a whole source with one edit made, and returns its errors. `starts` are the
+ *  editor projection's insertions in `text`, moved past the edit. */
+export type DivisionEditCheck = (
+  text: string,
+  starts: readonly number[] | undefined,
+) => readonly { readonly code?: string; readonly message: string }[];
+
+/** True while a named edit is being compiled: the refusals of that compile name their preferred
+ *  edit unchecked, so a check never starts another. */
+let checkingEdit = false;
+
 export function reportAbstractDivisions(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
+  check?: DivisionEditCheck,
 ): void {
   const refused: { division: Division; info: AbstractConst; read: IntegerRead }[] = [];
   for (const division of divisionsOf.get(sourceFile)?.values() ?? []) {
@@ -753,32 +843,89 @@ export function reportAbstractDivisions(
     }
     if (found !== undefined) refused.push({ division, ...found });
   }
+  const before = diagnostics.filter((d) => d.category === 'error').map(lineOf);
   for (const { division, info, read } of refused) {
     const { node } = division;
     // `(k / 2) / 3` is one mistake, said on the outer `/` (Rule 12.4).
     if (refused.some((other) => other.division !== division && holds(other.division.node, node)))
       continue;
-    // A mismatch the same `/` already raised (its quotient beside an integer) is this mistake
-    // said a second time (Rule 12.4): the refusal of the `/` replaces it.
     const start = node.getStart(sourceFile);
     const end = node.getEnd();
-    for (let i = diagnostics.length - 1; i >= 0; i--) {
-      const d = diagnostics[i]!;
-      if (
+    // A mismatch the same `/` raised (its quotient beside an integer) is this mistake said a
+    // second time (Rule 12.4); a mismatch that stays after the edit is another mistake.
+    const overlapping = diagnostics.filter(
+      (d) =>
         d.code === TS_CODES.TYPE_MISMATCH &&
         d.category === 'error' &&
         d.start <= start &&
-        d.start + d.length >= end
-      )
-        diagnostics.splice(i, 1);
+        d.start + d.length >= end,
+    );
+    const edits = divisionEdits(info, read, division, sourceFile);
+    let chosen = edits[0]!;
+    let after: Set<string> | undefined;
+    if (check !== undefined && !checkingEdit) {
+      // The edit the sentence names must compile where the quotient stands (Rule 5.1): the
+      // first edit whose program adds no error to what the file already reports. Where none
+      // does (`xs[-k / 2]` is a negative index in every reading), the one that adds fewest.
+      const caused = new Set(overlapping.map(lineOf));
+      const allowed = new Set(before.filter((line) => !caused.has(line)));
+      let fewest = Infinity;
+      for (const edit of edits) {
+        if (edit.change === undefined) break;
+        const result = compileEdited(sourceFile, edit.change, check);
+        const extra = result.filter((r) => !allowed.has(r) && !r.includes(ANOTHER_READ)).length;
+        if (extra < fewest) {
+          fewest = extra;
+          chosen = edit;
+          after = new Set(result);
+        }
+        if (extra === 0) break;
+      }
+      // With no edit that compiles, the program holds another mistake, and a mismatch around
+      // the `/` may be that one: each is kept.
+      if (fewest > 0) after = new Set(overlapping.map(lineOf));
+    }
+    for (const d of overlapping) {
+      if (after !== undefined && after.has(lineOf(d))) continue;
+      const i = diagnostics.indexOf(d);
+      if (i >= 0) diagnostics.splice(i, 1);
     }
     diagnostics.push(
       makeDiagnostic(
         sourceFile,
         node,
-        abstractDivisionMessage(info, read, division, sourceFile),
+        divisionSentence(info, read, node, chosen, sourceFile),
         TS_CODES.TYPE_MISMATCH,
       ),
     );
+  }
+}
+
+/** A diagnostic as one comparable line. */
+function lineOf(d: { readonly code?: string; readonly message: string }): string {
+  return `${d.code ?? ''}: ${d.message}`;
+}
+
+/** The errors of `sourceFile`'s text with `change` made, each as `code: message`. */
+function compileEdited(
+  sourceFile: ts.SourceFile,
+  change: { readonly start: number; readonly end: number; readonly text: string },
+  check: DivisionEditCheck,
+): string[] {
+  const text =
+    sourceFile.text.slice(0, change.start) + change.text + sourceFile.text.slice(change.end);
+  const shift = change.text.length - (change.end - change.start);
+  const projected = projectedAnnotations.get(sourceFile);
+  const starts =
+    projected === undefined
+      ? undefined
+      : [...projected]
+          .filter((at) => at < change.start || at >= change.end)
+          .map((at) => (at >= change.end ? at + shift : at));
+  checkingEdit = true;
+  try {
+    return check(text, starts).map(lineOf);
+  } finally {
+    checkingEdit = false;
   }
 }

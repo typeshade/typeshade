@@ -478,10 +478,12 @@ function lowerHeaderCounter(
   // 유지"): the start is lowered again with each such constant read at that type. Where that
   // lowering is refused, as `-k` of a `u32` was on `main`, the counter keeps the type it has here.
   const onMain = fromConstant ? mainReadTypes(origin.reaches, sourceFile) : undefined;
-  if (onMain !== undefined && !containsDivision(start)) {
-    const refused: TsCompilerDiagnostic[] = [];
-    const again = withReadTypes(onMain, () => lowerExpression(written, sourceFile, scope, refused));
-    if (again !== undefined && refused.length === 0 && isIntScalar(again.type)) init = again;
+  if (onMain !== undefined) {
+    // A start that lowers there lowers with no error; a refused one gives `undefined`. What it
+    // would say again goes to a scratch list.
+    const scratch: TsCompilerDiagnostic[] = [];
+    const again = withReadTypes(onMain, () => lowerExpression(written, sourceFile, scope, scratch));
+    if (again !== undefined) init = again;
   }
   if (!fromConstant && (annotated !== undefined || !floatWritten || intBound)) {
     // The induction variable's declared type, or i32 when there is no annotation. `for (let j:
@@ -497,7 +499,16 @@ function lowerHeaderCounter(
       typeKey(boundType) === 'u32'
         ? boundType
         : undefined;
-    const counterType = annotated ?? hint ?? i32T;
+    // A conversion declares its type, as an annotation does: `for (let j = u32(k); …)` counts in
+    // `u32` (Amendment A3: a cast is a declared type).
+    const converted =
+      ts.isCallExpression(start) &&
+      ts.isIdentifier(start.expression) &&
+      (start.expression.text === 'i32' || start.expression.text === 'u32') &&
+      isIntScalar(init.type)
+        ? init.type
+        : undefined;
+    const counterType = annotated ?? converted ?? hint ?? i32T;
     init = retargetDeclaredIntLit(init, written, counterType);
     // Out of range, the §13 sentence is the one diagnostic: the loop-bound walk would
     // otherwise add a second one about a start value the author has already been told about.
@@ -533,9 +544,10 @@ function lowerHeaderCounter(
 }
 
 /** The integer type each constant of `reaches` had on `main`, when every one is a function-local
- *  `const` that took one integer type from its declared uses there (changes 0036 and 0037), and
- *  all agree. A constant derived from others (`const kk = k + 1`) takes theirs. A module
- *  constant was an `f32` on `main`, so a start that reaches one gives `undefined`. */
+ *  `const` that took an integer type from its declared uses there (changes 0036 and 0037). A
+ *  constant derived from others (`const kk = k + 1`) takes theirs when they agree. A module
+ *  constant was an `f32` on `main`, so a start that reaches one gives `undefined`. Two types
+ *  that disagree (`k + m`) make the start's lowering refuse, and the counter keeps its type. */
 function mainReadTypes(
   reaches: readonly AbstractConst[],
   sourceFile: ts.SourceFile,
@@ -555,23 +567,12 @@ function mainReadTypes(
       : undefined;
   };
   const types = new Map<AbstractConst, ShaderType>();
-  let kind: string | undefined;
   for (const info of reaches) {
     const type = typeOf(info);
-    if (type === undefined || !isIntScalar(type) || !fitsTarget(info.value, type)) return undefined;
-    if (kind !== undefined && kind !== typeKey(type)) return undefined;
-    kind = typeKey(type);
+    if (type === undefined) return undefined;
     types.set(info, type);
   }
   return types.size > 0 ? types : undefined;
-}
-
-/** Whether `node` holds a `/`, whose refusal (A3) is the one diagnostic its start owes. */
-function containsDivision(node: ts.Node): boolean {
-  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.SlashToken) {
-    return true;
-  }
-  return ts.forEachChild(node, containsDivision) ?? false;
 }
 
 export function lowerWhile(

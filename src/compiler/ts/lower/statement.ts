@@ -1262,6 +1262,24 @@ function lowerPatternInto(
       )
     )
       return false;
+    // A name a pattern binds carries the origin of what it reads, as a `let` does (Amendment
+    // A3, "every binding"): the element of a written array, or else the whole source.
+    const written = unwrapParens(decl.initializer!) as ts.Expression;
+    const from =
+      array && ts.isArrayLiteralExpression(written) && pattern === decl.name
+        ? written.elements[index]
+        : written;
+    const carries =
+      decl.type === undefined && from !== undefined && !ts.isSpreadElement(from)
+        ? carriedBy(
+            isConst ? 'const' : 'let',
+            element.name.text,
+            from,
+            read.type,
+            (callee) =>
+              scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined,
+          )
+        : undefined;
     const bound = defineLocal(
       element.name.text,
       read.type,
@@ -1273,6 +1291,9 @@ function lowerPatternInto(
       diagnostics,
       undefined,
       element.name,
+      undefined,
+      undefined,
+      carries,
     );
     if (!bound) return false;
     const ir = irNameOf(bound);
