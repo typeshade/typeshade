@@ -2038,7 +2038,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `function bp(@inout v: f32): void`. Signature help of an imported function shows its
   qualifiers too. A struct reads by the name the hovered file imports it under, when it has
   exactly one, and by its declared name otherwise, so a name the linker generated
-  (`lib_Light`) no longer shows in a hover, in the importing file's own symbols included. A
+  (`lib_Light`, `lib_Stage_VsOut`) no longer shows as a struct's name in a hover, in the
+  importing file's own symbols included. The arguments of an instance of a generic class keep
+  the module's spelling. A call of an overloaded function reads its implementation, with its
+  qualifiers. A
   function's qualifiers stay on their parameters when a parameter before them takes a
   function. A generic function or class with two instances in a program keeps TypeScript's
   quick info at each use, where the hover showed every use the first instance. An override reads the compiler's type
