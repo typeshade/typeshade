@@ -105,7 +105,7 @@
       "count": 38,
       "nanResults": 2,
       "inputsSha256": "7b2fd0d61b1041b5a4ba00b101a1123e1ab90519764df5521e60565779d4404b",
-      "resultsSha256": "bf211dcbc6c92e4d1d821ac25e8d8a9d3cf376df8081fc325e1cd23474391574"
+      "resultsSha256": "687aa53a25dcf4209c852543d4672c3c0e97ca0684cae864d92f783b3cfa92b3"
     },
     {
       "routine": "exp2F64",
@@ -113,7 +113,7 @@
       "count": 250000,
       "nanResults": 104,
       "inputsSha256": "78276abb776fd56ea572997f1f9fd2baf4343cb6336b2e232544635a5f03a440",
-      "resultsSha256": "37d9a89717a254ab7e3e45b18fabb27b110f4dcee5c83a523b5cf3689d4ea9ab"
+      "resultsSha256": "031109863236cc0970abfb5ba9e50c7ade3a00cd353ba025d924b85c238e607c"
     },
     {
       "routine": "exp2F64",
@@ -121,7 +121,7 @@
       "count": 250000,
       "nanResults": 0,
       "inputsSha256": "14695fec49746bccc065e918de3fd23e7c1390e1674df2eefc480ad8f52a8058",
-      "resultsSha256": "6970d5f4d3a0fa501556e25677510660519a1e3071eaae2b34613479a405eb9f"
+      "resultsSha256": "ac9bf54b4da774b25710f30de9cad6eaaa8a166704124ad5ee9a621909f011be"
     },
     {
       "routine": "exp2F64",
@@ -129,7 +129,7 @@
       "count": 250000,
       "nanResults": 0,
       "inputsSha256": "6e41939f80cbb42ed6da5969a738c82ae950c07816a5d5bd18301eae402c3708",
-      "resultsSha256": "c9dccc8810d4ee95e5428f5c3cac2d2dece6103ae9038acc09aede2a3a5348a4"
+      "resultsSha256": "9bb9866e2ceeb6d6220a48b9dabc7f418b8439e71ec7ef4c2accbb19a8e3e8de"
     },
     {
       "routine": "logF32",
