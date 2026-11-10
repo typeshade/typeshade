@@ -214,3 +214,66 @@ export function sortDiagnosticsByPosition(diagnostics: TsCompilerDiagnostic[]): 
   if (diagnostics.some((d) => d.fileName !== file)) return;
   diagnostics.sort((a, b) => a.start - b.start || a.length - b.length);
 }
+
+// === A refusal a use makes, about a declaration another file of the program holds (#1186) ===
+//
+// Some refusals are true of a program and not of the file that declares what they name: an
+// entry gives a field of an imported struct no location, or a call instantiates an imported
+// generic function with a type its body refuses. The declaring file's own program accepts the
+// declaration, so its document has nothing to show, and the mistake is in the program that
+// uses it. The compiler reports such a refusal in the file the program starts from, at the
+// use, as it reports a builtin a stage cannot call (`TS8099`) at the entry, and keeps the place
+// the sentence is about as a related site. Neither is a field of `TsCompilerDiagnostic`: both
+// are read through the functions here, by the linker's mapping, the language service and the
+// tests of both halves.
+
+/** A place in a file of the program, in that file's own offsets; lines and characters are
+ *  one-based, as a diagnostic's are. */
+export interface DiagnosticSite {
+  readonly fileName: string;
+  readonly start: number;
+  readonly length: number;
+  readonly line: number;
+  readonly character: number;
+  readonly endLine: number;
+  readonly endCharacter: number;
+}
+
+const USES = new WeakMap<TsCompilerDiagnostic, { start: number; end: number }[]>();
+const RELATED = new WeakMap<TsCompilerDiagnostic, readonly DiagnosticSite[]>();
+
+/** Records `use` as a use that makes `diagnostic` a refusal: the entry's parameter or result
+ *  that takes a struct, the call that instantiates a generic function. A later call records a
+ *  use further out (the call of the function that holds the first use). */
+export function noteUse(
+  diagnostic: TsCompilerDiagnostic,
+  use: ts.Node | undefined,
+  sourceFile: ts.SourceFile,
+): void {
+  if (use === undefined) return;
+  const uses = USES.get(diagnostic) ?? [];
+  uses.push({ start: use.getStart(sourceFile), end: use.getEnd() });
+  USES.set(diagnostic, uses);
+}
+
+/** The uses {@link noteUse} recorded for `diagnostic`, innermost first, as `[start, end)` spans
+ *  of the source it was raised in. */
+export function usesOf(
+  diagnostic: TsCompilerDiagnostic,
+): readonly { readonly start: number; readonly end: number }[] {
+  return USES.get(diagnostic) ?? [];
+}
+
+/** Records the places `diagnostic` is about in other files of its program. */
+export function setRelatedSites(
+  diagnostic: TsCompilerDiagnostic,
+  sites: readonly DiagnosticSite[],
+): void {
+  if (sites.length > 0) RELATED.set(diagnostic, sites);
+}
+
+/** The places `diagnostic` is about in other files of its program: the declaration a refusal
+ *  reported at a use names. Empty for a diagnostic that stands where its mistake is. */
+export function relatedSitesOf(diagnostic: TsCompilerDiagnostic): readonly DiagnosticSite[] {
+  return RELATED.get(diagnostic) ?? [];
+}

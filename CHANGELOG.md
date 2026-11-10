@@ -1926,6 +1926,18 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A program's refusal of an imported declaration is shown in the program's own file**
+  (Rules 3.9 and 12.7, #1186). A refusal that only the program makes, about a declaration an
+  imported file holds, was located in the imported file. That file's own program accepts the
+  declaration, so the editor showed the refusal in no document, and `tshc check` passed a
+  folder that `compile()` refused. `compile()` now reports it in the file the program starts
+  from, at the use: a field of an imported struct that an entry gives no location (`TS8010`),
+  or whose type cannot cross (`TS8003`, `TS8038`), on the entry's parameter or result, and a
+  refusal in the body of an imported generic function on the call that instantiates it. The
+  editor's diagnostic carries the declaration as related information. A program of one file
+  and a mistake of the imported file itself are reported where they were. The importing
+  document no longer shows TypeScript's `never` error for a write of an imported `builtin<N>`
+  field that the compiler refused.
 - **A function an author names `__fround` is called on the CPU** (Rule 9.5). The `'f32'`
   precision pass read the name alone and took a call of such a function for its own rounding
   step, so `__fround(x)` gave `x` rounded on the CPU oracle and the CPU tier, while the emitted

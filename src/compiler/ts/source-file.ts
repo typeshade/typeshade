@@ -45,7 +45,9 @@ import {
   dropRepeatedDiagnostics,
   sortDiagnosticsByPosition,
   makeDiagnostic,
+  setRelatedSites,
   syntaxDiagnostics,
+  usesOf,
 } from './diagnostic.js';
 import { collectEnables } from './enables.js';
 import {
@@ -618,6 +620,40 @@ function compileLinked(
     }
     const s = file.getLineAndCharacterOfPosition(start);
     const e = file.getLineAndCharacterOfPosition(end);
+    // A refusal a use in the entry makes, about a declaration an imported file holds, stands at
+    // the use: the imported file's own program accepts the declaration, and this program is the
+    // one that refuses it (#1186). The declaration is its related site. The outermost use the
+    // entry holds is taken, the call of a function that holds the inner one.
+    if (m !== undefined && m.file.name !== entryFile.name) {
+      for (const use of [...usesOf(d)].reverse()) {
+        const u = linked.map(use.start, use.end);
+        if (u === undefined || u.file.name !== entryFile.name) continue;
+        const us = entry.getLineAndCharacterOfPosition(u.start);
+        const ue = entry.getLineAndCharacterOfPosition(u.end);
+        const moved: TsCompilerDiagnostic = {
+          ...d,
+          fileName: entry.fileName,
+          start: u.start,
+          length: u.end - u.start,
+          line: us.line + 1,
+          character: us.character + 1,
+          endLine: ue.line + 1,
+          endCharacter: ue.character + 1,
+        };
+        setRelatedSites(moved, [
+          {
+            fileName: m.file.name,
+            start,
+            length: end - start,
+            line: s.line + 1,
+            character: s.character + 1,
+            endLine: e.line + 1,
+            endCharacter: e.character + 1,
+          },
+        ]);
+        return moved;
+      }
+    }
     return {
       ...d,
       fileName: m?.file.name ?? entry.fileName,

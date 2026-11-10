@@ -583,12 +583,11 @@ analysis of its program. The number is the one that program has, which `compile(
     with one base name each take as many directories as tell them apart:
     `in lit/main.shade.ts` and `in unlit/main.shade.ts`.
   - A program that refused the field has the line `no location in b.shade.ts (TS8010)`. The
-    code is read off that program's own diagnostic on the field (`refusalCode`), the one
+    code is read off that program's own diagnostic about the field (`refusalCode`), the one
     `compile()` of the program reports, so a field of a type that cannot cross reads
     `(TS8003)`. One open program that refuses the field gives one such line, and two give
-    two. `getDiagnostics` shows that diagnostic in no document, since it lies in a file
-    another document's program imports. `getCompiledOutput` of the program's document
-    reports it.
+    two. The program reports that diagnostic in its own document, at the parameter or the
+    result that takes the struct, and the field is its related location (§8, #1186).
   - A program that links the file and uses the struct in no entry has no line. A built-in
     value has none.
   - The hover in each program's own document shows that program's number, and no file. A
@@ -1031,6 +1030,13 @@ Document versions, for either adapter:
   errors in imported shader files, with each file's own URI and range. Any error in the
   program leaves `text: ''`. The document's cached diagnostics stay unchanged;
   `getDiagnostics(uri)` remains the list located in that document and does not emit.
+  A mistake of an imported file itself is located in that file, and that file's document shows
+  it. A refusal that is true of the program only is located in the program's own document, at
+  the use that makes it one (#1186): an entry gives a field of an imported struct no location
+  (`TS8010`, on the parameter or the result that takes the struct), or a call instantiates an
+  imported generic function with a type its body refuses (on the call). The imported file's own
+  program accepts the declaration, so its document shows nothing. The diagnostic carries the
+  declaration as `relatedInformation`, with the imported file's URI and range.
 - Nothing in the service is asynchronous. Cancellation is the adapter's concern (drop results
   whose version is stale).
 

@@ -108,7 +108,7 @@ import {
   isBarrierIntrinsic,
   SUBGROUP_INTRINSICS,
 } from '../../../core/intrinsics.js';
-import { diagnosticAtSpan, makeDiagnostic } from '../diagnostic.js';
+import { diagnosticAtSpan, makeDiagnostic, noteUse } from '../diagnostic.js';
 import { checkComputeOnlyUses } from '../stage-restrictions.js';
 import { spanOf, withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
@@ -1071,6 +1071,9 @@ export function lowerSourceFunctions(
       callees.set(emitted, stub);
       writtenAs.set(emitted, name);
       making.push(name);
+      // What the body says of this instance is true of the call that asked for it: a program
+      // that imports the function reports it at that call (#1186).
+      const saidBefore = diags.length;
       try {
         // In the body, a parameter of function type names the function handed over.
         const handed = new Map<string, string>();
@@ -1129,6 +1132,7 @@ export function lowerSourceFunctions(
         fillLifted(mine, sf, diags);
       } finally {
         making.pop();
+        for (const d of diags.slice(saidBefore)) noteUse(d, node, sf);
       }
       return stub;
     });

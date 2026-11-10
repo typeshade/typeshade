@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest';
 import type ts from 'typescript';
 import { compile } from '../compiler/ts/compile.js';
+import { relatedSitesOf } from '../compiler/ts/diagnostic.js';
 import { reflect } from '../core/reflect.js';
 import {
   analyzeSourceFile,
@@ -30,12 +31,16 @@ const messagesOf = (files: Files, entry: string): string[] =>
   compiled(files, entry).diagnostics.map((d) => `${String(d.code)} ${d.message}`);
 
 /** The code of the one diagnostic that `compile()` of the program that starts from `entry`
- *  reports on the field declared at the first `needle` of `file`. The hover's line for a
- *  refused field is held to this code. */
+ *  reports about the field declared at the first `needle` of `file`. The hover's line for a
+ *  refused field is held to this code. A program reports a refusal of a field that another file
+ *  declares in its own file, at the use, and the field is the diagnostic's related site (#1186);
+ *  a field of the entry's own file has the diagnostic on it. */
 const refusalCodeOf = (files: Files, entry: string, file: string, needle: string): string => {
   const at = files[file]!.indexOf(needle);
-  const on = compiled(files, entry).diagnostics.filter(
-    (d) => d.fileName === file && d.start <= at && at < d.start + d.length,
+  const covers = (site: { fileName: string; start: number; length: number }): boolean =>
+    site.fileName === file && site.start <= at && at < site.start + site.length;
+  const on = compiled(files, entry).diagnostics.filter((d) =>
+    file === entry ? covers(d) : d.fileName === entry && relatedSitesOf(d).some(covers),
   );
   expect(
     on.map((d) => d.category),

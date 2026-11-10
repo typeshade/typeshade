@@ -9550,6 +9550,11 @@ through `readDocument`, which returns a file's text or `undefined`, and a packag
 `resolveImport` replaces the rule above, packages included. A compile with no `readDocument`
 reads nothing: a file with no import compiles as it always has, and an import in one is
 `TS8072`. A diagnostic located in an imported file carries that file's `fileName` and offsets.
+A refusal that only the program makes, about a declaration an imported file holds, is located
+in the file the compile starts from, at the use: a field of an imported struct that an entry
+gives no location is reported on the entry's parameter or result (`TS8010`), and a refusal in
+the body of an imported generic function on the call that instantiates it. The imported file
+compiles on its own, so nothing is located in it.
 The Vite plugin (§64) and `tshc sync` read from disk, and find a package from the module's own
 directory up. `tshc check` checks a shader module a checked file imports too, a package's
 included, once, under its own path. The language service reads an import as its TypeScript half

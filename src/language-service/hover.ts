@@ -2,6 +2,7 @@
 
 import ts from 'typescript';
 import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
+import { relatedSitesOf } from '../compiler/ts/diagnostic.js';
 import { entryNode } from '../compiler/ts/entry-locations.js';
 import { qualifiersOf } from '../compiler/ts/lower/references.js';
 import { linkedCompileOf, type CompileTsSourceResult } from '../compiler/ts/source-file.js';
@@ -210,8 +211,8 @@ function shownNames(uris: readonly string[]): ReadonlyMap<string, string> {
  *   or one of them refused the field: one line for each program, with the file the program
  *   starts from (the owner's decisions of 2026-11-10, change 0135). A program that numbers the
  *   field has `… at @location(1) in a.shade.ts`. A program that refused it has
- *   `no location in b.shade.ts (TS8010)`, with the code of that program's own diagnostic on the
- *   field (`refusalCode`). The lines stand in the order of the documents' uris, so the hover
+ *   `no location in b.shade.ts (TS8010)`, with the code of that program's own diagnostic about
+ *   the field (`refusalCode`). The lines stand in the order of the documents' uris, so the hover
  *   does not depend on which document was opened first.
  * - No program uses the struct among its entries: the field has at most the location it
  *   writes, which every program reads the same, and the line is the one it has in one file.
@@ -262,7 +263,7 @@ function fieldLinesAcross(
 /**
  * The code of the diagnostic with which the program of `analysis` refused to give the field at
  * offset `start` of `fileName` a location, or `undefined` when it did not refuse it: the field
- * has a location, it is a built-in value, or the program reports no error on it. The code is
+ * has a location, it is a built-in value, or the program reports no error about it. The code is
  * read off the program's own diagnostics, the ones `compile()` of its document reports, so the
  * hover names no code the compiler did not give (Rule 12.7).
  */
@@ -273,12 +274,12 @@ function refusalCode(
   start: number,
 ): string | undefined {
   if (facts.location !== undefined || facts.builtin === true) return undefined;
+  const covers = (at: { fileName: string; start: number; length: number }): boolean =>
+    at.fileName === fileName && at.start <= start && start < at.start + at.length;
+  // A program that imports the struct reports the refusal at its own use of it, and the field
+  // is that diagnostic's related site (#1186).
   return analysis.diagnostics.find(
-    (d) =>
-      d.category === 'error' &&
-      d.fileName === fileName &&
-      d.start <= start &&
-      start < d.start + d.length,
+    (d) => d.category === 'error' && (covers(d) || relatedSitesOf(d).some(covers)),
   )?.code;
 }
 
