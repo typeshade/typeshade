@@ -421,7 +421,8 @@ How the region grows once it is a `WebAssembly.Memory` is open question N2.
 
 [fact] The reviewer counted 36 comparisons of a tier with `'cpu'` in `src/` and `scripts/` (for
 example `src/runtime/runtime.ts`, line 318, and `scripts/user-journey.ts`). A search for
-`=== 'cpu'` and `!== 'cpu'` alone finds 28. Each one is read in milestone 1f: it means the
+`=== 'cpu'` and `!== 'cpu'` alone finds 28. The prerequisite pull request could not reproduce
+the 36 and lists what it measured (Amendment A1). Each one is read in milestone 1f: it means the
 JavaScript CPU tier, or it means "no GPU" and must include `'wasm'`. The same risk exists in a
 downstream host (`device.tier === 'cpu'`).
 
@@ -866,6 +867,71 @@ This record does not yet apply. Delivery will require, for each milestone:
 - each deviation with its disposition, and the pending work;
 - separately, each downstream repository's pin pull request with `0042` in its
   `compiler-changes.md`.
+
+## Amendments
+
+An amendment changes the accepted text. Its pull request is proposal-only, and its merge is its
+acceptance. Git holds the earlier text. The decided text stays in place, and an amendment record
+sits under it.
+
+### A1. The libm's source (N14) and its accuracy (N9); the prerequisite's count (2026-11-10)
+
+**The experiment for N14.** [observed result] On 2026-11-10, at commit `eb6a20f9`, with Bun
+1.4.4 and Node v22.23.4 and `precision: 'f32'`, `sin` for `f32` and for `f64` was written in
+one `"use typeshade"` source. No pull request carries the experiment; its files are not in the
+tree.
+
+- The interpreter and the generated JavaScript gave the same bits on 4,000,079 inputs for each
+  engine, with 0 differences.
+- Bun and Node differed only in the bits of a NaN result that comes from a NaN input.
+  Milestone 1b removes that difference.
+- `f32`: every input. The largest error against an exact reference, on a sample of 20,000
+  inputs for each set, was 0.5004 ULP; 4 of 20,000 results in [−100, 100) were not correctly
+  rounded.
+- `f64`: only |x| ≤ 1647099, because the source cannot read the bits of an `f64`. The largest
+  error on the sample was 0.731 ULP. Node's `Math.sin` gave 0.764 ULP on the same sample.
+- Time for one call of the generated JavaScript: 20 to 45 ns for `f64` (`Math.sin`: 24 to 36
+  ns), and 53 to 217 ns for `f32` (`Math.fround(Math.sin(x))`: 21 to 71 ns). The interpreter
+  that walks the IR took 2 to 6 µs.
+- Not measured: the WebAssembly form, a browser engine, any function other than `sin`, a sweep
+  of all 2³² inputs.
+
+**What the compiler lacks for one source.** [fact] Each item is an internal operation of the
+compiler. None is a name an author can write (OD-3).
+
+- The bits of an `f64`: `bitcast` takes 32-bit types only.
+- The conversions between an `f64` and an `i32` or a `u32`.
+- `trunc`, `ceil`, `%` and `ldexp` on an `f64`.
+- A path from the interpreter to the libm's JavaScript form: `sin` is bound to `Math.sin`
+  today.
+
+**Decision N14.** Asked on 2026-11-10, with the experiment's result, the owner chose "TypeShade
+소스 하나": the libm is one `"use typeshade"` source through both code generators. The
+alternative was two hand-written texts held equal by a test. Cost recorded: milestone 1a adds
+the internal operations above first, and the `f32` path of the generated JavaScript was up to 7
+times slower than `Math.sin` on Bun in the experiment.
+
+**Decision N9, the claim.** Asked on 2026-11-10, the owner chose "1 ULP 미만을 약속": the libm
+promises an error under 1 ULP for each of the 19 functions, for `f32` and for `f64`, beside the
+engine identity. "Correctly rounded" is claimed for a function only later, and only after a
+sweep of all its inputs finds 0 differences. `ldexp` stays correctly rounded, as the table of
+"The libm" says. Cost recorded: the proposal does not claim more accuracy than an engine's
+`Math`. This replaces the rows of that table that say a bound is "not chosen yet".
+
+**Decision N9, the reference.** Asked on 2026-11-10, the owner chose "CORE-MATH를 스크립트로
+빌드": the sweep's reference is the CORE-MATH C sources, fetched and built by a script outside
+the gates. The alternative was a BigInt reference kept in the repository. Cost recorded: the
+sweep needs a C compiler and the network, so it is a tool outside the repository's dependencies
+and no gate runs it.
+
+**The count of the prerequisite.** [observed result] The prerequisite pull request
+([#1165](https://github.com/typeshade/typeshade/pull/1165), merged as `b82669fd`) searched
+`src/` and `scripts/` at `1a9a490f`. It found 28 comparisons with the literal `'cpu'`: 17
+compare a tier, 7 compare `RhiDevice`'s `backend` and 4 compare `caps.shaderLanguage`. It found
+21 more places with a CPU arm and no `'cpu'` literal. It could not reproduce the reviewer's 36.
+Milestone 1f reads the 17 and the 21; the list is in that pull request's body.
+
+**Status.** N9 and N14 are closed. Milestone 1a has no open question.
 
 ## What it owes downstream
 
