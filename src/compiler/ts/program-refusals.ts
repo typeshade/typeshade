@@ -17,7 +17,8 @@
 // 2. The OWNER is the first file of the chain that reports the same mistake at the same place
 //    when it is compiled as its own program: the same code and sentence as written, the same
 //    site, at the same place. Two spans are the same when they end together and start together
-//    or with only an `export` modifier between their starts (`samePlace`). The file the compile starts from is its own program, so it owns
+//    or with only `export`, `default`, whitespace and comments between their starts
+//    (`samePlace`). The file the compile starts from is its own program, so it owns
 //    what reaches it. The program reports the error once, in the owner, at the owner's place.
 //    The site is the error's related place when the error does not stand on it.
 // 3. A document lists what is located in it. So the owner's document shows the error, and no
@@ -61,18 +62,32 @@ interface Span {
 }
 
 /**
- * Whether two spans of one file are one node: the same span, or the same end with nothing but an
- * `export` modifier between the two starts. Two programs map one node back to its file through
- * different linked sources: an imported declaration whose `export` the linker dropped maps from
- * the keyword after it, where the file's own program reads it from `export`. Two nested
- * expressions are two places (`a + a` inside `b + (a + a)`).
+ * Whether two spans of one file are one node: the same span, or the same end with nothing but
+ * `export`, `default`, whitespace and comments between the two starts. Two programs map one node
+ * back to its file through different linked sources: the linker drops an imported declaration's
+ * `export` and `default` with the whitespace after them, so a comment after them stays, and the
+ * node maps from the token after it, where the file's own program reads it from `export`. Two
+ * nested expressions are two places (`a + a` inside `b + (a + a)`).
  */
 const samePlace = (a: Span, b: Span, textOf: (fileName: string) => string | undefined): boolean => {
   if (a.fileName !== b.fileName || a.start + a.length !== b.start + b.length) return false;
   if (a.start === b.start) return true;
   const between = textOf(a.fileName)?.slice(Math.min(a.start, b.start), Math.max(a.start, b.start));
-  return between !== undefined && /^export\s+$/.test(between);
+  return between !== undefined && onlyExportBetween(between);
 };
+
+/** Whether `text` holds the modifiers `export` and `default` and nothing else but trivia, with
+ *  `export` among them. */
+function onlyExportBetween(text: string): boolean {
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, /* skipTrivia */ true);
+  scanner.setText(text);
+  let exported = false;
+  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+    if (token === ts.SyntaxKind.ExportKeyword) exported = true;
+    else if (token !== ts.SyntaxKind.DefaultKeyword) return false;
+  }
+  return exported;
+}
 
 /** What makes two reports, by two programs, one mistake: the code and the sentence with each
  *  name as its file writes it, and one site (`samePlace`). */

@@ -1340,6 +1340,48 @@ export function fs(v: VsOut): vec4 {
     expect(ran.text.match(/ - error TS8/g)).toHaveLength(1);
   });
 
+  // The linker drops `export` and `default` with the whitespace after them, and a comment after
+  // them stays: the node maps from the token after the comment (`samePlace`).
+  const LIB = '/p/lib.shade.ts';
+  const ASYNC = (prefix: string): string =>
+    `"use typeshade";\n${prefix}async function lum(c: vec3): f32 {\n  return c.x;\n}\n`;
+  const TWICE = (prefix: string): string =>
+    `"use typeshade";\nexport function lum(c: vec3): f32 {\n  return c.x;\n}\n` +
+    `${prefix}function lum(c: vec3): f32 {\n  return c.y;\n}\n`;
+  const WRITTEN: readonly (readonly [string, string, string])[] = [
+    ['a block comment after export', ASYNC('export /* keep */ '), 'TS8013'],
+    ['a line comment after export', ASYNC('export // keep\n'), 'TS8013'],
+    ['a JSDoc after export', ASYNC('export /** doc */ '), 'TS8013'],
+    ['a block comment after export, a duplicate', TWICE('export /* c */ '), 'TS8023'],
+    ['a JSDoc on its own line after export, a duplicate', TWICE('export\n/** doc */\n'), 'TS8023'],
+    ['export default, a duplicate', TWICE('export default '), 'TS8023'],
+  ];
+  for (const [name, lib, code] of WRITTEN) {
+    it(`${name}: the imported file's own mistake, reported once, in that file`, () => {
+      const files: Files = {
+        [LIB]: lib,
+        [B]: `"use typeshade";
+import { lum } from "./lib.shade.ts";
+${VS}@fragment
+export function fs(v: VsOut): vec4 {
+  return vec4(lum(vec3(v.uv, 0.)), 0., 0., 1.);
+}
+`,
+      };
+      const own = compilerSays(files, LIB).filter((d) => d.code === code);
+      expect(own.map((d) => d.file)).toEqual(['lib.shade.ts']);
+      const inProgram = compilerSays(files, B).filter((d) => d.code === code);
+      expect(inProgram.map((d) => [d.file, d.related])).toEqual([['lib.shade.ts', []]]);
+      expect(own[0]!.at.endsWith(inProgram[0]!.at)).toBe(true);
+      const service = opened(files);
+      expect(editorSays(service, files, B).filter((d) => d.code.startsWith('TS8'))).toEqual([]);
+      const ran = check(files);
+      expect(ran.status).toBe(1);
+      expect(ran.text.match(new RegExp(` - error ${code}:`, 'g'))).toHaveLength(1);
+      expect(ran.text.split('\n').filter((line) => line.startsWith('b.shade.ts:'))).toEqual([]);
+    });
+  }
+
   it('a mistake in the body of an imported generic function stays in that file, once', () => {
     // The declaring file's own program reports the unknown name, so the program that
     // instantiates the function adds no second diagnostic at its call (Rule 12.4).
