@@ -924,6 +924,52 @@ deviation C of the table above.
 | C   | §38 keeps `uv: location<0, vec2>` on the parameter of `fs`: the block has no vertex entry, and the bare parameter is `TS8010`. The fragment of §2 keeps `position: location<0, vec3>`: its paragraph introduces `location<n, T>`. | Closed.                                                   |
 | D   | The second script found one written location that the compiler would give, in `AUTHORING.md` ("Stage parameters"), which deviation B of pull request #1171 closed. No surface section writes another.                             | Closed.                                                   |
 
+**Delivery of Amendment A3: one clause of Rule 6.6, and five sentences.** Written on 2026-11-10
+(UTC) by the AI agent (Claude Code) that made the change, at the direction of the coordinating
+session. Its pull request records the delivered commit and each check with its result.
+
+- Configuration: branch `claude/clever-ramanujan-yrfjsq-0135-rule66`, based on `main` at
+  `f6d476f8`. Tools: Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3, Vitest 5.0.5, Doorstop 3.2.
+- Delivered:
+  - Rule 6.6: the clause reads "a field of one writes its attribute in its type where it writes
+    one (a user-defined input or output may leave its location to the compiler), and needs no
+    initializer and no `!`". No other sentence of the rule changes.
+  - `docs/language-design.md` §2.3, `docs/compiler-owns-performance.md` and `docs/debugging.md`:
+    one sentence each names the built-in value as `builtin<"...">`.
+  - `docs/language-service-api.md`: the `TS8024` row, the `getCompletions` row of §5 and the
+    string-completion note of §10 say what the measurement below found.
+  - `reqs/rules/RULE-0606.md` (`bun run reqs:sync`; `RULE-0606` reviewed; the suspect links of
+    `SURF-003` and `SURF-007` cleared after reading surface §3 and §7).
+- Measurement [fact], with a scratch script over `createTypeshadeLanguageService()` and
+  `compile()` on `f6d476f8`:
+
+  | Asked                                                           | `builtin<"…">`                                                         | The decorated `@builtin("…")`                      |
+  | --------------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------- |
+  | `getCompletions` inside the string, closed or unterminated      | The built-in names, filtered by the stage of the enclosing entry       | The same list                                      |
+  | `getCompletions` inside any other string                        | Nothing                                                                | Nothing                                            |
+  | A name WGSL does not have (`"vertex_idx"`)                      | `TS8024`, `Unknown builtin "vertex_idx". Did you mean "vertex_index"?` | The same `TS8024`                                  |
+  | A name argument that is no string (`builtin<3>`, `@builtin(3)`) | `TS8002` in the compiler; the editor adds TypeScript's TS2344          | `TS8024`, `@builtin takes one name as a string: …` |
+
+  So the completion sentences name both forms, and the `TS8024` row gives the malformed
+  argument to the decorated form only. `src/language-service/new-entry-forms.test.ts` and
+  `src/language-service/completions.test.ts` already hold the completion in each form.
+
+- Functional validation: no source file changes. The pull request's description lists the
+  build, the type checks, the lint, the whole `npx vitest run` and `bun run bake:goldens` with
+  their results.
+- Document validation: `bun run docs:refs`, `bun run docs:impact`,
+  `bun scripts/changes.ts --base origin/main`, `bun scripts/rule-citation.ts`,
+  `bun run reqs:sync` and `python scripts/doorstop-check.py -C -e -F`. `bun run docs:impact`
+  listed 88 places that cite Rule 6.6: 40 in `src/`, 8 in `docs/` and 40 in `changes/`. Each was
+  read. None in `src/` or `docs/` says that every field of an entry I/O struct carries an
+  attribute.
+
+| #   | Difference from Amendment A3                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Disposition                                                   |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| A   | Amendment A3 counts five sentences and names two in `docs/language-service-api.md`. A third sentence there, the `getCompletions` row, says the same thing as the string-completion note, so it is edited with it.                                                                                                                                                                                                                                                                           | Closed.                                                       |
+| B   | Other sentences still name a built-in value by the decorated form, and amendment A3 does not list them: `README.md` ("`@builtin(...)` ids"), `examples/README.md` ("the `@vertex` / `@builtin(...)` decorators"), `docs/debugging.md` ("carrying `@builtin(...)` or `@location(n)`"), four places of `docs/language-service-api.md` (the `getSemanticTokens` row, the `TS8025` row, the `BUILTIN_DOCS` sentence, the rename note) and the text of Rules 10.1 and 12.1. They are not edited. | Open: the owner decides whether a later amendment moves them. |
+| C   | Proposals 0111 and 0130 quote the older clause of Rule 6.6 as their own text. They record what each proposal approved, and they stay.                                                                                                                                                                                                                                                                                                                                                       | Closed.                                                       |
+
 ## What it owes downstream
 
 Measured on the local clones on 2026-11-09 (not fetched): typecv `5c3f8ce`, typenn `3a7d66c`,

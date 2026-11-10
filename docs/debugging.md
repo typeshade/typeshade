@@ -714,7 +714,7 @@ than assuming. `position`'s `w` is the perspective divisor, so a zero there make
 perspective-divided value in a default run `NaN`, which reads as a bug in the shader;
 `front_facing` false is a back-facing fragment, which for a single-sided draw is the case that
 never runs. Both are keyed by builtin id rather than by stage, so a struct field carrying
-`@builtin("position")` gets the same value a loose parameter does.
+`builtin<"position">` gets the same value a loose parameter does.
 
 Six builtins the front end accepts as an entry input have no row above: `sample_mask` and
 `primitive_index` (fragment), `subgroup_invocation_id` and `subgroup_size` (compute and
