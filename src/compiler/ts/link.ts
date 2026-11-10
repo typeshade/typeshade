@@ -868,50 +868,55 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     }
   }
 
-  /** Every name a file declares at its top or binds by an import: what `valueNamedByType`
-   *  looks a name up among, so a builtin type (`f32`, `vec3`) costs no walk of the scope. */
-  const programNames = new Set<string>();
-  for (const u of units) for (const n of u.names) programNames.add(n.text);
-  for (const f of order) {
-    for (const s of f.sf.statements) {
-      if (!ts.isImportDeclaration(s) || s.importClause === undefined) continue;
-      if (s.importClause.name !== undefined) programNames.add(s.importClause.name.text);
-      const nb = s.importClause.namedBindings;
-      if (nb === undefined) continue;
-      if (ts.isNamespaceImport(nb)) programNames.add(nb.name.text);
-      else for (const e of nb.elements) programNames.add(e.name.text);
-    }
-  }
-  /** Whether `symbol`, or what it is an alias of, is a value. */
-  const isValueSymbol = (symbol: ts.Symbol): boolean => {
-    const target =
-      (symbol.flags & ts.SymbolFlags.Alias) !== 0 ? checker.getAliasedSymbol(symbol) : symbol;
-    return (checker.getExportSymbolOfSymbol(target).flags & ts.SymbolFlags.Value) !== 0;
+  /** Whether `id` is the size of an array type: `N` in `array<f32, N>`, the one place where a
+   *  type names a value (#1194). */
+  const isArraySize = (id: ts.Identifier): boolean => {
+    const size = id.parent;
+    const arrayType = size.parent;
+    return (
+      ts.isTypeReferenceNode(arrayType) &&
+      ts.isIdentifier(arrayType.typeName) &&
+      arrayType.typeName.text === 'array' &&
+      arrayType.typeArguments?.[1] === size
+    );
   };
-  /** The value a type names: `N` in `array<f32, N>`, the override that sizes an array (#1194).
-   *  TypeScript reads a type's name as a type, and no type is declared `N`, so its checker gives
-   *  the name a symbol that nothing declares. The front end reads the name as the value in
-   *  scope, so the linker does too: the innermost value TypeScript has in scope there. */
-  const valueNamedByType = (id: ts.Identifier): ts.Symbol | undefined => {
-    const p = id.parent;
-    if (!ts.isTypeReferenceNode(p) || p.typeName !== id || !programNames.has(id.text)) {
-      return undefined;
+  /** Per file, the values its module scope holds by name: its own top-level declarations and
+   *  its import bindings. */
+  const moduleValues = new Map<ProgramFile, Map<string, ts.Symbol>>();
+  /** The top-level value an array's size names in `f`: its unit and its name there.
+   *  TypeScript's checker reads the name as a type, so it does not answer. The front end reads
+   *  the name as the module's override of that name (`sizeOverrides` in `module-vars.ts`),
+   *  whatever a function declares under it. So the linker reads the value that the file's
+   *  module scope holds. A parameter or a local does not hide it, and a type of the same name
+   *  does not stand for it. `'refused'` is a name whose import was refused. `undefined` is a
+   *  name the file's module scope gives no value. */
+  const sizeValueOf = (
+    f: ProgramFile,
+    id: ts.Identifier,
+  ): { unit: Unit; name: string } | 'refused' | undefined => {
+    let values = moduleValues.get(f);
+    if (values === undefined) {
+      values = new Map();
+      // An import's binding is an alias, which is in scope only when asked for.
+      const flags = ts.SymbolFlags.Value | ts.SymbolFlags.Alias;
+      for (const s of checker.getSymbolsInScope(f.sf, flags)) values.set(s.name, s);
+      moduleValues.set(f, values);
     }
-    // An import's binding is an alias, which is in scope as a value only when asked for.
-    const local = checker
-      .getSymbolsInScope(id, ts.SymbolFlags.Value | ts.SymbolFlags.Alias)
-      .find((s) => s.name === id.text && isValueSymbol(s));
-    // An exported declaration is in scope as its local symbol; every other use names the export.
-    return local === undefined ? undefined : checker.getExportSymbolOfSymbol(local);
-  };
-  /** The symbol the identifier `id` names, as the front end reads the name. */
-  const symbolOf = (id: ts.Identifier): ts.Symbol | undefined => {
-    const p = id.parent;
-    const symbol = ts.isShorthandPropertyAssignment(p)
-      ? checker.getShorthandAssignmentValueSymbol(p)
-      : checker.getSymbolAtLocation(id);
-    if (symbol !== undefined && (symbol.declarations?.length ?? 0) > 0) return symbol;
-    return valueNamedByType(id) ?? symbol;
+    const local = values.get(id.text);
+    if (local === undefined) return undefined;
+    const symbol = resolveAlias(local);
+    if (symbol === undefined) return 'refused';
+    for (const d of symbol.declarations ?? []) {
+      // `type N = f32` beside `const N` declares one symbol, and the size is the value.
+      if (ts.isInterfaceDeclaration(d) || ts.isTypeAliasDeclaration(d)) continue;
+      const stmt = topStatementOf(d);
+      const unit = stmt === undefined ? undefined : unitOfStatement.get(stmt);
+      const name = (d as { name?: ts.Node }).name;
+      if (unit !== undefined && name !== undefined && ts.isIdentifier(name)) {
+        return { unit, name: name.text };
+      }
+    }
+    return undefined;
   };
 
   /** Every name every file writes, which a generated name must not take. */
@@ -946,7 +951,26 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
         written.add(id.text);
         if (!isUse(id)) continue;
         const p = id.parent;
-        let symbol = symbolOf(id);
+        if (isArraySize(id)) {
+          const size = sizeValueOf(f, id);
+          if (size === 'refused') {
+            silence(f, id);
+            continue;
+          }
+          if (size !== undefined) {
+            uses.push({ id, unit: size.unit, name: size.name });
+            from?.refs.add(size.unit);
+            continue;
+          }
+          // No value of this file's: a mistake, or a namespace. Like a value use that resolves
+          // to nothing, it must not read another file's declaration of the name.
+          const list = g.get(id.text) ?? [];
+          list.push(id);
+          g.set(id.text, list);
+        }
+        let symbol = ts.isShorthandPropertyAssignment(p)
+          ? checker.getShorthandAssignmentValueSymbol(p)
+          : checker.getSymbolAtLocation(id);
         if (symbol === undefined) {
           const list = g.get(id.text) ?? [];
           list.push(id);
@@ -1161,6 +1185,11 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
   }
   const emittedName = (unit: Unit, name: string): string =>
     emitted.get(key(unit.file, name)) ?? name;
+  // A use of a declaration the module refused and left out reads nothing, or another file's
+  // declaration of the name. The refusal is the one diagnostic for it (Rule 12.4).
+  for (const [f, uses] of usesOf) {
+    for (const use of uses) if (dropped.has(use.unit)) silence(f, use.id);
+  }
 
   // ── 5. The linked source ───────────────────────────────────────────────────────────────
   /** Units of an imported file that keep their `export`: what the entry re-exports under the
@@ -1246,7 +1275,9 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
       if (!carries(f, stmt)) continue;
       for (const id of identifiersIn(stmt)) {
         const parent = id.parent;
-        const symbol = symbolOf(id);
+        const symbol = ts.isShorthandPropertyAssignment(parent)
+          ? checker.getShorthandAssignmentValueSymbol(parent)
+          : checker.getSymbolAtLocation(id);
         const name = symbol === undefined ? undefined : localNames.get(symbol);
         if (name === undefined) continue;
         edits.push({
