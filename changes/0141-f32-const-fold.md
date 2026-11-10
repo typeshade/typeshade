@@ -29,8 +29,8 @@ downstream:
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                 |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity and status           | Proposal 0141, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                              |
-| Date and attribution          | Drafted 2026-11-10 (UTC) by an AI agent (Claude Code) at the direction of the session's coordinator, and revised the same day to answer the independent review of `4e9747de`. The dates are dates of authorship. They are not approval dates.                                                                                          |
-| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-10, in Korean: "B: 접기를 f32 연산처럼". The owner was shown a survey of the fold with three options, and chose option B.                                                                                                                                                     |
+| Date and attribution          | Drafted 2026-11-10 (UTC) by an AI agent (Claude Code) at the direction of the session's coordinator. Revised the same day to answer the first independent review (of `4e9747de`) and the second (of `5ecabbcb`). The dates are dates of authorship. They are not approval dates.                                                       |
+| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-10, in Korean: "B: 접기를 f32 연산처럼". The owner was shown a survey of the fold with three options, and chose option B. After the second review the owner decided, the same day: "초안으로 두고 0134 구현 뒤에" (Owner's decisions).                                        |
 | Applicability / effectivity   | Expected: `docs/language-design.md` Rule 6.3, `docs/use-typeshade-surface.md` §12, `src/compiler/ts/loop-bound.ts`, `src/compiler/ts/module-const.ts`, their tests, and the files of "What it touches". Targets: WGSL, GLSL ES 3.00 and the CPU oracle. No export, diagnostic code or example changes. No release version is assigned. |
 | Review baseline               | `main` at `2fc20c99`. Each line number in this document was read at that commit.                                                                                                                                                                                                                                                       |
 | Review and revision authority | Pull request [#1202](https://github.com/typeshade/typeshade/pull/1202). Git records the revisions. The review and the merge of that pull request record the decision.                                                                                                                                                                  |
@@ -76,11 +76,28 @@ the `'f64'` oracle carries is question Q6.
 
 ### What the rule covers
 
-The terms are those of accepted proposal 0134 (`changes/0134-literal-from-use.md`), which OD-7
-names as the record of the design.
+The rule is worded in terms that hold on `main` today: an annotation, and the value the fold
+has today. Accepted proposal 0134 (`changes/0134-literal-from-use.md`, which OD-7 names as the
+record of the design) uses the terms "fixed type" and "constant of no fixed type". Its items 1
+to 3 are not implemented at `2fc20c99`, and `docs/language-design.md` does not yet have those
+terms. This document uses "an operand of fixed type `f32`" as a short name for the definition
+of item 1 below.
 
-1. **An operand of fixed type `f32`.** A constant annotated `f32` is one. A constant of no fixed
-   type (0134 item 2: `const K = 0.0117`, and `const M = K * 2`) and a written number are not.
+1. **An operand of fixed type `f32`.** It is one of these:
+   - a constant annotated `f32` (`const X: f32 = 0.0117;`);
+   - a `static readonly` field annotated `f32`, which folds as a module constant does
+     ([measured] `static readonly Y: f32 = S.X * 3.0` emits `const S_Y: f32 = 0.0351;` today);
+   - the result of an operation `+`, `-`, `*` or `/` that has such an operand;
+   - the negation of such an operand (`-X`; the negation is exact);
+   - a constant with no annotation whose initializer is such a result
+     (`const Y = X * N;`, so `const Z = Y * 2.0;` reads `Y` as an `f32`).
+
+   A written number is not one. A constant with no annotation whose initializer is written
+   numbers only (`const K = 0.0117`, and `const M = K * 2`; 0134 item 2 calls it a constant of
+   no fixed type) is not one. A constant imported from another `"use typeshade"` module is
+   expected to carry its annotation with its declaration; that case is not measured, and the
+   validation plan holds it. Whether the cast `f32(0.0117)` makes one is question Q9.
+
 2. **The fold.** In a module constant's initializer that the front end folds to one value, an
    operation `+`, `-`, `*` or `/` that has an operand of fixed type `f32` reads its operands as
    `f32` values and rounds its result to `f32`, to nearest with ties to even. The result is of
@@ -90,42 +107,67 @@ names as the record of the design.
    ECMAScript semantics") and item 2 ("Its value is the ECMAScript value of the expression").
    This proposal does not change it. Such an expression converts to `f32` once, where it meets
    an operand of fixed type `f32` or the constant's own annotation.
-4. **An integer position keeps the fold it has.** A `case` value, an enum member, an `i32` or
-   `u32` constant, a loop's step, a shift amount and an index have no operand of fixed type
-   `f32` when they are written as numbers, so nothing in them rounds.
+4. **An integer position of written numbers keeps the fold it has.** A `case` value, an enum
+   member, an `i32` or `u32` constant, a loop's step, a shift amount and an index have no
+   operand of fixed type `f32` when they are written as numbers, so nothing in them rounds.
+   An integer position that reads a constant annotated `f32` does change: [measured]
+   `const X: f32 = 16777216; const K: i32 = X + 1;` is 16777217 on `main`, and
+   [measured by the reviewer] 16777216 under the rule; `case X + 1:` follows the same fold.
+   That `main` accepts an `i32` constant from an `f32` expression with no cast is a separate
+   defect. It is not fixed here.
 5. **An `f64` initializer** keeps Rule 6.3's second paragraph. That paragraph already requires
    this rounding for an `f32` operation inside an `f64` initializer.
 6. **A constant that keeps its expression** (a vector, an array, a matrix, a struct, and a scalar
-   whose initializer calls anything, a conversion such as `f32(N)` included) is emitted as
-   today. Question Q8 is about its scalar parts.
+   whose initializer calls anything, a conversion of a constant such as `f32(N)` included) is
+   emitted as today. Question Q8 is about its scalar parts. A conversion of a written number is
+   not kept: [measured] `const A: f32 = f32(0.0117) * 3.0;` emits `const A: f32 = 0.0351;`
+   (question Q9).
 
-| Source                                           | Fixed-type operand? | Today           | After                                        |
-| ------------------------------------------------ | ------------------- | --------------- | -------------------------------------------- |
-| `const X: f32 = 0.0117; const Y: f32 = X * 3.0;` | Yes, `X`            | (a)             | (b)                                          |
-| `const X: f32 = 0.0117; const Y = X * 3.0;`      | Yes, `X`            | (a)             | (b)                                          |
-| `const L: f32 = 0.0117 * 3.0;`                   | No                  | (a)             | (a): 0134 Q1                                 |
-| `const X0 = 0.0117; const Y0 = X0 * 3.0;`        | No                  | (a)             | (a): 0134 item 2                             |
-| `const M: f32 = (0.0117 * 3.0) * X;`             | Yes, `X`            | —               | 0.0351 converts once, then one `f32` product |
-| `const K: i32 = 16777216 + 1;`                   | No                  | 16777217        | 16777217                                     |
-| `const BIG = 16777216;` then `case BIG + 1:`     | No                  | `case 16777217` | `case 16777217`                              |
+| Source                                               | Fixed-type operand? | Today                                          | After                                        |
+| ---------------------------------------------------- | ------------------- | ---------------------------------------------- | -------------------------------------------- |
+| `const X: f32 = 0.0117; const Y: f32 = X * 3.0;`     | Yes, `X`            | (a)                                            | (b)                                          |
+| `const X: f32 = 0.0117; const Y = X * 3.0;`          | Yes, `X`            | (a)                                            | (b)                                          |
+| `const L: f32 = 0.0117 * 3.0;`                       | No                  | (a)                                            | (a): 0134 Q1                                 |
+| `const X0 = 0.0117; const Y0 = X0 * 3.0;`            | No                  | (a)                                            | (a): 0134 item 2                             |
+| `const M: f32 = (0.0117 * 3.0) * X;`                 | Yes, `X`            | —                                              | 0.0351 converts once, then one `f32` product |
+| `const K: i32 = 16777216 + 1;`                       | No                  | 16777217                                       | 16777217                                     |
+| `const X: f32 = 16777216; const K: i32 = X + 1;`     | Yes, `X`            | 16777217                                       | 16777216                                     |
+| `const N = 3.0; const Y = X * N; const Z = Y * 2.0;` | Yes, `X`, then `Y`  | `Z` is 0.0702, as an `f32` 0.07020000368356705 | `Z` is 0.07019999623298645                   |
+| `const M1: f32 = (-X) * 3.0;` and `-(X * 3.0)`       | Yes                 | -(a)                                           | -(b)                                         |
+| `const BIG = 16777216;` then `case BIG + 1:`         | No                  | `case 16777217`                                | `case 16777217`                              |
 
 ### The proposed text of Rule 6.3
 
 One sentence is added after the first sentence of Rule 6.3:
 
-> In a scalar initializer, an operation `+`, `-`, `*` or `/` that has an operand of fixed type
-> `f32` (a constant annotated `f32`, or the result of such an operation) reads its operands as
-> `f32` values and rounds its result to `f32`, to nearest; an expression of written numbers and
-> of constants of no fixed type keeps its ECMAScript value (Rule 5.1) and converts once.
+> In a scalar initializer, an operation `+`, `-`, `*` or `/` with an operand that is a constant
+> annotated `f32`, the negation of one, or the result of such an operation, reads its operands
+> as `f32` values and rounds its result to `f32`, to nearest; every other operand keeps the
+> value the fold has today, and converts once.
+
+The sentence names no rule and no term that `main` does not have. The first revision's wording
+("keeps its ECMAScript value (Rule 5.1)", "constants of no fixed type") cited text that only
+0134's implementation will add: Rule 5.1 at `2fc20c99` says "Where no integer type is
+established, the literal must be an `f32`". "The value the fold has today" is the double fold,
+which is also the value 0134's decision Q1 asks for.
 
 The sentence does not say that the constant equals the same expression in a function. That
-holds for the example, and it does not hold in every case while the related defect below stands.
+holds for the example, and it does not hold in every case while the related defects below stand.
+Under Q8 (ii) the words "In a scalar initializer" also have to cover a scalar part of a
+constant that keeps its expression.
+
+**The order with 0134.** The owner decided on 2026-11-10 that this proposal stays a draft until
+0134 is implemented (Owner's decisions). So the rule text of 0134 lands first, and the sentence
+above is then read again against the rule text that `main` has. [measured] At `2fc20c99` items 1
+to 3 of 0134 are not implemented: `const N = 8;` with `for (let j = 0; j < N; j++)` is refused
+(`TS8003 … cannot compare i32 and f32`); `const K = 3` read at an `i32` and at an `f32` is
+refused; `const K = 16777217;` emits `const K: f32 = 16777217.0;`.
 
 The rationale gains one sentence:
 
-> An operation on an operand of fixed type `f32` folds as Tint and ANGLE compute a constant
-> expression of type `f32` (measured), so the emitted literal is the value the targets give the
-> expression.
+> An operation on a constant annotated `f32` folds as Tint and ANGLE were measured to compute a
+> constant expression of type `f32`, so the emitted literal is the value Tint and ANGLE were
+> measured to give the expression.
 
 Whether the first sentence of Rule 6.3 and the rest of its rationale stand is question Q6. The
 wording for `%` follows question Q7.
@@ -163,6 +205,12 @@ sentence for these cases, with the same code:
 > Division by zero: "B - A" is 0 as `f32` arithmetic computes it, since 16777217 is not an
 > `f32` value. WGSL refuses it and GLSL ES 3.00 leaves it undefined.
 
+That sentence fits the first program. The second has no arithmetic in its divisor, and takes
+its own sentence:
+
+> Division by zero: "T" is 0 as an `f32`, since 1e-46 is below the smallest `f32` value. WGSL
+> refuses it and GLSL ES 3.00 leaves it undefined.
+
 No diagnostic code is added.
 
 ### How far a value can move
@@ -183,7 +231,7 @@ The statement "by one unit in the last place" is not true in general.
 - A constant of no fixed type and a literal-only expression keep their value (0134).
 - An integer position keeps its fold.
 - The `f64` constant's evaluator (`src/compiler/ts/module-const-f64.ts`) does not change.
-- The const-fold pass over function bodies is out of scope (Related defect).
+- The const-fold pass over function bodies is out of scope (Related defects).
 
 ## Why
 
@@ -266,20 +314,21 @@ TypeShade at `2fc20c99`:
 
 Every caller, and what it takes under the proposal. "Takes the `f32` operation" means: where an
 operand has fixed type `f32`. A caller in an integer position has no such operand when its text
-is written numbers, so it does not change.
+is written numbers, so it does not change. When its text reads a constant annotated `f32`, it
+changes (item 4 of the rule).
 
 | Caller                                                                                                                     | What it folds                                        | Under the proposal                                                                                                                                                                                              |
 | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `module-const.ts:862`                                                                                                      | A scalar module constant                             | Takes the `f32` operation. This is the rule.                                                                                                                                                                    |
-| `module-const.ts:279`                                                                                                      | An enum member                                       | Integer position: unchanged                                                                                                                                                                                     |
+| `module-const.ts:279`                                                                                                      | An enum member                                       | Integer position: unchanged for written numbers (item 4)                                                                                                                                                        |
 | `lower/statement.ts:792`                                                                                                   | A local constant's recorded value                    | Takes it, so that a local read by a module-level rule agrees; the emit of a local is the related defect                                                                                                         |
-| `lower/control.ts:989`                                                                                                     | A `case` value                                       | Integer position: unchanged                                                                                                                                                                                     |
+| `lower/control.ts:989`                                                                                                     | A `case` value                                       | Integer position: unchanged for written numbers (item 4)                                                                                                                                                        |
 | `lower/control.ts:578`, `:1220`; `readStep` (`loop-bound.ts:215` to `239`); `analyzeCountedFor` (`loop-bound.ts:285`)      | A loop's condition, step and trip count              | The step is an integer position: unchanged. A bound with an operand of fixed type `f32` takes it (N2 below)                                                                                                     |
 | `exactOperand` (`loop-bound.ts:653`)                                                                                       | A comparison operand that both targets compute alike | Its rule stays: a float is taken only where double and `f32` cannot differ. With the `f32` operation it can take more cases; this proposal does not widen it                                                    |
 | `index-bound.ts:55`, `:80`; `lower/index-select.ts:87`; `lower/expression-prop.ts:779`                                     | A constant index                                     | An integer index: unchanged. An index converted from an `f32` expression of fixed type takes it (N2 below)                                                                                                      |
 | `lower/expression.ts:1256` (`isWholeF32Pair`)                                                                              | Whole numbers written as floats in a bit operation   | Written numbers: unchanged                                                                                                                                                                                      |
 | `lower/expression-misc.ts:78`                                                                                              | A value for an `f64` context                         | Unchanged: the `f64` evaluator has its own rule                                                                                                                                                                 |
-| `constShiftAmountOutOfRange` (`loop-bound.ts:701`)                                                                         | A shift amount                                       | Integer position: unchanged                                                                                                                                                                                     |
+| `constShiftAmountOutOfRange` (`loop-bound.ts:701`)                                                                         | A shift amount                                       | Integer position: unchanged for written numbers (item 4)                                                                                                                                                        |
 | `constF32OutOfRange` (`:842`), `constCallOutsideDomain` (`:759`), `crossedClampBounds` (`:860`)                            | Range and domain refusals                            | Unchanged. Each reads `foldConstComponents` twice, exact and with `Math.fround`, and refuses only where both agree (#373, #374, #613)                                                                           |
 | The zero-divisor checks: `module-const.ts:547`, `module-vars.ts:684`, `lower/expression.ts:729`, `lower/statement.ts:1822` | Whether a divisor folds to zero                      | Each reads `foldConstComponents` in doubles today. Under the proposal a divisor with an operand of fixed type `f32` is read as `f32` arithmetic computes it, or the two folds disagree (the new refusals above) |
 
@@ -292,10 +341,11 @@ expression, and the CPU in `'f32'` precision gives 63.
 **Readers of `ConstDecl.cpuValue`.** `module-vars.ts:232`, `lower/function.ts:3156`, `:3805`
 and `:4073`, `host-face.ts:2250`, `src/core/passes/opt/unroll.ts:87`,
 `src/core/passes/fp64-lower.ts:1584`, `src/core/debug/interp.ts:1009`, `src/core/oracle.ts:867`
-and `src/core/cpu-codegen.ts:1841`. `host-face.ts:2250` reads an enum member, an integer. The
-front end's readers take the value as the next fold's operand. `unroll.ts:87` asks whether
-`wgslValue` equals `cpuValue`. The three CPU walks take the oracle's value. Question Q6 decides
-what they read.
+and `src/core/cpu-codegen.ts:1841`. The front end's readers (`module-vars.ts:232`,
+`lower/function.ts:3156`) take the value as the next fold's operand. The three CPU walks take
+the oracle's value. Question Q6 decides what they read. [verified by the reviewer] Three
+readers are not affected: `fp64-lower.ts:1584` lowers only `f64` constants, `unroll.ts:87`
+reads only `i32` and `u32` constants, and `host-face.ts:2250` reads an enum member.
 
 ### Alternatives
 
@@ -340,6 +390,16 @@ is OD-4's comparison.
 The decisions this proposal records or follows:
 
 - 2026-11-10, "B: 접기를 f32 연산처럼": the owner's choice among the survey's options.
+- 2026-11-10, after the second independent review, "초안으로 두고 0134 구현 뒤에" (keep it a
+  draft; after the implementation of 0134). What it means for this record:
+  - `status` stays `draft`. The proposal is not accepted, and nothing of it is implemented.
+  - The open questions Q3 to Q9 are not asked now. They are asked together after proposal 0134
+    is implemented.
+  - The measurements of this document are repeated then. 0134 changes what a constant with no
+    annotation is, so each row that has such a constant, and each "today" column, can change.
+  - Until then the proposal is held in its pull request, which is a draft pull request.
+    `changes/README.md` (The lifecycle) starts review with a proposal-only pull request and
+    makes the merge with `status: accepted` the agreement; it has no step that merges a draft.
 - 2026-11-09, 0134 decision Q1, "ECMAScript: 0.5": the arithmetic of an expression of written
   numbers. The first revision of this proposal offered a reading (R2: round every operation of
   a literal-only initializer) that would reverse that decision. The reading is removed. This
@@ -411,7 +471,7 @@ value.
 and rounds each subsequent f32 operation") pins a recorded fold and is read again. The `switch`
 test of `-2147483649` is an integer position and does not change under this scope.
 
-### Related defect, not in this proposal
+### Related defects, not in this proposal
 
 [measured by the author and by the reviewer] On `main`, regardless of 0141, the CPU in `'f32'`
 precision and the emitted text disagree for folded arithmetic in a function:
@@ -421,13 +481,23 @@ precision and the emitted text disagree for folded arithmetic in a function:
 | `return 0.0117 * 3.0;`                                     | `return 0.0351;` | (a)         | (b)          |
 | `const x: f32 = 0.0117; const y: f32 = x * 3.0; return y;` | `return 0.0351;` | (a)         | (b)          |
 
-- In the first case 0134's decision Q1 gives (a): the CPU oracle is the one that differs.
-- In the second case the operand has a fixed type, the WGSL an author would write gives (b), and
-  the const-fold pass (`src/core/passes/opt/const-fold.ts`, whose header says its `f32` fold is
-  deferred) emits (a).
-- This proposal's rule text does not depend on it. The proposed sentences claim agreement with
-  the CPU in `'f32'` precision and with the measured targets for a module constant only.
-- It is recorded here so that it is not lost. It is not fixed by 0141.
+- **Case 1 is implementation of 0134, not a plain bug fix.** By the rule text on `main` (Rule
+  5.1: the literal "must be an `f32`"; Rule 1.3) the CPU's (b) is the conforming value, and the
+  emit is the one that differs. Only 0134's decision Q1 makes (a) right, and its rule text has
+  not landed. A change that moves the CPU to (a) therefore carries `Change: 0134`.
+- **Case 2 is a bug fix that needs no proposal** (Rule 1.3, Rule 11.7). The operand is
+  annotated, the WGSL an author would write gives (b), and the const-fold pass
+  (`src/core/passes/opt/const-fold.ts`, whose header says its `f32` fold is deferred) emits (a).
+  The fix needs the annotation to survive constant propagation, and it can move goldens.
+- **Case 3, the remainder in a function.** With `const X5: f32 = 5.3;`, `return X5 % 0.1;` is
+  emitted as `(X5 % 0.1)` in WGSL [measured] and as `(X5 - 0.1 * trunc(X5 / 0.1))` in GLSL
+  [measured by the reviewer]. Tint and ANGLE give 0 [measured by the reviewer]. The CPU in
+  `'f32'` precision gives 1.1175870895385742e-7 [measured]. The CPU oracle and both measured
+  targets disagree on `main`. Rule 11.2 asks for the measurement to be recorded; it is recorded
+  here and in Q7. Which of the two is right is the subject of Q7, so no fix is proposed here.
+- This proposal's rule text does not depend on these. The proposed sentences claim agreement
+  with the CPU in `'f32'` precision and with the measured targets for a module constant only.
+- They are recorded here so that they are not lost. They are not fixed by 0141.
 
 ### A document conflict, not fixed here
 
@@ -449,7 +519,8 @@ readings needs a correction, in its own pull request.
 | Downstream        | A search in each repository.                                                                                                                                                          | Not searched for this draft.                                                                                        |
 | Duration and cost | Unknown; not estimated.                                                                                                                                                               | No basis established.                                                                                               |
 
-Decisions to resolve before acceptance: Q6 and Q7. Q3, Q4, Q5 and Q8 can be decided with them.
+Decisions to resolve before acceptance: Q6 with Q8, and Q7. Q3, Q4, Q5 and Q9 can be decided
+with them. By the owner's decision of 2026-11-10 all of them wait for the implementation of 0134.
 
 ### Validation plan
 
@@ -464,25 +535,29 @@ Functional validation the implementation will owe:
 2. Both halves on the same source, `compile()` and the language service's `getDiagnostics` and
    `getHover`: the example, the two new refusals with their sentence, and the valid neighbour
    of each (`1.0 / (B - A)` with a `B` that `f32` holds).
-3. The integer positions and the constants of no fixed type, in both halves, each unchanged:
+3. The integer positions and the constants with no annotation, in both halves:
 
-   | Source                                                                              | Must stay               |
-   | ----------------------------------------------------------------------------------- | ----------------------- |
-   | `switch (x) { case 16777216 + 1: … }`, `x: i32`                                     | `case 16777217`         |
-   | `enum E { A = 16777216 + 1, B = A + 1 }`                                            | 16777217 and 16777218   |
-   | `const K: i32 = 16777216 + 1;`                                                      | 16777217                |
-   | `const U: u32 = 4294967294 + 1;`                                                    | `4294967295u`, accepted |
-   | `const BIG = 16777216;` then `case BIG + 1:`                                        | `case 16777217`         |
-   | `const N = 16777216; const K: i32 = N + 1;`                                         | 16777217                |
-   | `case -2147483649:` on an `i32`                                                     | Refused, as today       |
-   | `const L: f32 = 0.0117 * 3.0;` and `const Y0 = X0 * 3.0;` with `const X0 = 0.0117;` | (a)                     |
+   | Source                                                                              | Must stay                                                                                            |
+   | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+   | `switch (x) { case 16777216 + 1: … }`, `x: i32`                                     | `case 16777217`                                                                                      |
+   | `enum E { A = 16777216 + 1, B = A + 1 }`                                            | 16777217 and 16777218                                                                                |
+   | `const K: i32 = 16777216 + 1;`                                                      | 16777217                                                                                             |
+   | `const U: u32 = 4294967294 + 1;`                                                    | `4294967295u`, accepted                                                                              |
+   | `const BIG = 16777216;` then `case BIG + 1:`                                        | `case 16777217`                                                                                      |
+   | `const N = 16777216; const K: i32 = N + 1;`                                         | 16777217                                                                                             |
+   | `const X: f32 = 16777216; const K: i32 = X + 1;` and `case X + 1:`                  | 16777216 (it changes; the row holds the new value), or refused if the separate defect is fixed first |
+   | `case -2147483649:` on an `i32`                                                     | Refused, as today                                                                                    |
+   | `const L: f32 = 0.0117 * 3.0;` and `const Y0 = X0 * 3.0;` with `const X0 = 0.0117;` | (a)                                                                                                  |
 
-4. The constant against the function, on the interpreter, the generated JavaScript and the
+4. The definition of item 1 of the rule, each case in both halves: the `static readonly` field,
+   the negation (`(-X) * 3.0` and `-(X * 3.0)`), the constant with no annotation that reads an
+   annotated one (`Z` above), a constant imported from another module, and the cast of Q9.
+5. The constant against the function, on the interpreter, the generated JavaScript and the
    stepper, in `'f32'` precision and in `'f64'` precision, for each row of item 1. The expected
    `'f64'` value follows Q6.
-5. The true `f32` positions: the index `A[i32(X * 90.0)]` of N2 and a loop bound, held to what
+6. The true `f32` positions: the index `A[i32(X * 90.0)]` of N2 and a loop bound, held to what
    Tint does with the emitted text.
-6. The goldens: `bun run bake:goldens` changes no file, or the pull request lists each changed
+7. The goldens: `bun run bake:goldens` changes no file, or the pull request lists each changed
    literal with its `f32` value before and after.
 
 Document validation: `bun run docs:impact`, `bun run docs:refs`, `bun run reqs:sync` and
@@ -491,8 +566,10 @@ Document validation: `bun run docs:impact`, `bun run docs:refs`, `bun run reqs:s
 ### Open questions
 
 Each has one example and the cost of each option. A recommendation names the entry or the
-decision it rests on. Q6 has no recommendation, because it is a conflict between two of the
-owner's texts. The owner decides.
+decision it rests on. Q6 and Q7 have no recommendation: Q6 is a conflict between two of the
+owner's texts, and in Q7 the measurements do not single out one option. The owner decides. By
+the owner's decision of 2026-11-10 the questions are asked together after 0134 is implemented,
+and each measurement is repeated first.
 
 **Q1. Closed.** An initializer of written numbers only keeps its ECMAScript value. The owner
 decided it in 0134 (decision Q1, 2026-11-09). `const L: f32 = 0.0117 * 3.0;` is (a).
@@ -541,62 +618,115 @@ oracle stays exact where the target rounds". `compileModule` defaults to `'f64'`
 | `2.0 * PI` in a function                  | 6.2831854820251465 | 6.283185307179586 | 6.2831854820251465 | 6.283185307179586 | 6.2831854820251465 | 6.283185307179586  |
 
 - (i) `cpuValue` stays the double fold. `wgslValue` becomes the `f32` fold, and the emit and the
-  `'f32'` mode read it. Rule 6.3's first sentence and `AGENTS.md:372` stand. Cost: a folded
-  constant has two values again, the `'f32'` mode must read `wgslValue`
-  (`src/core/passes/precision.ts` and the three CPU walks), and `unroll.ts:87`, which asks
-  whether the two values are equal, is read again.
+  `'f32'` mode read it. `AGENTS.md:372` stands. Rule 6.3's first sentence stands in the letter
+  only: (b) is not the rounding of 0.0351, and after cancellation the two values differ fully
+  (`B - A` is 1.0 in the oracle and 0 in the emit). Costs [from the review, NS3]:
+  - A folded constant has two unrelated values, and the `'f32'` mode must read `wgslValue`
+    (`src/core/passes/precision.ts` and the three CPU walks).
+  - The front end's bindings take `constValue` from `cpuValue` (`module-vars.ts:232`,
+    `lower/function.ts:3156`). A loop bound or an index would then read the double, which
+    defeats Q4 (i). They must read the `f32` fold.
+  - A later constant needs both values of an earlier one: the `f32` value for its `f32` fold and
+    the double for its double fold. So a binding carries two values.
+  - `const D: f64 = f64(Y)` must say which value it reads. Rule 6.3's second paragraph says
+    "its recorded compile-time value, rounded to `f32`". The double 0.0351 rounded is (a); the
+    `f32` fold is (b). The text must say (b), which is what a GPU reads from the literal.
+  - A constant built through the EDSL with a `wgslValue` that differs from its `cpuValue`
+    changes its value in `'f32'` precision. The new value is the one a GPU reads.
 - (ii) Both values become the `f32` fold. Rule 6.3's first sentence, its rationale and
   `AGENTS.md:372` change. Cost: in `'f64'` precision the constant then differs from the same
   expression in a function (the rows `Y` and `TAU2`), and the algebra oracle carries an error of
   about 3e-8 for `TAU2`.
 - [measured] Under (i) the constant equals the same expression in a function in both
   precisions. Under (ii) it does so in `'f32'` precision only.
+- [verified by the reviewer] Neither option breaks a gate through the constant's `'f64'` value.
+  `scripts/gpu-differential.ts` holds the GPU to the `'f32'` oracle bit for bit. The other
+  comparisons use a tolerance of 1e-6 or wider.
+- Q6 and Q8 are answered together. Under Q6 (i) with Q8 (ii), in `'f64'` precision the scalar
+  `Y` reads 0.0351 while the part `V.x` of `vec2(X * 3.0, …)` reads (b), unless a folded part
+  also carries two values.
 
 No recommendation is given: two of the owner's texts meet here, and the owner chooses. Under (i)
-the choice B holds in the emit and in `'f32'` precision, and Rule 6.3's first sentence stands.
-Under (ii) the choice B holds in every precision, and Rule 6.3's first sentence changes.
+the choice B holds in the emit and in `'f32'` precision, and Rule 6.3's first sentence stands in
+the letter. Under (ii) the choice B holds in every precision, and Rule 6.3's first sentence
+changes.
 
-**Q7. The remainder.** `%` has no single target value. With `const X5: f32 = 5.3;`:
+**Q7. The remainder.** `%` has no single value. With `const X5: f32 = 5.3;`, for `X5 % 0.1`:
 
-| `X5 % 0.1`                                            | Value                                                             |
-| ----------------------------------------------------- | ----------------------------------------------------------------- |
-| `main`'s emitted literal                              | 0.09999999999999953 (as an `f32`: 0.10000000149011612) [measured] |
-| The CPU in `'f32'` precision, in a function           | 1.1175870895385742e-7 [measured]                                  |
-| Tint, the typed constant `const R: f32 = X5 % 0.1;`   | 0 [measured by the reviewer]                                      |
-| Tint, at run time (a uniform)                         | 1.1175870895385742e-7 [measured by the reviewer]                  |
-| `Math.fround` of the JavaScript `%` on `f32` operands | 1.1175870895385742e-7                                             |
+| Where                                                | Tint                  | ANGLE         | CPU, `'f32'`          |
+| ---------------------------------------------------- | --------------------- | ------------- | --------------------- |
+| `main`'s scalar literal (`const R: f32 = X5 % 0.1;`) | 0.10000000149         | 0.10000000149 | 0.10000000149         |
+| The typed constant an author would write             | 0                     | not measured  | —                     |
+| In a function, as emitted                            | 0                     | 0             | 1.1175870895385742e-7 |
+| A part of `vec2(X5 % 0.1, 0.0)`, as emitted          | 0                     | 0             | 1.1175870895385742e-7 |
+| At run time, the operand from a uniform              | 1.1175870895385742e-7 | 0             | —                     |
+
+[Tint and ANGLE measured by the reviewer; the CPU column, the emitted WGSL and the literal
+measured by the author.] TypeShade emits the function's `%` as `(X5 % 0.1)` in WGSL and as
+`(X5 - 0.1 * trunc(X5 / 0.1))` in GLSL. With a module constant `X5` both are constant
+expressions on the target. [measured] WGSL's stated formula `x - y * trunc(x / y)` in `f32`
+steps gives 0 in JavaScript; `Math.fround` of the JavaScript `%` on the `f32` operands gives
+1.1175870895385742e-7.
 
 Options: (α) leave `%` out of the fold: an initializer with `%` over an operand of fixed type
-`f32` keeps its expression, as one with a call does, and the target computes it; (β) fold `%` as
-the CPU oracle computes it; (γ) fold `%` as Tint's constant evaluation computes it.
-Recommendation: (β). It rests on Rule 6.3's rationale (one value on every backend, which only an
-emitted literal gives) and on OD-3. Cost of (β): the literal is not what Tint gives the typed
-constant, so the gate case of the validation plan holds `%` to the CPU oracle and to Tint's run
-time, not to Tint's constant evaluation. Cost of (α): the CPU and a GPU can disagree on the
-constant (1.1e-7 against 0 here). Cost of (γ): the compiler copies one implementation's
-constant evaluator, and the constant differs from the expression in a function.
+`f32` keeps its expression, and the target computes it; (β) fold `%` as the CPU oracle computes
+it today (the exact remainder of the `f32` operands, rounded); (γ) fold `%` by WGSL's formula
+in `f32` steps, which is also the text the GLSL writer emits.
+
+| Option | The scalar constant         | It agrees with                                                                | It differs from                                                                                                |
+| ------ | --------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| (α)    | Tint 0, ANGLE 0, CPU 1.1e-7 | Each tier's own function body                                                 | Itself across tiers: it is not one value on every backend                                                      |
+| (β)    | 1.1e-7 on every tier        | The CPU oracle; Tint at run time with a uniform operand                       | The same expression in a function on Tint and on ANGLE, the vector part on both, and ANGLE at run time (all 0) |
+| (γ)    | 0 on every tier             | The function body and the vector part on Tint and on ANGLE; ANGLE at run time | The CPU oracle (in a function and in the vector part), and Tint at run time with a uniform operand             |
+
+No recommendation is given. (β) and (γ) both keep "one value on every backend" for the scalar
+constant (Rule 6.3's rationale); (α) does not. (β) follows the oracle against both measured
+targets' constant evaluation. (γ) follows both measured targets against the oracle, and then
+the oracle's own `%` (related defect, case 3) is the open item. The owner chooses, and the
+choice also settles case 3. No existing gate compares the fold with Tint's constant evaluation;
+only item 1 of the validation plan would.
 
 **Q8. The scalar parts of a constant that keeps its expression.** Example:
-`const V: vec2 = vec2(X * 3.0, 0.0117 * 3.0);` is emitted as written.
+`const V: vec2 = vec2(X * 3.0, 0.0117 * 3.0);` is emitted as written today.
 
-|              | `V.x` | `V.y` |
-| ------------ | ----- | ----- |
-| Tint         | (b)   | (a)   |
-| ANGLE        | (b)   | (b)   |
-| CPU, `'f32'` | (b)   | (b)   |
+| `V.x`, `V.y`                                           | Tint     | ANGLE    | CPU, `'f32'` |
+| ------------------------------------------------------ | -------- | -------- | ------------ |
+| Today, as emitted                                      | (b), (a) | (b), (b) | (b), (b)     |
+| Option (ii): `vec2<f32>(0.035099998116493225, 0.0351)` | (b), (a) | (b), (a) | (b), (a)     |
 
-[measured by the reviewer; the emitted text and the CPU value of `V.x` measured by the author]
-So `0.0117 * 3.0` is (a) in `const L: f32` and can be (b) inside `vec2(...)` on one target.
-0134's decision Q1 already requires the literal-only part to be the ECMAScript value. Options:
-(i) leave such a constant as an expression in this proposal, and leave the literal-only part to
-0134's implementation; (ii) fold each scalar part by this proposal's rule and by 0134, and emit
-`vec2<f32>(<literal>, <literal>)`.
+[Tint and ANGLE measured by the reviewer; the emitted text and the CPU row of "today" measured
+by the author.] So `0.0117 * 3.0` is (a) in `const L: f32` and is (b) inside `vec2(...)` on
+ANGLE and on the CPU today. 0134's decision Q1 asks for the ECMAScript value of the
+literal-only part. Options: (i) leave such a constant as an expression in this proposal, and
+leave the literal-only part to 0134's implementation; (ii) fold each scalar part by this
+proposal's rule and by 0134, and emit `vec2<f32>(<literal>, <literal>)`.
+
 Recommendation: (ii). It rests on 0134's decision Q1 and on OD-7: the same text then has the
-same value in a scalar constant and in a component. Rule 6.3 still holds, since the constant
-carries a constant-foldable expression. Cost: every vector, array and matrix constant with
-arithmetic in a component changes its emitted text, and the number of goldens is not measured.
+same value in a scalar constant and in a component, on every tier. Rule 6.3 still holds, since
+the constant carries a constant-foldable expression. Costs of (ii):
+
+- `V.y` changes its VALUE on ANGLE and on the CPU in `'f32'` precision, from (b) to (a). It is
+  not a change of text only.
+- Every vector, array and matrix constant with arithmetic in a component changes its emitted
+  text. [measured by the reviewer] One of the 102 examples has such a constant, and no
+  literal-only part there changes its `f32` value.
+- The proposed Rule 6.3 sentence says "In a scalar initializer", and must then cover a scalar
+  part.
+- It is answered together with Q6 (see Q6).
+
+**Q9. Whether a cast of a written number fixes the type.** Example:
+`const A: f32 = f32(0.0117) * 3.0;`. [measured] `main` lowers `f32(0.0117)` to a literal and
+emits `const A: f32 = 0.0351;`, which is (a). [measured by the reviewer] Tint gives (b) for the
+WGSL `f32(0.0117) * 3.0`. Options: (i) the cast makes an operand of fixed type `f32`, so `A` is
+(b); (ii) the cast of a written number is a written number, so `A` stays (a).
+Recommendation: (i). It rests on OD-7 (the author fixed the type where the author wrote it) and
+on 0134, which says "A cast is a read". Cost of (i): one more form in the definition, and a
+constant written with such a cast can move. Cost of (ii): `f32(0.0117) * 3.0` and `X * 3.0` with
+`const X: f32 = 0.0117` are the same WGSL and get different values.
 
 ### Independent review record
+
+**First review.**
 
 - **Reviewer.** An AI agent that did not write this proposal.
 - **Date.** 2026-11-10.
@@ -611,25 +741,55 @@ arithmetic in a component changes its emitted text, and the number of goldens is
 | --- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | B1  | Blocking   | The proposal did not cite accepted proposal 0134 and contradicted its item 2 and its decision Q1; reading R2 would reverse that decision. | Fixed: the rule covers only an operand of fixed type `f32`; 0134 is cited; Q1 is closed; R2 is removed and named as a reversal.                     |
 | B2  | Blocking   | "No example's constant changes its value" was false: `SHOCK_Y` moves, in three golden files, not two.                                     | Fixed: the claim is corrected, and the search is repeated under the new scope (no example and no golden changes).                                   |
-| B3  | Blocking   | Integer positions change silently: a `case` value, an enum member, an `i32` or `u32` constant, also through a constant of no fixed type.  | Fixed: item 4 of the rule; the caller table; the six rows and two more in the validation plan; Q4 rewritten.                                        |
+| B3  | Blocking   | Integer positions change silently: a `case` value, an enum member, an `i32` or `u32` constant, also through a constant of no fixed type.  | Fixed: item 4 of the rule; the caller table; the rows of the validation plan; Q4 rewritten.                                                         |
 | B4  | Blocking   | The `'f64'` oracle was not shown, and it regresses if `cpuValue` becomes the `f32` value.                                                 | Made an open question (Q6), with the `'f64'` rows in the first table and one example under each option. The proposal does not choose.               |
 | B5  | Blocking   | `%` has no single target value, and "1 ULP" is false in general.                                                                          | `%` made an open question (Q7) with the measured table. The general statements are replaced by "How far a value can move".                          |
 | S1  | Should-fix | The list of readers was incomplete and partly wrong.                                                                                      | Fixed: the caller table, `foldConstComponents`, `exactOperand`, the readers of `cpuValue`.                                                          |
 | S2  | Should-fix | Two new refusals were not listed, and their sentence names no cause.                                                                      | Fixed: the section "two new refusals", with a proposed sentence and the validation rows.                                                            |
-| S3  | Should-fix | The const-fold defect is wider than "literal-only" and exists on `main`; the rule text depended on it.                                    | Recorded as related work, with both measured cases. Q2 is withdrawn. The proposed rule text no longer claims the function's value.                  |
+| S3  | Should-fix | The const-fold defect is wider than "literal-only" and exists on `main`; the rule text depended on it.                                    | Recorded as related work, with the measured cases. Q2 is withdrawn. The proposed rule text no longer claims the function's value.                   |
 | S4  | Should-fix | "On a GPU" claimed more than WGSL gives.                                                                                                  | Fixed: the texts say "the CPU in `'f32'` precision" and "what Tint and ANGLE were measured to give"; `/`, `%`, reassociation and fusion are quoted. |
-| S5  | Should-fix | Constants that keep their expression differ between targets; a conversion is a call.                                                      | Made an open question (Q8). "Calls anything, a conversion included" is the wording.                                                                 |
+| S5  | Should-fix | Constants that keep their expression differ between targets; a conversion is a call.                                                      | Made an open question (Q8).                                                                                                                         |
 | S6  | Should-fix | A decimal literal is not exact by specification.                                                                                          | Fixed: named as an assumption; Q3's recommendation gives the reason.                                                                                |
 | S7  | Should-fix | "What it touches" omitted files.                                                                                                          | Fixed: the file list.                                                                                                                               |
 | N2  | Note       | Evidence for the true `f32` positions.                                                                                                    | Used in the caller table and in Q4.                                                                                                                 |
 | —   | Note       | Surface §38 says "one answer, on every driver" where WGSL permits either neighbour.                                                       | Recorded as a document conflict, not fixed here.                                                                                                    |
 
-No finding is left without a disposition. This revision has not been reviewed again.
+**Second review.**
+
+- **Reviewer.** An AI agent that did not write this proposal.
+- **Date.** 2026-11-10.
+- **Revision reviewed.** `5ecabbcb`, against `main` at `2fc20c99`.
+- **Result.** The twelve findings B1 to B5 and S1 to S7 are closed. Two new blocking findings
+  and six new should-fix findings.
+- **Verification by the author.** The author ran the `main` side again and got the reviewer's
+  values for: NB1 (the emitted WGSL, the CPU value in a function and in the vector part, the
+  formula in `f32` steps), NB2 (the three programs), NS1 (a), (b), (c) and (d), NS2 and NS4
+  (today's emit and CPU values). The author did not repeat the reviewer's patched-tree values,
+  the Tint and ANGLE rows, the emitted GLSL of `%`, or case (e) of NS1. Those are marked
+  "measured by the reviewer" or "not measured".
+
+| #   | Severity   | Finding                                                                                                              | Disposition                                                                                                                                                                                                                      |
+| --- | ---------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| NB1 | Blocking   | Q7 stated two costs that the measured targets contradict; (γ) is the function's value on both targets.               | Fixed: the two cost sentences are replaced by the measured table and a table of what each option agrees with. No recommendation is given. The function-body `%` is related defect case 3.                                        |
+| NB2 | Blocking   | The proposed Rule 6.3 sentence cited rule text that is not on `main` (Rule 5.1's ECMAScript value, "no fixed type"). | Fixed: the sentence names an annotation and "the value the fold has today". The order with 0134 is stated as the owner decided it.                                                                                               |
+| NS1 | Should-fix | "An operand of fixed type `f32`" was not defined for five cases.                                                     | Fixed: item 1 defines the result of an operation, the negation, the `static readonly` field and the unannotated constant that reads an annotated one. The imported constant is stated and not measured. The cast is question Q9. |
+| NS2 | Should-fix | An integer position with an operand annotated `f32` changes silently.                                                | Fixed: item 4, the table row, the caller table's wording and a validation row. The acceptance of an `i32` constant from an `f32` expression is named as a separate defect.                                                       |
+| NS3 | Should-fix | Q6 (i) understated its cost.                                                                                         | Fixed: Q6 lists the bindings, the two values of a binding, `f64(Y)` (the text must say (b)), "in the letter only" and the EDSL constant.                                                                                         |
+| NS4 | Should-fix | Q8 (ii) meets Q6 (i), and changes values on two tiers.                                                               | Fixed: Q8's table and costs; Q6 and Q8 are answered together; the scope of "In a scalar initializer".                                                                                                                            |
+| NS5 | Should-fix | The proposed refusal sentence fits one of the two programs.                                                          | Fixed: a second sentence for `1.0 / T`.                                                                                                                                                                                          |
+| NS6 | Should-fix | The rationale sentence said "the targets".                                                                           | Fixed: "the value Tint and ANGLE were measured to give".                                                                                                                                                                         |
+| —   | Note       | Case 1 of the related defect is implementation of 0134, not a plain bug fix; case 2 is a bug fix.                    | Fixed: the related defects say so, with the rule text of `main` as the reason.                                                                                                                                                   |
+
+No finding is left without a disposition. This revision has not been reviewed again. By the
+owner's decision of 2026-11-10 the next review is due when the questions are asked, after 0134
+is implemented and the measurements are repeated.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require: the owner's decision on the proposal
-and on Q6 and Q7, with its date; the pull request whose merge records it; the approved revision
+This record does not yet apply. The owner decided on 2026-11-10 that the proposal stays a draft
+until 0134 is implemented ("초안으로 두고 0134 구현 뒤에"). Acceptance will require: the
+measurements repeated on the `main` that carries 0134; a review of that revision; the owner's
+decision on the proposal and on Q3 to Q9, with its date; the pull request whose merge records it; the approved revision
 and scope; and the validation that the implementation owes. The owner's choice of option B on
 2026-11-10 chose a direction among three options. It is not the acceptance of this text.
 
