@@ -75,6 +75,20 @@ init?)`, `zeros(Class, n)` and `array(Class, data)`, which make a `Uniform<T>` o
   file 164,037 to 164,207 (+170), split initial 45,178 to 45,353 and split total 166,221 to
   166,395. The floors and the other caps do not change.
 
+- **An exported storage array with no size is sized by the host** (change 0138, Amendment A3).
+  `export declare const ps: storage<array<Particle>>`, which was `never` in the host view, is a
+  `Buffer<Particle>`. The host sets its length: `ps.resize(n)` gives it `n` elements, keeps the
+  ones that fit and zeroes the others, and `ps.set(data)` gives it the length of `data` and its
+  values. Until then `ps.length` is 0, and `ps.at()` and `ps.read()` throw a `TypeError` that
+  names the binding and says to call `resize` or `set`. Every `Buffer<T>` has `resize` and `set`,
+  one from `zeros()` or `array()` among them. An exported `storage<array<T, N>>` keeps its `N`
+  elements and refuses another length with a `TypeError`. A resize gives the buffer another
+  range of the region and marks its whole range dirty; an accessor made before reads the new
+  range. No call takes a resource yet (milestone 3). The caps of `scripts/bundle-budget.json` take
+  the measured gzip sizes: `typeshade/runtime` single file 164,207 to 164,811 (+604), split
+  initial 45,353 to 45,961 and split total 166,395 to 167,003. The floors and the other caps do
+  not change.
+
 - **WebGPU scratch acquisition counts** (change 0128, #992). New fuse reports include
   `webgpuScratch` allocation and reuse counts and their buffer descriptor bytes. Empty scopes,
   fused locals and CPU or WebGL2 plans report zero. Older reports may omit the member;
@@ -1850,6 +1864,18 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `docs/ir-builder.md` describes the builder for engines and tools.
 
 ### Fixed
+
+- **An argument on `@vertex` or `@fragment` is refused, not dropped** (Rules 8.1 and 6.7, change
+  0130). `@fragment({ diagnostic: ["off", "derivative_uniformity"] })` and `@vertex(1)` compiled
+  with no diagnostic in `compile()` and in the editor, and the argument was read by nothing. An author whom the
+  refusal of a stage call told to delete an option, and who moved the option onto the attribute,
+  got no word. Each is now one `TS8028`, an error, on the attribute, in both halves:
+  `"@fragment" takes no argument: write "@fragment" and delete "({ diagnostic: ["off", "derivative_uniformity"] })" (Rule 8.1).`
+  A type argument on a stage attribute or on `@workgroup_size`, `@compute<f32>([8])`, is refused
+  with the sentence `@vertex<f32>` already had. The function is still read as the entry, so
+  nothing else is said about it. `@vertex`, `@fragment`, `@compute`, `@compute()`,
+  `@compute([8])` and `@workgroup_size([128])` compile as before, with the same emit. No official
+  release accepted the refused forms (OD-6).
 
 - **A flat value comes from the first vertex on WebGL2, as on WebGPU** (Rules 1.6 and 11.5; the
   open item of change 0120, M3). The WebGL2 backend of the render hardware interface

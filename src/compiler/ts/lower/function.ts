@@ -4128,6 +4128,41 @@ function parseStage(
     if (!diagnostics.some((x) => x.start === start && x.message === message))
       diagnostics.push(makeDiagnostic(sourceFile, d, message, TS_CODES.ATTRIBUTE_NAME));
   }
+  // One refusal of a stage attribute or `@workgroup_size` as written, on the attribute. The
+  // signature pass and the body pass both read the attributes: one attribute is one refusal
+  // (Rule 12.4).
+  const refuseAttribute = (d: ts.Decorator, message: string): void => {
+    const start = d.getStart(sourceFile);
+    if (!diagnostics.some((x) => x.start === start && x.message === message))
+      diagnostics.push(makeDiagnostic(sourceFile, d, message, TS_CODES.ATTRIBUTE_NAME));
+  };
+  // `@name<T>(…)` is neither `@name` nor `@name(…)` (Rule 6.7): the type argument is read by
+  // nothing, so the attribute is refused as `@name<T>` is. Returns whether it refused.
+  const refuseTypeArguments = (d: ts.Decorator): boolean => {
+    if (!ts.isCallExpression(d.expression) || d.expression.typeArguments === undefined)
+      return false;
+    refuseAttribute(
+      d,
+      `"${d.getText(sourceFile)}" is not applied: an attribute is written "@name" or ` +
+        `"@name(...)". Remove it.`,
+    );
+    return true;
+  };
+  // `@vertex` and `@fragment` take no argument (Rule 8.1): an argument written on one is read
+  // by nothing, so it is refused and not dropped. The stage is still read, so nothing else is
+  // said about the entry (Rule 12.4).
+  const refuseArguments = (d: ts.Decorator, name: 'vertex' | 'fragment'): void => {
+    if (!ts.isCallExpression(d.expression) || d.expression.arguments.length === 0) return;
+    const args = d.expression.arguments;
+    const written = sourceFile.text.slice(
+      args[0]!.getStart(sourceFile),
+      args[args.length - 1]!.end,
+    );
+    refuseAttribute(
+      d,
+      `"@${name}" takes no argument: write "@${name}" and delete "(${written})" (Rule 8.1).`,
+    );
+  };
   for (const d of decos) {
     const stageName = /^@(vertex|fragment|compute)\b/.exec(d.getText(sourceFile))?.[1];
     if (stageName !== undefined && stageName !== firstStage) continue;
@@ -4135,6 +4170,7 @@ function parseStage(
     // A function that is not an entry may be a kernel function, which takes one extent of
     // `@workgroup_size` (Rule 8.22). Whether it is one is known once its parameters are read.
     if (!isEntry && /^@workgroup_size\b/.test(d.getText(sourceFile))) {
+      refuseTypeArguments(d);
       kernelWorkgroup ??= kernelWorkgroupOf(d, consts);
       continue;
     }
@@ -4145,9 +4181,14 @@ function parseStage(
       ts.isSourceFile(node.parent) ? 'a function' : "a namespace's function",
     );
     const text = d.getText(sourceFile);
-    if (/^@vertex\b/.test(text)) stage = 'vertex';
-    else if (/^@fragment\b/.test(text)) stage = 'fragment';
-    else if (/^@compute\b/.test(text)) {
+    if (/^@vertex\b/.test(text)) {
+      stage = 'vertex';
+      if (!refuseTypeArguments(d)) refuseArguments(d, 'vertex');
+    } else if (/^@fragment\b/.test(text)) {
+      stage = 'fragment';
+      if (!refuseTypeArguments(d)) refuseArguments(d, 'fragment');
+    } else if (/^@compute\b/.test(text)) {
+      refuseTypeArguments(d);
       readCompute(ts.isCallExpression(d.expression) ? d.expression.arguments : [], d);
     }
   }

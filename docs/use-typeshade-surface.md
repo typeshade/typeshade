@@ -338,6 +338,15 @@ export function fs(
 - A stage attribute takes no options: change 0131 removed `numerics` (§78), and change 0132
   removed `diagnostic`, whose work the compiler's rewrite does (Rule 8.5, §54). A written
   `@diagnostic(…)` is refused (`TS8028`), in the compiler and in the editor (§7).
+- `@vertex` and `@fragment` take no argument. An argument written on one is refused (`TS8028`),
+  on the attribute, in the compiler and in the editor, and the function is still read as the
+  entry (Rule 8.1):
+  `"@fragment" takes no argument: write "@fragment" and delete "({ diagnostic: ["off", "derivative_uniformity"] })" (Rule 8.1).`
+  The text quotes the argument as written. An argument that `@compute` or `@workgroup_size`
+  cannot read is `TS8037`, as above and below.
+- A type argument on a stage attribute or on `@workgroup_size` is refused (`TS8028`), as every
+  decorator that is not a name is (Rule 6.7):
+  `"@compute<f32>([8])" is not applied: an attribute is written "@name" or "@name(...)". Remove it.`
 - A kernel function (§65) may state one extent with the optional attribute
   `@workgroup_size([128])`, in the same spelling as an entry's:
   `@workgroup_size([128]) export function scale(xs: array<f32>) { … }`. Its loops that do not
@@ -641,6 +650,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | `@diagnostic(…)` anywhere: on a function, a field, a parameter or a declaration | `TS8028`, an error, in the compiler and in the editor: `"@diagnostic(…)" is not a decorator the compiler reads (Rule 6.7). Delete it: the compiler rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5) and reports each other one with TS8052 and the reason. "tshc migrate" deletes it.` Change 0132 removed the filter, with no warning release (§54) |
 | a stage call of change 0111, `vertex(f)`, `fragment(f)`, `compute([…], f)` or `workgroup_size([…], f)`, and so an entry written as a `const`, an arrow function or a function expression through one, wherever it is written | `TS8028`, an error, once, on the name called, in the compiler and in the editor (Rule 6.7, changes 0130 and 0140): `a stage is an attribute on the function declaration: write "@vertex export function vs(…)", or run "tshc migrate" (change 0130)`. The text names the attribute with its size, and an option written after the function to delete. Nothing else is said about the refused entry. A declaration of the file under one of the four names is the file's, and a call of it is not refused (§3) |
 | `export default` on an entry | `TS8028`, an error, on `default`, in the compiler and in the editor (Rule 8.1, change 0140): `an entry takes its declaration's name; write "export function k"` (§3) |
+| an argument on `@vertex` or `@fragment`: `@vertex(1)`, `@fragment({ … })` | `TS8028`, an error, once, on the attribute, in the compiler and in the editor (Rule 8.1): `"@vertex" takes no argument: write "@vertex" and delete "(1)" (Rule 8.1).` The function is still read as the entry (§3). A type argument, `@compute<f32>([8])`, is the row "a decorator that is not a name" above |
 | a decorator of the decorated form where it is read: `@builtin`, `@location`, `@interpolate`, `@invariant` or `@blend_src` on a parameter or a field | a `TS8028` warning, one per decorator, in the compiler and in the editor, naming the new spelling (change 0111, the migration release): for an attribute the member's type, `write "pos: builtin<"position", { invariant: true }>"`. A decorator refused where it is written keeps that refusal alone. The release after it refuses each one. The editor drops TypeScript's TS1206 on a parameter's decorator only while `compile()` warns on it. A stage attribute on a function, `@vertex`, `@fragment`, `@compute(…)` or `@workgroup_size(…)`, is the entry's form (change 0130): no warning, and the editor drops its TS1206 in every file. A parameter qualifier, `@inout` or `@out`, is no decorated form and warns nowhere (change 0137). The editor reports no TS2564 (`strictPropertyInitialization: false`) |
 | the type form of a parameter qualifier, `inout<T>` or `out<T>`, in any type position: a parameter, a local, a result, a type alias, a generic argument or a field | a `TS8028` error, once, at the written `inout<…>`, in the compiler and in the editor (change 0137): `"inout<f32>" is the type form of a parameter qualifier, which the language does not have: write "@inout a: f32", or run "tshc migrate" (change 0137).`; away from a parameter, `… a qualifier is written before a parameter, as "@inout a: f32", and here the type is "f32"; "tshc migrate" rewrites a parameter's type form (change 0137).` |
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
@@ -8240,6 +8250,8 @@ const ps = zeros(Particle, 1024);
 ps.at(3).vel.set(0, 1, 0);
 const seeded = array(Particle, [{ life: 1 }, { life: 2 }]); // the other fields are zero
 const all = await ps.read(); // Particle[], each an instance of the class
+ps.resize(2048); // the first 1024 keep their values, the others are zero
+ps.set([{ life: 1 }]); // the length of the data, and its values
 ```
 
 Each uniform and storage array is a byte range of one memory region (R17 of change 0138), an
@@ -8251,6 +8263,15 @@ a scalar's number, or the typed view of a vector, a matrix or an array of scalar
 its stride (a matrix column of three rows has a fourth, unused lane). An `f64` field is two `f32`
 halves in the region, so its `get` returns the joined number or a new `Float64Array`. A host that
 writes through a view sets `needsUpdate = true`. A new resource is dirty over its whole range.
+
+A buffer's length is the host's to set (change 0138, Amendment A3). `ps.resize(n)` gives it `n`
+elements: the ones that fit keep their values, and a new one is zero. `ps.set(data)` gives it the
+length of `data` and its values, as `array(Particle, data)` reads them: a field that an element
+does not name is zero. A `data` with a value that does not fit throws and changes nothing. Each
+of the two gives the buffer another range of the region and marks its whole range dirty. An
+accessor that `at` returned before reads the new range. An accessor of an element that is gone
+throws a `TypeError`: `ps[1].life: ps was resized, and this element is no longer in it. Take the
+accessor again with at().`
 
 A resource is freed by `dispose()` or when the garbage collector reclaims it. Where the runtime
 has `Symbol.dispose`, a resource has `[Symbol.dispose]()` as well, which `using` calls at the end
@@ -8269,6 +8290,8 @@ milestone 3 of change 0138.
 resource. `export declare const camera: uniform<Camera>` is a `Uniform<Camera>` in the host, and
 `export declare const ps: storage<array<Particle, 64>, "read_write">` a `Buffer<Particle>` of 64
 elements, each laid out by the exported class's layouts and made once by the generated module.
+`export declare const all: storage<array<Particle>, "read_write">`, which states no size, is a
+`Buffer<Particle>` whose length the host sets (Amendment A3).
 
 ```ts
 // scene.shade.ts
@@ -8287,10 +8310,32 @@ camera.pos.set(0, 2, 5); // a field, through its accessor
 camera.set({ time: now / 1000 }); // `camera = …` is a type error: an import is read-only
 ```
 
-The binding lives as long as its module, so its `dispose()` throws a `TypeError`. A storage array
-with no size has no length to make, and a scalar, a vector, a struct no exported class declares,
-one `storage<T>`, a texture and a sampler have no resource of their own yet: the view declares
-each `never`, with the reason. An entry call still takes the binding's value in its bindings
+```ts
+// scene.shade.ts
+export declare const all: storage<array<Particle>, "read_write">;
+```
+
+```ts
+// host.ts
+import { all } from './scene.shade.ts';
+
+all.resize(1024); // 1024 zeroed elements
+all.at(0).pos.set(0, 1, 0);
+all.set(loaded); // or: the length of `loaded`, and its values
+```
+
+The shader file does not state the size of `all`, so the host sets it with `resize(n)` or
+`set(data)`. Until then `all.length` is 0, and `at` and `read` throw a `TypeError` that names the
+binding: `all.at(): all is a storage array with no size that scene.shade.ts exports, and its
+length is not set. Call all.resize(n) or all.set(data) first.` A length of 0 that the host set is
+a length: `read()` then gives an empty array. A storage array that states its size keeps it:
+`ps.resize(8)` on the 64 elements above throws a `TypeError`, and so does a `set(data)` of
+another length.
+
+The binding lives as long as its module, so its `dispose()` throws a `TypeError`. A scalar, a
+vector, a struct no exported class declares, an array of scalars or vectors, one `storage<T>`, a
+texture and a sampler have no resource of their own yet: the view declares each `never`, with the
+reason. An entry call still takes the binding's value in its bindings
 object; binding the exported resource at a call is milestone 3 of change 0138.
 
 **The default device** (change 0138, Amendment A2; Rule 11.8). A device is opened by
