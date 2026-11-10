@@ -149,7 +149,10 @@ interface DocumentCacheEntry {
  * a key built from the top-level declarations alone went stale when the referenced module
  * reached the file only through an `import(...)` type.
  */
-function importSpecifiersOf(sourceFile: ts.SourceFile): string[] {
+function importSpecifiersOf(sourceFile: ts.SourceFile): readonly string[] {
+  // A `ts.SourceFile` is one version of one document, so its specifiers are read once.
+  const known = importSpecifiers.get(sourceFile);
+  if (known !== undefined) return known;
   const out: string[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
@@ -173,8 +176,10 @@ function importSpecifiersOf(sourceFile: ts.SourceFile): string[] {
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
+  importSpecifiers.set(sourceFile, out);
   return out;
 }
+const importSpecifiers = new WeakMap<ts.SourceFile, readonly string[]>();
 
 /** Document order for the merged list: span start, then span length (the enclosed row before
  *  the enclosing one), then source, so the two halves interleave by position. Without it the
@@ -255,13 +260,19 @@ export function createTypeshadeLanguageServiceWith(
    * version the key already carries.
    */
   function dependencyKey(uri: string): string {
+    return dependenciesOf(uri)
+      .map((u) => `${u}@${tsHost.getScriptVersion(u)}`)
+      .join('|');
+  }
+
+  /** `uri`, then every document it imports, transitively, in the order the imports name them:
+   *  the documents `dependencyKey` is made of. */
+  function dependenciesOf(uri: string): string[] {
     const current = program();
-    const parts: string[] = [];
     const seen = new Set<string>();
     const visit = (u: string): void => {
       if (seen.has(u)) return;
       seen.add(u);
-      parts.push(`${u}@${tsHost.getScriptVersion(u)}`);
       const sf = current.getSourceFile(u);
       if (!sf) return;
       for (const specifier of importSpecifiersOf(sf)) {
@@ -270,7 +281,25 @@ export function createTypeshadeLanguageServiceWith(
       }
     };
     visit(uri);
-    return parts.join('|');
+    return [...seen];
+  }
+
+  /**
+   * The analysis of every open document other than `uri` whose program links `declaringUri`
+   * (Rule 3.9): what the hover in `uri` reads for a field that `declaringUri` declares and that
+   * the program of `uri` gives no place among its entries (`hover.ts`, `entryLocationLine`).
+   * Each is that document's own cache entry, the one its diagnostics, symbols and tokens read,
+   * so a hover adds no analysis that the service does not keep: an open document is analysed
+   * once per version, here or at its own first request.
+   */
+  function programsLinking(uri: string, declaringUri: string): CompileTsSourceResult[] {
+    const out: CompileTsSourceResult[] = [];
+    for (const open of tsHost.openUris()) {
+      if (open === uri || !dependenciesOf(open).includes(declaringUri)) continue;
+      const sourceFile = sourceFileOf(open);
+      if (sourceFile !== undefined) out.push(entryOf(open, sourceFile).analysis);
+    }
+    return out;
   }
 
   /** The cache entry for `uri` under its current `dependencyKey`, computing the front-end
@@ -341,7 +370,14 @@ export function createTypeshadeLanguageServiceWith(
       const sourceFile = sourceFileOf(uri);
       if (!sourceFile) return undefined;
       const offset = offsetAt(sourceFile, position);
-      return getHover(languageService, sourceFile, uri, offset, entryOf(uri, sourceFile).analysis);
+      return getHover(
+        languageService,
+        sourceFile,
+        uri,
+        offset,
+        entryOf(uri, sourceFile).analysis,
+        (declaringUri) => programsLinking(sourceFile.fileName, declaringUri),
+      );
     },
 
     getDefinition(uri, position) {

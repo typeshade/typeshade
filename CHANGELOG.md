@@ -36,7 +36,10 @@ repository is an official release yet: the `typeshade` package on npm holds only
   `vertex attribute at @location(1)`, `render target at @location(0)`, and
   `returns a render target at @location(0)` on a fragment entry with a bare result. The number
   is the one `reflect()` reports, read off the same IR. A built-in value, a field of a struct
-  no entry uses and a value refused with `TS8010` show no such line.
+  no entry uses and a value refused with `TS8010` show no such line. A field of a struct that
+  another file declares shows the line too, in the importing file and in the declaring file,
+  with the number of the linked program (Rule 3.9). The declaring file shows no line when two
+  open programs that import it give the field two numbers.
 
 - **Every `for` loop, and an entry's inferred result** (change 0136). A `for` that is not
   counted compiles as an open loop, as a `while` does (Rule 7.5): `for (;;)` with a `break`, an

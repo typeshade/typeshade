@@ -791,11 +791,61 @@ closes deviation 5 of the table above.
   service's `getHover` on the same source, and holds the hover's number to `reflect()`'s.
 - Deviations from amendment A1:
 
-  | #   | Difference                                                                                                                                                                                                             | Disposition                                                   |
-  | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-  | A   | A field of a struct that another document declares shows TypeScript's quick info, as every imported symbol does, so it shows no location line. The hover joins a name to the compiler's facts by its span in one file. | Open: the owner decides whether a later change adds the line. |
-  | B   | The line names what the value is ("vertex attribute", "value between stages", "render target") beside the number. Amendment A1 asks for the location only.                                                             | Open: the owner reads the wording on the pull request.        |
-  | C   | A fragment entry's bare result has no declared name of its own, so its line shows on the entry's name.                                                                                                                 | Closed: the line says "returns a render target".              |
+  | #   | Difference                                                                                                                                                                                                             | Disposition                                              |
+  | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+  | A   | A field of a struct that another document declares shows TypeScript's quick info, as every imported symbol does, so it shows no location line. The hover joins a name to the compiler's facts by its span in one file. | Closed by the delivery below ("the hover across files"). |
+  | B   | The line names what the value is ("vertex attribute", "value between stages", "render target") beside the number. Amendment A1 asks for the location only.                                                             | Closed: the owner's decision of 2026-11-10 below.        |
+  | C   | A fragment entry's bare result has no declared name of its own, so its line shows on the entry's name.                                                                                                                 | Closed: the line says "returns a render target".         |
+
+**The owner's decisions on deviations A and B of pull request #1169 (2026-11-10).** The owner
+decided each in the Claude Code session, after pull request #1169 was merged into `main` as
+`73cded99`.
+
+- [decision, owner, 2026-11-10] "종류 + 번호". Deviation B: the line keeps its wording, what the
+  value is and then the number, as `value between stages at @location(0)`.
+- [decision, owner, 2026-11-10] "별도 PR로 구현". Deviation A: the hover shows the line on a
+  field of a struct that another document declares, and a pull request of its own delivers it.
+
+**Delivery of amendment A1, the hover across files (deviation A of pull request #1169).**
+Written on 2026-11-10 (UTC) by the AI agent (Claude Code) that implemented it, at the direction
+of the coordinating session. Its pull request records the delivered commit and each check with
+its result.
+
+- Configuration: branch `claude/clever-ramanujan-yrfjsq-0135-hover2`, based on `main` at
+  `4a517ddb`. Tools: Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3, Vitest 5.0.5, Doorstop 3.2.
+- Delivered: `src/language-service/hover.ts` (`entryLocationLine`, `linkedFieldAt`,
+  `fieldLineAcross`), `src/language-service/service.ts` (`programsLinking`) and
+  `src/compiler/ts/source-file.ts` (`linkedCompileOf`). The wording of the line is unchanged.
+
+  | Hovered                                                                                              | The line under the type                                                   |
+  | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+  | A field of an imported struct, in the importing document (`v.uv`)                                    | the line of the importing document's program                              |
+  | A field at its declaration, where no entry of the declaring document's program uses the struct       | the line of the open documents whose programs link the declaring document |
+  | The same, where two such programs give the field two numbers, or one refused to number it (`TS8010`) | no line                                                                   |
+  | The same, where the programs agree on the number and differ in what the field is                     | both, as `vertex attribute and value between stages at @location(n)`      |
+  | The same, where no open document imports the declaring document                                      | no line, or `user-defined input or output at @location(n)` if written     |
+
+- A program is a document and the shader files it imports (Rule 3.9). The hover in a document
+  shows the number of that document's program, which `compile()` and `reflect()` of the
+  document give. A document that is not open is no program to the language service.
+- The hover computes no number and joins by no name (Rule 12.7). TypeScript resolves the
+  hovered name to its declaration, a file and an offset. The linker's map
+  (`LinkedProgram.map`) gives the field that the front end declared there. A renamed import, a
+  re-export, a namespace and two structs of one name in two files each reach the right field.
+- The signature line of a field that another document declares stays TypeScript's quick info
+  (`(property) VsOut.uv: vec2`), as for every imported symbol.
+- Cost, measured with a counting `analyzeSourceFile` on a project of two open documents,
+  before and after this delivery. A hover in the importing document: one analysis, of that
+  document, at the first hover, and none after it; unchanged. A hover in the declaring document
+  with nothing cached: one analysis before, of that document; two after, of that document and of
+  the importing document. Each is the cache entry that the document's diagnostics read, so a
+  hover after the diagnostics of both documents runs none, before and after.
+- No public type changes: `bun run bake:api-surface` changes no file.
+- Documents: surface §3, `docs/language-service-api.md`, `CHANGELOG.md`.
+- Functional validation: `src/language-service/entry-location-hover-imports.test.ts`, 12 tests.
+  Each reads `compile()` of the linked program (the diagnostics, the emitted `@location(n)`,
+  `reflect()`) and the language service's `getHover` on the same files, and holds the hover's
+  number to `reflect()`'s.
 
 **Remaining.** The downstream work of "What it owes downstream" is not started. The refusal of a
 written type in the release after the migration release (D1.2) is not part of this pull request.
