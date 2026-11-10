@@ -23,7 +23,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** The families of the libm: each is one source and one baked file under `src/core/libm/`,
  *  `<family>.shade.ts` and `<family>.generated.ts`, which exports `<family>Factory`. */
-export const LIBM_FAMILIES = ['trig', 'explog'] as const;
+export const LIBM_FAMILIES = ['trig', 'explog', 'invtrig'] as const;
 export type LibmFamily = (typeof LIBM_FAMILIES)[number];
 export const libmSource = (family: LibmFamily): string => `src/core/libm/${family}.shade.ts`;
 export const libmGenerated = (family: LibmFamily): string => `src/core/libm/${family}.generated.ts`;

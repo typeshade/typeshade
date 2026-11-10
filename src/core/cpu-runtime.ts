@@ -369,10 +369,10 @@ export const COMPONENTWISE = {
   // reads it, and a compile-time fold reads the operand as it is written.
   sin: { lane: (x: number): number => LIBM.sinF64(x), vector: 0 },
   cos: { lane: (x: number): number => LIBM.cosF64(x), vector: 0 },
-  tan: { lane: Math.tan, vector: 0 },
-  asin: { lane: Math.asin, vector: 0 },
-  acos: { lane: Math.acos, vector: 0 },
-  atan: { lane: Math.atan, vector: 0 },
+  tan: { lane: (x: number): number => LIBM.tanF64(x), vector: 0 },
+  asin: { lane: (x: number): number => LIBM.asinF64(x), vector: 0 },
+  acos: { lane: (x: number): number => LIBM.acosF64(x), vector: 0 },
+  atan: { lane: (x: number): number => LIBM.atanF64(x), vector: 0 },
   sinh: { lane: Math.sinh, vector: 0 },
   cosh: { lane: Math.cosh, vector: 0 },
   tanh: { lane: Math.tanh, vector: 0 },
@@ -395,7 +395,7 @@ export const COMPONENTWISE = {
   degrees: { lane: (r: number): number => (r * 180) / Math.PI, vector: 0 },
   fract: { lane: EXACT_BUILTINS.fract, vector: 0 },
   saturate: { lane: EXACT_BUILTINS.saturate, vector: 0 },
-  atan2: { lane: Math.atan2, vector: 0 },
+  atan2: { lane: (y: number, x: number): number => LIBM.atan2F64(y, x), vector: 0 },
   // FLOOR-mod (see `mod` below), not JS `%`.
   mod: { lane: (a: number, b: number): number => a - b * Math.floor(a / b), vector: 0 },
   pow: { lane: Math.pow, vector: 0 },
