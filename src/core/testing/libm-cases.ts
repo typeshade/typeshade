@@ -112,6 +112,10 @@ interface Shape {
   /** Whether the function takes operands up to 1 in magnitude only. The set of bit patterns
    *  then holds every pattern below 1: each exponent below that of 1 with equal chance. */
   readonly unit?: boolean;
+  /** Whether the case has the set `upper`: a uniform sample of 0.5 to 1 in magnitude, where
+   *  asin and acos take the square root. The set `one` spans 0.5 to 1.5, so half of it is past
+   *  the functions' range; it holds the bound at 1. */
+  readonly upper?: boolean;
   /** Edge operands of this function's family, past the ones every function takes. */
   readonly edges?: {
     readonly f32: readonly number[];
@@ -138,7 +142,7 @@ function unarySets(format: 'f32' | 'f64', shape: Shape, count: number): LibmCase
     // Around 1, where log is near zero: 1 + u / 2 for u in [-1, 1).
     const one = new Float32Array(count);
     for (let i = 0; i < count; i++) one[i] = 1 + unit() * 0.5;
-    return [
+    const sets: LibmCaseSet[] = [
       {
         name: 'edges',
         values: Float32Array.from([...EDGES_F32, ...(shape.edges?.f32 ?? [])], f32OfBits),
@@ -147,6 +151,16 @@ function unarySets(format: 'f32' | 'f64', shape: Shape, count: number): LibmCase
       { name: 'span', values: span },
       { name: 'one', values: one },
     ];
+    if (shape.upper === true) {
+      // Made after the other sets, so their values do not change. 0.5 + |u| / 2, with a sign.
+      const upper = new Float32Array(count);
+      for (let i = 0; i < count; i++) {
+        const u = unit();
+        upper[i] = u < 0 ? u * 0.5 - 0.5 : u * 0.5 + 0.5;
+      }
+      sets.push({ name: 'upper', values: upper });
+    }
+    return sets;
   }
   const bits = new Float64Array(count);
   for (let i = 0; i < count; i++) {
@@ -163,7 +177,7 @@ function unarySets(format: 'f32' | 'f64', shape: Shape, count: number): LibmCase
     span[i] = (shape.positive ? Math.abs(unit53()) : unit53()) * shape.span;
   const one = new Float64Array(count);
   for (let i = 0; i < count; i++) one[i] = 1 + unit53() * 0.5;
-  return [
+  const sets: LibmCaseSet[] = [
     {
       name: 'edges',
       values: Float64Array.from([...EDGES_F64, ...(shape.edges?.f64 ?? [])], ([hi, lo]) =>
@@ -174,6 +188,15 @@ function unarySets(format: 'f32' | 'f64', shape: Shape, count: number): LibmCase
     { name: 'span', values: span },
     { name: 'one', values: one },
   ];
+  if (shape.upper === true) {
+    const upper = new Float64Array(count);
+    for (let i = 0; i < count; i++) {
+      const u = unit53();
+      upper[i] = u < 0 ? u * 0.5 - 0.5 : u * 0.5 + 0.5;
+    }
+    sets.push({ name: 'upper', values: upper });
+  }
+  return sets;
 }
 
 /** The sets of `ldexp`: every bit pattern, with an exponent that spans the format twice. */
@@ -408,8 +431,16 @@ export function invtrigCases(libm: InvtrigRoutines): LibmCase[] {
   const fr = Math.fround;
   // asin and acos take [-1, 1]; atan takes every value, and its intervals end at 39/16.
   const unary: readonly (readonly [string, (x: number) => number, Shape])[] = [
-    ['asin', libm.asinF64, { span: 1, positive: false, unit: true, edges: INVTRIG_EDGES }],
-    ['acos', libm.acosF64, { span: 1, positive: false, unit: true, edges: INVTRIG_EDGES }],
+    [
+      'asin',
+      libm.asinF64,
+      { span: 1, positive: false, unit: true, upper: true, edges: INVTRIG_EDGES },
+    ],
+    [
+      'acos',
+      libm.acosF64,
+      { span: 1, positive: false, unit: true, upper: true, edges: INVTRIG_EDGES },
+    ],
     ['atan', libm.atanF64, { span: 40, positive: false, edges: INVTRIG_EDGES }],
   ];
   const cases: LibmCase[] = [];

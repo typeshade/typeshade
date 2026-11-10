@@ -25,9 +25,9 @@
 // words of an `f64` and the conversion to an `i32`. It uses no 64-bit integer and no `fma`.
 //
 // The methods are the published ones. The kernels on [-pi/4, pi/4] and their coefficients are
-// those of fdlibm (`k_sin.c`, `k_cos.c`, and `k_tan.c` as FreeBSD and musl carry it). The reduction below 2^20 * pi/2 is Cody and Waite's,
-// with pi/2 in three pieces of 33 bits. The reduction above it is Payne and Hanek's, with 2/pi
-// in pieces of 24 bits. Every constant derived from pi is held to a BigInt computation by
+// those of fdlibm (`k_sin.c`, `k_cos.c`, and `k_tan.c` as FreeBSD and musl carry it). The
+// reduction below 2^20 * pi/2 is Cody and Waite's, with pi/2 in three pieces of 33 bits. The
+// reduction above it is Payne and Hanek's, with 2/pi in pieces of 24 bits. Every constant derived from pi is held to a BigInt computation by
 // `libm.test.ts`. The notice of fdlibm, whose kernels and coefficients these are:
 //
 //   Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
@@ -195,8 +195,8 @@ function quadrant(n: i32, k: i32, y0: f64, y1: f64): f64 {
   return -kcos(y0, y1);
 }
 
-/** The function `k` of x (`quadrant`) for an f64 with pi/4 < |x| < 2^20 * pi/2. Cody and Waite: x - fn * pi/2
- *  with pi/2 in three pieces of 33 bits, so each product by a piece is exact. */
+/** The function `k` of x (`quadrant`) for an f64 with pi/4 < |x| < 2^20 * pi/2. Cody and Waite:
+ *  x - fn * pi/2 with pi/2 in three pieces of 33 bits, so each product by a piece is exact. */
 function reduceMedium(x: f64, k: i32): f64 {
   const fn = (x * INVPIO2 + TOINT) - TOINT;
   const r1 = x - fn * P1;
@@ -213,8 +213,7 @@ function reduceMedium(x: f64, k: i32): f64 {
 }
 
 /** The function `k` of |x| (`quadrant`) for a finite f64 with |x| >= 2^20, whose words are `hi`
- *  and `lo`. Payne
- *  and Hanek: the product of |x| and 2/pi, modulo 4, in digits of 24 bits.
+ *  and `lo`. Payne and Hanek: the product of |x| and 2/pi, modulo 4, in digits of 24 bits.
  *
  *  |x| is M * 2^E with M an integer below 2^53. A piece of 2/pi whose product with M is a
  *  multiple of 4 is left out, so the first piece used has the index i0 = floor((E + 22) / 24).

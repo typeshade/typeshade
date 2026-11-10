@@ -36,6 +36,14 @@
       "resultsSha256": "55a1742e6ecf5fc386818ac03a14eca78a5b38486ec6169497bb3590eb1ac7c4"
     },
     {
+      "routine": "asinF32",
+      "set": "upper",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "d8c4ff9ecfa0e05244d6103321d90a3e33a0cec57037d88729ed8c3aaaa28cdb",
+      "resultsSha256": "22e3d858ed1e21b27ec02448ed2b10fee9899a12eab49cb5894c8a174c5ebdf1"
+    },
+    {
       "routine": "asinF64",
       "set": "edges",
       "count": 63,
@@ -66,6 +74,14 @@
       "nanResults": 124901,
       "inputsSha256": "636ce3cced2776cc3dd06a8848b1393b9827416eba926af99ed66956bf370bff",
       "resultsSha256": "27e979ee9e33d131155b7d16aed17a2e3e6a1ca59dc2fb74cacb89d133edce7f"
+    },
+    {
+      "routine": "asinF64",
+      "set": "upper",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "049399fa6894fa9ec8330d118caba1bca701fcc2b117e17418963d975a588f2f",
+      "resultsSha256": "67f7b9d6ca2b289aa3b79143ecee1235c3d2f8a2b50e2a28c6219abe26579d3c"
     },
     {
       "routine": "acosF32",
@@ -100,6 +116,14 @@
       "resultsSha256": "88ea31e0cae88bdc2bea9ddbe2fd1d062f4ee20915e808819a5684652bf05152"
     },
     {
+      "routine": "acosF32",
+      "set": "upper",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "d8c4ff9ecfa0e05244d6103321d90a3e33a0cec57037d88729ed8c3aaaa28cdb",
+      "resultsSha256": "cae41f9728fcab8d55c347afba002a9a6eed9598ebd05575688695a80ba1eaab"
+    },
+    {
       "routine": "acosF64",
       "set": "edges",
       "count": 63,
@@ -130,6 +154,14 @@
       "nanResults": 124901,
       "inputsSha256": "636ce3cced2776cc3dd06a8848b1393b9827416eba926af99ed66956bf370bff",
       "resultsSha256": "550bb36923481992918c3fbf3f4dd490531dbf0096c627a39ca4c7cde0b4ed0f"
+    },
+    {
+      "routine": "acosF64",
+      "set": "upper",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "049399fa6894fa9ec8330d118caba1bca701fcc2b117e17418963d975a588f2f",
+      "resultsSha256": "da8a5d462481b66a00dfd0cf4272238abe44fda7267f0bec164978910eac41c6"
     },
     {
       "routine": "atanF32",

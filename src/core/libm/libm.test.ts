@@ -38,6 +38,7 @@ import {
   F64_FORMAT,
   exactTan,
   exactTrig,
+  exactValue,
   f32OfBits,
   f64OfWords,
   piFixed,
@@ -45,6 +46,7 @@ import {
   wordsOf,
   type Exact,
 } from '../testing/libm-reference.js';
+import { withEngineMathRefused } from '../testing/engine-math.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const LIBM_SOURCE = libmSource('trig');
@@ -422,7 +424,50 @@ describe('tan: the special values, the thresholds and the hard operands', () => 
   });
 });
 
+describe('tan: the operands of the largest errors that a sample has measured', () => {
+  const error = (x: number): number => Math.abs(ulpError(LIBM.tanF64(x), exactTan(x), F64_FORMAT)!);
+
+  it('0.9023 ULP for a huge operand, and 0.8839 for one of the first reduction', () => {
+    // The first is from the independent review of #1207 (96,000,000 operands), the second from
+    // this pull request's sweep (21,000,000 operands). Each bound is just above the measure.
+    for (const [x, bound] of [
+      [2.926865656139087e106, 0.91],
+      [-11.896597503998837, 0.89],
+    ] as const) {
+      expect([x, error(x) < bound, error(x) > bound - 0.02]).toEqual([x, true, true]);
+    }
+    expect(LIBM.tanF64(2.926865656139087e106)).toBe(0.7873026738547275);
+  });
+
+  it('the kernel just below its switch at 0.6744: 0.9277 ULP for one reduced argument', () => {
+    // The review measured the kernel on 96,000,000 pairs of a head and a tail. This pair is its
+    // largest error. The kernel is no export: the interpreter of the source's module gives it.
+    const ktan = (
+      compileModule(compiled.module, { precision: 'f32' }).fns as unknown as Record<
+        string,
+        (x: number, y: number, odd: boolean) => number
+      >
+    )['ktan']!;
+    const x = 0.6707954031500757;
+    const y = -3.906014701318836e-17;
+    // tan(x + y) is tan(x) + y (1 + tan(x)^2), to far below a unit: y^2 is below 2^-108.
+    const t = exactTan(x);
+    const tail = exactValue(y);
+    const one = 1n << t.scale;
+    const slope = one + ((t.num * t.num) >> t.scale);
+    const exact = {
+      num: t.num + (((tail.num << (t.scale - tail.scale)) * slope) >> t.scale),
+      scale: t.scale,
+    };
+    const measured = Math.abs(ulpError(ktan(x, y, false), exact, F64_FORMAT)!);
+    expect(measured).toBeLessThan(0.93);
+    expect(measured).toBeGreaterThan(0.92);
+  });
+});
+
 describe('the CPU tier calls the libm for sin, cos and tan', () => {
+  /** The functions of the engine's `Math` that no CPU path of this family may call. */
+  const ENGINE = ['sin', 'cos', 'tan'] as const;
   const program = compile(`"use typeshade";
 export function single(x: f32): f32 { return sin(x) - cos(x); }
 export function double(x: f64): f64 { return Math.sin(x) - Math.cos(x); }
@@ -437,30 +482,32 @@ export function tangent(x: f32): f32 { return tan(x); }
   });
 
   it("in 'f32' precision an f32 operand takes the f64 routine, rounded once", () => {
-    for (const build of [compileModule, compileModuleJs]) {
-      const fns = build(program.module, { precision: 'f32' }).fns as Record<
-        string,
-        (...a: unknown[]) => unknown
-      >;
-      expect(fns['single']!(x)).toBe(fr(TRIG.sinF32(x) - TRIG.cosF32(x)));
-      expect(fns['double']!(x)).toBe(LIBM.sinF64(x) - LIBM.cosF64(x));
-      expect(fns['lanes']!([1, 2, 3])).toEqual(
-        [1, 2, 3].map((c, i) => fr(TRIG.sinF32(c) + TRIG.cosF32(3 - i))),
-      );
-      expect(fns['tangent']!(x)).toBe(TRIG.tanF32(x));
-    }
+    for (const build of [compileModule, compileModuleJs])
+      withEngineMathRefused(ENGINE, () => {
+        const fns = build(program.module, { precision: 'f32' }).fns as Record<
+          string,
+          (...a: unknown[]) => unknown
+        >;
+        expect(fns['single']!(x)).toBe(fr(TRIG.sinF32(x) - TRIG.cosF32(x)));
+        expect(fns['double']!(x)).toBe(LIBM.sinF64(x) - LIBM.cosF64(x));
+        expect(fns['lanes']!([1, 2, 3])).toEqual(
+          [1, 2, 3].map((c, i) => fr(TRIG.sinF32(c) + TRIG.cosF32(3 - i))),
+        );
+        expect(fns['tangent']!(x)).toBe(TRIG.tanF32(x));
+      });
   });
 
   it("in 'f64' precision every operand takes the f64 routine", () => {
-    for (const build of [compileModule, compileModuleJs]) {
-      const fns = build(program.module, { precision: 'f64' }).fns as Record<
-        string,
-        (...a: unknown[]) => unknown
-      >;
-      expect(fns['single']!(x)).toBe(LIBM.sinF64(x) - LIBM.cosF64(x));
-      expect(fns['double']!(x)).toBe(LIBM.sinF64(x) - LIBM.cosF64(x));
-      expect(fns['tangent']!(x)).toBe(LIBM.tanF64(x));
-    }
+    for (const build of [compileModule, compileModuleJs])
+      withEngineMathRefused(ENGINE, () => {
+        const fns = build(program.module, { precision: 'f64' }).fns as Record<
+          string,
+          (...a: unknown[]) => unknown
+        >;
+        expect(fns['single']!(x)).toBe(LIBM.sinF64(x) - LIBM.cosF64(x));
+        expect(fns['double']!(x)).toBe(LIBM.sinF64(x) - LIBM.cosF64(x));
+        expect(fns['tangent']!(x)).toBe(LIBM.tanF64(x));
+      });
   });
 
   it('the tables hold the routines, not the engine Math', () => {

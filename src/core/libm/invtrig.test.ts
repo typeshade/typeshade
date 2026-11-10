@@ -19,6 +19,7 @@ import { compile } from '../../compiler/ts/compile.js';
 import { compileModuleJs } from '../cpu-codegen.js';
 import { BUILTINS, COMPONENTWISE, LIBM } from '../cpu-runtime.js';
 import { compileModule } from '../oracle.js';
+import { withEngineMathRefused } from '../testing/engine-math.js';
 import { littleEndianBytes, mulberry32 } from '../testing/libm-gate.js';
 import {
   caseInputBytes,
@@ -732,55 +733,135 @@ describe('asin from 0.5 and acos to -0.5, where the form of fdlibm was weakest',
   });
 });
 
+describe('the operands of the largest errors that a sample has measured', () => {
+  // Each operand is the largest error of a wide measurement, by this pull request's sweep or
+  // by its independent review (#1207). Each is held under 1 ULP, and under a bound just above
+  // its measured error, so that a change of a routine that makes one worse shows here.
+  it('asin: 0.7283 ULP', () => {
+    const x = -0.5011981612391417;
+    expect(err64(LIBM.asinF64(x), exactAsin(x))).toBeLessThan(0.73);
+    expect(err64(LIBM.asinF64(x), exactAsin(x))).toBeGreaterThan(0.72);
+  });
+
+  it('acos: 0.7897 ULP, and 0.7737', () => {
+    for (const [x, bound] of [
+      [0.4896687061882362, 0.79],
+      [0.47982594999324074, 0.78],
+    ] as const) {
+      const error = err64(LIBM.acosF64(x), exactAcos(x));
+      expect([x, error < bound, error > bound - 0.02]).toEqual([x, true, true]);
+    }
+  });
+
+  it('atan: 0.8569 ULP, and 0.8460', () => {
+    for (const [x, bound] of [
+      [0.6949333525751219, 0.86],
+      [0.6865497393320539, 0.85],
+    ] as const) {
+      const error = err64(LIBM.atanF64(x), exactAtan(x));
+      expect([x, error < bound, error > bound - 0.02]).toEqual([x, true, true]);
+    }
+  });
+
+  it('atan2: 0.8564 ULP, and 0.8522', () => {
+    for (const [y, x, bound] of [
+      [-1.586337792990622, 2.2975756087328816, 0.86],
+      [0.03485421709813553, 0.05067701525580571, 0.86],
+    ] as const) {
+      const error = err64(LIBM.atan2F64(y, x), exactAtan2(y, x));
+      expect([y, x, error < bound, error > bound - 0.02]).toEqual([y, x, true, true]);
+    }
+  });
+});
+
 describe('the CPU tier calls the libm for asin, acos, atan and atan2', () => {
   const X = 0.5251128077507019;
   const program = compile(`"use typeshade";
 const X: f32 = ${String(X)};
 const A: f32 = asin(X);
+const C: f32 = acos(X);
+const N: f32 = atan(X);
 const T: f32 = atan2(X, -2.0);
-export function moduleConstant(): vec2 { return vec2(A, T); }
+export function moduleConstant(): vec4 { return vec4(A, C, N, T); }
 export function call(x: f32): vec3 { return vec3(asin(x), acos(x), atan(x)); }
 export function angle(y: f32, x: f32): f32 { return atan2(y, x); }
 export function twoForms(y: f32, x: f32): vec2 { return vec2(Math.atan2(y, x), atan(y, x)); }
+export function mathForms(x: f32): vec3 { return vec3(Math.asin(x), Math.acos(x), Math.atan(x)); }
 export function lanes(v: vec2, w: vec2): vec2 { return atan2(v, w) + asin(v); }
+export function lanes3(v: vec3): vec3 { return acos(v) + atan(v.zyx); }
 `);
   const fr = Math.fround;
-  const f32 = (f: (x: number) => number): number => fr(f(X));
+  /** The functions of the engine's `Math` that no CPU path of this family may call. */
+  const ENGINE = ['tan', 'asin', 'acos', 'atan', 'atan2'] as const;
 
   it('the operand is an f32, and the program compiles', () => {
     expect(fr(X)).toBe(X);
     expect(program.diagnostics).toEqual([]);
   });
 
+  it('the guard throws inside and puts the functions back, also after a failure', () => {
+    const before = ENGINE.map((name) => Math[name]);
+    expect(() => withEngineMathRefused(ENGINE, () => Math.atan2(1, 2))).toThrow(
+      "the CPU tier called the engine's Math.atan2",
+    );
+    expect(ENGINE.map((name) => Math[name])).toEqual(before);
+    expect(withEngineMathRefused(ENGINE, () => LIBM.atan2F64(1, 2))).toBe(LIBM.atan2F64(1, 2));
+    expect(Math.atan2(1, 2)).toBeCloseTo(LIBM.atan2F64(1, 2), 14);
+  });
+
   for (const [engine, build] of [
     ['the interpreter', compileModule],
     ['the generated JavaScript', compileModuleJs],
   ] as const) {
-    it(`${engine}: an f32 operand takes the routine's result rounded once, on every path`, () => {
-      const fns = build(program.module, { precision: 'f32' }).fns as Record<
-        string,
-        (...a: unknown[]) => unknown
-      >;
-      expect(fns['moduleConstant']!()).toEqual([f32(LIBM.asinF64), fr(LIBM.atan2F64(X, -2))]);
-      expect(fns['call']!(X)).toEqual([f32(LIBM.asinF64), f32(LIBM.acosF64), f32(LIBM.atanF64)]);
-      expect(fns['angle']!(X, -3)).toBe(fr(LIBM.atan2F64(X, -3)));
-      expect(fns['twoForms']!(X, -3)).toEqual([fr(LIBM.atan2F64(X, -3)), fr(LIBM.atan2F64(X, -3))]);
-      expect(fns['lanes']!([X, -0.25], [2, -1])).toEqual([
-        fr(fr(LIBM.atan2F64(X, 2)) + f32(LIBM.asinF64)),
-        fr(fr(LIBM.atan2F64(-0.25, -1)) + fr(LIBM.asinF64(-0.25))),
-      ]);
-    });
+    for (const precision of ['f32', 'f64', undefined] as const) {
+      const mode = precision === undefined ? 'the default precision' : `'${precision}' precision`;
+      it(`${engine}, ${mode}: every path takes the routine, with the engine's Math refused`, () => {
+        // In 'f32' precision a result is the routine's result rounded once. In 'f64' precision,
+        // which is the default, nothing rounds.
+        const r = precision === 'f32' ? fr : (v: number): number => v;
+        const { asinF64: asin, acosF64: acos, atanF64: atan, atan2F64: atan2 } = LIBM;
+        withEngineMathRefused(ENGINE, () => {
+          const fns = (
+            precision === undefined ? build(program.module) : build(program.module, { precision })
+          ).fns as Record<string, (...a: unknown[]) => unknown>;
+          // A module constant, folded at compile time.
+          expect(fns['moduleConstant']!()).toEqual([
+            r(asin(X)),
+            r(acos(X)),
+            r(atan(X)),
+            r(atan2(X, -2)),
+          ]);
+          // A scalar call of each function, in both spellings.
+          expect(fns['call']!(X)).toEqual([r(asin(X)), r(acos(X)), r(atan(X))]);
+          expect(fns['mathForms']!(X)).toEqual([r(asin(X)), r(acos(X)), r(atan(X))]);
+          expect(fns['angle']!(X, -3)).toBe(r(atan2(X, -3)));
+          expect(fns['twoForms']!(X, -3)).toEqual([r(atan2(X, -3)), r(atan2(X, -3))]);
+          // A vector call: one routine call for each component.
+          expect(fns['lanes']!([X, -0.25], [2, -1])).toEqual([
+            r(r(atan2(X, 2)) + r(asin(X))),
+            r(r(atan2(-0.25, -1)) + r(asin(-0.25))),
+          ]);
+          expect(fns['lanes3']!([X, -0.25, 0.75])).toEqual([
+            r(r(acos(X)) + r(atan(0.75))),
+            r(r(acos(-0.25)) + r(atan(-0.25))),
+            r(r(acos(0.75)) + r(atan(X))),
+          ]);
+        });
+      });
+    }
   }
 
   it('the tables hold the routines, not the engine Math', () => {
-    for (const name of ['asin', 'acos', 'atan'] as const) {
-      const routine = LIBM[`${name}F64`];
-      expect(COMPONENTWISE[name].lane).not.toBe(Math[name]);
-      expect(BUILTINS[name]!(0.37)).toBe(routine(0.37));
-      expect(BUILTINS[name]!([0.37, -0.2])).toEqual([routine(0.37), routine(-0.2)]);
-    }
-    expect(COMPONENTWISE.atan2.lane).not.toBe(Math.atan2);
-    expect(BUILTINS['atan2']!(0.37, -2)).toBe(LIBM.atan2F64(0.37, -2));
-    expect(BUILTINS['atan2']!([0.37, 1], [-2, 0])).toEqual([LIBM.atan2F64(0.37, -2), PI / 2]);
+    withEngineMathRefused(ENGINE, () => {
+      for (const name of ['asin', 'acos', 'atan'] as const) {
+        const routine = LIBM[`${name}F64`];
+        expect(BUILTINS[name]!(0.37)).toBe(routine(0.37));
+        expect(BUILTINS[name]!([0.37, -0.2])).toEqual([routine(0.37), routine(-0.2)]);
+        expect(COMPONENTWISE[name].lane(0.37)).toBe(routine(0.37));
+      }
+      expect(BUILTINS['atan2']!(0.37, -2)).toBe(LIBM.atan2F64(0.37, -2));
+      expect(BUILTINS['atan2']!([0.37, 1], [-2, 0])).toEqual([LIBM.atan2F64(0.37, -2), PI / 2]);
+      expect(COMPONENTWISE.atan2.lane(0.37, -2)).toBe(LIBM.atan2F64(0.37, -2));
+    });
   });
 });
