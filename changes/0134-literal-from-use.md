@@ -847,6 +847,50 @@ agent's recommendation.
   declares, carry these readings.
 - Status: `status: accepted` does not change.
 
+### Amendment A3. The owner's decisions on the second review of item 2 (2026-11-10)
+
+A second independent review of pull request #1184 at `1abf8fbb` found that values still change
+through a `/` with no diagnostic, along paths that Amendment A2 does not list, and that some
+shapes this text accepts are refused. The owner decided each in the Claude Code session on
+2026-11-10, after the programs and their values on `main` and on the pull request were shown
+(`OD-4`). Each decision is the agent's recommendation.
+
+- [decision, owner, 2026-11-10] "수용". Three refusals that the implementation drew from A2's
+  sentence "No program changes its value through a division without a diagnostic", each an
+  integer division on `main`: with `const k = 7; h(k);`, `let y = k; let z = y + 1;` then
+  `z / 2`; `const m = max(k, 1);` then `m / 2`; `let y = k;` then `y /= 2`. Each is refused
+  (`TS8003`).
+- [decision, owner, 2026-11-10] "지금대로 두고 기록". A `let` that a constant initializes and
+  that later takes another value (`let y = k; y = x;` then `y / 2`) stays refused, and a `let`
+  that takes the constant only by a later assignment (`let y = x; y = k;` then `y / 2`) stays a
+  float division, as on `main`. Item 1 takes this up again.
+- [decision, owner, 2026-11-10] "먼저 별도 PR로 고치기". On `main` a scalar cast of a written
+  number gives an untyped literal: `u32(7) / 2` is 3.5, and `xs[u32(7) / 2]` fails in the
+  backend. A cast gives a value of its type, so `u32(7) / 2` is the integer division 3. A bug
+  fix of its own fixes the written form first. Item 2 then reads `u32(K) / 2` the same way.
+- [decision, owner, 2026-11-10] "보수적 추적 규칙". A value that comes from a constant of no
+  fixed type carries that origin through every expression and binding: an operator, a builtin
+  (`Math.*` and `select` included), `as`, `!`, a conditional, a derived constant, a `let`, the
+  start of a loop counter, and the result of a function, a method, a getter or a closure that
+  returns such a value. It loses that origin only where it passes a declared type: an
+  annotation, a declared parameter, field or result, or a cast. A `/` whose operands have no
+  declared type, and one of which carries the origin of a constant that some read makes an
+  integer, is refused (`TS8003`). A loop counter whose start is such a constant keeps the type
+  it has on `main`, as a counter bounded by one does.
+- [decision, owner, 2026-11-10] "실수 나눗셈으로 허용". A `/` with a float-written literal or a
+  float-written constant in either operand is a float division, and it is accepted: with `N`
+  read as an integer elsewhere, `const STEP = 6.283185307179586 / N`, `TAU / N` and `1.0 / W`
+  compile. This is the Division paragraph's reading: not every operand's integer type came from
+  inference.
+- [decision, owner, 2026-11-10] "4a와 이어서 머지". Without item 1, a `let` that a constant
+  initializes takes `f32`, so uses that are no division and that compiled on `main` are refused
+  (`let y = k;` then `vi + y`, `xs[y]`, `h(y)`). Item 1 types such a `let` from its uses. So the
+  pull request of item 2 and the first pull request of items 1 and 3 merge one after the other,
+  and `main` does not hold item 2 alone.
+- Affects: no front-matter field. Rule 5.1 and surface §12 and §13, which the front matter
+  declares, carry these readings.
+- Status: `status: accepted` does not change.
+
 ### Configuration and validation record
 
 This record does not yet apply. Delivery will require the implementation pull requests with
