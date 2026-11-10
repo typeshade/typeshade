@@ -451,11 +451,17 @@ ${H}export function t(vi: u32, x: f32, xs: array<f32, 8>): f32 {
     );
   });
 
-  it('refuses (k | 1) / 2 with the type to write: a bitwise operand is an integer', () => {
+  it('refuses (k | 1) / 2 in a float position with the bitwise operand converted whole', () => {
+    // Amendment A3 (M1): `f32(k) | 1` is no program, so the edit converts `k | 1`.
     refusedThenFixed(
       t('const k = 7; h(k); return f32((k | 1) / 2);'),
-      integer('k', 'u32', '(k | 1) / 2', 'const k: u32 = 7'),
-      t('const k: u32 = 7; h(k); return f32((k | 1) / 2);'),
+      float('k', 'u32', '(k | 1) / 2', 'f32(k | 1) / 2'),
+      t('const k = 7; h(k); return f32(f32(k | 1) / 2);'),
+    );
+    refusedThenFixed(
+      t('const k = 7; h(k); return x + (k | 1) / 2;'),
+      float('k', 'u32', '(k | 1) / 2', 'f32(k | 1) / 2'),
+      t('const k = 7; h(k); return x + f32(k | 1) / 2;'),
     );
   });
 
@@ -674,6 +680,255 @@ export function t(vi: u32, x: f32): f32 { return f32(vi * K) + half(x); }
     expect(
       open.getDiagnostics('/app/lib.shade.ts').map((d) => `${String(d.code)}: ${d.message}`),
     ).toEqual([`TS8003: ${message}`]);
+  });
+});
+
+describe('one conservative mark (Amendment A3, "보수적 추적 규칙")', () => {
+  const H2 = `function h(a: u32): u32 { return a; }\n`;
+  const t = (body: string, pre = ''): string => `"use typeshade";
+${pre}
+${H2}export function t(vi: u32, x: f32, xs: array<f32, 8>): f32 {
+  ${body}
+}`;
+  const message = (subject: string, written: string, remedy: string, op = '/'): string =>
+    `"${subject}" is a u32 where another line reads it, and no operand of "${written}" has a ` +
+    `declared type, so the "${op}" does not say which division it is. Write "${remedy}" for ` +
+    `the float division.`;
+  const refusedThenFixed = (source: string, sentence: string, fixed: string): void => {
+    refused(source, [sentence]);
+    accepted(fixed);
+  };
+
+  // A value carries the origin of the constant through every expression and binding, and a
+  // call of a function, a method, a getter or a closure that returns it carries it too. Each of
+  // these was an integer division on `main` (3) and computed 3.5 without a diagnostic at
+  // `1abf8fbb`.
+  it.each([
+    [
+      'a function result',
+      'function g() { const k = 7; h(k); return k; }',
+      'return f32(g() / 2);',
+      'g() / 2',
+      'f32(g()) / 2',
+    ],
+    [
+      'a method result',
+      'class A { get() { const k = 7; h(k); return k; } }',
+      'const a = new A(); return f32(a.get() / 2);',
+      'a.get() / 2',
+      'f32(a.get()) / 2',
+    ],
+    [
+      'a static method result',
+      'class A { static get() { const k = 7; h(k); return k; } }',
+      'return f32(A.get() / 2);',
+      'A.get() / 2',
+      'f32(A.get()) / 2',
+    ],
+    [
+      'a getter',
+      'class A { get v() { const k = 7; h(k); return k; } }',
+      'const a = new A(); return f32(a.v / 2);',
+      'a.v / 2',
+      'f32(a.v) / 2',
+    ],
+    [
+      'a result through a let',
+      'function g() { const k = 7; h(k); let y = k; y += 1; return y; }',
+      'return f32(g() / 3);',
+      'g() / 3',
+      'f32(g()) / 3',
+    ],
+  ])('refuses a / over %s', (_what, pre, body, written, remedy) => {
+    refusedThenFixed(
+      t(body, pre),
+      message('k', written, remedy),
+      t(body.replace(written, remedy), pre),
+    );
+  });
+
+  it.each([
+    ['a closure', 'const g = () => k; return f32(g() / 2);', 'g() / 2', 'f32(g()) / 2'],
+    [
+      'Math.max',
+      'return f32(Math.max(k, 1) / 2);',
+      'Math.max(k, 1) / 2',
+      'Math.max(f32(k), 1) / 2',
+    ],
+    [
+      'select',
+      'return f32(select(1, k, x > 0) / 2);',
+      'select(1, k, x > 0) / 2',
+      'select(1, f32(k), x > 0) / 2',
+    ],
+    ['a swizzle', 'return f32(vec2(k, 1).x / 2);', 'vec2(k, 1).x / 2', 'vec2(f32(k), 1).x / 2'],
+    ['a non-null assertion', 'return f32(k! / 2);', 'k! / 2', 'f32(k)! / 2'],
+    ['a power of written numbers', 'return f32(k / 2 ** 1);', 'k / 2 ** 1', 'f32(k) / 2 ** 1'],
+  ])('refuses a / through %s', (_what, body, written, remedy) => {
+    refusedThenFixed(
+      t(`const k = 7; h(k); ${body}`),
+      message('k', written, remedy),
+      t(`const k = 7; h(k); ${body.replace(written, remedy)}`),
+    );
+  });
+
+  it('loses the mark at a declared type: a declared result, a declared parameter, a cast', () => {
+    expect(
+      accepted(
+        t('return f32(g() / 2);', 'function g(): f32 { const k = 7; h(k); return k; }'),
+      ).eval('t', [1, 1, []]),
+    ).toBe(3.5);
+    expect(
+      accepted(t('const k = 7; h(k); const g = (a: f32) => a; return f32(g(k) / 2);')).eval('t', [
+        1,
+        1,
+        [],
+      ]),
+    ).toBe(3.5);
+  });
+
+  it('a counter started by the constant keeps its f32, as on main, and carries the mark', () => {
+    // Each gave the same value on `main` (the counter was an f32 there).
+    const plain = t(
+      'let a = 0.; for (let j = K; j < 8; j++) { a += f32(j / 2); } return a;',
+      'const K = 3;',
+    );
+    const result = accepted(plain);
+    expect(result.wgsl).toContain('var j: f32 = K;');
+    expect(result.eval('t', [1, 1, []])).toBe(12.5);
+    // With another read of K as an integer, the `/` over the counter is refused.
+    refused(
+      t(
+        'let a = 0.; for (let j = K; j < 8; j++) { a += f32(j / 2); } return a + f32(h(K));',
+        'const K = 3;',
+      ),
+      [message('K', 'j / 2', 'f32(j) / 2')],
+    );
+  });
+});
+
+describe('a float-written operand makes a float division (Amendment A3, "실수 나눗셈으로 허용")', () => {
+  // `N` is read as an integer by the loop bound in each; each was refused at `1abf8fbb`.
+  const loop = 'let a = 0.; for (let j = 0; j < N; j++) { a += xs[j]; }';
+  it.each([
+    ['const STEP = 6.283185307179586 / N;', 'return a * STEP;'],
+    ['const TAU = 6.283185307179586;', 'return a * (TAU / N);'],
+    ['const W = N;', 'return a * (1.0 / W);'],
+    ['', 'return a * ((N * 0.5) / 2);'],
+    ['const H2 = N * 0.5;', 'return a * (H2 / 2);'],
+    ['', 'let y = N * 0.5; return a * (y / 2);'],
+    ['', 'return a * (N / 2.0);'],
+  ])('accepts %s %s', (pre, body) => {
+    const source = `"use typeshade";
+const N = 8;
+${pre}
+export function t(xs: array<f32, 8>): f32 {
+  ${loop}
+  ${body}
+}`;
+    accepted(source);
+  });
+});
+
+describe('the named edit (Amendment A3, M1 and M4)', () => {
+  it('a typed integer position names the declaration with the type it asks', () => {
+    const t = (body: string): string => `"use typeshade";
+${H}export function t(xs: array<f32, 8>): f32 {
+  ${body}
+}`;
+    const message =
+      '"k" is a u32 where another line reads it, and no operand of "(k % 4) / 2" has a declared ' +
+      'type, so the "/" does not say which division it is. Write "const k: u32 = 7" for the ' +
+      'integer division.';
+    for (const position of [
+      'let j: u32 = (k % 4) / 2; return f32(j);',
+      'return f32(h((k % 4) / 2));',
+    ]) {
+      refused(t(`const k = 7; h(k); ${position}`), [message]);
+      accepted(t(`const k: u32 = 7; h(k); ${position}`));
+    }
+  });
+
+  it('names the constant as the / reads it across an import: L.K and KK', () => {
+    const lib = `"use typeshade";\nexport const K = 7;\n`;
+    const read = (uri: string): string | undefined => (uri.includes('lib.shade') ? lib : undefined);
+    for (const [head, name] of [
+      ['import * as L from "./lib.shade";', 'L.K'],
+      ['import { K as KK } from "./lib.shade";', 'KK'],
+    ] as const) {
+      const main = `"use typeshade";
+${head}
+${H}export function t(): f32 { return f32(h(${name})) + f32(${name} / 2); }`;
+      const sentence =
+        `"${name}" is a u32 where another line reads it, and no operand of "${name} / 2" has a ` +
+        `declared type, so the "/" does not say which division it is. Write "f32(${name}) / 2" ` +
+        `for the float division.`;
+      const compiled = compile(main, { fileName: '/app/main.shade.ts', readDocument: read });
+      expect(compiled.diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
+        `TS8003: ${sentence}`,
+      ]);
+      const checked = checkDocuments(
+        [{ path: '/app/main.shade.ts', uri: '/app/main.shade.ts', text: main }],
+        { readDocument: read },
+      );
+      expect(checked.diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
+        `TS8003: ${sentence}`,
+      ]);
+      const fixed = main.replace(`f32(${name} / 2)`, `f32(f32(${name}) / 2)`);
+      expect(
+        compile(fixed, { fileName: '/app/main.shade.ts', readDocument: read }).diagnostics,
+      ).toEqual([]);
+    }
+  });
+
+  it('checkDocuments and compile() agree where the library raises a mismatch alone (M6)', () => {
+    const lib = `"use typeshade";
+export const K = 7;
+export function lf(v: u32): u32 { return v + K / 2; }
+`;
+    const main = `"use typeshade";
+import { K, lf } from "./lib.shade";
+export function t(vi: u32): f32 { return f32(lf(vi)) + f32(vi * K); }
+`;
+    const read = (uri: string): string | undefined => (uri.includes('lib.shade') ? lib : undefined);
+    const compiled = compile(main, { fileName: '/app/main.shade.ts', readDocument: read });
+    const checked = checkDocuments(
+      [{ path: '/app/main.shade.ts', uri: '/app/main.shade.ts', text: main }],
+      { readDocument: read },
+    );
+    expect(checked.diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual(
+      compiled.diagnostics.map((d) => `${d.code}: ${d.message}`),
+    );
+    expect(compiled.diagnostics).toHaveLength(1);
+  });
+});
+
+describe('the minor findings of the second review', () => {
+  it('n ^= K with a value the target cannot hold is refused with the sentence of §13', () => {
+    refused(
+      `"use typeshade";
+const K = 4294967295;
+export function t(ii: i32): f32 { let n: i32 = ii; n ^= K; return f32(n); }`,
+      [
+        'The value has to fit: 4294967295 is outside i32, which holds -2147483648 to 2147483647 (§13).',
+      ],
+    );
+  });
+
+  it('n ^= C with a float-written constant stays refused as on main', () => {
+    const source = `"use typeshade";
+const C = 7.5;
+export function t(vi: u32): f32 { let n: u32 = vi; n ^= C; return f32(n); }`;
+    expect(compile(source).diagnostics.map((d) => d.code)).toEqual(['TS8003']);
+    expect(compile(source).wgsl).toBeUndefined();
+  });
+
+  it('u32(-C) with C = 0.1 is 0u, not -0u', () => {
+    const result = accepted(`"use typeshade";
+const C = 0.1;
+export function t(): u32 { return u32(-C); }`);
+    expect(result.wgsl).toContain('return 0u;');
+    expect(Object.is(result.eval('t'), -0)).toBe(false);
   });
 });
 

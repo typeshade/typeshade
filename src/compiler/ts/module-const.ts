@@ -982,6 +982,7 @@ function lowerOne(
           ts.isPropertyDeclaration(decl) && ts.isClassLike(decl.parent) && decl.parent.name
             ? `${decl.parent.name.text}.${decl.name.getText(sourceFile).replace(/^#/, '')}`
             : decl.name.getText(sourceFile),
+          decl.name,
           decl.initializer,
           ts.isPropertyDeclaration(decl) ? 'static' : 'const',
         )

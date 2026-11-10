@@ -347,7 +347,9 @@ export function lowerScalarCast(
   if (v !== undefined) {
     if (name !== 'f32' && !Number.isFinite(v)) return `${name}() needs a finite number.`;
     if (name !== 'f32') {
-      const truncated = Math.trunc(v);
+      // `+ 0` turns the `-0` of `u32(-0.1)` into the `0` the integer has: an integer type has
+      // no negative zero.
+      const truncated = Math.trunc(v) + 0;
       // An INT -> INT conversion is never out of range. It is a bit reinterpretation, which
       // both targets perform and agree on: measured, `u32(-1i)` compiles on Tint and is
       // 4294967295, and GLSL ES 3.00 compiles `uint(-1)` and answers 4294967295 too. What

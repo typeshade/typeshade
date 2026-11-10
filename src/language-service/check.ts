@@ -251,7 +251,22 @@ export function checkDocuments(
     const doc = queue.find((q) => q.uri === d.fileName);
     if (doc === undefined) continue;
     const row = fromCompiler(doc, d);
-    if (!diagnostics.some((f) => f.file === row.file && sameReport(f, row))) diagnostics.push(row);
+    if (diagnostics.some((f) => f.file === row.file && sameReport(f, row))) continue;
+    // The program's refusal of the `/` replaces a mismatch the file alone raised around it (its
+    // quotient beside an integer), as `compile()` of the program does (Rule 12.4).
+    for (let i = diagnostics.length - 1; i >= 0; i--) {
+      const f = diagnostics[i]!;
+      if (
+        f.file === row.file &&
+        f.code === TS_CODES.TYPE_MISMATCH &&
+        f.severity === 'error' &&
+        f.offset <= row.offset &&
+        f.offset + f.length >= row.offset + row.length &&
+        !isAbstractDivisionRefusal(f)
+      )
+        diagnostics.splice(i, 1);
+    }
+    diagnostics.push(row);
   }
   return {
     files: queue.map((d) => d.path),

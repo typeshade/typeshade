@@ -34,10 +34,12 @@
 
 import ts from 'typescript';
 import type { Expr } from '../../core/ir/nodes.js';
+import type { ShaderType } from '../../core/ir/types.js';
 import { f32T } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
+import { sameFile, writtenRange, writtenText } from './context.js';
 
 /** One read of a constant that an integer position typed. */
 interface IntegerRead {
@@ -56,6 +58,9 @@ export interface AbstractConst {
   readonly integerWritten: boolean;
   /** `const` for the remedy line; a static field is written `static`. */
   readonly keyword: 'const' | 'static';
+  /** The constant's name in its declaration, to name the declaration in a remedy, which is
+   *  given only in the file that declares it (`sameFile`). */
+  readonly nameNode: ts.Node;
   /** The initializer as the author wrote it, for the remedy line. */
   readonly written: string;
   /** The constants of no fixed type the initializer reads (`const M = K * 2` reads `K`). A
@@ -72,6 +77,8 @@ interface Division {
   readonly reads: readonly AbstractConst[];
   /** The integer type a position asked of the quotient (`xs[k / 2]`, `r + k / 2`), if one did. */
   asked?: 'i32' | 'u32';
+  /** Whether that position takes either integer type: an index. */
+  anyInteger?: boolean;
 }
 
 const readByExpr = new WeakMap<Expr, AbstractConst>();
@@ -162,6 +169,7 @@ export function abstractTreeOf(
  *  {@link abstractTreeOf}); `undefined` when it is not. */
 export function abstractConstFor(
   name: string,
+  nameNode: ts.Node,
   initializer: ts.Expression,
   keyword: 'const' | 'static' = 'const',
 ): AbstractConst | undefined {
@@ -172,7 +180,8 @@ export function abstractConstFor(
     value: tree.value,
     integerWritten: tree.integerWritten,
     keyword,
-    written: initializer.getText().replace(/\s+/g, ' '),
+    nameNode,
+    written: writtenText(initializer).replace(/\s+/g, ' '),
     sources: tree.reads,
     integerReads: [],
   };
@@ -203,6 +212,20 @@ export function hasNoWrittenType(
   );
 }
 
+/** Whether the function `fn` has no result type the author wrote: none at all, or the one the
+ *  language service wrote into the text it analyses (`: f32` after the parameter list). */
+export function hasNoWrittenResult(
+  fn: ts.SignatureDeclaration,
+  sourceFile: ts.SourceFile,
+): boolean {
+  if (fn.type === undefined) return true;
+  const starts = projectedAnnotations.get(sourceFile);
+  if (starts === undefined) return false;
+  // The inserted text is `: T`; its colon stands where the insertion starts.
+  const colon = sourceFile.text.lastIndexOf(':', fn.type.getStart(sourceFile));
+  return starts.has(colon);
+}
+
 /** Keeps a module constant's record under its IR name, for the function scopes. */
 export function recordModuleAbstractConst(
   sourceFile: ts.SourceFile,
@@ -218,6 +241,7 @@ export function recordModuleAbstractConst(
 export function resetAbstractConsts(sourceFile: ts.SourceFile): void {
   byDeclName.delete(sourceFile);
   divisionsOf.delete(sourceFile);
+  carriedByFunction.delete(sourceFile);
 }
 
 export function moduleAbstractConst(
@@ -240,43 +264,88 @@ export function markAbstractRead<E extends Expr>(
   return expr;
 }
 
-/** A variable with no annotation whose initializer reaches constants of no fixed type with no
- *  declared type between (`let y = k`, `let z = y + 1`, `const m = max(k, 1)`): it has no
- *  declared type either, so a `/` over it reaches those constants as a derived constant does
- *  (Amendment A2 of change 0134). */
-export interface Carried {
+/** Where a value comes from, when it comes from constants of no fixed type with no declared
+ *  type between (Amendment A3 of change 0134, "보수적 추적 규칙"): the constants it reaches, and
+ *  whether a float-written literal or a float-written constant takes part, which makes a `/`
+ *  over it a float division (A3, "실수 나눗셈으로 허용"). */
+export interface Origin {
   readonly reaches: readonly AbstractConst[];
-  /** The declaration with `f32` written, for the remedy of a `/=`: `let y: f32 = k`. */
-  readonly declaredF32: string;
+  readonly float: boolean;
+}
+
+/** A binding, a function result or a loop counter that carries an origin. */
+export interface Carried extends Origin {
+  /** For a variable: `let` or `const`, its name, its initializer as written and whether the
+   *  initializer's type is an integer, for the remedy of a `/=` (`let y: f32 = f32(k << 1)`). */
+  readonly variable?: {
+    readonly keyword: 'let' | 'const';
+    readonly name: string;
+    readonly init: string;
+    /** The variable's scalar type: `i32`, `u32` or `f32`. */
+    readonly type: string;
+  };
 }
 
 const carriedByNode = new WeakMap<ts.Node, Carried>();
+/** The origin each function of the module returns, by its IR name, when it writes no result
+ *  type: a call of it carries that origin (A3: "the result of a function, a method, a getter or
+ *  a closure that returns such a value"). */
+const carriedByFunction = new WeakMap<ts.SourceFile, Map<string, Carried>>();
 
-/** Remembers that `node` reads the variable `carried` describes. Returns `expr`. */
+/** Remembers that `node` reads what `carried` describes. Returns `expr`. */
 export function markCarriedRead<E extends Expr>(
   expr: E,
   node: ts.Node,
   carried: Carried | undefined,
 ): E {
-  if (carried !== undefined) carriedByNode.set(node, carried);
+  if (carried !== undefined && carried.reaches.length > 0) carriedByNode.set(node, carried);
   return expr;
 }
 
-/** What a new variable carries, when its initializer reaches a constant of no fixed type with
- *  no declared type between; `undefined` when it reaches none. Call it after lowering the
- *  initializer. */
+/** What a new variable carries: the origin of its initializer, with the variable's own text for
+ *  a remedy; `undefined` when the initializer reaches no constant of no fixed type. */
 export function carriedBy(
   keyword: 'let' | 'const',
   name: string,
   initializer: ts.Expression,
+  initType: ShaderType,
   isBuiltin: (name: string) => boolean,
 ): Carried | undefined {
-  const reaches = typelessReads(initializer, isBuiltin);
-  if (reaches === undefined || reaches.length === 0) return undefined;
+  const origin = originOf(initializer, isBuiltin);
+  if (origin === undefined || origin.reaches.length === 0) return undefined;
   return {
-    reaches,
-    declaredF32: `${keyword} ${name}: f32 = ${initializer.getText().replace(/\s+/g, ' ')}`,
+    ...origin,
+    variable: {
+      keyword,
+      name,
+      init: writtenText(initializer).replace(/\s+/g, ' '),
+      type: initType.kind === 'scalar' ? initType.scalar : 'f32',
+    },
   };
+}
+
+/** Records that the function named `irName` in the IR returns `value`, when the function writes
+ *  no result type. A call of the function then carries the origin of every such `return`. */
+export function noteCarriedReturn(
+  sourceFile: ts.SourceFile,
+  irName: string,
+  value: ts.Expression,
+  isBuiltin: (name: string) => boolean,
+): void {
+  const origin = originOf(value, isBuiltin);
+  if (origin === undefined || origin.reaches.length === 0) return;
+  let table = carriedByFunction.get(sourceFile);
+  if (table === undefined) carriedByFunction.set(sourceFile, (table = new Map()));
+  const before = table.get(irName);
+  table.set(irName, {
+    reaches: [...new Set([...(before?.reaches ?? []), ...origin.reaches])],
+    float: (before?.float ?? false) || origin.float,
+  });
+}
+
+/** What a call of the IR function `irName` carries, if it returns a carried value. */
+export function carriedByCall(sourceFile: ts.SourceFile, irName: string): Carried | undefined {
+  return carriedByFunction.get(sourceFile)?.get(irName);
 }
 
 /** Whether `node` reads a constant of no fixed type whose written numbers are all
@@ -356,10 +425,17 @@ function holds(node: ts.Node, inner: ts.Node): boolean {
 
 /** Records that an integer position of type `type` read the expression `node`: a `/` inside
  *  it was asked for an integer quotient. */
-export function noteIntegerContext(node: ts.Expression, type: 'i32' | 'u32'): void {
+export function noteIntegerContext(
+  node: ts.Expression,
+  type: 'i32' | 'u32',
+  anyInteger = false,
+): void {
   const visit = (n: ts.Node): void => {
     const division = divisionByNode.get(n);
-    if (division !== undefined) division.asked ??= type;
+    if (division !== undefined && division.asked === undefined) {
+      division.asked = type;
+      division.anyInteger = anyInteger;
+    }
     ts.forEachChild(n, visit);
   };
   visit(node);
@@ -367,52 +443,86 @@ export function noteIntegerContext(node: ts.Expression, type: 'i32' | 'u32'): vo
 
 const CASTS: ReadonlySet<string> = new Set(['f32', 'f64', 'i32', 'u32', 'bool']);
 
-/** The constants of no fixed type that `node` reaches with no declared type between: through
- *  written numbers, `+ - * / %`, a unary minus, a bitwise or shift operator, the arms of a
- *  conditional and the arguments of a builtin. `undefined` when some part has a declared type
- *  (a parameter, a typed local, a conversion, a call of a declared function). */
-function typelessReads(
+/** The origin of `node` (Amendment A3, "보수적 추적 규칙"): the constants of no fixed type it
+ *  comes from, through every expression and binding with no declared type between. A written
+ *  number has an empty origin. A read of such a constant, a variable, a loop counter or a call
+ *  that carries one, an operator, a builtin (`Math.*` and `select` included), `as`, `!`, a
+ *  conditional, a member or an element of such a value: the origin of their parts. `undefined`
+ *  where the value passes a declared type: an annotation, a declared parameter, field or result,
+ *  a conversion, or any read of a value that carries no origin. */
+export function originOf(
   node: ts.Expression,
   isBuiltin: (name: string) => boolean,
-): AbstractConst[] | undefined {
+): Origin | undefined {
   const inner = stripParens(node);
-  if (ts.isNumericLiteral(inner)) return [];
+  if (ts.isNumericLiteral(inner)) return { reaches: [], float: !integerWrittenLiteral(inner) };
   const read = readByNode.get(inner);
-  if (read !== undefined) return [read];
+  if (read !== undefined) return { reaches: [read], float: !read.integerWritten };
   const carried = carriedByNode.get(inner);
-  if (carried !== undefined) return [...carried.reaches];
+  if (carried !== undefined) return { reaches: carried.reaches, float: carried.float };
+  if (
+    ts.isAsExpression(inner) ||
+    ts.isSatisfiesExpression(inner) ||
+    ts.isTypeAssertionExpression(inner) ||
+    ts.isNonNullExpression(inner)
+  ) {
+    return originOf(inner.expression, isBuiltin);
+  }
   if (
     ts.isPrefixUnaryExpression(inner) &&
-    (inner.operator === ts.SyntaxKind.MinusToken || inner.operator === ts.SyntaxKind.TildeToken)
+    (inner.operator === ts.SyntaxKind.MinusToken ||
+      inner.operator === ts.SyntaxKind.PlusToken ||
+      inner.operator === ts.SyntaxKind.TildeToken)
   ) {
-    return typelessReads(inner.operand, isBuiltin);
+    return originOf(inner.operand, isBuiltin);
   }
-  const all = (parts: readonly ts.Expression[]): AbstractConst[] | undefined => {
-    const out: AbstractConst[] = [];
+  const all = (parts: readonly ts.Expression[]): Origin | undefined => {
+    const reaches: AbstractConst[] = [];
+    let float = false;
     for (const part of parts) {
-      const reads = typelessReads(part, isBuiltin);
-      if (reads === undefined) return undefined;
-      out.push(...reads);
+      const one = originOf(part, isBuiltin);
+      if (one === undefined) return undefined;
+      reaches.push(...one.reaches);
+      float ||= one.float;
     }
-    return out;
+    return { reaches, float };
   };
   if (
     ts.isBinaryExpression(inner) &&
-    (ARITH.has(inner.operatorToken.kind) || BITWISE.has(inner.operatorToken.kind))
+    (ARITH.has(inner.operatorToken.kind) ||
+      BITWISE.has(inner.operatorToken.kind) ||
+      inner.operatorToken.kind === ts.SyntaxKind.AsteriskAsteriskToken)
   ) {
     return all([inner.left, inner.right]);
   }
   if (ts.isConditionalExpression(inner)) return all([inner.whenTrue, inner.whenFalse]);
-  if (
-    ts.isCallExpression(inner) &&
-    ts.isIdentifier(inner.expression) &&
-    !CASTS.has(inner.expression.text) &&
-    isBuiltin(inner.expression.text) &&
-    inner.arguments.length > 0
-  ) {
-    return all([...inner.arguments]);
+  if (ts.isPropertyAccessExpression(inner)) {
+    // `Math.PI` is a written constant of its own; a swizzle or a member of a value with an
+    // origin keeps it.
+    return ts.isIdentifier(inner.expression) && inner.expression.text === 'Math'
+      ? undefined
+      : originOf(inner.expression, isBuiltin);
+  }
+  if (ts.isElementAccessExpression(inner)) return originOf(inner.expression, isBuiltin);
+  if (ts.isCallExpression(inner) && inner.arguments.length > 0) {
+    const callee = inner.expression;
+    const builtin =
+      (ts.isIdentifier(callee) && !CASTS.has(callee.text) && isBuiltin(callee.text)) ||
+      (ts.isPropertyAccessExpression(callee) &&
+        ts.isIdentifier(callee.expression) &&
+        callee.expression.text === 'Math');
+    // `select(f, t, c)` takes its value from its first two arguments; the condition is a `bool`.
+    if (builtin) {
+      const select = ts.isIdentifier(callee) && callee.text === 'select';
+      return all(select ? inner.arguments.slice(0, 2) : [...inner.arguments]);
+    }
   }
   return undefined;
+}
+
+/** Whether `node` reaches a constant of no fixed type with no declared type between. */
+export function hasOrigin(node: ts.Expression, isBuiltin: (name: string) => boolean): boolean {
+  return (originOf(node, isBuiltin)?.reaches.length ?? 0) > 0;
 }
 
 /** Records a `/` whose operands have no declared type and reach a constant of no fixed type.
@@ -425,10 +535,13 @@ export function noteAbstractDivision(
 ): void {
   const k = node.operatorToken.kind;
   if (k !== ts.SyntaxKind.SlashToken && k !== ts.SyntaxKind.SlashEqualsToken) return;
-  const left = typelessReads(node.left, isBuiltin);
-  const right = typelessReads(node.right, isBuiltin);
+  const left = originOf(node.left, isBuiltin);
+  const right = originOf(node.right, isBuiltin);
   if (left === undefined || right === undefined) return;
-  const reads = [...left, ...right];
+  // A float-written literal or a float-written constant in either operand makes a float
+  // division, which is accepted (Amendment A3, "실수 나눗셈으로 허용").
+  if (left.float || right.float) return;
+  const reads = [...left.reaches, ...right.reaches];
   if (reads.length === 0) return;
   let table = divisionsOf.get(sourceFile);
   if (table === undefined) divisionsOf.set(sourceFile, (table = new Map()));
@@ -437,29 +550,84 @@ export function noteAbstractDivision(
   divisionByNode.set(node, division);
 }
 
-/** Whether `node` holds a bitwise or shift operator: its value is an integer's. */
-function holdsBitwise(node: ts.Node): boolean {
-  if (ts.isBinaryExpression(node) && BITWISE.has(node.operatorToken.kind)) return true;
-  return ts.forEachChild(node, (child) => (holdsBitwise(child) ? true : undefined)) === true;
+/** Whether `node` is a bitwise or shift operation, whose value is an integer's. */
+function isBitwise(node: ts.Node): boolean {
+  return (
+    (ts.isBinaryExpression(node) && BITWISE.has(node.operatorToken.kind)) ||
+    (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.TildeToken)
+  );
 }
 
-/** `node` as written, with each read of a constant of no fixed type converted: `f32(k)`. */
-function withReadsConverted(node: ts.Node, sourceFile: ts.SourceFile): string {
-  const reads: ts.Node[] = [];
+/** The parts of `node` that carry an origin as a whole: a read of a constant of no fixed type,
+ *  and a variable, a counter or a call that carries one. */
+function originLeaves(node: ts.Node): ts.Node[] {
+  const out: ts.Node[] = [];
   const visit = (n: ts.Node): void => {
-    if (readByNode.has(n) || carriedByNode.has(n)) reads.push(n);
+    if (readByNode.has(n) || carriedByNode.has(n)) out.push(n);
     else ts.forEachChild(n, visit);
   };
   visit(node);
+  return out;
+}
+
+/** `node` as written, with each part that carries an origin converted to `type`: `f32(k) / 2`,
+ *  `xs[i32(k) / 2]`. A float conversion of a value under a bitwise or shift operator converts
+ *  the outermost such operation instead, which has an integer's value: `f32(k | 1) / 2`. */
+function withOriginsConverted(node: ts.Node, type: string, sourceFile: ts.SourceFile): string {
+  const wrapped = new Set<ts.Node>();
+  for (const leaf of originLeaves(node)) {
+    let at: ts.Node = leaf;
+    if (type === 'f32' || type === 'f64') {
+      for (
+        let up: ts.Node | undefined = leaf.parent;
+        up !== undefined && up !== node.parent;
+        up = up.parent
+      ) {
+        if (isBitwise(up)) at = up;
+        if (up === node) break;
+      }
+    }
+    // `(k | 1)` converted is `f32(k | 1)`, not `(f32(k | 1))`.
+    const paren = at.parent;
+    wrapped.add(
+      paren !== undefined &&
+        ts.isParenthesizedExpression(paren) &&
+        paren !== node &&
+        holds(node, paren)
+        ? paren
+        : at,
+    );
+  }
+  // An outer wrap holds an inner one: keep the outer.
+  const outer = [...wrapped].filter(
+    (n) => ![...wrapped].some((other) => other !== n && holds(other, n)),
+  );
   const start = node.getStart(sourceFile);
   let out = '';
   let at = start;
-  for (const read of reads.sort((a, b) => a.getStart(sourceFile) - b.getStart(sourceFile))) {
-    out += sourceFile.text.slice(at, read.getStart(sourceFile));
-    out += `f32(${read.getText(sourceFile)})`;
-    at = read.getEnd();
+  for (const n of outer.sort((x, y) => x.getStart(sourceFile) - y.getStart(sourceFile))) {
+    out += writtenRange(sourceFile, at, n.getStart(sourceFile));
+    out += `${type}(${writtenText(ts.isParenthesizedExpression(n) ? n.expression : n)})`;
+    at = n.getEnd();
   }
-  return (out + sourceFile.text.slice(at, node.getEnd())).replace(/\s+/g, ' ');
+  return (out + writtenRange(sourceFile, at, node.getEnd())).replace(/\s+/g, ' ');
+}
+
+/** Whether a read of `info` inside `node` stands under a unary minus. */
+function negatedIn(node: ts.Node, info: AbstractConst): boolean {
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (
+      ts.isPrefixUnaryExpression(n) &&
+      n.operator === ts.SyntaxKind.MinusToken &&
+      originLeaves(n.operand).some((leaf) => readByNode.get(leaf as ts.Expression) === info)
+    ) {
+      found = true;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return found;
 }
 
 const ANOTHER_READ = 'where another line reads it, and no operand of';
@@ -475,36 +643,68 @@ export function isAbstractDivisionRefusal(d: {
   return d.code === TS_CODES.TYPE_MISMATCH && d.message.includes(ANOTHER_READ);
 }
 
-/** The sentence of a refused `/` (decisions Q6, Q10 and Q11): what is wrong, and the one edit
- *  that says which division the author means where the quotient stands. An integer position
- *  (`xs[k / 2]`, `r + k / 2`) or a bitwise operand names the constant with its type written;
- *  any other position names the `/` with its constants converted. */
+/** The sentence of a refused `/` or `/=` (decisions Q6, Q10 and Q11; Amendments A2 and A3):
+ *  what is wrong, and the one edit that compiles where the quotient stands. The subject is the
+ *  constant as the `/` reads it (`L.K`, `KK`), or by its name when the `/` reaches it through
+ *  another value.
+ *
+ *  - Where an integer position reads the quotient (`xs[k / 2]`, `r + k / 2`, `let j: u32 = …`),
+ *    the edit is the constant declared with the type that position asks, when every other read
+ *    agrees with it and the constant is declared in this file; otherwise the `/` with each value
+ *    converted to that type (`xs[i32(k) / 2]`).
+ *  - Anywhere else, the `/` with each value converted to `f32`, a bitwise operation converted as
+ *    a whole (`f32(k | 1) / 2`).
+ *  - A `/=` names the variable declared with the type it has: an integer keeps the integer
+ *    division, an `f32` the float one. */
 export function abstractDivisionMessage(
   info: AbstractConst,
   read: { readonly type: 'i32' | 'u32' },
-  division: { readonly node: ts.BinaryExpression; readonly asked?: 'i32' | 'u32' },
+  division: {
+    readonly node: ts.BinaryExpression;
+    readonly asked?: 'i32' | 'u32';
+    readonly anyInteger?: boolean;
+  },
   sourceFile: ts.SourceFile,
 ): string {
   const { node } = division;
-  const written = node.getText(sourceFile).replace(/\s+/g, ' ');
-  const short = info.name.includes('.')
-    ? info.name.slice(info.name.lastIndexOf('.') + 1)
-    : info.name;
-  const integer = division.asked !== undefined || holdsBitwise(node);
-  // `y /= 2` has no operand to convert: the variable with its type written is the float edit.
-  const float =
-    node.operatorToken.kind === ts.SyntaxKind.SlashEqualsToken
-      ? (carriedByNode.get(stripParens(node.left))?.declaredF32 ??
-        withReadsConverted(node, sourceFile))
-      : withReadsConverted(node, sourceFile);
+  const written = writtenText(node).replace(/\s+/g, ' ');
+  const direct = originLeaves(node).find((leaf) => readByNode.get(leaf as ts.Expression) === info);
+  const subject = direct !== undefined ? writtenText(direct) : info.name;
+  const short = writtenText(info.nameNode).replace(/^#/, '');
+  const operator = node.operatorToken.getText(sourceFile);
+  let edit: string;
+  let kind: 'integer' | 'float';
+  if (node.operatorToken.kind === ts.SyntaxKind.SlashEqualsToken) {
+    const variable = carriedByNode.get(stripParens(node.left))?.variable;
+    const integer = variable?.type === 'i32' || variable?.type === 'u32';
+    kind = integer ? 'integer' : 'float';
+    edit =
+      variable === undefined
+        ? `${node.left.getText(sourceFile)} = f32(${node.left.getText(sourceFile)}) / ${node.right.getText(sourceFile)}`
+        : `${variable.keyword} ${variable.name}: ${variable.type} = ${variable.init}`;
+    void sourceFile;
+  } else if (division.asked !== undefined) {
+    kind = 'integer';
+    // An index takes either integer type: the other reads' type, when they agree, keeps them.
+    const type =
+      division.anyInteger === true && info.integerReads.every((r) => r.type === read.type)
+        ? read.type
+        : division.asked;
+    const declarable =
+      sameFile(info.nameNode, node) &&
+      info.integerReads.every((r) => r.type === type) &&
+      !(type === 'u32' && negatedIn(node, info));
+    edit = declarable
+      ? `${info.keyword} ${short}: ${type} = ${info.written}`
+      : withOriginsConverted(node, type, sourceFile);
+  } else {
+    kind = 'float';
+    edit = withOriginsConverted(node, 'f32', sourceFile);
+  }
   return (
-    `"${info.name}" is ${read.type === 'u32' ? 'a u32' : 'an i32'} ${ANOTHER_READ} ` +
-    `"${written}" has a declared type, so the "${node.operatorToken.getText(sourceFile)}" does not say which ` +
-    `division it is. Write ` +
-    (integer
-      ? // The type of the other read, which then stays as written (`h(k)`, `xs[k / 2]`).
-        `"${info.keyword} ${short}: ${read.type} = ${info.written}" for the ` + `integer division.`
-      : `"${float}" for the float division.`)
+    `"${subject}" is ${read.type === 'u32' ? 'a u32' : 'an i32'} ${ANOTHER_READ} ` +
+    `"${written}" has a declared type, so the "${operator}" does not say which division it is. ` +
+    `Write "${edit}" for the ${kind} division.`
   );
 }
 

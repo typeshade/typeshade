@@ -759,6 +759,12 @@ describe('every refusal that names a line is pinned above', () => {
       note: "names a parameter's or field's attribute type, which is no declaration; `tshc migrate` writes it (a stage attribute is the entry's form since change 0130, and has no sentence here); and, for the refused type form of a qualifier (change 0137), the parameter as the language writes it, `@inout a: f32`, a parameter to rewrite and no declaration",
     },
     {
+      file: 'abstract-const.ts',
+      sites: 1,
+      lines: 0,
+      note: 'names one edit for a `/` that reaches a constant of no fixed type, built from the source of the `/`: the constant declared with the type the position asks, or the `/` with each value converted; the author chooses which division is meant, so no case pastes it mechanically here; `abstract-const.test.ts` applies each edit and holds the result to compile clean in both halves (change 0134)',
+    },
+    {
       file: 'stage-call.ts',
       sites: 2,
       lines: 0,

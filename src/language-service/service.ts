@@ -1,5 +1,6 @@
 // === createTypeshadeLanguageService: the TypeshadeLanguageService of design doc §4 ===
 
+import { TS_CODES } from '../compiler/ts/codes.js';
 import {
   isAbstractDivisionRefusal,
   markProjectedAnnotations,
@@ -351,7 +352,23 @@ export function createTypeshadeLanguageServiceWith(
         if (!own.some(same) && !added.some(same)) added.push(row);
       }
     }
-    return added.length === 0 ? own : [...own, ...added].sort(byDocumentOrder);
+    if (added.length === 0) return own;
+    // The program's refusal of the `/` replaces a mismatch this file alone raised around it (its
+    // quotient beside an integer), as `compile()` of the program does (Rule 12.4).
+    const before = (a: TypeshadePosition, b: TypeshadePosition): boolean =>
+      a.line < b.line || (a.line === b.line && a.character <= b.character);
+    const kept = own.filter(
+      (o) =>
+        !(
+          o.code === TS_CODES.TYPE_MISMATCH &&
+          o.severity === 'error' &&
+          !isAbstractDivisionRefusal({ code: String(o.code), message: o.message }) &&
+          added.some(
+            (row) => before(o.range.start, row.range.start) && before(row.range.end, o.range.end),
+          )
+        ),
+    );
+    return [...kept, ...added].sort(byDocumentOrder);
   }
 
   const inner: TypeshadeLanguageService = {

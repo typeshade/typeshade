@@ -358,6 +358,13 @@ export function writtenText(node: ts.Node): string {
   return LINKED_ORIGIN.written(node.getStart(sf), node.getEnd())?.text ?? node.getText(sf);
 }
 
+/** The text from `start` to `end` of `sf` as its own file writes it, where the linker joined
+ *  files into `sf`; the text of `sf` itself otherwise or where the range maps to no one file. */
+export function writtenRange(sf: ts.SourceFile, start: number, end: number): string {
+  if (LINKED_ORIGIN?.sourceFile !== sf) return sf.text.slice(start, end);
+  return LINKED_ORIGIN.written(start, end)?.text ?? sf.text.slice(start, end);
+}
+
 /** Whether `a` and `b` were written in one file: one file of the program a linked source joins,
  *  or the one source being lowered. */
 export function sameFile(a: ts.Node, b: ts.Node): boolean {

@@ -7,8 +7,10 @@ import {
   abstractLiteralOf,
   abstractTreeOf,
   carriedBy,
+  hasNoWrittenResult,
   markCarriedRead,
   noteAbstractDivision,
+  noteCarriedReturn,
   noteIntegerRead,
   type Carried,
   type AbstractConst,
@@ -88,6 +90,8 @@ import {
   retargetLit,
 } from '../numeric.js';
 import {
+  fitsTarget,
+  intLiteralRangeMessage,
   retargetDeclaredIntLit,
   retargetIntLitCtx,
   reportIntLitRange,
@@ -270,6 +274,25 @@ function lowerStatementKind(
       return inner === undefined
         ? undefined
         : { s: 'return', expr: absentOf(ret!, inner, (n) => scope.structByName(n)) };
+    }
+    // A function that writes no result type and returns a value that comes from a constant of
+    // no fixed type hands that origin to each call of it (Amendment A3 of change 0134).
+    // The language service writes the inferred `: f32` into the text it analyses; that
+    // annotation is not the author's (`hasNoWrittenResult`).
+    const owner = scope.owner();
+    const ownerNode = scope.ownerNode();
+    if (
+      owner !== undefined &&
+      ownerNode !== undefined &&
+      (scope.inferredReturn() !== undefined || hasNoWrittenResult(ownerNode, sourceFile))
+    ) {
+      noteCarriedReturn(
+        sourceFile,
+        owner.name,
+        node.expression,
+        (callee) =>
+          scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined,
+      );
     }
     // `return g()` where `g` returns nothing calls it and returns nothing, as TypeScript does;
     // neither target has a value for it to hand back.
@@ -824,7 +847,7 @@ function lowerDeclarationKind(
     decl.name,
     isConst ? foldIndexConst(init, scope) : undefined,
     isConst && decl.type === undefined && typeKey(bindingType) === 'f32'
-      ? abstractConstFor(name, decl.initializer)
+      ? abstractConstFor(name, decl.name, decl.initializer)
       : undefined,
     // `let y = k` has no declared type either: a `/` over `y` reaches `k` (Amendment A2).
     decl.type === undefined
@@ -832,6 +855,7 @@ function lowerDeclarationKind(
           isConst ? 'const' : 'let',
           name,
           decl.initializer,
+          bindingType,
           (callee) =>
             scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined,
         )
@@ -1778,6 +1802,19 @@ function lowerBitwiseAssignOpTo(
         isShift
           ? shiftAmountMessage(folded.value)
           : `Bitwise "${bop}=" on a u32 target needs a non-negative value, got ${String(folded.value)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
+    // A constant of no fixed type that the target's integer cannot hold is refused with §13's
+    // sentence, as a written number in a declared position is; it never reaches the writer as an
+    // out-of-range literal (`n ^= K` with `K = 4294967295` on an `i32`).
+    if (folded !== value && !isShift && !fitsTarget(folded.value, want)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        right,
+        intLiteralRangeMessage(folded.value, want),
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;

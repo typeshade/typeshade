@@ -2,7 +2,7 @@
 //
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
-import { moduleAbstractConst } from '../abstract-const.js';
+import { hasNoWrittenResult, moduleAbstractConst, noteCarriedReturn } from '../abstract-const.js';
 import { attributeDecoratorsOf, isTypeDecorator } from '../attribute-types.js';
 import { variableRefused } from '../refused-names.js';
 import { moduleVarSourceName } from '../module-var-names.js';
@@ -3583,6 +3583,16 @@ export function fillFunctionBody(
           : lowerArrowValue(node.body, stub, sourceFile, scope, diagnostics)
         : lowerStatements((node.body as ts.Block).statements, sourceFile, scope, diagnostics);
   if (inferRet === true) recordName();
+  // An expression body is the function's one `return`: a value that comes from a constant of no
+  // fixed type hands its origin to each call (Amendment A3 of change 0134), as a `return` does.
+  if (ts.isArrowFunction(node) && !ts.isBlock(node.body) && hasNoWrittenResult(node, sourceFile)) {
+    noteCarriedReturn(
+      sourceFile,
+      stub.name,
+      node.body,
+      (callee) => scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined,
+    );
+  }
   // A path that ends a function with an optional result without a `return` is the absent
   // value, as TypeScript reads the end of the body (Rule 7.10, change 0099): the return is
   // appended here, with the same value `return undefined;` lowers to. A plain function's

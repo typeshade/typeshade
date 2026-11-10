@@ -1,7 +1,12 @@
 // === Expression lowering ===
 //
 // Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
-import { markAbstractRead, markCarriedRead, noteAbstractDivision } from '../abstract-const.js';
+import {
+  carriedByCall,
+  markAbstractRead,
+  markCarriedRead,
+  noteAbstractDivision,
+} from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js';
@@ -174,6 +179,10 @@ export function lowerExpression(
     return undefined;
   }
   let value = lowerExpressionNode(node, sourceFile, scope, diagnostics, contextual);
+  // A call of a function, a method or a getter that writes no result type and returns a value
+  // that comes from a constant of no fixed type carries that origin (Amendment A3 of 0134).
+  if (value?.op === 'call')
+    markCarriedRead(value, skipParens(node), carriedByCall(sourceFile, value.fn));
   // What the expression gave as written, before the position wraps it (change 0088).
   if (value !== undefined) noteValueType(node, value.type);
   // An optional nothing narrowed, where the position wants its `T`: the test to write, in

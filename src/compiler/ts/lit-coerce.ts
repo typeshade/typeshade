@@ -186,6 +186,9 @@ function retargetF64DeclaredLit(expr: Expr, node: ts.Expression): Expr {
  *  A conditional is retargeted through its arms, so `c ? 1 : 2` in a u32 position is a
  *  `select` of two u32 literals rather than a select of two f32 ones. */
 export function retargetIntLitCtx(expr: Expr, node: ts.Expression, target: ShaderType): Expr {
+  // An integer position asks an integer of a `/` inside what it reads (`let j: u32 = k / 2`,
+  // `h((k % 4) / 2)`): the refusal of that `/` names the integer edit (change 0134).
+  if (isIntScalar(target)) noteIntegerContext(node, typeKey(target) === 'u32' ? 'u32' : 'i32');
   // A DECLARED f64 is the one non-integer context that retypes a literal, and for the same
   // reason the integer contexts do: the type is stated, so the written number means a value
   // of it. `const k: f64 = 0.1` lowered `0.1` to an f32 and then reported "cannot let/const k

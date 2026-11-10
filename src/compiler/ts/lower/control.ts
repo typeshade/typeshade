@@ -1,4 +1,4 @@
-import { abstractTreeOf } from '../abstract-const.js';
+import { abstractTreeOf, originOf } from '../abstract-const.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
@@ -464,7 +464,14 @@ function lowerHeaderCounter(
     ((isIntegerLiteralTree(bound) && (abstractTreeOf(bound)?.reads.length ?? 0) === 0) ||
       (boundType !== undefined && isIntScalar(boundType)));
   const floatWritten = ts.isNumericLiteral(start) && !isIntegerWritten(start);
-  if (annotated !== undefined || !floatWritten || intBound) {
+  // A start that comes from a constant of no fixed type keeps the type the counter has on
+  // `main`, the constant's emitted type, as a counter bounded by one does, and the counter
+  // carries that origin (Amendment A3 of change 0134).
+  const builtin = (callee: string): boolean =>
+    scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined;
+  const origin = decl.type === undefined ? originOf(written, builtin) : undefined;
+  const fromConstant = origin !== undefined && origin.reaches.length > 0;
+  if (!fromConstant && (annotated !== undefined || !floatWritten || intBound)) {
     // The induction variable's declared type, or i32 when there is no annotation. `for (let j:
     // i32 = -1; …)` reaches this with a PrefixUnaryExpression rather than a NumericLiteral, which
     // the `init.op === 'lit'` special case this replaces never matched — so the initializer kept
@@ -503,6 +510,7 @@ function lowerHeaderCounter(
     type,
     mutable: true,
     constValue: init.op === 'lit' ? init.value : undefined,
+    ...(fromConstant ? { carries: origin } : {}),
   });
   scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'local', type, mutable: true });
   // What a local function in the loop body reads `i` through (Rule 8.17).

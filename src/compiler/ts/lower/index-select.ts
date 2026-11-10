@@ -1,3 +1,4 @@
+import { noteIntegerContext } from '../abstract-const.js';
 import {
   logicalTypeKey as typeKey,
   absentLiteral,
@@ -114,6 +115,8 @@ function lowerIndexOf(
     }
     return { op: 'index', type: (base.type as { elem: ShaderType }).elem, base, idx };
   }
+  // An index takes either integer type (change 0134): a `/` it reads names the other reads' type.
+  noteIntegerContext(node.argumentExpression, 'i32', true);
   idx = retargetIntLit(idx, node.argumentExpression, i32T);
   const ik = typeKey(idx.type);
   if (ik !== 'i32' && ik !== 'u32') {
