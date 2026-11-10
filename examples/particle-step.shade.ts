@@ -29,7 +29,7 @@ class Particle {
     this.age++;
   }
   bounce(): void {
-    if (this.pos.y < 0.) {
+    if (this.pos.y < 0) {
       this.pos.y = -this.pos.y;
       this.vel.y = -this.vel.y * 0.8;
     }
@@ -50,6 +50,6 @@ export function k(gid: builtin<"global_invocation_id">): void {
   }
   ps[gid.x].tick(delta);
   if (ps[gid.x].speed() < 0.01) {
-    ps[gid.x].vel = vec2(0., 0.);
+    ps[gid.x].vel = vec2(0, 0);
   }
 }

@@ -31,22 +31,22 @@ interface Color {
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
   // vec2<u32> → vec2<f32>: WGSL `vec2<f32>(v)`, GLSL `vec2(v)`.
-  const bits = vec2u(vi & u32(1), vi >> u32(1));
+  const bits = vec2u(vi & 1, vi >> 1);
   const corner = vec2(bits);
   // Annotated, not inferred: the editor's ambient lib gives vector arithmetic the type
   // `number`, and handing that straight to `vec4(...)` is a TS2345 it does not filter (#21).
   // A declared type is the shape its TS2322 arm already covers.
-  const p: vec2 = corner * 4. - vec2(1., 1.);
-  return { pos: vec4(p, 0., 1.), uv: corner };
+  const p: vec2 = corner * 4 - vec2(1, 1);
+  return { pos: vec4(p, 0, 1), uv: corner };
 }
 
 @fragment
 export function fs(v: VsOut): Color {
   // f32 → u32 (saturating, which is the rule this item documents) and straight back, so the
   // fragment reads the cell index of a 4×4 grid as a float again.
-  const scaled = v.uv * 4.;
+  const scaled = v.uv * 4;
   const cell = vec2u(scaled);
   const back = vec2(cell);
-  const shade = (back.x + back.y) / 6.;
-  return { color: vec4(shade, 1. - shade, 0.35, 1.) };
+  const shade = (back.x + back.y) / 6;
+  return { color: vec4(shade, 1 - shade, 0.35, 1) };
 }

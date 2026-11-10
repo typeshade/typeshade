@@ -35,19 +35,19 @@ interface VsOut {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const xs: array<f32, 3> = [-1., 3., -1.];
-  const ys: array<f32, 3> = [-1., -1., 3.];
+  const xs: array<f32, 3> = [-1, 3, -1];
+  const ys: array<f32, 3> = [-1, -1, 3];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
-  return { pos: vec4(p, 0., 1.), id: vi + u32(1), uv: p * 0.5 + vec2(0.5, 0.5) };
+  return { pos: vec4(p, 0, 1), id: vi + 1, uv: p * 0.5 + vec2(0.5, 0.5) };
 }
 
 @fragment
 export function fs(v: VsOut): vec4 {
   // The id arrives whole, the same value for every fragment of the triangle, which is what
   // `flat` means and why an integer varying may not be anything else.
-  const band: f32 = f32(v.id & u32(3)) / 3.;
-  const grid: vec2 = fract(v.uv * 8.);
-  const line: f32 = 1. - step(0.06, min(grid.x, grid.y));
-  return vec4(band, v.uv.x * 0.5, v.uv.y * 0.5, 1.) + vec4(line * 0.4, line * 0.4, line * 0.4, 0.);
+  const band: f32 = f32(v.id & 3) / 3;
+  const grid: vec2 = fract(v.uv * 8);
+  const line: f32 = 1 - step(0.06, min(grid.x, grid.y));
+  return vec4(band, v.uv.x * 0.5, v.uv.y * 0.5, 1) + vec4(line * 0.4, line * 0.4, line * 0.4, 0);
 }

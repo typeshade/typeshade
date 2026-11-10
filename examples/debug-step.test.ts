@@ -108,8 +108,8 @@ describe('hello.shade.ts — stepping a vertex entry', () => {
       'let y = -0.8;',
       'if (i === 1) {\n    x = 0.8;\n  }',
       'x = 0.8;',
-      'if (i === 2) {\n    x = 0.;\n    y = 0.8;\n  }',
-      'return { pos: vec4(x, y, 0., 1.) };',
+      'if (i === 2) {\n    x = 0;\n    y = 0.8;\n  }',
+      'return { pos: vec4(x, y, 0, 1) };',
     ]);
   });
 
@@ -118,10 +118,10 @@ describe('hello.shade.ts — stepping a vertex entry', () => {
       'let x = -0.8;',
       'let y = -0.8;',
       'if (i === 1) {\n    x = 0.8;\n  }',
-      'if (i === 2) {\n    x = 0.;\n    y = 0.8;\n  }',
-      'x = 0.;',
+      'if (i === 2) {\n    x = 0;\n    y = 0.8;\n  }',
+      'x = 0;',
       'y = 0.8;',
-      'return { pos: vec4(x, y, 0., 1.) };',
+      'return { pos: vec4(x, y, 0, 1) };',
     ]);
   });
 
@@ -156,7 +156,7 @@ describe('hello.shade.ts — stepping a vertex entry', () => {
   });
 
   it('the fragment entry steps too, and its one statement is its return', () => {
-    expect(walk(module, src, 'fs', [])).toEqual(['return { color: vec4(1., 0., 0., 1.) };']);
+    expect(walk(module, src, 'fs', [])).toEqual(['return { color: vec4(1, 0, 0, 1) };']);
   });
 });
 
@@ -181,7 +181,7 @@ describe('compute-reduction-twin.shade.ts — stepping one compute invocation', 
       'const idx = gid.x;',
       'if (idx >= params.x) {\n    return;\n  }',
       'const base = idx * 8;',
-      'let sum = 0.;',
+      'let sum = 0;',
       'for (let j: u32 = 0; j < 8; j++) {\n    sum = sum + input[base + j];\n  }',
       'let j: u32 = 0',
     ]);

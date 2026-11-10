@@ -44,6 +44,7 @@ import {
   retargetDeclaredIntLit,
 } from '../lit-coerce.js';
 import { spanOf } from '../span.js';
+import { internalOpOf, lowerInternalOp } from '../internal-ops.js';
 import { lowerExpression } from './expression.js';
 import { refuseOptionalCall, refuseOptionalUse } from './optional-values.js';
 import { JS_ARRAY_METHODS } from './expression-prop.js';
@@ -573,6 +574,18 @@ export function lowerCall(
     ctor = VEC_CTOR[name];
     ctorName = name;
     if (!ctor) {
+      // A compiler-internal operation of the libm's source (change 0042). Lowered only inside
+      // `withInternalOps`; in an author's file the name falls through to "nothing declares it".
+      const internalOp = internalOpOf(name);
+      if (internalOp !== undefined) {
+        const lowered: Expr[] = [];
+        for (const a of node.arguments) {
+          const arg = lowerExpression(a, sourceFile, scope, diagnostics);
+          if (!arg) return undefined;
+          lowered.push(arg);
+        }
+        return lowerInternalOp(name, internalOp, lowered, node, sourceFile, diagnostics);
+      }
       if (name === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics);
       // A texture read is a canonical intrinsic name too, but its arity and result type both
       // depend on the texture argument, so it is routed to lowerTextureCall below rather than

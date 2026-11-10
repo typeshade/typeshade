@@ -29,6 +29,7 @@ import { renameFunctions, renameTargetOf } from './passes/rename-predeclared.js'
 import { spellModule } from './passes/spell-names.js';
 import { assertHostOwnedSpellable, inheritSpellings, spellingsOf } from './spelling-plan.js';
 import { reflect, type Reflection } from './reflect.js';
+import { CPU_ONLY_IDS } from './cpu-only-ids.js';
 
 const pad = (depth: number): string => '  '.repeat(depth);
 
@@ -205,6 +206,11 @@ function emitLeaf(
       // CPU/debug backend delivers them to ConsoleSink. Keeping a comment here preserves valid
       // WGSL/GLSL output without inventing a shader-side console API.
       if (e.fn.startsWith('console.')) return `/* typeshade ${e.fn} */`;
+      // A CPU-only id (the rounding step, an internal operation of the libm) has no shader
+      // spelling. A module that declares a function under the name calls that function.
+      if (CPU_ONLY_IDS.has(e.fn) && !declaredByName.has(e.fn)) {
+        throw new Error(`typeshade/emit: "${e.fn}" is CPU-only and has no shader spelling`);
+      }
       // A registry spelling that splices an argument into a tighter position — `mod`'s
       // `/` operand, `pack4x8unorm`'s `.x` base — needs it as a PRIMARY: at the loose
       // argument precedence a minimally-parenthesized `a + b` re-associates inside the

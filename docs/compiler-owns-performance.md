@@ -228,7 +228,7 @@ Alternatives section names a compiler-internal subgroup reduction as a later pro
 1. A strategy the compiler chooses (a subgroup reduction, the emulated double's flavor): the
    compiler emits the variants, and the runtime selects one by feature and probe. The author never
    sees it.
-2. A capability the source implies (an `f16` type, `@builtin("view_index")`): the compiler derives
+2. A capability the source implies (an `f16` type, `builtin<"view_index">`): the compiler derives
    it from the shape. A device without it gets a lowering that keeps the value. For `f16`, compute
    in `f32` and round to `f16` after each operation. A device without multiview draws once for
    each view, with the view index as a uniform.

@@ -659,6 +659,34 @@ lists. It reported two open points, and the owner decided each in the Claude Cod
   file is added.
 - Status: `status: accepted` does not change.
 
+### Amendment A3. One sentence of Rule 6.6, and the decorated form in five sentences (2026-11-10)
+
+Pull request #1176 (merged into `main` as `5c547c83`) delivered amendment A2 and reported what
+it found and did not edit. The owner decided it in the Claude Code session on 2026-11-10, after
+the sentence was shown before and after (`OD-4`).
+
+- [fact] Rule 6.6 says "a field of one carries its attribute in its type and needs no
+  initializer and no `!`". Since item 2, a user-defined input or output may write no attribute:
+  `uv: vec2` takes its location from the compiler. The sentence is true only of a field that
+  writes one.
+- [fact] Five sentences outside the surface document name a built-in value in the decorated
+  form, `@builtin("...")`, as the form in use: `docs/language-design.md` §2.3 ("is an argument
+  of `@builtin("...")`"), `docs/compiler-owns-performance.md` (a capability the source implies),
+  `docs/debugging.md` (the value a field gets) and `docs/language-service-api.md` (the `TS8024`
+  row and the string-completion note). None is in a compiled block.
+- [decision, owner, 2026-11-10] "수정안으로 고치기", on the agent's recommendation. Rule 6.6's
+  clause is replaced. Old: "a field of one carries its attribute in its type and needs no
+  initializer and no `!`". New: "a field of one writes its attribute in its type where it
+  writes one (a user-defined input or output may leave its location to the compiler), and
+  needs no initializer and no `!`". No other sentence of the rule changes.
+- The five sentences name the built-in value in the language's form, `builtin<"...">`. A
+  sentence that describes what the editor does inside the string of the decorated form (the
+  completion of built-in names) says what the editor does today, in both forms if it serves
+  both; the implementing pull request measures it and writes what is true.
+- Affects: Rule 6.6, which the front matter declares, and `reqs/rules/RULE-0606.md`. No
+  front-matter field changes. One pull request, with `Change: 0135`, delivers it.
+- Status: `status: accepted` does not change.
+
 ### Configuration and validation record
 
 The front-matter `status` stays `accepted`: the deviations below that are open wait for the
@@ -797,13 +825,100 @@ coordinating session. The merge of pull request #1171 records the delivered comm
   `RULE-1201` reviewed; the suspect links of `SURF-003`, `SURF-007`, `SURF-014`, `SURF-026`,
   `SURF-063` and `SURF-076` cleared after reading each section).
 
-| #   | Difference from Amendment A1                                                                                                                                                                                                                                         | Disposition                                                                                |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| A   | `README.md`, `docs/use-typeshade.md` and one row of `examples/README.md` wrote the decorated form of change 0111, which warns too. They move to the type form with the same rewrite.                                                                                 | Open: the owner decides whether these lines belong to this change.                         |
-| B   | `AUTHORING.md` ("Stage parameters") keeps `uv: location<0, vec2>`, although the compiler gives the same number. Its paragraph introduces `location<n, T>`, and the block is its example.                                                                             | Closed: the section teaches the written form.                                              |
-| C   | Surface §2 and §29 still name `builtin<"...", T>` as the form of a field. §38 writes a location that the compiler would give. One block of §77 writes the decorated form, with its `TS8028` warning. The front matter does not declare these sections, so they stay. | Open: an amendment that declares §2, §29, §38 and §77 lets a later pull request move them. |
+| #   | Difference from Amendment A1                                                                                                                                                                                                                                         | Disposition                                                               |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| A   | `README.md`, `docs/use-typeshade.md` and one row of `examples/README.md` wrote the decorated form of change 0111, which warns too. They move to the type form with the same rewrite.                                                                                 | Closed: the owner decided that they stay as moved (Amendment A2, "두기"). |
+| B   | `AUTHORING.md` ("Stage parameters") keeps `uv: location<0, vec2>`, although the compiler gives the same number. Its paragraph introduces `location<n, T>`, and the block is its example.                                                                             | Closed: the section teaches the written form.                             |
+| C   | Surface §2 and §29 still name `builtin<"...", T>` as the form of a field. §38 writes a location that the compiler would give. One block of §77 writes the decorated form, with its `TS8028` warning. The front matter does not declare these sections, so they stay. | Closed by the delivery of Amendment A2 (the record below).                |
 
 The hover of Amendment A1 (deviation 5) is a separate pull request. `status` stays `accepted`.
+
+**Delivery of Amendment A2: surface §2, §29, §38 and §77.** Written on 2026-11-10 (UTC) by the
+AI agent (Claude Code) that made the change, at the direction of the coordinating session. Its
+pull request records the delivered commit and each check with its result. This record closes
+deviation C of the table above.
+
+- Configuration: branch `claude/clever-ramanujan-yrfjsq-0135-docs2`, based on `main` at
+  `4a517ddb`. Tools: Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3, Vitest 5.0.5, Doorstop 3.2.
+- Delivered, in `docs/use-typeshade-surface.md` only:
+  - §2: the paragraph on an entry I/O field says that a built-in value is `builtin<"...">`, that
+    only `clip_distances` writes its type, that a user-defined field may leave its location to
+    the compiler, and where each option goes. The paragraph on a bare entry parameter names
+    `builtin<"...">` and adds the parameter with no attribute.
+  - The two lines of the document's header that amendment A2 names under §2: the sketch writes
+    `interface VsOut { pos: builtin<"position"> }`, and the table row says "when one is
+    written".
+  - §29: a mixin field is typed `builtin<"...">` or `location<n, T>`, or has no attribute.
+  - §38: `color: location<0, vec4>` becomes `color: vec4`.
+  - §77: the compiled block writes `gid: builtin<"global_invocation_id">`. The opening sentence
+    and one row of the refusal table name `builtin<"subgroup_id">` and
+    `builtin<"num_subgroups">`.
+- Method: a scratch script read each fenced block of `README.md`, `AUTHORING.md`, `docs/*.md`
+  and `examples/*.md` as `src/compiler/ts/doc-snippets.test.ts` reads them, on `4a517ddb` and on
+  the branch, and compared `compile()` and `reflect()`. A second script dropped each written
+  location with no option, one at a time, in every block that compiles.
+- Functional validation: the WGSL, the GLSL ES 3.00, `reflect()` and the diagnostics of the 131
+  fenced blocks that compile are the same as on `4a517ddb`, less the one `TS8028` warning of
+  §77. One block gave a `TS8028` warning before, and none gives one after. Each new statement
+  of §2, §29 and §77 was compiled: a mixin field with no attribute takes `@location(0)`, a bare
+  fragment parameter takes the location of the vertex result's field, and
+  `builtin<"subgroup_id">` on a fragment entry is `TS8025`.
+- Document validation: `bun run docs:refs`, `bun run docs:impact`,
+  `bun scripts/changes.ts --base origin/main`, `bun scripts/rule-citation.ts`,
+  `bun run reqs:sync` and `python scripts/doorstop-check.py -C -e -F`.
+
+| #   | Difference from Amendment A2                                                                                                                                                                                                      | Disposition                                               |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| A   | The header lines stand before `## 1.`, so `scripts/changes.ts` gives them to no section. Amendment A2 names them under §2, and they are edited.                                                                                   | Closed.                                                   |
+| B   | §77 also named the two subgroup values in the decorated form in two places outside its block. They move to `builtin<N>` with the block.                                                                                           | Closed: the section no longer writes the form that warns. |
+| C   | §38 keeps `uv: location<0, vec2>` on the parameter of `fs`: the block has no vertex entry, and the bare parameter is `TS8010`. The fragment of §2 keeps `position: location<0, vec3>`: its paragraph introduces `location<n, T>`. | Closed.                                                   |
+| D   | The second script found one written location that the compiler would give, in `AUTHORING.md` ("Stage parameters"), which deviation B of pull request #1171 closed. No surface section writes another.                             | Closed.                                                   |
+
+**Delivery of Amendment A3: one clause of Rule 6.6, and five sentences.** Written on 2026-11-10
+(UTC) by the AI agent (Claude Code) that made the change, at the direction of the coordinating
+session. Its pull request records the delivered commit and each check with its result.
+
+- Configuration: branch `claude/clever-ramanujan-yrfjsq-0135-rule66`, based on `main` at
+  `f6d476f8`. Tools: Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3, Vitest 5.0.5, Doorstop 3.2.
+- Delivered:
+  - Rule 6.6: the clause reads "a field of one writes its attribute in its type where it writes
+    one (a user-defined input or output may leave its location to the compiler), and needs no
+    initializer and no `!`". No other sentence of the rule changes.
+  - `docs/language-design.md` §2.3, `docs/compiler-owns-performance.md` and `docs/debugging.md`:
+    one sentence each names the built-in value as `builtin<"...">`.
+  - `docs/language-service-api.md`: the `TS8024` row, the `getCompletions` row of §5 and the
+    string-completion note of §10 say what the measurement below found.
+  - `reqs/rules/RULE-0606.md` (`bun run reqs:sync`; `RULE-0606` reviewed; the suspect links of
+    `SURF-003` and `SURF-007` cleared after reading surface §3 and §7).
+- Measurement [fact], with a scratch script over `createTypeshadeLanguageService()` and
+  `compile()` on `f6d476f8`:
+
+  | Asked                                                           | `builtin<"…">`                                                         | The decorated `@builtin("…")`                      |
+  | --------------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------- |
+  | `getCompletions` inside the string, closed or unterminated      | The built-in names, filtered by the stage of the enclosing entry       | The same list                                      |
+  | `getCompletions` inside any other string                        | Nothing                                                                | Nothing                                            |
+  | A name WGSL does not have (`"vertex_idx"`)                      | `TS8024`, `Unknown builtin "vertex_idx". Did you mean "vertex_index"?` | The same `TS8024`                                  |
+  | A name argument that is no string (`builtin<3>`, `@builtin(3)`) | `TS8002` in the compiler; the editor adds TypeScript's TS2344          | `TS8024`, `@builtin takes one name as a string: …` |
+
+  So the completion sentences name both forms, and the `TS8024` row gives the malformed
+  argument to the decorated form only. `src/language-service/new-entry-forms.test.ts` and
+  `src/language-service/completions.test.ts` already hold the completion in each form.
+
+- Functional validation: no source file changes. The pull request's description lists the
+  build, the type checks, the lint, the whole `npx vitest run` and `bun run bake:goldens` with
+  their results.
+- Document validation: `bun run docs:refs`, `bun run docs:impact`,
+  `bun scripts/changes.ts --base origin/main`, `bun scripts/rule-citation.ts`,
+  `bun run reqs:sync` and `python scripts/doorstop-check.py -C -e -F`. `bun run docs:impact`
+  listed 88 places that cite Rule 6.6: 40 in `src/`, 8 in `docs/` and 40 in `changes/`. Each was
+  read. None in `src/` or `docs/` says that every field of an entry I/O struct carries an
+  attribute.
+
+| #   | Difference from Amendment A3                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Disposition                                                   |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| A   | Amendment A3 counts five sentences and names two in `docs/language-service-api.md`. A third sentence there, the `getCompletions` row, says the same thing as the string-completion note, so it is edited with it.                                                                                                                                                                                                                                                                           | Closed.                                                       |
+| B   | Other sentences still name a built-in value by the decorated form, and amendment A3 does not list them: `README.md` ("`@builtin(...)` ids"), `examples/README.md` ("the `@vertex` / `@builtin(...)` decorators"), `docs/debugging.md` ("carrying `@builtin(...)` or `@location(n)`"), four places of `docs/language-service-api.md` (the `getSemanticTokens` row, the `TS8025` row, the `BUILTIN_DOCS` sentence, the rename note) and the text of Rules 10.1 and 12.1. They are not edited. | Open: the owner decides whether a later amendment moves them. |
+| C   | Proposals 0111 and 0130 quote the older clause of Rule 6.6 as their own text. They record what each proposal approved, and they stay.                                                                                                                                                                                                                                                                                                                                                       | Closed.                                                       |
 
 ## What it owes downstream
 

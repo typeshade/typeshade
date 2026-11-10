@@ -33,9 +33,9 @@ interface Color {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & u32(1)) * 4. - 1.;
-  const y = f32(vi >> u32(1)) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) * 0.5 + vec2(0.5, 0.5) };
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x, y) * 0.5 + vec2(0.5, 0.5) };
 }
 
 @fragment
@@ -47,7 +47,7 @@ export function fs(v: VsOut): Color {
   const dims = textureDimensions(tex);
   const width = f32(dims.x);
   // `clamp`, not `saturate`: that alias is A6, on its own branch.
-  const edge = clamp(v.uv.x * width / (width + 1.), 0., 1.);
+  const edge = clamp(v.uv.x * width / (width + 1), 0, 1);
   const grey = dot(texel.rgb, vec3(0.299, 0.587, 0.114));
   // The vector `t` and the annotated `const` are both spellings around the editor's ambient
   // lib, not the compiler: `mix<T extends Numeric>(a: T, b: T, t: T)` has no scalar-`t`

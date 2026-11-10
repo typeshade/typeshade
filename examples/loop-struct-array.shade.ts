@@ -16,11 +16,11 @@ class Particle {
 
 // One frame: gravity, then a bounce off the floor at y = 0 that keeps 80% of the speed.
 export function step(ps: array<Particle>, dt: f32) {
-  const g = vec4(0., -9.8, 0., 0.) * dt;
+  const g = vec4(0, -9.8, 0, 0) * dt;
   for (let i: u32 = 0; i < ps.length; i++) {
     let v = ps[i].vel + g;
     let p = ps[i].pos + v * dt;
-    if (p.y < 0.) {
+    if (p.y < 0) {
       p.y = -p.y;
       v.y = -v.y * 0.8;
     }

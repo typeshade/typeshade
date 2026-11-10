@@ -259,6 +259,29 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   8.7), `@compute([8])` and one `@workgroup_size([8])` compile as before, with the same emit.
   `tshc migrate` rewrites neither form: the author deletes `()` or the second attribute. No
   official release accepted the refused forms (OD-6).
+
+- **`sin` and `cos` on the CPU are the libm's, not the engine's** (change 0042, milestone 1a).
+  The CPU oracle and the CPU tier computed `sin` and `cos` with the engine's `Math.sin` and
+  `Math.cos`, whose results ECMAScript leaves to the engine. They now compute them with routines
+  of the compiler's own libm, over every input. The result for an `f32` operand is the `f64`
+  routine's result rounded once to `f32`, the same from a call, a module constant and a
+  compile-time fold. A result may differ from before in the last bit, and it is the same on Node and on Bun. Each
+  routine's error is under 1 ULP; no routine claims a correctly rounded result. `Math.sin(t)` in
+  a `"use typeshade"` function may differ in the last bit from `Math.sin(t)` in host code. A
+  compile-time `f64` constant that calls `sin` or `cos` takes the libm's value, so its emitted
+  literal pair no longer depends on the engine that compiles. A GPU's `sin` and `cos` stay the
+  driver's. No syntax changes, and no author-facing name is added. The other 17 functions of the
+  libm's list are still the engine's. A shader writer now throws on a
+  module that carries a CPU-only operation of the compiler; no author's program can carry one.
+  The caps of `scripts/bundle-budget.json` take the measured gzip sizes. The two bundles that
+  hold the CPU op library: `typeshade/algorithms` single file 52,990 to 55,438 (+2,448), split
+  initial and total 52,182 to 54,595; `typeshade/random` single file 34,300 to 36,707 (+2,407),
+  split initial and total 33,551 to 35,909. The three bundles that hold the emit walk, for the
+  writer's check: `typeshade/runtime` single file 164,811 to 164,896 (+85), split total 167,003
+  to 167,078; `typeshade/emit` 117,278 to 117,367 (+89); `typeshade/fuse` single file 113,264
+  to 113,354 (+90), split total 113,824 to 113,902. The floors and the other caps do not
+  change.
+
 - **A bare compute entry parameter is refused** (change 0135). `@compute([64]) export function
 c(x: u32)` compiled to `fn c(x: u32)`, which Tint refuses, with no diagnostic. It is `TS8029`
   now, in the sentence a `location<…>` on a compute entry has. `TS8029` no longer reports a
@@ -1929,6 +1952,13 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `docs/ir-builder.md` describes the builder for engines and tools.
 
 ### Fixed
+
+- **A function an author names `__fround` is called on the CPU** (Rule 9.5). The `'f32'`
+  precision pass read the name alone and took a call of such a function for its own rounding
+  step, so `__fround(x)` gave `x` rounded on the CPU oracle and the CPU tier, while the emitted
+  WGSL and GLSL called the author's function. The pass now reads the declaration, as the CPU
+  engines do. A function named like another CPU-only id (`__f64Hi`, `__f64Lo`,
+  `__f64FromWords`, `__f64ToI32`) was already called.
 
 - **An argument on `@vertex` or `@fragment` is refused, not dropped** (Rules 8.1 and 6.7, change
   0130). `@fragment({ diagnostic: ["off", "derivative_uniformity"] })` and `@vertex(1)` compiled

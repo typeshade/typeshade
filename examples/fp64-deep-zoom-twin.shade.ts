@@ -41,13 +41,13 @@ interface VsOut {
 // because `==` is refused with TS8099.
 @vertex
 export function vs_full(idx: builtin<"vertex_index">): VsOut {
-  let pos = vec2(-1., -1.);
+  let pos = vec2(-1, -1);
   if (idx === 1) {
-    pos = vec2(3., -1.);
+    pos = vec2(3, -1);
   } else if (idx === 2) {
-    pos = vec2(-1., 3.);
+    pos = vec2(-1, 3);
   }
-  return { pos: vec4(pos, 0., 1.), uv: vec2((pos.x + 1.) * 0.5, (pos.y + 1.) * 0.5) };
+  return { pos: vec4(pos, 0, 1), uv: vec2((pos.x + 1) * 0.5, (pos.y + 1) * 0.5) };
 }
 
 @fragment
@@ -61,5 +61,5 @@ export function fs_stripes(vo: VsOut): vec4 {
   // fp64 toggle off, and the WHOLE screen takes the f32 path: the right half collapses flat in
   // place, which is what makes the emulation's contribution tangible.
   const v = (vo.uv.x < 0.5 || u.fp64 < 0.5) ? stripes32 : stripes64;
-  return vec4(v, v, v, 1.0);
+  return vec4(v, v, v, 1);
 }

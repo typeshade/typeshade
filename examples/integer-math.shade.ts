@@ -33,17 +33,17 @@ interface VsOut {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const xs = array(-1., 3., -1.);
-  const ys = array(-1., -1., 3.);
+  const xs = array(-1, 3, -1);
+  const ys = array(-1, -1, 3);
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
-  return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
+  return { pos: vec4(p, 0, 1), uv: p * 0.5 + vec2(0.5, 0.5) };
 }
 
 @fragment
 export function fs(v: VsOut): vec4 {
   // The texel this fragment covers, as a signed and as an unsigned vector.
-  const at: vec2i = vec2i(i32(v.uv.x * 64.), i32(v.uv.y * 64.));
+  const at: vec2i = vec2i(i32(v.uv.x * 64), i32(v.uv.y * 64));
   const cell: vec2u = vec2u(u32(at.x), u32(at.y));
 
   // UNSIGNED abs: the identity on both targets, and no `abs(uvec2)` in the GLSL.
@@ -61,11 +61,11 @@ export function fs(v: VsOut): vec4 {
   const radial: f32 = dot(v.uv - vec2(0.5, 0.5), v.uv - vec2(0.5, 0.5));
 
   // A conversion of a literal the target can hold, and the zero value beside it.
-  const scale: f32 = f32(4096);
+  const scale: f32 = 4096;
   const base = f32();
 
-  const rings: f32 = f32(squared % 97) / 97.;
-  const bands: f32 = f32(spread % u32(53)) / 53.;
-  const edge: f32 = f32(width % u32(7)) / 7.;
-  return vec4(rings, bands, base + edge * 0.5 + radial * 0.5, 1. - f32(squared) / scale * 0.);
+  const rings: f32 = f32(squared % 97) / 97;
+  const bands: f32 = f32(spread % 53) / 53;
+  const edge: f32 = f32(width % 7) / 7;
+  return vec4(rings, bands, base + edge * 0.5 + radial * 0.5, 1 - f32(squared) / scale * 0);
 }
