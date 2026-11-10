@@ -1093,7 +1093,7 @@ interface Uniforms {
 declare const u: uniform<Uniforms>;
 
 @vertex
-export function vs(pos: location<0, vec3>): vec4 {
+export function vs(pos: vec3): vec4 {
   const opacity = u.rasterParams.x;
   return u.mvp * vec4(pos, opacity);
 }
@@ -1289,11 +1289,11 @@ declare const u: uniform<Uniforms>;
 
 interface VsOut {
   pos: builtin<"position">;
-  uv: location<0, vec2>;
+  uv: vec2;
 }
 
 @vertex
-export function vs(xy: location<0, vec2>): VsOut {
+export function vs(xy: vec2): VsOut {
   return { pos: vec4(xy, 0., 1.), uv: xy * 0.5 + 0.5 };
 }
 
@@ -3214,7 +3214,7 @@ interface Camera {
 declare const u_camera: uniform<Camera>;
 
 @vertex
-export function vs(pos: location<0, vec2>): vec4 {
+export function vs(pos: vec2): vec4 {
   return u_camera.u_matrix * vec4(pos / u_camera.u_viewport_px, 0., 1.);
 }
 ```
@@ -3233,7 +3233,7 @@ is an error that names TypeShade's spelling. Each backend then spells the id its
 | `gl_InstanceID`                    | `ii: builtin<"instance_index">`                         | the same `uint()` wrap                                                                                                                                                                           |
 | `gl_FrontFacing`                   | `front: builtin<"front_facing">`                        |                                                                                                                                                                                                  |
 | `gl_FragDepth`                     | `builtin<"frag_depth">` on a field of the return struct |                                                                                                                                                                                                  |
-| `gl_PointSize` and `gl_PointCoord` | unsupported on both writers                             | point size caps vary per vendor, and WebGPU point primitives are always one pixel. Expand an instanced quad in the vertex stage and interpolate a `location<n, vec2>` corner uv                  |
+| `gl_PointSize` and `gl_PointCoord` | unsupported on both writers                             | point size caps vary per vendor, and WebGPU point primitives are always one pixel. Expand an instanced quad in the vertex stage and interpolate a `vec2` corner uv                               |
 | float `mod(x, y)`                  | the builtin `mod()`                                     | that is floor-mod. `%` is trunc-mod, which is WGSL's semantics and spells portably on GLSL too. Pick by the semantics you mean on negative operands                                              |
 
 A fragment stage reads the framebuffer coordinate through the same `position` builtin the
@@ -3243,7 +3243,7 @@ vertex stage writes, and writes the depth through a field of its return struct:
 "use typeshade";
 
 interface FragOut {
-  color: location<0, vec4>;
+  color: vec4;
   depth: builtin<"frag_depth">;
 }
 
