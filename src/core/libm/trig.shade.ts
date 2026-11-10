@@ -1,6 +1,6 @@
 "use typeshade";
 
-// ═══ The libm: sin and cos (change 0042, milestone 1a) ═══
+// ═══ The libm: sin, cos and tan (change 0042, milestone 1a) ═══
 //
 // A NOTE FOR A READER IN AN EDITOR. The language service reports `TS8004 Unknown function` on
 // `__f64Hi`, `__f64Lo`, `__f64FromWords` and `__f64ToI32` in this file. That is correct for an
@@ -10,7 +10,9 @@
 //
 // One source for both code generators (decision N14). `scripts/bake-libm.ts` writes the
 // JavaScript form, `trig.generated.ts`, from this file. The interpreter and the generated
-// JavaScript of the CPU tier call that form in place of the engine's `Math.sin` and `Math.cos`.
+// JavaScript of the CPU tier call that form in place of the engine's `Math.sin`, `Math.cos` and
+// `Math.tan`. `tan` is in this file because it takes the reductions of `sin` and `cos` as they
+// are: one reduction, three kernels.
 //
 // The routines take and return an `f64`. The result for an `f32` operand is the same routine's
 // result rounded once to `f32` (the owner's decision of 2026-11-10); there is no `f32` routine.
@@ -23,9 +25,9 @@
 // words of an `f64` and the conversion to an `i32`. It uses no 64-bit integer and no `fma`.
 //
 // The methods are the published ones. The kernels on [-pi/4, pi/4] and their coefficients are
-// those of fdlibm (`k_sin.c`, `k_cos.c`). The reduction below 2^20 * pi/2 is Cody and Waite's,
-// with pi/2 in three pieces of 33 bits. The reduction above it is Payne and Hanek's, with 2/pi
-// in pieces of 24 bits. Every constant derived from pi is held to a BigInt computation by
+// those of fdlibm (`k_sin.c`, `k_cos.c`, and `k_tan.c` as FreeBSD and musl carry it). The
+// reduction below 2^20 * pi/2 is Cody and Waite's, with pi/2 in three pieces of 33 bits. The
+// reduction above it is Payne and Hanek's, with 2/pi in pieces of 24 bits. Every constant derived from pi is held to a BigInt computation by
 // `libm.test.ts`. The notice of fdlibm, whose kernels and coefficients these are:
 //
 //   Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
@@ -47,6 +49,23 @@ const C3: f64 = 0.00002480158728947673;
 const C4: f64 = -2.7557314351390663e-7;
 const C5: f64 = 2.087572321298175e-9;
 const C6: f64 = -1.1359647557788195e-11;
+// The kernel of tan on [-pi/4, pi/4] (fdlibm): tan(x) = x + T0 x^3 + ... + T12 x^27.
+const T0: f64 = 0.3333333333333341;
+const T1: f64 = 0.13333333333320124;
+const T2: f64 = 0.05396825397622605;
+const T3: f64 = 0.021869488294859542;
+const T4: f64 = 0.0088632398235993;
+const T5: f64 = 0.0035920791075913124;
+const T6: f64 = 0.0014562094543252903;
+const T7: f64 = 0.0005880412408202641;
+const T8: f64 = 0.0002464631348184699;
+const T9: f64 = 0.00007817944429395571;
+const T10: f64 = 0.00007140724913826082;
+const T11: f64 = -0.000018558637485527546;
+const T12: f64 = 0.000025907305186363371;
+// pi/4 rounded, and the rest rounded.
+const PIO4H: f64 = 0.7853981633974483;
+const PIO4L: f64 = 3.061616997868383e-17;
 // 2/pi rounded, and 1.5 * 2^52: adding and subtracting it rounds an f64 to an integer.
 const INVPIO2: f64 = 0.6366197723675814;
 const TOINT: f64 = 6755399441055744;
@@ -108,9 +127,62 @@ function kcos(x: f64, y: f64): f64 {
   return w1 + (((1.0 - w1) - hz) + (z * r - x * y));
 }
 
-/** sin(n * pi/2 + y0 + y1) for |y0| <= pi/4. */
-function quadrant(n: i32, y0: f64, y1: f64): f64 {
-  const q = n & 3;
+/** tan(x + y) for |x| <= pi/4, where y is the tail of x, when `odd` is false; -1 / tan(x + y)
+ *  when it is true (fdlibm).
+ *
+ *  Above 0.6744 the kernel runs on pi/4 - |x|, which is small, and
+ *  tan(pi/4 - t) = 1 - 2 (t - t^2 / (1 + t)) for t = tan of it. The reciprocal is computed with
+ *  a head of 32 bits of the sum and of the quotient, so the error of the division is put back. */
+function ktan(x0: f64, y0: f64, odd: bool): f64 {
+  let x = x0;
+  let y = y0;
+  const hx = __f64Hi(x);
+  const big = (hx & 0x7fffffff) >= 0x3fe59428;
+  if (big) {
+    if (hx >= 0x80000000) {
+      x = -x;
+      y = -y;
+    }
+    x = (PIO4H - x) + (PIO4L - y);
+    y = 0.0;
+  }
+  const z = x * x;
+  const w = z * z;
+  const r = T1 + w * (T3 + w * (T5 + w * (T7 + w * (T9 + w * T11))));
+  const v = z * (T2 + w * (T4 + w * (T6 + w * (T8 + w * (T10 + w * T12)))));
+  const s = z * x;
+  const rr = (y + z * (s * (r + v) + y)) + T0 * s;
+  const ww = x + rr;
+  if (big) {
+    let iy: f64 = 1.0;
+    if (odd) {
+      iy = -1.0;
+    }
+    const t = iy - 2.0 * (x - (ww * ww / (ww + iy) - rr));
+    if (hx >= 0x80000000) {
+      return -t;
+    }
+    return t;
+  }
+  if (!odd) {
+    return ww;
+  }
+  // -1 / (x + rr), with the error of the quotient put back.
+  const zh = __f64FromWords(__f64Hi(ww), u32(0));
+  const vv = rr - (zh - x);
+  const a = -1.0 / ww;
+  const th = __f64FromWords(__f64Hi(a), u32(0));
+  const ss = 1.0 + th * zh;
+  return th + a * (ss + th * vv);
+}
+
+/** The function `k` of n * pi/2 + y0 + y1 for |y0| <= pi/4: sin for k = 0, cos for k = 1 and
+ *  tan for k = 2. */
+function quadrant(n: i32, k: i32, y0: f64, y1: f64): f64 {
+  if (k == 2) {
+    return ktan(y0, y1, (n & 1) == 1);
+  }
+  const q = (n + k) & 3;
   if (q == 0) {
     return ksin(y0, y1, 1);
   }
@@ -123,8 +195,8 @@ function quadrant(n: i32, y0: f64, y1: f64): f64 {
   return -kcos(y0, y1);
 }
 
-/** sin(x + k * pi/2) for an f64 with pi/4 < |x| < 2^20 * pi/2. Cody and Waite: x - fn * pi/2
- *  with pi/2 in three pieces of 33 bits, so each product by a piece is exact. */
+/** The function `k` of x (`quadrant`) for an f64 with pi/4 < |x| < 2^20 * pi/2. Cody and Waite:
+ *  x - fn * pi/2 with pi/2 in three pieces of 33 bits, so each product by a piece is exact. */
 function reduceMedium(x: f64, k: i32): f64 {
   const fn = (x * INVPIO2 + TOINT) - TOINT;
   const r1 = x - fn * P1;
@@ -137,11 +209,11 @@ function reduceMedium(x: f64, k: i32): f64 {
   const w = fn * P3T - (e2 + e3);
   const y0 = r3 - w;
   const y1 = (r3 - y0) - w;
-  return quadrant(__f64ToI32(fn) + k, y0, y1);
+  return quadrant(__f64ToI32(fn), k, y0, y1);
 }
 
-/** sin(|x| + k * pi/2) for a finite f64 with |x| >= 2^20, whose words are `hi` and `lo`. Payne
- *  and Hanek: the product of |x| and 2/pi, modulo 4, in digits of 24 bits.
+/** The function `k` of |x| (`quadrant`) for a finite f64 with |x| >= 2^20, whose words are `hi`
+ *  and `lo`. Payne and Hanek: the product of |x| and 2/pi, modulo 4, in digits of 24 bits.
  *
  *  |x| is M * 2^E with M an integer below 2^53. A piece of 2/pi whose product with M is a
  *  multiple of 4 is left out, so the first piece used has the index i0 = floor((E + 22) / 24).
@@ -231,7 +303,7 @@ function reduceLarge(hi: u32, lo: u32, k: i32): f64 {
     y0 = -y0;
     y1 = -y1;
   }
-  return quadrant(n + k, y0, y1);
+  return quadrant(n, k, y0, y1);
 }
 
 /** sin(x) for an f64. The error is under 1 ULP. */
@@ -276,4 +348,28 @@ export function cosF64(x: f64): f64 {
     return reduceMedium(x, 1);
   }
   return reduceLarge(hi, __f64Lo(x), 1);
+}
+
+/** tan(x) for an f64. The error is under 1 ULP. */
+export function tanF64(x: f64): f64 {
+  const hi = __f64Hi(x);
+  const ix = hi & 0x7fffffff;
+  if (ix <= 0x3fe921fb) {
+    // |x| < 2^-27: tan(x) rounds to x, and this keeps the sign of a zero.
+    if (ix < 0x3e400000) {
+      return x;
+    }
+    return ktan(x, 0.0, false);
+  }
+  if (ix >= 0x7ff00000) {
+    return x - x;
+  }
+  if (ix < 0x413921fb) {
+    return reduceMedium(x, 2);
+  }
+  const r = reduceLarge(hi, __f64Lo(x), 2);
+  if (hi >= 0x80000000) {
+    return -r;
+  }
+  return r;
 }

@@ -233,6 +233,42 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   `tshc migrate` rewrites neither form: the author deletes `()` or the second attribute. No
   official release accepted the refused forms (OD-6).
 
+- **`tan`, `asin`, `acos`, `atan` and `atan2` on the CPU are the libm's** (change 0042,
+  milestone 1a, slice 2). The CPU oracle and the CPU tier computed them with the engine's
+  `Math.tan`, `Math.asin`, `Math.acos`, `Math.atan` and `Math.atan2`, whose results ECMAScript
+  leaves to the engine. They now compute them with routines of the compiler's own libm, one for
+  each function, on an `f64`; the result for an `f32` operand is that result rounded once. A
+  result may differ from before in the last bit, and it is the same on Node and on Bun. A GPU's
+  functions stay the driver's. No syntax changes, and no author-facing name is added. `tan` is
+  in the source of `sin` and `cos` and takes their two reductions as they are. The methods and
+  coefficients are fdlibm's, with three differences. `asin` from 0.5 and `acos` to -0.5 take
+  the square root as a head of 21 bits and the rest, so that the difference from pi/2 or from pi
+  is exact: each result has one rounding less. `atan2` puts the rest of the division `y / x`
+  back into the result, and gives a result past pi/2 as one sum; fdlibm's `atan2` rounds the
+  quotient and then subtracts a rounded arctangent from pi. Every special value that ECMA-262
+  and IEEE 754 fix is held by a test: the signed zeros, the infinities, a NaN, an operand past 1
+  for `asin` and `acos`, and each special pair of `atan2`. The numbers that follow are results
+  on samples, not a bound for every operand. Two measurements exist. This pull request's sweep
+  took 21,000,000 seeded operands or more of each function of one operand and 25,000,000 pairs
+  of `atan2`, placed where each method is weakest, against an exact BigInt reference. The
+  independent review of #1207 took more operands against MPFR: 96,000,000 for the kernel of
+  `tan`, 59,200,000 for `atan` and 103,600,000 pairs for `atan2`. The largest error that either
+  measured is 0.9023 ULP for `tan` (the review; the sweep measured 0.8839), 0.7283 for `asin`
+  (the sweep; the review 0.7274), 0.7897 for `acos` (the review; the sweep 0.7737), 0.8569 for
+  `atan` (the review; the sweep 0.8460) and 0.8564 for `atan2` (the review; the sweep 0.8522).
+  Each of these operands was measured again with the BigInt reference, and a test holds each.
+  No result of either measurement is at or past 1 ULP. Past 0.9 ULP the review found results of
+  `tan` only: on 96,000,000 pairs of a reduced argument and its tail, the kernel of `tan`
+  measured up to 0.9277 ULP just below its switch at 0.6744, with 23 results past 0.9. Past
+  0.8 ULP the review counted 23,356 of 59,200,000 for `atan` and 19,111 of 103,600,000 for
+  `atan2`; the sweep counted 52 for `tan`, 460 for `atan`, 468 for `atan2`, and none for `asin`
+  and `acos`. With fdlibm's forms `asin` measured up to 0.9235 ULP and `acos` up to 0.9081 on
+  the same kind of sample. The caps of `scripts/bundle-budget.json` take the measured gzip sizes
+  for the two bundles that hold the CPU op library: `typeshade/algorithms` single file 56,835 to
+  59,287 (+2,452), split initial and total 55,998 to 58,364; `typeshade/random` single file
+  38,068 to 40,462 (+2,394), split initial and total 37,264 to 39,623. The floors and the other
+  caps do not change. `NOTICE` names the new source and its baked form.
+
 - **`exp2` on the CPU has a wider margin under 1 ULP** (change 0042, milestone 1a). The libm's
   `exp2` took the nearest integer out of its operand and ran its kernel on the rest. It now
   takes the nearest half-integer out, so the kernel runs on half the range, and an odd
