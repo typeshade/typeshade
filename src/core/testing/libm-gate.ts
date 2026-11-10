@@ -17,9 +17,24 @@
 
 import { f32OfBits, f64OfWords } from './libm-reference.js';
 
-/** A routine of the libm, by its name in `LibmTrig`. */
+/** What the gates measure: each function of the libm for an `f64` operand, and for an `f32`
+ *  operand, whose result is the `f64` routine's result rounded once to `f32`. */
 export type LibmRoutine = 'sinF32' | 'cosF32' | 'sinF64' | 'cosF64';
 export const LIBM_ROUTINES: readonly LibmRoutine[] = ['sinF32', 'cosF32', 'sinF64', 'cosF64'];
+
+/** The four measured functions over the two `f64` routines `trig`. The `f32` ones round the
+ *  operand and the result to `f32`, as the CPU engines do in `'f32'` precision. */
+export function libmFunctions(trig: {
+  readonly sinF64: (x: number) => number;
+  readonly cosF64: (x: number) => number;
+}): Record<LibmRoutine, (x: number) => number> {
+  return {
+    sinF32: (x) => Math.fround(trig.sinF64(Math.fround(x))),
+    cosF32: (x) => Math.fround(trig.cosF64(Math.fround(x))),
+    sinF64: trig.sinF64,
+    cosF64: trig.cosF64,
+  };
+}
 
 /** The generator of the seeded inputs: mulberry32, 32-bit integer arithmetic only. */
 export function mulberry32(seed: number): () => number {
@@ -40,7 +55,7 @@ export const LIBM_GATE_COUNT = 250_000;
 const EDGES_F32: readonly number[] = [
   // Zeros, the smallest and largest subnormal, the smallest normal.
   0x00000000, 0x80000000, 0x00000001, 0x80000001, 0x007fffff, 0x00800000,
-  // Around the thresholds of the routines: 2^-12, pi/4, 2^22.
+  // Small values, pi/4 and 2^22, where a reduction starts for an f32 operand's size.
   0x397fffff, 0x39800000, 0x39800001, 0x3f490fda, 0x3f490fdb, 0xbf490fdb, 0x4a7fffff, 0x4a800000,
   0x4a800001, 0xca800000,
   // 1, pi/2, pi, 3pi/4 and values near multiples of pi/2.

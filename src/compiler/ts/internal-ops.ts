@@ -1,14 +1,14 @@
 // The compiler-internal operations of the libm's source (change 0042, Amendment A1).
 //
 // The libm is one `"use typeshade"` source (decision N14). It needs operations that the language
-// does not have: the two `u32` words of an `f64`, and exact conversions between an `f64` and an
-// integer. Each is an IR call with a `__` name, as `__fround` is. None is a name an author can
+// does not have: the two `u32` words of an `f64`, and the conversion of an `f64` to an `i32`. Each is an IR call with a `__` name, as `__fround` is. None is a name an author can
 // write (OD-3, Rule 9.8): the front end lowers these names only inside `withInternalOps`, which
 // `compileLibmSource` alone enters, and the ambient library does not declare them. In an
 // author's file each name is a name nothing declares, on both halves.
 //
 // The CPU op library computes each one (`BUILTINS` in `src/core/cpu-runtime.ts`). No shader
-// writer spells one, so a module that carries one is never emitted.
+// writer spells one: the emit walk of `src/core/emit.ts` throws on a call of one that the module
+// does not declare (`src/core/cpu-only-ids.ts`), so a module that carries one is never emitted.
 
 import ts from 'typescript';
 import type { Expr } from '../../core/ir/nodes.js';
@@ -37,8 +37,6 @@ export const INTERNAL_OPS: Readonly<Record<string, InternalOp>> = {
   /** An `f64` truncated toward zero to an `i32`. A NaN gives 0, and a value outside the range
    *  gives the nearest bound. */
   __f64ToI32: { params: [f64T], result: i32T },
-  /** A `u32` as an `f64`, which is exact. */
-  __u32ToF64: { params: [u32T], result: f64T },
 };
 
 function pushDiag(

@@ -17,7 +17,7 @@
       "count": 250000,
       "nanResults": 898,
       "inputsSha256": "6145b0432a1ca06c8f9c1995711634ed3498a58a046e69a9ffc90b6193c1d24c",
-      "resultsSha256": "5d54013ca1108ca8e674ff3dd9d4576a8b6e62fc9f30221bf12dfe7f73d8f95a"
+      "resultsSha256": "e1af78d8bab1f39517f5016f5585bc284cbb33f32945d4430362c22324f9e7c4"
     },
     {
       "routine": "sinF32",
@@ -25,7 +25,7 @@
       "count": 250000,
       "nanResults": 0,
       "inputsSha256": "d5a600e70e967cfab45247165198ae8563efd359e6cfe5acd0337d8a1fd38c3c",
-      "resultsSha256": "2abc81c35b7c630753708d61989552a18ef94b1e3c73b5a9d7c6ec7cbfa4bd4a"
+      "resultsSha256": "ba91318858e010154dfecc2b8bccfd2bf5a864c33c7b1faf5509326c411181c9"
     },
     {
       "routine": "cosF32",
@@ -41,7 +41,7 @@
       "count": 250000,
       "nanResults": 898,
       "inputsSha256": "6145b0432a1ca06c8f9c1995711634ed3498a58a046e69a9ffc90b6193c1d24c",
-      "resultsSha256": "7a8b3b7f0ee4d6e8d3c9d024a6873e6aa7b44d055b147f20aad6e6d400b8835f"
+      "resultsSha256": "d965afc18cc30e4d2af7f9675f396136d80c7300a979777ed023a895d4792289"
     },
     {
       "routine": "cosF32",
@@ -49,7 +49,7 @@
       "count": 250000,
       "nanResults": 0,
       "inputsSha256": "d5a600e70e967cfab45247165198ae8563efd359e6cfe5acd0337d8a1fd38c3c",
-      "resultsSha256": "e144d71d425ad7783d07ba646dd80a54a455bce89a394c263370ad0ad5ed20cc"
+      "resultsSha256": "79507f974b9630a97526b3c7cea5fdc8e2f0568ba323c3c4bfe544c1bf5c4835"
     },
     {
       "routine": "sinF64",

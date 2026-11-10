@@ -17,11 +17,9 @@ export interface LibmHost {
   readonly intRem: (a: number, b: number, kind: 'i32' | 'u32') => number;
 }
 
-/** sin and cos, for an `f32` operand and for an `f64` operand. Each has an error under 1 ULP
- *  (decision N9 of change 0042). An `f32` routine takes and returns an `f32` value. */
+/** sin and cos of an `f64`. Each has an error under 1 ULP (decision N9 of change 0042). The
+ *  result for an `f32` operand is the same routine's result rounded once to `f32`. */
 export interface LibmTrig {
-  readonly sinF32: (x: number) => number;
-  readonly cosF32: (x: number) => number;
   readonly sinF64: (x: number) => number;
   readonly cosF64: (x: number) => number;
 }
