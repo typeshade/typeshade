@@ -270,6 +270,28 @@ export function moduleAbstractConst(
   return sourceFile === undefined ? undefined : byDeclName.get(sourceFile)?.get(irName);
 }
 
+/** The type each read of a constant takes while a loop counter's start is lowered again at the
+ *  type it has on `main` (`withReadTypes`). Empty otherwise. */
+const readTypes = new Map<AbstractConst, ShaderType>();
+
+/** The type a read of `info` takes while `withReadTypes` runs, if it names one. */
+export function readTypeFor(info: AbstractConst | undefined): ShaderType | undefined {
+  return info === undefined ? undefined : readTypes.get(info);
+}
+
+/** Runs `lower` with each read of a constant in `types` taking that type, as a function-local
+ *  constant's read did on `main` (changes 0036 and 0037). A loop counter whose start carries
+ *  such a constant keeps the type it has on `main` (Amendment A3 of change 0134, and the
+ *  owner's decision of 2026-11-10, "`main`과 같이 u32 유지"). */
+export function withReadTypes<T>(types: ReadonlyMap<AbstractConst, ShaderType>, lower: () => T): T {
+  for (const [info, type] of types) readTypes.set(info, type);
+  try {
+    return lower();
+  } finally {
+    readTypes.clear();
+  }
+}
+
 /** Remembers that `expr`, lowered from `node`, reads `info`. Returns `expr`. */
 export function markAbstractRead<E extends Expr>(
   expr: E,
@@ -374,12 +396,15 @@ export function carriedByCall(sourceFile: ts.SourceFile, irName: string): Carrie
 /** Whether `node` reads a constant of no fixed type whose written numbers are all
  *  integer-written: the read stands where an integer-written literal could. */
 export function isIntegerWrittenRead(node: ts.Expression): boolean {
-  return readByNode.get(stripParens(node))?.integerWritten === true;
+  const info = readByNode.get(stripParens(node));
+  return info?.integerWritten === true && !readTypes.has(info);
 }
 
-/** Whether `node` reads a constant of no fixed type. */
+/** Whether `node` reads a constant of no fixed type. A read that `withReadTypes` types is a
+ *  typed value, as on `main`. */
 export function isAbstractRead(node: ts.Expression): boolean {
-  return readByNode.has(stripParens(node));
+  const info = readByNode.get(stripParens(node));
+  return info !== undefined && !readTypes.has(info);
 }
 
 /** The `f32` literal a written number lowers to, for `expr` when it is a read of a constant of

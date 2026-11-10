@@ -1392,8 +1392,10 @@ read as an integer.
 
 A float-written literal or a float-written constant in either operand makes a float division,
 which is accepted: `const STEP = 6.283185307179586 / N`, `TAU / N`, `1.0 / W`,
-`(N * 0.5) / 2`. A loop counter started by such a constant (`for (let j = N; …)`) keeps the
-`f32` the constant's declaration gives it, as on `main` before change 0134.
+`(N * 0.5) / 2`. A loop counter whose start carries such a constant keeps the type it had
+before change 0134: `for (let j = N; …)` keeps the `f32` of the constant's declaration, and
+with `const k = 7; h(k);` the start `k + 1` or `Math.max(k, 1)` gives a `u32` counter, the type
+its declared uses give `k`. The counter carries the constant, so a `/` over it is refused.
 
 The sentence names one edit, the one that compiles where the quotient stands. Where an integer
 position reads the quotient (`xs[k / 2]`, `r + k / 2`, `let j: u32 = …`), it names the

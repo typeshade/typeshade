@@ -1,5 +1,4 @@
-import { abstractTreeOf, originOf } from '../abstract-const.js';
-import { declarationOf } from './closures.js';
+import { abstractTreeOf, originOf, withReadTypes, type AbstractConst } from '../abstract-const.js';
 import { localNumericInference } from '../local-numeric-inference.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
@@ -17,13 +16,7 @@ import {
   forUpdateRefusal,
   openLoopError,
 } from '../loop-bound.js';
-import {
-  fitsTarget,
-  isIntegerLiteralTree,
-  isIntegerWritten,
-  isIntScalar,
-  retargetIntLit,
-} from '../lit-coerce.js';
+import { fitsTarget, isIntegerLiteralTree, isIntegerWritten, isIntScalar } from '../lit-coerce.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { keyTypeText, keysOf, sameKeys } from '../key-types.js';
 import { numericMismatch } from '../numeric.js';
@@ -480,13 +473,16 @@ function lowerHeaderCounter(
   const origin = decl.type === undefined ? originOf(written, builtin) : undefined;
   const fromConstant = origin !== undefined && origin.reaches.length > 0;
   // On `main` a function-local `const` took an integer type from its declared uses (changes 0036
-  // and 0037), and a counter started by a bare read of it took that type. The counter keeps it.
-  const startDecl = fromConstant && ts.isIdentifier(start) ? declarationOf(start) : undefined;
-  const mainType =
-    startDecl !== undefined && ts.isVariableDeclaration(startDecl)
-      ? localNumericInference(startDecl, sourceFile)?.type
-      : undefined;
-  if (mainType !== undefined) init = retargetIntLit(init, written, mainType);
+  // and 0037), and a counter started by an expression over it took the type that expression had
+  // then. The counter keeps it (A3, and the owner's decision of 2026-11-10, "`main`과 같이 u32
+  // 유지"): the start is lowered again with each such constant read at that type. Where that
+  // lowering is refused, as `-k` of a `u32` was on `main`, the counter keeps the type it has here.
+  const onMain = fromConstant ? mainReadTypes(origin.reaches, sourceFile) : undefined;
+  if (onMain !== undefined && !containsDivision(start)) {
+    const refused: TsCompilerDiagnostic[] = [];
+    const again = withReadTypes(onMain, () => lowerExpression(written, sourceFile, scope, refused));
+    if (again !== undefined && refused.length === 0 && isIntScalar(again.type)) init = again;
+  }
   if (!fromConstant && (annotated !== undefined || !floatWritten || intBound)) {
     // The induction variable's declared type, or i32 when there is no annotation. `for (let j:
     // i32 = -1; …)` reaches this with a PrefixUnaryExpression rather than a NumericLiteral, which
@@ -534,6 +530,48 @@ function lowerHeaderCounter(
   // Two sequential loops over `i` are the first shape a shader author writes; the second
   // counter takes the IR name `i_1` so the two never collide in the function (#38).
   return { s: 'var', name: irNameOf(bound_), type, init };
+}
+
+/** The integer type each constant of `reaches` had on `main`, when every one is a function-local
+ *  `const` that took one integer type from its declared uses there (changes 0036 and 0037), and
+ *  all agree. A constant derived from others (`const kk = k + 1`) takes theirs. A module
+ *  constant was an `f32` on `main`, so a start that reaches one gives `undefined`. */
+function mainReadTypes(
+  reaches: readonly AbstractConst[],
+  sourceFile: ts.SourceFile,
+): Map<AbstractConst, ShaderType> | undefined {
+  const typeOf = (info: AbstractConst): ShaderType | undefined => {
+    const decl = info.nameNode.parent;
+    if (!ts.isVariableDeclaration(decl) || info.nameNode.getSourceFile() !== sourceFile) {
+      return undefined;
+    }
+    const own = localNumericInference(decl, sourceFile)?.type;
+    if (own !== undefined) return own;
+    const from = info.sources.map(typeOf);
+    const first = from[0];
+    return first !== undefined &&
+      from.every((t) => t !== undefined && typeKey(t) === typeKey(first))
+      ? first
+      : undefined;
+  };
+  const types = new Map<AbstractConst, ShaderType>();
+  let kind: string | undefined;
+  for (const info of reaches) {
+    const type = typeOf(info);
+    if (type === undefined || !isIntScalar(type) || !fitsTarget(info.value, type)) return undefined;
+    if (kind !== undefined && kind !== typeKey(type)) return undefined;
+    kind = typeKey(type);
+    types.set(info, type);
+  }
+  return types.size > 0 ? types : undefined;
+}
+
+/** Whether `node` holds a `/`, whose refusal (A3) is the one diagnostic its start owes. */
+function containsDivision(node: ts.Node): boolean {
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.SlashToken) {
+    return true;
+  }
+  return ts.forEachChild(node, containsDivision) ?? false;
 }
 
 export function lowerWhile(

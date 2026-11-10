@@ -877,6 +877,10 @@ shapes this text accepts are refused. The owner decided each in the Claude Code 
   declared type, and one of which carries the origin of a constant that some read makes an
   integer, is refused (`TS8003`). A loop counter whose start is such a constant keeps the type
   it has on `main`, as a counter bounded by one does.
+- [decision, owner, 2026-11-10] "`main`과 같이 u32 유지". A loop counter whose start is an
+  expression over such a constant (`const k = 7; h(k); for (let j = k + 1; …)`) keeps the type
+  it has on `main`, here `u32`, as A3 says for a counter that starts at the constant. This
+  holds for every start expression that carries the origin (A3's tracking rule).
 - [decision, owner, 2026-11-10] "실수 나눗셈으로 허용". A `/` with a float-written literal or a
   float-written constant in either operand is a float division, and it is accepted: with `N`
   read as an integer elsewhere, `const STEP = 6.283185307179586 / N`, `TAU / N` and `1.0 / W`
@@ -980,6 +984,17 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
     expression body included) that writes no result type. It loses the origin at a declared
     type, a conversion included. A counter started by such a constant keeps the type of the
     constant's emitted declaration (`f32`), as on `main`, and carries the origin.
+  - "`main`과 같이 u32 유지": a counter whose start carries the origin keeps the type it has
+    on `main`. `lowerHeaderCounter` in `src/compiler/ts/lower/control.ts` lowers the start
+    again with each function-local constant it reaches read at the integer type its declared
+    uses gave it on `main` (changes 0036 and 0037), when all agree (`withReadTypes` in
+    `abstract-const.ts`). `k + 1`, `k * 2`, `k | 1`, `k >> 1`, `k % 2`, `Math.max(k, 1)`,
+    `max`, `clamp`, `abs`, a conditional, `select`, `k!` and a derived constant (`kk`, `kk + 1`)
+    give a `u32` counter after `h(k)`, with the values `main` gave. The counter carries the
+    origin, so a `/` over it is refused as A3 says. A start that `main` refused (`-k` of a
+    `u32`, `k ** 2`, `k + 0.5`, `K + k` with a module constant `K`) keeps the `f32` it has
+    here. A start through a `let` or a function result (`let y = k;` then `j = y`, `j = g()`)
+    is a value of items 1 and 3, and part 4a takes it up.
   - "실수 나눗셈으로 허용": a float-written literal or constant in either operand makes a
     float division, which is accepted.
   - "수용" and "지금대로 두고 기록": the three extra refusals stay; a `let` that takes the

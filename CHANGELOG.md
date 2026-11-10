@@ -257,7 +257,8 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   result of a function, a method, a getter or a closure that writes no result type) and loses
   it only at a declared type. A float-written literal or constant in either operand makes a
   float division, which is accepted (`6.283185307179586 / N`, `(N * 0.5) / 2`). A counter
-  started by such a constant keeps the `f32` it had. With
+  whose start carries such a constant keeps the type it had: the `f32` of a module constant,
+  and the `u32` that `h(k)` gives a function-local `k` for `for (let j = k + 1; …)`. With
   `function h(a: u32): u32`, `const k = 7; h(k); return f32(k / 2);` emitted `3.0`,
   `const k = 7; const r = h(k); return r + k / 2;` emitted `r + 3u`, and
   `const k = 7; h(k); return xs[k / 2];` emitted `xs[3u]`. `vi / k` with a declared `u32` `vi`

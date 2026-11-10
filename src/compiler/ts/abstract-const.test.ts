@@ -820,6 +820,78 @@ ${H2}export function t(vi: u32, x: f32, xs: array<f32, 8>): f32 {
     expect(result.eval('t', [1, 1, [1, 2, 3, 4, 5, 6, 7, 8]])).toBe(4 + 5 + 6 + 7 + 8);
   });
 
+  it('a counter started by an expression over a local constant keeps its type on main', () => {
+    // The owner's decision of 2026-11-10, "`main`과 같이 u32 유지": each start that carries
+    // the mark of `k`, a `u32` on `main` from `h(k)`, gives a `u32` counter, as it did there.
+    // Each value is the one `main` gave.
+    const XS = [1, 2, 3, 4, 5, 6, 7, 8];
+    const starts: [string, string, number][] = [
+      ['k + 1', '', 4],
+      ['(k - 1)', '', 2],
+      ['k * 2', '', 6],
+      ['k + k', '', 6],
+      ['k | 1', '', 3],
+      ['k >> 1', '', 1],
+      ['k % 2', '', 1],
+      ['Math.max(k, 1)', '', 3],
+      ['max(k, 1)', '', 3],
+      ['clamp(k, 0, 7)', '', 3],
+      ['abs(k)', '', 3],
+      ['x > 0 ? k : 1', '', 3],
+      ['select(1, k, x > 0)', '', 3],
+      ['k!', '', 3],
+      ['kk', 'const kk = k + 1; ', 4],
+      ['kk + 1', 'const kk = k + 1; ', 5],
+    ];
+    for (const [start, pre, first] of starts) {
+      const body = (use: string) =>
+        `const k = 3; h(k); ${pre}let a = 0.; ` +
+        `for (let j = ${start}; j < 8; j++) { ${use} } return a;`;
+      // The counter is a `u32`: it indexes, and a comparison with a `u32` reads it as one.
+      const indexed = accepted(t(body('a += xs[j];')));
+      const sum = XS.slice(first).reduce((s, v) => s + v, 0);
+      expect(indexed.eval('t', [1, 1, XS])).toBe(sum);
+      const cpu = compileModule(indexed.module, { precision: 'f32' });
+      expect((cpu.fns['t'] as (...a: readonly unknown[]) => unknown)(1, 1, XS)).toBe(sum);
+      const compared = accepted(t(body('if (j < vi) { a += 1.; }')));
+      expect(compared.wgsl).toMatch(/var j(_\d+)?: u32|\(\d+u < vi\)/);
+      expect(compared.eval('t', [6, 1, XS])).toBe(Math.max(0, 6 - first));
+      // A `/` over it is refused: the counter carries the mark, and `h(k)` reads `k` as an
+      // integer (A3).
+      refused(t(body('a += f32(j / 2);')), [message('k', 'j / 2', 'f32(j) / 2')]);
+    }
+    // A loop that is not unrolled writes the `u32` counter in the WGSL and the GLSL.
+    const open = `"use typeshade";
+${H2}export function t(vi: u32): f32 {
+  const k = 3; h(k); let a = 0.; for (let j = Math.max(k, 1) + 1; j < vi; j++) { a += 1.; } return a;
+}
+@fragment export function fs(vi: location<0, u32, { interpolate: "flat" }>): location<0, vec4> {
+  return vec4(t(vi), 0, 0, 1);
+}`;
+    const emitted = accepted(open);
+    expect(emitted.wgsl).toContain('for (var j: u32 = 4u; (j < vi); j = (j + 1u))');
+    expect(emitted.glsl?.fragment).toContain('for (uint j = 4u; (j < vi); j = (j + 1u))');
+  });
+
+  it('a start that main refused keeps the type it has here', () => {
+    // `-k` of a `u32`, `k ** 2`, `k + 0.5` and `K + k` were refused on `main`; each counter
+    // is the f32 the written number gives, and the read of `k` keeps its value.
+    for (const [start, pre, value] of [
+      ['-k', '', 8 + 3],
+      ['k + 0.5', '', 5],
+      ['K + k', 'const K = 1;', 4],
+    ] as const) {
+      const result = accepted(
+        t(
+          `const k = 3; h(k); let a = 0.; for (let j = ${start}; j < 8; j++) { a += 1.; } return a;`,
+          pre,
+        ),
+      );
+      expect(result.wgsl).toMatch(/: f32 = /);
+      expect(result.eval('t', [1, 1, []])).toBe(value);
+    }
+  });
+
   it('a counter started by the constant keeps its f32, as on main, and carries the mark', () => {
     // Each gave the same value on `main` (the counter was an f32 there).
     const plain = t(

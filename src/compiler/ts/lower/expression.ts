@@ -6,6 +6,7 @@ import {
   markAbstractRead,
   markCarriedRead,
   noteAbstractDivision,
+  readTypeFor,
 } from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
@@ -596,6 +597,17 @@ function lowerIdentifier(
       // where an optional is expected, and is refused elsewhere (Rule 7.10, change 0088).
       if (binding.kind === 'local' && isOptional(binding.type)) {
         return lowerOptionalRead(node, binding, contextual, sourceFile, diagnostics);
+      }
+      {
+        // A loop counter's start lowered again at its type on `main` reads the constant as
+        // that integer (`withReadTypes`, Amendment A3 of change 0134).
+        const forced = readTypeFor(binding.abstract);
+        if (forced !== undefined && binding.abstract !== undefined) {
+          // A conversion of the typed value, as the read of a typed local was on `main`: a bare
+          // literal would take its peer's type again (`Math.max(k, 1)`, `k >> 1`).
+          const value: Expr = { op: 'lit', type: forced, value: binding.abstract.value };
+          return { op: 'call', type: forced, fn: typeKey(forced), args: [value] };
+        }
       }
       return markCarriedRead(
         markAbstractRead(
