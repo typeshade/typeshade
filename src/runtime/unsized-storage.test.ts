@@ -1,3 +1,4 @@
+// Verifies: Rule 6.1, Rule 8.21
 // An exported storage array with no size is sized by the host (change 0138, Amendment A3).
 // `export declare const ps: storage<array<Particle>>` states no size, so the host view declares a
 // `Buffer<Particle>` whose length the host sets with `resize(n)` or `set(data)`. Both readers of
@@ -237,6 +238,7 @@ describe('the host sets the length (Amendment A3)', () => {
   });
 });
 
+// Verifies: Rule 8.21
 describe('a resize moves the range in the region (R17)', () => {
   it.each([
     ['a region that replaces its buffer', false],
