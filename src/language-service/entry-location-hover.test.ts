@@ -12,7 +12,8 @@ import { reflect } from '../core/reflect.js';
 import { createTypeshadeLanguageService } from './service.js';
 
 const compiled = (source: string) => compile(source, { fileName: 'file:///a.shade.ts' });
-const codesOf = (source: string): string[] => compiled(source).diagnostics.map((d) => String(d.code));
+const codesOf = (source: string): string[] =>
+  compiled(source).diagnostics.map((d) => String(d.code));
 
 /** The hover at the first `needle` of `source`, `skip` characters into it. */
 const hover = (source: string, needle: string, skip = 0): string => {
