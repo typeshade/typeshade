@@ -233,6 +233,32 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   `tshc migrate` rewrites neither form: the author deletes `()` or the second attribute. No
   official release accepted the refused forms (OD-6).
 
+- **`tan` on the CPU has a wider margin under 1 ULP** (change 0042, milestone 1a). The kernel of
+  `tan` keeps fdlibm's polynomial and sums it with fewer roundings. Below 0.625 the cube and its
+  product by the first coefficient are exact products, and their rests join the small term. From
+  0.625 the kernel runs on pi/4 - |x| with its rest, and the result is one exact difference less
+  twice a small term. fdlibm's switch between the two forms was at 0.6744, and just below it the
+  review of #1207 measured up to 0.9277 ULP. The numbers that follow are results on samples against
+  MPFR, measured by this pull request on the same seeded operands before and after the change; they
+  are not a bound for every operand. On 96,000,000 pairs of a reduced argument in [0.62, 0.6744) and
+  a random tail, the largest error fell from 0.9373 ULP to 0.6884, and the results past 0.8 ULP from
+  14,145 to 0 (12 past 0.9 before). On 30,000,000 pairs across the kernel's whole range, both forms
+  of the result, the largest error fell from 0.9112 to 0.6926. On 72,070,374 operands of `tan`
+  itself (30,000,000 of every exponent, and 6,000,000 each that are huge, tiny, below 2^21, below
+  100, below pi/4 and near the switch, 3,000,000 at or next to an odd multiple of pi/2, 3,000,000
+  multiples of pi/2, and the 70,374 operands of the review nearest a multiple of pi/2), the largest
+  error fell from 0.8842 to 0.6753, and the results past 0.8 ULP from 187 to 0; no set got worse.
+  The operand at which the review measured 0.9023 ULP now measures 0.0977, and the reduced argument
+  of 0.9277 measures 0.0723. `tan` still does not decrease around each threshold. Every special
+  value stays. A CPU result of `tan` for an `f64` operand may differ from before in the last bit:
+  3,428 of 249,896 on every bit pattern and about 6,800 of 250,000 on [-100, 100). No `f32` result
+  of the gate sets changed. `sin` and `cos` do not change. A call on [-pi/4, pi/4] takes 18.2 ns on
+  Bun 1.4.4 (13.6 before) and 18.8 ns on Node 22.23.4 (19.4 before). The caps of
+  `scripts/bundle-budget.json` take the measured gzip sizes: `typeshade/algorithms` single file
+  59,287 to 59,492 (+205), split initial and total 58,364 to 58,555; `typeshade/random` single file
+  40,462 to 40,679 (+217), split initial and total 39,623 to 39,798. The floors and the other caps
+  do not change.
+
 - **`tan`, `asin`, `acos`, `atan` and `atan2` on the CPU are the libm's** (change 0042,
   milestone 1a, slice 2). The CPU oracle and the CPU tier computed them with the engine's
   `Math.tan`, `Math.asin`, `Math.acos`, `Math.atan` and `Math.atan2`, whose results ECMAScript

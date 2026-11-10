@@ -25,7 +25,8 @@
 // words of an `f64` and the conversion to an `i32`. It uses no 64-bit integer and no `fma`.
 //
 // The methods are the published ones. The kernels on [-pi/4, pi/4] and their coefficients are
-// those of fdlibm (`k_sin.c`, `k_cos.c`, and `k_tan.c` as FreeBSD and musl carry it). The
+// those of fdlibm (`k_sin.c`, `k_cos.c`, and `k_tan.c` as FreeBSD and musl carry it). The kernel
+// of tan keeps fdlibm's polynomial and differs in how it sums it, which `ktan` describes. The
 // reduction below 2^20 * pi/2 is Cody and Waite's, with pi/2 in three pieces of 33 bits. The
 // reduction above it is Payne and Hanek's, with 2/pi in pieces of 24 bits. Every constant derived from pi is held to a BigInt computation by
 // `libm.test.ts`. The notice of fdlibm, whose kernels and coefficients these are:
@@ -128,51 +129,84 @@ function kcos(x: f64, y: f64): f64 {
 }
 
 /** tan(x + y) for |x| <= pi/4, where y is the tail of x, when `odd` is false; -1 / tan(x + y)
- *  when it is true (fdlibm).
+ *  when it is true. The polynomial and its coefficients are fdlibm's. The two branches differ
+ *  from fdlibm, whose kernel measured up to 0.9277 ULP just below its switch at 0.6744.
  *
- *  Above 0.6744 the kernel runs on pi/4 - |x|, which is small, and
- *  tan(pi/4 - t) = 1 - 2 (t - t^2 / (1 + t)) for t = tan of it. The reciprocal is computed with
- *  a head of 32 bits of the sum and of the quotient, so the error of the division is put back. */
+ *  Below 0.625 the result is x + r. The first term of r is T0 x^3, about 0.1 where x is
+ *  largest, and fdlibm rounds x^2, x^3 and the product by T0. Here each of the three is an
+ *  exact product by Dekker's method, and the three rests join r.
+ *
+ *  From 0.625 the kernel runs on a = pi/4 - |x|, which is small, and
+ *  tan(pi/4 - a) = 1 - 2 (t - t^2 / (1 + t)) for t = tan(a). d = pi/4 rounded less |x| is
+ *  exact, and so is 1 - 2 d. So the result is 1 - 2 d less twice a small term, which holds the
+ *  rest of a, r and t^2 / (1 + t). fdlibm rounds a, and rounds the difference a - (...).
+ *
+ *  The reciprocal is computed with a head of 32 bits of the sum and of the quotient, so the
+ *  error of the division is put back (fdlibm). */
 function ktan(x0: f64, y0: f64, odd: bool): f64 {
   let x = x0;
   let y = y0;
   const hx = __f64Hi(x);
-  const big = (hx & 0x7fffffff) >= 0x3fe59428;
+  const big = (hx & 0x7fffffff) >= 0x3fe40000;
+  let d: f64 = 0.0;
   if (big) {
     if (hx >= 0x80000000) {
       x = -x;
       y = -y;
     }
-    x = (PIO4H - x) + (PIO4L - y);
-    y = 0.0;
+    // a as a head and a rest: d + e, exactly.
+    d = PIO4H - x;
+    const e = PIO4L - y;
+    x = d + e;
+    y = (d - x) + e;
   }
   const z = x * x;
   const w = z * z;
   const r = T1 + w * (T3 + w * (T5 + w * (T7 + w * (T9 + w * T11))));
   const v = z * (T2 + w * (T4 + w * (T6 + w * (T8 + w * (T10 + w * T12)))));
   const s = z * x;
-  const rr = (y + z * (s * (r + v) + y)) + T0 * s;
-  const ww = x + rr;
+  const p = T0 * s;
   if (big) {
+    const rr = (y + z * (s * (r + v) + y)) + p;
+    const ww = x + rr;
     let iy: f64 = 1.0;
     if (odd) {
       iy = -1.0;
     }
-    const t = iy - 2.0 * (x - (ww * ww / (ww + iy) - rr));
+    // t = d + ((x - d) + rr), and x - d is exact.
+    const t = (iy - 2.0 * d) - 2.0 * (((x - d) + rr) - ww * ww / (ww + iy));
     if (hx >= 0x80000000) {
       return -t;
     }
     return t;
   }
+  // The rests of x * x, of z * x and of T0 * s.
+  const cx = SPLIT * x;
+  const xh = cx - (cx - x);
+  const xl = x - xh;
+  const zl = ((xh * xh - z) + 2.0 * xh * xl) + xl * xl;
+  const cz = SPLIT * z;
+  const zh = cz - (cz - z);
+  const zt = z - zh;
+  const sl = (((zh * xh - s) + zh * xl + zt * xh) + zt * xl) + zl * x;
+  const cs = SPLIT * s;
+  const sh = cs - (cs - s);
+  const st = s - sh;
+  const ct = SPLIT * T0;
+  const th0 = ct - (ct - T0);
+  const tl0 = T0 - th0;
+  const pl = (((th0 * sh - p) + th0 * st + tl0 * sh) + tl0 * st) + T0 * sl;
+  const rr = ((y + z * (s * (r + v) + y)) + pl) + p;
+  const ww = x + rr;
   if (!odd) {
     return ww;
   }
   // -1 / (x + rr), with the error of the quotient put back.
-  const zh = __f64FromWords(__f64Hi(ww), u32(0));
-  const vv = rr - (zh - x);
+  const wh = __f64FromWords(__f64Hi(ww), u32(0));
+  const vv = rr - (wh - x);
   const a = -1.0 / ww;
   const th = __f64FromWords(__f64Hi(a), u32(0));
-  const ss = 1.0 + th * zh;
+  const ss = 1.0 + th * wh;
   return th + a * (ss + th * vv);
 }
 
