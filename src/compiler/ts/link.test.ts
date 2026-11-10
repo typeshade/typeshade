@@ -1039,7 +1039,7 @@ describe('a value a type names is a use of it (Rule 3.9, Rule 12.7, #1194)', () 
       const r = compiled(files);
       expect(r.wgsl).toBe(one.wgsl);
       expect(r.glsl).toEqual(one.glsl);
-      expect(r.module.overrides.map((o) => o.name)).toEqual(['N']);
+      expect((r.module.overrides ?? []).map((o) => o.name)).toEqual(['N']);
     });
   }
 
@@ -1071,6 +1071,24 @@ describe('a value a type names is a use of it (Rule 3.9, Rule 12.7, #1194)', () 
     });
   }
 
+  it('the program of #1194 reads in two files as it reads in one: TS8099 on its array pattern', () => {
+    // The issue's entry destructures the array, which an array sized by an override does not
+    // allow in one file either. Split in two, it was TS8002 on the size and no TS8099.
+    const body = '@compute([1]) export function main() { const [a] = tile; tile[0] = a; }\n';
+    const one: Files = { '/p/main.shade.ts': `${D}${SIZE}${TILE}${body}` };
+    const files: Files = {
+      '/p/main.shade.ts': `${D}import { N, tile } from "./lib.shade.ts";\n${body}`,
+      '/p/lib.shade.ts': LIB,
+    };
+    const sentence =
+      'TS8099 An array pattern needs a fixed-length array. Read a vector by component, e.g. ' +
+      'const x = v.x.';
+    expect(errorsOf(one)).toEqual([`/p/main.shade.ts:4:46 ${sentence}`]);
+    expect(errorsOf(files)).toEqual([`/p/main.shade.ts:3:46 ${sentence}`]);
+    expect(editedEach(one)).toEqual([`/p/main.shade.ts typeshade ${sentence}`]);
+    expect(editedEach(files)).toEqual([`/p/main.shade.ts typeshade ${sentence}`]);
+  });
+
   it("an imported array is sized by its own file's override, never by the entry's", () => {
     // Before the fix the module left out the imported `N`, and the array took the entry's.
     const files: Files = {
@@ -1091,7 +1109,7 @@ describe('a value a type names is a use of it (Rule 3.9, Rule 12.7, #1194)', () 
     expect(errorsOf(files)).toEqual([]);
     expect(editedEach(files)).toEqual([]);
     const r = compiled(files);
-    expect(r.module.overrides.map((o) => o.name)).toEqual(['N']);
+    expect((r.module.overrides ?? []).map((o) => o.name)).toEqual(['N']);
     expect(r.wgsl).toContain('array<f32, N>');
   });
 });
