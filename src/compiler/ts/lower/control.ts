@@ -1,3 +1,4 @@
+import { abstractTreeOf } from '../abstract-const.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
@@ -455,9 +456,13 @@ function lowerHeaderCounter(
   const bound = comparedBound(node, name);
   const boundType =
     bound === undefined ? undefined : lowerExpression(bound, sourceFile, scope, [])?.type;
+  // A written integer bound makes a float-written start an `i32` counter. A constant of no
+  // fixed type is no such bound: it takes the counter's type, as it did when it was an `f32`
+  // constant, so `for (let j = 0.; j < K; j += 1.)` keeps its `f32` counter (change 0134).
   const intBound =
     bound !== undefined &&
-    (isIntegerLiteralTree(bound) || (boundType !== undefined && isIntScalar(boundType)));
+    ((isIntegerLiteralTree(bound) && (abstractTreeOf(bound)?.reads.length ?? 0) === 0) ||
+      (boundType !== undefined && isIntScalar(boundType)));
   const floatWritten = ts.isNumericLiteral(start) && !isIntegerWritten(start);
   if (annotated !== undefined || !floatWritten || intBound) {
     // The induction variable's declared type, or i32 when there is no annotation. `for (let j:

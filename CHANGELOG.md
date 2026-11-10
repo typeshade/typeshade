@@ -225,9 +225,9 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   is an `f32` product, and `const N = 8; for (let j = 0; j < N; j++)` compiles. The emitted
   declaration stays `const K: f32 = 3.0;`, and an `f32` read names it. No official release
   carried the old meaning, so the change takes effect with no warning release (OD-6).
-  **Values that change** in the emitted WGSL and GLSL, each through a conversion or beside an
-  `f64`, where the constant was rounded to `f32` before (the CPU oracle already computed the
-  exact value, so the two now agree):
+  **Values that change** in the emitted WGSL and GLSL, and on the CPU oracle in `'f32'`
+  precision, each through a conversion or beside an `f64`, where the constant was rounded to
+  `f32` before:
   - `const PRIME = 2654435761; vi * u32(PRIME)` multiplied by 2654435840 and multiplies by 2654435761.
   - `const K = 16777217; vi + u32(K)` added 16777216 and adds 16777217.
   - `const K = -16777219; i32(K)` read -16777220 and reads -16777219.
@@ -236,17 +236,27 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
     carries the double of 7 / 3. `const M = K / 3;` beside an `f64` does the same.
   - `const C = 0.1;` beside an `f64` carried the `f32` value 0.10000000149011612 and carries the
     double 0.1, as the written `x * 0.1` does.
+  - On the CPU oracle in `'f64'` precision (`compile().eval`), a read of a module constant by
+    its name already carried the double, so the rows above read the same value there. Two rows
+    move there too: `const C = 0.1; const D: f64 = C;` read 0.10000000149011612 and reads 0.1,
+    and `const K = 4294967295; u32(K)` read 4294967040 and reads 4294967295.
+  - Arithmetic other than `/` over a function-local constant that another line reads as an
+    integer has the written number's value, where it was integer arithmetic before: with
+    `function h(a: u32): u32`, `const k = 7; h(k); f32(k - 8)` was 4294967295 and is -1, and
+    `f32(k * 1000000000)` was a wrapped `u32` and is 7000000000.
 
-  **Newly refused** (`TS8003`): a `/` whose operands are all written numbers and constants of no
-  fixed type, where another line reads one of those constants as an integer. With
+  **Newly refused** (`TS8003`): a `/` whose operands have no declared type and reach a constant
+  of no fixed type (directly, or through `+ - * %`, a bitwise operator, a builtin, a conditional
+  or a constant derived from it), where another line reads that constant as an integer, in this
+  file or in a file that imports it. With
   `function h(a: u32): u32`, `const k = 7; h(k); return f32(k / 2);` emitted `3.0`,
   `const k = 7; const r = h(k); return r + k / 2;` emitted `r + 3u`, and
   `const k = 7; h(k); return xs[k / 2];` emitted `xs[3u]`. `vi / k` with a declared `u32` `vi`
   stays an integer division, and `x / N` with a declared `f32` `x` a float one. A conversion to
   `i32` or `u32` is such a read too: `const K = 7; return f32(u32(K)) + f32(K / 2);` is refused.
   **Migration:** to keep an `f32` constant, write its type (`const K: f32 = 16777217`). For a
-  refused `/`, write the constant's type for the integer division (`const k: u32 = 7`) or
-  convert the operand for the float one (`f32(k) / 2`), as the sentence says. One more program
+  refused `/`, make the edit the sentence names: the constant's type where an integer position
+  reads the quotient (`const k: u32 = 7`), or the constant converted elsewhere (`f32(k) / 2`). One more program
   changes: `f64(K)` on `const K = 1e38` is the written `f64(1e38)`, so `f64(K) * 4.` folds to a
   double the emulation cannot hold and is refused as the written form is; write
   `const K: f32 = 1e38` to keep the run-time product.

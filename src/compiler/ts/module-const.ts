@@ -2,7 +2,12 @@
 //
 // Implements: Rule 6.3, Rule 7.4 (docs/language-design.md; traced in reqs/).
 
-import { abstractConstFor, hasNoWrittenType, recordModuleAbstractConst } from './abstract-const.js';
+import {
+  abstractConstFor,
+  hasNoWrittenType,
+  noteIntegerRead,
+  recordModuleAbstractConst,
+} from './abstract-const.js';
 import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
 import { isStageCall } from './stage-call.js';
@@ -859,6 +864,10 @@ function lowerOne(
     // In particular, never retain a builtin valueExpr: it would lower to a module-scope
     // df64 helper call, which is not a shader constant expression.
     return { name, type: f64T, wgslValue: value, cpuValue: value };
+  }
+  // `const J: u32 = K;` reads a constant of no fixed type as that integer (change 0134 item 2).
+  if (annotated !== undefined && (typeKey(annotated) === 'i32' || typeKey(annotated) === 'u32')) {
+    noteIntegerRead(decl.initializer, typeKey(annotated) === 'u32' ? 'u32' : 'i32');
   }
   const folded = foldConstValue(init, scope);
   if (typeof folded !== 'number' && typeof folded !== 'boolean') {

@@ -1,6 +1,9 @@
 // === createTypeshadeLanguageService: the TypeshadeLanguageService of design doc §4 ===
 
-import { markProjectedAnnotations } from '../compiler/ts/abstract-const.js';
+import {
+  isAbstractDivisionRefusal,
+  markProjectedAnnotations,
+} from '../compiler/ts/abstract-const.js';
 import ts from 'typescript';
 import { emitModule } from '../core/backends/wgsl.js';
 import { emitGlslModule } from '../core/backends/glsl.js';
@@ -330,7 +333,25 @@ export function createTypeshadeLanguageServiceWith(
       options.merge === false ? undefined : entry.analysis,
       languageService.getProgram()?.getTypeChecker(),
     ).sort(byDocumentOrder);
-    return entry.diagnostics;
+    // A `/` over a constant of no fixed type is refused where another read makes the constant
+    // an integer (change 0134), and that read may stand in a document that imports this one.
+    // `compile()` of that document reports the refusal in this file, so this file shows it
+    // (Rule 12.7). It is read from the importing documents that are open, at each request: it
+    // depends on them, not on this document's own dependencies, so it is not cached here.
+    const own = entry.diagnostics;
+    const added: TypeshadeDiagnostic[] = [];
+    for (const program of programsLinking(uri, uri)) {
+      for (const d of program.analysis.diagnostics) {
+        if (d.fileName !== sourceFile.fileName || !isAbstractDivisionRefusal(d)) continue;
+        const row = fromCompilerDiagnostic(sourceFile, uri, d);
+        const same = (o: TypeshadeDiagnostic): boolean =>
+          o.message === row.message &&
+          o.range.start.line === row.range.start.line &&
+          o.range.start.character === row.range.start.character;
+        if (!own.some(same) && !added.some(same)) added.push(row);
+      }
+    }
+    return added.length === 0 ? own : [...own, ...added].sort(byDocumentOrder);
   }
 
   const inner: TypeshadeLanguageService = {

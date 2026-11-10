@@ -6,15 +6,17 @@
 // service (`getDiagnostics`), as Rule 12.7 asks.
 //
 // The rows of "Values that change" of the proposal are pinned first, with the value each read
-// had before (the `f32` rounding) named beside the value it has now. What changes is the
-// emitted text, and so the value a device computes. The CPU oracle read a module constant at
-// the double the author wrote before this change too (`ConstDecl.cpuValue`), so on those rows
-// the device and the oracle disagreed before, and agree now.
+// had before (the `f32` rounding) named beside the value it has now. The emitted text moves,
+// and the CPU oracle in 'f32' precision, which the gates hold against a device, moves with it.
+// In 'f64' precision (`compile().eval`) a read of a module constant by its name carried the
+// double the author wrote before this change too, so most rows read the same value there; the
+// rows that move in 'f64' precision are pinned in the last test of the first block.
 //
 // Verifies: Rule 5.1, Rule 5.2 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
+import { compileModule } from '../../core/oracle.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { checkDocuments } from '../../language-service/check.js';
 
@@ -130,6 +132,47 @@ export function t(x: f64): f64 { return x * 0.1; }`;
     expect(result.eval('t', [1])).not.toBe(Math.fround(0.1));
     const body = (wgsl: string | undefined): string => wgsl!.slice(wgsl!.indexOf('fn t('));
     expect(body(result.wgsl)).toBe(body(accepted(written).wgsl));
+  });
+
+  it("moves the CPU oracle in 'f32' precision with the emitted text", () => {
+    // Before the change this oracle gave 16777216, 2654435840 and the f32 value of 0.1.
+    const f32Oracle = (source: string, args: readonly unknown[]): unknown => {
+      const cpu = compileModule(accepted(source).module, { precision: 'f32' });
+      return (cpu.fns['t'] as (...a: readonly unknown[]) => unknown)(...args);
+    };
+    expect(
+      f32Oracle(
+        `"use typeshade";\nconst K = 16777217;\nexport function t(vi: u32): u32 { return vi + u32(K); }`,
+        [0],
+      ),
+    ).toBe(16777217);
+    expect(
+      f32Oracle(
+        `"use typeshade";\nconst PRIME = 2654435761;\nexport function t(vi: u32): u32 { return vi * u32(PRIME); }`,
+        [1],
+      ),
+    ).toBe(2654435761);
+    expect(
+      f32Oracle(
+        `"use typeshade";\nconst C = 0.1;\nexport function t(x: f64): f64 { return x * C; }`,
+        [1],
+      ),
+    ).toBe(0.1);
+  });
+
+  it("moves two rows in 'f64' precision too (the review of pull request #1184, F10)", () => {
+    // `const D: f64 = C` read 0.10000000149011612 before, and `u32(K)` read 4294967040.
+    const typed = `"use typeshade";
+const C = 0.1;
+const D: f64 = C;
+export function t(x: f64): f64 { return x * D; }`;
+    expect(accepted(typed).eval('t', [1])).toBe(0.1);
+    const top = `"use typeshade";
+const K = 4294967295;
+export function t(vi: u32): u32 { return vi + u32(K); }`;
+    const result = accepted(top);
+    expect(result.wgsl).toContain('return (vi + 4294967295u);');
+    expect(result.eval('t', [0])).toBe(4294967295);
   });
 
   it('keeps the old value where the author writes the type: const K: f32 = …', () => {
@@ -304,64 +347,222 @@ export function t(vi: u32): u32 { return vi * K; }`,
 });
 
 describe('the division rule for a constant (decisions Q10 and Q11, Amendment A1)', () => {
-  const sentence = (name: string, type: string, written: string, value: string, by = '2'): string =>
+  const head = (name: string, type: string, written: string): string =>
     `"${name}" is ${type === 'u32' ? 'a u32' : 'an i32'} where another line reads it, and no ` +
-    `operand of "${name} / ${by}" has a declared type, so the "/" does not say which division ` +
-    `it is. Write "const ${name}: ${type} = ${written}" for the integer division, or ` +
-    `"f32(${name}) / ${by}" for ${value}.`;
+    `operand of "${written}" has a declared type, so the "/" does not say which division it is. `;
+  /** The sentence where the quotient stands in a float position: the `/` with its constants
+   *  converted. */
+  const float = (name: string, type: string, written: string, remedy: string): string =>
+    `${head(name, type, written)}Write "${remedy}" for the float division.`;
+  /** The sentence where an integer position reads the quotient: the constant with its type. */
+  const integer = (name: string, type: string, written: string, decl: string): string =>
+    `${head(name, type, written)}Write "${decl}" for the integer division.`;
+  const t = (body: string, pre = ''): string => `"use typeshade";
+${pre}
+declare const tex: texture_2d<f32>;
+${H}export function t(vi: u32, x: f32, xs: array<f32, 8>): f32 {
+  ${body}
+}`;
+  const ARGS = [1, 1, [1, 2, 3, 4, 5, 6, 7, 8]] as const;
+
+  /** Refuses `source` with `message` in both halves; `fixed`, the source with the edit the
+   *  sentence names applied, compiles clean in both halves (Rule 12.5). */
+  const refusedThenFixed = (source: string, message: string, fixed: string): void => {
+    refused(source, [message]);
+    expect(source).not.toBe(fixed);
+    accepted(fixed);
+  };
 
   // Each compiled before change 0134 (F21 of the proposal), with the emit named.
-  it.each([
-    ['const k = 7; h(k); return f32(k / 2);', 'emitted 3.0'],
-    ['const k = 7; const r = h(k); return f32(r + k / 2);', 'emitted r + 3u'],
-    ['const k = 7; h(k); return xs[k / 2];', 'emitted xs[3u]'],
-  ])('refuses %s (%s)', (body) => {
-    refused(
-      `"use typeshade";
-${H}export function t(xs: array<f32, 8>): f32 {
-  ${body}
-}`,
-      [sentence('k', 'u32', '7', '3.5')],
+  it('refuses const k = 7; h(k); return f32(k / 2); (emitted 3.0)', () => {
+    refusedThenFixed(
+      t('const k = 7; h(k); return f32(k / 2);'),
+      float('k', 'u32', 'k / 2', 'f32(k) / 2'),
+      t('const k = 7; h(k); return f32(f32(k) / 2);'),
+    );
+  });
+
+  it('refuses const k = 7; const r = h(k); return f32(r + k / 2); (emitted r + 3u)', () => {
+    refusedThenFixed(
+      t('const k = 7; const r = h(k); return f32(r + k / 2);'),
+      integer('k', 'u32', 'k / 2', 'const k: u32 = 7'),
+      t('const k: u32 = 7; const r = h(k); return f32(r + k / 2);'),
+    );
+  });
+
+  it('refuses const k = 7; h(k); return xs[k / 2]; (emitted xs[3u])', () => {
+    refusedThenFixed(
+      t('const k = 7; h(k); return xs[k / 2];'),
+      integer('k', 'u32', 'k / 2', 'const k: u32 = 7'),
+      t('const k: u32 = 7; h(k); return xs[k / 2];'),
     );
   });
 
   it('refuses const k = 7; let j: i32 = k; return f32(k / 2) + f32(j); (emitted 3.0)', () => {
-    refused(
-      `"use typeshade";
-export function t(): f32 {
-  const k = 7;
-  let j: i32 = k;
-  return f32(k / 2) + f32(j);
-}`,
-      [sentence('k', 'i32', '7', '3.5')],
+    refusedThenFixed(
+      t('const k = 7; let j: i32 = k; return f32(k / 2) + f32(j);'),
+      float('k', 'i32', 'k / 2', 'f32(k) / 2'),
+      t('const k = 7; let j: i32 = k; return f32(f32(k) / 2) + f32(j);'),
     );
   });
 
   it('refuses const HALF = N / 2 where a loop bound reads N as an integer', () => {
-    refused(
-      `"use typeshade";
-const N = 8;
-const HALF = N / 2;
-export function t(xs: array<f32, 8>): f32 {
-  let a = 0;
-  for (let j = 0; j < N; j++) { a += xs[j]; }
-  return a * HALF;
-}`,
-      [sentence('N', 'i32', '8', '4')],
+    const loop = 'let a = 0; for (let j = 0; j < N; j++) { a += xs[j]; } return a * HALF;';
+    refusedThenFixed(
+      t(loop, 'const N = 8;\nconst HALF = N / 2;'),
+      float('N', 'i32', 'N / 2', 'f32(N) / 2'),
+      t(loop, 'const N = 8;\nconst HALF = f32(N) / 2;'),
     );
   });
 
-  it('accepts x / N with a declared f32 x: a float division, N an f32 at that read', () => {
+  it('names an edit that compiles for arithmetic around the constant', () => {
+    const cases: [string, string, string][] = [
+      ['(k + 1) / 2', '(f32(k) + 1) / 2', 'u32'],
+      ['-k / 2', '-f32(k) / 2', 'u32'],
+      ['(k / 2) / 3', '(f32(k) / 2) / 3', 'u32'],
+    ];
+    for (const [written, remedy, type] of cases) {
+      refusedThenFixed(
+        t(`const k = 7; h(k); return f32(${written});`),
+        float('k', type, written, remedy),
+        t(`const k = 7; h(k); return f32(${remedy});`),
+      );
+    }
+    refusedThenFixed(
+      t('const k = 7; h(k); return x * (k / 2);'),
+      float('k', 'u32', 'k / 2', 'f32(k) / 2'),
+      t('const k = 7; h(k); return x * (f32(k) / 2);'),
+    );
+  });
+
+  // The owner's decision of 2026-11-10 ("거부"): a `/` that reaches the constant through an
+  // operator, a builtin, a conditional or a derived constant is refused as the direct one is,
+  // so no program changes its value silently through a division.
+  it.each([
+    ['(k % 4) / 2', '(f32(k) % 4) / 2'],
+    ['max(k, 1) / 2', 'max(f32(k), 1) / 2'],
+    ['abs(k) / 2', 'abs(f32(k)) / 2'],
+    ['(x > 0 ? k : 1) / 2', '(x > 0 ? f32(k) : 1) / 2'],
+  ])('refuses %s, which reaches the constant with no declared type between', (written, remedy) => {
+    refusedThenFixed(
+      t(`const k = 7; h(k); return f32(${written});`),
+      float('k', 'u32', written, remedy),
+      t(`const k = 7; h(k); return f32(${remedy});`),
+    );
+  });
+
+  it('refuses (k | 1) / 2 with the type to write: a bitwise operand is an integer', () => {
+    refusedThenFixed(
+      t('const k = 7; h(k); return f32((k | 1) / 2);'),
+      integer('k', 'u32', '(k | 1) / 2', 'const k: u32 = 7'),
+      t('const k: u32 = 7; h(k); return f32((k | 1) / 2);'),
+    );
+  });
+
+  it('refuses a / over a constant derived from the one another line reads', () => {
+    refusedThenFixed(
+      t('const k = 7; h(k); const m = k * 2; return f32(m / 4);'),
+      float('k', 'u32', 'm / 4', 'f32(m) / 4'),
+      t('const k = 7; h(k); const m = k * 2; return f32(f32(m) / 4);'),
+    );
+    refusedThenFixed(
+      t('const k = 7; h(k); const m = k; return f32(m / 2);'),
+      float('k', 'u32', 'm / 2', 'f32(m) / 2'),
+      t('const k = 7; h(k); const m = k; return f32(f32(m) / 2);'),
+    );
+  });
+
+  // Every read that types the constant an integer counts, also through a constant derived
+  // from it (the review of pull request #1184, F6).
+  it.each([
+    ['a bitwise compound assignment', 'let n: u32 = 1; n |= K; return f32(n) + f32(K / 2);', ''],
+    ['a shift compound assignment', 'let n: u32 = 1; n <<= K; return f32(n) + f32(K / 2);', ''],
+    ['an and compound assignment', 'let n: u32 = 1; n &= K; return f32(n) + f32(K / 2);', ''],
+    ['a typed constant', 'return f32(J) + f32(K / 2);', 'const J: u32 = K;'],
+    ['a derived constant', 'return f32(h(M)) + f32(K / 2);', 'const M = K * 2;'],
+    ['a conversion of arithmetic', 'return f32(u32(K + 1)) + f32(K / 2);', ''],
+  ])('counts %s as a read of K as an integer', (_what, body, pre) => {
+    refusedThenFixed(
+      t(body, `const K = 7;\n${pre}`),
+      float('K', 'u32', 'K / 2', 'f32(K) / 2'),
+      t(body.replace('f32(K / 2)', 'f32(f32(K) / 2)'), `const K = 7;\n${pre}`),
+    );
+  });
+
+  it('counts a texture level as a read of K as an integer', () => {
+    const body = 'return textureLoad(tex, vec2i(0, 0), K).x + f32(K / 2);';
+    const result = compile(t(body, 'const K = 0;'));
+    expect(result.diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
+      `TS8003: ${float('K', 'u32', 'K / 2', 'f32(K) / 2')}`,
+    ]);
+    expect(editor(t(body, 'const K = 0;'))).toEqual([
+      `TS8003: ${float('K', 'u32', 'K / 2', 'f32(K) / 2')}`,
+    ]);
+  });
+
+  // The owner's decision of 2026-11-10 ("캐스트도 세기"): a cast is a read, so `i32(K)` and
+  // `u32(K)` make the constant an integer for this rule, as an argument does.
+  it.each(['u32', 'i32'])('refuses K / 2 where %s(K) reads K as an integer', (cast) => {
+    refusedThenFixed(
+      `"use typeshade";
+const K = 7;
+export function t(): f32 { return f32(${cast}(K)) + f32(K / 2); }`,
+      float('K', cast, 'K / 2', 'f32(K) / 2'),
+      `"use typeshade";
+const K = 7;
+export function t(): f32 { return f32(${cast}(K)) + f32(f32(K) / 2); }`,
+    );
+  });
+
+  it('a cast to f32 or f64 alone does not make the constant an integer', () => {
     const source = `"use typeshade";
-const N = 8;
-export function t(xs: array<f32, 8>, x: f32): f32 {
-  let a = 0;
-  for (let j = 0; j < N; j++) { a += xs[j]; }
-  return a + x / N;
-}`;
+const K = 7;
+export function t(d: f64): f32 { return f32(K) + f32(f64(K) + d) + K / 2; }`;
+    expect(accepted(source).eval('t', [0])).toBe(7 + 7 + 3.5);
+  });
+
+  it('a float-written constant is never read as an integer: u32(C) converts 7.5', () => {
+    // Compiled before the change, and gives the same 10.75 (the review of #1184, F4).
+    const source = t('return f32(u32(C)) + x * (C / 2);', 'const C = 7.5;');
+    expect(accepted(source).eval('t', ARGS)).toBe(7 + 3.75);
+  });
+
+  it("the quotient's own read is not another read: the written 8 / 2 is 4u there too", () => {
+    // Each is what the written number gives (the review of #1184, F5).
+    const cases: [string, number][] = [
+      ['let j: u32 = K / 2; return f32(j);', 4],
+      ['return f32(h(K / 2));', 4],
+      ['return f32(vi + K / 2);', 5],
+      ['return vi < K / 2 ? 1 : 0;', 1],
+      ['return f32(u32(K / 2));', 4],
+    ];
+    for (const [body, value] of cases) {
+      const constant = accepted(t(body, 'const K = 8;'));
+      expect(constant.eval('t', ARGS)).toBe(value);
+      const written = accepted(t(body.replace('K / 2', '8 / 2')));
+      expect(written.eval('t', ARGS)).toBe(value);
+    }
+  });
+
+  it('a float-written counter against the constant keeps its f32, and K / 2 its 3.5', () => {
+    // Compiled before the change, and gives the same 10.5 (the review of #1184, F3).
+    const source = t(
+      'let a = 0.; for (let j = 0.; j < K; j += 1.) { a += 1.; } return a + K / 2;',
+      'const K = 7;',
+    );
+    const result = accepted(source);
+    expect(result.wgsl).toContain('var j: f32 = 0.0;');
+    expect(result.eval('t', ARGS)).toBe(10.5);
+  });
+
+  it('accepts x / N with a declared f32 x: a float division, N an f32 at that read', () => {
+    const source = t(
+      'let a = 0; for (let j = 0; j < N; j++) { a += xs[j]; } return a + x / N;',
+      'const N = 8;',
+    );
     const result = accepted(source);
     expect(result.wgsl).toContain('(x / N)');
-    expect(result.eval('t', [[0, 0, 0, 0, 0, 0, 0, 0], 4])).toBe(0.5);
+    expect(result.eval('t', [0, 4, [0, 0, 0, 0, 0, 0, 0, 0]])).toBe(0.5);
   });
 
   it('accepts vi / k with a declared u32 vi: an integer division, as vi / 7 is', () => {
@@ -376,65 +577,97 @@ ${H}export function t(vi: u32): u32 {
   });
 
   it('accepts K / 2 where no read makes K an integer: the ECMAScript value', () => {
-    const source = `"use typeshade";
-const K = 7;
-export function t(x: f32): f32 { return x * (K / 2); }`;
-    expect(accepted(source).eval('t', [2])).toBe(7);
+    expect(accepted(t('return x * (K / 2);', 'const K = 7;')).eval('t', [1, 2, []])).toBe(7);
   });
 
-  // The owner's decision of 2026-11-10: a cast is a read, so `i32(K)` and `u32(K)` make the
-  // constant an integer for this rule, as an argument does.
+  it('refuses the / in the file it stands in when the integer read is in an importing file', () => {
+    // The owner's decision of 2026-11-10 ("편집기를 컴파일러에 맞춤"): a read in another file
+    // counts, and the editor shows what `compile()` of the importing file reports.
+    const lib = `"use typeshade";
+export const K = 7;
+export function half(x: f32): f32 { return x * (K / 2); }
+`;
+    const main = `"use typeshade";
+import { K, half } from "./lib.shade";
+export function t(vi: u32, x: f32): f32 { return f32(vi * K) + half(x); }
+`;
+    const read = (uri: string): string | undefined =>
+      uri.includes('lib.shade') ? lib : uri.includes('main.shade') ? main : undefined;
+    const message = float('K', 'u32', 'K / 2', 'f32(K) / 2');
+    const compiled = compile(main, { fileName: '/app/main.shade.ts', readDocument: read });
+    expect(compiled.diagnostics.map((d) => `${d.fileName} ${d.code}: ${d.message}`)).toEqual([
+      `/app/lib.shade.ts TS8003: ${message}`,
+    ]);
+    // The library alone compiles: no line of it reads K as an integer.
+    expect(compile(lib, { fileName: '/app/lib.shade.ts' }).diagnostics).toEqual([]);
+    const docs = [
+      { path: '/app/main.shade.ts', uri: '/app/main.shade.ts', text: main },
+      { path: '/app/lib.shade.ts', uri: '/app/lib.shade.ts', text: lib },
+    ];
+    for (const order of [docs, [...docs].reverse(), [docs[0]!]]) {
+      const checked = checkDocuments(order, { readDocument: read });
+      expect(checked.diagnostics.map((d) => `${d.file} ${d.code}: ${d.message}`)).toEqual([
+        `/app/lib.shade.ts TS8003: ${message}`,
+      ]);
+    }
+    // An editor with both documents open shows it on the library, and not with only the library.
+    const open = createTypeshadeLanguageService({ readDocument: read });
+    open.openDocument('/app/lib.shade.ts', lib);
+    expect(open.getDiagnostics('/app/lib.shade.ts')).toEqual([]);
+    open.openDocument('/app/main.shade.ts', main);
+    expect(open.getDiagnostics('/app/main.shade.ts')).toEqual([]);
+    expect(
+      open.getDiagnostics('/app/lib.shade.ts').map((d) => `${String(d.code)}: ${d.message}`),
+    ).toEqual([`TS8003: ${message}`]);
+  });
+});
+
+describe('non-division arithmetic keeps the written number (decided 2026-11-10)', () => {
+  // The owner's decision ("규칙대로 두고 기록"): these changed value with item 2 and stay.
+  it('const k = 7; h(k); f32(k - 8) is -1 (4294967295 before, a u32 subtraction)', () => {
+    const source = `"use typeshade";
+${H}export function t(): f32 { const k = 7; h(k); return f32(k - 8); }`;
+    const result = accepted(source);
+    expect(result.wgsl).toContain('return f32(-1.0);');
+    expect(result.eval('t')).toBe(-1);
+  });
+
+  it('const k = 7; h(k); f32(k * 1000000000) is 7000000000 (a wrapped u32 before)', () => {
+    const source = `"use typeshade";
+${H}export function t(): f32 { const k = 7; h(k); return f32(k * 1000000000); }`;
+    expect(accepted(source).eval('t')).toBe(7000000000);
+  });
+
+  it('k % 8 takes the type of its read: xs[k % 8] is xs[7], as before', () => {
+    const source = `"use typeshade";
+${H}export function t(xs: array<f32, 8>): f32 { const k = 7; h(k); return xs[k % 8]; }`;
+    const result = accepted(source);
+    expect(result.wgsl).toContain('return xs[7];');
+    expect(result.eval('t', [[1, 2, 3, 4, 5, 6, 7, 8]])).toBe(8);
+  });
+});
+
+describe('a constant in a declared f64 position carries the full double', () => {
   it.each([
-    ['u32', 'a u32'],
-    ['i32', 'an i32'],
-  ])('refuses K / 2 where %s(K) reads K as an integer', (cast) => {
-    refused(
-      `"use typeshade";
-const K = 7;
-export function t(): f32 { return f32(${cast}(K)) + f32(K / 2); }`,
-      [
-        `"K" is ${cast === 'u32' ? 'a u32' : 'an i32'} where another line reads it, and no ` +
-          `operand of "K / 2" has a declared type, so the "/" does not say which division it ` +
-          `is. Write "const K: ${cast} = 7" for the integer division, or "f32(K) / 2" for 3.5.`,
-      ],
-    );
-  });
-
-  it('a cast to f32 or f64 alone does not make the constant an integer', () => {
+    ['a declared local', 'let q: f64 = C; return q * x;'],
+    ['a return', 'return C;'],
+    ['an argument', 'return wide(C) * x;'],
+    ['a compound assignment', 'let q: f64 = x; q *= C; return q;'],
+  ])('%s: %s', (_what, body) => {
     const source = `"use typeshade";
-const K = 7;
-export function t(d: f64): f32 { return f32(K) + f32(f64(K) + d) + K / 2; }`;
-    expect(accepted(source).eval('t', [0])).toBe(7 + 7 + 3.5);
+const C = 0.1;
+function wide(a: f64): f64 { return a; }
+export function t(x: f64): f64 { ${body} }`;
+    const result = accepted(source);
+    expect(result.wgsl).toContain('vec2<f32>(0.10000000149011612, -1.4901161415892261e-9)');
+    expect(result.eval('t', [1])).toBe(0.1);
   });
 
-  it('accepts the remedy beside an integer cast: f32(K) / 2, and x / K with a declared x', () => {
+  it('a typed f64 constant from a constant: const D: f64 = C', () => {
     const source = `"use typeshade";
-const K = 7;
-export function t(x: f32): f32 { return f32(u32(K)) + f32(K) / 2 + x / K; }`;
-    expect(accepted(source).eval('t', [14])).toBe(7 + 3.5 + 2);
-  });
-
-  it('a cast of the quotient converts the written number and reads no integer K', () => {
-    const source = `"use typeshade";
-const K = 7;
-export function t(): u32 { return u32(K / 2); }`;
-    expect(accepted(source).eval('t')).toBe(3);
-  });
-
-  it('accepts each of the two edits the sentence names', () => {
-    const annotated = `"use typeshade";
-${H}export function t(): f32 {
-  const k: u32 = 7;
-  h(k);
-  return f32(k / 2);
-}`;
-    expect(accepted(annotated).eval('t')).toBe(3);
-    const converted = `"use typeshade";
-${H}export function t(): f32 {
-  const k = 7;
-  h(k);
-  return f32(k) / 2;
-}`;
-    expect(accepted(converted).eval('t')).toBe(3.5);
+const C = 0.1;
+const D: f64 = C;
+export function t(x: f64): f64 { return x * D; }`;
+    expect(accepted(source).eval('t', [1])).toBe(0.1);
   });
 });

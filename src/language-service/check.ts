@@ -218,17 +218,20 @@ export function checkDocuments(
   const diagnostics: CheckDiagnostic[] = [];
   const queue = [...docs];
   const queued = new Set(docs.map((d) => d.uri));
+  // Every document is open while each is checked: a refusal that depends on the program (a
+  // `/` over a constant that an importing file reads as an integer, change 0134) is shown in
+  // the file it stands in, and the service reads it from the open documents that import it.
   for (let i = 0; i < queue.length; i++) {
     const doc = queue[i]!;
     service.openDocument(doc.uri, doc.text);
-    diagnostics.push(...checkOpenDocument(service, doc, options));
-    service.closeDocument(doc.uri);
     for (const imported of importedDocuments(doc, options.readDocument)) {
       if (queued.has(imported.uri)) continue;
       queued.add(imported.uri);
       queue.push(imported);
     }
   }
+  for (const doc of queue) diagnostics.push(...checkOpenDocument(service, doc, options));
+  for (const doc of queue) service.closeDocument(doc.uri);
   return {
     files: queue.map((d) => d.path),
     diagnostics,

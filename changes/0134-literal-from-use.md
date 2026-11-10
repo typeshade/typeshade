@@ -811,29 +811,71 @@ and the same diagnostics, in both halves, before and after. No golden changed.
   tests of `src/compiler/ts/abstract-const.test.ts` (both halves) and the journey
   `journeys/untyped-constants/` (WebGPU, WebGL2 and the CPU oracle). `CHANGELOG.md`,
   `### Changed`, names each value.
-- [fact, measured 2026-11-10 on `main` at `0fb8a53e`] "Values that change" says that the CPU
-  oracle records the rounded `f32` value of a constant that `f32` does not hold exactly. The
-  measurement shows otherwise. `compile().eval` already gave 16777217, 2654435761, the double
-  of 7 / 3 and the double 0.1 for the rows of that section, because a module constant keeps
-  its double for the oracle (`ConstDecl.cpuValue`). The emitted WGSL and GLSL carried the `f32`
-  rounding. So the device and the oracle disagreed on those programs before part 3, and agree
-  after it. The oracle's values do not move; the emitted text moves to them. The approved text
-  is not rewritten; this note corrects it.
+- [fact, measured 2026-11-10 on `main` at `0a095a24` and on the branch] The CPU oracle has two
+  precisions. In `'f32'` precision, which the gates hold against a device, it read each row of
+  "Values that change" at the `f32` rounding before part 3 (16777216, 2654435840, the `f32`
+  quotient, the `f32` value of 0.1) and reads the exact value after it, as that section says.
+  In `'f64'` precision (`compile().eval`) a read of a module constant by its name carried the
+  double the author wrote before part 3 too (`ConstDecl.cpuValue`), so those rows read the same
+  value there before and after. Two rows move in `'f64'` precision: `const C = 0.1; const D:
+f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32(K)` read
+  4294967040 and reads 4294967295. An earlier note in this record and in pull request #1184
+  said that the oracle's values do not move; that was measured in `'f64'` precision only and
+  was wrong as written. The approved text is not rewritten.
 - [decision, owner, 2026-11-10] "캐스트도 세기". A cast is a read for the division rule. A
   conversion `i32(K)` or `u32(K)` of a constant of no fixed type reads it as an integer, as an
   argument of that type does. So `const K = 7; return f32(u32(K)) + f32(K / 2);` is refused
   with `TS8003`, in the sentence of the rule. `f32(K)` and `f64(K)` do not make the constant an
   integer, and `f32(K) / 2` is the edit the sentence names. Implemented in part 3. A conversion
-  of a quotient (`u32(K / 2)`) converts the written number and reads no integer `K`.
+  of arithmetic over the constant counts too (`u32(K + 1)`). A conversion of the quotient
+  itself (`u32(K / 2)`) is that quotient's own read, not another one.
 - [decision, owner, 2026-11-10] "별도 PR로 결함 수정". `const K = 1e38;` with `f64(K) * 4.` is
   newly refused: `f64(K)` is the written `f64(1e38)`, and the front end folds the product to a
   double that the emulation cannot hold (`TS8015`, as the written form does on `main`). Part 3
   goes on as it is: the constant behaves as the written number. The fold is a defect of its
   own, and it is fixed in its own pull request under an issue that the session's coordinator
   files. `src/core/passes/fp64-lower.test.ts` writes the type of its two `1e38` constants.
+- [decision, owner, 2026-11-10] "거부". A `/` that reaches such a constant through an
+  operator, a builtin, a conditional or a derived constant is refused for the same reason as
+  the direct `k / 2`: `(k % 4) / 2`, `max(k, 1) / 2`, `abs(k) / 2`, `(x > 0 ? k : 1) / 2`,
+  `(k | 1) / 2`, `const m = k * 2; … m / 4`, `const m = k; m / 2`. No program changes its value
+  silently through a division. Implemented in part 3.
+- [decision, owner, 2026-11-10] "규칙대로 두고 기록". Arithmetic other than `/` keeps Rule 5.1:
+  with `function h(a: u32): u32`, `const k = 7; h(k); f32(k - 8)` was 4294967295 and is -1, and
+  `f32(k * 1000000000)` was a wrapped `u32` and is 7000000000, as the written number gives.
+  These rows are added to "Values that change" by this record and by the `CHANGELOG.md` entry.
+- [decision, owner, 2026-11-10] "편집기를 컴파일러에 맞춤". A read in another file counts. With
+  `export const K = 7;` and `x * (K / 2)` in a library and `vi * K` in the file that imports
+  it, `compile()` of the importing file refuses the `/` in the library file, and the editor
+  shows the same `TS8003` there (Rule 12.7): `checkDocuments` over the two documents, and the
+  language service while the importing document is open. Implemented in part 3.
+- The independent review of pull request #1184 at `827bc9e1` (2026-11-10) found F3 to F12, all
+  inside the approved text. Each is fixed in part 3 with a test that reads both halves: a
+  float-written counter against a constant bound keeps its `f32` (F3); a float-written constant
+  is never an integer read (F4); the quotient's own read is not another read (F5); a bitwise
+  compound assignment, a typed constant, a derived constant, a conversion of arithmetic and a
+  texture level count as integer reads (F6); the sentence names one edit that compiles (F7);
+  `k % 8` takes the type of its read (F8); a declared `f64` position is tested (F9); the oracle
+  note is corrected (F10); the hover deviation names its rule (F12). F11 is open, below.
+- Open, not decided: a compound assignment `q += K * 2` with a `u32` `q` compiles (`6u`), and
+  the written `q += 3 * 2` is refused on `main` and on the branch. The constant goes through
+  the retarget that a binary operand takes; the written tree through an older path of the
+  compound assignment that takes one literal only.
+- Open, not decided (item 1's ground): `const k = 7; h(k); let y = k; … y / 2` was an integer
+  division (3) and is 3.5, because `let y = k` is neither a written number nor a constant. The
+  approved text does not say whether a `let` initialized by a constant is a value of item 1.
 - Deviations of part 3, each open for the audit at the end:
-  - Hover is not changed: a declaration and every read still show `const K: f32`. Item 4 is its
-    own part.
+  - Hover is not changed: a declaration and every read still show `const K: f32`, also at a
+    read the compiler types `u32`. Until item 4 is delivered this is a deviation from Rule 12.7
+    ("The language service and the compiler must name one vocabulary") and from the `getHover`
+    row of `docs/language-service-api.md` (line 485: "the COMPILER's type for every name the
+    front end declared in this document"). Item 4 is its own part.
+  - The refusal sentence names one edit, where "Proposed" says that it names the two fixes. One
+    of the two does not compile in some positions (the review, F7), so the sentence names the
+    one that does: the constant's type where an integer position reads the quotient, the
+    constant converted elsewhere.
+  - `%` is read through a constant of no fixed type (`xs[k % 8]`), which compiled before; the
+    written `xs[7 % 8]` stays refused, on `main` and on the branch.
   - An exported constant of no fixed type keeps its `f32` declaration in reflection, the
     manifest and the host view. The estimate of item 2 (the host view spells it `number`) is
     neither implemented nor measured.

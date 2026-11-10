@@ -6,6 +6,7 @@ import {
   abstractConstFor,
   abstractLiteralOf,
   abstractTreeOf,
+  noteIntegerRead,
   type AbstractConst,
 } from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
@@ -1751,6 +1752,8 @@ function lowerBitwiseAssignOpTo(
     abstractTreeOf(right)?.integerWritten === true ? (abstractLiteralOf(value) ?? value) : value,
   );
   if (folded.op === 'lit' && typeof folded.value === 'number' && Number.isInteger(folded.value)) {
+    // `n |= K` reads a constant of no fixed type as the target's integer.
+    if (folded !== value) noteIntegerRead(right, typeKey(want) === 'u32' ? 'u32' : 'i32');
     if (folded.value < 0 && (isShift || typeKey(want) === 'u32')) {
       pushDiag(
         diagnostics,

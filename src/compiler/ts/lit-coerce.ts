@@ -8,7 +8,13 @@ import { f64T, isF64 } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
-import { abstractLiteralOf, isIntegerWrittenRead, noteIntegerRead } from './abstract-const.js';
+import {
+  abstractLiteralOf,
+  abstractTreeOf,
+  isIntegerWrittenRead,
+  noteIntegerContext,
+  noteIntegerRead,
+} from './abstract-const.js';
 
 export function isIntegerLiteralNode(node: ts.Expression): boolean {
   if (ts.isParenthesizedExpression(node)) return isIntegerLiteralNode(node.expression);
@@ -107,12 +113,22 @@ export function retargetIntLit(expr: Expr, node: ts.Expression, peer: ShaderType
   // takes an integer peer's type as the written number would (Rule 5.1, change 0134 item 2).
   // Beside anything else it is left as lowered, so an `f32` read keeps the constant's name.
   const abstract = abstractLiteralOf(expr);
-  if (abstract !== undefined) {
+  if (abstract !== undefined && abstract.op === 'lit' && typeof abstract.value === 'number') {
     if (!isIntScalar(peer)) return expr;
-    const out = retargetWrittenIntLit(abstract, node, peer);
-    if (out.op !== 'lit' || !isIntScalar(out.type)) return expr;
-    noteIntegerRead(expr, typeKey(out.type) === 'u32' ? 'u32' : 'i32');
-    return out;
+    const kind = typeKey(peer) === 'u32' ? 'u32' : 'i32';
+    // The position asks an integer of a `/` inside the read (`xs[k / 2]`), kept or not.
+    noteIntegerContext(node, kind);
+    const tree = abstractTreeOf(node);
+    if (
+      tree === undefined ||
+      !tree.integerWritten ||
+      !Number.isInteger(abstract.value) ||
+      !fitsTarget(abstract.value, peer)
+    )
+      return expr;
+    // The literal is kept, so this is a read of the constant as an integer.
+    noteIntegerRead(node, kind);
+    return { op: 'lit', type: peer, value: abstract.value };
   }
   return retargetWrittenIntLit(expr, node, peer);
 }

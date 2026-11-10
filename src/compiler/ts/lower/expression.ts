@@ -836,7 +836,11 @@ function lowerBinary(
   if (!left || !right) return undefined;
   // A `/` over constants of no fixed type and written numbers alone (change 0134, decisions Q10
   // and Q11): recorded, and refused once the module's reads are known.
-  noteAbstractDivision(node, sourceFile);
+  noteAbstractDivision(
+    node,
+    sourceFile,
+    (name) => scope.resolveCallee(name) === undefined && scope.resolve(name) === undefined,
+  );
   // `v === x` with an optional operand is ECMAScript's equality (Rule 7.10); any other
   // operator takes the `T`, which an optional nothing narrowed is not.
   const equality = lowerOptionalEquality(node, left, right, sourceFile, scope, diagnostics);

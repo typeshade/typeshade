@@ -1367,21 +1367,31 @@ field that no code writes are read as the written number is: `vi * K` is `vi * 3
 is an `f32` product, and `xs[K]` is an index. A `/` needs one more rule, because a written
 `7 / 2` is `3.5` and an integer division is `3`. A `/` is an integer division only when one
 operand has an integer type the author wrote. So `vi / K` with a `u32` `vi` divides integers,
-and `x / K` with an `f32` `x` divides floats. A `/` whose operands are all written numbers and
-constants of no fixed type is refused where another line reads one of those constants as an
-integer:
+and `x / K` with an `f32` `x` divides floats. A `/` whose operands have no declared type is
+refused where another line reads the constant it reaches as an integer:
 
 ```ts
 const N = 8;
 const HALF = N / 2; // refused when a loop bound reads N as an i32
 // TS8003: "N" is an i32 where another line reads it, and no operand of "N / 2" has a declared
-// type, so the "/" does not say which division it is. Write "const N: i32 = 8" for the integer
-// division, or "f32(N) / 2" for 4.
+// type, so the "/" does not say which division it is. Write "f32(N) / 2" for the float
+// division.
 ```
 
-A conversion is a read: `i32(N)` or `u32(N)` anywhere reads `N` as an integer, as an argument
-of that type does, and `f32(N)` or `f64(N)` does not. Where no line reads `N` as an integer,
-`N / 2` is the ECMAScript value, `4`, and `7 / 2` is `3.5`.
+The `/` reaches the constant directly, or through `+`, `-`, `*`, `%`, a bitwise operator, a
+builtin (`max(k, 1) / 2`), a conditional or a constant derived from it
+(`const M = N * 2; … M / 4`). The other read is any place that types the constant an integer:
+an argument, a typed declaration, a loop bound, an index, a conversion `i32(N)` or `u32(N)`,
+and a read in a file that imports the constant. `f32(N)` and `f64(N)` are no such read, and a
+float-written constant (`const C = 7.5`) is never read as an integer. The sentence names one
+edit. Where an integer position reads the quotient (`xs[k / 2]`, `r + k / 2`), it names the
+constant with its type, `const k: u32 = 7`. Anywhere else it names the `/` with the constant
+converted, `f32(k) / 2`.
+
+The quotient's own read is not another read. `let j: u32 = N / 2` is `4u`, as the written
+`8 / 2` is there, and `x * (N / 2)` is the ECMAScript value where no other line reads `N` as an
+integer. Arithmetic other than `/` has the written number's value at every read: with `const k
+= 7` that an argument reads as a `u32`, `f32(k - 8)` is `-1`.
 
 **No window is open on the default.** Everything above is about a position or use that
 DECLARES a type. Where nothing establishes one for a variable (`let i = 0`), the literal takes
