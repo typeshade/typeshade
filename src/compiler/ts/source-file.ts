@@ -65,6 +65,7 @@ import {
   rewriteDerivatives,
   type DerivativeRewriteReason,
 } from '../../core/passes/derivative-rewrite.js';
+import { checkBuiltinTypeForms } from './builtin-type-form.js';
 import { interstageMismatches } from '../../core/passes/lint/rules/interstage-io.js';
 import {
   authorTypeText,
@@ -455,6 +456,9 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   // The decorated form of the migration release, read as written and warned once each
   // (change 0111, milestone 4).
   warnDecoratedForm(sourceFile, diagnostics);
+  // The type a `builtin<N, …>` writes: the migration form warned, and `builtin<"clip_distances">`
+  // refused, once each (Rule 6.6, change 0135).
+  checkBuiltinTypeForms(sourceFile, diagnostics);
   dropRepeatedDiagnostics(diagnostics);
   sortDiagnosticsByPosition(diagnostics);
   let wgsl: string | undefined;

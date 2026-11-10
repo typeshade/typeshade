@@ -191,7 +191,7 @@ export function isQualifierTypeForm(node: ts.Node, declared: ReadonlySet<string>
 }
 
 /** The names `sf` declares a type of itself: a class, an interface, a type alias or an enum. */
-function declaredTypeNames(sf: ts.SourceFile): ReadonlySet<string> {
+export function declaredTypeNames(sf: ts.SourceFile): ReadonlySet<string> {
   const out = new Set<string>();
   const visit = (node: ts.Node): void => {
     if (

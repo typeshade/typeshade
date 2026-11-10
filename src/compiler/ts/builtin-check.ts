@@ -18,6 +18,7 @@ import type { TsCompilerDiagnostic } from './source-file.js';
 import { authorTypeText } from './context.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
+import { MAX_CLIP_DISTANCES } from './attribute-types.js';
 import { unknownNameSentence } from './unknown-names.js';
 import { isMixinDeclaration } from './mixins.js';
 import { isIntegerVarying } from '../../core/passes/varying-interpolate.js';
@@ -404,9 +405,6 @@ export const BUILTIN_STAGE_RULES: Readonly<
   subgroup_id: [{ stage: 'compute', direction: 'input' }],
   num_subgroups: [{ stage: 'compute', direction: 'input' }],
 };
-
-/** The longest `array<f32, N>` WGSL's built-in value table lets `@builtin(clip_distances)` be. */
-const MAX_CLIP_DISTANCES = 8;
 
 /** Validates the type of a `@location(n)` field or parameter (§53). WGSL: "the type of a
  *  user-defined IO must be a numeric scalar or numeric vector" — a `bool` at a location was

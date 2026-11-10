@@ -131,9 +131,9 @@ export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
  *  so TypeScript adds no second diagnostic to the compiler's `TS8028` (Rule 12.4). */
 export const ATTRIBUTE_TYPE_DOCS: Readonly<Record<string, string>> = {
   builtin:
-    'A WebGPU builtin value of type `T`: `i: builtin<"vertex_index", u32>` on an entry parameter, `pos: builtin<"position", vec4>` on an entry IO field. Options: `{ invariant: true }` on the position.',
+    'A WebGPU builtin value, of the type WGSL gives it: `i: builtin<"vertex_index">` on an entry parameter is a `u32`, `pos: builtin<"position">` on an entry IO field a `vec4`. An option is the second argument: `builtin<"position", { invariant: true }>`. `clip_distances` is the one name that writes its type, `builtin<"clip_distances", array<f32, 4>>`. A written type that WGSL fixes, `builtin<"vertex_index", u32>`, is the migration form: the compiler warns on it (TS8028), and `tshc migrate` rewrites it.',
   location:
-    'A shader IO location of type `T`: `uv: location<0, vec2>`. Options: `{ interpolate: "flat" }` or `{ interpolate: ["linear", "centroid"] }`, and `{ blend_src: 0 | 1 }` on a dual-source fragment output.',
+    'A shader IO location of type `T`, at the number written: `uv: location<0, vec2>`. An input or output that writes none, `uv: vec2`, takes its location from the compiler; write `location<n, T>` to fix the number or to carry an option. Options: `{ interpolate: "flat" }` or `{ interpolate: ["linear", "centroid"] }`, and `{ blend_src: 0 | 1 }` on a dual-source fragment output.',
   inout:
     "Not the language's form: a parameter qualifier is written before the parameter, `@inout a: T` (Rule 8.25, change 0137). The compiler refuses `inout<T>` (TS8028), and `tshc migrate` rewrites it on a parameter.",
   out: "Not the language's form: a parameter qualifier is written before the parameter, `@out c: T` (Rule 8.25, change 0137). The compiler refuses `out<T>` (TS8028), and `tshc migrate` rewrites it on a parameter.",

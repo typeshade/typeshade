@@ -1,6 +1,6 @@
 import ts from 'typescript';
 import {
-  ATTRIBUTE_TYPES,
+  attributeArgumentsOf,
   attributeDecoratorsOf,
   isAttributeType,
   typeDecoratorsOf,
@@ -9,6 +9,7 @@ import type { StructDecl, StructField } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { boolT, f32T, structT, typeKey as typeKeyOf } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
+import { isUntypedBuiltin } from './builtin-type-form.js';
 import {
   aliasTargetsOf,
   declaredTypeNamesOf,
@@ -824,7 +825,8 @@ export function collectStructs(
           // (Rule 12.4).
           const mapped = member.type
             ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
-              (writesRefusedType(member.type, sourceFile)
+              (writesRefusedType(member.type, sourceFile) ||
+              isUntypedBuiltin(member.type, sourceFile)
                 ? undefined
                 : structT(member.type.getText(sourceFile))))
             : member.initializer !== undefined
@@ -2239,7 +2241,7 @@ function signatureFields(
     // (Rule 12.4).
     const mapped = member.type
       ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
-        (writesRefusedType(member.type, sourceFile)
+        (writesRefusedType(member.type, sourceFile) || isUntypedBuiltin(member.type, sourceFile)
           ? undefined
           : structT(member.type.getText(sourceFile))))
       : undefined;
@@ -2300,7 +2302,7 @@ function checkUncollectedIo(
       });
       if (dependent) return;
     }
-    type = type.typeArguments?.[ATTRIBUTE_TYPES[name]!];
+    type = attributeArgumentsOf(type).value;
   }
   const decos = attributeDecoratorsOf(member);
   const io = readIoAttributes(diagnostics, sourceFile, decos);
