@@ -6,7 +6,8 @@ rules:
   - '1.8'
   - '6.7'
   - '8.1'
-surface: []
+surface:
+  - 78
 exports: []
 exports-removed: []
 codes: []
@@ -318,6 +319,31 @@ implementing pull request carries `Change: 0140` with `Change: 0130`. Pull reque
 change how an author writes an example or what compiles, so each shows one example before and
 after and waits for the owner's "merge" (`CLAUDE.md`, Merging). Duration and cost are not
 estimated.
+
+### Amendment A1. Surface §78's example and the plain-`tsc` tests of `attribute-types.test.ts` (2026-11-10)
+
+- [fact] Why. Pull request 3 (#1154, merged at `c5ebeeed`) moved the tests, the journeys and the
+  documents to the stage attributes. Two places stay in the call form, and pull request 4 refuses
+  that form.
+  - `docs/use-typeshade-surface.md` §78 shows one entry as
+    `export const fs = fragment(function fs(…) { … });`. Change 0130 leaves §78 to change 0131,
+    and this proposal declared no surface section, so `scripts/changes.ts` refused the edit.
+  - `src/compiler/ts/attribute-types.test.ts`, in "the program change 0111 promises type-checks
+    under a plain tsc --strict", asserts exactly two TS1206 from a plain `tsc` on the typed form.
+    With the stage attributes a plain `tsc` reports four. Change 0130 names what
+    `examples/plain-typescript.test.ts` becomes, and it does not name this file. <!-- doc-refs: skip — a test file that change 0130 removed, named as removed -->
+- [decision, owner, 2026-11-10] "0140 수정안", on the agent's recommendation. Surface §78 joins
+  this proposal's `surface`, for one edit: its example's entry is written
+  `@fragment export function fs(…) { … }`. No sentence of §78 changes, and its title stays as
+  change 0131 decided.
+- [decision, owner, 2026-11-10] "삭제하고 대체", on the agent's recommendation. The two
+  plain-`tsc` tests of `src/compiler/ts/attribute-types.test.ts` are removed, as change 0130
+  removed `examples/plain-typescript.test.ts`: a plain `tsc` is no criterion of the surface (Rule <!-- doc-refs: skip — a test file that change 0130 removed, named as removed -->
+  1.8). The language-service checks of `src/language-service/new-entry-forms.test.ts` (no TS1206
+  and no TS2564 on the attribute form and on any example) stand in their place. The other tests
+  of the file move to the attribute form and keep reading both halves.
+- Affects: the front matter `surface` (78). Both edits are delivered no later than pull request 4. No rule, decision or pull request of "The pull requests" changes.
+- Status: `status: accepted` does not change.
 
 ### Configuration and validation record
 
