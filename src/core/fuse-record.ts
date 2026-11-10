@@ -318,12 +318,12 @@ const handleOf = (): object => ({
   read: () =>
     Promise.reject(
       new TypeError(
-        'read(): this is a scratch array, which the host never reads. Make it with resident() to read it after the scope.',
+        'read(): this is a scratch array, which the host never reads. Make it with array() to read it after the scope.',
       ),
     ),
   write: () => {
     throw new TypeError(
-      'write(): this is a scratch array, which the host never writes. Make it with resident() to write it.',
+      'write(): this is a scratch array, which the host never writes. Make it with array() to write it.',
     );
   },
   destroy: () => undefined,

@@ -834,10 +834,10 @@ function checkHeld(
   // A scratch array of a fuse scope lives only until its plan has run (change 0058).
   if (s.outside !== undefined)
     throw new TypeError(
-      `${at} is a scratch array of fuse(), which the host never reads. Make the length with resident() or device.array().`,
+      `${at} is a scratch array of fuse(), which the host never reads. Make the length with array() or device.array().`,
     );
   if (s.destroyed)
-    throw new TypeError(`${at}: this Resident was destroyed; make a new one with resident().`);
+    throw new TypeError(`${at}: this Resident was destroyed; make a new one with array().`);
   const view = s.view();
   if (!(view instanceof Uint32Array))
     throw new TypeError(`${at} is a Resident<Uint32Array>; got a Resident of ${describe(view)}.`);

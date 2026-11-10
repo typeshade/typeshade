@@ -425,7 +425,7 @@ TypeshadeViteOptions
 TypeshadeVitePlugin
 ```
 
-## `./runtime` — 95 exports
+## `./runtime` — 96 exports
 
 ```
 array
@@ -495,6 +495,7 @@ SamplerOptions
 StencilFaceState
 StencilOperation
 StencilState
+texture
 Texture
 TextureOptions
 TypeShadeBuildInfo
@@ -930,7 +931,7 @@ uniform
 xorshift32
 ```
 
-## Shapes — 746 definitions
+## Shapes — 747 definitions
 
 ```
 src/algorithms/index.ts#abs  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
@@ -1596,7 +1597,7 @@ src/random/index.ts#hash32  const  (x: u32) => u32
 src/random/index.ts#uniform  const  (word: u32) => f32
 src/random/index.ts#xorshift32  const  (state: u32) => u32
 src/runtime/chunk.ts#ChunkRate  interface  { chunks: number; lastUnits: number; longestMs: number; msPerUnit: number }
-src/runtime/device.ts#Device  interface  { array: { <T>(value: T): Resident<T>; <E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>; }; chunkRates: Readonly<Record<string, ChunkRate>>; chunkSize: (key: string, max: number, min?: number) => number; dispose: () => Promise<void>; fp64Flavor: Fp64Flavor; fuse: (body: (scope: FuseScope) => void, options?: { readonly chunk?: { readonly key: string; readonly units: number; }; }) => Promise<FuseReport>; info: DeviceInfo; limits: Readonly<Record<string, number>>; lost: Promise<{ readonly reason: string; readonly message: string; }>; release: (array: Resident<unknown>) => void; skipped: readonly { readonly tier: "cpu" | "webgpu" | "webgl2"; readonly reason: string; }[]; statistics: DeviceStatistics; texture: (options: { readonly size: readonly [number, number]; readonly format: string; readonly storage?: boolean; }) => Texture; tier: "cpu" | "webgl2" | "webgpu"; timeBudgetMs: number; wait: () => Promise<void> }
+src/runtime/device.ts#Device  interface  { array: { <T>(value: T): Resident<T>; <E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>; }; chunkRates: Readonly<Record<string, ChunkRate>>; chunkSize: (key: string, max: number, min?: number) => number; dispose: () => Promise<void>; fp64Flavor: Fp64Flavor; fuse: (body: (scope: FuseScope) => void, options?: { readonly chunk?: { readonly key: string; readonly units: number; }; }) => Promise<FuseReport>; info: DeviceInfo; limits: Readonly<Record<string, number>>; lost: Promise<{ readonly reason: string; readonly message: string; }>; release: (array: Resident<unknown>) => void; skipped: readonly { readonly tier: "cpu" | "webgpu" | "webgl2"; readonly reason: string; }[]; statistics: DeviceStatistics; texture: (options: { readonly size: readonly [number, number]; readonly format: string; readonly storage?: boolean; }) => Texture; tier: "cpu" | "webgl2" | "webgpu"; timeBudgetMs: number; use: () => DeviceUse; wait: () => Promise<void> }
 src/runtime/device.ts#DeviceOptions  type  { readonly limits?: Readonly<Record<string, number>>; readonly features?: readonly string[]; readonly poolBytes?: number; readonly fp64Flavor?: Fp64Flavor | "auto"; readonly subgroups?: "auto" | "off"; readonly timeBudgetMs?: number; } & ({ readonly prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; readonly device?: never; readonly runtime?: never; } | { readonly device: object; readonly prefer?: never; readonly runtime?: never; } | { readonly runtime: { readonly device: object; readonly tier?: string; }; readonly prefer?: never; readonly device?: never; })
 src/runtime/device.ts#DeviceStatistics  interface  { allocations: number; live: number; liveBytes: number; pooledBytes: number; readBytes: number; reuses: number; uploadBytes: number; variants: Readonly<Record<string, "tree" | "subgroup">> }
 src/runtime/device.ts#createDevice  function  (options?: DeviceOptions) => Promise<Device>
@@ -1661,6 +1662,7 @@ src/runtime/program.ts#StencilState  interface  { back?: StencilFaceState; compa
 src/runtime/resource.ts#Buffer  interface  { at: (index: number) => StructOf<T>; dispose: () => void; length: number; needsUpdate: boolean; read: () => Promise<T[]> }
 src/runtime/resource.ts#Uniform  type  { readonly [K in DataKeys<T>]: FieldOf<T[K]>; } & { set(value: Some<T>): void; } & { needsUpdate: boolean; dispose(): void; }
 src/runtime/resource.ts#array  type  number extends N ? Unsized<T> : readonly T[]
+src/runtime/resource.ts#texture  function  (options: { readonly size: readonly [number, number]; readonly format: string; readonly storage?: boolean; }) => Texture
 src/runtime/resource.ts#uniform  function  <T extends object>(cls: ShaderClass<T>, init?: Some<T>) => Uniform<T>
 src/runtime/resource.ts#zeros  function  <T extends object>(cls: ShaderClass<T>, length: number) => Buffer<T>
 src/runtime/resources.ts#Sampler  interface  { sampler: object }

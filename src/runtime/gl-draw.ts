@@ -790,7 +790,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
       const state = residentState(v);
       if (state !== undefined) {
         if (state.destroyed)
-          throw new TypeError('This Resident was destroyed; make a new one with resident().');
+          throw new TypeError('This Resident was destroyed; make a new one with array().');
         residents.push(state);
         binds.push({
           index: s.index,

@@ -8081,6 +8081,41 @@ At milestone 1 no call takes a resource yet: a kernel function, an entry and a d
 and a `Resident` as before. The upload of each dirty range when a call reads the resource is
 milestone 3 of change 0138.
 
+**Exported bindings** (change 0138, R10; Rule 6.1). A binding the shader module exports is a host
+resource. `export declare const camera: uniform<Camera>` is a `Uniform<Camera>` in the host, and
+`export declare const ps: storage<array<Particle, 64>, "read_write">` a `Buffer<Particle>` of 64
+elements, each laid out by the exported class's layouts and made once by the generated module.
+
+```ts
+// scene.shade.ts
+export class Camera {
+  pos: vec3 = vec3(0.);
+  time: f32 = 0.;
+}
+export declare const camera: uniform<Camera>;
+```
+
+```ts
+// host.ts
+import { camera } from './scene.shade.ts';
+
+camera.pos.set(0, 2, 5); // a field, through its accessor
+camera.set({ time: now / 1000 }); // `camera = …` is a type error: an import is read-only
+```
+
+The binding lives as long as its module, so its `dispose()` throws a `TypeError`. A storage array
+with no size has no length to make, and a scalar, a vector, a struct no exported class declares,
+one `storage<T>`, a texture and a sampler have no resource of their own yet: the view declares
+each `never`, with the reason. An entry call still takes the binding's value in its bindings
+object; binding the exported resource at a call is milestone 3 of change 0138.
+
+**The default device** (change 0138, Amendment A2; Rule 11.8). A device is opened by
+`createDevice()` alone. `using _ = device.use()` makes it the default device until the end of the
+block, uses nesting, and `texture({ size, format })` makes a texture on it; with no device in use,
+`texture()` throws a `TypeError`. Where the `lib` declares no `Symbol.dispose`, call `dispose()` on
+the handle `use()` returns. The calls of a kernel function or an entry do not follow `device.use()`
+yet.
+
 **The name** (Rule 3.8). A shader module a host imports is named `*.shade.ts`. The plugin refuses
 a `.ts` the bundle reads that begins with `"use typeshade"` under any other name, with the
 rename. A module with a compile error fails the build with each `TS80xx` diagnostic at its file,
@@ -8507,8 +8542,8 @@ anything runs:
 | an `offset` that is no whole number from 0      | `keepAbove(): "list.offset" counts elements of "list.length", so it is a whole number from 0; got -1.`                  |
 | an `offset` past the array                      | `keepAbove(): "list.offset" is 2, and the length at it needs 3 elements; "list.length" holds 2.`                       |
 | a `length` that is another argument             | `keepStore(): "list.length" is the same resident array as parameter "count".`                                          |
-| a destroyed `Resident`                          | `keepAbove(): "list.length": this Resident was destroyed; make a new one with resident().`                             |
-| a scratch array of a `fuse` scope               | `keepAbove(): "list.length" is a scratch array of fuse(), which the host never reads. Make the length with resident() or device.array().` |
+| a destroyed `Resident`                          | `keepAbove(): "list.length": this Resident was destroyed; make a new one with array().`                             |
+| a scratch array of a `fuse` scope               | `keepAbove(): "list.length" is a scratch array of fuse(), which the host never reads. Make the length with array() or device.array().` |
 | a `Resident` of another owner                   | the owner refusal of §65 (`A device's arrays`), with `"list.length"` as the name                                         |
 
 An object with another key is no held length: the call refuses it as a wrong array.
@@ -10340,8 +10375,8 @@ allocations. This is an illustrative count, not a memory-usage or performance me
 
 | Refused                                                  | Wording                                                                                                                                                                                                                                                                                                                           |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `read()`                                                 | `read(): this is a scratch array, which the host never reads. Make it with resident() to read it after the scope.`                                                                                                                                                                                                                |
-| `write()`                                                | `write(): this is a scratch array, which the host never writes. Make it with resident() to write it.`                                                                                                                                                                                                                             |
+| `read()`                                                 | `read(): this is a scratch array, which the host never reads. Make it with array() to read it after the scope.`                                                                                                                                                                                                                |
+| `write()`                                                | `write(): this is a scratch array, which the host never writes. Make it with array() to write it.`                                                                                                                                                                                                                             |
 | a call outside the body that made it                     | `add(): parameter "t" is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.`                                                                                                                                                                                                        |
 | a call after the plan has run                            | `add(): parameter "t" is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.`                                                                                                                                                                                                |
 | an entry call or a draw (§67) that takes it              | `blur(): binding "t" is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.` A draw has its own name there. A draw made before the plan has run gets `fs(): binding "t" is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.` |

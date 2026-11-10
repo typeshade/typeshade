@@ -193,7 +193,7 @@ function countsOf(
       `${at} is a Resident<Uint32Array> that holds the workgroup counts; got ${describe(indirect)}.`,
     );
   if (s.destroyed)
-    throw new TypeError(`${at}: this Resident was destroyed; make a new one with resident().`);
+    throw new TypeError(`${at}: this Resident was destroyed; make a new one with array().`);
   const view = s.view();
   if (!(view instanceof Uint32Array))
     throw new TypeError(`${at} is a Resident<Uint32Array>; got a Resident of ${describe(view)}.`);

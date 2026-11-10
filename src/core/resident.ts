@@ -224,7 +224,7 @@ export class ResidentArrayState {
    *  alike, so the next use binds it without an upload. */
   bufferFor(d: GpuDevice, layout: Layout, bytes: () => ArrayBuffer, writes: boolean): GpuBuffer {
     if (this.destroyed)
-      throw new TypeError('This Resident was destroyed; make a new one with resident().');
+      throw new TypeError('This Resident was destroyed; make a new one with array().');
     if (this.clearPending && !this.#clearBound && this.gpu?.d === d) {
       // A pooled zeroed array has 32-bit host elements. Its next binding can need different
       // padding: twelve scalar scratch words occupy 48 bytes, four vec3 values occupy 64.
@@ -358,7 +358,7 @@ export class ZeroedState extends ResidentArrayState {
   ): GpuBuffer {
     if (this.host !== undefined) return super.bufferFor(d, layout, bytes, writes);
     if (this.destroyed)
-      throw new TypeError('This Resident was destroyed; make a new one with resident().');
+      throw new TypeError('This Resident was destroyed; make a new one with array().');
     if (this.gpu === undefined || this.gpu.d !== d) {
       // The buffer is the size of the layout's elements: a number is 4 bytes, and a vector of 3
       // is padded to 16.
@@ -653,7 +653,7 @@ const MOST_ZEROED = 0xffffffff;
 export function handleOf(state: ResidentArrayState): Resident<unknown> {
   const live = (): void => {
     if (state.destroyed)
-      throw new TypeError('This Resident was destroyed; make a new one with resident().');
+      throw new TypeError('This Resident was destroyed; make a new one with array().');
   };
   const handle = {
     read(): Promise<unknown> {
