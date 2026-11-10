@@ -153,7 +153,7 @@ title and blurb are in its own `@example` block.
 | File                              | Renderable | What it shows                                                                                                                                 |
 | --------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `hello.shade.ts`                  | yes        | The smallest complete program — a vertex stage positioning three corners from `vertex_index`, a flat-red fragment stage.                      |
-| `hello-vsout.shade.ts`            | yes        | The same triangle carrying a `uv` varying through a shared `VsOut` class: the `@builtin("position")` + `@location` pair.                      |
+| `hello-vsout.shade.ts`            | yes        | The same triangle carrying a `uv` varying through a shared `VsOut` interface: the `builtin<"position">` field beside a plain `uv: vec2`.      |
 | `hello-vsin.shade.ts`             | yes        | Vertex input from a buffer — a `VsIn` class of `@location` attributes becomes GLSL `in` declarations and a WGSL struct.                       |
 | `hello-uniform.shade.ts`          | yes        | A bare `declare const scale: uniform<f32>` keeps its numeric host value; GLSL places it in a private std140 block.                            |
 | `hello-camera.shade.ts`           | no         | A `mat4` + `vec3` `Camera` behind `uniform<Camera>`, read by a plain helper — a module with no entry point is a module.                       |

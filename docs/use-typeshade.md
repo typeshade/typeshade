@@ -186,8 +186,8 @@ from the package entry.
 
 ```ts
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  pos: builtin<"position">
+  uv: vec2
 }
 
 declare const camera: uniform<Camera>
