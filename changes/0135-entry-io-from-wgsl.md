@@ -797,13 +797,54 @@ coordinating session. The merge of pull request #1171 records the delivered comm
   `RULE-1201` reviewed; the suspect links of `SURF-003`, `SURF-007`, `SURF-014`, `SURF-026`,
   `SURF-063` and `SURF-076` cleared after reading each section).
 
-| #   | Difference from Amendment A1                                                                                                                                                                                                                                         | Disposition                                                                                |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| A   | `README.md`, `docs/use-typeshade.md` and one row of `examples/README.md` wrote the decorated form of change 0111, which warns too. They move to the type form with the same rewrite.                                                                                 | Open: the owner decides whether these lines belong to this change.                         |
-| B   | `AUTHORING.md` ("Stage parameters") keeps `uv: location<0, vec2>`, although the compiler gives the same number. Its paragraph introduces `location<n, T>`, and the block is its example.                                                                             | Closed: the section teaches the written form.                                              |
-| C   | Surface §2 and §29 still name `builtin<"...", T>` as the form of a field. §38 writes a location that the compiler would give. One block of §77 writes the decorated form, with its `TS8028` warning. The front matter does not declare these sections, so they stay. | Open: an amendment that declares §2, §29, §38 and §77 lets a later pull request move them. |
+| #   | Difference from Amendment A1                                                                                                                                                                                                                                         | Disposition                                                               |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| A   | `README.md`, `docs/use-typeshade.md` and one row of `examples/README.md` wrote the decorated form of change 0111, which warns too. They move to the type form with the same rewrite.                                                                                 | Closed: the owner decided that they stay as moved (Amendment A2, "두기"). |
+| B   | `AUTHORING.md` ("Stage parameters") keeps `uv: location<0, vec2>`, although the compiler gives the same number. Its paragraph introduces `location<n, T>`, and the block is its example.                                                                             | Closed: the section teaches the written form.                             |
+| C   | Surface §2 and §29 still name `builtin<"...", T>` as the form of a field. §38 writes a location that the compiler would give. One block of §77 writes the decorated form, with its `TS8028` warning. The front matter does not declare these sections, so they stay. | Closed by the delivery of Amendment A2 (the record below).                |
 
 The hover of Amendment A1 (deviation 5) is a separate pull request. `status` stays `accepted`.
+
+**Delivery of Amendment A2: surface §2, §29, §38 and §77.** Written on 2026-11-10 (UTC) by the
+AI agent (Claude Code) that made the change, at the direction of the coordinating session. Its
+pull request records the delivered commit and each check with its result. This record closes
+deviation C of the table above.
+
+- Configuration: branch `claude/clever-ramanujan-yrfjsq-0135-docs2`, based on `main` at
+  `4a517ddb`. Tools: Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3, Vitest 5.0.5, Doorstop 3.2.
+- Delivered, in `docs/use-typeshade-surface.md` only:
+  - §2: the paragraph on an entry I/O field says that a built-in value is `builtin<"...">`, that
+    only `clip_distances` writes its type, that a user-defined field may leave its location to
+    the compiler, and where each option goes. The paragraph on a bare entry parameter names
+    `builtin<"...">` and adds the parameter with no attribute.
+  - The two lines of the document's header that amendment A2 names under §2: the sketch writes
+    `interface VsOut { pos: builtin<"position"> }`, and the table row says "when one is
+    written".
+  - §29: a mixin field is typed `builtin<"...">` or `location<n, T>`, or has no attribute.
+  - §38: `color: location<0, vec4>` becomes `color: vec4`.
+  - §77: the compiled block writes `gid: builtin<"global_invocation_id">`. The opening sentence
+    and one row of the refusal table name `builtin<"subgroup_id">` and
+    `builtin<"num_subgroups">`.
+- Method: a scratch script read each fenced block of `README.md`, `AUTHORING.md`, `docs/*.md`
+  and `examples/*.md` as `src/compiler/ts/doc-snippets.test.ts` reads them, on `4a517ddb` and on
+  the branch, and compared `compile()` and `reflect()`. A second script dropped each written
+  location with no option, one at a time, in every block that compiles.
+- Functional validation: the WGSL, the GLSL ES 3.00, `reflect()` and the diagnostics of the 131
+  fenced blocks that compile are the same as on `4a517ddb`, less the one `TS8028` warning of
+  §77. One block gave a `TS8028` warning before, and none gives one after. Each new statement
+  of §2, §29 and §77 was compiled: a mixin field with no attribute takes `@location(0)`, a bare
+  fragment parameter takes the location of the vertex result's field, and
+  `builtin<"subgroup_id">` on a fragment entry is `TS8025`.
+- Document validation: `bun run docs:refs`, `bun run docs:impact`,
+  `bun scripts/changes.ts --base origin/main`, `bun scripts/rule-citation.ts`,
+  `bun run reqs:sync` and `python scripts/doorstop-check.py -C -e -F`.
+
+| #   | Difference from Amendment A2                                                                                                                                                                                                      | Disposition                                               |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| A   | The header lines stand before `## 1.`, so `scripts/changes.ts` gives them to no section. Amendment A2 names them under §2, and they are edited.                                                                                   | Closed.                                                   |
+| B   | §77 also named the two subgroup values in the decorated form in two places outside its block. They move to `builtin<N>` with the block.                                                                                           | Closed: the section no longer writes the form that warns. |
+| C   | §38 keeps `uv: location<0, vec2>` on the parameter of `fs`: the block has no vertex entry, and the bare parameter is `TS8010`. The fragment of §2 keeps `position: location<0, vec3>`: its paragraph introduces `location<n, T>`. | Closed.                                                   |
+| D   | The second script found one written location that the compiler would give, in `AUTHORING.md` ("Stage parameters"), which deviation B of pull request #1171 closed. No surface section writes another.                             | Closed.                                                   |
 
 ## What it owes downstream
 
