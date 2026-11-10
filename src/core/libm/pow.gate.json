@@ -1,0 +1,103 @@
+{
+  "seed": "0x00425eed",
+  "generator": "mulberry32; src/core/testing/libm-cases.ts",
+  "nan": "A NaN is hashed as the canonical NaN of its format, as an input and as a result, until milestone 1b of change 0042.",
+  "rows": [
+    {
+      "routine": "powF32",
+      "set": "edges",
+      "count": 841,
+      "nanResults": 140,
+      "inputsSha256": "7329304186e0dfedf14a89c1023381c6dd3ca18c2dc2a521ac0de6cf183a8bec",
+      "resultsSha256": "651df25dc169dba51a27eeba95070309f11d891bb3ba23129d90a20bb85dda2e"
+    },
+    {
+      "routine": "powF32",
+      "set": "bits",
+      "count": 250000,
+      "nanResults": 1898,
+      "inputsSha256": "2691c1eea27e1e27b53ea8d847fc0812022f5d88b8c31cf6722526eece5e1ba4",
+      "resultsSha256": "3396439df5fa8930dc8e698d745d0bccda1125defb1f6f54070553b01cc620a8"
+    },
+    {
+      "routine": "powF32",
+      "set": "unit",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "74597176fe416a51c926fd5db7e99021f9023dbb57488d3cc393518270597a0a",
+      "resultsSha256": "906ef4d5bc99dcb58fa28d6080f00f644750fc658eead955b74ef51afde1cd5d"
+    },
+    {
+      "routine": "powF32",
+      "set": "near1",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "40c03998f2814481f4ac7656b1492aa2e4a246874bf3334d758aee91801fb969",
+      "resultsSha256": "080ec684079f33d89c55001623f2f428d37e1d71478032f2b7d9ee81a0151421"
+    },
+    {
+      "routine": "powF32",
+      "set": "negint",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "1a57c125a81ff508341bb9d97a406a213de97d9bc78a18de845c954cf4a3e1b6",
+      "resultsSha256": "28e0b00f1841f45a7c8f85701c64bd05e91582f688dc83445fa8b57d65c6e89e"
+    },
+    {
+      "routine": "powF32",
+      "set": "scale",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "2737ccb90ca896023e7d00ae652cd192818fbfeac6281aef6e531dc4022343c7",
+      "resultsSha256": "87286f2377a9a8528bd878dcb2ed60b7151e5ade6d2681b4b8a5bbffbf5f87b0"
+    },
+    {
+      "routine": "powF64",
+      "set": "edges",
+      "count": 961,
+      "nanResults": 153,
+      "inputsSha256": "122703017bd61580a58867fb5e94b28abe35cef50fd5ad571b6017890433d9d3",
+      "resultsSha256": "a51274e028cedab830aa8895d7505c674f8a4fef53076a3b171a00234d52c926"
+    },
+    {
+      "routine": "powF64",
+      "set": "bits",
+      "count": 250000,
+      "nanResults": 237,
+      "inputsSha256": "aaa5ababdec07ea1a4c52d6d05516b72bd7b6ad34ca2ebfe0161310783853ebf",
+      "resultsSha256": "e923096f3f2775108816ed5b9e4483b6a4d3f32494593948b7294fc8c126a8bd"
+    },
+    {
+      "routine": "powF64",
+      "set": "unit",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "fa8374ac4cf527732911e20ca9b9315a8e65f00faf3acdd655d7174b5a808209",
+      "resultsSha256": "fba8d1414bf5d77c48bb956df1bb9783141733d944e3207430eeed80d2371cb1"
+    },
+    {
+      "routine": "powF64",
+      "set": "near1",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "987b7ecfc854d75a0d062907e54c10b3efedd12ed4b4c3c6cfbca2fe7ce5d712",
+      "resultsSha256": "c71d24ca1457ecb7ad64a1351164e1c47e5104be2501d3c11d337fa70e5d2813"
+    },
+    {
+      "routine": "powF64",
+      "set": "negint",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "b6dcec952203cb2b96205f7eb9f0b9b91201e6c29e52fc7e4d6a0bc012cc7bb7",
+      "resultsSha256": "80f7958d0458803c785d16710fec9d51417486566fcffd4b7e0abe96ad6de85b"
+    },
+    {
+      "routine": "powF64",
+      "set": "scale",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "67d006be20780f0928f3ded737e6585304e32c21753dcd0d9e09413db3b41186",
+      "resultsSha256": "f0d0f4b79466276ec07fb478029301ca03b21d1b75bef9036e77072700a4cdcb"
+    }
+  ]
+}

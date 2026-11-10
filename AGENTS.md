@@ -128,7 +128,10 @@ describes it.
   and outputs that take their location from the compiler beside a compute entry's user-defined
   input, which the front end refuses and Tint must refuse too (change 0135), and a parameter
   or a local named like a function its function calls, and an entry parameter named like a helper
-  function, which Tint and ANGLE refused until the writers respelled them (#1010), and the
+  function, which Tint and ANGLE refused until the writers respelled them (#1010), a scalar
+  cast of a written number used as a value of its type (`u32(7) / 2`, `xs[u32(7) / 2]`), which
+  the writer emitted as `3.5` or refused as a `u32` literal `3.5` until the fold kept the
+  cast's type, and the
   conformance suite of the render hardware interface on its WebGPU and WebGL2 backends (change
   0120). Needs Chromium once: `./node_modules/.bin/playwright install --only-shell chromium`.
 - MNIST WebGL2 validation CI (`.github/workflows/mnist-webgl2-validation.yml`):
@@ -142,7 +145,7 @@ describes it.
   JavaScript form of the libm's routines, under Bun, held by hash to the seeded inputs and
   results of each family's gate file (`src/core/libm/trig.gate.json`,
   `src/core/libm/explog.gate.json`, `src/core/libm/invtrig.gate.json`,
-  `src/core/libm/hyper.gate.json`), which the family's test
+  `src/core/libm/hyper.gate.json`, `src/core/libm/pow.gate.json`), which the family's test
   under `src/core/libm/` holds in Node.
   Then generated kernel functions (`generateKernelModule(seed, { exact: true })`)
   lowered and dispatched on headless WebGPU as `callKernel` dispatches them, every array they

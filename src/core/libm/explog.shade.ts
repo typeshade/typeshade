@@ -1,6 +1,6 @@
 "use typeshade";
 
-// ═══ The libm: exp, exp2, log, log2, ldexp and the hyperbolic functions (change 0042, 1a) ═══
+// ═══ The libm: exp, exp2, log, log2, ldexp, the hyperbolic functions and pow (change 0042, 1a) ═══
 //
 // A NOTE FOR A READER IN AN EDITOR. The language service reports `TS8004 Unknown function` on
 // `__f64Hi`, `__f64Lo` and `__f64FromWords` in this file. That is correct for an author's file:
@@ -12,13 +12,13 @@
 // `f32` operand is the routine's result rounded once to `f32`. `scripts/bake-libm.ts` writes
 // the JavaScript form, `explog.generated.ts`.
 //
-// The promise is an error under 1 ULP for `exp`, `exp2`, `log`, `log2` and the six hyperbolic
-// functions (decision N9).
+// The promise is an error under 1 ULP for `exp`, `exp2`, `log`, `log2`, the six hyperbolic
+// functions and `pow` (decision N9).
 // `ldexp` is exact scaling with one rounding, so it is correctly rounded.
 //
-// The hyperbolic functions are in this file because they need its scaling and its constants;
-// a source cannot call a function of another source. Their section says how they differ from
-// fdlibm. The methods are those of fdlibm, as FreeBSD and musl carry them: `e_exp.c`, `e_log.c`
+// The hyperbolic functions and `pow` are in this file because they need its scaling and its
+// constants; a source cannot call a function of another source. Their sections say how they
+// differ from fdlibm. The methods are those of fdlibm, as FreeBSD and musl carry them: `e_exp.c`, `e_log.c`
 // and `e_log2.c` with their coefficients, and musl's `scalbn.c` for the scaling. `exp2` is this
 // file's own: the nearest half-integer taken out, the kernel of `exp` on the rest times ln 2,
 // held as a head and a tail, and a product by sqrt(2) for an odd half-step. The notice of fdlibm:
@@ -663,4 +663,286 @@ export function atanhF64(x: f64): f64 {
     return -r;
   }
   return r;
+}
+
+// ═══ pow ═══
+//
+// fdlibm's `e_pow.c` (version 5.3, which gives Java's special values, and so ECMA-262's), with
+// its coefficients. log2(|x|) is a head t1 of 32 bits and a tail t2; y is a head y1 of 32 bits
+// and a tail; the product y * log2(|x|) is a head and a tail too, and 2 to that power is the
+// kernel of `exp` on the rest times ln 2, scaled by `scale`. The special values are those of
+// ECMA-262's Number::exponentiate, which is what the engine's `Math.pow` gives (Rule 1.3):
+// x^0 is 1 for a NaN x, (+-1)^(+-Infinity) is a NaN, and a negative x with an odd integer y
+// keeps the sign. One difference from fdlibm: for |y| > 2^31 and x within 2^-20 of 1, fdlibm
+// takes log2(x) from the series t - t^2 / 2 + t^3 / 3 - t^4 / 4 of t = x - 1, and the product of
+// t by the 24 bits of 1 / ln 2 is not exact when t has more than 29 bits. Measured against MPFR,
+// it gave 670 ULP for 1.0000001684596314^4204925455.0672526. Here every x takes the general
+// reduction. Every result is scaled by `scale` (musl's `scalbn`): exact for a normal result, and
+// one rounding for a subnormal one, as fdlibm's `scalbn` gives; no result changes.
+
+// 1.5, and log2(1.5) as a head of 32 bits and a tail.
+const BP1: f64 = 1.5;
+const DPH1: f64 = 5.84962487220764160156e-01;
+const DPL1: f64 = 1.35003920212974897128e-08;
+// The kernel of (3 / 2) (log(x) - 2 s - (2 / 3) s^3) / s^5 (fdlibm).
+const PL1: f64 = 5.99999999999994648725e-01;
+const PL2: f64 = 4.28571428578550184252e-01;
+const PL3: f64 = 3.33333329818377432918e-01;
+const PL4: f64 = 2.72728123808534006489e-01;
+const PL5: f64 = 2.30660745775561754067e-01;
+const PL6: f64 = 2.06975017800338417784e-01;
+// ln 2 as a head of 32 bits and a tail.
+const LG2H: f64 = 6.93147182464599609375e-01;
+const LG2L: f64 = -1.90465429995776804525e-09;
+// -(1024 - log2(the largest finite value + 1/2 ULP)).
+const OVT: f64 = 8.0085662595372944372e-17;
+// 2 / (3 ln 2), rounded, and as a head of 32 bits and a tail.
+const CP: f64 = 9.61796693925975554329e-01;
+const CPH: f64 = 9.61796700954437255859e-01;
+const CPL: f64 = -7.02846165095275826516e-09;
+// 2^53.
+const TWO53: f64 = 9007199254740992;
+
+/** The f64 with the high word of `v` and a low word of 0: a head of 21 bits past the point. */
+function head(v: f64): f64 {
+  return __f64FromWords(__f64Hi(v), u32(0));
+}
+
+/** x^y for an f64. The error is under 1 ULP; an integer power that is representable is exact.
+ *  The special values are ECMA-262's (Number::exponentiate). */
+export function powF64(x: f64, y: f64): f64 {
+  const hx = __f64Hi(x);
+  const lx = __f64Lo(x);
+  const hy = __f64Hi(y);
+  const ly = __f64Lo(y);
+  const ix = hx & 0x7fffffff;
+  const iy = hy & 0x7fffffff;
+  const xneg = hx >= 0x80000000;
+  const yneg = hy >= 0x80000000;
+  // x^(+-0) is 1, for a NaN x too.
+  if ((iy | ly) == 0) {
+    return 1.0;
+  }
+  // A NaN operand gives a NaN.
+  if (ix > 0x7ff00000 || (ix == 0x7ff00000 && lx != 0) || iy > 0x7ff00000 || (iy == 0x7ff00000 && ly != 0)) {
+    return x + y;
+  }
+  // For a negative x: yint is 0 when y is no integer, 1 when it is an odd one, 2 when even.
+  let yint: i32 = 0;
+  if (xneg) {
+    if (iy >= 0x43400000) {
+      yint = 2;
+    } else if (iy >= 0x3ff00000) {
+      const e = (iy >> 20) - 0x3ff;
+      if (e > 20) {
+        const jl = ly >> (52 - e);
+        if ((jl << (52 - e)) == ly) {
+          yint = 2 - i32(jl & 1);
+        }
+      } else if (ly == 0) {
+        const jh = iy >> (20 - e);
+        if ((jh << (20 - e)) == iy) {
+          yint = 2 - i32(jh & 1);
+        }
+      }
+    }
+  }
+  // y is +-Infinity, +-1, 2 or 1/2.
+  if (ly == 0) {
+    if (iy == 0x7ff00000) {
+      if (((ix - 0x3ff00000) | lx) == 0) {
+        // (+-1)^(+-Infinity) is a NaN.
+        return y - y;
+      }
+      if (ix >= 0x3ff00000) {
+        // |x| > 1: +Infinity, or +0 for -Infinity.
+        if (yneg) {
+          return 0.0;
+        }
+        return y;
+      }
+      // |x| < 1: +0, or +Infinity for -Infinity.
+      if (yneg) {
+        return -y;
+      }
+      return 0.0;
+    }
+    if (iy == 0x3ff00000) {
+      if (yneg) {
+        return 1.0 / x;
+      }
+      return x;
+    }
+    if (hy == 0x40000000) {
+      return x * x;
+    }
+    if (hy == 0x3fe00000 && !xneg) {
+      return sqrt(x);
+    }
+  }
+  let ax = x;
+  if (xneg) {
+    ax = -x;
+  }
+  // x is +-0, +-Infinity or +-1.
+  if (lx == 0 && (ix == 0x7ff00000 || ix == 0 || ix == 0x3ff00000)) {
+    let z = ax;
+    if (yneg) {
+      z = 1.0 / z;
+    }
+    if (xneg) {
+      if (ix == 0x3ff00000 && yint == 0) {
+        // (-1)^y for a y that is no integer is a NaN.
+        return (z - z) / (z - z);
+      }
+      if (yint == 1) {
+        z = -z;
+      }
+    }
+    return z;
+  }
+  // A negative x with a y that is no integer gives a NaN.
+  if (xneg && yint == 0) {
+    return (x - x) / (x - x);
+  }
+  // The sign of the result: negative for a negative x and an odd y.
+  let s: f64 = 1.0;
+  if (xneg && yint == 1) {
+    s = -1.0;
+  }
+  if (iy > 0x41e00000) {
+    // |y| > 2^31.
+    if (iy > 0x43f00000) {
+      // |y| > 2^64: the result overflows or underflows.
+      if (ix <= 0x3fefffff) {
+        if (yneg) {
+          return two1023() * 2.0;
+        }
+        return 0.0;
+      }
+      if (yneg) {
+        return 0.0;
+      }
+      return two1023() * 2.0;
+    }
+    // It overflows or underflows unless x is near 1.
+    if (ix < 0x3fefffff) {
+      if (yneg) {
+        return s * two1023() * 2.0;
+      }
+      return s * 0.0;
+    }
+    if (ix > 0x3ff00000) {
+      if (yneg) {
+        return s * 0.0;
+      }
+      return s * two1023() * 2.0;
+    }
+  }
+  let e: i32 = 0;
+  let jx = ix;
+  let m = ax;
+  if (jx < 0x00100000) {
+    // A subnormal x: scale it up.
+    m = m * TWO53;
+    e = -53;
+    jx = __f64Hi(m);
+  }
+  e = e + i32(jx >> 20) - 0x3ff;
+  const jm = jx & 0x000fffff;
+  // m in [1, 2), then k = 1 for m in [sqrt(3/2), sqrt(3)), and m / 2 from sqrt(3).
+  jx = jm | 0x3ff00000;
+  let k: u32 = u32(0);
+  if (jm > 0x3988e) {
+    if (jm < 0xbb67a) {
+      k = u32(1);
+    } else {
+      e = e + 1;
+      jx = jx - 0x00100000;
+    }
+  }
+  m = __f64FromWords(jx, __f64Lo(m));
+  let bp: f64 = 1.0;
+  let dph: f64 = 0.0;
+  let dpl: f64 = 0.0;
+  if (k == 1) {
+    bp = BP1;
+    dph = DPH1;
+    dpl = DPL1;
+  }
+  // ss = (m - bp) / (m + bp) as sh + sl.
+  const lu = m - bp;
+  const lv = 1.0 / (m + bp);
+  const ss = lu * lv;
+  const sh = head(ss);
+  // m + bp: its head, made from the words of m, and its tail.
+  const th = __f64FromWords(((jx >> 1) | 0x20000000) + 0x00080000 + (k << 18), u32(0));
+  const tl = m - (th - bp);
+  const sl = lv * ((lu - sh * th) - sh * tl);
+  // log(m / bp).
+  let s2 = ss * ss;
+  let lr = s2 * s2 * (PL1 + s2 * (PL2 + s2 * (PL3 + s2 * (PL4 + s2 * (PL5 + s2 * PL6)))));
+  lr = lr + sl * (sh + ss);
+  s2 = sh * sh;
+  const th2 = head(3.0 + s2 + lr);
+  const tl2 = lr - ((th2 - 3.0) - s2);
+  // ss (1 + ...) as u2 + v2, and 2 / (3 ln 2) times it.
+  const u2 = sh * th2;
+  const v2 = sl * th2 + tl2 * ss;
+  const lph = head(u2 + v2);
+  const lpl = v2 - (lph - u2);
+  const zh = CPH * lph;
+  const zl = CPL * lph + lpl * CP + dpl;
+  // log2(|x|) = e + dph + zh + zl.
+  const tn: f64 = f64(f32(e));
+  // log2(|x|) as t1 + t2, with t1 of 32 bits.
+  const t1 = head(((zh + zl) + dph) + tn);
+  const t2 = zl - (((t1 - tn) - dph) - zh);
+  // y = y1 + y2 with y1 of 32 bits, and (y1 + y2) (t1 + t2) as ph + pl.
+  const y1 = __f64FromWords(hy, u32(0));
+  const pl = (y - y1) * t1 + y * t2;
+  let ph = y1 * t1;
+  const z = pl + ph;
+  const j = __f64Hi(z);
+  const i = __f64Lo(z);
+  if (j >= 0x40900000 && j < 0x80000000) {
+    // z >= 1024.
+    if (((j - 0x40900000) | i) != 0) {
+      return s * two1023() * 2.0;
+    }
+    if (pl + OVT > z - ph) {
+      return s * two1023() * 2.0;
+    }
+  } else if ((j & 0x7fffffff) >= 0x4090cc00) {
+    // z <= -1075.
+    if (((j - 0xc090cc00) | i) != 0) {
+      return s * 0.0;
+    }
+    if (pl <= z - ph) {
+      return s * 0.0;
+    }
+  }
+  // 2^z: n is the nearest integer to z for |z| > 1/2, and 2^(z - n) by the kernel of exp.
+  const iz = j & 0x7fffffff;
+  let n: i32 = 0;
+  if (iz > 0x3fe00000) {
+    const k = i32(iz >> 20) - 0x3ff;
+    const nw = j + (u32(0x00100000) >> u32(k + 1));
+    const kn = i32((nw & 0x7fffffff) >> 20) - 0x3ff;
+    const t = __f64FromWords(nw & ((u32(0x000fffff) >> u32(kn)) ^ 0xffffffff), u32(0));
+    n = i32(((nw & 0x000fffff) | 0x00100000) >> u32(20 - kn));
+    if (j >= 0x80000000) {
+      n = -n;
+    }
+    ph = ph - t;
+  }
+  const t = head(pl + ph);
+  const u = t * LG2H;
+  const v = (pl - (t - ph)) * LN2 + t * LG2L;
+  const zr = u + v;
+  const w = v - (zr - u);
+  const tt = zr * zr;
+  const c = zr - tt * (P1 + tt * (P2 + tt * (P3 + tt * (P4 + tt * P5))));
+  const r = (zr * c) / (c - 2.0) - (w + zr * w);
+  return s * scale(1.0 - (r - zr), n);
 }

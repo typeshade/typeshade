@@ -1215,6 +1215,35 @@ const OPEN_LOOP_EXAMPLES = ((): { id: string; module: ModuleDecl; renderable: bo
   return [{ id: 'open-loop/shapes', module: c.module, renderable: true }];
 })();
 
+/** A render pair whose fragment entry uses a scalar cast of a written number as a value of its
+ *  type: an integer division, a wrap and an index. Before the fix the writer emitted `3.5` for
+ *  `u32(7) / 2` and failed with `SD0017 u32 literal 3.5` for `xs[u32(7) / 2]`. */
+const SCALAR_CAST_SOURCE = `"use typeshade";
+interface VsOut {
+  pos: builtin<"position">;
+  uv: location<0, vec2>;
+}
+@vertex export function vs(i: builtin<"vertex_index">): VsOut {
+  const x = f32(i) * 0.5;
+  return { pos: vec4(x, x, 0., 1.), uv: vec2(x, x) };
+}
+@fragment export function fs(uv: location<0, vec2>): vec4 {
+  const xs = array<f32, 4>(uv.x, uv.y, 1., 0.);
+  const q = f32(u32(7) / 2) + f32(i32(-7) / 2) + f32(u32(7) - 8) + f32(i32(2147483647) + 1);
+  return vec4(q, xs[u32(7) / 2], f32(u32(uv.x) + u32(7) / 2), 1.);
+}
+`;
+
+/** `scalar-cast/typed`, judged as an example is. */
+const SCALAR_CAST_EXAMPLES = ((): { id: string; module: ModuleDecl; renderable: boolean }[] => {
+  const c = compile(SCALAR_CAST_SOURCE);
+  const errors = c.diagnostics.filter((d) => d.category === 'error');
+  if (errors.length > 0) {
+    throw new Error(`the scalar-cast program does not compile: ${errors[0]!.message}`);
+  }
+  return [{ id: 'scalar-cast/typed', module: c.module, renderable: true }];
+})();
+
 // ── The const-call leg (#613, Rule 13.3) ──
 
 /** A render pair whose fragment entry makes the calls Tint accepts beside the ones it refuses:
@@ -1813,6 +1842,7 @@ function jobs(): Job[] {
     ...CONST_CALL_EXAMPLES,
     ...ENTRY_IO_EXAMPLES,
     ...OPEN_LOOP_EXAMPLES,
+    ...SCALAR_CAST_EXAMPLES,
   ]
     .map((ex) => {
       const cut = ex.id === CUT;

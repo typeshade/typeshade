@@ -233,6 +233,32 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   `tshc migrate` rewrites neither form: the author deletes `()` or the second attribute. No
   official release accepted the refused forms (OD-6).
 
+- **`pow` on the CPU is the libm's** (change 0042, milestone 1a, the last of its 19 functions).
+  The CPU oracle and the CPU tier computed `a ** b` and `Math.pow(a, b)` with the engine's
+  `Math.pow`, whose result ECMAScript leaves to the engine. They now compute it with a routine of
+  the compiler's own libm, on an `f64`; the result for an `f32` operand is that result rounded once.
+  A result may differ from before in the last bit, and it is the same on Node and on Bun. No syntax
+  changes, and no author-facing name is added. The special values do not change: they are
+  ECMA-262's (Number::exponentiate), as `Math.pow` gives them (the owner's decision of 2026-11-10,
+  Amendment A4 of change 0042, Rule 1.3). `(-2) ** 3` is -8, `1 ** Infinity` is NaN, `NaN ** 0` is 1, `(-0) ** 3` is -0 and
+  `(-0) ** -1` is -Infinity; a test holds every step of the table and every pair of 31 special
+  operands to `Math.pow`. A GPU's `pow` stays the driver's. Measured on Tint and on WebGL2 over
+  SwiftShader, eleven special pairs part from the CPU tiers (Amendment A4); the comment on `pow` in
+  `src/core/intrinsics.ts` and the `note` of the determinism report's `pow` row record them
+  (Rule 11.2, surface §38). The routine is fdlibm's `e_pow.c` with one change: fdlibm's series for
+  x within 2^-20 of 1 with |y| past 2^31 measured 670 ULP, so every x takes the general reduction. An
+  integer power that is representable is exact. The numbers that follow are results on samples, not a
+  bound for every operand. Against MPFR on 54,739,721 seeded pairs with a finite result, placed where
+  the method is weakest (x near 1 with a large y, results near the overflow and in the subnormal
+  range, a negative x with an integer y, |y| past 2^31), the largest error is 0.8599 ULP; 712 pairs
+  are past 0.8 ULP and none past 0.9. An `f32` result measured 0.5000 ULP at most on 6,499,508
+  pairs. The routine takes 1.9 to 7.2 times the time of the engine's `Math.pow` on Bun 1.4.4 and
+  Node 22.23.4. The caps of `scripts/bundle-budget.json` take the measured gzip sizes for the two
+  bundles that hold the CPU op library: `typeshade/algorithms` single file 60,894 to 62,515
+  (+1,621), split initial and total 60,072 to 61,610; `typeshade/random` single file 42,187 to
+  43,790 (+1,603), split initial and total 41,325 to 42,887. The floors and the other caps do not
+  change.
+
 - **`sinh`, `cosh`, `tanh`, `asinh`, `acosh` and `atanh` on the CPU are the libm's** (change 0042,
   milestone 1a, slice 2). The CPU oracle and the CPU tier computed them with the engine's
   `Math.sinh`, `Math.cosh`, `Math.tanh`, `Math.asinh`, `Math.acosh` and `Math.atanh`, whose results
@@ -2051,6 +2077,41 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `docs/ir-builder.md` describes the builder for engines and tools.
 
 ### Fixed
+
+- **The hover of an imported symbol reads the compiler's type, as a local one does** (Rule
+  12.7). A field, a function, a module constant, a module variable, an override and a binding
+  that another `"use typeshade"` file declares showed TypeScript's quick info in the importing
+  file: `vec2` where the declaring file shows `vec2<f32>`, `(alias) const HALF: 0.5` for
+  `const HALF: f32`, `number` for an instance of a generic function, a binding as its expanded
+  structure with no resource line, and a function without its `@inout` and `@out` qualifiers.
+  The editor now reads such a symbol in the linked program of the hovered file (Rule 3.9), so
+  the type is the one the declaring file shows, with no `(alias)` or `import` line. The name is
+  the one the hovered file writes: `bp` of `import { bump as bp }` reads
+  `function bp(@inout v: f32): void`. Signature help of an imported function shows its
+  qualifiers too. A struct reads by the name the hovered file imports it under, when it has
+  exactly one, and by its declared name otherwise, so a name the linker generated
+  (`lib_Light`, `lib_Stage_VsOut`) no longer shows as a struct's name in a hover, in the
+  importing file's own symbols included. The arguments of an instance of a generic class keep
+  the module's spelling. A call of an overloaded function reads its implementation, with its
+  qualifiers. A
+  function's qualifiers stay on their parameters when a parameter before them takes a
+  function. A generic function or class with two instances in a program keeps TypeScript's
+  quick info at each use, where the hover showed every use the first instance. An override reads the compiler's type
+  in its own file too: `override<bool>` is `const flag: bool`, where it read `boolean`. A
+  method, a getter, a static member and a member of a namespace or of an enum keep
+  TypeScript's quick info across an import.
+  `src/language-service/imported-symbol-hover.test.ts` reads both halves on the same files.
+
+- **A scalar cast of a written number is a value of its type** (Rule 5.3). The front end folded
+  an integer-typed expression of literals with ECMAScript doubles, so `f32(u32(7) / 2)` emitted
+  `3.5`, `f32(i32(-7) / 2)` emitted `-3.5`, `f32(u32(7) - 8)` emitted `-1.0`,
+  `f32(i32(2147483647) + 1)` emitted `2147483648.0` and `f32(u32(7) * u32(1000000000))` emitted
+  `7000000000.0`, and `f32(-i32(-2147483648))` emitted `2147483648.0`, in WGSL, in GLSL ES 3.00
+  and on the CPU oracle. `xs[u32(7) / 2]` and
+  `vi + u32(7) / 2` failed in the backend (`TS8015`, `SD0017 u32 literal 3.5`). The fold now
+  follows the target's integer rule, as the optimizer's constant folder does: `3`, `-3`,
+  `4294967295`, `-2147483648`, `2705032704`, `-2147483648`, `xs[3]` and `vi + 3u`. A written number keeps its
+  ECMAScript value (`7 / 2` is `3.5`). No example, journey or golden changes.
 
 - **A module constant with an expression rounds as a function does, in `'f32'` precision**
   (Rule 11.7). `const X: f32 = 100.7; const S: f32 = sin(X);` gave `S` the value of `sin` on the

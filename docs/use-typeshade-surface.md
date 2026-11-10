@@ -5291,6 +5291,32 @@ half, on a magnitude past the largest finite binary16 and on one below the small
 `ldexp` was a `target` row and is not one any more: its GLSL scale is now built in two halves,
 and a sweep of all 278 legal exponents against a WGSL driver found no disagreement.
 
+`pow` (`a ** b` and `Math.pow`) is an `inherited` row with a `note`, because its special pairs
+part from the oracle. The CPU tiers give ECMA-262's table: `(-2) ** 3` is -8, `1 ** Infinity`
+is NaN, `NaN ** 0` is 1, `(-0) ** 3` is -0 and `(-0) ** -1` is -Infinity. WGSL leaves x < 0,
+x = 1 with an infinite y and an infinite x with y = 0 outside its domain, and GLSL ES 3.00
+leaves x < 0, and x = 0 with y <= 0, undefined. Inside WGSL's domain, the bound inherited from
+exp2(y * log2(x)) does not hold an infinite result, and no target is held to the sign of a zero.
+Measured on 2026-11-10 on Chromium 153.0.8010.12, Tint at run time and WebGL2 (ANGLE), both over
+SwiftShader Vulkan, with the operands read from a buffer, eleven special pairs part (Amendment A4
+of change 0042):
+
+| Pair              | The CPU tiers (ECMA-262) | Tint and WebGL2 (SwiftShader) |
+| ----------------- | ------------------------ | ----------------------------- |
+| `(-2, 3)`         | -8                       | 8                             |
+| `(-2, 0.5)`       | NaN                      | 1.4142138                     |
+| `(1, Infinity)`, `(1, -Infinity)`, `(-1, Infinity)`, `(1, NaN)` | NaN | +Infinity |
+| `(Infinity, 0)`   | 1                        | +Infinity                     |
+| `(-0, 3)`         | -0                       | +0                            |
+| `(0, -1)`         | +Infinity                | 2^127                         |
+| `(-0, -1)`        | -Infinity                | 2^127                         |
+| `(-Infinity, 3)`  | -Infinity                | +Infinity                     |
+
+`(-2, 2)`, `(0, 0)`, `(NaN, 0)`, `(-0, 2)`, `(-0, -2)` and `(Infinity, -1)` agreed. `(2, 0.5)`
+gave 1.4142138, 2 ULP from ECMAScript: an accuracy point inside the bound WGSL inherits, not a
+special pair. A constant `**` that Tint's constant evaluator refuses, x < 0 or x = 0 with y <= 0,
+is refused by the front end first (TS8003).
+
 **One operation at a time.** `accuracyOf(op)` answers for a single builtin id, operator or matrix
 product: `{ kind: 'exact' }` when there is one answer on both targets, otherwise the kind and
 bound the report would list. It answers for every id the compiler can emit; the test suite walks
