@@ -7,6 +7,7 @@ rules:
   - '6.8'
   - '8.2'
   - '8.19'
+  - '10.1'
   - '12.1'
 surface:
   - 1
@@ -754,7 +755,7 @@ request's description lists each command with its result.
 | 4   | `tshc migrate` rewrites item 1 only. A written `location<n, T>` stays valid, so the command does not delete one.                                                                                                                                                                                                                                                                                                       | Closed: the examples' locations were dropped by a script and held to emit identity.                                                                                     |
 | 5   | The hover does not show the location the compiler gives a field. The proposal recommends it and does not require it.                                                                                                                                                                                                                                                                                                   | Closed by pull requests #1169 and #1179, under Amendment A1 ("구현"): the two hover deliveries below.                                                                   |
 | 6   | `src/core/passes/lint/rules/interstage-io.ts` is unchanged. The pass writes the location into the IR before the interstage check reads it.                                                                                                                                                                                                                                                                             | Closed.                                                                                                                                                                 |
-| 7   | A field whose `builtin<"clip_distances">` is refused is withheld from its struct. A write and a read of it say nothing more. A `const` declared from a read of it is not declared, so a later use of that `const` is `TS8022`.                                                                                                                                                                                         | Open: a defect of the withheld-field recovery, which predates this change. Issue #1185; fix in pull request #1188, open. It is no part of this change.                  |
+| 7   | A field whose `builtin<"clip_distances">` is refused is withheld from its struct. A write and a read of it say nothing more. A `const` declared from a read of it is not declared, so a later use of that `const` is `TS8022`.                                                                                                                                                                                         | Closed by pull request #1188 (merged into `main` as `e3c2a1cd`), which fixed issue #1185. It is no part of this change.                                                 |
 | 8   | `scripts/compile-gate.ts` gains the entry-I/O leg, which "What it touches" does not list. Rules 12.6 and 13.3 require the measurement.                                                                                                                                                                                                                                                                                 | Closed.                                                                                                                                                                 |
 
 **Delivery of amendment A1, the third decision (the hover).** Written on 2026-11-10 (UTC) by
@@ -1082,12 +1083,43 @@ sets the status.
 | Item                                                                                                                | State                                                                                                            | Next action                                                                                                                                                                      |
 | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | The refusal of a written type that WGSL fixes (decision D1.2)                                                       | Pending. It is the work of the release after the migration release. No official release exists (`OD-6`).         | The release that follows the migration release delivers it.                                                                                                                      |
-| Deviation 7 of pull request #1161: a follow-on `TS8022` after a refused `builtin<"clip_distances">` field           | Open. A defect of the withheld-field recovery, which predates this change. Issue #1185.                          | Fix in pull request #1188, open (Rule 12.4). No part of this change.                                                                                                             |
-| Deviation B of the delivery of Amendment A3: sentences outside the amendment that name the decorated form           | Open.                                                                                                            | The owner decides whether a later amendment moves them.                                                                                                                          |
+| Deviation 7 of pull request #1161: a follow-on `TS8022` after a refused `builtin<"clip_distances">` field           | Closed. Pull request #1188 (merged as `e3c2a1cd`) fixed issue #1185.                                             | Fix in pull request #1188, open (Rule 12.4). No part of this change.                                                                                                             |
+| Deviation B of the delivery of Amendment A3: sentences outside the amendment that name the decorated form           | Decided: Amendment A4 (2026-11-10). One pull request delivers it.                                                | The owner decides whether a later amendment moves them.                                                                                                                          |
 | Deviation B of pull request #1182: `getDiagnostics` shows a program's diagnostic in an imported file in no document | Open. Issue #1186. It predates the hover and is no part of this change.                                          | A pull request of its own: the compiler reports the refusal in the importing program's file, at the use, with the declaring site as related information (the owner, 2026-11-10). |
 | The downstream work of "What it owes downstream"                                                                    | Not started. `changes/README.md` (lifecycle, steps 4 and 5) tracks it apart from the compiler repository's work. | Each repository does it when its pin moves.                                                                                                                                      |
 
 Every other deviation of this record is closed.
+
+### Amendment A4. Nine more sentences name a built-in value as `builtin<"...">` (2026-11-10)
+
+Pull request #1180 (Amendment A3) listed nine sentences that name a built-in value in the
+decorated form `@builtin(...)` and that Amendment A3 does not cover. Each was measured in both
+forms on `main` at `34cea187`. The owner decided them in the Claude Code session on 2026-11-10
+("수정안 후 고치기"), on the agent's recommendation.
+
+- [fact] Eight of the nine are true today, and true of `builtin<"...">` too. They name the form
+  that compiles with a `TS8028` warning as if it were the form in use. One is outdated
+  (`docs/debugging.md`).
+- [decision, owner, 2026-11-10] The documents name the language's form. The sentences become:
+
+  | Place                                                 | Old                                                                                                      | New                                                                                                                |
+  | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+  | `README.md`, the editor's list                        | "… the `Math` aliases, `@builtin(...)` ids."                                                             | "… the `Math` aliases, the ids of `builtin<"...">`."                                                               |
+  | `examples/README.md`                                  | "… and the `@vertex` / `@builtin(...)` decorators are attribute syntax."                                 | "… and the `@vertex` attribute and the `builtin<"...">` type are the language's own syntax."                       |
+  | `docs/debugging.md`                                   | "… explicit parameters carrying `@builtin(...)` or `@location(n)`, and `reflect()` already reports them" | "… explicit parameters, each a `builtin<"...">` value or a user-defined input at a location, and `reflect()` …"    |
+  | `docs/language-service-api.md`, `getSemanticTokens`   | "builtin strings inside `@builtin(...)`"                                                                 | "builtin strings inside `builtin<"...">` and the decorated `@builtin(...)`"                                        |
+  | `docs/language-service-api.md`, the lookup tables     | "the attributes and the `@builtin` ids keep their lookup tables"                                         | "the attributes and the built-in value ids keep their lookup tables"                                               |
+  | `docs/language-service-api.md`, the `TS8025` row      | "A `@builtin(...)` id used as the wrong stage's input or output"                                         | "A built-in value (`builtin<"...">` or the decorated `@builtin("...")`) used as the wrong stage's input or output" |
+  | `docs/language-service-api.md`, the rename note       | "a `@builtin(...)` id"                                                                                   | "a built-in value's id, in `builtin<"...">` or `@builtin(...)`"                                                    |
+  | Rule 10.1, its example                                | "(`@builtin("clip_distances")` derives `enable clip_distances;`)"                                        | "(`builtin<"clip_distances", array<f32, N>>` derives `enable clip_distances;`)"                                    |
+  | Rule 12.1, the list of names the compiler cannot find | "an attribute, a `@builtin` id, an extension, an import"                                                 | "an attribute, a built-in value's id, an extension, an import"                                                     |
+
+- In Rule 10.1 and Rule 12.1 only the words above change; no rule changes what it requires.
+- Affects: the front matter `rules` gains 10.1 (12.1 is declared since Amendment A1), and
+  `reqs/rules/RULE-1001.md` and `RULE-1201.md` follow. One pull request, with `Change: 0135`,
+  delivers it.
+- Status: `status: implemented` does not change. This amendment is open work until its pull
+  request merges, as Amendment A1 of change 0130 was.
 
 ## What it owes downstream
 
