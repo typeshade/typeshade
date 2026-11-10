@@ -495,7 +495,12 @@ export function fs(v: VsOut): Color {
   `render target at @location(0)`, and `returns a render target at @location(0)` on a fragment
   entry with a bare result. A value with no location shows no such line: a built-in value, a
   field of a struct no entry uses, and a value refused with `TS8010`. A field of a struct that
-  another file declares shows the number it has in the program that imports it (§68).
+  another file declares shows the number it has in the program that imports it (§68). In the
+  declaring file, where the open programs that import it give the field different numbers,
+  the hover shows one line for each program, with its file:
+  `vertex attribute at @location(1) in a.shade.ts` and
+  `vertex attribute at @location(2) in b.shade.ts`. A program that refused the field has its
+  line too, with the code of its diagnostic: `no location in b.shade.ts (TS8010)`.
 
 ### What an entry may return
 

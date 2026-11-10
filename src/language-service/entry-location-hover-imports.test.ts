@@ -29,6 +29,21 @@ const compiled = (files: Files, entry: string) =>
 const messagesOf = (files: Files, entry: string): string[] =>
   compiled(files, entry).diagnostics.map((d) => `${String(d.code)} ${d.message}`);
 
+/** The code of the one diagnostic that `compile()` of the program that starts from `entry`
+ *  reports on the field declared at the first `needle` of `file`. The hover's line for a
+ *  refused field is held to this code. */
+const refusalCodeOf = (files: Files, entry: string, file: string, needle: string): string => {
+  const at = files[file]!.indexOf(needle);
+  const on = compiled(files, entry).diagnostics.filter(
+    (d) => d.fileName === file && d.start <= at && at < d.start + d.length,
+  );
+  expect(
+    on.map((d) => d.category),
+    `diagnostics of ${entry} on "${needle}"`,
+  ).toEqual(['error']);
+  return String(on[0]!.code);
+};
+
 /** `reflect()`'s location of the input or output `name` of the entry `fn` of the program that
  *  starts from `entry`: `undefined` for a built-in value and for a value with no location. */
 const reflected = (
@@ -73,6 +88,9 @@ const hover = (files: Files, name: string, needle: string, skip = 0): string =>
 const bare = (signature: string): string => `\`\`\`ts\n${signature}\n\`\`\``;
 /** A hover that is the signature and the line under it. */
 const withLine = (signature: string, line: string): string => `${bare(signature)}\n\n${line}`;
+/** A hover that is the signature and one line for each program, each a paragraph of its own. */
+const lines = (signature: string, ...each: string[]): string =>
+  [bare(signature), ...each].join('\n\n');
 
 const IO = '/p/io.shade.ts';
 const MAIN = '/p/main.shade.ts';
@@ -294,7 +312,7 @@ export function fs(v: io.VsOut): vec4 {
     expect(hover(files, IO, 'uv:')).toBe(uv);
   });
 
-  it('two programs that number one struct differently: each document shows its own program', () => {
+  it('two programs that number one struct differently: the declaring file names each number with its file', () => {
     // A vertex attribute is numbered in the scope of its entry (Rule 6.8), and each file a
     // compile starts from is a program of its own (Rule 3.9).
     const A = '/p/a.shade.ts';
@@ -331,15 +349,313 @@ export function vs(weight: f32, v: VsIn): vec4 {
     expect(hover(files, B, 'v.uv', 2)).toBe(
       withLine('(property) VsIn.uv: vec2', 'vertex attribute at @location(2)'),
     );
-    // The declaring file belongs to both programs. No one number is true of the field there,
-    // so the hover names none.
-    expect(hover(files, IO, 'uv:')).toBe(bare('(property) VsIn.uv: vec2'));
-    expect(hover(files, IO, 'position:')).toBe(bare('(property) VsIn.position: vec3'));
-    // With one of the two programs closed, the other's number is the one number.
+    // The declaring file belongs to both programs, and no one number is true of the field
+    // there. The hover names each program's number with the file the program starts from, in
+    // the order of the uris (the owner's decision of 2026-11-10).
+    expect(hover(files, IO, 'uv:')).toBe(
+      lines(
+        '(property) VsIn.uv: vec2',
+        'vertex attribute at @location(1) in a.shade.ts',
+        'vertex attribute at @location(2) in b.shade.ts',
+      ),
+    );
+    expect(reflected(files, A, 'vs', 'inputs', 'position')).toBe(0);
+    expect(reflected(files, B, 'vs', 'inputs', 'position')).toBe(1);
+    expect(hover(files, IO, 'position:')).toBe(
+      lines(
+        '(property) VsIn.position: vec3',
+        'vertex attribute at @location(0) in a.shade.ts',
+        'vertex attribute at @location(1) in b.shade.ts',
+      ),
+    );
+    // The order is the uris', not the order the documents were opened in.
+    const reversed = createTypeshadeLanguageService();
+    for (const name of [B, A, IO]) reversed.openDocument(name, files[name]!);
+    expect(hoverAt(reversed, IO, files[IO]!, 'uv:')).toBe(hover(files, IO, 'uv:'));
+    // With one of the two programs closed, the other's number is the one number, and the line
+    // names no file.
     const service = opened(files);
     service.closeDocument(B);
     expect(hoverAt(service, IO, files[IO]!, 'uv:')).toBe(
       withLine('(property) VsIn.uv: vec2', 'vertex attribute at @location(1)'),
+    );
+    // Opened again, the program has its line again.
+    service.openDocument(B, files[B]!);
+    expect(hoverAt(service, IO, files[IO]!, 'uv:')).toBe(hover(files, IO, 'uv:'));
+  });
+
+  it('three programs, two numbers: one line for each program, with its file', () => {
+    const A = '/p/a.shade.ts';
+    const B = '/p/b.shade.ts';
+    const C = '/p/c.shade.ts';
+    const entry = (params: string) => `"use typeshade";
+import { VsIn } from "./io.shade.ts";
+@vertex
+export function vs(${params}): vec4 {
+  return vec4(v.position, v.uv.x);
+}
+`;
+    const files: Files = {
+      [IO]: `"use typeshade";
+export interface VsIn {
+  position: vec3;
+  uv: vec2;
+}
+`,
+      [A]: entry('v: VsIn'),
+      [B]: entry('weight: f32, v: VsIn'),
+      [C]: entry('v: VsIn, weight: f32'),
+    };
+    for (const name of [A, B, C]) expect(messagesOf(files, name)).toEqual([]);
+    expect(reflected(files, A, 'vs', 'inputs', 'uv')).toBe(1);
+    expect(reflected(files, B, 'vs', 'inputs', 'uv')).toBe(2);
+    expect(reflected(files, C, 'vs', 'inputs', 'uv')).toBe(1);
+    // Each entry file shows its own program's number, and no file.
+    for (const [name, n] of [
+      [A, 1],
+      [B, 2],
+      [C, 1],
+    ] as const)
+      expect(hover(files, name, 'v.uv', 2)).toBe(
+        withLine('(property) VsIn.uv: vec2', `vertex attribute at @location(${String(n)})`),
+      );
+    // The declaring file: a line for each program, the two that agree included.
+    expect(hover(files, IO, 'uv:')).toBe(
+      lines(
+        '(property) VsIn.uv: vec2',
+        'vertex attribute at @location(1) in a.shade.ts',
+        'vertex attribute at @location(2) in b.shade.ts',
+        'vertex attribute at @location(1) in c.shade.ts',
+      ),
+    );
+    // With the one that differs closed, the two that are left agree: one line, no file.
+    const service = opened(files);
+    service.closeDocument(B);
+    expect(hoverAt(service, IO, files[IO]!, 'uv:')).toBe(
+      withLine('(property) VsIn.uv: vec2', 'vertex attribute at @location(1)'),
+    );
+  });
+
+  it('two programs with one base name: each line names enough of the path to tell them apart', () => {
+    const LIT = '/p/lit/main.shade.ts';
+    const UNLIT = '/p/unlit/main.shade.ts';
+    const files: Files = {
+      [IO]: `"use typeshade";
+export interface VsIn {
+  position: vec3;
+  uv: vec2;
+}
+`,
+      [LIT]: `"use typeshade";
+import { VsIn } from "../io.shade.ts";
+@vertex
+export function vs(normal: vec3, v: VsIn): vec4 {
+  return vec4(v.position + normal, v.uv.x);
+}
+`,
+      [UNLIT]: `"use typeshade";
+import { VsIn } from "../io.shade.ts";
+@vertex
+export function vs(v: VsIn): vec4 {
+  return vec4(v.position, v.uv.x);
+}
+`,
+    };
+    expect(messagesOf(files, LIT)).toEqual([]);
+    expect(messagesOf(files, UNLIT)).toEqual([]);
+    expect(reflected(files, LIT, 'vs', 'inputs', 'uv')).toBe(2);
+    expect(reflected(files, UNLIT, 'vs', 'inputs', 'uv')).toBe(1);
+    expect(hover(files, IO, 'uv:')).toBe(
+      lines(
+        '(property) VsIn.uv: vec2',
+        'vertex attribute at @location(2) in lit/main.shade.ts',
+        'vertex attribute at @location(1) in unlit/main.shade.ts',
+      ),
+    );
+  });
+
+  it('two programs with two numbers and two kinds: each line says what the field is there', () => {
+    const A = '/p/a.shade.ts';
+    const B = '/p/b.shade.ts';
+    const files: Files = {
+      [IO]: `"use typeshade";
+export interface V {
+  q: vec4;
+  p: vec4;
+}
+`,
+      [A]: `"use typeshade";
+import { V } from "./io.shade.ts";
+@vertex
+export function vs(a: V): vec4 {
+  return a.p + a.q;
+}
+`,
+      [B]: `"use typeshade";
+import { V } from "./io.shade.ts";
+interface Out {
+  pos: builtin<"position">;
+  p: vec4;
+  q: vec4;
+}
+@vertex
+export function vs(i: builtin<"vertex_index">): Out {
+  return { pos: vec4(f32(i), 0., 0., 1.), p: vec4(1., 0., 0., 1.), q: vec4(0., 1., 0., 1.) };
+}
+@fragment
+export function fs(v: V): vec4 {
+  return v.p + v.q;
+}
+`,
+    };
+    expect(messagesOf(files, A)).toEqual([]);
+    expect(messagesOf(files, B)).toEqual([]);
+    expect(reflected(files, A, 'vs', 'inputs', 'p')).toBe(1);
+    expect(reflected(files, B, 'fs', 'inputs', 'p')).toBe(0);
+    expect(hover(files, IO, 'p:')).toBe(
+      lines(
+        '(property) V.p: vec4',
+        'vertex attribute at @location(1) in a.shade.ts',
+        'value between stages at @location(0) in b.shade.ts',
+      ),
+    );
+  });
+
+  it('one program numbers the field and another refuses it (TS8010): a line for each', () => {
+    const A = '/p/a.shade.ts';
+    const B = '/p/b.shade.ts';
+    const entry = (more: string, value: string) => `"use typeshade";
+import { FsIn } from "./io.shade.ts";
+interface VsOut {
+  pos: builtin<"position">;
+  uv: vec2;${more}
+}
+@vertex
+export function vs(i: builtin<"vertex_index">): VsOut {
+  return { pos: vec4(0., 0., 0., 1.), uv: vec2(f32(i), 0.)${value} };
+}
+@fragment
+export function fs(v: FsIn): vec4 {
+  return vec4(v.n, v.uv.x);
+}
+`;
+    const files: Files = {
+      [IO]: `"use typeshade";
+export interface FsIn {
+  n: vec3;
+  uv: vec2;
+}
+`,
+      [A]: entry('\n  n: vec3;', ', n: vec3(0., 0., 1.)'),
+      [B]: entry('', ''),
+    };
+    // The program of `a.shade.ts` numbers `n`. The program of `b.shade.ts` refuses it.
+    expect(messagesOf(files, A)).toEqual([]);
+    expect(reflected(files, A, 'fs', 'inputs', 'n')).toBe(1);
+    expect(messagesOf(files, B)).toEqual([
+      'TS8010 "FsIn.n" has no location and the vertex results give "n" none: write location<n, T> on it.',
+    ]);
+    expect(reflected(files, B, 'fs', 'inputs', 'n')).toBeUndefined();
+    expect(hover(files, A, 'v.n', 2)).toBe(
+      withLine('(property) FsIn.n: vec3', 'value between stages at @location(1)'),
+    );
+    expect(hover(files, B, 'v.n', 2)).toBe(bare('(property) FsIn.n: vec3'));
+    // The declaring file: the line of the program that numbers the field, and a line for the
+    // program that refuses it, with the code `compile()` of that program reports on the field
+    // (the owner's decision of 2026-11-10).
+    const code = refusalCodeOf(files, B, IO, 'n:');
+    expect(code).toBe('TS8010');
+    expect(hover(files, IO, 'n:')).toBe(
+      lines(
+        '(property) FsIn.n: vec3',
+        'value between stages at @location(1) in a.shade.ts',
+        `no location in b.shade.ts (${code})`,
+      ),
+    );
+    // The field beside it has one number in both programs: one line, no file.
+    expect(reflected(files, A, 'fs', 'inputs', 'uv')).toBe(0);
+    expect(reflected(files, B, 'fs', 'inputs', 'uv')).toBe(0);
+    expect(hover(files, IO, 'uv:')).toBe(
+      withLine('(property) FsIn.uv: vec2', 'value between stages at @location(0)'),
+    );
+    // With the program that numbers it closed, the refusal is the one line, with its file.
+    const service = opened(files);
+    service.closeDocument(A);
+    expect(hoverAt(service, IO, files[IO]!, 'n:')).toBe(
+      lines('(property) FsIn.n: vec3', 'no location in b.shade.ts (TS8010)'),
+    );
+    // With that program closed too, no open program uses the field, and there is no line.
+    service.closeDocument(B);
+    expect(hoverAt(service, IO, files[IO]!, 'n:')).toBe(bare('(property) FsIn.n: vec3'));
+  });
+
+  it('every program refuses the field: a line for each, and none for a program that does not use it', () => {
+    const A = '/p/a.shade.ts';
+    const B = '/p/b.shade.ts';
+    const C = '/p/c.shade.ts';
+    const entry = `"use typeshade";
+import { FsIn } from "./io.shade.ts";
+interface VsOut {
+  pos: builtin<"position">;
+  uv: vec2;
+}
+@vertex
+export function vs(i: builtin<"vertex_index">): VsOut {
+  return { pos: vec4(0., 0., 0., 1.), uv: vec2(f32(i), 0.) };
+}
+@fragment
+export function fs(v: FsIn): vec4 {
+  return vec4(v.n, v.uv.x);
+}
+`;
+    const files: Files = {
+      [IO]: `"use typeshade";
+export interface FsIn {
+  n: vec3;
+  uv: vec2;
+  flag: bool;
+}
+`,
+      [A]: entry,
+      [B]: entry,
+      // This program links the file and reads the struct in a helper only: no entry uses it.
+      [C]: `"use typeshade";
+import { FsIn } from "./io.shade.ts";
+function sum(p: FsIn): f32 {
+  return p.n.x + p.uv.x;
+}
+@fragment
+export function fs(): vec4 {
+  const p: FsIn = { n: vec3(0., 0., 1.), uv: vec2(0., 0.), flag: true };
+  return vec4(sum(p), 0., 0., 1.);
+}
+`,
+    };
+    expect(messagesOf(files, C)).toEqual([]);
+    for (const name of [A, B]) {
+      expect(reflected(files, name, 'fs', 'inputs', 'n')).toBeUndefined();
+      expect(refusalCodeOf(files, name, IO, 'n:')).toBe('TS8010');
+    }
+    expect(hover(files, IO, 'n:')).toBe(
+      lines(
+        '(property) FsIn.n: vec3',
+        'no location in a.shade.ts (TS8010)',
+        'no location in b.shade.ts (TS8010)',
+      ),
+    );
+    // A field of a type that cannot cross is refused with another code, and the line has it.
+    const flag = refusalCodeOf(files, A, IO, 'flag:');
+    expect(flag).toBe('TS8003');
+    expect(hover(files, IO, 'flag:')).toBe(
+      lines(
+        '(property) FsIn.flag: boolean',
+        `no location in a.shade.ts (${flag})`,
+        `no location in b.shade.ts (${flag})`,
+      ),
+    );
+    // The field both programs number has its one line, and no file.
+    expect(hover(files, IO, 'uv:')).toBe(
+      withLine('(property) FsIn.uv: vec2', 'value between stages at @location(0)'),
     );
   });
 
@@ -390,7 +706,7 @@ export function fs(v: V): vec4 {
     );
   });
 
-  it('a fragment input no vertex result names (TS8010): no number in either file', () => {
+  it('a fragment input no vertex result names (TS8010): no number, and the declaring file names the refusal', () => {
     const files: Files = {
       [IO]: `"use typeshade";
 export interface FsIn {
@@ -419,7 +735,12 @@ export function fs(v: FsIn): vec4 {
     ]);
     expect(reflected(files, MAIN, 'fs', 'inputs', 'n')).toBeUndefined();
     expect(hover(files, MAIN, 'v.n', 2)).toBe(bare('(property) FsIn.n: vec3'));
-    expect(hover(files, IO, 'n:')).toBe(bare('(property) FsIn.n: vec3'));
+    // The declaring file says that the one program that uses the field refused it, with the
+    // code `compile()` of that program reports on the field.
+    expect(refusalCodeOf(files, MAIN, IO, 'n:')).toBe('TS8010');
+    expect(hover(files, IO, 'n:')).toBe(
+      lines('(property) FsIn.n: vec3', 'no location in main.shade.ts (TS8010)'),
+    );
     // The field beside it, which a vertex result names, has its location in both files.
     expect(reflected(files, MAIN, 'fs', 'inputs', 'uv')).toBe(0);
     const uv = withLine('(property) FsIn.uv: vec2', 'value between stages at @location(0)');
