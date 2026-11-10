@@ -962,6 +962,65 @@ SURF-065, SURF-068, SURF-072 and SURF-074 after each was read;
 `status: implemented` (`changes/README.md`, lifecycle, step 4). The downstream work stays
 pending.
 
+**Delivery of amendment A1.** Pull request #1164 (base `main` at `cde9767b`, commit `ecee6390`),
+with `Change: 0130`, by an AI agent (Claude Code) at the coordinator's request. Amendment A1 is
+delivered by the merge of that pull request.
+
+- `parseStage` in `src/compiler/ts/lower/function.ts` refuses the empty argument list on
+  `@vertex` and `@fragment` with the `TS8028` of pull request #1160:
+  `"@vertex" takes no argument: write "@vertex" and delete "()" (Rule 8.1).` `@compute()` and a
+  bare `@compute` stay accepted.
+- `settleKernelWorkgroup` in the same file refuses each `@workgroup_size` after the first on a
+  kernel function with `TS8028`, on that attribute:
+  `"@workgroup_size([16])" is a second "@workgroup_size" on "scale", after "@workgroup_size([8])": a function takes at most one "@workgroup_size([n])"; delete "@workgroup_size([16])" (Rule 8.22).`
+  The first one sets the size. A third one gets its own diagnostic (Rule 12.4: each further
+  attribute is one attribute to delete).
+- Rule 8.1 and Rule 8.22 carry the sentences of the amendment, word for word. Each "Enforced by"
+  names its test. Surface §3, §7 and §65 and `CHANGELOG.md` (`[Unreleased]`, `### Changed`) say
+  the same.
+- `tshc migrate` rewrites neither form, as the amendment declares no rewrite. It reports a file
+  with either form as already in the language's form, and `tshc check` reports the `TS8028`.
+
+Functional verification of amendment A1 (2026-11-10; Linux container, Bun 1.4.4, Node 22.23.4,
+TypeScript 5.6.3, vitest 5.0.5; on `ecee6390`):
+
+- `npx tsc -p tsconfig.json --noEmit` and `npx tsc -p tsconfig.tests.json --noEmit`: pass.
+- `bun run lint` and `bun run format:check`: pass.
+- `bun run build`, then `npx vitest run` (the whole unit suite), before the first push: 13628
+  passed, 9 failed in 2 files, `src/affected-tests.test.ts` (5) and
+  `src/doc-test-selection.test.ts` (4), the environmental failures recorded above.
+- `src/compiler/ts/stage3.test.ts` and `src/compiler/ts/kernel-workgroup.test.ts`: each new test
+  reads `compile()` and the language service on the same source, with the code, the text and the
+  text the range covers, and writes the named remedy back. 5 of the new tests fail with the
+  front end of `cde9767b`.
+- `bun run bake:goldens`: 355 passed, no golden changed. `bun run bake:api-surface` and
+  `bun run bake:author-names`: no file changed.
+- `bun run gate:compile`: 204 examples, WGSL on Tint 204, GLSL ES 3.00 on WebGL2 141, render
+  pipelines on Tint 132, failures 0. `bun run gate:boundary`: pass.
+- Not run: `bun run gate:differential`, `bun run gate:journeys`, `bun run gate:render`,
+  `bun run gate:perf` and the TypeScript 5.9 and 6.0 legs.
+
+Document audit of amendment A1 (2026-11-10): `bun scripts/changes.ts --base origin/main` passes
+("This change touches Rule 8.1, Rule 8.22; surface §3, surface §7, surface §65.");
+`bun run docs:refs`, 0 dead references; `bun run docs:impact`, no must-fix item, each review item
+read; `bun run reqs:sync`, then `doorstop review` of RULE-0801, RULE-0822 and SURF-007 and
+`doorstop clear` of SURF-003, SURF-007, SURF-063, SURF-065, SURF-072 and SURF-074 after each was
+read; `python scripts/doorstop-check.py -C -e -F` passes.
+
+Deviations of amendment A1. No difference from the amendment's text is known. Three points that
+the amendment does not state:
+
+- A1-1. The amendment does not fix the words of the sentence for a second `@workgroup_size`. The
+  sentence above follows the sentence for a second stage attribute and names what to delete
+  (Rule 12.5). Disposition: open until the owner reads the sentence on pull request #1164.
+- A1-2. On a function that is no kernel function, each `@workgroup_size` gets the refusal that
+  the first one already had (`"workgroup_size" applies to a kernel function only: …`), on its
+  own attribute, and not the sentence for a second one. Disposition: closed, pinned by
+  `src/compiler/ts/kernel-workgroup.test.ts`.
+- A1-3. `@workgroup_size() @workgroup_size([16])` gave one `TS8037` and now gives that `TS8037`
+  and one `TS8028`. `@vertex() @fragment()` gave one `TS8028` and now gives two. Each attribute
+  has one diagnostic for its own mistake. Disposition: closed.
+
 ## What it owes downstream
 
 Each repository in `downstream` moves its stage calls to attributes with `tshc migrate` when it
