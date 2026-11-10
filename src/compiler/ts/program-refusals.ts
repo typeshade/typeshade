@@ -11,21 +11,32 @@
 //
 // 1. The CHAIN of an error is the files that hold it, innermost first: the site's file, each
 //    use's file, then each file on the way of imports from there up to the file the compile
-//    starts from. The OWNER is the first file of the chain that reports the same mistake when
-//    it is compiled as its own program: the same site, code and sentence as written. A file
-//    the compile starts from is its own program, so it owns what reaches it.
-// 2. The program reports the error once, in the owner: at the site when the owner holds the
-//    site, else at the owner's outermost use, else on the owner's re-export of the entry point
-//    that holds the use, else on the owner's import of the next file of the chain. The site is
-//    the error's related place when the error does not stand on it.
+//    starts from. Each file of the chain has a PLACE for the error: the site, in the site's
+//    file; else the file's outermost use; else its re-export of the entry point that holds the
+//    use; else its import of the file below.
+// 2. The OWNER is the first file of the chain that reports the same mistake at the same place
+//    when it is compiled as its own program: the same code and sentence as written, a site that
+//    overlaps the error's site, at a place that overlaps the file's place. The file the compile starts from is its own program, so it owns
+//    what reaches it. The program reports the error once, in the owner, at the owner's place.
+//    The site is the error's related place when the error does not stand on it.
 // 3. A document lists what is located in it. So the owner's document shows the error, and no
 //    other document does: a mistake of a file in the middle of a chain of imports is not
 //    reported again in each file above it.
 // 4. Two errors that stand on one use with one code and one sentence are one diagnostic, which
 //    keeps the site of each. On an import or a re-export they stay apart.
 //
-// So an error located in an imported file is one that file reports when it is compiled on its
-// own.
+// So an error located in an imported file is one that file reports, at that place, when it is
+// compiled on its own.
+//
+// A file's own program makes an instance of a generic declaration once, at the first call that
+// asks for it. So when an imported file and the file the compile starts from both make the
+// same refused instance, the imported file reports it, at its own call, and the program's own
+// call adds nothing until that file is fixed (Rule 12.4).
+//
+// Known exception (#1212): an imported file that holds a struct and the fragment entry that
+// takes it reports, on its own, the same sentence at the same place for another reason (it has
+// no vertex stage). It owns the error, and the program that starts from another file shows it
+// only in that imported file.
 
 import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
@@ -41,32 +52,75 @@ import {
 import { attributeDecoratorsOf } from './attribute-types.js';
 import { stageCallOf } from './stage-call.js';
 
-/** What makes two reports, by two programs, the same mistake: the site in its own file, the
- *  code, and the sentence with each name as its file writes it. */
-const mistakeKey = (
-  site: { fileName: string; start: number; length: number },
-  code: string | undefined,
-  sentence: string,
-): string => [site.fileName, site.start, site.length, code ?? '', sentence].join('\u0000');
+/** A span of a file. */
+interface Span {
+  readonly fileName: string;
+  readonly start: number;
+  readonly length: number;
+}
 
-/** The mistakes a program's diagnostics report: each error by its site, which is its related
- *  place where the program reports it at a use. */
-function mistakesOf(diagnostics: readonly TsCompilerDiagnostic[]): ReadonlySet<string> {
-  const out = new Set<string>();
+/** Whether two spans of one file share a character, or are one empty span. Two programs map one
+ *  node back to its file through different linked sources: an imported declaration whose
+ *  `export` the linker dropped maps from the keyword on, where the file's own program reads it
+ *  from `export`. */
+const overlaps = (a: Span, b: Span): boolean =>
+  a.fileName === b.fileName &&
+  (a.start === b.start || (a.start < b.start + b.length && b.start < a.start + a.length));
+
+/** What makes two reports, by two programs, one mistake: the code and the sentence with each
+ *  name as its file writes it, and a site that overlaps (`overlaps`). */
+const mistakeKey = (code: string | undefined, sentence: string): string =>
+  [code ?? '', sentence].join('\u0000');
+
+/** The mistakes a program's errors report: for each code and sentence, each site with the
+ *  places the program reports it at. The site is the error's related place where the program
+ *  reports it at a use, else where it stands. */
+type Mistakes = ReadonlyMap<string, readonly { site: Span; places: readonly Span[] }[]>;
+
+function mistakesOf(diagnostics: readonly TsCompilerDiagnostic[]): Mistakes {
+  const out = new Map<string, { site: Span; places: Span[] }[]>();
   for (const d of diagnostics) {
     if (d.category !== 'error') continue;
     const related = relatedSitesOf(d);
-    for (const site of related.length > 0 ? related : [d])
-      out.add(mistakeKey(site, d.code, writtenMessageOf(d)));
+    const key = mistakeKey(d.code, writtenMessageOf(d));
+    const list = out.get(key) ?? [];
+    out.set(key, list);
+    for (const site of related.length > 0 ? related : [d]) list.push({ site, places: [d] });
   }
   return out;
 }
 
-/** The own programs the compile in progress has asked for, by file: one compile of a file as
- *  its own program serves every program above it. `undefined` between compiles. */
-let OWN_PROGRAMS: Map<string, ReadonlySet<string>> | undefined;
+/** Whether `mistakes` holds the mistake `key` at `site`, reported at `place`. */
+const reports = (mistakes: Mistakes, key: string, site: Span, place: Span): boolean =>
+  (mistakes.get(key) ?? []).some(
+    (m) => overlaps(m.site, site) && m.places.some((at) => overlaps(at, place)),
+  );
+
+/**
+ * The mistakes of each own program asked for, by what decides them: the file, the text of every
+ * file its program reads with the imports between them, and the options. One compile of a file
+ * as its own program serves every program above it, and a later compile whose files are the
+ * same (an editor's next keystroke in the file that imports it) asks for none. The oldest entry
+ * goes first past {@link OWN_PROGRAMS_HELD}.
+ */
+const OWN_PROGRAMS = new Map<string, Mistakes>();
+const OWN_PROGRAMS_HELD = 1024;
 /** The files whose own program is being compiled, outermost first. */
 const OWN_PROGRAMS_RUNNING = new Set<string>();
+
+/** A hash of `text` in 53 bits (cyrb53), for a cache key that does not hold the texts. */
+function hash53(text: string, seed = 0): string {
+  let h1 = 0xdeadbeef ^ seed;
+  let h2 = 0x41c6ce57 ^ seed;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
 
 /** One error of the linked program: as the front end raised it over the linked source, and
  *  mapped to the file and offsets its site was written at. */
@@ -105,6 +159,8 @@ export function locateProgramErrors(input: {
   readonly resolve: (from: string, specifier: string) => string | undefined;
   /** The diagnostics of `file` compiled as its own program. */
   readonly ownProgram: (file: LinkedFile) => readonly TsCompilerDiagnostic[];
+  /** What else an own program's diagnostics depend on: the compile's options. */
+  readonly optionsKey: string;
 }): TsCompilerDiagnostic[] {
   const { entry, linked, linkedSource, roots, errors } = input;
   const files = new Map(linked.files.map((f) => [f.name, f]));
@@ -132,17 +188,47 @@ export function locateProgramErrors(input: {
     return message.replace(/[A-Za-z_$][\w$]*/g, (name) => renames!.get(name) ?? name);
   };
 
-  const outermost = OWN_PROGRAMS === undefined;
-  if (outermost) {
-    OWN_PROGRAMS = new Map();
-    // The entry file is the program being compiled: it is not compiled again to ask it.
-    OWN_PROGRAMS_RUNNING.add(entry.fileName);
-  }
-  const cache = OWN_PROGRAMS!;
-  /** Whether `file`, compiled as its own program, reports the mistake `key`. `undefined` for a
-   *  file whose own program is being compiled further out: two files that import each other. */
-  const owns = (file: LinkedFile, key: string): boolean | undefined => {
-    let own = cache.get(file.name);
+  const edges = programEdges(linked, input.resolve);
+  /** The key of `file`'s own program in {@link OWN_PROGRAMS}, once per file of this program. */
+  const ownKeys = new Map<string, string>();
+  const textHashes = new Map<string, string>();
+  const textHash = (name: string): string => {
+    let h = textHashes.get(name);
+    if (h === undefined) {
+      const text = files.get(name)?.sourceFile.text ?? '';
+      h = `${hash53(text)}${hash53(text, 1)}`;
+      textHashes.set(name, h);
+    }
+    return h;
+  };
+  const ownKey = (file: LinkedFile): string => {
+    const had = ownKeys.get(file.name);
+    if (had !== undefined) return had;
+    const read: string[] = [];
+    const seen = new Set<string>();
+    const visit = (name: string): void => {
+      if (seen.has(name)) return;
+      seen.add(name);
+      read.push(`${name}\u0001${textHash(name)}`);
+      for (const e of edges(name)) {
+        read.push(`${name}\u0002${e.to}`);
+        visit(e.to);
+      }
+    };
+    visit(file.name);
+    const key = `${input.optionsKey}\u0003${read.join('\u0003')}`;
+    ownKeys.set(file.name, key);
+    return key;
+  };
+  const outermost = !OWN_PROGRAMS_RUNNING.has(entry.fileName);
+  // The entry file is the program being compiled: it is not compiled again to ask it.
+  if (outermost) OWN_PROGRAMS_RUNNING.add(entry.fileName);
+  /** Whether `file`, compiled as its own program, reports the mistake `key` of `site` at
+   *  `place`. `undefined` for a file whose own program is being compiled further out: two files
+   *  that import each other. */
+  const owns = (file: LinkedFile, key: string, site: Span, place: Span): boolean | undefined => {
+    const id = ownKey(file);
+    let own = OWN_PROGRAMS.get(id);
     if (own === undefined) {
       if (OWN_PROGRAMS_RUNNING.has(file.name)) return undefined;
       OWN_PROGRAMS_RUNNING.add(file.name);
@@ -151,9 +237,15 @@ export function locateProgramErrors(input: {
       } finally {
         OWN_PROGRAMS_RUNNING.delete(file.name);
       }
-      cache.set(file.name, own);
+      OWN_PROGRAMS.set(id, own);
+      if (OWN_PROGRAMS.size > OWN_PROGRAMS_HELD)
+        OWN_PROGRAMS.delete(OWN_PROGRAMS.keys().next().value!);
+    } else {
+      // The most recent last, so the oldest goes first.
+      OWN_PROGRAMS.delete(id);
+      OWN_PROGRAMS.set(id, own);
     }
-    return own.has(key);
+    return reports(own, key, site, place);
   };
 
   try {
@@ -170,7 +262,7 @@ export function locateProgramErrors(input: {
         out.push(mapped);
         continue;
       }
-      const key = mistakeKey(mapped, mapped.code, writtenMessageOf(mapped));
+      const key = mistakeKey(mapped.code, writtenMessageOf(mapped));
       // The chain after the site: each use's file with its outermost use, innermost first.
       const chain: Place[] = [];
       for (const use of usesOf(raised)) {
@@ -183,15 +275,23 @@ export function locateProgramErrors(input: {
       // Then each file on the way of imports up to the entry file, with the re-export or the
       // import that brings the file below it.
       const top = chain[chain.length - 1];
-      ways ??= importWays(entry, linked, input.resolve);
+      ways ??= importWays(entry, linked, edges);
       for (const step of ways(top?.file.name ?? site.name, top?.start)) {
         if (step.file === site || chain.some((c) => c.file === step.file)) continue;
         chain.push(step);
       }
+      const placeOf = (c: Place): Span => ({
+        fileName: c.file.name,
+        start: c.start,
+        length: c.end - c.start,
+      });
       const owner =
-        owns(site, key) === true
+        owns(site, key, mapped, mapped) === true
           ? undefined
-          : (chain.find((c) => c.file.name === entry.fileName || owns(c.file, key) === true) ??
+          : (chain.find(
+              (c) =>
+                c.file.name === entry.fileName || owns(c.file, key, mapped, placeOf(c)) === true,
+            ) ??
             // No file of the chain owns it: a use in another file the compile starts from.
             chain.find((c) => c.use && roots.has(c.file.name)));
       if (owner === undefined) {
@@ -221,17 +321,17 @@ export function locateProgramErrors(input: {
         endLine: mapped.endLine,
         endCharacter: mapped.endCharacter,
       };
-      const same = !owner.use
-        ? undefined
-        : out.find(
-            (x) =>
-              onUse.has(x) &&
-              x.fileName === moved.fileName &&
-              x.start === moved.start &&
-              x.length === moved.length &&
-              x.code === moved.code &&
-              x.message === moved.message,
-          );
+      // Only a diagnostic that stands on a use takes another in (sentence 4): `onUse` holds no
+      // diagnostic on an import or a re-export, and a use never has an import's span.
+      const same = out.find(
+        (x) =>
+          onUse.has(x) &&
+          x.fileName === moved.fileName &&
+          x.start === moved.start &&
+          x.length === moved.length &&
+          x.code === moved.code &&
+          x.message === moved.message,
+      );
       if (same !== undefined) {
         const sites = relatedSitesOf(same);
         if (
@@ -251,10 +351,7 @@ export function locateProgramErrors(input: {
     }
     return out;
   } finally {
-    if (outermost) {
-      OWN_PROGRAMS = undefined;
-      OWN_PROGRAMS_RUNNING.delete(entry.fileName);
-    }
+    if (outermost) OWN_PROGRAMS_RUNNING.delete(entry.fileName);
   }
 }
 
@@ -276,15 +373,21 @@ interface Place {
  * or re-export of the file below. The way is the shortest one, the first in each file's order.
  * A file the entry file does not reach has no way.
  */
-function importWays(
-  entry: ts.SourceFile,
+/** An import or a re-export of one file of a linked program, and the file it names. */
+interface Edge {
+  readonly node: ts.ImportDeclaration | ts.ExportDeclaration;
+  readonly to: string;
+}
+
+/** For a file of `linked`, its imports and re-exports of other files of the program, in the
+ *  file's order. */
+function programEdges(
   linked: LinkedProgram,
   resolve: (from: string, specifier: string) => string | undefined,
-): (file: string, at: number | undefined) => Place[] {
+): (from: string) => readonly Edge[] {
   const byName = new Map(linked.files.map((f) => [f.name, f]));
-  type Edge = { node: ts.ImportDeclaration | ts.ExportDeclaration; to: string };
   const edges = new Map<string, Edge[]>();
-  const targets = (from: string): Edge[] => {
+  return (from) => {
     let out = edges.get(from);
     if (out !== undefined) return out;
     out = [];
@@ -298,6 +401,14 @@ function importWays(
     }
     return out;
   };
+}
+
+function importWays(
+  entry: ts.SourceFile,
+  linked: LinkedProgram,
+  targets: (from: string) => readonly Edge[],
+): (file: string, at: number | undefined) => Place[] {
+  const byName = new Map(linked.files.map((f) => [f.name, f]));
   // The file each file is first reached from, breadth first from the entry file.
   const above = new Map<string, string>();
   const queue = [entry.fileName];

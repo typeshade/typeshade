@@ -648,6 +648,16 @@ function compileLinked(
     resolve: (from, specifier) =>
       options.resolveImport?.(from, specifier) ??
       resolveSpecifierFile(from, specifier, options.readDocument),
+    optionsKey: JSON.stringify(options, (key, value: unknown) =>
+      typeof value === 'function' ||
+      key === 'sourceFile' ||
+      key === 'roots' ||
+      key === 'fileName' ||
+      // An own program is compiled with `emit: false` whatever this compile emits.
+      key === 'emit'
+        ? undefined
+        : value,
+    ),
     ownProgram: (file) =>
       compileTsProgram(file.sourceFile.text, {
         ...options,

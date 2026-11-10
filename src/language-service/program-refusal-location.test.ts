@@ -836,6 +836,8 @@ export function fs(v: FsIn): vec4 {
   });
 
   it('several files the compile starts from: a use in one of them is where it stands', () => {
+    // The compiler half alone: no document of the editor and no file of `tshc check` is a
+    // program of several files the compile starts from (`compileTsSources`).
     const F = '/p/f.shade.ts';
     const sources = [
       { fileName: A, source: `"use typeshade";\n${VS}` },
@@ -912,6 +914,238 @@ export function fs(v: Pair<vec3>): vec4 {
     ]);
     expect(editorSays(opened(files), files, B).map((d) => [d.code, d.at])).toEqual([
       ['TS8010', 'Pair<vec2>'],
+    ]);
+  });
+
+  /** `d.shade.ts` holds two generic functions whose bodies refuse a `bool`. */
+  const DBL = `"use typeshade";
+export function dbl<T>(a: T): T {
+  return a + a;
+}
+export function tri<T>(a: T): T {
+  return a + a + a;
+}
+`;
+  const NO_BOOL =
+    'Cannot + bool: WGSL has no arithmetic on a bool. Convert it to a number first, e.g. u32(a).';
+  const noBool = (file: string, at: string, related: readonly string[]): Said => ({
+    code: 'TS8003',
+    message: NO_BOOL,
+    file,
+    at,
+    related,
+  });
+
+  it('a file owns an error only at its own place: the program that starts above it keeps its own call', () => {
+    // `m.shade.ts` makes the instance of `same` at its `P` in `f1`, through its generic `w`.
+    // `a.shade.ts` imports `w` and `P` and makes the same instance with its own call. `m`'s
+    // own program reports it at `w(p)` in `f1`; in the program of `a` the instance is made at
+    // `a`'s call, which is another place, so `a` owns it there.
+    const M = '/p/m.shade.ts';
+    const files: Files = {
+      [IO]: SAME,
+      [M]: `"use typeshade";
+import { same } from "./io.shade.ts";
+export interface P {
+  a: f32;
+}
+export function w<T>(a: T): bool {
+  return same(a, a);
+}
+export function f1(x: f32): f32 {
+  const p: P = { a: x };
+  return w(p) ? x : 0.;
+}
+`,
+      [A]: `"use typeshade";
+import { w, P } from "./m.shade.ts";
+${VS}@fragment
+export function fs(v: VsOut): vec4 {
+  const p: P = { a: v.uv.x };
+  return vec4(w(p) ? 1. : 0., 0., v.uv);
+}
+`,
+    };
+    bothSay(files, {
+      [M]: [{ ...refused('w(p)', ['io.shade.ts: a === b']), file: 'm.shade.ts' }],
+      [A]: [{ ...refused('w(p)', ['io.shade.ts: a === b']), file: 'a.shade.ts' }],
+    });
+  });
+
+  it('one instance two files make: once, at the imported file that makes it first', () => {
+    // The program of `a.shade.ts` makes the instance of `same` at `P` once, in `fc` of
+    // `c.shade.ts`, whose body is lowered before `fs`. `c`'s own program reports it there, so
+    // `a`'s call `fb(p)` adds nothing until `c` is fixed (Rule 12.4).
+    const files: Files = {
+      [IO]: SAME,
+      [B]: `"use typeshade";
+import { same } from "./io.shade.ts";
+export function fb<T>(x: T): bool {
+  return same(x, x);
+}
+`,
+      [C]: `"use typeshade";
+import { same } from "./io.shade.ts";
+export interface P {
+  a: f32;
+}
+export function fc(x: f32): f32 {
+  const p: P = { a: x };
+  return same(p, p) ? x : 1.;
+}
+`,
+      [A]: `"use typeshade";
+import { fb } from "./b.shade.ts";
+import { fc, P } from "./c.shade.ts";
+${VS}@fragment
+export function fs(v: VsOut): vec4 {
+  const p: P = { a: v.uv.x };
+  return vec4(fb(p) ? 1. : 0., fc(1.), v.uv);
+}
+`,
+    };
+    const inC: Said = { ...refused('same(p, p)', ['io.shade.ts: a === b']), file: 'c.shade.ts' };
+    bothSay(files, { [C]: [inC], [A]: [inC] });
+  });
+
+  it('two refusals with one sentence on one import stay two diagnostics', () => {
+    // `m.shade.ts` makes both instances in `f1` and in `f2`; its own program reports them at
+    // `f1`. The program of `a.shade.ts`, which imports `f2` alone, makes them in `f2`, which is
+    // another place, so `a` owns them; `a` writes no use, so both stand on its import.
+    const M = '/p/m.shade.ts';
+    const files: Files = {
+      [D]: DBL,
+      [M]: `"use typeshade";
+import { dbl, tri } from "./d.shade.ts";
+export function f1(x: f32): f32 {
+  return dbl(true) || tri(true) ? x : 0.;
+}
+export function f2(x: f32): f32 {
+  return dbl(true) || tri(true) ? x : 1.;
+}
+`,
+      [A]: `"use typeshade";
+import { f2 } from "./m.shade.ts";
+${VS}@fragment
+export function fs(v: VsOut): vec4 {
+  return vec4(f2(1.), 0., v.uv);
+}
+`,
+    };
+    const onImport = [
+      noBool('a.shade.ts', '"./m.shade.ts"', ['d.shade.ts: a + a']),
+      // The related site of `tri`'s refusal is the first `a + a` of its body.
+      noBool('a.shade.ts', '"./m.shade.ts"', ['d.shade.ts: a + a']),
+    ];
+    const inM = [
+      noBool('m.shade.ts', 'dbl(true)', ['d.shade.ts: a + a']),
+      noBool('m.shade.ts', 'tri(true)', ['d.shade.ts: a + a']),
+    ];
+    expect(compilerSays(files, M)).toEqual(inM);
+    expect(compilerSays(files, A)).toEqual(onImport);
+    // The two sites differ: one is in `dbl`, the other in `tri`.
+    const sites = compile(files[A]!, {
+      fileName: A,
+      readDocument: (name) => files[name],
+    }).diagnostics.map((d) => relatedSitesOf(d).map((x) => x.line));
+    expect(sites).toEqual([[3], [6]]);
+    const service = opened(files);
+    expect(editorSays(service, files, A)).toEqual(onImport);
+    expect(editorSays(service, files, M)).toEqual(inM);
+    const ran = check(files);
+    expect(ran.status).toBe(1);
+    expect(ran.text.split(`a.shade.ts:2:20 - error TS8003: ${NO_BOOL}`)).toHaveLength(3);
+  });
+
+  it('a re-export through an export * of another file: on the name of the entry', () => {
+    const FRAG = '/p/frag.shade.ts';
+    const MID = '/p/mid.shade.ts';
+    bothSay(
+      {
+        [IO]: FS_IN,
+        [FRAG]: `"use typeshade";
+import { FsIn } from "./io.shade.ts";
+interface Wide {
+  pos: builtin<"position">;
+  n: vec3;
+  uv: vec2;
+}
+@vertex
+export function wide(i: builtin<"vertex_index">): Wide {
+  return { pos: vec4(0., 0., 0., 1.), n: vec3(0.), uv: vec2(f32(i), 0.) };
+}
+@fragment
+export function fs(v: FsIn): vec4 {
+  return vec4(v.n, v.uv.x);
+}
+`,
+        [MID]: `"use typeshade";\nexport * from "./frag.shade.ts";\n`,
+        [B]: `"use typeshade";\nexport { fs } from "./mid.shade.ts";\n${VS}`,
+      },
+      { [B]: [{ ...NO_LOCATION, at: 'fs' }] },
+    );
+  });
+
+  it('several files the compile starts from: a use in one that no import reaches', () => {
+    // The compiler half alone: `compileTsSources` compiles several files as one program, and no
+    // document of the editor or file of `tshc check` is such a program. `f.shade.ts` is a file
+    // the compile starts from that the first file does not import. The two vertex results give
+    // `n` two locations; `f.shade.ts` alone, with its own vertex result, compiles. No file of
+    // the chain owns the error and no import leads up from `f.shade.ts`, so it stands at the
+    // use in `f.shade.ts`.
+    const F = '/p/f.shade.ts';
+    const sources = [
+      {
+        fileName: A,
+        source: `"use typeshade";
+interface VsOut {
+  pos: builtin<"position">;
+  n: vec3;
+  uv: vec2;
+}
+@vertex
+export function vs(i: builtin<"vertex_index">): VsOut {
+  return { pos: vec4(0., 0., 0., 1.), n: vec3(0.), uv: vec2(f32(i), 0.) };
+}
+`,
+      },
+      {
+        fileName: F,
+        source: `"use typeshade";
+import { FsIn } from "./io.shade.ts";
+interface Wide {
+  pos: builtin<"position">;
+  uv: vec2;
+  n: vec3;
+}
+@vertex
+export function wide(i: builtin<"vertex_index">): Wide {
+  return { pos: vec4(0., 0., 0., 1.), uv: vec2(f32(i), 0.), n: vec3(0.) };
+}
+@fragment
+export function fs(v: FsIn): vec4 {
+  return vec4(v.n, v.uv.x);
+}
+`,
+      },
+      { fileName: IO, source: FS_IN },
+    ];
+    const said = compileTsSources(sources).diagnostics.map((d) => [
+      d.code,
+      short(d.fileName),
+      sources
+        .find((x) => x.fileName.endsWith(short(d.fileName)))!
+        .source.slice(d.start, d.start + d.length),
+      relatedSitesOf(d).map((x) => short(x.fileName)),
+    ]);
+    // `n` and `uv` each have two locations.
+    expect(said).toEqual([
+      ['TS8010', 'f.shade.ts', 'v: FsIn', ['io.shade.ts']],
+      ['TS8010', 'f.shade.ts', 'v: FsIn', ['io.shade.ts']],
+    ]);
+    expect(compileTsSources(sources).diagnostics.map((d) => d.message.slice(0, 9))).toEqual([
+      '"FsIn.n" ',
+      '"FsIn.uv"',
     ]);
   });
 });
