@@ -26,6 +26,7 @@
 // `checkOpenDocument` rather than assembling the same list again: two copies of it are two
 // answers about one file as soon as either changes (Rule 12.7).
 
+import { isAbstractDivisionRefusal } from '../compiler/ts/abstract-const.js';
 import { compile } from '../compiler/ts/compile.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
 import type { TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
@@ -163,6 +164,18 @@ export function checkOpenDocument(
   doc: CheckDocument,
   options: Pick<CheckOptions, 'deprecations'> = {},
 ): CheckDiagnostic[] {
+  return checkOpen(service, doc, options);
+}
+
+/** {@link checkOpenDocument}; `elsewhere` receives each refusal of `doc`'s program that
+ *  depends on the whole program and stands in a file `doc` imports (a `/` over a constant
+ *  that `doc` reads as an integer, change 0134), for the caller to report on that file. */
+function checkOpen(
+  service: TypeshadeLanguageService,
+  doc: CheckDocument,
+  options: Pick<CheckOptions, 'deprecations'>,
+  elsewhere?: (d: TsCompilerDiagnostic) => void,
+): CheckDiagnostic[] {
   const found = service
     .getDiagnostics(doc.uri)
     .filter((d) => d.uri === doc.uri)
@@ -185,6 +198,7 @@ export function checkOpenDocument(
     ...(options.deprecations === true ? { deprecations: true } : {}),
   });
   for (const d of compiled.diagnostics) {
+    if (d.fileName !== doc.uri && isAbstractDivisionRefusal(d)) elsewhere?.(d);
     if (d.code !== TS_CODES.BACKEND) continue;
     if (d.fileName !== doc.uri) continue;
     const row = fromCompiler(doc, d);
@@ -218,20 +232,27 @@ export function checkDocuments(
   const diagnostics: CheckDiagnostic[] = [];
   const queue = [...docs];
   const queued = new Set(docs.map((d) => d.uri));
-  // Every document is open while each is checked: a refusal that depends on the program (a
-  // `/` over a constant that an importing file reads as an integer, change 0134) is shown in
-  // the file it stands in, and the service reads it from the open documents that import it.
+  // A refusal that depends on the whole program stands in the file of its `/` and is known
+  // from the program of a file that imports it (change 0134): kept until each file is read,
+  // then reported once on the file it stands in, as `compile()` reports it (Rule 12.7).
+  const elsewhere: TsCompilerDiagnostic[] = [];
   for (let i = 0; i < queue.length; i++) {
     const doc = queue[i]!;
     service.openDocument(doc.uri, doc.text);
+    diagnostics.push(...checkOpen(service, doc, options, (d) => elsewhere.push(d)));
+    service.closeDocument(doc.uri);
     for (const imported of importedDocuments(doc, options.readDocument)) {
       if (queued.has(imported.uri)) continue;
       queued.add(imported.uri);
       queue.push(imported);
     }
   }
-  for (const doc of queue) diagnostics.push(...checkOpenDocument(service, doc, options));
-  for (const doc of queue) service.closeDocument(doc.uri);
+  for (const d of elsewhere) {
+    const doc = queue.find((q) => q.uri === d.fileName);
+    if (doc === undefined) continue;
+    const row = fromCompiler(doc, d);
+    if (!diagnostics.some((f) => f.file === row.file && sameReport(f, row))) diagnostics.push(row);
+  }
   return {
     files: queue.map((d) => d.path),
     diagnostics,
