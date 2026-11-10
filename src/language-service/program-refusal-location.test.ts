@@ -1148,6 +1148,94 @@ export function fs(v: FsIn): vec4 {
       '"FsIn.uv"',
     ]);
   });
+
+  it('a nested expression is another place: the outer refusal of the file does not take the inner one', () => {
+    // `d.shade.ts` makes `h` at `f32, bool`, which refuses the outer `+`; the program of
+    // `a.shade.ts` makes it at `bool, f32`, which refuses the inner `a + a`. The two spans
+    // overlap and are two places, so `d` does not own `a`'s refusal.
+    const files: Files = {
+      [D]: `"use typeshade";
+export function h<T, V>(a: T, b: V): f32 {
+  const q = b + ((a + a) == a);
+  return 1.;
+}
+export function own(x: f32): f32 {
+  return h(x, true);
+}
+`,
+      [A]: `"use typeshade";
+import { h } from "./d.shade.ts";
+${VS}@fragment
+export function fs(v: VsOut): vec4 {
+  return vec4(h(true, 1.), 0., v.uv);
+}
+`,
+    };
+    const inD = noBool('d.shade.ts', 'b + ((a + a) == a)', []);
+    const atCall = noBool('a.shade.ts', 'h(true, 1.)', ['d.shade.ts: a + a']);
+    expect(compilerSays(files, D)).toEqual([inD]);
+    expect(compilerSays(files, A)).toEqual([atCall]);
+    const service = opened(files);
+    // TypeScript's own error on the generic `+` is no part of this.
+    const typeshade = (uri: string): Said[] =>
+      editorSays(service, files, uri).filter((d) => d.code.startsWith('TS8'));
+    expect(typeshade(D)).toEqual([inD]);
+    expect(typeshade(A)).toEqual([atCall]);
+    const ran = check(files);
+    expect(ran.status).toBe(1);
+    expect(ran.text).toContain(`a.shade.ts:13:15 - error TS8003: ${NO_BOOL}`);
+    expect(ran.text).toContain(`d.shade.ts:3:13 - error TS8003: ${NO_BOOL}`);
+  });
+
+  it('an edit two files down is read again: the next compile does not reuse what it decided', () => {
+    // The answer of each own program is kept by what decides it, the texts of every file it
+    // reads among them. `m.shade.ts` makes the instance itself and owns it; then `d.shade.ts`,
+    // which `m` imports, moves its function one line down, and `m`'s text stays. The second
+    // compile must read `m`'s own program again, or the site it kept is one line off.
+    const M = '/p/m.shade.ts';
+    const X = '/p/x.shade.ts';
+    const before: Files = {
+      [D]: `"use typeshade";\nexport function dbl<T>(a: T): T {\n  return a + a;\n}\n`,
+      [X]: `"use typeshade";\nexport function unused(): f32 {\n  return 1.;\n}\n`,
+      [M]: `"use typeshade";
+import { dbl } from "./d.shade.ts";
+import { unused } from "./x.shade.ts";
+export function fm(x: f32): f32 {
+  return dbl(true) ? x : 0.;
+}
+export function other(): f32 {
+  return unused();
+}
+`,
+      [A]: `"use typeshade";
+import { fm } from "./m.shade.ts";
+${VS}@fragment
+export function fs(v: VsOut): vec4 {
+  return vec4(fm(1.), 0., v.uv);
+}
+`,
+    };
+    const after: Files = {
+      ...before,
+      [D]: before[D]!.replace('export function', '// moved\nexport function'),
+    };
+    const inM = noBool('m.shade.ts', 'dbl(true)', ['d.shade.ts: a + a']);
+    expect(compilerSays(before, A)).toEqual([inM]);
+    expect(compilerSays(after, A)).toEqual([inM]);
+    const lines = (files: Files): number[] =>
+      compile(files[A]!, { fileName: A, readDocument: (name) => files[name] }).diagnostics.map(
+        (d) => relatedSitesOf(d)[0]!.line,
+      );
+    expect(lines(before)).toEqual([3]);
+    expect(lines(after)).toEqual([4]);
+    // The same in the editor, where the file two down changes under an open document.
+    const service = opened(before);
+    expect(editorSays(service, before, A)).toEqual([]);
+    expect(editorSays(service, before, M)).toEqual([inM]);
+    service.updateDocument(D, after[D]!);
+    expect(editorSays(service, after, A)).toEqual([]);
+    expect(editorSays(service, after, M)).toEqual([inM]);
+  });
 });
 
 describe('what does not move (#1186)', () => {
@@ -1213,6 +1301,43 @@ export function fs(v: VsOut): vec4 {
     };
     // Both programs report it, in the declaring file, and only that document shows it.
     bothSay(files, { [IO]: [unknown], [B]: [unknown] });
+  });
+
+  it("an imported declaration whose export the linked program drops is the file's own mistake", () => {
+    // The linked program reads the second `lum` from `function`, the library's own program from
+    // `export`: one node, with only the modifier between the two starts (`samePlace`).
+    const LIB = '/p/lib.shade.ts';
+    const twice = 'export function lum(c: vec3): f32 {\n  return c.x;\n}\n';
+    const files: Files = {
+      [LIB]: `"use typeshade";\n${twice}${twice.replace('c.x', 'c.y')}`,
+      [B]: `"use typeshade";
+import { lum } from "./lib.shade.ts";
+${VS}@fragment
+export function fs(v: VsOut): vec4 {
+  return vec4(lum(vec3(v.uv, 0.)), 0., 0., 1.);
+}
+`,
+    };
+    const own = compilerSays(files, LIB);
+    expect(own.map((d) => [d.code, d.message, d.file])).toEqual([
+      ['TS8023', 'Duplicate function "lum".', 'lib.shade.ts'],
+    ]);
+    const inProgram = compilerSays(files, B);
+    expect(inProgram.map((d) => [d.code, d.file, d.related])).toEqual([
+      ['TS8023', 'lib.shade.ts', []],
+    ]);
+    expect(own[0]!.at.endsWith(inProgram[0]!.at)).toBe(true);
+    const service = opened(files);
+    expect(editorSays(service, files, B)).toEqual([]);
+    // TypeScript adds its own duplicate errors in the library's document; the compiler's is one.
+    expect(
+      editorSays(service, files, LIB)
+        .filter((d) => d.code.startsWith('TS8'))
+        .map((d) => d.code),
+    ).toEqual(['TS8023']);
+    const ran = check(files);
+    expect(ran.status).toBe(1);
+    expect(ran.text.match(/ - error TS8/g)).toHaveLength(1);
   });
 
   it('a mistake in the body of an imported generic function stays in that file, once', () => {

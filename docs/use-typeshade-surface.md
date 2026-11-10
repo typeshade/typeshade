@@ -9558,9 +9558,14 @@ from, which is the last. Each candidate has a place for the error: the declarati
 expression in the first file; else the outermost use the file writes; else its re-export of the
 entry point that holds the use; else its import of the file below. The error stands in the first
 candidate that reports the same error at that place when it is compiled on its own, and at that
-place. So an error located in an imported file is one that file reports there when it is
-compiled on its own, and a mistake of a file in the middle of a chain of imports is reported in
-that file and not again in each file above it. A file compiled on its own makes an instance of a
+place: the same code and sentence, about the same span, reported on the same span. Two spans are
+the same when they end together and start together or with only an `export` modifier between
+their starts; a nested expression is another span. So an error located in an imported file is
+one that file reports there when it is compiled on its own, and a mistake of a file in the
+middle of a chain of imports is reported in that file and not again in each file above it. A
+middle file whose own program reports the refusal at another of its calls (it makes the
+instance first in another function) is no owner: the file above it reports the refusal on its
+own use, or on its import of that file when it writes none. A file compiled on its own makes an instance of a
 generic declaration once, at the first call that asks for it: when an imported file and the file
 the compile starts from both make one refused instance, the imported file reports it, and the
 other call adds nothing until that file is fixed. A warning stays where it is written. One case

@@ -1043,11 +1043,15 @@ Document versions, for either adapter:
   point that holds the use (the name); else the module specifier of its import of the file
   below. The error is located in the first candidate whose own program reports the same error
   at that place, and at that place. "The same error" is the same code, the same sentence with
-  each name as its file writes it, and a span of what it is about that shares a character with
-  this one; "at that place" is a span that shares a character with the place. So a mistake of
-  an imported file itself is located in that file, and that file's document shows it; a refusal
-  that only a use makes is located in the file that writes the use, and a file above it shows
-  nothing. When an imported file and the document both make one refused instance of a generic
+  each name as its file writes it, and the same span of what it is about; "at that place" is the
+  same span as the place. Two spans are the same when they end together and start together or
+  with only an `export` modifier between their starts, which the linked program can drop. A
+  nested expression is another span. So a mistake of an imported file itself is located in that
+  file, and that file's document shows it. A refusal that only a use makes is located in the
+  first file of the chain that reports it at its place: the file that writes the use when its
+  own program makes the refusal there, and a file above it shows nothing. A file whose own
+  program reports the refusal at another of its calls is no owner: the next file up takes it,
+  on its own use or on its import of that file. When an imported file and the document both make one refused instance of a generic
   function, the imported file's own program makes it at its own call and reports it there, and
   the document shows nothing of it until that file is fixed. The diagnostic carries what the
   error is about as `relatedInformation`, with that file's URI and range. Two refusals that land
