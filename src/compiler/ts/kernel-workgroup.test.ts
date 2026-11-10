@@ -174,6 +174,166 @@ describe('a refusal of @workgroup_size reads the same in compile() and the langu
   });
 });
 
+// Change 0130, amendment A1 (the owner's decision of 2026-11-10). Two `@workgroup_size([n])` on
+// one kernel function compiled with no diagnostic in both halves, and the first one set the
+// size. The attribute never reaches WGSL twice (the lowering writes one), so no Tint refusal
+// stands behind this one (Rule 12.6 does not apply).
+describe('a function takes at most one @workgroup_size (Rule 8.22, change 0130, amendment A1)', () => {
+  /** Both halves on one source: severity, code, text and the text the diagnostic covers. */
+  const ranged = (src: string): { compiler: string[][]; editor: string[][] } => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.shade.ts', src);
+    return {
+      compiler: compile(src, { fileName: 'm.shade.ts' }).diagnostics.map((d) => [
+        d.category,
+        String(d.code),
+        d.message,
+        src.slice(d.start, d.start + d.length),
+      ]),
+      editor: service
+        .getDiagnostics('m.shade.ts')
+        .map((d) => [
+          d.severity,
+          String(d.code),
+          d.message,
+          src.slice(d.span.start, d.span.start + d.span.length),
+        ]),
+    };
+  };
+  /** The `TS8028` row of a further attribute `second`, written after `first`, on `name`. */
+  const further = (second: string, first: string, name = 'scale'): string[] => [
+    'error',
+    'TS8028',
+    `"${second}" is a second "@workgroup_size" on "${name}", after "${first}": a function takes ` +
+      `at most one "@workgroup_size([n])"; delete "${second}" (Rule 8.22).`,
+    second,
+  ];
+  /** `scale` under the attributes `attrs`, each as written. */
+  const scaled = (attrs: string): string => module(SCALE.replace('@workgroup_size([128])', attrs));
+  /** The workgroup of each loop of `scale`, and the WGSL its face carries. */
+  const sized = (src: string): { wg: number[]; wgsl: string } => {
+    const g = hostFace(src, { fileName: '/app/m.shade.ts', runtime: RUNTIME, fuse: true });
+    expect(g.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const face = kernelFace(g.exports, 'scale') as {
+      gpu?: { loops: { wg: number }[]; wgsl: string };
+    };
+    return { wg: face.gpu!.loops.map((l) => l.wg), wgsl: face.gpu!.wgsl };
+  };
+
+  it('refuses a second one at its own attribute, once, with the same text in both halves', () => {
+    for (const [first, second] of [
+      // The same size, and another size: the refusal does not depend on what the second says.
+      ['@workgroup_size([8])', '@workgroup_size([8])'],
+      ['@workgroup_size([8])', '@workgroup_size([16])'],
+      // An argument the second one could not take is not reported beside the refusal.
+      ['@workgroup_size([8])', '@workgroup_size()'],
+      ['@workgroup_size([8])', '@workgroup_size([8, 8])'],
+    ] as const) {
+      const src = scaled(`${first} ${second}`);
+      const want = [further(second, first)];
+      expect(ranged(src), src).toEqual({ compiler: want, editor: want });
+      expect(compile(src, { fileName: 'm.shade.ts' }).wgsl, src).toBeUndefined();
+      // The sentence names what to delete (Rule 12.5). With the covered range deleted, the
+      // program compiles with no diagnostic in either half, at the first attribute's size, with
+      // the WGSL of the function written with that one attribute.
+      const [d] = compile(src, { fileName: 'm.shade.ts' }).diagnostics;
+      expect(d!.message).toContain(`delete "${src.slice(d!.start, d!.start + d!.length)}"`);
+      const fixed = src.slice(0, d!.start) + src.slice(d!.start + d!.length);
+      expect(ranged(fixed), fixed).toEqual({ compiler: [], editor: [] });
+      expect(sized(fixed).wg).toEqual([8]);
+      expect(sized(fixed).wgsl).toBe(sized(scaled(first)).wgsl);
+    }
+  });
+
+  it('refuses each further one: a third gets its own diagnostic at its own attribute', () => {
+    // One attribute is one mistake (Rule 12.4): each further attribute is one to delete, so each
+    // is reported where it is written, as each further stage attribute is. One diagnostic for
+    // all of them would leave the third to be refused after the second is deleted.
+    const src = scaled('@workgroup_size([8]) @workgroup_size([16])\n@workgroup_size([32])');
+    const want = [
+      further('@workgroup_size([16])', '@workgroup_size([8])'),
+      further('@workgroup_size([32])', '@workgroup_size([8])'),
+    ];
+    expect(ranged(src)).toEqual({ compiler: want, editor: want });
+  });
+
+  it('keeps one diagnostic on an attribute another refusal already covers', () => {
+    // A type argument on the second one is the decorator that is not a name (Rule 6.7), alone.
+    const typed = scaled('@workgroup_size([8]) @workgroup_size<f32>([8])');
+    const notApplied = [
+      [
+        'error',
+        'TS8028',
+        '"@workgroup_size<f32>([8])" is not applied: an attribute is written "@name" or "@name(...)". Remove it.',
+        '@workgroup_size<f32>([8])',
+      ],
+    ];
+    expect(ranged(typed)).toEqual({ compiler: notApplied, editor: notApplied });
+    // On an entry, each `@workgroup_size` keeps the refusal it had: it is WGSL's attribute there,
+    // and the size is `@compute`'s argument.
+    const wgsl =
+      '"@workgroup_size" is WGSL\'s attribute, written here as @compute\'s argument: @compute([64]) or @compute([8, 8]); on a kernel function, @workgroup_size([n]).';
+    const entry = module('@compute([8]) @workgroup_size([8])\nexport function main(): void {}');
+    const one = [['error', 'TS8028', wgsl, '@workgroup_size([8])']];
+    expect(ranged(entry)).toEqual({ compiler: one, editor: one });
+    const twice = module(
+      '@compute([8]) @workgroup_size([8]) @workgroup_size([16])\nexport function main(): void {}',
+    );
+    const two = [
+      ['error', 'TS8028', wgsl, '@workgroup_size([8])'],
+      ['error', 'TS8028', wgsl, '@workgroup_size([16])'],
+    ];
+    expect(ranged(twice)).toEqual({ compiler: two, editor: two });
+  });
+
+  it('reports a first one with a bad argument for that, and the second one as the second', () => {
+    // Two attributes, two mistakes, one diagnostic each: the first one's argument (`TS8037`),
+    // and the further attribute.
+    const badFirst = scaled('@workgroup_size() @workgroup_size([16])');
+    const bad = [
+      [
+        'error',
+        'TS8037',
+        'workgroup_size takes an array of one whole number, as "@workgroup_size([64])", or a module constant in it, as "@workgroup_size([TILE])"; "@workgroup_size()" is not one.',
+        '@workgroup_size()',
+      ],
+      further('@workgroup_size([16])', '@workgroup_size()'),
+    ];
+    expect(ranged(badFirst)).toEqual({ compiler: bad, editor: bad });
+  });
+
+  it('refuses each one on a function that takes none, for that reason, at its own attribute', () => {
+    // A function that is no kernel function takes no `@workgroup_size`, so "a second one" is not
+    // what is wrong with the second: each is refused as the first is, as each is on an entry.
+    const text =
+      '"workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Declare "plain" without it.';
+    const plain = module(
+      '@workgroup_size([64]) @workgroup_size([32])\nexport function plain(a: f32): f32 {\n  return a;\n}',
+    );
+    const notKernel = [
+      ['error', 'TS8028', text, '@workgroup_size([64])'],
+      ['error', 'TS8028', text, '@workgroup_size([32])'],
+    ];
+    expect(ranged(plain)).toEqual({ compiler: notKernel, editor: notKernel });
+  });
+
+  it('still reads one attribute, with no diagnostic and the same size and WGSL', () => {
+    for (const [attrs, wg] of [
+      ['@workgroup_size([8])', 8],
+      ['@workgroup_size([128])', 128],
+    ] as const) {
+      const src = scaled(attrs);
+      expect(ranged(src), src).toEqual({ compiler: [], editor: [] });
+      expect(sized(src).wg).toEqual([wg]);
+      expect(sized(src).wgsl).toContain(`@compute @workgroup_size(${wg})`);
+    }
+    // No attribute at all keeps the default.
+    const none = module(SCALE.replace('@workgroup_size([128])\n', ''));
+    expect(ranged(none)).toEqual({ compiler: [], editor: [] });
+    expect(sized(none).wg).toEqual([64]);
+  });
+});
+
 describe('the editor shows the declared shape (Rule 12.7)', () => {
   it('shows the attribute on a kernel function, with its extent, where the editor hovers it', () => {
     const src = module(SCALE);
