@@ -393,6 +393,37 @@ export function exactInverseHyperbolic(fn: 'asinh' | 'acosh' | 'atanh', x: numbe
   return negative && fn !== 'acosh' ? { num: -r.num, scale: r.scale } : r;
 }
 
+/** |x|^y of finite f64 `x` and `y`, x not zero: e^(y ln |x|). ln |x| keeps about WORK_BITS
+ *  significant bits past those it has in its scale, the product by y is exact, and the
+ *  exponential reduces by the nearest multiple of ln 2 in the product's scale. The sign is the
+ *  caller's. */
+export function exactPow(x: number, y: number): Exact {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x === 0) {
+    throw new Error('the reference takes finite numbers and an x that is not zero');
+  }
+  const l = exactLog(Math.abs(x));
+  const { m, e } = exactOf(y);
+  // y ln |x| = l.num * m / 2^(l.scale - e), in a scale no finer than ln 2 is held.
+  let num = l.num * m;
+  let scale = l.scale - e;
+  const most = LN2_BITS - 64n;
+  if (scale > most) {
+    num = shift(num, most - scale);
+    scale = most;
+  }
+  if (scale < 0n) {
+    num = num << -scale;
+    scale = 0n;
+  }
+  const ln2 = ln2At(scale);
+  // The nearest multiple k of ln 2, by a floor division of num + ln2 / 2.
+  const top = 2n * num + ln2;
+  const den = 2n * ln2;
+  const k = top / den - (top < 0n && top % den !== 0n ? 1n : 0n);
+  const q = WORK_BITS + 80n;
+  return { num: expSeries(shift(num - k * ln2, q - scale), q), scale: q - k };
+}
+
 /** The format of a result: its precision in bits and the exponent of its smallest unit. */
 export interface FloatFormat {
   readonly precision: bigint;

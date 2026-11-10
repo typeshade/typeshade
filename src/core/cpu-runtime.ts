@@ -398,7 +398,11 @@ export const COMPONENTWISE = {
   atan2: { lane: (y: number, x: number): number => LIBM.atan2F64(y, x), vector: 0 },
   // FLOOR-mod (see `mod` below), not JS `%`.
   mod: { lane: (a: number, b: number): number => a - b * Math.floor(a / b), vector: 0 },
-  pow: { lane: Math.pow, vector: 0 },
+  // The libm's routine (change 0042), with ECMA-262's special values (Number::exponentiate),
+  // which the engine's `Math.pow` gives too: `a ** b` and `Math.pow` are ECMAScript's forms
+  // (Rule 1.3; the owner's decision of 2026-11-10). A GPU's `pow` is the driver's, and parts
+  // from them on the pairs WGSL leaves outside its domain (`INTRINSICS`, surface §38).
+  pow: { lane: (x: number, y: number): number => LIBM.powF64(x, y), vector: 0 },
   // Exact scaling with one rounding (the libm), not `x * 2 ** e`, which rounds twice for a
   // subnormal result and whose `**` ECMAScript leaves to the engine.
   ldexp: { lane: (x: number, e: number): number => LIBM.ldexpF64(x, e), vector: 0 },
@@ -896,8 +900,8 @@ export const BUILTINS: Record<string, Builtin> = {
 
 /** The libm's routines (change 0042, milestone 1a), built once over the two tables above: the
  *  JavaScript form of each family's source under `libm/`, which the entries of
- *  {@link COMPONENTWISE} call (`sin`, `cos`, `exp`, `exp2`, `log`, `log2`, `ldexp`). Declared after the tables it reads; an entry calls it only when
- *  a program runs. Exported for the libm's gates and for a test that reads the libm's value. */
+ *  {@link COMPONENTWISE} call: the 19 functions of the list, from `sin` to `pow`. Declared after
+ *  the tables it reads; an entry calls it only when a program runs. Exported for the libm's gates and for a test that reads the libm's value. */
 export const LIBM: Libm = makeLibm({ B: BUILTINS, L: COMPONENTWISE, intDiv, intRem });
 
 // GPU-only stubs (X-GIS #763 O3). textureSample needs the GPU's sampler/atlas; fwidth
