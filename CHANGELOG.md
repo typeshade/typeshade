@@ -236,25 +236,35 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
     carries the double of 7 / 3. `const M = K / 3;` beside an `f64` does the same.
   - `const C = 0.1;` beside an `f64` carried the `f32` value 0.10000000149011612 and carries the
     double 0.1, as the written `x * 0.1` does.
-  - On the CPU oracle in `'f64'` precision (`compile().eval`), a read of a module constant by
-    its name already carried the double, so the rows above read the same value there. Two rows
-    move there too: `const C = 0.1; const D: f64 = C;` read 0.10000000149011612 and reads 0.1,
-    and `const K = 4294967295; u32(K)` read 4294967040 and reads 4294967295.
-  - Arithmetic other than `/` over a function-local constant that another line reads as an
-    integer has the written number's value, where it was integer arithmetic before: with
-    `function h(a: u32): u32`, `const k = 7; h(k); f32(k - 8)` was 4294967295 and is -1, and
-    `f32(k * 1000000000)` was a wrapped `u32` and is 7000000000.
+  - On the CPU oracle in `'f64'` precision (`compile().eval`), the rule is: a read of a module
+    constant by its name carried the double the author wrote before this change, and a value
+    the front end folded from the constant at compile time carried its `f32` rounding. So the
+    rows above read the same value there, and a value moves exactly where the front end folded
+    such a read: `const C = 0.1; const D: f64 = C;` read 0.10000000149011612 and reads 0.1, and
+    `const K = 4294967295; u32(K)` read 4294967040 and reads 4294967295.
+  - Arithmetic other than `/` over a value that comes from a constant that another line reads as
+    an integer has the written number's value, where it was integer arithmetic before
+    (Amendment A2, "규칙대로 두고 기록"): with `function h(a: u32): u32`,
+    `const k = 7; h(k); f32(k - 8)` was 4294967295 and is -1, and `f32(k * 1000000000)` was
+    2705032704 and is 7000000000. The same holds through a function result:
+    `function g() { const k = 7; h(k); return k; }` with `f32(g() - 8)` was 4294967295 and is -1.
 
-  **Newly refused** (`TS8003`): a `/` whose operands have no declared type and reach a constant
-  of no fixed type (directly, or through `+ - * %`, a bitwise operator, a builtin, a
-  conditional, a constant derived from it or a `let` with no annotation initialized from it),
-  where another line reads that constant as an integer, in this file or in a file that imports
-  it. With
+  **Newly refused** (`TS8003`): a `/` or `/=` whose operands have no declared type, one of which
+  carries the origin of a constant of no fixed type that some read makes an integer, in this
+  file or in a file that imports it (Amendment A3, "보수적 추적 규칙"). A value carries that
+  origin through every expression and binding (an operator, a builtin, `as`, `!`, a
+  conditional, a member, a derived constant, a `let`, the start of a loop counter, and the
+  result of a function, a method, a getter or a closure that writes no result type) and loses
+  it only at a declared type. A float-written literal or constant in either operand makes a
+  float division, which is accepted (`6.283185307179586 / N`, `(N * 0.5) / 2`). A counter
+  started by such a constant keeps the `f32` it had. With
   `function h(a: u32): u32`, `const k = 7; h(k); return f32(k / 2);` emitted `3.0`,
   `const k = 7; const r = h(k); return r + k / 2;` emitted `r + 3u`, and
   `const k = 7; h(k); return xs[k / 2];` emitted `xs[3u]`. `vi / k` with a declared `u32` `vi`
   stays an integer division, and `x / N` with a declared `f32` `x` a float one. A conversion to
   `i32` or `u32` is such a read too: `const K = 7; return f32(u32(K)) + f32(K / 2);` is refused.
+  So is a `/` over a call of `function g() { const k = 7; h(k); return k; }`: `f32(g() / 2)` was
+  3 and is refused, as is the same through a method, a getter, a closure and a `let`.
   **Migration:** to keep an `f32` constant, write its type (`const K: f32 = 16777217`). For a
   refused `/`, make the edit the sentence names: the constant's type where an integer position
   reads the quotient (`const k: u32 = 7`), or the constant converted elsewhere (`f32(k) / 2`). One more program

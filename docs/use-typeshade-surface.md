@@ -1378,16 +1378,29 @@ const HALF = N / 2; // refused when a loop bound reads N as an i32
 // division.
 ```
 
-The `/` reaches the constant directly, or through `+`, `-`, `*`, `%`, a bitwise operator, a
-builtin (`max(k, 1) / 2`), a conditional, a constant derived from it
-(`const M = N * 2; … M / 4`) or a variable with no annotation that is initialized from it
-(`let y = N; … y / 2`, and `y /= 2`). The other read is any place that types the constant an integer:
-an argument, a typed declaration, a loop bound, an index, a conversion `i32(N)` or `u32(N)`,
-and a read in a file that imports the constant. `f32(N)` and `f64(N)` are no such read, and a
-float-written constant (`const C = 7.5`) is never read as an integer. The sentence names one
-edit. Where an integer position reads the quotient (`xs[k / 2]`, `r + k / 2`), it names the
-constant with its type, `const k: u32 = 7`. Anywhere else it names the `/` with the constant
-converted, `f32(k) / 2`.
+A value keeps where it came from (Amendment A3 of change 0134). A value computed from such a
+constant carries its origin through every expression and binding: an operator, a builtin
+(`max(k, 1)`, `Math.max(k, 1)`, `select(1, k, c)`), `as`, `!`, a conditional, a member
+(`vec2(k, 1).x`), a derived constant (`const M = N * 2`), a `let` (`let y = N`), the start of
+a loop counter, and a call of a function, a method, a getter or a closure that writes no
+result type and returns such a value. It loses the origin only where it passes a declared type:
+an annotation, a declared parameter, field or result, or a conversion. The other read is any
+place that types the constant an integer: an argument, a typed declaration, a loop bound, an
+index, a conversion `i32(N)` or `u32(N)`, and a read in a file that imports the constant.
+`f32(N)` and `f64(N)` are no such read, and a float-written constant (`const C = 7.5`) is never
+read as an integer.
+
+A float-written literal or a float-written constant in either operand makes a float division,
+which is accepted: `const STEP = 6.283185307179586 / N`, `TAU / N`, `1.0 / W`,
+`(N * 0.5) / 2`. A loop counter started by such a constant (`for (let j = N; …)`) keeps the
+`f32` the constant's declaration gives it, as on `main` before change 0134.
+
+The sentence names one edit, the one that compiles where the quotient stands. Where an integer
+position reads the quotient (`xs[k / 2]`, `r + k / 2`, `let j: u32 = …`), it names the
+constant with the type that position asks (`const k: u32 = 7`), or, where another read asks
+another type, the `/` with each value converted to it (`i32(k) / 2`). Anywhere else it names
+the `/` with each value converted to `f32`, a bitwise operation converted as a whole
+(`f32(k | 1) / 2`). A `/=` names the variable with its type written (`let y: f32 = k`).
 
 The quotient's own read is not another read. `let j: u32 = N / 2` is `4u`, as the written
 `8 / 2` is there, and `x * (N / 2)` is the ECMAScript value where no other line reads `N` as an

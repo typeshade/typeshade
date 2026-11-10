@@ -968,9 +968,48 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
   later assignment (`let y = x; y = k; … y / 2`) is not.
 - Open deviation, decided by Amendment A2 ("직접 쓴 형태도 컴파일"): `q += K * 2` with a `u32`
   `q` compiles (`6u`), and the written `q += 3 * 2` is refused on `main` and in part 3. The
-  written form is a defect of the compound assignment, which a pull request of its own fixes
-  under an issue that the session's coordinator files. It is no part of this change, and part
-  3 keeps `q += K * 2` as it is.
+  written form is a defect of the compound assignment, issue #1205, fixed in a pull request of
+  its own. It is no part of this change, and part 3 keeps `q += K * 2` as it is.
+- Amendment A3 (2026-11-10), implemented in part 3 after a second independent review of pull
+  request #1184 at `1abf8fbb`:
+  - "보수적 추적 규칙": `originOf` in `src/compiler/ts/abstract-const.ts` is the one rule. A
+    value carries the origin of a constant of no fixed type through an operator (`**`
+    included), a builtin (`Math.*`; `select` by its two value arguments), `as`, `satisfies`,
+    `!`, a conditional, a member or an element, a derived constant, a `let`, the start of a loop
+    counter, and the result of a function, a method, a getter or a closure (an arrow's
+    expression body included) that writes no result type. It loses the origin at a declared
+    type, a conversion included. A counter started by such a constant keeps the type of the
+    constant's emitted declaration (`f32`), as on `main`, and carries the origin.
+  - "실수 나눗셈으로 허용": a float-written literal or constant in either operand makes a
+    float division, which is accepted.
+  - "수용" and "지금대로 두고 기록": the three extra refusals stay; a `let` that takes the
+    constant only by a later assignment adds no origin (`let y = x; y = k;` then `y / 2` stays a
+    float division), and a `let` initialized from the constant keeps its origin when it is
+    assigned another value later.
+  - "먼저 별도 PR로 고치기": the fold of a scalar cast is fixed in pull request #1217, which
+    this part takes when it is on `main`. Until then the rows of a cast (`u32(K) / 2`,
+    `u32(K) * 3`, `u32(A) + 1`) keep the value the fold gives on `main`.
+  - "4a와 이어서 머지": part 3 and the first part of items 1 and 3 merge one after the other.
+    The uses that are no division and that a `let` initialized from a constant makes refused
+    (`let y = k;` then `vi + y`, `xs[y]`, `h(y)`, `switch (y)`, `xs[g()]`) are that part's to
+    fix, and its tests cover them.
+  - The review's other findings, each with a test that reads both halves: the named edit
+    compiles where the quotient stands (M1: a typed integer position names the declaration
+    with the type it asks, an index the other reads' type, else the `/` converted to that type;
+    a float position converts, a bitwise operation as a whole); the subject and the edit are
+    the author's text across an import (M4: `L.K`, `KK`); the `'f64'` precision moves are
+    stated as a rule (M5, below); `checkDocuments` and the language service replace a file's
+    own mismatch around a refused `/` as `compile()` does (M6); `n ^= K` out of range is
+    refused with §13's sentence; `u32(-C)` with `C = 0.1` is `0u`; and each of the 23
+    surviving mutants has a test or its code is removed where no program reaches it.
+- [fact, measured 2026-11-10] M5, the rule of the `'f64'` precision oracle: a read of a module
+  constant by its name carried the double the author wrote before part 3, and a value the front
+  end folded from the constant at compile time carried its `f32` rounding. A value moves there
+  exactly where the front end folded such a read: `const C = 0.1; const D: f64 = C;`
+  (0.10000000149011612 to 0.1) and `const K = 4294967295; u32(K)` (4294967040 to 4294967295).
+- [fact, measured 2026-11-10] Arithmetic other than `/` through a function result follows the
+  row of A2 ("규칙대로 두고 기록"): `function g() { const k = 7; h(k); return k; }` with
+  `f32(g() - 8)` was 4294967295 and is -1, and `f32(g() * 1000000000)` was 2705032704 and is 7000000000.
 - Deviations of part 3, each open for the audit at the end:
   - Hover is not changed: a declaration and every read still show `const K: f32`, also at a
     read the compiler types `u32`. Until item 4 is delivered this is a deviation from Rule 12.7
