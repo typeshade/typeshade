@@ -114,6 +114,62 @@
       "nanResults": 0,
       "inputsSha256": "3fb20a18448dc100d38ca041326adb2aba6b9476c4ff79afdcd46719e90398da",
       "resultsSha256": "f8b7f551e382a880c53ff9d0b9d0a455a3da32b11a12232e151d3531dba54cfb"
+    },
+    {
+      "routine": "tanF32",
+      "set": "edges",
+      "count": 44,
+      "nanResults": 6,
+      "inputsSha256": "a7cee845b82707da15abd2b126ed7c53a1e5efdc92da8918588987058da32daa",
+      "resultsSha256": "6f12383a08114c83a957edaba405dbb4b4da2b30dfaaf48755951e9d40f8a99a"
+    },
+    {
+      "routine": "tanF32",
+      "set": "bits",
+      "count": 250000,
+      "nanResults": 898,
+      "inputsSha256": "6145b0432a1ca06c8f9c1995711634ed3498a58a046e69a9ffc90b6193c1d24c",
+      "resultsSha256": "950a9aae2cbf489ee0ee88abd7cb427d46c1779111734674a7c7ae6d48b05335"
+    },
+    {
+      "routine": "tanF32",
+      "set": "near",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "d5a600e70e967cfab45247165198ae8563efd359e6cfe5acd0337d8a1fd38c3c",
+      "resultsSha256": "8ef56650a313cbca204698b20f8065c5294242b0c7eadd891d950d062a8403ad"
+    },
+    {
+      "routine": "tanF64",
+      "set": "edges",
+      "count": 47,
+      "nanResults": 6,
+      "inputsSha256": "41ccd1bf9ff0580d7dd7cdcab664f37bb592dfd07cc9116554a4918227a65260",
+      "resultsSha256": "fbf7e16969f5d4dfc483c421343eb25c6628d468b1c315950f4f624197a4c9ac"
+    },
+    {
+      "routine": "tanF64",
+      "set": "bits",
+      "count": 250000,
+      "nanResults": 104,
+      "inputsSha256": "78276abb776fd56ea572997f1f9fd2baf4343cb6336b2e232544635a5f03a440",
+      "resultsSha256": "93bf646920d0d1f44cd69b643a224b1074ad5fc1d0ddd9ad78419ed454130176"
+    },
+    {
+      "routine": "tanF64",
+      "set": "near",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "d142d621eab3a2c98a800e6850da619db182ad3b474c7f2af1b2f863ae5dfbea",
+      "resultsSha256": "037a2776b5e62d60b725d63c5364c776f4af539ae430e2721e491b6b85955f39"
+    },
+    {
+      "routine": "tanF64",
+      "set": "medium",
+      "count": 250000,
+      "nanResults": 0,
+      "inputsSha256": "3fb20a18448dc100d38ca041326adb2aba6b9476c4ff79afdcd46719e90398da",
+      "resultsSha256": "0754464204fe593403ec69dc17ac640cb2a49ce588a90da73bc20b928f41d37d"
     }
   ]
 }

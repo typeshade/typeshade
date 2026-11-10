@@ -1,7 +1,7 @@
 // An exact reference for the libm's tests (change 0042, milestone 1a). Test code only.
 //
-// It computes sin and cos of a finite f64 with BigInt fixed-point arithmetic, and the distance
-// of a result from that value in units in the last place. It is the measurement behind the
+// It computes each function of the libm of a finite f64 with BigInt fixed-point arithmetic, and
+// the distance of a result from that value in units in the last place. It is the measurement behind the
 // libm's promise of an error under 1 ULP (decision N9). It is not the sweep's reference: that
 // one is CORE-MATH, built by a script outside the gates.
 //
@@ -213,6 +213,129 @@ export function exactLog2(x: number): Exact {
   // The quotient by ln 2 keeps the significant bits of ln x.
   const q = WORK_BITS + 80n;
   return { num: (l.num << q) / ln2At(q), scale: l.scale };
+}
+
+/** The integer part of the square root of a non-negative integer. */
+export function integerSqrt(v: bigint): bigint {
+  if (v < 2n) return v;
+  let x = 1n << ((bitLength(v) + 1n) >> 1n);
+  for (;;) {
+    const y = (x + v / x) >> 1n;
+    if (y >= x) return x;
+    x = y;
+  }
+}
+
+/** atan(n / d) for 0 < n <= d, with about `bits` significant bits. The argument is halved by
+ *  atan(v) = 2 atan(v / (1 + sqrt(1 + v^2))) until it is below 2^-10, and a Taylor series gives
+ *  the rest. */
+function atanOfSmallRatio(n: bigint, d: bigint, bits: bigint): Exact {
+  const q = bits + (bitLength(d) - bitLength(n));
+  const one = 1n << q;
+  let v = (n << q) / d;
+  let doublings = 0n;
+  while (v > one >> 10n) {
+    v = (v << q) / (one + integerSqrt(one * one + v * v));
+    doublings++;
+  }
+  const v2 = (v * v) >> q;
+  let power = v;
+  let sum = 0n;
+  for (let k = 0n; power !== 0n; k++) {
+    sum += (k % 2n === 0n ? power : -power) / (2n * k + 1n);
+    power = (power * v2) >> q;
+  }
+  return { num: sum << doublings, scale: q };
+}
+
+/** The scale of a value near pi/2 or pi: enough for any result that is not tiny. */
+const ANGLE_SCALE = 1300n;
+/** `a` in the scale `scale`, which is not above its own. */
+const inScale = (a: Exact, scale: bigint): bigint => a.num >> (a.scale - scale);
+
+/** atan(n / d) for n >= 0 and d > 0, in [0, pi/2). `bits` is the working precision. */
+export function exactAtanOfRatio(n: bigint, d: bigint, bits = WORK_BITS + 80n): Exact {
+  if (n === 0n) return { num: 0n, scale: 0n };
+  if (n <= d) return atanOfSmallRatio(n, d, bits);
+  // atan(v) = pi/2 - atan(1 / v).
+  const t = atanOfSmallRatio(d, n, bits);
+  const scale = t.scale > ANGLE_SCALE ? ANGLE_SCALE : t.scale;
+  return { num: (PI >> (PI_BITS - scale + 1n)) - inScale(t, scale), scale };
+}
+
+/** pi less `a`, for `a` in [0, pi/2]. */
+function piLess(a: Exact): Exact {
+  const scale = a.scale > ANGLE_SCALE ? ANGLE_SCALE : a.scale < 400n ? 400n : a.scale;
+  const value = a.scale >= scale ? inScale(a, scale) : a.num << (scale - a.scale);
+  return { num: (PI >> (PI_BITS - scale)) - value, scale };
+}
+
+const negated = (a: Exact, negative: boolean): Exact =>
+  negative ? { num: -a.num, scale: a.scale } : a;
+
+/** atan(x) of a finite f64 `x`. */
+export function exactAtan(x: number, bits?: bigint): Exact {
+  if (!Number.isFinite(x)) throw new Error('the reference takes a finite number');
+  const { m, e } = exactOf(x);
+  const n = e >= 0n ? abs(m) << e : abs(m);
+  const d = e >= 0n ? 1n : 1n << -e;
+  return negated(exactAtanOfRatio(n, d, bits), m < 0n);
+}
+
+/** atan2(y, x) of two finite f64 that are not both zero: the angle of the point (x, y). */
+export function exactAtan2(y: number, x: number, bits?: bigint): Exact {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    throw new Error('the reference takes finite numbers');
+  }
+  const a = exactOf(y);
+  const b = exactOf(x);
+  if (a.m === 0n && b.m === 0n) throw new Error('the reference takes a point that is not zero');
+  const low = a.e < b.e ? a.e : b.e;
+  const n = abs(a.m) << (a.e - low);
+  const d = abs(b.m) << (b.e - low);
+  // The angle of (|x|, |y|): pi/2 on the axis of y.
+  const first =
+    d === 0n
+      ? { num: PI >> (PI_BITS - ANGLE_SCALE + 1n), scale: ANGLE_SCALE }
+      : exactAtanOfRatio(n, d, bits);
+  const negative = y < 0 || Object.is(y, -0);
+  return negated(x < 0 || Object.is(x, -0) ? piLess(first) : first, negative);
+}
+
+/** tan(x) of a finite f64 `x`: the quotient of its sine and cosine. */
+export function exactTan(x: number): Exact {
+  const s = exactTrig('sin', x);
+  const c = exactTrig('cos', x);
+  if (s.num === 0n) return s;
+  // The quotient keeps WORK_BITS + 80 bits, whatever the sizes of the two.
+  const guard = WORK_BITS + 80n + bitLength(c.num) - bitLength(s.num);
+  return { num: (s.num << guard) / c.num, scale: guard + s.scale - c.scale };
+}
+
+/** asin(x) of an f64 `x` with |x| < 1: atan(x / sqrt(1 - x^2)). */
+export function exactAsin(x: number, bits?: bigint): Exact {
+  if (!(Math.abs(x) < 1)) throw new Error('the reference takes |x| < 1');
+  const { m, e } = exactOf(x);
+  // x = m / D, so x / sqrt(1 - x^2) = m / sqrt(D^2 - m^2).
+  const D = 1n << -e;
+  // The square root keeps `root` bits past the point.
+  const root = bits ?? WORK_BITS + 80n;
+  const n = abs(m) << root;
+  const d = integerSqrt((D * D - m * m) << (2n * root));
+  return negated(exactAtanOfRatio(n, d, bits), m < 0n);
+}
+
+/** acos(x) of an f64 `x` with |x| < 1: 2 atan(sqrt((1 - x) / (1 + x))). */
+export function exactAcos(x: number, bits?: bigint): Exact {
+  if (!(Math.abs(x) < 1)) throw new Error('the reference takes |x| < 1');
+  const { m, e } = exactOf(x);
+  // x = m / D, so (1 - x) / (1 + x) = (D - m) / (D + m), and its root is sqrt(A B) / B.
+  const D = 1n << -e;
+  const A = D - m;
+  const B = D + m;
+  const root = bits ?? WORK_BITS + 80n;
+  const half = exactAtanOfRatio(integerSqrt((A * B) << (2n * root)), B << root, bits);
+  return { num: 2n * half.num, scale: half.scale };
 }
 
 /** The format of a result: its precision in bits and the exponent of its smallest unit. */
