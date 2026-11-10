@@ -770,7 +770,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
       groups.set(k, [...(groups.get(k) ?? []), u]);
     }
     for (const group of groups.values()) {
-      if (group.length < 2) continue;
       for (const u of group) {
         overloadsOf.set(u, group);
         for (const other of group) if (other !== u) u.refs.add(other);

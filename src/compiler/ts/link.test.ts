@@ -952,6 +952,10 @@ describe('an overloaded function is imported whole (Rule 3.9, Rule 12.7, #1195)'
     Object.keys(files).flatMap((uri) =>
       edited(files, uri).map((d) => `${uri} ${d.source} ${d.code} ${d.message}`),
     );
+  const linkedSource = (files: Files): string =>
+    linkProgram([{ fileName: entryOf(files), text: files[entryOf(files)]! }], {
+      readDocument: (f) => files[f],
+    }).source;
 
   const SPLIT: readonly (readonly [string, Files])[] = [
     [
@@ -1004,8 +1008,64 @@ describe('an overloaded function is imported whole (Rule 3.9, Rule 12.7, #1195)'
       expect(r.wgsl).toBe(one.wgsl);
       expect(r.glsl).toEqual(one.glsl);
       expect(r.module.funcs.map((f) => f.name)).toEqual(['lum', 'fs']);
+      // Every statement of the function is in the linked source, and each keeps `export` only
+      // where the entry exports the function again, as TypeScript requires of overloads.
+      const kept = name === 'the entry exporting it again' ? 'export ' : '';
+      expect(linkedSource(files)).toContain(
+        `${kept}function lum(c: vec3): f32;\n${kept}function lum(c: vec3): f32;\n` +
+          `${kept}function lum(c: vec3): f32 {`,
+      );
     });
   }
+
+  it('a function of the same name in a file the program does not reach stays out', () => {
+    const files: Files = {
+      '/p/main.shade.ts': `${D}import { g } from "./lib.shade.ts";\nimport { x } from "./other.shade.ts";\nexport function f(): f32 {\n  return g() + x;\n}\n`,
+      '/p/lib.shade.ts': `${D}function lum(c: vec3): f32;\nfunction lum(c: vec3): f32 {\n  return c.x;\n}\nexport function g(): f32 {\n  return lum(vec3(1.));\n}\n`,
+      '/p/other.shade.ts': `${D}export function lum(c: vec3): f32;\nexport function lum(c: vec3): f32 {\n  return c.y;\n}\nexport const x: f32 = 2.;\n`,
+    };
+    expect(errorsOf(files)).toEqual([]);
+    expect(editedEach(files)).toEqual([]);
+    const r = compiled(files);
+    expect(r.module.funcs.map((fn) => fn.name)).toEqual(['lum', 'g', 'f']);
+    expect(r.eval('f', [])).toBe(3);
+  });
+
+  it('only function declarations are overloads: a constant named like an interface stays out', () => {
+    const files: Files = {
+      '/p/main.shade.ts': `${D}import { g } from "./lib.shade.ts";\nexport function f(): f32 {\n  return g({ x: 1. });\n}\n`,
+      '/p/lib.shade.ts': `${D}interface P {\n  x: f32;\n}\nconst P: f32 = 2.;\nexport function unused(): f32 {\n  return P;\n}\nexport function g(p: P): f32 {\n  return p.x;\n}\n`,
+    };
+    expect(errorsOf(files)).toEqual([]);
+    expect(editedEach(files)).toEqual([]);
+    const r = compiled(files);
+    expect(r.module.consts.map((c) => c.name)).toEqual([]);
+    expect(r.module.funcs.map((fn) => fn.name)).toEqual(['g', 'f']);
+  });
+
+  it('two implementations of one name in an imported file are TS8023, as they are in one file', () => {
+    // Before the fix the module held the first one alone, and the program compiled.
+    const twice =
+      'export function lum(c: vec3): f32 {\n  return c.x;\n}\n' +
+      'export function lum(c: vec3): f32 {\n  return c.y;\n}\n';
+    const files: Files = {
+      '/p/main.shade.ts': `${D}import { lum } from "./lib.shade.ts";\n${FS}`,
+      '/p/lib.shade.ts': `${D}${twice}`,
+    };
+    const one: Files = { '/p/main.shade.ts': `${D}${twice}${FS}` };
+    const said = (list: readonly string[]): string[] =>
+      list.map((line) => line.slice(line.indexOf(' ') + 1));
+    expect(said(errorsOf(one))).toEqual(['TS8023 Duplicate function "lum".']);
+    expect(said(errorsOf(files))).toEqual(['TS8023 Duplicate function "lum".']);
+    expect(errorsOf(files)[0]).toMatch(/^\/p\/lib\.shade\.ts:5:/);
+    expect(compiled(files).wgsl).toBeUndefined();
+    const typeshade = (list: readonly TypeshadeDiagnostic[]): string[] =>
+      list.filter((d) => d.source === 'typeshade').map((d) => `${d.code} ${d.message}`);
+    expect(typeshade(edited(one))).toEqual(['TS8023 Duplicate function "lum".']);
+    expect(typeshade(edited(files, '/p/lib.shade.ts'))).toEqual([
+      'TS8023 Duplicate function "lum".',
+    ]);
+  });
 
   it('renames every signature with the implementation when the name is taken (Rule 3.2)', () => {
     const files: Files = {
