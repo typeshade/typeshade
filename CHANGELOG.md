@@ -2073,7 +2073,7 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   quick info at each use, where the hover showed every use the first instance. An override reads the compiler's type
   in its own file too: `override<bool>` is `const flag: bool`, where it read `boolean`. A
   method, a getter, a static member and a member of a namespace or of an enum keep
-  TypeScript's quick info, as they do in one file.
+  TypeScript's quick info across an import.
   `src/language-service/imported-symbol-hover.test.ts` reads both halves on the same files.
 
 - **A scalar cast of a written number is a value of its type** (Rule 5.3). The front end folded

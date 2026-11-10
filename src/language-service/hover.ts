@@ -628,8 +628,8 @@ function unlinkedSymbolAt(
     const name = nodeAt(sourceFile, def.textSpan.start);
     if (one === undefined || name === undefined || !ts.isIdentifier(name)) continue;
     const { symbol } = one;
-    // A member keeps TypeScript's quick info, as in the declaring file.
-    if (!readsFromCompiler(symbol.kind, name)) continue;
+    // No member reaches here: an import names a top-level declaration, and the hovered program
+    // keeps no symbol at it. A struct's name has no compiler's line and keeps TypeScript's.
     return {
       ...one,
       sourceFile,
@@ -920,13 +920,41 @@ function qualifierOfParam(sourceFile: ts.SourceFile, param: DeclaredSymbol): str
 
 /** The innermost node of `sourceFile` that starts at or covers `pos`. */
 function nodeAt(sourceFile: ts.SourceFile, pos: number): ts.Node | undefined {
+  const holds = (n: ts.Node): boolean => n.getStart(sourceFile) <= pos && pos < n.getEnd();
   let found: ts.Node | undefined;
-  const visit = (n: ts.Node): void => {
-    if (pos < n.getStart(sourceFile) || pos >= n.getEnd()) return;
-    found = n;
-    ts.forEachChild(n, visit);
-  };
-  visit(sourceFile);
+  let current: ts.Node | undefined = holds(sourceFile) ? sourceFile : undefined;
+  // Children do not overlap and stand in source order, so the descent goes into the one child
+  // that holds `pos`, found in a list by a binary search on the ends: a lookup costs the depth
+  // of the node and the logarithm of each list, not the size of the file.
+  while (current !== undefined) {
+    found = current;
+    let next: ts.Node | undefined;
+    ts.forEachChild(
+      current,
+      (child) => {
+        if (child.pos > pos) return true;
+        if (holds(child)) {
+          next = child;
+          return true;
+        }
+        return undefined;
+      },
+      (children) => {
+        let lo = 0;
+        let hi = children.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (children[mid]!.getEnd() <= pos) lo = mid + 1;
+          else hi = mid;
+        }
+        const child = children[lo];
+        if (child === undefined) return undefined;
+        if (holds(child)) next = child;
+        return child.pos > pos || next !== undefined ? true : undefined;
+      },
+    );
+    current = next;
+  }
   return found;
 }
 
@@ -1144,11 +1172,14 @@ export function getHover(
     // dropped. Where the hovered program holds symbols there and refused them (instances of
     // different types, a member, a struct's name), the hover keeps TypeScript's quick info:
     // another program's instance is not this program's type.
-    const { declared } = programIndexOf(self);
-    if (
-      defs.some((d) => d.fileName !== uri && declared.has(placeKey(d.fileName, d.textSpan.start)))
-    )
-      return undefined;
+    // Only a definition in a file of this program can be a declaration it holds, so a name of the
+    // ambient library (`max`) builds no index.
+    const files = new Set(linkedCompile?.linked.files.map((f) => f.name));
+    const local = defs.filter((d) => d.fileName !== uri && files.has(d.fileName));
+    if (local.length > 0) {
+      const { declared } = programIndexOf(self);
+      if (local.some((d) => declared.has(placeKey(d.fileName, d.textSpan.start)))) return undefined;
+    }
     return unlinkedSymbolAt(
       defs,
       uri,

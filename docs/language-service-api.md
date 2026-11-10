@@ -568,8 +568,8 @@ and the linker's map (`LinkedProgram.map`) gives the symbol the front end declar
   joins the parameters it kept to the declaration by their place, not by their position.
 - A call of an overloaded function reads the implementation, the declaration with a body,
   which the front end lowers: `function bump(@inout v: f32, k: f32): void`, in one file and
-  across an import. Signature help shows the overload TypeScript chose, as TypeScript writes
-  it, with no qualifier.
+  across an import. Signature help lists every overload signature, as TypeScript writes each,
+  with no qualifier, and TypeScript marks the active one.
 - The hover has no marker of the import: TypeScript's `(alias)` and `import HALF` lines are
   not shown, so one symbol has one text.
 - A field that its own file's program gives no symbol, since the front end records a field
@@ -597,8 +597,11 @@ Six kinds of name keep TypeScript's quick info instead. One that no file of the 
 program declares (a host-side declaration) is in no table. A member is recorded under a longer
 name than the hovered one (`Ray.reach` for a method, a getter and a static function, `Ray_UP`
 for a static field, `Tone_map` for a member of a namespace, `Mode_Lit` for a member of an
-enum), so it reads as TypeScript's quick info in the file that declares it and across an import
-alike. A declaration that the front end lowered as instances of different types, a generic
+enum), so it reads as TypeScript's quick info across an import. In the file that declares it,
+a member reads as TypeScript's quick info too, except where the file also declares a name of the
+member's short name: then the hover takes the member's own symbol, and shows the compiler's
+type under the module's name, `function Tone_map(x: f32): f32` and `const Tone_GAMMA: f32` for
+a file that declares a function `map` and a constant `GAMMA` beside `namespace Tone`. A declaration that the front end lowered as instances of different types, a generic
 function or a field of a generic class with two instances in the program, has no one type: each
 use keeps TypeScript's quick info, which names the instance of that use
 (`twice<vec3>(x: vec3): vec3`), in one file and across an import. A field that the instances

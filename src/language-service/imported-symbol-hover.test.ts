@@ -1543,3 +1543,46 @@ export function vs(i: builtin<"vertex_index">): VsOut {
     expect(hoverAt(service, files, ONE, 'pos, uv }')).toBe(bare('const pos: vec4<f32>'));
   });
 });
+
+describe('the fourth review: nested namespaces', () => {
+  it('a class of two nested namespaces that the linker renamed reads by the written names', () => {
+    const files: Files = {
+      [LIB]: `"use typeshade";
+export namespace A {
+  export namespace B {
+    export class V {
+      x: f32;
+    }
+  }
+}
+export function fv(v: A.B.V): f32 {
+  return v.x;
+}
+`,
+      [MAIN]: `"use typeshade";
+import { fv } from "./lib.shade.ts";
+namespace A {
+  export namespace B {
+    export class V {
+      y: f32;
+    }
+  }
+}
+@fragment
+export function fs(): vec4 {
+  const w = new A.B.V();
+  return vec4(fv({ x: 1. }), w.y, 0., 1.);
+}
+`,
+    };
+    expect(errorsOf(files, MAIN)).toEqual([]);
+    const wgsl = compiled(files, MAIN).wgsl!;
+    expect(wgsl).toContain('struct lib_A_B_V {');
+    expect(wgsl).toContain('struct A_B_V {');
+    const service = opened(files);
+    const at = (needle: string, skip = 0) => hoverAt(service, files, MAIN, needle, skip, 'fs()');
+    // The namespaces stand outermost first, as the front end joins them.
+    expect(at('fv({')).toBe(bare('function fv(v: A_B_V): f32'));
+    expect(at('w.y', 2)).toBe(bare('(property) A_B_V.y: f32'));
+  });
+});
