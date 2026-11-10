@@ -861,6 +861,38 @@ example files, 172 inferable. The text overclaims that every entry is inferable.
   front end, editor and warning release, then its codemod, then the refusing release. Duration
   and cost are not estimated.
 
+### Amendment A1. `@vertex()` and `@fragment()` are refused, and a second `@workgroup_size` is refused (2026-11-10)
+
+- [fact] Why. Pull request #1160 (merged at `2efdff61`) refuses an argument on `@vertex` or
+  `@fragment` with `TS8028`. Its measurement of every attribute form, in both halves, found two
+  forms that compile with no diagnostic and that no rule names.
+  - `@vertex()` and `@fragment()`, with an empty argument list, compile as `@vertex` and
+    `@fragment`. Rule 8.1 accepts `@compute()`, where the empty list means the default size
+    (Rule 8.7). It says nothing of an empty list on `@vertex` or `@fragment`.
+  - Two `@workgroup_size([n])` attributes on one kernel function compile, and the first one
+    sets the size. Two stage attributes on one function are refused with `TS8028` (Rule 8.1,
+    "exactly one stage attribute").
+- [decision, owner, 2026-11-10] "거부", on the agent's recommendation, for `@vertex()` and
+  `@fragment()`. Each is refused with `TS8028`, an error, in both halves, and the text names the
+  line to write: `"@vertex" takes no argument: write "@vertex" and delete "()" (Rule 8.1).` A
+  stage has one spelling (`OD-3`). `@compute()` stays accepted, because its empty list has a
+  meaning.
+- [decision, owner, 2026-11-10] "거부", on the agent's recommendation, for a second
+  `@workgroup_size([n])` on one function. It is refused with `TS8028`, an error, in both halves,
+  at the second attribute, as a second stage attribute is.
+- The rule texts. Rule 8.1 gains one sentence after "A bare `@compute` and `@compute()` take the
+  default size (Rule 8.7).": "`@vertex` and `@fragment` take no argument list: `@vertex()` and
+  an argument on either must be refused with `TS8028`." Rule 8.22 gains one clause in its
+  sentence on the optional attribute: "a function takes at most one `@workgroup_size([n])`, and
+  a second one must be refused (`TS8028`)". Each rule's "Enforced by" names the test.
+- Affects: Rule 8.1 and Rule 8.22, surface §3, §7 and §65, and `reqs/`. The front matter already
+  declares each one. No code, name, export or example is added. One implementing pull request
+  carries `Change: 0130`, reads both halves on each refused form and its valid neighbours, and
+  adds one `### Changed` entry to `CHANGELOG.md` under `[Unreleased]`.
+- Status: `status: implemented` does not change. It records the delivery of the revision that
+  pull request #1159 completed. The delivery of this amendment is added to "Configuration and
+  validation record" when its pull request merges; until then this amendment is open work.
+
 ### Configuration and validation record
 
 **Delivery.** The four pull requests of change 0140, each with `Change: 0130` and
