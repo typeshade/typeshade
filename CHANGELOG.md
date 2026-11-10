@@ -219,8 +219,9 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   is an `f32` product, and `const N = 8; for (let j = 0; j < N; j++)` compiles. The emitted
   declaration stays `const K: f32 = 3.0;`, and an `f32` read names it. No official release
   carried the old meaning, so the change takes effect with no warning release (OD-6).
-  **Values that change**, each through a conversion or beside an `f64`, where the constant was
-  rounded to `f32` before:
+  **Values that change** in the emitted WGSL and GLSL, each through a conversion or beside an
+  `f64`, where the constant was rounded to `f32` before (the CPU oracle already computed the
+  exact value, so the two now agree):
   - `const PRIME = 2654435761; vi * u32(PRIME)` multiplied by 2654435840 and multiplies by 2654435761.
   - `const K = 16777217; vi + u32(K)` added 16777216 and adds 16777217.
   - `const K = -16777219; i32(K)` read -16777220 and reads -16777219.

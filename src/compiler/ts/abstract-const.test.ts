@@ -6,7 +6,10 @@
 // service (`getDiagnostics`), as Rule 12.7 asks.
 //
 // The rows of "Values that change" of the proposal are pinned first, with the value each read
-// had before (the `f32` rounding) named beside the value it has now.
+// had before (the `f32` rounding) named beside the value it has now. What changes is the
+// emitted text, and so the value a device computes. The CPU oracle read a module constant at
+// the double the author wrote before this change too (`ConstDecl.cpuValue`), so on those rows
+// the device and the oracle disagreed before, and agree now.
 //
 // Verifies: Rule 5.1, Rule 5.2 (docs/language-design.md; traced in reqs/).
 
@@ -59,7 +62,8 @@ export function t(vi: u32): u32 { return vi * u32(PRIME); }
     expect(result.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(result.wgsl).toContain('return (vi * 2654435761u);');
     expect(result.glsl?.fragment).toContain('return (vi * 2654435761u);');
-    // The oracle agrees with the emitted text. Before: Math.fround(2654435761) = 2654435840.
+    // The oracle agrees with the emitted text. Before, the text multiplied by the f32 constant,
+    // Math.fround(2654435761) = 2654435840.
     expect(result.eval('t', [1])).toBe(2654435761);
     expect(Math.fround(2654435761)).toBe(2654435840);
     expect(result.eval('t', [3])).toBe(Math.imul(3, 2654435761) >>> 0);
