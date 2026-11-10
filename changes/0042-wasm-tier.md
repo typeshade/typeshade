@@ -1113,6 +1113,23 @@ Next action: a later slice of milestone 1a reads them.
 (`hyperbolic`, `lnOnePlus`, `sqrtRest`, `sumErr`, `prodErr` and the earlier kernels). Next
 action: the slice that splits the libm by function (Amendment A2).
 
+### A5. Where the record of Rule 11.2 for `pow` stands; all 19 functions delivered (2026-11-10)
+
+**Delivered.** [observed result] `pow` is the libm's routine on `main` at `68b57a03`
+([#1219](https://github.com/typeshade/typeshade/pull/1219)), with the special values Amendment A4
+chose. All 19 functions of the libm are now the compiler's own routines. [observed result] The
+largest `f64` error measured for `pow` is 0.8599 ULP (#1219, 54.7 million pairs; its review
+measured 0.8443 on 16.9 million pairs). It is the largest of a sample, not a proved bound.
+
+**Decision, the place of the record.** [fact] Rule 11.2 and Amendment A4 ask for "a comment on
+the `pow` row of `INTRINSICS`". Rule 9.1 classifies `pow` in `PORTABLE_INTRINSICS`, and
+`src/core/intrinsic-coverage.test.ts` refuses an `INTRINSICS` row for an id of that set. #1219
+put the comment on the `'pow'` entry of `PORTABLE_INTRINSICS`, where `pow` is classified. Asked
+on 2026-11-10, the owner chose "0042에 개정 한 줄": that entry is the place of the record for
+`pow`, and the deviation of #1219 is closed. The alternatives were to change the words of Rule
+11.2 now, or to move `pow` into `INTRINSICS`. Next action: the slice that writes the text of the
+rules (Amendment A2) words Rule 11.2 for both sets.
+
 ## What it owes downstream
 
 The downstream repositories were not searched for this revision. Each item below is expected
