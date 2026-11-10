@@ -911,24 +911,31 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
   compound assignment, a typed constant, a derived constant, a conversion of arithmetic and a
   texture level count as integer reads (F6); the sentence names one edit that compiles (F7);
   `k % 8` takes the type of its read (F8); a declared `f64` position is tested (F9); the oracle
-  note is corrected (F10); the hover deviation names its rule (F12). F11 is open, below.
-- Open, not decided: a compound assignment `q += K * 2` with a `u32` `q` compiles (`6u`), and
-  the written `q += 3 * 2` is refused on `main` and on the branch. The constant goes through
-  the retarget that a binary operand takes; the written tree through an older path of the
-  compound assignment that takes one literal only.
-- Open, not decided (item 1's ground): `const k = 7; h(k); let y = k; … y / 2` was an integer
-  division (3) and is 3.5, because `let y = k` is neither a written number nor a constant. The
-  approved text does not say whether a `let` initialized by a constant is a value of item 1.
+  note is corrected (F10); the hover deviation names its rule (F12). F11 is below.
+- [decision, owner, 2026-11-10, Amendment A2] "거부", the same through a `let`. With
+  `const k = 7; h(k); let y = k;`, `f32(y / 2)` is refused. Implemented in part 3: a variable
+  with no annotation whose initializer reaches such a constant with no declared type between
+  carries it (`let y = k`, `let y = k + 1`, `const m = max(k, 1)`), a second variable
+  initialized from the first carries it too (`let z = y + 1`), and `y /= 2` is a `/` over it.
+  The second variable and the `/=` follow the amendment's sentence "No program changes its
+  value through a division without a diagnostic". Measured and not decided by the text: a
+  variable that carried the constant and is assigned another value later
+  (`let y = k; y = x; … y / 2`) is still refused, and a variable that takes the constant by a
+  later assignment (`let y = x; y = k; … y / 2`) is not.
+- Open deviation, decided by Amendment A2 ("직접 쓴 형태도 컴파일"): `q += K * 2` with a `u32`
+  `q` compiles (`6u`), and the written `q += 3 * 2` is refused on `main` and in part 3. The
+  written form is a defect of the compound assignment, which a pull request of its own fixes
+  under an issue that the session's coordinator files. It is no part of this change, and part
+  3 keeps `q += K * 2` as it is.
 - Deviations of part 3, each open for the audit at the end:
   - Hover is not changed: a declaration and every read still show `const K: f32`, also at a
     read the compiler types `u32`. Until item 4 is delivered this is a deviation from Rule 12.7
     ("The language service and the compiler must name one vocabulary") and from the `getHover`
     row of `docs/language-service-api.md` (line 485: "the COMPILER's type for every name the
     front end declared in this document"). Item 4 is its own part.
-  - The refusal sentence names one edit, where "Proposed" says that it names the two fixes. One
-    of the two does not compile in some positions (the review, F7), so the sentence names the
-    one that does: the constant's type where an integer position reads the quotient, the
-    constant converted elsewhere.
+  - Closed by Amendment A2 ("하나만, 수정안으로 기록"): the refusal sentence names one edit,
+    where "Proposed" says that it names the two fixes. It names the one that compiles where
+    the quotient stands.
   - `%` is read through a constant of no fixed type (`xs[k % 8]`), which compiled before; the
     written `xs[7 % 8]` stays refused, on `main` and on the branch.
   - An exported constant of no fixed type keeps its `f32` declaration in reflection, the
