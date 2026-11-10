@@ -642,15 +642,60 @@ function unlinkedSymbolAt(
   return undefined;
 }
 
+/**
+ * `defs` with each overload signature of a function replaced by the function's implementation,
+ * the one declaration with a body, which is the one the front end lowers and records, with its
+ * qualifiers (Rule 8.25). TypeScript resolves a call of an overloaded function to a signature
+ * that has no body, and the compiler's table has no symbol there.
+ */
+function implementationsOf(
+  defs: readonly ts.DefinitionInfo[],
+  sourceFileOf: (fileName: string) => ts.SourceFile | undefined,
+): readonly ts.DefinitionInfo[] {
+  return defs.map((def) => {
+    const sourceFile = sourceFileOf(def.fileName);
+    const name = sourceFile && nodeAt(sourceFile, def.textSpan.start);
+    const decl = name?.parent;
+    if (
+      name === undefined ||
+      !ts.isIdentifier(name) ||
+      decl === undefined ||
+      !ts.isFunctionDeclaration(decl) ||
+      decl.body !== undefined
+    )
+      return def;
+    const container = decl.parent;
+    const statements: readonly ts.Statement[] =
+      ts.isSourceFile(container) || ts.isModuleBlock(container) ? container.statements : [];
+    const body = statements
+      .filter(ts.isFunctionDeclaration)
+      .find((st) => st.body !== undefined && st.name?.text === name.text);
+    if (body?.name === undefined) return def;
+    const start = body.name.getStart(sourceFile);
+    return { ...def, textSpan: { start, length: body.name.getWidth(sourceFile) } };
+  });
+}
+
 /** The place of a declared name: its file and the offset of the name in it. */
 const placeKey = (fileName: string, start: number): string => `${fileName}\0${String(start)}`;
+
+/** The names of the namespaces around `node`, the outermost first. */
+function namespacesAround(node: ts.Node): string[] {
+  const out: string[] = [];
+  for (let n: ts.Node | undefined = node.parent; n !== undefined; n = n.parent)
+    if (ts.isModuleDeclaration(n) && ts.isIdentifier(n.name)) out.unshift(n.name.text);
+  return out;
+}
 
 /** A struct of a program, by its declaration. */
 interface StructDecl {
   /** Where the author declared it. */
   readonly place: string;
-  /** The declared identifier as the module has it, which the linker may have generated
-   *  (`lib_Light`), and as the author wrote it (`Light`). */
+  /** The declared name as the module has it, which the linker may have generated (`lib_Light`,
+   *  `lib_Stage_VsOut` for a class of a renamed namespace), and as the author wrote it (`Light`,
+   *  `Stage_VsOut`): the names of the namespaces around the declaration and the declared
+   *  identifier, joined as the front end joins them. The struct's name is this part, then the
+   *  arguments of an instance of a generic class (`_f32`). */
   readonly emitted: string;
   readonly written: string;
 }
@@ -680,9 +725,23 @@ function programIndexOf(program: HoverProgram): ProgramIndex {
   const structs = new Map<string, StructDecl>();
   const params = new Set<string>();
   const declared = new Map<string, { symbols: DeclaredSymbol[]; sourceFile: ts.SourceFile }>();
-  const add = (symbol: DeclaredSymbol, place: string, emitted: string, written: string): void => {
+  /** The declared name at the identifier `start` of `sourceFile`: its namespaces and itself. */
+  const declaredName = (sourceFile: ts.SourceFile, start: number): string | undefined => {
+    const id = nodeAt(sourceFile, start);
+    return id === undefined || !ts.isIdentifier(id)
+      ? undefined
+      : [...namespacesAround(id), id.text].join('_');
+  };
+  const add = (
+    symbol: DeclaredSymbol,
+    place: string,
+    emitted: string | undefined,
+    written: string | undefined,
+  ): void => {
     if (symbol.kind === 'param') params.add(place);
-    if (symbol.kind === 'struct' && !structs.has(symbol.name))
+    // One emitted name is one struct of the module. Each instance of a generic class has a
+    // name of its own, and so does each struct the linker renamed.
+    if (symbol.kind === 'struct' && emitted !== undefined && written !== undefined)
       structs.set(symbol.name, { place, emitted, written });
   };
   const linked = linkedCompileOf(program.analysis);
@@ -696,18 +755,20 @@ function programIndexOf(program: HoverProgram): ProgramIndex {
       if (here === undefined)
         declared.set(place, { symbols: [symbol], sourceFile: at.file.sourceFile });
       else here.symbols.push(symbol);
-      add(
-        symbol,
-        place,
-        linked.sourceFile.text.slice(symbol.start, end),
-        at.file.sourceFile.text.slice(at.start, at.end),
-      );
+      if (symbol.kind === 'struct')
+        add(
+          symbol,
+          place,
+          declaredName(linked.sourceFile, symbol.start),
+          declaredName(at.file.sourceFile, at.start),
+        );
+      else add(symbol, place, undefined, undefined);
     }
   } else {
-    const { text } = program.analysis.sourceFile;
+    const { sourceFile } = program.analysis;
     for (const symbol of program.analysis.symbols) {
       if (symbol.kind !== 'param' && symbol.kind !== 'struct') continue;
-      const written = text.slice(symbol.start, symbol.start + symbol.length);
+      const written = symbol.kind === 'struct' ? declaredName(sourceFile, symbol.start) : undefined;
       add(symbol, placeKey(program.uri, symbol.start), written, written);
     }
   }
@@ -719,58 +780,65 @@ const programIndexes = new WeakMap<CompileTsSourceResult, ProgramIndex>();
 
 /**
  * The name `sourceFile` writes for each declaration it imports by name, by the declaration's
- * place: `L` for `import { Light as L }`, `Lamp` for `import { Lamp }` where another file has
- * `export { Light as Lamp }`. TypeScript follows the import to the declaration. A declaration
- * the file imports under two names has `undefined`: no one name is the file's. Made once for
- * each version of the document, and only when a hover has a struct to name.
+ * place: `L` for `import { Light as L }` and `import type { Light as L }`, `Lamp` for
+ * `import { Lamp }` where another file has `export { Light as Lamp }`. TypeScript follows the
+ * import to the declaration, and every declaration of the symbol has the name. A declaration
+ * the file imports under two names has `undefined`: no one name is the file's.
+ *
+ * The places are offsets in other files, so the map is made once for each TypeScript program,
+ * which is new whenever any document changes, and for each version of the document. Made only
+ * when a hover has a struct to name.
  */
 function importNamesOf(
   sourceFile: ts.SourceFile,
   checker: ts.TypeChecker | undefined,
 ): ReadonlyMap<string, string | undefined> {
-  const known = importNames.get(sourceFile);
+  if (checker === undefined) return new Map();
+  let ofChecker = importNames.get(checker);
+  if (ofChecker === undefined) {
+    ofChecker = new WeakMap();
+    importNames.set(checker, ofChecker);
+  }
+  const known = ofChecker.get(sourceFile);
   if (known !== undefined) return known;
   const out = new Map<string, string | undefined>();
-  importNames.set(sourceFile, out);
-  if (checker === undefined) return out;
+  ofChecker.set(sourceFile, out);
   for (const stmt of sourceFile.statements) {
     if (!ts.isImportDeclaration(stmt)) continue;
     const bindings = stmt.importClause?.namedBindings;
     if (bindings === undefined || !ts.isNamedImports(bindings)) continue;
     for (const spec of bindings.elements) {
+      // The name an import specifier declares is always an alias.
       const alias = checker.getSymbolAtLocation(spec.name);
-      if (alias === undefined || !(alias.flags & ts.SymbolFlags.Alias)) continue;
-      const decl = checker.getAliasedSymbol(alias).declarations?.[0];
-      const name = decl === undefined ? undefined : ts.getNameOfDeclaration(decl);
-      if (decl === undefined || name === undefined) continue;
-      const place = placeKey(decl.getSourceFile().fileName, name.getStart());
-      out.set(
-        place,
-        out.has(place) && out.get(place) !== spec.name.text ? undefined : spec.name.text,
-      );
+      if (alias === undefined) continue;
+      for (const decl of checker.getAliasedSymbol(alias).declarations ?? []) {
+        const name = ts.getNameOfDeclaration(decl);
+        if (name === undefined) continue;
+        const place = placeKey(decl.getSourceFile().fileName, name.getStart());
+        out.set(
+          place,
+          out.has(place) && out.get(place) !== spec.name.text ? undefined : spec.name.text,
+        );
+      }
     }
   }
   return out;
 }
-const importNames = new WeakMap<ts.SourceFile, Map<string, string | undefined>>();
+const importNames = new WeakMap<
+  ts.TypeChecker,
+  WeakMap<ts.SourceFile, Map<string, string | undefined>>
+>();
 
 /**
- * The name of a struct as the module has it, `name`, with its declared identifier `emitted`
- * replaced by `to`. The front end builds a struct's name from the declared identifier: the
- * identifier itself (`lib_Light`), the identifier after its namespaces (`Stage_VsOut`), or the
- * identifier before the arguments of an instance of a generic class (`lib_Box_f32`). Only the
- * identifier is replaced, as one whole part between the `_` the front end wrote: this is no
- * search of a text.
+ * The name of a struct as the module has it, `name`, with its declared part `emitted` replaced by
+ * `to`. The front end builds a struct's name as its declared part (`lib_Light`,
+ * `lib_Stage_VsOut`) and, for an instance of a generic class, `_` and the arguments
+ * (`lib_Box_f32`). The declared part is read from the declaration (`programIndexOf`), so this
+ * replaces a known prefix: it searches no text. The arguments stay as the module spells them.
  */
 function withDeclaredName(name: string, emitted: string, to: string): string {
-  if (emitted === to) return name;
   if (name === emitted) return to;
-  if (name.startsWith(`${emitted}_`)) return `${to}${name.slice(emitted.length)}`;
-  if (name.endsWith(`_${emitted}`)) return `${name.slice(0, name.length - emitted.length)}${to}`;
-  const inside = name.indexOf(`_${emitted}_`);
-  return inside < 0
-    ? name
-    : `${name.slice(0, inside + 1)}${to}${name.slice(inside + 1 + emitted.length)}`;
+  return name.startsWith(`${emitted}_`) ? `${to}${name.slice(emitted.length)}` : name;
 }
 
 /**
@@ -779,13 +847,19 @@ function withDeclaredName(name: string, emitted: string, to: string): string {
  * text:
  *
  * 1. The compiler's type carries the name the module emits. `programIndexOf` gives that struct's
- *    declaration: the place the author declared it, and the identifier the author wrote there.
+ *    declaration: the place the author declared it, and its declared part as the module has it
+ *    and as the author wrote it (the namespaces around it and its identifier).
  * 2. Where the hovered document imports that declaration under exactly one name, the struct
  *    reads by that name, which is the one the document can write. Otherwise it reads by its
  *    declared name.
- * 3. A name the linker generated (`lib_Light`, `lib_Light_2`) is therefore never shown, and a
- *    name the author wrote is never changed: a field's, a parameter's, the hovered symbol's own
- *    and every identifier that only holds such a name as a part.
+ * 3. A name the linker generated (`lib_Light`, `lib_Light_2`, `lib_Stage_VsOut`) is therefore
+ *    never shown as the declared part of a struct's name, and a name the author wrote is never
+ *    changed: a field's, a parameter's, the hovered symbol's own and every identifier that only
+ *    holds such a name as a part.
+ *
+ * One part is not named this way: the arguments of an instance of a generic class keep the
+ * module's spelling (`Box_lib_Light`), since the table records no link from an instance to the
+ * declarations of its arguments.
  */
 function structNamesOf(
   program: HoverProgram,
@@ -809,8 +883,8 @@ function structNamesOf(
  * the declaration's list, and the module may emit a parameter under a name of its own
  * (`lib_K`). The join is the declaration: a parameter is kept when the program recorded a
  * parameter at the place of its name (`programIndexOf`), and the kept parameters stand in the
- * order of `fn.params`. `undefined` when the two lists do not pair, which leaves the names of
- * `fn.params` and no qualifier.
+ * order of `fn.params`. Where the two lists do not pair, the parameters are the names and the
+ * types of `fn.params`, with no qualifier.
  */
 function writtenParams(
   sourceFile: ts.SourceFile,
@@ -1030,8 +1104,10 @@ export function getHover(
   // for the definition of every identifier.
   const linkedCompile = linkedCompileOf(analysis);
   const linked = ts.isIdentifier(node) && linkedCompile !== undefined;
-  const defs =
-    named || property || linked ? (languageService.getDefinitionAtPosition(uri, offset) ?? []) : [];
+  const defs = implementationsOf(
+    named || property || linked ? (languageService.getDefinitionAtPosition(uri, offset) ?? []) : [],
+    (fileName) => languageService.getProgram()?.getSourceFile(fileName),
+  );
   const self: HoverProgram = { uri, analysis };
   const checker = (): ts.TypeChecker | undefined => languageService.getProgram()?.getTypeChecker();
   const own = named ? declaredSymbolAt(analysis, uri, defs, property) : undefined;
@@ -1064,6 +1140,15 @@ export function getHover(
         oneOwner: found.every((f) => f.oneOwner && ownerIn(f) === ownerIn(first)),
       };
     }
+    // The declaring document's own program answers only for a declaration the hovered program
+    // dropped. Where the hovered program holds symbols there and refused them (instances of
+    // different types, a member, a struct's name), the hover keeps TypeScript's quick info:
+    // another program's instance is not this program's type.
+    const { declared } = programIndexOf(self);
+    if (
+      defs.some((d) => d.fileName !== uri && declared.has(placeKey(d.fileName, d.textSpan.start)))
+    )
+      return undefined;
     return unlinkedSymbolAt(
       defs,
       uri,
