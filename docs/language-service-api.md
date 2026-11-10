@@ -1031,12 +1031,18 @@ Document versions, for either adapter:
   program leaves `text: ''`. The document's cached diagnostics stay unchanged;
   `getDiagnostics(uri)` remains the list located in that document and does not emit.
   A mistake of an imported file itself is located in that file, and that file's document shows
-  it. A refusal that is true of the program only is located in the program's own document, at
-  the use that makes it one (#1186): an entry gives a field of an imported struct no location
-  (`TS8010`, on the parameter or the result that takes the struct), or a call instantiates an
-  imported generic function with a type its body refuses (on the call). The imported file's own
-  program accepts the declaration, so its document shows nothing. The diagnostic carries the
-  declaration as `relatedInformation`, with the imported file's URI and range.
+  it. An error that the program reports in an imported file, and that the imported file's own
+  program does not report, is located in the program's own document, at the use that makes it
+  one (#1186). An entry that gives a field of an imported struct no location has it on the
+  parameter or the result that takes the struct (`TS8010`). A refusal in the body of an
+  imported generic function has it on the outermost call the document writes that makes the
+  instance. One in a method of an imported generic class has it where the document first writes
+  the instance (`Box<P>`), and an imported generic interface where the document first names it.
+  When the document writes no use (it re-exports an entry of another file), the error stands on
+  the import or the re-export that reaches the file. The imported file's document shows
+  nothing. The diagnostic carries the place in the imported file as `relatedInformation`, with
+  that file's URI and range; two refusals that land on one use with one sentence are one
+  diagnostic with both places.
 - Nothing in the service is asynchronous. Cancellation is the adapter's concern (drop results
   whose version is stale).
 

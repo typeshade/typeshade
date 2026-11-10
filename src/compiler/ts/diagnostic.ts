@@ -264,6 +264,13 @@ export function usesOf(
   return USES.get(diagnostic) ?? [];
 }
 
+/** Gives `copy`, a diagnostic made from `diagnostic` with another sentence, the uses recorded
+ *  for `diagnostic`. */
+export function keepUses(copy: TsCompilerDiagnostic, diagnostic: TsCompilerDiagnostic): void {
+  const uses = USES.get(diagnostic);
+  if (uses !== undefined) USES.set(copy, [...uses]);
+}
+
 /** Records the places `diagnostic` is about in other files of its program. */
 export function setRelatedSites(
   diagnostic: TsCompilerDiagnostic,

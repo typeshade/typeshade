@@ -1949,11 +1949,16 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   folder that `compile()` refused. `compile()` now reports it in the file the program starts
   from, at the use: a field of an imported struct that an entry gives no location (`TS8010`),
   or whose type cannot cross (`TS8003`, `TS8038`), on the entry's parameter or result, and a
-  refusal in the body of an imported generic function on the call that instantiates it. The
-  editor's diagnostic carries the declaration as related information. A program of one file
-  and a mistake of the imported file itself are reported where they were. The importing
-  document no longer shows TypeScript's `never` error for a write of an imported `builtin<N>`
-  field that the compiler refused.
+  refusal in the body of an imported generic function, of a method of an imported generic class
+  or of an imported function that takes a function on the use the entry file writes (the
+  outermost call, the first `Box<P>`). An entry the entry file re-exports has it on the
+  re-export. The editor's diagnostic carries the declaration as related information. A program
+  of one file and what the imported file's own program reports are reported where they were.
+  An interface or a type alias that a file exports is now checked in that file though nothing
+  there uses it: two fields at one location, one `blend_src` of a pair, `interpolate` on a
+  `builtin<…>`, `invariant` off `position` and a written location on a `bool` are reported at
+  the declaration, once. The importing document no longer shows TypeScript's `never` error for
+  a write of an imported `builtin<N>` field that the compiler refused.
 - **A module constant with an expression rounds as a function does, in `'f32'` precision**
   (Rule 11.7). `const X: f32 = 100.7; const S: f32 = sin(X);` gave `S` the value of `sin` on the
   unrounded 100.7, rounded, on the CPU oracle and the CPU tier in `'f32'` precision, while
