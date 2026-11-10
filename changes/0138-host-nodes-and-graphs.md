@@ -613,6 +613,28 @@ sits under it.
 - Affects: the front matter `exports`. No rule, decision or milestone changes.
 - Status: `status: accepted` does not change.
 
+### A3. An exported storage array with no size is sized by the host (2026-11-09)
+
+- [fact] Why. Milestone 1b (pull request #1152, merged at `edc7a45a`) made an exported
+  `uniform<T>` of a class and an exported `storage<array<T, N>>` host resources. R10 gave no
+  length for `export declare const ps: storage<array<T>>`, so the host view declares it `never`
+  (deviation D8 of #1152).
+- [decision, owner, 2026-11-09] "host가 크기를 정함". An exported storage array with no size is a
+  `Buffer<T>` whose length the host sets: `ps.resize(n)` gives it `n` zeroed elements, and
+  `ps.set(data)` gives it the length of `data`. An accessor, a `read()` or a call that takes the
+  buffer before its length is set throws a `TypeError` that names the binding and says to call
+  `resize` or `set`. The shader file does not state the size. `resize` keeps the elements that
+  fit and marks the whole range dirty.
+- [fact] Deviations of milestone 1 that stay open, recorded on #1145 and #1152: D1 (a scalar
+  field's `get()` returns a number), D2 (one dirty byte range for each resource, also for a
+  `Buffer`; R9 says for each element), D3 (a field named `set`, `needsUpdate` or `dispose` is
+  refused), D4 (the types do not declare `[Symbol.dispose]`), D5 (`Texture` is an existing
+  export), D6 (`HostFace.exports` reports an exported binding as `never`), D7 (an exported
+  binding refuses `dispose()`, since it lives as long as its module). Next action for each: a
+  decision with milestone 3, when calls take resources.
+- Affects: R10 (the sized-by-the-host case). No front-matter entry changes.
+- Status: `status: accepted` does not change.
+
 ## What it owes downstream
 
 - **typeshade.github.io** (`typeshade/web`, `apps/typeshade`). Every host page and Playground
