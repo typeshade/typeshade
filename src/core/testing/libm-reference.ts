@@ -338,6 +338,61 @@ export function exactAcos(x: number, bits?: bigint): Exact {
   return { num: 2n * half.num, scale: half.scale };
 }
 
+/** `n / d` for positive integers, with about `bits` significant bits. */
+function ratio(n: bigint, d: bigint, bits: bigint): Exact {
+  const q = bits + bitLength(d) - bitLength(n);
+  return q >= 0n ? { num: (n << q) / d, scale: q } : { num: n / (d << -q), scale: q };
+}
+
+/** `a + sign * b` of two positive exact values, in the finer of their scales. */
+function combine(a: Exact, b: Exact, sign: 1n | -1n): Exact {
+  const scale = a.scale > b.scale ? a.scale : b.scale;
+  return { num: shift(a.num, scale - a.scale) + sign * shift(b.num, scale - b.scale), scale };
+}
+
+/** sinh(x), cosh(x) or tanh(x) of a finite f64 `x` with |x| <= 710.5 (tanh: any x, as 1 past
+ *  |x| = 40, where the reference does not need more). */
+export function exactHyperbolic(fn: 'sinh' | 'cosh' | 'tanh', x: number): Exact {
+  if (!Number.isFinite(x)) throw new Error('the reference takes a finite number');
+  const negative = x < 0 || Object.is(x, -0);
+  const a = Math.abs(x);
+  if (fn === 'tanh') {
+    if (a > 40) return { num: negative ? -1n : 1n, scale: 0n };
+    // (e^(2a) - 1) / (e^(2a) + 1); 2a is exact.
+    const e = exactExp(2 * a);
+    const one = shift(1n, e.scale);
+    const t = ratio(e.num - one, e.num + one, WORK_BITS + 80n);
+    return negative ? { num: -t.num, scale: t.scale } : t;
+  }
+  const r = combine(exactExp(a), exactExp(-a), fn === 'sinh' ? -1n : 1n);
+  const half = { num: r.num, scale: r.scale + 1n };
+  return negative && fn === 'sinh' ? { num: -half.num, scale: half.scale } : half;
+}
+
+/** asinh(x), acosh(x) or atanh(x) of a finite f64 `x` in its domain, as a logarithm:
+ *  ln(|x| + sqrt(x^2 + 1)), ln(x + sqrt(x^2 - 1)) and ln((1 + |x|) / (1 - |x|)) / 2. */
+export function exactInverseHyperbolic(fn: 'asinh' | 'acosh' | 'atanh', x: number): Exact {
+  if (!Number.isFinite(x)) throw new Error('the reference takes a finite number');
+  const negative = x < 0 || Object.is(x, -0);
+  const v = exactValue(Math.abs(x));
+  // The argument of the logarithm keeps this many bits past the point.
+  const P = 1200n;
+  const X = shift(v.num, P - v.scale);
+  const unit = 1n << P;
+  let y: Exact;
+  if (fn === 'atanh') {
+    if (!(Math.abs(x) < 1)) throw new Error('the reference takes |x| < 1');
+    y = ratio(unit + X, unit - X, P);
+  } else {
+    if (fn === 'acosh' && x < 1) throw new Error('the reference takes x >= 1');
+    const square = X * X + (fn === 'asinh' ? 1n : -1n) * (unit * unit);
+    y = { num: X + integerSqrt(square), scale: P };
+  }
+  const l = exactLogOf(y);
+  const r = fn === 'atanh' ? { num: l.num, scale: l.scale + 1n } : l;
+  return negative && fn !== 'acosh' ? { num: -r.num, scale: r.scale } : r;
+}
+
 /** The format of a result: its precision in bits and the exponent of its smallest unit. */
 export interface FloatFormat {
   readonly precision: bigint;

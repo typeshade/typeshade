@@ -8,7 +8,22 @@
 
 /** A function of the engine's `Math` that the CPU tier must not call. */
 export type EngineMathName =
-  'sin' | 'cos' | 'tan' | 'asin' | 'acos' | 'atan' | 'atan2' | 'exp' | 'log' | 'log2';
+  | 'sin'
+  | 'cos'
+  | 'tan'
+  | 'asin'
+  | 'acos'
+  | 'atan'
+  | 'atan2'
+  | 'exp'
+  | 'log'
+  | 'log2'
+  | 'sinh'
+  | 'cosh'
+  | 'tanh'
+  | 'asinh'
+  | 'acosh'
+  | 'atanh';
 
 /** Run `f` with each function `names` of the engine's `Math` replaced by one that throws, and
  *  put the functions back afterwards, also when `f` throws. `f` is synchronous. */

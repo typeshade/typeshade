@@ -233,6 +233,32 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   `tshc migrate` rewrites neither form: the author deletes `()` or the second attribute. No
   official release accepted the refused forms (OD-6).
 
+- **`sinh`, `cosh`, `tanh`, `asinh`, `acosh` and `atanh` on the CPU are the libm's** (change 0042,
+  milestone 1a, slice 2). The CPU oracle and the CPU tier computed them with the engine's
+  `Math.sinh`, `Math.cosh`, `Math.tanh`, `Math.asinh`, `Math.acosh` and `Math.atanh`, whose results
+  ECMAScript leaves to the engine. They now compute them with routines of the compiler's own libm,
+  one for each function, on an `f64`; the result for an `f32` operand is that result rounded once. A
+  result may differ from before in the last bit, and it is the same on Node and on Bun. A GPU's
+  functions stay the driver's. No syntax changes, and no author-facing name is added. The routines
+  keep fdlibm's formulas and special cases. fdlibm's forms round several times after a step whose
+  own error is near half a unit, and measured 1.6 to 2.2 ULP against MPFR on 200,000 operands each.
+  So every step before the last is carried as a head and a rest, with Dekker's exact product and
+  Knuth's exact sum, and each result is rounded once. Two internal kernels take the place of
+  fdlibm's `expm1` and `log1p`; neither is an author's function. Every special value that ECMA-262
+  and IEEE 754 fix is held by a test: the signed zeros, the infinities, a NaN, `acosh` below 1,
+  `atanh` at ±1 and past it, and the overflow of `sinh` and `cosh`. The numbers that follow are
+  results on samples, not a bound for every operand. This pull request measured each function
+  against MPFR on at least 20,000,000 seeded operands with a finite result, placed where each method
+  is weakest: the largest error is 0.5823 ULP for `sinh`, 0.5260 for `cosh`, 0.5674 for `tanh`,
+  0.5711 for `asinh`, 0.5661 for `acosh` and 0.5667 for `atanh`, and no result is past 0.6 ULP. A
+  test holds the operand of each largest error. The routines take 0.8 to 5.5 times the time of the
+  engine's functions on Bun 1.4.4 and Node 22.23.4. The six are in `explog.shade.ts`, which `NOTICE`
+  already names. The caps of `scripts/bundle-budget.json` take the measured gzip sizes for the two
+  bundles that hold the CPU op library: `typeshade/algorithms` single file 59,492 to 60,894
+  (+1,402), split initial and total 58,555 to 60,072; `typeshade/random` single file 40,679 to
+  42,187 (+1,508), split initial and total 39,798 to 41,325. The floors and the other caps do not
+  change. `pow` is still the engine's `Math.pow`.
+
 - **`tan` on the CPU has a wider margin under 1 ULP** (change 0042, milestone 1a). The kernel of
   `tan` keeps fdlibm's polynomial and sums it with fewer roundings. Below 0.625 the cube and its
   product by the first coefficient are exact products, and their rests join the small term. From
@@ -2049,6 +2075,17 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   method, a getter, a static member and a member of a namespace or of an enum keep
   TypeScript's quick info, as they do in one file.
   `src/language-service/imported-symbol-hover.test.ts` reads both halves on the same files.
+
+- **A scalar cast of a written number is a value of its type** (Rule 5.3). The front end folded
+  an integer-typed expression of literals with ECMAScript doubles, so `f32(u32(7) / 2)` emitted
+  `3.5`, `f32(i32(-7) / 2)` emitted `-3.5`, `f32(u32(7) - 8)` emitted `-1.0`,
+  `f32(i32(2147483647) + 1)` emitted `2147483648.0` and `f32(u32(7) * u32(1000000000))` emitted
+  `7000000000.0`, and `f32(-i32(-2147483648))` emitted `2147483648.0`, in WGSL, in GLSL ES 3.00
+  and on the CPU oracle. `xs[u32(7) / 2]` and
+  `vi + u32(7) / 2` failed in the backend (`TS8015`, `SD0017 u32 literal 3.5`). The fold now
+  follows the target's integer rule, as the optimizer's constant folder does: `3`, `-3`,
+  `4294967295`, `-2147483648`, `2705032704`, `-2147483648`, `xs[3]` and `vi + 3u`. A written number keeps its
+  ECMAScript value (`7 / 2` is `3.5`). No example, journey or golden changes.
 
 - **A module constant with an expression rounds as a function does, in `'f32'` precision**
   (Rule 11.7). `const X: f32 = 100.7; const S: f32 = sin(X);` gave `S` the value of `sin` on the

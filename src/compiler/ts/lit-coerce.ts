@@ -8,6 +8,7 @@ import { f64T, isF64 } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
+import { foldIntLit, intElemOf, wrapInt } from '../../core/passes/opt/expr-utils.js';
 
 export function isIntegerLiteralNode(node: ts.Expression): boolean {
   if (ts.isParenthesizedExpression(node)) return isIntegerLiteralNode(node.expression);
@@ -67,9 +68,24 @@ export function fitsTarget(v: number, target: ShaderType): boolean {
     : v >= -2147483648 && v <= 2147483647;
 }
 
+/** Folds a literal-only `binop` or a negated literal into one literal, with the arithmetic of
+ *  the node's own type. A node typed `f32` (a written number has no other type until a position
+ *  gives it one) folds with ECMAScript doubles, so `1 / 2` is `0.5` (decision Q1 of change
+ *  0134). A node typed `i32` or `u32` folds as the target computes it (`foldIntLit`): a
+ *  scalar cast yields a value of its type, so `u32(7) / 2` truncates to `3` and
+ *  `u32(7) - 8` wraps to `4294967295`, as WGSL and GLSL ES 3.00 do. A fold the integer rule
+ *  leaves undefined (a divisor of zero, a shift out of range) leaves the node as it is. */
 export function foldNumericLit(expr: Expr): Expr {
+  const int = intElemOf(expr.type);
   if (expr.op === 'unop' && expr.a.op === 'lit' && typeof expr.a.value === 'number') {
-    return { op: 'lit', type: expr.type, value: -expr.a.value };
+    // A negated `u32` has no value of its type to fold to: the node is left for the check
+    // that refuses it, as it was before.
+    if (int === 'u32') return expr;
+    return {
+      op: 'lit',
+      type: expr.type,
+      value: int === 'i32' ? wrapInt(-expr.a.value, 'i32') : -expr.a.value,
+    };
   }
   if (
     expr.op === 'binop' &&
@@ -83,6 +99,10 @@ export function foldNumericLit(expr: Expr): Expr {
       typeof a.value === 'number' &&
       typeof b.value === 'number'
     ) {
+      if (int !== undefined) {
+        const v = foldIntLit(expr.bop, a.value, b.value, int);
+        return v === undefined ? expr : { op: 'lit', type: expr.type, value: v };
+      }
       const v =
         expr.bop === '+'
           ? a.value + b.value
