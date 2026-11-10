@@ -977,7 +977,7 @@ function lowerOne(
   // written number would take there (Rules 5.1 and 5.2, change 0134 item 2). Its declaration
   // stays the `f32` one, which an `f32` read names.
   const abstract =
-    hasNoWrittenType(decl, sourceFile) && k === 'f32' && !called
+    hasNoWrittenType(decl, sourceFile) && k === 'f32'
       ? abstractConstFor(
           ts.isPropertyDeclaration(decl) && ts.isClassLike(decl.parent) && decl.parent.name
             ? `${decl.parent.name.text}.${decl.name.getText(sourceFile).replace(/^#/, '')}`

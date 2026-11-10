@@ -143,9 +143,8 @@ export function abstractTreeOf(
     const a = abstractTreeOf(inner.left);
     const b = abstractTreeOf(inner.right);
     if (a === undefined || b === undefined) return undefined;
+    // A divisor of zero is refused where the `/` is lowered (`divisorIsZero`), before this reads it.
     const k = inner.operatorToken.kind;
-    const divides = k === ts.SyntaxKind.SlashToken || k === ts.SyntaxKind.PercentToken;
-    if (divides && b.value === 0) return undefined;
     const value =
       k === ts.SyntaxKind.PlusToken
         ? a.value + b.value
@@ -173,8 +172,10 @@ export function abstractConstFor(
   initializer: ts.Expression,
   keyword: 'const' | 'static' = 'const',
 ): AbstractConst | undefined {
+  // A value outside the range of f32 is refused where its literals are lowered, so the value is
+  // finite here.
   const tree = abstractTreeOf(initializer);
-  if (tree === undefined || !Number.isFinite(tree.value)) return undefined;
+  if (tree === undefined) return undefined;
   return {
     name,
     value: tree.value,
@@ -470,9 +471,7 @@ export function originOf(
   }
   if (
     ts.isPrefixUnaryExpression(inner) &&
-    (inner.operator === ts.SyntaxKind.MinusToken ||
-      inner.operator === ts.SyntaxKind.PlusToken ||
-      inner.operator === ts.SyntaxKind.TildeToken)
+    (inner.operator === ts.SyntaxKind.MinusToken || inner.operator === ts.SyntaxKind.PlusToken)
   ) {
     return originOf(inner.operand, isBuiltin);
   }
@@ -542,7 +541,6 @@ export function noteAbstractDivision(
   // division, which is accepted (Amendment A3, "실수 나눗셈으로 허용").
   if (left.float || right.float) return;
   const reads = [...left.reaches, ...right.reaches];
-  if (reads.length === 0) return;
   let table = divisionsOf.get(sourceFile);
   if (table === undefined) divisionsOf.set(sourceFile, (table = new Map()));
   const division: Division = { node, reads };

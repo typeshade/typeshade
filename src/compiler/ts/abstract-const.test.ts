@@ -15,7 +15,9 @@
 // Verifies: Rule 5.1, Rule 5.2 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
+import ts from 'typescript';
 import { compile } from './compile.js';
+import { compileTsSource } from './source-file.js';
 import { compileModule } from '../../core/oracle.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { checkDocuments } from '../../language-service/check.js';
@@ -929,6 +931,115 @@ const C = 0.1;
 export function t(): u32 { return u32(-C); }`);
     expect(result.wgsl).toContain('return 0u;');
     expect(Object.is(result.eval('t'), -0)).toBe(false);
+  });
+});
+
+describe('each path the second review found unpinned (its surviving mutants)', () => {
+  const t = (body: string, pre = ''): string => `"use typeshade";
+${pre}
+${H}function hi(a: i32): i32 { return a; }
+export function t(vi: u32, ii: i32, xs: array<f32, 8>): f32 {
+  ${body}
+}`;
+  const ARGS3 = [2, 2, [1, 2, 3, 4, 5, 6, 7, 8]] as const;
+
+  it('a value outside the integer the peer asks stays a mismatch, never a literal the writer refuses', () => {
+    refused(t('return f32(vi + BIG);', 'const BIG = 5000000000;'), [
+      'Type mismatch: cannot + u32 and f32 — no implicit int/float conversion. Cast explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).',
+    ]);
+  });
+
+  it('a static field read through super is a read of the constant', () => {
+    const result = accepted(`"use typeshade";
+class A { static K = 7; }
+class B extends A { static f(vi: u32): u32 { return vi * super.K; } }
+export function t(vi: u32): u32 { return B.f(vi); }`);
+    expect(result.wgsl).toContain('return (vi * 7u);');
+    expect(result.eval('t', [2])).toBe(14);
+  });
+
+  it('a call of a declared function has the declared result: h(k) / 2 divides integers', () => {
+    expect(accepted(t('const k = 7; h(k); return f32(h(k) / 2);')).eval('t', ARGS3)).toBe(3);
+  });
+
+  it('a float-written constant is never read as an integer, also when its value is whole', () => {
+    refused(t('let n: u32 = vi; n |= C; return f32(n);', 'const C = 8.0;'), [
+      'Type mismatch: cannot |= u32 and f32 — no implicit int/float conversion. Cast explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).',
+    ]);
+    refused(t('return f32(vi * M);', 'const M = 2 + 1.0;'), [
+      'Type mismatch: cannot * u32 and f32 — no implicit int/float conversion. Cast explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).',
+    ]);
+  });
+
+  it('a hexadecimal literal with an e is integer-written: 0x1e', () => {
+    expect(accepted(t('return f32(vi * H);', 'const H = 0x1e;')).eval('t', ARGS3)).toBe(60);
+  });
+
+  it('a negated read is the negated written number: ii + -K', () => {
+    const result = accepted(t('return f32(ii + -K);', 'const K = 3;'));
+    expect(result.wgsl).toContain('(ii + -3)');
+    expect(result.eval('t', ARGS3)).toBe(-1);
+  });
+
+  it('a read inside the / and the quotient read around it are not other reads', () => {
+    expect(accepted(t('return f32((K | 1) / 2);', 'const K = 7;')).eval('t', ARGS3)).toBe(3.5);
+    expect(
+      accepted(t('let j: u32 = E / 2 + 1; return f32(j);', 'const E = 8;')).eval('t', ARGS3),
+    ).toBe(5);
+  });
+
+  it('names the first constant the / reaches that another line reads as an integer', () => {
+    refused(t('h(A); h(B); return f32((A + B) / 2);', 'const A = 7;\nconst B = 3;'), [
+      '"A" is a u32 where another line reads it, and no operand of "(A + B) / 2" has a declared ' +
+        'type, so the "/" does not say which division it is. Write "(f32(A) + f32(B)) / 2" for ' +
+        'the float division.',
+    ]);
+  });
+
+  it('names a static field by its short name and its keyword', () => {
+    const source = t('h(S.K); return xs[S.K / 2];', 'class S { static K = 7; }');
+    refused(source, [
+      '"S.K" is a u32 where another line reads it, and no operand of "S.K / 2" has a declared ' +
+        'type, so the "/" does not say which division it is. Write "static K: u32 = 7" for the ' +
+        'integer division.',
+    ]);
+    accepted(source.replace('static K = 7;', 'static K: u32 = 7;'));
+  });
+
+  it('the innermost position decides the type of the edit', () => {
+    // `hi` asks an `i32`, then the index; `h(K)` reads `K` as a `u32`, so no declaration fits.
+    refused(t('h(K); return xs[hi(K / 2)];', 'const K = 7;'), [
+      '"K" is a u32 where another line reads it, and no operand of "K / 2" has a declared ' +
+        'type, so the "/" does not say which division it is. Write "i32(K) / 2" for the integer ' +
+        'division.',
+    ]);
+  });
+
+  it('a second compile of the same source file reports each / once', () => {
+    const source = t('const k = 7; h(k); return f32(k / 2);');
+    const sf = ts.createSourceFile('a.ts', source, ts.ScriptTarget.Latest, true);
+    compileTsSource(source, { sourceFile: sf, emit: false });
+    expect(compileTsSource(source, { sourceFile: sf, emit: false }).diagnostics).toHaveLength(1);
+  });
+
+  it('a refusal two importing files give is reported once on the library', () => {
+    const lib = `"use typeshade";\nexport const K = 7;\nexport function half(x: f32): f32 { return x * (K / 2); }\n`;
+    const main = (n: string): string => `"use typeshade";
+import { K, half } from "./lib.shade";
+export function ${n}(vi: u32, x: f32): f32 { return f32(vi * K) + half(x); }
+`;
+    const docs = [
+      { path: '/app/a.shade.ts', uri: '/app/a.shade.ts', text: main('a') },
+      { path: '/app/b.shade.ts', uri: '/app/b.shade.ts', text: main('b') },
+    ];
+    const read = (uri: string): string | undefined => (uri.includes('lib.shade') ? lib : undefined);
+    expect(checkDocuments(docs, { readDocument: read }).diagnostics.map((d) => d.file)).toEqual([
+      '/app/lib.shade.ts',
+    ]);
+    const open = createTypeshadeLanguageService({ readDocument: read });
+    open.openDocument('/app/lib.shade.ts', lib);
+    for (const d of docs) open.openDocument(d.uri, d.text);
+    expect(open.getDiagnostics('/app/lib.shade.ts')).toHaveLength(1);
   });
 });
 

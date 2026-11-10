@@ -846,7 +846,7 @@ function lowerDeclarationKind(
     aliasOf,
     decl.name,
     isConst ? foldIndexConst(init, scope) : undefined,
-    isConst && decl.type === undefined && typeKey(bindingType) === 'f32'
+    isConst && decl.type === undefined
       ? abstractConstFor(name, decl.name, decl.initializer)
       : undefined,
     // `let y = k` has no declared type either: a `/` over `y` reaches `k` (Amendment A2).
@@ -1374,7 +1374,7 @@ function defineLocal(
       indexConstValue,
       ...(aliasOf !== undefined ? { aliasOf } : {}),
       ...(abstract !== undefined ? { abstract } : {}),
-      ...(carries !== undefined && abstract === undefined ? { carries } : {}),
+      ...(carries !== undefined ? { carries } : {}),
     });
   } catch (e) {
     pushDiag(
