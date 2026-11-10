@@ -1,7 +1,7 @@
 ---
 id: '0130'
 title: An entry point is a function declaration with one stage attribute, `@vertex`, `@fragment` or `@compute([x, y?, z?])`, written in the language's own syntax and not as a call of a fixed function name
-status: accepted
+status: implemented
 rules:
   - '1.7'
   - '1.8'
@@ -181,7 +181,7 @@ downstream:
 
 | Field                         | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0130, `status: accepted` (front matter).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Identity and status           | Proposal 0130, `status: implemented` (front matter).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Date and attribution          | Authored 2026-11-09 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-09, in Korean. The owner said that the examples' change from `@vertex` to `vertex(…)` (change 0111 D1) was not intended; that TypeShade is a language, not a library, with its own directive and compiler; that `@vertex`, `@fragment` and `@compute` are to be attributes; and that TypeShade borrows TypeScript's syntax and is not a language that uses it as it is, as Vue and React (JSX) are not ("타입스크립트 문법을 차용한거지 그대로 쓰는 언어가 아니라니까요… vue, react도 똑같은데"). No GitHub issue is recorded.                                                                                                                                                                                                         |
 | Applicability / effectivity   | `docs/language-design.md` Rules 1.7, 1.8 (new), 2.1, 6.6, 6.7, 7.6, 8.1, 8.7, 8.22 and 8.25, `reqs/`, `docs/use-typeshade-surface.md` (every section that shows an entry), `docs/dx.md` (cited, not changed), `docs/roadmap.md` (one sentence added to its first rule), the front end's entry detection (`src/compiler/ts/stage-call.ts` and its consumers), the ambient library and the editor's diagnostic filter (`src/language-service/`), the host face, `tshc migrate`, `examples/plain-typescript.test.ts`, `journeys/`, `README.md` (`tsconfig.shade.json`), every `examples/**/*.shade.ts` that declares an entry, and the downstream repositories. No release version is assigned. <!-- doc-refs: skip — the implementing change (pull request 2 of change 0140) deleted the file --> |
@@ -863,11 +863,72 @@ example files, 172 inferable. The text overclaims that every entry is inferable.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require: the implementing commits with
-`Change: 0130`; the emit goldens unchanged for every migrated example; both halves read on the
-attributes, the call forms' warning and refusal, and the projection's checks
-(`src/language-service/ambient-parity.test.ts` shape); and the document audit of the rules, the
-surface document and `reqs/`.
+**Delivery.** The four pull requests of change 0140, each with `Change: 0130` and
+`Change: 0140`, by AI agents (Claude Code) at the coordinator's request:
+
+1. Pull request #1147, merged into `main` as `10b2c859`: the front end and the editor read the
+   stage attributes and `@workgroup_size([n])`, the narrowed TS1206 filter,
+   `strictPropertyInitialization: false`, and `tshc migrate` from calls to attributes.
+2. Pull request #1151, merged as `ebd4249e`: the examples.
+3. Pull request #1154, merged as `c5ebeeed`: the tests, the journeys, the rules, the surface
+   document, `AUTHORING.md` and `README.md`.
+4. Pull request #1159 (base `main` at `1f68634d`, commit `03341c81`): the refusal of the call
+   forms and of `export default` on an entry, as change 0140 amends D4. Change 0140's record
+   lists what it delivered.
+
+Change 0137 delivered the sentences on a parameter qualifier (pull request #1139).
+
+**Functional verification** (2026-11-10; Linux container, Bun 1.4.4, Node 22.23.4, TypeScript
+5.6.3, vitest 5.0.5; on `03341c81`):
+
+- `npx tsc -p tsconfig.json --noEmit` and `npx tsc -p tsconfig.tests.json --noEmit`: pass.
+- `bun run lint` and `bun run format:check`: pass.
+- `bun run build`, then `npx vitest run` (the whole unit suite): 13606 passed, 9 failed in 2
+  files, `src/affected-tests.test.ts` (5) and `src/doc-test-selection.test.ts` (4). Both fail in
+  this container on `main` as well (environmental).
+- `src/compiler/ts/stage-call.test.ts`: 35 passed. Each test reads `compile()` and the language
+  service on the same source, with the code, the text and the text the range covers.
+- `bun run bake:goldens`: 355 passed, no golden changed. `bun run bake:api-surface` and
+  `bun run bake:author-names`: no file changed.
+- `bun run gate:compile`: 204 examples, WGSL on Tint 204, GLSL ES 3.00 on WebGL2 141, render
+  pipelines on Tint 132, failures 0.
+- `bun run gate:boundary`: pass, no budget raised.
+- `bun run gate:journeys`: pass.
+- `bun src/cli/bin.ts migrate --check examples journeys`: "209 files already in the language's
+  form."
+
+**Document audit** (2026-11-10): `bun scripts/changes.ts --base origin/main` passes;
+`bun run docs:refs`, 0 dead references; `bun run docs:impact`, no must-fix item, each review item
+read; `bun run reqs:sync`, then `doorstop review` of RULE-0108, RULE-0607, RULE-0801, RULE-0822,
+RULE-1204 and SURF-003 and `doorstop clear` of SURF-003, SURF-007, SURF-028, SURF-053, SURF-063,
+SURF-065, SURF-068, SURF-072 and SURF-074 after each was read;
+`python scripts/doorstop-check.py -C -e -F` passes.
+
+**Audit of what this proposal declares**, on `03341c81` (2026-11-10):
+
+- Rules 1.7, 1.8, 2.1, 6.6, 6.7, 7.6, 8.1, 8.7 and 8.22 carry the proposed texts, with the
+  sentences of changes 0137 and 0140 in place. Rule 8.25's rationale is change 0137's.
+- The surface document shows no stage call but where it describes the refusal (§3, §6, §7 and
+  §54). The sections of the front matter that the four pull requests did not edit (§9, §49,
+  §52, §53 and §62) show no stage call.
+- `bun src/cli/bin.ts migrate --check examples journeys` finds nothing to rewrite.
+- `TS8028`: no code was added or removed.
+- `changes/0111-plain-typescript-entries.md` carries the note of D5.
+
+**Deviations.**
+
+- D-1. The deviations D-1 to D-8 of change 0140's record apply to the refusal. Disposition:
+  closed, as recorded there.
+- D-2. The note of D5 in change 0111's record was written in pull request #1159, the last one,
+  and not first, as "Migration order" step 1 says. Disposition: closed.
+- D-3. `scripts/changes.ts --base origin/main` on pull request #1159 lists every rule, section
+  and example that its diff does not touch as still to do, and `TS8028`, which no diff can add.
+  The list compares one diff with the front matter. The audit above reads the tree. Disposition:
+  closed.
+
+**Status.** The compiler repository's work is delivered, so pull request #1159 sets
+`status: implemented` (`changes/README.md`, lifecycle, step 4). The downstream work stays
+pending.
 
 ## What it owes downstream
 

@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
+import { migrateSource } from '../../cli/migrate.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const errorsOf = (src: string): string[] =>
@@ -130,17 +131,28 @@ declare const frame: uniform<Frame>;
     expect(editorErrorsOf(frame)).toContain(refusal);
   });
 
-  it('takes the literal an arrow entry returns as its expression body', () => {
+  it('says nothing of the literal a refused arrow entry returns as its expression body (change 0140)', () => {
+    // An entry written as an arrow function through a stage call is refused (Rule 8.1). Its
+    // literal is still read against the struct an entry returns, so the refusal of the call is
+    // the one diagnostic for it in both halves (Rule 12.4).
     const src = `"use typeshade";
 ${VS_OUT}
 interface Color { color: location<0, vec4> }
 export const vs = vertex((i: builtin<"vertex_index", u32>) => ({ pos: vec4(f32(i), 0., 0., 1.), uv: vec2(0., 0.) }));
 export const fs = fragment((v: VsOut) => ({ color: vec4(v.uv, 0., 1.) }));
 `;
-    expect(errorsOf(src)).toEqual([]);
-    expect(editorErrorsOf(src)).toEqual([]);
-    expect(compile(src).wgsl).toContain('-> Color {');
-    expect(hoverAt(src, '=> ({ color', 0)).toContain('): Color');
+    const refusals = [
+      'TS8028 a stage is an attribute on the function declaration: write "@vertex export function vs(…)", or run "tshc migrate" (change 0130)',
+      'TS8028 a stage is an attribute on the function declaration: write "@fragment export function fs(…)", or run "tshc migrate" (change 0130)',
+    ];
+    expect(errorsOf(src)).toEqual(refusals);
+    expect(editorErrorsOf(src)).toEqual(refusals);
+    // The declarations `tshc migrate` writes return the same literals, with no diagnostic.
+    const migrated = migrateSource(src).text;
+    expect(errorsOf(migrated)).toEqual([]);
+    expect(editorErrorsOf(migrated)).toEqual([]);
+    expect(compile(migrated).wgsl).toContain('-> Color {');
+    expect(hoverAt(migrated, 'function fs', 9)).toContain('): Color');
   });
 
   it("refuses a literal two structs match, and keeps a helper's literal on the used struct", () => {

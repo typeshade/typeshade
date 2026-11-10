@@ -8,7 +8,7 @@
 // value or a callee nothing declares, after it ({@link reportUndeclaredValues}).
 
 import ts from 'typescript';
-import { STAGE_CALLEES } from './stage-call.js';
+import { STAGE_CALLEES, looseStageCallOf } from './stage-call.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { ATTRIBUTE_NAMES, checkDeclarationDecorators } from './builtin-check.js';
 import { isResourceCall } from './bindings.js';
@@ -656,6 +656,8 @@ export function analyzeSemantics(
       // the name is one WGSL has; saying "put work inside a function" here as well would be
       // two contradictory diagnostics on the one statement.
       if (isEnableDirective(stmt)) continue;
+      // A stage call written as a statement is refused as the stage call it is (Rule 6.7).
+      if (looseStageCallOf(stmt) !== undefined) continue;
       push(
         diagnostics,
         sourceFile,
@@ -704,7 +706,7 @@ export function analyzeSemantics(
  *  nothing declares; `ambient-parity.test.ts` holds the whole set to the library. */
 export const LIBRARY_VALUES: ReadonlySet<string> = new Set([
   ...ATTRIBUTE_NAMES,
-  // The stage calls of change 0111; `vertex`, `fragment` and `compute` are attribute names too.
+  // The stage names, which are attribute names (Rule 2.1); `workgroup_size` is one too.
   ...STAGE_CALLEES,
   'discard',
   'Symbol',

@@ -178,8 +178,8 @@ An _entry point_ is a function the GPU calls directly: once per vertex, once per
 or once per compute invocation. This page uses the first two. You mark one with a stage
 attribute before a top-level function declaration, `@vertex`, `@fragment` or `@compute([64])`:
 `@vertex export function vs(…) { … }`. Every other function you write is a plain helper. The
-stage call of change 0111, `export const vs = vertex(function vs(…) { … });`, is not the
-language's form (change 0130). `tshc migrate` rewrites it to the attribute.
+stage call of change 0111, `export const vs = vertex(function vs(…) { … });`, is refused
+(`TS8028`, changes 0130 and 0140). `tshc migrate` rewrites it to the attribute.
 
 The vertex stage runs once per vertex. It produces the clip space position and whatever
 the fragment stage needs from it, packed in an _IO struct_: an interface (or a class or a `type`) whose fields each carry
@@ -661,8 +661,9 @@ An entry point is a top-level function declaration with exactly one stage attrib
 before it: `@vertex`, `@fragment` or `@compute([…])`. An entry takes its declaration's name. A
 compute entry takes its workgroup size as the attribute's argument, `@compute([64])` or
 `@compute([8, 8])`. A bare `@compute` takes the default of 64. The stage call of change 0111
-(`export const main = compute([64], function main(…) { … })`) is not the language's form
-(change 0130). Change 0140 refuses it, and `tshc migrate` rewrites it to the attribute.
+(`export const main = compute([64], function main(…) { … })`) is refused with `TS8028`, and so
+is `export default` on an entry (changes 0130 and 0140). `tshc migrate` rewrites each to the
+attribute form.
 
 ```ts
 "use typeshade";

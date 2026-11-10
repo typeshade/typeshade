@@ -1,7 +1,8 @@
-// The editor reads the plain-TypeScript entry forms of change 0111 as it reads the decorated
-// ones (milestone 1, amendment 2): a stage call is an entry in the document symbols and in the
-// semantic tokens, and the id of a `builtin<"…", T>` type is hovered and completed as the
-// argument of a `builtin("…")` decorator is, filtered by the stage the call names.
+// The editor reads the entry forms: a function with a stage attribute (change 0130) is an entry
+// in the document symbols and in the semantic tokens, and the id of a `builtin<"…", T>` type
+// (change 0111) is hovered and completed as the argument of a `builtin("…")` decorator is,
+// filtered by the stage the attribute names. A stage call of change 0111 is refused (change
+// 0140), and the editor shows it as the constant TypeScript reads, not as an entry.
 //
 // Verifies: Rule 1.7, Rule 6.6, Rule 6.7, Rule 8.1, Rule 8.22 (docs/language-design.md; traced in reqs/).
 
@@ -13,6 +14,26 @@ import { createTypeshadeLanguageService } from './service.js';
 import { compile } from '../compiler/ts/compile.js';
 
 const SOURCE = `"use typeshade";
+interface VsOut {
+  pos: builtin<"position", vec4>;
+  uv: location<0, vec2>;
+}
+@vertex
+export function vs(i: builtin<"vertex_index", u32>): VsOut {
+  return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
+}
+@fragment
+export function fs(v: VsOut): vec4 {
+  return vec4(v.uv.x, 0., 0., 1.);
+}
+@workgroup_size([64])
+export function scale(xs: array<f32>): void {
+  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * 2.; }
+}
+`;
+
+/** The same program in the stage calls of change 0111, which change 0140 refuses. */
+const CALLED = `"use typeshade";
 interface VsOut {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
@@ -40,8 +61,8 @@ const at = (needle: string, offset = 0) => {
   return { line: before.length - 1, character: before[before.length - 1]!.length };
 };
 
-describe('the editor reads a stage call as an entry (change 0111)', () => {
-  it('lists the entries with their stage, and a workgroup_size kernel as a function', () => {
+describe('the editor reads an entry with typed inputs and outputs (changes 0111 and 0130)', () => {
+  it('lists the entries with their stage, and a kernel function as a function', () => {
     const symbols = open()
       .getDocumentSymbols('a.ts')
       .map((s) => [s.name, s.kind, s.detail ?? null]);
@@ -67,13 +88,59 @@ describe('the editor reads a stage call as an entry (change 0111)', () => {
   });
 });
 
+describe('the editor reads a refused stage call as the constant it is (change 0140)', () => {
+  const called = () => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('c.ts', CALLED);
+    return service;
+  };
+
+  it('reports the refusal of each call, as compile() does, and nothing else', () => {
+    const refusals = [
+      'TS8028 a stage is an attribute on the function declaration: write "@vertex export function vs(…)", or run "tshc migrate" (change 0130)',
+      'TS8028 a stage is an attribute on the function declaration: write "@fragment export function fs(…)", or run "tshc migrate" (change 0130)',
+      'TS8028 a kernel\'s size is an attribute on the function declaration: write "@workgroup_size([64]) export function scale(…)", or run "tshc migrate" (change 0130)',
+    ];
+    expect(
+      called()
+        .getDiagnostics('c.ts')
+        .map((d) => `${String(d.code)} ${d.message}`),
+    ).toEqual(refusals);
+    expect(compile(CALLED).diagnostics.map((d) => `${String(d.code)} ${d.message}`)).toEqual(
+      refusals,
+    );
+  });
+
+  it('lists no entry and marks no entry name', () => {
+    const symbols = called()
+      .getDocumentSymbols('c.ts')
+      .map((s) => [s.name, s.kind]);
+    expect(symbols.filter(([, kind]) => kind === 'entry')).toEqual([]);
+    expect(symbols).toContainEqual(['vs', 'variable']);
+    const tokens = called().getSemanticTokens('c.ts');
+    expect(tokens.filter((t) => t.modifiers.includes('entry'))).toEqual([]);
+  });
+
+  it('completes every builtin id in its function, since no stage is read from the call', () => {
+    const before = CALLED.slice(0, CALLED.indexOf('"vertex_index"') + 1).split('\n');
+    const labels = called()
+      .getCompletions('c.ts', {
+        line: before.length - 1,
+        character: before[before.length - 1]!.length,
+      })
+      .map((c) => c.label);
+    expect(labels).toContain('vertex_index');
+    expect(labels).toContain('global_invocation_id');
+  });
+});
+
 describe('the id of a builtin<"…", T> type reads as a decorator argument does', () => {
   it('hovers with the builtin documentation', () => {
     const hover = open().getHover('a.ts', at('"vertex_index"', 3));
     expect(hover?.contents).toContain('`vertex_index`');
   });
 
-  it("completes the ids of the call's stage only", () => {
+  it("completes the ids of the attribute's stage only", () => {
     const labels = open()
       .getCompletions('a.ts', at('"vertex_index"', 1))
       .map((c) => c.label);

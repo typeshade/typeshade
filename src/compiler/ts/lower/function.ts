@@ -198,25 +198,11 @@ export function lowerSourceFunctions(
   // inside `namespace Palette` is `Palette_warm`.
   const decls: { node: ts.FunctionDeclaration; irName: string | undefined; prefix: string }[] = [];
   eachNamespaceStatement(sourceFile.statements, sourceFile, diagnostics, (stmt, prefix) => {
-    // A stage call, `const vs = vertex(function vs(…) { … })`, declares the function it wraps
-    // (change 0111, decision D1).
+    // A stage call, `const vs = vertex(function vs(…) { … })`, is refused (`refuseStageCalls`,
+    // changes 0130 and 0140). It is still read as the function it wraps, under the constant's
+    // name, so that refusal is the one diagnostic for it (Rule 12.4).
     const sc = stageCallOf(stmt);
     if (sc !== undefined) {
-      // The entry takes the constant's name, which a host imports and the emit keeps; a
-      // function expression named otherwise would name it twice (change 0111).
-      const own = ts.isFunctionExpression(sc.fn) ? sc.fn.name : undefined;
-      if (own !== undefined && own.text !== sc.declaration.name.text) {
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          own,
-          `The function "${own.text}" is the entry "${sc.declaration.name.text}": name it as ` +
-            `the constant, "${sc.callee}(function ${sc.declaration.name.text}(…) { … })", ` +
-            `or leave it unnamed.`,
-          TS_CODES.FUNCTION_SHAPE,
-        );
-        return;
-      }
       const node = stageDeclarationOf(sc);
       decls.push({
         node,
@@ -2770,6 +2756,13 @@ export function parseSignature(
   overrides: readonly OverrideDecl[] = [],
 ): FuncDecl | undefined {
   if (!node.name || !ts.isIdentifier(node.name)) {
+    // `@fragment export default function (…) { … }` has no name because `default` lets it have
+    // none, and `default` on an entry is refused where it is written (Rule 8.1).
+    if (
+      decoratorsOf(node).length > 0 &&
+      node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword) === true
+    )
+      return undefined;
     pushDiag(
       diagnostics,
       sourceFile,
@@ -3760,7 +3753,7 @@ function kernelWorkgroupOf(
       out = out.expression;
     return out;
   };
-  // The decorator's one argument, or the stage call's first.
+  // The decorator's one argument, or a refused stage call's first.
   const args = ts.isDecorator(d)
     ? ts.isCallExpression(d.expression)
       ? d.expression.arguments
@@ -4078,8 +4071,8 @@ function parseStage(
       }
     }
   };
-  // A stage call (change 0111, decision D1) says the stage, or a kernel function's workgroup,
-  // with no decorator.
+  // A refused stage call (changes 0130 and 0140) says the stage, or a kernel function's
+  // workgroup, with no decorator.
   const sc = stageCallOfDeclaration(node);
   if (sc !== undefined) {
     if (sc.callee === 'workgroup_size') kernelWorkgroup = kernelWorkgroupOf(sc.call, consts);

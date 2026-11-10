@@ -1764,6 +1764,29 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Removed
 
+- **The stage calls of change 0111, and `export default` on an entry, are refused** (changes
+  0130 and 0140; Rule 1.8, Rule 6.7, Rule 8.1, surface §3, §6 and §54). A stage is an attribute
+  on the entry's function declaration. The calls `vertex(f)`, `fragment(f)`, `compute([…], f)`
+  and `workgroup_size([…], f)`, and an entry written as a `const`, an arrow function or a
+  function expression through one of them, no longer compile. Each is one `TS8028`, an error,
+  on the name called, in the compiler and in the editor:
+  `a stage is an attribute on the function declaration: write "@vertex export function vs(…)", or run "tshc migrate" (change 0130)`.
+  The text names `@compute([8, 8])` for `compute([8, 8], f)` and `@workgroup_size([128])` for
+  `workgroup_size([128], f)`, and it names an option written after the function to delete.
+  `export default` on an entry is `TS8028` on `default`:
+  `an entry takes its declaration's name; write "export function k"`. Nothing else is said
+  about a refused entry (Rule 12.4). The ambient library declares no call signature for the
+  four names, which stay the names of the attributes (Rule 2.1), and a declaration of the file
+  under one of them is still the file's. To migrate, run `tshc migrate`. It rewrites
+  `export const vs = vertex(function vs(…) { … });` to `@vertex` on a line of its own and
+  `export function vs(…) { … }`, writes an arrow function's expression body as
+  `{ return …; }`, moves the size of `compute` and `workgroup_size` into the attribute,
+  deletes a `{ diagnostic: [...] }` option, and writes `export function k` for
+  `export default function k`. A stage call inside a template string is edited by hand. This
+  is a breaking change (Rule 13.9). No official release had the stage calls (OD-6), so no
+  warning release precedes the refusal, and Rule 13.10 does not apply: a refused program does
+  not compute another result.
+
 - **The diagnostic filter: the compiler rewrites an implicit-LOD sample or a derivative in
   non-uniform control flow** (change 0132; Rule 1.4, Rule 6.7, Rule 8.5, surface §3, §7, §50 and
   §54). The stage call's `{ diagnostic: [...] }` option, the decorated `@diagnostic(…)` and the

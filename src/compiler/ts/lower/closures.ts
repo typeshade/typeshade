@@ -146,7 +146,7 @@ export function importsName(sourceFile: ts.SourceFile, name: string): boolean {
  *  it, or undefined at the top of the file or of a namespace. */
 export function functionAround(node: ts.Node): ts.SignatureDeclaration | undefined {
   for (let at = node.parent; at !== undefined; at = at.parent) {
-    // A stage call's function (change 0111) is lowered as the declaration made of it.
+    // A refused stage call's function (change 0140) is lowered as the declaration made of it.
     if (ts.isFunctionLike(at)) return stageDeclarationOfFunction(at) ?? at;
     if (ts.isSourceFile(at) || ts.isModuleBlock(at) || ts.isClassLike(at)) return undefined;
   }

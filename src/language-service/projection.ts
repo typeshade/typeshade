@@ -252,7 +252,9 @@ export function planInsertions(text: string, fileName: string, imports?: ImportH
   }
   const sf = analysis.sourceFile;
   for (const fn of functionCandidates(sf)) {
-    // A stage call's function is lowered as the declaration it stands for (change 0111).
+    // A refused stage call's function is lowered as the declaration it stood for (change
+    // 0140), so TypeScript reads its result as it reads an entry's and adds nothing to the
+    // refusal (Rule 12.4).
     const lowered = stageDeclarationOfFunction(fn) ?? fn;
     const type = inferredReturnAt(sf, lowered.getStart(sf));
     // An entry's struct result is named as the author wrote the struct (change 0136).
@@ -348,8 +350,8 @@ function returnedValues(fn: FunctionCandidate): ts.Expression[] {
   return out;
 }
 
-/** Whether `fn` is an entry's function: the function a stage call wraps (`vertex(function vs()
- *  { … })`), or a function with a stage decorator. */
+/** Whether `fn` is an entry's function: a function with a stage attribute, or the function a
+ *  refused stage call wraps (`vertex(function vs() { … })`, change 0140). */
 function isEntryFunction(fn: FunctionCandidate): boolean {
   const parent = fn.parent;
   if (

@@ -10,6 +10,7 @@
 
 import ts from 'typescript';
 import { QUALIFIER_DECORATORS } from '../compiler/ts/decorated-form.js';
+import { STAGE_CALLEES } from '../compiler/ts/stage-call.js';
 import type { TypeshadeSignatureHelp } from './types.js';
 
 /** The qualifier written on `p`, `inout` or `out`, or undefined. */
@@ -23,15 +24,18 @@ function qualifierOf(p: ts.ParameterDeclaration): string | undefined {
   return undefined;
 }
 
-/** The declarations of the function the call around `start` names, or none. */
-function calledDeclarations(
+/** The call around `start`, the innermost one whose arguments hold it, with the symbol of
+ *  the name it calls. */
+function callAround(
   languageService: ts.LanguageService,
   uri: string,
   start: number,
-): readonly ts.SignatureDeclaration[] {
+):
+  | { call: ts.CallExpression; symbol: ts.Symbol | undefined; sourceFile: ts.SourceFile }
+  | undefined {
   const program = languageService.getProgram();
   const sourceFile = program?.getSourceFile(uri);
-  if (program === undefined || sourceFile === undefined) return [];
+  if (program === undefined || sourceFile === undefined) return undefined;
   let call: ts.CallExpression | undefined;
   const visit = (node: ts.Node): void => {
     if (start < node.getFullStart() || start > node.getEnd()) return;
@@ -39,12 +43,39 @@ function calledDeclarations(
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-  if (call === undefined) return [];
+  if (call === undefined) return undefined;
   let callee: ts.Node = call.expression;
   if (ts.isPropertyAccessExpression(callee)) callee = callee.name;
-  const symbol = program.getTypeChecker().getSymbolAtLocation(callee);
-  return (symbol?.declarations ?? []).filter(
+  return { call, symbol: program.getTypeChecker().getSymbolAtLocation(callee), sourceFile };
+}
+
+/** The declarations of the function the call around `start` names, or none. */
+function calledDeclarations(
+  languageService: ts.LanguageService,
+  uri: string,
+  start: number,
+): readonly ts.SignatureDeclaration[] {
+  return (callAround(languageService, uri, start)?.symbol?.declarations ?? []).filter(
     (d): d is ts.SignatureDeclaration => ts.isFunctionDeclaration(d) && d.parameters.length > 0,
+  );
+}
+
+/**
+ * Whether the call around `start` is a stage call, `vertex(…)`, `fragment(…)`, `compute(…)` or
+ * `workgroup_size(…)` written as a call and not as an attribute, of the name the ambient
+ * library declares. The compiler refuses it (`TS8028`, Rule 6.7, change 0140), so no signature
+ * is offered for it: the only one the library declares is the attribute's. A function of the
+ * file with such a name is the file's, and its signature is shown.
+ */
+function isStageCall(languageService: ts.LanguageService, uri: string, start: number): boolean {
+  const found = callAround(languageService, uri, start);
+  if (found === undefined) return false;
+  const { call, symbol, sourceFile } = found;
+  return (
+    ts.isIdentifier(call.expression) &&
+    (STAGE_CALLEES as readonly string[]).includes(call.expression.text) &&
+    !ts.isDecorator(call.parent) &&
+    !(symbol?.declarations ?? []).some((d) => d.getSourceFile() === sourceFile)
   );
 }
 
@@ -57,6 +88,7 @@ export function getSignatureHelp(
 ): TypeshadeSignatureHelp | undefined {
   const items = languageService.getSignatureHelpItems(uri, offset, undefined);
   if (!items) return undefined;
+  if (isStageCall(languageService, uri, items.applicableSpan.start)) return undefined;
   const declarations = calledDeclarations(languageService, uri, items.applicableSpan.start);
   return {
     signatures: items.items.map((item) => {

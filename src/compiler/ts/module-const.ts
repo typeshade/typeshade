@@ -453,8 +453,8 @@ export function collectModuleConsts(
       // `const f = (x: f32): f32 => ...` at the top level is a FUNCTION of the module, which
       // local-functions.ts collects (roadmap 0.3 item T7, #92), not a constant to fold.
       if (localFunctionOf(decl) !== undefined) continue;
-      // `const vs = vertex(function vs(…) { … })` declares an entry point (change 0111), which
-      // lower/function.ts collects; nothing here folds.
+      // `const vs = vertex(function vs(…) { … })` is a refused stage call (changes 0130 and
+      // 0140), which `refuseStageCalls` reports; nothing here folds.
       if (decl.initializer !== undefined && isStageCall(decl.initializer)) continue;
       // `const AgedParticle = Aged(Particle)` names a mixin APPLICATION (T8, #92): a class,
       // decided when the file is compiled, not a value to fold. structs.ts reads it where a

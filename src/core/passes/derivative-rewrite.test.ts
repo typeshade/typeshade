@@ -9,7 +9,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
-import { DIAGNOSTIC_OPTION_REFUSAL } from '../../compiler/ts/stage-call.js';
 import { TS_CODES } from '../../compiler/ts/codes.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { compileModule } from '../oracle.js';
@@ -251,8 +250,8 @@ declare const shadowSmp: sampler_comparison;
     // once (TS8028, in both halves), and the same source without it is rewritten.
     const src = frag(`  if (v.uv.x > 0.5) { return textureSample(t, s, v.uv); }
   return vec4(0.);`);
-    // The filter was an option of the stage call of change 0111, which compiles until the
-    // refusing pull request of change 0140, so the filtered module is written with that call.
+    // The filter was an option of the stage call of change 0111, which change 0140 refuses:
+    // the one refusal names the attribute and the filter to delete.
     const called = src.replace(
       '@fragment export function fs(',
       'export const fs = fragment(function fs(',
@@ -267,7 +266,11 @@ declare const shadowSmp: sampler_comparison;
     expect(said).toEqual([]);
     const service = createTypeshadeLanguageService();
     service.openDocument('a.shade.ts', `"use typeshade";\n${filtered}`);
-    const refusal = [`TS8028 ${DIAGNOSTIC_OPTION_REFUSAL}`];
+    const refusal = [
+      'TS8028 a stage is an attribute on the function declaration: write "@fragment export ' +
+        'function fs(…)", or run "tshc migrate" (change 0130). The attribute takes no options: ' +
+        'delete "diagnostic: [...]"',
+    ];
     expect(c.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual(refusal);
     expect(
       service.getDiagnostics('a.shade.ts').map((d) => `${String(d.code)} ${d.message}`),
