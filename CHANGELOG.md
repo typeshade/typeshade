@@ -217,6 +217,13 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **An imported struct keeps its name beside an entry's type alias of that name** (#1194, pull
+  request #1200). The linker names a type alias last, since it emits nothing. A program whose
+  entry writes `type Light = f32;` and imports a file that declares `interface Light` emitted the
+  struct as `lib_Light`; it now emits `Light`, as the one-file program does. The struct name is
+  visible to a host (`reflect()`, the manifest). The owner accepted this change as an improvement
+  on 2026-11-10 ("개선으로 수용하고 기록").
+
 - **`@vertex()` and `@fragment()` are refused, and so is a second `@workgroup_size([n])`** (Rules
   8.1 and 8.22; change 0130, amendment A1; the owner's decisions of 2026-11-10). Both forms
   compiled with no diagnostic in `compile()` and in the editor: the empty list was read as the
