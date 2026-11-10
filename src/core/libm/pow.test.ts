@@ -143,10 +143,19 @@ describe("the special pairs of ECMA-262's Number::exponentiate", () => {
         const y = set.second![i]!;
         const want = fr(enginePow(x, y));
         const got = c.f(x, y);
-        // A finite result that is neither 0, 1 nor an exact power is the routine's, so it is
-        // held to within 1 ULP of the engine's below; here the bits of every other result.
+        // A pair with a special operand (a zero, an infinity, a NaN, x = ±1), and a result that
+        // overflows or underflows, is ECMA-262's table: its bits are held. Every other result is
+        // the routine's approximation, and an engine's `Math.pow` need not round it the same
+        // way (V8 gives 1 for 0.9999999999999999 ** -1, whose nearest double is
+        // 1.0000000000000002), so it is held within 2^-51 of the engine's.
         const special =
-          !Number.isFinite(want) || want === 0 || Math.abs(want) === 1 || Number.isNaN(want);
+          !Number.isFinite(x) ||
+          !Number.isFinite(y) ||
+          x === 0 ||
+          y === 0 ||
+          Math.abs(x) === 1 ||
+          !Number.isFinite(want) ||
+          want === 0;
         if (special) same(got, want, `${c.routine}(${String(x)}, ${String(y)})`);
         else expect(Math.abs(got - want) <= Math.abs(want) * 2 ** -51).toBe(true);
         compared++;
