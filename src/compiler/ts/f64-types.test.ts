@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest';
 import { compile } from '../../index.js';
 import { compileTsSource } from './source-file.js';
 import { compileModule } from '../../core/oracle.js';
-import { LIBM_TRIG } from '../../core/cpu-runtime.js';
+import { LIBM } from '../../core/cpu-runtime.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
 import { fp64Lower } from '../../core/passes/fp64-lower.js';
@@ -82,8 +82,8 @@ const SCALAR_TWINS: Readonly<Record<string, { call: string; args: number[]; want
   min: { call: 'min(a, b)', args: [0.25, -0.5], want: -0.5 },
   max: { call: 'max(a, b)', args: [0.25, -0.5], want: 0.25 },
   mix: { call: 'mix(a, b, 0.25)', args: [1, 3], want: 1.5 },
-  sin: { call: 'sin(a)', args: [0.5], want: LIBM_TRIG.sinF64(0.5) },
-  cos: { call: 'cos(a)', args: [0.5], want: LIBM_TRIG.cosF64(0.5) },
+  sin: { call: 'sin(a)', args: [0.5], want: LIBM.sinF64(0.5) },
+  cos: { call: 'cos(a)', args: [0.5], want: LIBM.cosF64(0.5) },
 };
 
 describe('every builtin the fp64 pass has a twin for', () => {

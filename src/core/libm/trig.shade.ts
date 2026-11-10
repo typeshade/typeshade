@@ -26,7 +26,12 @@
 // those of fdlibm (`k_sin.c`, `k_cos.c`). The reduction below 2^20 * pi/2 is Cody and Waite's,
 // with pi/2 in three pieces of 33 bits. The reduction above it is Payne and Hanek's, with 2/pi
 // in pieces of 24 bits. Every constant derived from pi is held to a BigInt computation by
-// `libm.test.ts`.
+// `libm.test.ts`. The notice of fdlibm, whose kernels and coefficients these are:
+//
+//   Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+//   Developed at SunSoft, a Sun Microsystems, Inc. business.
+//   Permission to use, copy, modify, and distribute this software is freely granted,
+//   provided that this notice is preserved.
 
 // The kernel of sin on [-pi/4, pi/4] (fdlibm).
 const S1: f64 = -0.16666666666666632;

@@ -2928,8 +2928,24 @@ function isAboutRefusedBuiltinValue(
       (e) => e.fileName === file.fileName && type.getStart(file) <= e.start && e.start < type.end,
     );
   };
+  // A local declared from a read of such a value is `never` too (`let near = out.cd[0]`), and
+  // a write of that local is reported the same way (#1185). `seen` ends a walk through
+  // declarations that read each other.
+  const seen = new Set<ts.Node>();
+  const readsRefused = (node: ts.Node): boolean => {
+    if (ts.isIdentifier(node)) return declares(checker.getSymbolAtLocation(node));
+    if (ts.isTypeNode(node)) return false;
+    return ts.forEachChild(node, readsRefused) === true;
+  };
   const declares = (symbol: ts.Symbol | undefined): boolean =>
-    symbol?.declarations?.some((d) => refused.includes(d) || refusedElsewhere(d)) === true;
+    symbol?.declarations?.some((d) => {
+      if (refused.includes(d) || refusedElsewhere(d)) return true;
+      if (!ts.isVariableDeclaration(d) || d.initializer === undefined || seen.has(d)) return false;
+      seen.add(d);
+      const reads = readsRefused(d.initializer);
+      seen.delete(d);
+      return reads;
+    }) === true;
   const visit = (node: ts.Node): void => {
     if (found || node.getEnd() <= diagnostic.span.start || node.getStart(context.sourceFile) >= end)
       return;

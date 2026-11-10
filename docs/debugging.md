@@ -697,8 +697,8 @@ default budget; the shared launch configuration supplies none.
 
 **Decision: one object keyed by WGSL builtin id, plus an `inputs` map keyed by parameter or
 entry-IO field name, rather than three per-stage shapes.** The grammar
-(`docs/use-typeshade-surface.md` §3) already makes stage inputs explicit parameters carrying
-`@builtin(...)` or `@location(n)`, and `reflect()` already reports them as `EntryIo`. Keying
+(`docs/use-typeshade-surface.md` §3) already makes stage inputs explicit parameters, each a
+`builtin<"...">` value or a user-defined input at a location, and `reflect()` already reports them as `EntryIo`. Keying
 the configuration the same way means the debugger validates it against reflection rather than
 against a hand-written table per stage, and an unknown key is an error naming the builtins the
 entry actually declares.

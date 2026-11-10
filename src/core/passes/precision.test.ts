@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { Expr, ModuleDecl } from '../ir/index.js';
 import { f32T, vec2fT, i32T } from '../ir/index.js';
 import { compileModule } from '../oracle.js';
+import { LIBM_TRIG } from '../cpu-runtime.js';
 import { compileModuleJs } from '../cpu-codegen.js';
 import { froundF32 } from './precision.js';
 import { compile } from '../../compiler/ts/compile.js';
@@ -294,5 +295,96 @@ export function lanes(v: vec2): vec2 { return vec2(${id}(v.x), ${id}(v.y)); }
   it('the rounding step itself is still collapsed: a second application adds no wrapper', () => {
     const once = froundF32(addModule);
     expect(froundF32(once)).toEqual(once);
+  });
+});
+
+// A module constant whose value is an expression computes in `'f32'` precision as a function
+// body does. The pass rewrote function bodies only, so `const S: f32 = sin(X)` ran in f64 on the
+// unrounded `X`, while `sin(X)` in a function read `X` as the f32 it is, as the GPU does.
+describe('a module constant with an expression rounds as a function body does', () => {
+  const SOURCE = `"use typeshade";
+const X: f32 = 100.7;
+const S: f32 = sin(X);
+const C: f32 = cos(X) * 2.0;
+const V: vec2 = vec2(sin(X), 0.1);
+export function constantS(): f32 { return S; }
+export function functionS(): f32 { return sin(X); }
+export function constantC(): f32 { return C; }
+export function functionC(): f32 { return cos(X) * 2.0; }
+export function constantV(): vec2 { return V; }
+export function functionV(): vec2 { return vec2(sin(X), 0.1); }
+@fragment export function fs(uv: location<0, vec2>): vec4 { return vec4(S, C, V); }
+`;
+  const compiled = compile(SOURCE);
+  const fr = Math.fround;
+
+  it('compile() and the language service accept the program, and the emit keeps the expressions', () => {
+    expect(compiled.diagnostics).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', SOURCE);
+    expect(service.getDiagnostics('a.ts')).toEqual([]);
+    // The GPU computes each constant from `X`, which it holds as an f32. The pass runs on the
+    // CPU engines only, so this text is the same before and after the fix.
+    expect(compiled.wgsl).toContain('const X: f32 = 100.7;\nconst S: f32 = sin(X);');
+    expect(compiled.wgsl).toContain('const C: f32 = (cos(X) * 2.0);');
+    expect(compiled.wgsl).toContain('const V: vec2<f32> = vec2<f32>(sin(X), 0.1);');
+  });
+
+  it("in 'f32' precision the constant is the function's value, on every CPU walk", () => {
+    const sinX = fr(LIBM_TRIG.sinF64(fr(100.7)));
+    // The operand is where the two differed: the f64 routine on the unrounded 100.7.
+    expect(sinX).not.toBe(fr(LIBM_TRIG.sinF64(100.7)));
+    for (const build of [compileModule, compileModuleJs]) {
+      const fns = build(compiled.module, { precision: 'f32' }).fns as Record<string, () => unknown>;
+      expect(fns['functionS']!()).toBe(sinX);
+      expect(fns['constantS']!()).toBe(sinX);
+      expect(fns['constantC']!()).toBe(fns['functionC']!());
+      expect(fns['constantC']!()).toBe(fr(fr(LIBM_TRIG.cosF64(fr(100.7))) * 2));
+      expect(fns['constantV']!()).toEqual(fns['functionV']!());
+      expect(fns['constantV']!()).toEqual([sinX, fr(0.1)]);
+    }
+    for (const [name, want] of [
+      ['constantS', sinX],
+      ['functionS', sinX],
+    ] as const) {
+      const stepper = startDebugSession(compiled.module, name, [], { precision: 'f32' });
+      stepper.continue();
+      expect(stepper.result).toBe(want);
+    }
+  });
+
+  it("in 'f64' precision nothing rounds, as before", () => {
+    for (const build of [compileModule, compileModuleJs]) {
+      const fns = build(compiled.module, { precision: 'f64' }).fns as Record<string, () => unknown>;
+      expect(fns['constantS']!()).toBe(LIBM_TRIG.sinF64(100.7));
+      expect(fns['functionS']!()).toBe(LIBM_TRIG.sinF64(100.7));
+    }
+  });
+
+  it('the pass stays idempotent on a module with such constants', () => {
+    const once = froundF32(compiled.module);
+    expect(froundF32(once)).toEqual(once);
+    // And it rewrites the constants: a module with none is returned with the same constants.
+    expect(once.consts.find((c) => c.name === 'S')!.valueExpr).not.toEqual(
+      compiled.module.consts.find((c) => c.name === 'S')!.valueExpr,
+    );
+  });
+
+  it('a constant the compiler folds to a literal is the literal the GPU receives, rounded', () => {
+    // `Y` has no expression left: the front end folds it and emits the literal. The CPU reads
+    // that value rounded once, which is what a GPU reads from the emitted text.
+    const folded = compile(`"use typeshade";
+const X: f32 = 0.0117;
+const Y: f32 = X * 3.0;
+export function constantY(): f32 { return Y; }
+@fragment export function fs(uv: location<0, vec2>): vec4 { return vec4(Y, 0., 0., 1.); }
+`);
+    expect(folded.diagnostics).toEqual([]);
+    const literal = /const Y: f32 = ([0-9.e+-]+);/.exec(folded.wgsl ?? '')?.[1];
+    expect(literal).toBeDefined();
+    for (const build of [compileModule, compileModuleJs]) {
+      const fns = build(folded.module, { precision: 'f32' }).fns as Record<string, () => unknown>;
+      expect(fns['constantY']!()).toBe(fr(Number(literal)));
+    }
   });
 });

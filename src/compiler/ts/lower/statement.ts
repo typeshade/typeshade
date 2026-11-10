@@ -1263,6 +1263,10 @@ function readField(
         diagnostics,
       );
       if (read !== 'none') return read;
+      // A field its type declared and the struct does not carry was refused where it was
+      // written; a pattern that reads it adds nothing, as a read `o.x` adds nothing
+      // (Rule 12.4, #1185).
+      if (scope.isWithheld(base.type.name, emittedMemberName(field))) return undefined;
       pushDiag(
         diagnostics,
         sourceFile,

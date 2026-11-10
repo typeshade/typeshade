@@ -20,7 +20,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LIBM_TRIG } from '../src/core/cpu-runtime.js';
+import { LIBM } from '../src/core/cpu-runtime.js';
 import {
   LIBM_GATE_SEED,
   libmFunctions,
@@ -29,9 +29,40 @@ import {
   type LibmGateRow,
   type LibmRoutine,
 } from '../src/core/testing/libm-gate.js';
+import {
+  caseRows,
+  explogCases,
+  type LibmCase,
+  type LibmCaseFile,
+} from '../src/core/testing/libm-cases.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const LIBM_GATE_FILE = 'src/core/libm/trig.gate.json';
+
+/** The families after `trig`, each with its gate file `src/core/libm/<family>.gate.json`. */
+const CASE_FAMILIES: readonly (readonly [string, (libm: typeof LIBM) => LibmCase[]])[] = [
+  ['explog', (libm) => explogCases(libm)],
+];
+
+/** `LIBM` with a result of the routine `name` changed in its last bit, once in every 50,000
+ *  finite, non-zero results, so that each case of the routine meets one. The rounding of an
+ *  `f32` case hides the bit; the `f64` case must report it. The instrument of a family plants
+ *  it and requires a report. */
+function withOneBitChanged(name: keyof typeof LIBM): typeof LIBM {
+  let seen = 0;
+  const routine = LIBM[name] as (x: number, n: number) => number;
+  return {
+    ...LIBM,
+    [name]: (x: number, n: number): number => {
+      const r = routine(x, n);
+      if (!Number.isFinite(r) || r === 0 || Math.abs(r) < 1e-300) return r;
+      return seen++ % 50_000 === 1000 ? r + r * 2 ** -52 : r;
+    },
+  };
+}
+/** The routine of each family whose result the instrument changes. */
+const PLANTED: Readonly<Record<string, keyof typeof LIBM>> = { explog: 'logF64' };
+const caseFile = (family: string): string => `src/core/libm/${family}.gate.json`;
 
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 
@@ -41,7 +72,10 @@ const engine = (): string => {
 };
 
 /** The rows on which `actual` differs from `expected`, as sentences. */
-function differences(actual: readonly LibmGateRow[], expected: readonly LibmGateRow[]): string[] {
+function differences(
+  actual: readonly (LibmGateRow | LibmCaseFile['rows'][number])[],
+  expected: readonly (LibmGateRow | LibmCaseFile['rows'][number])[],
+): string[] {
   const out: string[] = [];
   if (actual.length !== expected.length)
     out.push(`${String(actual.length)} rows computed, ${String(expected.length)} in the file`);
@@ -64,7 +98,7 @@ export function libmArm(): number {
   // The instrument first (AGENTS.md#gate-discipline): one result of one routine with its last
   // bit changed must be reported, or a match below says nothing.
   let calls = 0;
-  const libm = libmFunctions(LIBM_TRIG);
+  const libm = libmFunctions(LIBM);
   const flipped: Record<LibmRoutine, (x: number) => number> = {
     ...libm,
     sinF64: (x) => {
@@ -87,7 +121,35 @@ export function libmArm(): number {
     `libm differential: ${engine()} · ${String(rows.length)} sets of sin and cos, for an f32 and an f64 operand, ` +
       `${String(total)} results held to ${LIBM_GATE_FILE} by hash (${String(nans)} NaN results hashed as the canonical NaN) · failures: ${String(failures.length)}`,
   );
-  return failures.length;
+  let failed = failures.length;
+  for (const [family, cases] of CASE_FAMILIES) {
+    const expected = JSON.parse(readFileSync(join(ROOT, caseFile(family)), 'utf8')) as LibmCaseFile;
+    // The instrument of this family: one changed bit of one routine's result must be reported.
+    const routine = PLANTED[family]!;
+    const reported = differences(
+      caseRows(cases(withOneBitChanged(routine)), sha256),
+      expected.rows,
+    );
+    if (reported.length === 0) {
+      console.log(
+        `FAIL  libm ${family}: a result of ${routine} with one bit changed was not reported`,
+      );
+      failed += 1;
+      continue;
+    }
+    console.log(
+      `instrument: a result of ${routine} with one bit changed was REPORTED (${reported[0]!})`,
+    );
+    const computed = caseRows(cases(LIBM), sha256);
+    const wrong = differences(computed, expected.rows);
+    for (const f of wrong) console.log(`FAIL  libm ${family} ${f}`);
+    console.log(
+      `libm differential: ${engine()} · ${family}: ${String(computed.length)} sets of ${String(new Set(computed.map((r) => r.routine)).size)} cases, ` +
+        `${String(computed.reduce((n, r) => n + r.count, 0))} results held to ${caseFile(family)} by hash (${String(computed.reduce((n, r) => n + r.nanResults, 0))} NaN results hashed as the canonical NaN) · failures: ${String(wrong.length)}`,
+    );
+    failed += wrong.length;
+  }
+  return failed;
 }
 
 if (import.meta.main) {
@@ -96,10 +158,20 @@ if (import.meta.main) {
       seed: `0x${LIBM_GATE_SEED.toString(16).padStart(8, '0')}`,
       generator: 'mulberry32; src/core/testing/libm-gate.ts',
       nan: 'A NaN is hashed as the canonical NaN of its format, as an input and as a result, until milestone 1b of change 0042.',
-      rows: libmGateRows(libmFunctions(LIBM_TRIG), sha256),
+      rows: libmGateRows(libmFunctions(LIBM), sha256),
     };
     writeFileSync(join(ROOT, LIBM_GATE_FILE), `${JSON.stringify(file, null, 2)}\n`);
     console.log(`wrote ${LIBM_GATE_FILE} on ${engine()}`);
+    for (const [family, cases] of CASE_FAMILIES) {
+      const next: LibmCaseFile = {
+        seed: file.seed,
+        generator: 'mulberry32; src/core/testing/libm-cases.ts',
+        nan: file.nan,
+        rows: caseRows(cases(LIBM), sha256),
+      };
+      writeFileSync(join(ROOT, caseFile(family)), `${JSON.stringify(next, null, 2)}\n`);
+      console.log(`wrote ${caseFile(family)} on ${engine()}`);
+    }
   } else {
     process.exitCode = libmArm() === 0 ? 0 : 1;
   }
