@@ -1223,8 +1223,6 @@ describe("an array's size is a use of the value it names (Rule 3.9, Rule 12.7, #
   const SENTENCE =
     'The outer size of a workgroup array must name an integer override with a positive ' +
     'default; "N" does not.';
-  const IMPORT_IT =
-    'Unknown identifier "N". Declare it in this file, or import it from another shader module.';
   const TWICE = (first: string, second: string): string =>
     `Override "N" is declared in both "${first}" and "${second}". A program is one module, ` +
     `and the host knows an override by its name; rename one.`;
@@ -1467,14 +1465,17 @@ describe("an array's size is a use of the value it names (Rule 3.9, Rule 12.7, #
   });
 
   describe('a size that names no value of its own file reads no other file (B4)', () => {
-    const at = (where: string): string[] => [`${where} TS8022 ${IMPORT_IT}`];
+    // One file says TS8002 of a size that names nothing, and so does each program here, in
+    // `compile()` and in the editor on the file that writes the size: the linker writes the size
+    // under a name nothing declares, so another file's override of the name is never read.
+    const at = (where: string): string[] => [`${where} TS8002 ${SENTENCE}`];
     it('the entry sizes an array by an override it did not import', () => {
       const files: Files = {
         '/p/main.shade.ts': `${D}${IMPORT}export let mine: workgroup<array<f32, N>>;\n@compute([1]) export function main() { tile[0] = mine[1] + 1.; }\n`,
         '/p/lib.shade.ts': LIB,
       };
       expect(errorsOf(files)).toEqual(at('/p/main.shade.ts:3:39'));
-      expect(typeshadeOf(edited(files))).toEqual([`TS8022 ${IMPORT_IT}`]);
+      expect(typeshadeOf(edited(files))).toEqual([`TS8002 ${SENTENCE}`]);
       expect(checkStatus(files)).toBe(1);
     });
 
@@ -1484,8 +1485,9 @@ describe("an array's size is a use of the value it names (Rule 3.9, Rule 12.7, #
         '/p/lib.shade.ts': `${D}${SIZE}export function count(): u32 { return N; }\n`,
       };
       expect(errorsOf(files)).toEqual(at('/p/main.shade.ts:3:39'));
-      expect(typeshadeOf(edited(files))).toEqual([`TS8022 ${IMPORT_IT}`]);
+      expect(typeshadeOf(edited(files))).toEqual([`TS8002 ${SENTENCE}`]);
       expect(checkStatus(files)).toBe(1);
+      expect(linkedSource(files)).toContain('let mine: workgroup<array<f32, main_N>>;');
     });
 
     it("an imported file sizes an array by the entry's override, which compiled before", () => {
@@ -1493,8 +1495,9 @@ describe("an array's size is a use of the value it names (Rule 3.9, Rule 12.7, #
         '/p/main.shade.ts': `${D}${IMPORT}${SIZE}${MAIN}`,
         '/p/lib.shade.ts': `${D}${TILE}`,
       };
+      // `compile()` and the editor on the imported file give the one code (minor (a) of the
+      // second review of #1200).
       expect(errorsOf(files)).toEqual(at('/p/lib.shade.ts:2:39'));
-      // On its own the imported file names nothing: the one-file sentence.
       expect(typeshadeOf(edited(files, '/p/lib.shade.ts'))).toEqual([`TS8002 ${SENTENCE}`]);
       expect(checkStatus(files)).toBe(1);
     });
@@ -1569,17 +1572,108 @@ describe("an array's size is a use of the value it names (Rule 3.9, Rule 12.7, #
       });
     }
 
-    it('the same when a value use keeps the override: TS8022, since the module then has it', () => {
-      // The front end would read the size as the override the module holds, so the linker
-      // reports the size as a name this file does not import as a value. `main` compiled it.
+    it('the same when a value use keeps the override in the module, which compiled before', () => {
       const files: Files = {
         '/p/main.shade.ts': `${D}import { type N, count } from "./lib.shade.ts";\n${TILE}@compute([1]) export function main() { tile[0] = f32(count()); }\n`,
         '/p/lib.shade.ts': `${D}${SIZE}export function count(): u32 { return N; }\n`,
       };
-      expect(errorsOf(files)).toEqual([`/p/main.shade.ts:3:39 TS8022 ${IMPORT_IT}`]);
-      expect(typeshadeOf(edited(files))).toEqual([`TS8022 ${IMPORT_IT}`]);
+      expect(errorsOf(files)).toEqual([`/p/main.shade.ts:3:39 TS8002 ${SENTENCE}`]);
+      expect(typeshadeOf(edited(files))).toEqual([`TS8002 ${SENTENCE}`]);
       expect(checkStatus(files)).toBe(1);
     });
+
+    // `export type * from` leaves no alias symbol in the file that writes it, so the linker
+    // reads each `export *` on the way (M1 of the second review of #1200). TypeScript reads a
+    // name that one path exports as a value and another as a type as a value, and so does this.
+    const starFrom = (between: Files, size = 'main'): Files => ({
+      '/p/main.shade.ts':
+        size === 'main'
+          ? `${D}import { N } from "./c.shade.ts";\n${TILE}${MAIN}`
+          : `${D}${IMPORT}${MAIN}`,
+      ...(size === 'main'
+        ? {}
+        : { '/p/lib.shade.ts': `${D}import { N } from "./c.shade.ts";\n${TILE}` }),
+      ...between,
+      '/p/a.shade.ts': `${D}${SIZE}`,
+    });
+    const STARS: readonly (readonly [string, Files, string | undefined])[] = [
+      [
+        '`export type *` in the file the entry imports from',
+        starFrom({ '/p/c.shade.ts': `${D}export type * from "./a.shade.ts";\n` }),
+        '/p/main.shade.ts:3:39',
+      ],
+      [
+        '`export type *` on the way to an imported file',
+        starFrom({ '/p/c.shade.ts': `${D}export type * from "./a.shade.ts";\n` }, 'lib'),
+        '/p/lib.shade.ts:3:39',
+      ],
+      [
+        '`export *` then `export type *` (depth 3)',
+        starFrom({
+          '/p/c.shade.ts': `${D}export * from "./b.shade.ts";\n`,
+          '/p/b.shade.ts': `${D}export type * from "./a.shade.ts";\n`,
+        }),
+        '/p/main.shade.ts:3:39',
+      ],
+      [
+        '`export type *` then `export *` (depth 3)',
+        starFrom({
+          '/p/c.shade.ts': `${D}export type * from "./b.shade.ts";\n`,
+          '/p/b.shade.ts': `${D}export * from "./a.shade.ts";\n`,
+        }),
+        '/p/main.shade.ts:3:39',
+      ],
+      [
+        '`export *` then `export type { N } from`',
+        starFrom({
+          '/p/c.shade.ts': `${D}export * from "./b.shade.ts";\n`,
+          '/p/b.shade.ts': `${D}export type { N } from "./a.shade.ts";\n`,
+        }),
+        '/p/main.shade.ts:3:39',
+      ],
+      [
+        'a local `export { N }` of a type-only import',
+        starFrom({
+          '/p/c.shade.ts': `${D}import type { N } from "./a.shade.ts";\nexport { N };\n`,
+        }),
+        '/p/main.shade.ts:3:39',
+      ],
+      [
+        'a local `export { N }` of a value import',
+        starFrom({ '/p/c.shade.ts': `${D}import { N } from "./a.shade.ts";\nexport { N };\n` }),
+        undefined,
+      ],
+      [
+        'a value `export *` beside a type `export type *` of the same module',
+        starFrom({
+          '/p/c.shade.ts': `${D}export type * from "./a.shade.ts";\nexport * from "./a.shade.ts";\n`,
+        }),
+        undefined,
+      ],
+      [
+        'a value `export *` at depth 3',
+        starFrom({
+          '/p/c.shade.ts': `${D}export * from "./b.shade.ts";\n`,
+          '/p/b.shade.ts': `${D}export * from "./a.shade.ts";\n`,
+        }),
+        undefined,
+      ],
+    ];
+    for (const [name, files, where] of STARS) {
+      it(`${name}: ${where === undefined ? 'a value, which sizes the array' : 'TS8002'}`, () => {
+        if (where === undefined) {
+          expect(errorsOf(files)).toEqual([]);
+          expect(editedEach(files)).toEqual([]);
+          expect(checkStatus(files)).toBe(0);
+          expect(compiled(files).wgsl).toBe(compiled(ONE).wgsl);
+          return;
+        }
+        expect(errorsOf(files)).toEqual([`${where} TS8002 ${SENTENCE}`]);
+        const file = where.slice(0, where.indexOf(':'));
+        expect(typeshadeOf(edited(files, file))).toEqual([`TS8002 ${SENTENCE}`]);
+        expect(checkStatus(files)).toBe(1);
+      });
+    }
   });
 
   it('the program of #1194 reads in two files as it reads in one: TS8099 on its array pattern', () => {
@@ -1601,6 +1695,26 @@ describe("an array's size is a use of the value it names (Rule 3.9, Rule 12.7, #
     expect(editedEach(files)).toEqual([`/p/main.shade.ts typeshade ${sentence}`]);
     expect(checkStatus(one)).toBe(1);
     expect(checkStatus(files)).toBe(1);
+  });
+
+  it("a type alias of the entry's does not take an imported override's name (minor (b))", () => {
+    // A type alias emits nothing, so the linker names it last and renames it, where it took the
+    // name and refused the override with TS8023 before.
+    const plain: Files = { '/p/main.shade.ts': `${D}${IMPORT}${MAIN}`, '/p/lib.shade.ts': LIB };
+    const programs: readonly Files[] = [
+      { '/p/main.shade.ts': `${D}${IMPORT}type N = f32;\n${MAIN}`, '/p/lib.shade.ts': LIB },
+      {
+        '/p/main.shade.ts': `${D}import { N as M } from "./lib.shade.ts";\ntype N = f32;\nexport let tile: workgroup<array<f32, M>>;\n${MAIN}`,
+        '/p/lib.shade.ts': `${D}${SIZE}`,
+      },
+    ];
+    for (const files of programs) {
+      expect(errorsOf(files)).toEqual([]);
+      expect(editedEach(files)).toEqual([]);
+      expect(checkStatus(files)).toBe(0);
+      expect(compiled(files).wgsl).toBe(compiled(plain).wgsl);
+    }
+    expect(linkedSource(programs[0]!)).toContain('type main_N = f32;');
   });
 
   describe('an override two files declare is one diagnostic (Rule 12.4)', () => {
