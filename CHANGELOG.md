@@ -246,9 +246,10 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
     `f32(k * 1000000000)` was a wrapped `u32` and is 7000000000.
 
   **Newly refused** (`TS8003`): a `/` whose operands have no declared type and reach a constant
-  of no fixed type (directly, or through `+ - * %`, a bitwise operator, a builtin, a conditional
-  or a constant derived from it), where another line reads that constant as an integer, in this
-  file or in a file that imports it. With
+  of no fixed type (directly, or through `+ - * %`, a bitwise operator, a builtin, a
+  conditional, a constant derived from it or a `let` with no annotation initialized from it),
+  where another line reads that constant as an integer, in this file or in a file that imports
+  it. With
   `function h(a: u32): u32`, `const k = 7; h(k); return f32(k / 2);` emitted `3.0`,
   `const k = 7; const r = h(k); return r + k / 2;` emitted `r + 3u`, and
   `const k = 7; h(k); return xs[k / 2];` emitted `xs[3u]`. `vi / k` with a declared `u32` `vi`

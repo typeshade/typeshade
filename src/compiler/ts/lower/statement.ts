@@ -6,7 +6,11 @@ import {
   abstractConstFor,
   abstractLiteralOf,
   abstractTreeOf,
+  carriedBy,
+  markCarriedRead,
+  noteAbstractDivision,
   noteIntegerRead,
+  type Carried,
   type AbstractConst,
 } from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
@@ -822,6 +826,16 @@ function lowerDeclarationKind(
     isConst && decl.type === undefined && typeKey(bindingType) === 'f32'
       ? abstractConstFor(name, decl.initializer)
       : undefined,
+    // `let y = k` has no declared type either: a `/` over `y` reaches `k` (Amendment A2).
+    decl.type === undefined
+      ? carriedBy(
+          isConst ? 'const' : 'let',
+          name,
+          decl.initializer,
+          (callee) =>
+            scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined,
+        )
+      : undefined,
   );
   if (!bound) return undefined;
   // The statement carries the IR name, `p_1` for a `p` that shadows or follows another `p` in
@@ -1323,6 +1337,7 @@ function defineLocal(
   nameNode: ts.Node = decl.name,
   indexConstValue?: number,
   abstract?: AbstractConst,
+  carries?: Carried,
 ): Binding | undefined {
   let bound: Binding;
   try {
@@ -1335,6 +1350,7 @@ function defineLocal(
       indexConstValue,
       ...(aliasOf !== undefined ? { aliasOf } : {}),
       ...(abstract !== undefined ? { abstract } : {}),
+      ...(carries !== undefined && abstract === undefined ? { carries } : {}),
     });
   } catch (e) {
     pushDiag(
@@ -1841,6 +1857,17 @@ function lowerAssignOpTo(
   // `s += h.k` with an optional nothing narrowed: the test to write (Rule 7.10, change 0093).
   if (!isOptional(target.type) && refuseOptionalUse(value, right, sourceFile, diagnostics))
     return undefined;
+  // `y /= 2` on a variable that carries a constant of no fixed type is a `/` over it
+  // (Amendment A2 of change 0134): recorded, and refused once the module's reads are known.
+  if (bop === '/' && ts.isBinaryExpression(left.parent)) {
+    const inner = ts.isParenthesizedExpression(left) ? left.expression : left;
+    if (ts.isIdentifier(inner)) markCarriedRead(target, inner, scope.resolve(inner.text)?.carries);
+    noteAbstractDivision(
+      left.parent,
+      sourceFile,
+      (callee) => scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined,
+    );
+  }
   // The same refusal `a / b` gets in lowerBinary (#68): a divisor proven zero is undefined on
   // every invocation, and `x /= 0.` is the same program as `x = x / 0.`.
   if ((bop === '/' || bop === '%') && foldConstComponents(value, scope)?.some((v) => v === 0)) {

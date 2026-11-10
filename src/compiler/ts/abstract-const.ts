@@ -67,6 +67,7 @@ export interface AbstractConst {
 
 /** A `/` whose operands have no declared type, and the constants it reaches. */
 interface Division {
+  /** The `/`, or the `/=` of a variable that carries a constant. */
   readonly node: ts.BinaryExpression;
   readonly reads: readonly AbstractConst[];
   /** The integer type a position asked of the quotient (`xs[k / 2]`, `r + k / 2`), if one did. */
@@ -239,6 +240,45 @@ export function markAbstractRead<E extends Expr>(
   return expr;
 }
 
+/** A variable with no annotation whose initializer reaches constants of no fixed type with no
+ *  declared type between (`let y = k`, `let z = y + 1`, `const m = max(k, 1)`): it has no
+ *  declared type either, so a `/` over it reaches those constants as a derived constant does
+ *  (Amendment A2 of change 0134). */
+export interface Carried {
+  readonly reaches: readonly AbstractConst[];
+  /** The declaration with `f32` written, for the remedy of a `/=`: `let y: f32 = k`. */
+  readonly declaredF32: string;
+}
+
+const carriedByNode = new WeakMap<ts.Node, Carried>();
+
+/** Remembers that `node` reads the variable `carried` describes. Returns `expr`. */
+export function markCarriedRead<E extends Expr>(
+  expr: E,
+  node: ts.Node,
+  carried: Carried | undefined,
+): E {
+  if (carried !== undefined) carriedByNode.set(node, carried);
+  return expr;
+}
+
+/** What a new variable carries, when its initializer reaches a constant of no fixed type with
+ *  no declared type between; `undefined` when it reaches none. Call it after lowering the
+ *  initializer. */
+export function carriedBy(
+  keyword: 'let' | 'const',
+  name: string,
+  initializer: ts.Expression,
+  isBuiltin: (name: string) => boolean,
+): Carried | undefined {
+  const reaches = typelessReads(initializer, isBuiltin);
+  if (reaches === undefined || reaches.length === 0) return undefined;
+  return {
+    reaches,
+    declaredF32: `${keyword} ${name}: f32 = ${initializer.getText().replace(/\s+/g, ' ')}`,
+  };
+}
+
 /** Whether `node` reads a constant of no fixed type whose written numbers are all
  *  integer-written: the read stands where an integer-written literal could. */
 export function isIntegerWrittenRead(node: ts.Expression): boolean {
@@ -339,6 +379,8 @@ function typelessReads(
   if (ts.isNumericLiteral(inner)) return [];
   const read = readByNode.get(inner);
   if (read !== undefined) return [read];
+  const carried = carriedByNode.get(inner);
+  if (carried !== undefined) return [...carried.reaches];
   if (
     ts.isPrefixUnaryExpression(inner) &&
     (inner.operator === ts.SyntaxKind.MinusToken || inner.operator === ts.SyntaxKind.TildeToken)
@@ -381,7 +423,8 @@ export function noteAbstractDivision(
   sourceFile: ts.SourceFile,
   isBuiltin: (name: string) => boolean,
 ): void {
-  if (node.operatorToken.kind !== ts.SyntaxKind.SlashToken) return;
+  const k = node.operatorToken.kind;
+  if (k !== ts.SyntaxKind.SlashToken && k !== ts.SyntaxKind.SlashEqualsToken) return;
   const left = typelessReads(node.left, isBuiltin);
   const right = typelessReads(node.right, isBuiltin);
   if (left === undefined || right === undefined) return;
@@ -404,7 +447,7 @@ function holdsBitwise(node: ts.Node): boolean {
 function withReadsConverted(node: ts.Node, sourceFile: ts.SourceFile): string {
   const reads: ts.Node[] = [];
   const visit = (n: ts.Node): void => {
-    if (readByNode.has(n)) reads.push(n);
+    if (readByNode.has(n) || carriedByNode.has(n)) reads.push(n);
     else ts.forEachChild(n, visit);
   };
   visit(node);
@@ -448,14 +491,20 @@ export function abstractDivisionMessage(
     ? info.name.slice(info.name.lastIndexOf('.') + 1)
     : info.name;
   const integer = division.asked !== undefined || holdsBitwise(node);
+  // `y /= 2` has no operand to convert: the variable with its type written is the float edit.
+  const float =
+    node.operatorToken.kind === ts.SyntaxKind.SlashEqualsToken
+      ? (carriedByNode.get(stripParens(node.left))?.declaredF32 ??
+        withReadsConverted(node, sourceFile))
+      : withReadsConverted(node, sourceFile);
   return (
     `"${info.name}" is ${read.type === 'u32' ? 'a u32' : 'an i32'} ${ANOTHER_READ} ` +
-    `"${written}" has a declared type, so the "/" does not say which ` +
+    `"${written}" has a declared type, so the "${node.operatorToken.getText(sourceFile)}" does not say which ` +
     `division it is. Write ` +
     (integer
       ? // The type of the other read, which then stays as written (`h(k)`, `xs[k / 2]`).
         `"${info.keyword} ${short}: ${read.type} = ${info.written}" for the ` + `integer division.`
-      : `"${withReadsConverted(node, sourceFile)}" for the float division.`)
+      : `"${float}" for the float division.`)
   );
 }
 

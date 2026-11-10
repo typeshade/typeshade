@@ -472,6 +472,61 @@ ${H}export function t(vi: u32, x: f32, xs: array<f32, 8>): f32 {
     );
   });
 
+  // Amendment A2 of change 0134 ("거부"): the same through a `let`. `const k = 7; h(k);
+  // let y = k; f32(y / 2)` computed 3 before the change and would compute 3.5 silently.
+  it('refuses a / over a let that was initialized from the constant', () => {
+    refusedThenFixed(
+      t('const k = 7; h(k); let y = k; return f32(y / 2);'),
+      float('k', 'u32', 'y / 2', 'f32(y) / 2'),
+      t('const k = 7; h(k); let y = k; return f32(f32(y) / 2);'),
+    );
+    refusedThenFixed(
+      t('const k = 7; h(k); let y = k + 1; return f32(y / 2);'),
+      float('k', 'u32', 'y / 2', 'f32(y) / 2'),
+      t('const k = 7; h(k); let y = k + 1; return f32(f32(y) / 2);'),
+    );
+  });
+
+  it('refuses it through a second let, a builtin, and where an index reads the quotient', () => {
+    refusedThenFixed(
+      t('const k = 7; h(k); let y = k; let z = y + 1; return f32(z / 2);'),
+      float('k', 'u32', 'z / 2', 'f32(z) / 2'),
+      t('const k = 7; h(k); let y = k; let z = y + 1; return f32(f32(z) / 2);'),
+    );
+    refusedThenFixed(
+      t('const k = 7; h(k); const m = max(k, 1); return f32(m / 2);'),
+      float('k', 'u32', 'm / 2', 'f32(m) / 2'),
+      t('const k = 7; h(k); const m = max(k, 1); return f32(f32(m) / 2);'),
+    );
+    refusedThenFixed(
+      t('const k = 7; h(k); let y = k; return xs[y / 2];'),
+      integer('k', 'u32', 'y / 2', 'const k: u32 = 7'),
+      t('const k: u32 = 7; h(k); let y = k; return xs[y / 2];'),
+    );
+  });
+
+  it('refuses y /= 2 on such a let, and names the let with its type written', () => {
+    const message =
+      '"k" is a u32 where another line reads it, and no operand of "y /= 2" has a declared ' +
+      'type, so the "/=" does not say which division it is. Write "let y: f32 = k" for the ' +
+      'float division.';
+    refusedThenFixed(
+      t('const k = 7; h(k); let y = k; y /= 2; return y;'),
+      message,
+      t('const k = 7; h(k); let y: f32 = k; y /= 2; return y;'),
+    );
+  });
+
+  it('accepts the let where it has a declared type, or no line reads the constant as an integer', () => {
+    expect(accepted(t('const k = 7; h(k); let y: f32 = k; return y / 2;')).eval('t', ARGS)).toBe(
+      3.5,
+    );
+    expect(accepted(t('const k = 7; let y = k; return f32(y / 2);')).eval('t', ARGS)).toBe(3.5);
+    expect(
+      accepted(t('const k = 7; h(k); let y = k; return x / y + f32(y) / 2;')).eval('t', ARGS),
+    ).toBe(1 / 7 + 3.5);
+  });
+
   // Every read that types the constant an integer counts, also through a constant derived
   // from it (the review of pull request #1184, F6).
   it.each([

@@ -112,12 +112,13 @@ export function retargetIntLit(expr: Expr, node: ts.Expression, peer: ShaderType
   // A read of a constant of no fixed type, or arithmetic over such reads and written numbers,
   // takes an integer peer's type as the written number would (Rule 5.1, change 0134 item 2).
   // Beside anything else it is left as lowered, so an `f32` read keeps the constant's name.
+  // An integer position asks an integer of a `/` inside what it reads (`xs[k / 2]`,
+  // `r + y / 2`), whether or not a literal is kept: the refusal of that `/` names the integer edit.
+  if (isIntScalar(peer)) noteIntegerContext(node, typeKey(peer) === 'u32' ? 'u32' : 'i32');
   const abstract = abstractLiteralOf(expr);
   if (abstract !== undefined && abstract.op === 'lit' && typeof abstract.value === 'number') {
     if (!isIntScalar(peer)) return expr;
     const kind = typeKey(peer) === 'u32' ? 'u32' : 'i32';
-    // The position asks an integer of a `/` inside the read (`xs[k / 2]`), kept or not.
-    noteIntegerContext(node, kind);
     const tree = abstractTreeOf(node);
     if (
       tree === undefined ||

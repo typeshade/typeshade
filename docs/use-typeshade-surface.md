@@ -1379,8 +1379,9 @@ const HALF = N / 2; // refused when a loop bound reads N as an i32
 ```
 
 The `/` reaches the constant directly, or through `+`, `-`, `*`, `%`, a bitwise operator, a
-builtin (`max(k, 1) / 2`), a conditional or a constant derived from it
-(`const M = N * 2; … M / 4`). The other read is any place that types the constant an integer:
+builtin (`max(k, 1) / 2`), a conditional, a constant derived from it
+(`const M = N * 2; … M / 4`) or a variable with no annotation that is initialized from it
+(`let y = N; … y / 2`, and `y /= 2`). The other read is any place that types the constant an integer:
 an argument, a typed declaration, a loop bound, an index, a conversion `i32(N)` or `u32(N)`,
 and a read in a file that imports the constant. `f32(N)` and `f64(N)` are no such read, and a
 float-written constant (`const C = 7.5`) is never read as an integer. The sentence names one

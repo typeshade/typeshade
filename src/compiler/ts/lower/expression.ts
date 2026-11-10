@@ -1,7 +1,7 @@
 // === Expression lowering ===
 //
 // Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
-import { markAbstractRead, noteAbstractDivision } from '../abstract-const.js';
+import { markAbstractRead, markCarriedRead, noteAbstractDivision } from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js';
@@ -588,10 +588,14 @@ function lowerIdentifier(
       if (binding.kind === 'local' && isOptional(binding.type)) {
         return lowerOptionalRead(node, binding, contextual, sourceFile, diagnostics);
       }
-      return markAbstractRead(
-        { op: 'varref', type: binding.type, name: irNameOf(binding) },
+      return markCarriedRead(
+        markAbstractRead(
+          { op: 'varref', type: binding.type, name: irNameOf(binding) },
+          node,
+          binding.abstract,
+        ),
         node,
-        binding.abstract,
+        binding.carries,
       );
     // A specialization constant is its own IR node: the optimizer must never fold an
     // overrideref, since its value is not known until the pipeline is built (#8 A7).
