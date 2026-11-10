@@ -360,8 +360,13 @@ export function carriedBy(
 ): Carried | undefined {
   const origin = originOf(initializer, isBuiltin);
   // A variable of written numbers alone reaches no constant, and it declares no type either:
-  // beside a value that does reach one, it adds nothing (`let w = 3;` then `(k + w) / 2`).
+  // beside a value that does reach one, it adds nothing (`let w = 3;` then `(k + w) / 2`). One
+  // that its declared uses make an integer (`let n = 2; h(n);`, changes 0036 and 0037) is a
+  // typed value.
   if (origin === undefined) return undefined;
+  if (origin.reaches.length === 0 && !(initType.kind === 'scalar' && initType.scalar === 'f32')) {
+    return undefined;
+  }
   return {
     ...origin,
     variable: {

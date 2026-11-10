@@ -877,10 +877,6 @@ shapes this text accepts are refused. The owner decided each in the Claude Code 
   declared type, and one of which carries the origin of a constant that some read makes an
   integer, is refused (`TS8003`). A loop counter whose start is such a constant keeps the type
   it has on `main`, as a counter bounded by one does.
-- [decision, owner, 2026-11-10] "`main`과 같이 u32 유지". A loop counter whose start is an
-  expression over such a constant (`const k = 7; h(k); for (let j = k + 1; …)`) keeps the type
-  it has on `main`, here `u32`, as A3 says for a counter that starts at the constant. This
-  holds for every start expression that carries the origin (A3's tracking rule).
 - [decision, owner, 2026-11-10] "실수 나눗셈으로 허용". A `/` with a float-written literal or a
   float-written constant in either operand is a float division, and it is accepted: with `N`
   read as an integer elsewhere, `const STEP = 6.283185307179586 / N`, `TAU / N` and `1.0 / W`
@@ -958,8 +954,9 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
   argument of that type does. So `const K = 7; return f32(u32(K)) + f32(K / 2);` is refused
   with `TS8003`, in the sentence of the rule. `f32(K)` and `f64(K)` do not make the constant an
   integer, and `f32(K) / 2` is the edit the sentence names. Implemented in part 3. A conversion
-  of arithmetic over the constant counts too (`u32(K + 1)`). A conversion of the quotient
-  itself (`u32(K / 2)`) is that quotient's own read, not another one.
+  of arithmetic over the constant counts too (`u32(K + 1)`).
+- Amendment A4 (PR #1224), "수용하고 수정안 A4로 기록": the quotient's own read is not another
+  read, so a conversion of the quotient itself (`u32(K / 2)`) does not refuse it.
 - [decision, owner, 2026-11-10] "별도 PR로 결함 수정". `const K = 1e38;` with `f64(K) * 4.` is
   newly refused: `f64(K)` is the written `f64(1e38)`, and the front end folds the product to a
   double that the emulation cannot hold (`TS8015`, as the written form does on `main`). Part 3
@@ -983,7 +980,8 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
 - The independent review of pull request #1184 at `827bc9e1` (2026-11-10) found F3 to F12, all
   inside the approved text. Each is fixed in part 3 with a test that reads both halves: a
   float-written counter against a constant bound keeps its `f32` (F3); a float-written constant
-  is never an integer read (F4); the quotient's own read is not another read (F5); a bitwise
+  is never an integer read (F4); the quotient's own read is not another read (F5, Amendment A4,
+  PR #1224); a bitwise
   compound assignment, a typed constant, a derived constant, a conversion of arithmetic and a
   texture level count as integer reads (F6); the sentence names one edit that compiles (F7);
   `k % 8` takes the type of its read (F8); a declared `f64` position is tested (F9); the oracle
@@ -1012,11 +1010,12 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
     expression body included) that writes no result type. It loses the origin at a declared
     type, a conversion included. A counter started by such a constant keeps the type of the
     constant's emitted declaration (`f32`), as on `main`, and carries the origin.
-  - "`main`과 같이 u32 유지": a counter whose start carries the origin keeps the type it has
-    on `main`. `lowerHeaderCounter` in `src/compiler/ts/lower/control.ts` lowers the start
-    again with each function-local constant it reaches read at the integer type its declared
-    uses gave it on `main` (changes 0036 and 0037), when all agree (`withReadTypes` in
-    `abstract-const.ts`). `k + 1`, `k * 2`, `k | 1`, `k >> 1`, `k % 2`, `Math.max(k, 1)`,
+  - Amendment A4 (PR #1224), "`main`과 같이 u32 유지": a counter whose start carries the
+    origin keeps the type it has on `main`. `lowerHeaderCounter` in
+    `src/compiler/ts/lower/control.ts` lowers the start again with each function-local constant
+    it reaches read at the integer type its declared uses gave it on `main` (changes 0036 and
+    0037; `withReadTypes` in `abstract-const.ts`). Two types that disagree make that lowering
+    refuse, and the counter keeps its type. `k + 1`, `k * 2`, `k | 1`, `k >> 1`, `k % 2`, `Math.max(k, 1)`,
     `max`, `clamp`, `abs`, a conditional, `select`, `k!` and a derived constant (`kk`, `kk + 1`)
     give a `u32` counter after `h(k)`, with the values `main` gave. The counter carries the
     origin, so a `/` over it is refused as A3 says. A start that `main` refused (`-k` of a
@@ -1047,6 +1046,26 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
     own mismatch around a refused `/` as `compile()` does (M6); `n ^= K` out of range is
     refused with §13's sentence; `u32(-C)` with `C = 0.1` is `0u`; and each of the 23
     surviving mutants has a test or its code is removed where no program reaches it.
+- The third independent review of pull request #1184 at `345d3ae8` (2026-11-10), and Amendment
+  A4 (PR #1224), implemented in part 3, each with a test that reads both halves:
+  - F1: a closure or a local function that captures a variable carrying the origin carries it.
+  - F2 and F8: a result type that the editor's projection writes is not the author's, so a
+    function declaration, an arrow and a function expression infer their result in the editor
+    as `compile()` does.
+  - F3: the named edit is checked. The front end compiles the source with each candidate edit
+    and names the first that adds no error. Where none does, the program holds a second mistake:
+    the edit that adds fewest errors is named, and each mismatch around the `/` is kept.
+  - F4, "선언된 타입으로 보기": a typed constructor ends the origin.
+  - F6: a conversion that starts a counter declares the counter's type. The written
+    `for (let j = u32(3); …)`, refused on `main` because the fold made the counter an `i32`,
+    compiles too.
+  - F7: a pattern binding carries the origin of the element it reads.
+  - F10, "거부 유지하고 목록에 기록": `id(k) / 2` with a generic `id` stays refused.
+  - A variable of written numbers alone (`let w = 3`) declares no type and carries an origin that
+    reaches no constant, so `(k + w) / 2` is refused as A3 says, and `let w = 3.5` makes a float
+    division.
+  - Not changed, and handed back for a decision: F5. A library function that the importing
+    program does not keep is not in the linked program, so its `/` is not lowered there.
 - [fact, measured 2026-11-10] M5, the rule of the `'f64'` precision oracle: a read of a module
   constant by its name carried the double the author wrote before part 3, and a value the front
   end folded from the constant at compile time carried its `f32` rounding. A value moves there
@@ -1074,6 +1093,10 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
     value.
   - Rule 5.1's sentence "the literal must be an `f32`" stays for an unannotated `let`, a field
     and a function's result until items 1 and 3 are delivered.
+  - A refusal in a library file is shown by the editor only while a document that imports it is
+    open and the library document is open too (F9). The language service reports each open
+    document's own diagnostics, and `compile()` of the importing file reports the refusal in the
+    library file.
 
 Not delivered yet: items 1 and 3, item 4, the document part of item 5, item 5 for `journeys/`
 and the helper sources of `examples/` (Amendment A1), and the audit.

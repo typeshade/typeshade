@@ -1381,10 +1381,14 @@ const HALF = N / 2; // refused when a loop bound reads N as an i32
 A value keeps where it came from (Amendment A3 of change 0134). A value computed from such a
 constant carries its origin through every expression and binding: an operator, a builtin
 (`max(k, 1)`, `Math.max(k, 1)`, `select(1, k, c)`), `as`, `!`, a conditional, a member
-(`vec2(k, 1).x`), a derived constant (`const M = N * 2`), a `let` (`let y = N`), the start of
-a loop counter, and a call of a function, a method, a getter or a closure that writes no
-result type and returns such a value. It loses the origin only where it passes a declared type:
-an annotation, a declared parameter, field or result, or a conversion. The other read is any
+(`vec2(k, 1).x`), a derived constant (`const M = N * 2`), a `let` (`let y = N`) or a pattern
+binding (`const [a, b] = [N, 1]`), a variable that a closure captures, the start of a loop
+counter, and a call of a function, a method, a getter or a closure that writes no result type
+and returns such a value. A generic function's parameter declares no type, so `id(k) / 2` is
+refused. A value loses the origin only where it passes a declared type: an annotation, a
+declared parameter, field or result, a conversion, or a typed constructor (`vec3u(k, 1, 2)`,
+Amendment A4). A variable of written numbers alone (`let w = 3`) declares no type either, so
+`(k + w) / 2` carries the origin of `k`. The other read is any
 place that types the constant an integer: an argument, a typed declaration, a loop bound, an
 index, a conversion `i32(N)` or `u32(N)`, and a read in a file that imports the constant.
 `f32(N)` and `f64(N)` are no such read, and a float-written constant (`const C = 7.5`) is never
@@ -1395,16 +1399,21 @@ which is accepted: `const STEP = 6.283185307179586 / N`, `TAU / N`, `1.0 / W`,
 `(N * 0.5) / 2`. A loop counter whose start carries such a constant keeps the type it had
 before change 0134: `for (let j = N; …)` keeps the `f32` of the constant's declaration, and
 with `const k = 7; h(k);` the start `k + 1` or `Math.max(k, 1)` gives a `u32` counter, the type
-its declared uses give `k`. The counter carries the constant, so a `/` over it is refused.
+its declared uses give `k`. The counter carries the constant, so a `/` over it is refused. A
+start through a `let` or a function result takes that value's type, which items 1 and 3 of
+change 0134 will infer, and a start that is a conversion (`u32(k)`) takes its type.
 
 The sentence names one edit, the one that compiles where the quotient stands. Where an integer
 position reads the quotient (`xs[k / 2]`, `r + k / 2`, `let j: u32 = …`), it names the
 constant with the type that position asks (`const k: u32 = 7`), or, where another read asks
 another type, the `/` with each value converted to it (`i32(k) / 2`). Anywhere else it names
 the `/` with each value converted to `f32`, a bitwise operation converted as a whole
-(`f32(k | 1) / 2`). A `/=` names the variable with its type written (`let y: f32 = k`).
+(`f32(k | 1) / 2`). A `/=` names the variable with its type written (`let y: f32 = k`). The
+compiler checks the edit before it names it. Where none of these compiles, the program holds
+another mistake (`h(x + k / 2)` passes an `f32` sum to a `u32`), and the sentence names the edit
+that adds fewest errors beside the mismatch, which stays.
 
-The quotient's own read is not another read. `let j: u32 = N / 2` is `4u`, as the written
+The quotient's own read is not another read (Amendment A4). `let j: u32 = N / 2` is `4u`, as the written
 `8 / 2` is there, and `x * (N / 2)` is the ECMAScript value where no other line reads `N` as an
 integer. Arithmetic other than `/` has the written number's value at every read: with `const k
 = 7` that an argument reads as a `u32`, `f32(k - 8)` is `-1`.
