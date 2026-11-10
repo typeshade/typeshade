@@ -14,7 +14,7 @@ import { startDebugSessionFromConfig } from './config.js';
 import { startDebugSession } from './session.js';
 
 const KERNEL = `"use typeshade";
-@compute([4]) export function main(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([4]) export function main(gid: builtin<"global_invocation_id">): void {
   const x = f32(gid.x) * 1.5;
   console.log("i =", gid.x, x);
   if (gid.x > 1) {
@@ -22,7 +22,7 @@ const KERNEL = `"use typeshade";
   }
 }
 
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   console.info("pixel", p.xy);
   return vec4(1.);
 }`;
@@ -74,7 +74,7 @@ describe('a debug session delivers console calls to its sink (surface §66)', ()
   it('marks a fragment entry that takes its position in a struct with the pixel, as the recorded WGSL does', () => {
     const src = `"use typeshade";
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 interface Color {
@@ -133,7 +133,7 @@ interface Color {
 
   it('delivers a console.table of a matrix as its columns, as compile().eval does', () => {
     const src = `"use typeshade";
-@compute([1]) export function t(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1]) export function t(gid: builtin<"global_invocation_id">): void {
   console.table(mat2x2(1., 2., 3., f32(gid.x)));
 }`;
     const expected: ConsoleEvent[] = [];

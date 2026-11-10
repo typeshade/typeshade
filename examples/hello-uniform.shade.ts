@@ -12,7 +12,7 @@ declare const scale: uniform<f32>;
 
 // The gallery draws an explicit stage pair; the host-call fragment still uses its own triangle.
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): builtin<"position", vec4> {
+export function vs(vi: builtin<"vertex_index">): builtin<"position"> {
   const x = f32((vi << 1) & 2) * 2. - 1.;
   const y = f32(vi & 2) * 2. - 1.;
   return vec4(x, y, 0., 1.);

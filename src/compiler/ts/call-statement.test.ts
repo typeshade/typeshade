@@ -24,7 +24,7 @@ declare const dst: storage<array<f32>, "read_write">;
 function store(i: u32): void {
   dst[i] = 1.;
 }
-@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id">): void {
   store(gid.x);
 }
 `;
@@ -35,7 +35,7 @@ function bump(i: u32): f32 {
   dst[i] = dst[i] + 1.;
   return dst[i];
 }
-@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id">): void {
   const a = dst[gid.x];
   bump(gid.x);
   bump(gid.x);
@@ -134,7 +134,7 @@ declare const dst: storage<array<f32>, "read_write">;
 function store(i: u32): void {
   dst[i] = 1.;
 }
-@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id">): void {
   for (let i: u32 = 0; i < 2; i++) {
     store(i + gid.x);
   }
@@ -174,7 +174,7 @@ function h(i: u32): f32 {
   store(i);
   return 2.;
 }
-@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id">): void {
   if (gid.x > 4) {
     dst[gid.x] = h(gid.x);
   }

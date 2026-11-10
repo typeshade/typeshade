@@ -1,6 +1,6 @@
 // === TypeScript type node -> TypeShade ShaderType (Phase 2+) ===
 //
-// Implements: Rule 4.1, Rule 4.8 (docs/language-design.md; traced in reqs/).
+// Implements: Rule 4.1, Rule 4.8, Rule 6.6 (docs/language-design.md; traced in reqs/).
 
 import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
@@ -1252,7 +1252,7 @@ function mapGeneric(
   if (name === 'uniform' || name === 'storage') {
     return mapType(args[0], sourceFile, diagnostics, resolving, sizeOverrides);
   }
-  // An attribute type of change 0111 is its value type, `builtin<'position', vec4>` a `vec4`;
+  // An attribute type of change 0111 is its value type, `builtin<'position'>` a `vec4`;
   // its attribute is read where it is written (`attribute-types.ts`).
   if (name !== undefined && Object.hasOwn(ATTRIBUTE_TYPES, name)) {
     const value = attributeArgumentsOf(typeNode).value;

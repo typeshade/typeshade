@@ -45,11 +45,11 @@ function diagnose(source: string): { code?: string; message: string } {
 }
 
 const VARYINGS = `interface VsOut {
-  pos: builtin<"position", vec4>
+  pos: builtin<"position">
   id: location<0, u32>
   uv: location<1, vec2>
 }
-@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(vi: builtin<"vertex_index">): VsOut {
   return { pos: vec4(0., 0., 0., 1.), id: vi, uv: vec2(0., 0.) }
 }
 @fragment export function fs(v: VsOut): vec4 { return vec4(f32(v.id), v.uv, 1.) }`;
@@ -68,7 +68,7 @@ describe('an integer varying is flat, because neither target can interpolate one
 
   it('derives it from the type, for a vector and for a fragment input alike', () => {
     const c = compiled(`interface VsOut {
-  pos: builtin<"position", vec4>
+  pos: builtin<"position">
   cell: location<0, vec2u>
   sign: location<1, i32>
 }
@@ -87,11 +87,11 @@ describe('an integer varying is flat, because neither target can interpolate one
 
 describe('a varying spelled as a bare entry parameter, not a struct field', () => {
   const VS = `interface VsOut {
-  pos: builtin<"position", vec4>
+  pos: builtin<"position">
   id: location<0, u32>
   uv: location<1, vec2>
 }
-@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(vi: builtin<"vertex_index">): VsOut {
   return { pos: vec4(0., 0., 0., 1.), id: vi, uv: vec2(0., 0.) }
 }`;
 
@@ -113,7 +113,7 @@ describe('a varying spelled as a bare entry parameter, not a struct field', () =
     // It was read on a struct field and nowhere else, so the attribute an author wrote here
     // was dropped silently and reached neither target.
     const c = compiled(`interface VsOut {
-  pos: builtin<"position", vec4>
+  pos: builtin<"position">
   uv: location<0, vec2, { interpolate: ["perspective", "centroid"] }>
 }
 @vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) } }
@@ -162,7 +162,7 @@ describe('a varying spelled as a bare entry parameter, not a struct field', () =
         .map((d) => `${d.code} ${d.message}`),
     ).toEqual(rows);
     expect(
-      diagnose(`@vertex export function vs(vi: builtin<"vertex_index", u32, { interpolate: "flat" }>): vec4 {
+      diagnose(`@vertex export function vs(vi: builtin<"vertex_index", { interpolate: "flat" }>): vec4 {
   return vec4(f32(vi), 0., 0., 1.)
 }`).message,
     ).toBe(
@@ -175,7 +175,7 @@ describe('a varying spelled as a bare entry parameter, not a struct field', () =
 describe('@interpolate, @invariant and @blend_src', () => {
   it('passes @interpolate and @invariant through on WGSL and as qualifiers on GLSL', () => {
     const c = compiled(`interface VsOut {
-  pos: builtin<"position", vec4, { invariant: true }>
+  pos: builtin<"position", { invariant: true }>
   uv: location<0, vec2, { interpolate: ["perspective", "centroid"] }>
 }
 @vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) } }
@@ -195,7 +195,7 @@ describe('@interpolate, @invariant and @blend_src', () => {
     // a silently different one.
     for (const arg of ['"linear"', '["perspective", "sample"]']) {
       const c = compiled(`interface VsOut {
-  pos: builtin<"position", vec4>
+  pos: builtin<"position">
   uv: location<0, vec2, { interpolate: ${arg} }>
 }
 @vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) } }
@@ -264,7 +264,7 @@ describe('the entry IO shapes that are refused, one sentence each', () => {
     // `flat` with either of its samplings is what an integer HAS, so it stays legal.
     expect(
       compiled(`interface VsOut {
-  pos: builtin<"position", vec4>
+  pos: builtin<"position">
   id: location<0, u32, { interpolate: ["flat", "either"] }>
 }
 @vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), id: u32(1) } }
@@ -368,11 +368,11 @@ describe('the interstage shapes that stay legal', () => {
   it('takes a fragment that reads a SUBSET of the vertex output', () => {
     // WGSL constrains only the slots the fragment names, so an output it ignores is fine.
     const c = compiled(`interface VsOut {
-  pos: builtin<"position", vec4>
+  pos: builtin<"position">
   uv: location<0, vec2>
   extra: location<1, vec2>
 }
-interface FsIn { pos: builtin<"position", vec4>; uv: location<0, vec2> }
+interface FsIn { pos: builtin<"position">; uv: location<0, vec2> }
 @vertex export function vs(): VsOut {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.), extra: vec2(1., 1.) }
 }

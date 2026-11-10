@@ -31,9 +31,9 @@ let tile: workgroup<array<f32, 64>>;
 
 @compute([8, 8])
 export function blur(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
-  li: builtin<"local_invocation_index", u32>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
+  li: builtin<"local_invocation_index">,
 ): void {
   const x: u32 = min(gid.x, size.x - 1);
   const y: u32 = min(gid.y, size.y - 1);

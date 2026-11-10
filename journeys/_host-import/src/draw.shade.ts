@@ -16,7 +16,7 @@ declare const smp: sampler;
 declare const ramp: storage<array<f32>>;
 
 @fragment
-export function plasma(p: builtin<"position", vec4>): vec4 {
+export function plasma(p: builtin<"position">): vec4 {
   const uv = p.xy * wave.scale;
   let v = 0.;
   for (let i = 0; i < 4; i++) {
@@ -28,7 +28,7 @@ export function plasma(p: builtin<"position", vec4>): vec4 {
 }
 
 @fragment
-export function tiled(p: builtin<"position", vec4>): vec4 {
+export function tiled(p: builtin<"position">): vec4 {
   return textureSample(image, smp, p.xy / 8.);
 }
 
@@ -40,6 +40,6 @@ export function fillRamp(out: array<f32>) {
 }
 
 @fragment
-export function ramped(p: builtin<"position", vec4>): vec4 {
+export function ramped(p: builtin<"position">): vec4 {
   return vec4(ramp[u32(p.x)], ramp[u32(p.y)], 0., 1.);
 }

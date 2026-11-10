@@ -49,21 +49,21 @@ function diagnose(source: string): { code?: string; message: string } {
 }
 
 const VS_CLIP = `class VsOut {
-  pos: builtin<"position", vec4>
+  pos: builtin<"position">
   cd: builtin<"clip_distances", array<f32, 4>>
 }
-@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index">): VsOut {
   let o = new VsOut()
   o.pos = vec4(f32(i), 0., 0., 1.)
   o.cd[0] = 1.
   return o
 }`;
 
-const FS_PRIM = `@fragment export function fs(pi: builtin<"primitive_index", u32>): vec4 {
+const FS_PRIM = `@fragment export function fs(pi: builtin<"primitive_index">): vec4 {
   return vec4(f32(pi), 0., 0., 1.)
 }`;
 
-const FS_SUBGROUP = `@fragment export function fs(s: builtin<"subgroup_invocation_id", u32>): vec4 {
+const FS_SUBGROUP = `@fragment export function fs(s: builtin<"subgroup_invocation_id">): vec4 {
   return vec4(f32(s), 0., 0., 1.)
 }`;
 
@@ -94,14 +94,14 @@ describe('an extension-gated built-in value derives its enable, its host feature
   it.each([
     [
       'clip_distances on a fragment input',
-      `interface FsIn { p: builtin<"position", vec4>; cd: builtin<"clip_distances", array<f32, 4>> }
+      `interface FsIn { p: builtin<"position">; cd: builtin<"clip_distances", array<f32, 4>> }
 @fragment export function fs(v: FsIn): vec4 { return vec4(v.cd[0]) }`,
       TS_CODES.BUILTIN_STAGE,
       'is not a valid fragment input; it is a vertex output',
     ],
     [
       'primitive_index on a vertex input',
-      `@vertex export function vs(pi: builtin<"primitive_index", u32>): vec4 { return vec4(f32(pi)) }`,
+      `@vertex export function vs(pi: builtin<"primitive_index">): vec4 { return vec4(f32(pi)) }`,
       TS_CODES.BUILTIN_STAGE,
       'is not a valid vertex input; it is a fragment input',
     ],
@@ -113,7 +113,7 @@ describe('an extension-gated built-in value derives its enable, its host feature
 
   it('clip_distances refuses N > 8', () => {
     const d = diagnose(
-      `class VsOut { p: builtin<"position", vec4>; cd: builtin<"clip_distances", array<f32, 9>> }
+      `class VsOut { p: builtin<"position">; cd: builtin<"clip_distances", array<f32, 9>> }
 @vertex export function vs(): VsOut { let o = new VsOut(); o.p = vec4(0.); return o }`,
     );
     expect(d.code).toBe(TS_CODES.TYPE_MISMATCH);
@@ -124,7 +124,7 @@ describe('an extension-gated built-in value derives its enable, its host feature
 
   it('clip_distances refuses a type that is not an f32 array', () => {
     const d = diagnose(
-      `class VsOut { p: builtin<"position", vec4>; cd: builtin<"clip_distances", vec4> }
+      `class VsOut { p: builtin<"position">; cd: builtin<"clip_distances", vec4> }
 @vertex export function vs(): VsOut { let o = new VsOut(); o.p = vec4(0.); return o }`,
     );
     expect(d.code).toBe(TS_CODES.TYPE_MISMATCH);
@@ -207,7 +207,7 @@ describe('a multi-file program keeps the directives it derives', () => {
     const r = compileTsSources([
       {
         fileName: 'a.ts',
-        source: `"use typeshade"\nimport { tint } from "./b"\n@fragment export function fs(pi: builtin<"primitive_index", u32>): vec4 { return tint(f32(pi)) }`,
+        source: `"use typeshade"\nimport { tint } from "./b"\n@fragment export function fs(pi: builtin<"primitive_index">): vec4 { return tint(f32(pi)) }`,
       },
       {
         fileName: 'b.ts',
@@ -244,7 +244,7 @@ describe('the clip_distances type rule holds on every authoring surface', () => 
     // declaration alone emitted `enable clip_distances;` over an `array<f32, 9>`. The front
     // end checked the two sites an entry reaches; this one it did not.
     const d = diagnose(
-      `class Unused { p: builtin<"position", vec4>; cd: builtin<"clip_distances", f32> }
+      `class Unused { p: builtin<"position">; cd: builtin<"clip_distances", f32> }
 @fragment export function fs(): vec4 { return vec4(0.) }`,
     );
     expect(d.code).toBe(TS_CODES.TYPE_MISMATCH);
@@ -265,7 +265,7 @@ describe('the clip_distances type rule holds on every authoring surface', () => 
 
 describe('the requires axis: WGSL language features', () => {
   const RW = `declare const acc: texture_storage_2d<"r32float", "read_write">
-@compute([64]) export function cs(g: builtin<"global_invocation_id", vec3u>): void {
+@compute([64]) export function cs(g: builtin<"global_invocation_id">): void {
   const p = vec2i(i32(g.x), i32(g.y))
   textureStore(acc, p, vec4(textureLoad(acc, p).x + 1.))
 }`;
@@ -280,7 +280,7 @@ describe('the requires axis: WGSL language features', () => {
 
   it('reports none for a write-only storage texture', () => {
     const c = compiled(`declare const dst: texture_storage_2d<"rgba8unorm", "write">
-@compute([64]) export function cs(g: builtin<"global_invocation_id", vec3u>): void {
+@compute([64]) export function cs(g: builtin<"global_invocation_id">): void {
   textureStore(dst, vec2i(i32(g.x), i32(g.y)), vec4(1.))
 }`);
     expect(reflect(c.module).requiredLanguageFeatures).toEqual([]);

@@ -18,17 +18,17 @@
 // them separately (for the attributes, or just for the reader) hits this on the first shader.
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 interface FsIn {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 
 interface Color {
-  color: location<0, vec4>;
+  color: vec4;
 }
 
 // The PARAMETER type says FsIn, so the literal built at the call site below is an FsIn.
@@ -39,7 +39,7 @@ export function shade(o: FsIn): vec4 {
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   const uv = vec2(x, y) * 0.5 + vec2(0.5, 0.5);

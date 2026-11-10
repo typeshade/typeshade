@@ -10,7 +10,7 @@ const SOURCE =
   'function scale(x: f32, y: f32): f32 {\n' +
   '  return x\n' +
   '}\n' +
-  '@vertex export function vs(i: builtin<"vertex_index", u32>): vec4 {\n' +
+  '@vertex export function vs(i: builtin<"vertex_index">): vec4 {\n' +
   '  const s = scale(1.0, )\n' +
   '  return vec4(s, s, s, 1.0)\n' +
   '}\n' +

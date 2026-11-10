@@ -39,10 +39,7 @@ const compilerDiagnostics = (result: ReturnType<typeof compile>) =>
 describe('compiled output backend diagnostics', () => {
   it.each([
     ['fragment', `${ARRAY}\n${RENDER.replace('vec4(0., 0., 0., 1.)', 'U[0]')}`],
-    [
-      'vertex',
-      `${ARRAY}\n@vertex export function vs(): builtin<"position", vec4> { return U[0]; }`,
-    ],
+    ['vertex', `${ARRAY}\n@vertex export function vs(): builtin<"position"> { return U[0]; }`],
     [
       'render and compute',
       `${ARRAY}\n${RENDER.replace('vec4(0., 0., 0., 1.)', 'U[0]')}\n${COMPUTE}`,
@@ -103,7 +100,7 @@ describe('compiled output backend diagnostics', () => {
       `declare const img: storage<array<f32>, "read_write">;
 declare const acc: storage<array<atomic<u32>, 1>, "read_write">;
 @fragment export function fs(): location<0, vec4> { return vec4(img[0]); }
-@compute([1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1]) export function cs(gid: builtin<"global_invocation_id">): void {
   atomicAdd(acc[0], 1);
   img[gid.x] = 2.;
 }`,
@@ -177,7 +174,7 @@ declare const acc: storage<array<atomic<u32>, 1>, "read_write">;
     // through the service's analysis seam and compare the actual portable GLSL writer.
     const text = source(`declare const count: uniform<vec4u>;
 declare const result: storage<array<u32>, "read_write">;
-@compute([1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1]) export function cs(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= count.x) return;
   result[gid.x] = gid.x;
 }`);

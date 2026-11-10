@@ -2261,7 +2261,7 @@ function signatureFields(
     }
     if (member.questionToken !== undefined) markOmittableField(sourceFile, owner, member.name.text);
     const field: StructField = { name: member.name.text, type };
-    // An interface field carries an attribute only in its type, `pos: builtin<'position', vec4>`
+    // An interface field carries an attribute only in its type, `pos: builtin<'position'>`
     // (change 0111): TypeScript has no decorator on an interface member.
     let unknownAttribute = false;
     for (const d of typeDecoratorsOf(member))
@@ -2391,7 +2391,7 @@ function setEntryAttributes(
       diag(
         sourceFile,
         member,
-        `The invariant option belongs on builtin<"position", vec4>: it is WGSL's promise that this ` +
+        `The invariant option belongs on builtin<"position">: it is WGSL's promise that this ` +
           `position is computed the same way in two pipelines, and no other output ` +
           `has that meaning.`,
       ),

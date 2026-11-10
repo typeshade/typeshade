@@ -344,7 +344,7 @@ class Light {
 declare const lights: storage<array<Light>>;
 declare const data: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
-@compute([1]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function main(gid: builtin<"global_invocation_id">) {
   const p = vec2(f32(gid.x), 0.);
   const lit = lights.some((l) => distance(l.pos, p) < l.radius);
   const dark = lights.every((l) => distance(l.pos, p) > l.radius);
@@ -389,7 +389,7 @@ class Cell {
 declare const buf: storage<array<f32>, "read_write">;
 declare const cells: storage<array<Cell>, "read_write">;
 declare const out: storage<array<f32>, "read_write">;
-@compute([1]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function main(gid: builtin<"global_invocation_id">) {
   buf.forEach((x, i) => {
     if (i + 1 < i32(buf.length)) {
       buf[i + 1] += x;
@@ -473,7 +473,7 @@ describe('fill and the searches (change 0079)', () => {
 declare const data: storage<array<i32>>;
 declare const buf: storage<array<i32>, "read_write">;
 declare const out: storage<array<f32>, "read_write">;
-@compute([1]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function main(gid: builtin<"global_invocation_id">) {
   buf.fill(i32(gid.x) + 5);
   out[gid.x] =
     f32(data.indexOf(4)) +
@@ -597,7 +597,7 @@ function id<T>(x: T): T {
     const K = (body: string): string => `"use typeshade";
 declare const data: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
-@compute([1]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function main(gid: builtin<"global_invocation_id">) {
   ${body}
 }
 `;

@@ -5,7 +5,7 @@ describe('@compute entry', () => {
   it('marks @compute([64]) as compute', () => {
     const r = compileTsSource(`
       "use typeshade";
-      @compute([64]) export function paint(id: builtin<"global_invocation_id", vec3u>): void {
+      @compute([64]) export function paint(id: builtin<"global_invocation_id">): void {
         const i = id.x;
       }
     `);

@@ -9,16 +9,16 @@
 */
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 interface Color {
-  color: location<0, vec4>;
+  color: vec4;
 }
 
 @vertex
-export function vs(i: builtin<"vertex_index", u32>): VsOut {
+export function vs(i: builtin<"vertex_index">): VsOut {
   let x: f32;
   let y: f32;
   x = -1.;

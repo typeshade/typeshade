@@ -562,9 +562,76 @@ waits for the owner's "merge" (`CLAUDE.md`, Merging). Duration and cost are not 
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the implementing pull requests (each commit
-with `Change: 0135`), the delivered configuration and the validation evidence listed under "Draft
-impact estimate".
+The front-matter `status` stays `accepted`: the deviations below that are open wait for the
+owner. This record states what pull request #1161 delivers. It was written on 2026-11-10 (UTC) by
+the AI agent (Claude Code) that implemented the change, at the direction of the coordinating
+session. The merge of pull request #1161 records the delivered commit; this file does not name
+the hash of the commit that contains it.
+
+**Delivered configuration.** Branch `claude/clever-ramanujan-yrfjsq-impl-0135`, based on `main`
+at `b5ff3963`. Tools: Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3, Vitest 5.0.5, Playwright's
+`chromium_headless_shell-1248` on SwiftShader, Doorstop 3.2.
+
+**Delivered, by item of "What it touches".**
+
+- Item 1: `src/compiler/ts/attribute-types.ts` (`attributeArgumentsOf`), `src/compiler/ts/type-map.ts`
+  (the type of `builtin<N>` from `WGSL_BUILTIN_TYPES`), `src/compiler/ts/builtin-type-form.ts`
+  (the `TS8028` warning, the `TS8003` of `builtin<"clip_distances">`, the one diagnostic of an
+  unknown name with no type), `src/language-service/ambient.ts` (the default of `builtin`'s type,
+  generated from the same table, and an options object second), `src/language-service/diagnostics.ts`
+  (TypeScript's `never` reports on a refused built-in value are dropped), `src/cli/migrate.ts`.
+- Item 2: `src/compiler/ts/entry-locations.ts`, called from `src/compiler/ts/source-file.ts` once
+  every entry is lowered; `src/compiler/ts/lower/function.ts` (`TS8029` for a compute entry's
+  user-defined input, a bare parameter included; the "neither … nor …" sentence is gone).
+- Rules 6.6, 6.8 and 8.2, §2.3 and Appendix B's Rule 6.6 row of `docs/language-design.md`; surface
+  §3, §7 and §53; `reqs/` (`bun run reqs:sync`; `RULE-0606`, `RULE-0608`, `RULE-0802`, `SURF-003`,
+  `SURF-007` and `SURF-053` reviewed, the suspect links of `SURF-003`, `SURF-051` and `SURF-069`
+  cleared after reading each section).
+- Examples: 100 of the 114 `examples/**/*.shade.ts` files, 301 lines. `tshc migrate` rewrote the
+  196 lines of item 1. A scratch script dropped 105 written locations of item 2, one at a time,
+  and kept each only where `compile()` and `reflect()` gave the same result. One written location
+  stays without an option, `FsIn.uv` in `examples/twin-structs.shade.ts`: `FsIn` is the type of a
+  helper's parameter and no entry's, so only the written location puts `@location(0)` in its
+  struct. `examples/id-pick.shade.ts` keeps the one location that carries an option.
+- `CHANGELOG.md`, `AUTHORING.md`, `docs/language-service-api.md`, `AGENTS.md`, `src/AGENTS.md`.
+
+**Functional validation**, run on 2026-11-10 (UTC) on the delivered configuration; the pull
+request's description lists each command with its result.
+
+- Emit identity: `compile()` over every `examples/**/*.shade.ts` before the change (on
+  `b5ff3963`) and after it. The WGSL, the GLSL ES 3.00, the diagnostics and `reflect()` of all 114
+  files are byte for byte the same. `bun run bake:goldens`, `bun run bake:api-surface` and
+  `bun run bake:author-names` change no file.
+- Both halves (Rule 12.7): `src/compiler/ts/builtin-type-form.test.ts`,
+  `src/compiler/ts/entry-locations.test.ts` and the rows added to
+  `src/language-service/ambient-parity.test.ts` read `compile()` (code, text, underlined text,
+  emit, `reflect()`) and the language service (`getDiagnostics`, `getHover`) on the same source,
+  for each row of "Every form that changes".
+- Tint (Rules 12.6 and 13.3): the entry-I/O leg of `scripts/compile-gate.ts` hands Tint the WGSL
+  of the three compute inputs that the front end refuses, which Tint refuses with its recorded
+  messages, and judges two programs of valid neighbours as examples.
+- `bun run build`, the whole `npx vitest run`, `bun run gate:compile`, `bun run gate:boundary`,
+  `bun run gate:journeys`, `bun run gate:render`, `bun run gate:differential`.
+
+**Document validation**: `bun run docs:refs`, `bun run docs:impact`, `bun scripts/changes.ts
+--base origin/main`, `bun scripts/rule-citation.ts`, `bun run reqs:sync` and
+`python scripts/doorstop-check.py -C -e -F`.
+
+**Deviations from the approved text.**
+
+| #   | Difference                                                                                                                                                                                                                                                                                                                                                                                                             | Disposition                                                                           |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| 1   | The table of item 2 numbers a vertex attribute by its entry and a vertex result by its struct. It does not say what a struct gets when two places give one field two numbers (one struct as an input of two vertex entries at two offsets). The emitted struct has one set of locations. The implementation refuses the field with `TS8010`, in a sentence this proposal does not give, and asks for `location<n, T>`. | Open: the owner decides whether the refusal and its sentence hold.                    |
+| 2   | Surface sections other than §3, §7 and §53, and Rules 8.19 and 12.1, write `builtin<N, T>` in their examples; the remedy of `src/compiler/ts/foreign-names.ts` that Rule 12.1 describes now names `builtin<"position">`. The front matter does not declare them, so they keep the migration form, which compiles with the warning. Surface §69 names a vertex entry's "`location<n, T>` inputs".                       | Open: an amendment that declares the sections lets a later pull request respell them. |
+| 3   | The compute sentence of `TS8029` for a value with no attribute says "is a user-defined input", where the sentence for a written location says "is at a location<…>". The value is at no location, so the approved wording would be untrue (Rule 12.5).                                                                                                                                                                 | Closed: the tail of the sentence, which the proposal quotes, is unchanged.            |
+| 4   | `tshc migrate` rewrites item 1 only. A written `location<n, T>` stays valid, so the command does not delete one.                                                                                                                                                                                                                                                                                                       | Closed: the examples' locations were dropped by a script and held to emit identity.   |
+| 5   | The hover does not show the location the compiler gives a field. The proposal recommends it and does not require it.                                                                                                                                                                                                                                                                                                   | Open: not started. `reflect()` and the emitted WGSL show each number.                 |
+| 6   | `src/core/passes/lint/rules/interstage-io.ts` is unchanged. The pass writes the location into the IR before the interstage check reads it.                                                                                                                                                                                                                                                                             | Closed.                                                                               |
+| 7   | A field whose `builtin<"clip_distances">` is refused is withheld from its struct. A write and a read of it say nothing more. A `const` declared from a read of it is not declared, so a later use of that `const` is `TS8022`.                                                                                                                                                                                         | Open: the withheld-field recovery predates this change; no issue names it yet.        |
+| 8   | `scripts/compile-gate.ts` gains the entry-I/O leg, which "What it touches" does not list. Rules 12.6 and 13.3 require the measurement.                                                                                                                                                                                                                                                                                 | Closed.                                                                               |
+
+**Remaining.** The downstream work of "What it owes downstream" is not started. The refusal of a
+written type in the release after the migration release (D1.2) is not part of this pull request.
 
 ## What it owes downstream
 

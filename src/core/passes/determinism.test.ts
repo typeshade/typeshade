@@ -408,7 +408,7 @@ describe('the pack and quantize rows say what the emitted code actually does', (
     // the fix, this module reported an EMPTY list.
     const r = moduleOf(`"use typeshade";
 declare const out: storage<array<u32>, "read_write">;
-@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   out[0] = pack4x8unorm(vec4(0.5, 0.5, 0.5, 0.5));
   out[1] = pack4x8snorm(vec4(0.5, 0.5, 0.5, 0.5));
   out[2] = pack2x16unorm(vec2(0.5, 0.5));
@@ -443,7 +443,7 @@ declare const out: storage<array<u32>, "read_write">;
 declare const tex: texture_2d<u32>;
 declare const smp: sampler;
 declare const out: storage<array<u32>, "read_write">;
-@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   out[0] = textureGather(0, tex, smp, vec2(0.5, 0.5)).x;
 }`);
     expect(r.determinism).toEqual([
@@ -588,7 +588,7 @@ describe('a textureGather on an integer texture is listed under the float it rea
 declare const tex: ${texture};
 declare const smp: ${sampler};
 declare const out: storage<array<${elem}>, "read_write">;
-@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   const g = ${call};
   out[0] = g.x;
 }`;
@@ -675,7 +675,7 @@ function pick(uv: vec2): u32 {
     const r = moduleOf(`"use typeshade";
 declare const ids: texture_2d<u32>;
 declare const out: storage<array<u32>, "read_write">;
-@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   const t = textureLoad(ids, vec2i(0, 0), 0);
   out[0] = (t.x / 3) % 5 + dot(t.xy, vec2u(3, 4)) + u32(f32(t.z) * 0.5);
 }`);
@@ -690,7 +690,7 @@ declare const out: storage<array<u32>, "read_write">;
 declare const tex: texture_2d<u32>;
 declare const smp: sampler_comparison;
 declare const out: storage<array<f32>, "read_write">;
-@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   out[0] = textureGatherCompare(tex, smp, vec2(0.5, 0.5), 0.5).x;
 }`;
     const text =
@@ -720,7 +720,7 @@ function a(x: f32): f32 {
 function b(x: f32): f32 {
   return x - x;
 }
-@fragment export function fs(p: builtin<"position", vec4f>): vec4f {
+@fragment export function fs(p: builtin<"position">): vec4f {
   return vec4f(a(p.x), b(p.y), 0., 1.);
 }
 `,

@@ -23,7 +23,7 @@ import { TS_CODES } from './codes.js';
 const KERNEL = `"use typeshade";
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
-@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= u32(src.length)) { return; }
   dst[gid.x] = src[gid.x] * 2.;
 }
@@ -50,7 +50,7 @@ describe('#46 — a runtime-sized storage array reads its length from the buffer
     const r = compileTsSource(`"use typeshade";
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
-@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id">): void {
   for (let i: u32 = 0; i < src.length; i++) { dst[gid.x] = dst[gid.x] + src[i]; }
 }
 `);
@@ -64,7 +64,7 @@ declare const dst: storage<array<f32>, "read_write">;
     const r = compileTsSource(`"use typeshade";
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
-@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id">): void {
   dst[gid.x] = src[gid.x] * 2.;
 }
 `);
@@ -178,7 +178,7 @@ describe('#46 — a sized array keeps the compile-time length it always had', ()
     const r = compileTsSource(`"use typeshade";
 declare const src: storage<array<f32, 8>>;
 declare const dst: storage<array<f32, 8>, "read_write">;
-@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= u32(src.length)) { return; }
   dst[gid.x] = src[gid.x] * 2.;
 }

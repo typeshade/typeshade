@@ -182,20 +182,20 @@ stage call of change 0111, `export const vs = vertex(function vs(…) { … });`
 (`TS8028`, changes 0130 and 0140). `tshc migrate` rewrites it to the attribute.
 
 The vertex stage runs once per vertex. It produces the clip space position and whatever
-the fragment stage needs from it, packed in an _IO struct_: an interface (or a class or a `type`) whose fields each carry
-an attribute in their type. `builtin<"position", vec4>` marks the value the hardware itself
-consumes, and `location<0, vec2>` marks a value that is interpolated across the triangle and read back by the
+the fragment stage needs from it, packed in an _IO struct_: an interface (or a class or a `type`). `builtin<"position">` marks the value the hardware itself
+consumes. Every other field, such as `uv: vec2`, is a value that is interpolated across the triangle and read back by the
 fragment stage.
 
 ```ts
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 ```
 
-WGSL fixes the type of every builtin but `clip_distances`, so the compiler checks the type
-you write against the id: `builtin<"position", T>` with any `T` but `vec4` is an error.
+WGSL fixes the type of every builtin but `clip_distances`, so you write no type: `builtin<"position">`
+is a `vec4`, and `builtin<"vertex_index">` a `u32`. The compiler gives `uv` its location, `@location(0)`
+here. Write `location<n, T>` only to fix a number or to state an option.
 
 This shader has no vertex buffer. It draws three vertices that cover the screen, and it
 derives their positions from the vertex index alone. A stage input is an ordinary
@@ -203,7 +203,7 @@ parameter with the same attribute:
 
 ```ts
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
@@ -230,7 +230,7 @@ export function fs(vo: VsOut): vec4 {
 ```
 
 A bare fragment return goes to location 0, the first colour attachment, so nothing
-is written for it. A struct return carries one `location<n, T>` field per colour attachment.
+is written for it. A struct return carries one field per colour attachment, numbered in the order written.
 
 ### Assembling the module
 
@@ -241,12 +241,12 @@ it: the struct, the two entries and any helper they call. Put together, the file
 "use typeshade";
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
@@ -675,7 +675,7 @@ declare const input: storage<array<f32>>;
 declare const output: storage<array<f32>, "read_write">;
 
 @compute([64])
-export function reduceWindows(gid: builtin<"global_invocation_id", vec3u>): void {
+export function reduceWindows(gid: builtin<"global_invocation_id">): void {
   const idx = gid.x;
   if (idx >= params.x) {
     return;
@@ -706,10 +706,13 @@ limits and host call.
 
 ### Stage parameters
 
-A stage takes its inputs as parameters whose type carries the attribute. `builtin<"id", T>`
+A stage takes its inputs as parameters. `builtin<"id">`
 declares a value the hardware supplies, such as `"vertex_index"`, `"position"` or
-`"global_invocation_id"`, and `location<n, T>` declares a numbered slot that carries data
-between stages. Each type means `T`. The same two types describe the fields of an IO struct,
+`"global_invocation_id"`, and means the type WGSL gives that value. A parameter with no
+`builtin<…>` is a user-defined input: a vertex attribute on a vertex entry, and a value between
+stages on a fragment entry, which takes the location of the vertex result's field of the same
+name. The compiler gives each its location; `location<n, T>` states the number, and a fragment
+entry in a file with no vertex entry writes it. The same forms describe the fields of an IO struct,
 an interface or a class both stages then share;
 [Layouts and resources](/guide/authoring/layouts-and-resources/) has the interpolation
 modes.
@@ -718,7 +721,7 @@ modes.
 "use typeshade";
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 
@@ -731,7 +734,7 @@ interface Gradient {
 declare const u: uniform<Gradient>;
 
 @vertex
-export function vsFull(idx: builtin<"vertex_index", u32>): VsOut {
+export function vsFull(idx: builtin<"vertex_index">): VsOut {
   let pos = vec2(-1., -1.);
   if (idx == 1) {
     pos = vec2(3., -1.);
@@ -1021,11 +1024,12 @@ the line that reads it.
 
 An IO struct is a group of fields that crosses a stage boundary: a vertex stage returns
 it and a fragment stage takes it as a parameter. It is an `interface`, a `class` or a
-`type`, and every field carries a stage attribute in its type. A `class` field needs no
-initializer and no `!` (`pos: builtin<"position", vec4>`): the stage that produces the field
-fills it. `builtin<"id", T>` declares a value the hardware supplies, and takes a WGSL builtin
+`type`. A `class` field needs no
+initializer and no `!` (`pos: builtin<"position">`): the stage that produces the field
+fills it. `builtin<"id">` declares a value the hardware supplies, of the type WGSL gives it, and takes a WGSL builtin
 id such as `"position"` or `"vertex_index"`; an id WGSL does not define is an error.
-`location<n, T>` declares a numbered slot, with an optional third type argument
+Every other field is a user-defined value, and the compiler gives it its location in the order
+written. `location<n, T>` states the number, with an optional third type argument
 `{ interpolate: "flat" }`, `{ interpolate: "linear" }` or `{ interpolate: "perspective" }`.
 The decorated class field of earlier releases (`@location(0) uv: vec2`) stays accepted until
 the release after the migration release. An integer field gets `flat` without asking, because both
@@ -1036,21 +1040,21 @@ targets support; `"linear"` has no GLSL ES 3.00 form, so a module that uses it h
 "use typeshade";
 
 interface VsIn {
-  xy: location<0, vec2>;
-  uv: location<1, vec2>;
+  xy: vec2; // @location(0)
+  uv: vec2; // @location(1)
 }
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
-  vis: location<1, f32>;
-  id: location<2, u32>; // an integer varying: flat on both targets
+  pos: builtin<"position">;
+  uv: vec2;
+  vis: f32;
+  id: u32; // an integer varying: flat on both targets
 }
 
 // A vertex entry returns the struct. The object literal takes the declared struct,
 // so a missing or extra field is an error.
 @vertex
-export function vsMain(v: VsIn, inst: builtin<"instance_index", u32>): VsOut {
+export function vsMain(v: VsIn, inst: builtin<"instance_index">): VsOut {
   const pos = vec4(v.xy, 0., 1.);
   return { pos: pos, uv: v.uv, vis: 1., id: inst };
 }
@@ -1065,7 +1069,7 @@ export function fsMain(input: VsOut): vec4 {
 }
 ```
 
-A vertex entry's `location<n, T>` inputs are vertex attributes, loose parameters or the fields of
+A vertex entry's user-defined inputs are vertex attributes, loose parameters or the fields of
 a struct parameter such as `VsIn`, and `reflect()` reports their buffer layout. A struct
 value built over several statements is a `let` of the struct type whose fields you assign.
 
@@ -1151,7 +1155,7 @@ declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
 
 @compute([64, 1, 1])
-export function twice(gid: builtin<"global_invocation_id", vec3u>): void {
+export function twice(gid: builtin<"global_invocation_id">): void {
   dst[gid.x] = src[gid.x] * 2.0;
 }
 ```
@@ -1241,7 +1245,7 @@ declare const atlasSampler: sampler;
 declare const ids: texture_2d<u32>;
 
 @fragment
-export function fs(p: builtin<"position", vec4>, uv: location<0, vec2>): vec4 {
+export function fs(p: builtin<"position">, uv: location<0, vec2>): vec4 {
   const layer: i32 = 2;
   const a = textureSample(atlas, atlasSampler, uv, layer); // implicit LOD, fragment only
   const b = textureSampleLevel(atlas, atlasSampler, uv, layer, 0.); // explicit LOD, any stage
@@ -1284,7 +1288,7 @@ interface Uniforms {
 declare const u: uniform<Uniforms>;
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 
@@ -2380,7 +2384,7 @@ into a float texture or blending into one.
 ### Declaring a capability
 
 Most capabilities declare themselves. Writing `builtin<"clip_distances", T>`,
-`builtin<"primitive_index", u32>`, a subgroup built-in value or a `blend_src` option derives the
+`builtin<"primitive_index">`, a subgroup built-in value or a `blend_src` option derives the
 capability the use needs, and so does a storage binding, a compute entry or a texture of a
 kind one target lacks. An extension no use derives is turned on by a string directive beside
 `"use typeshade"`, one per line, with WGSL's own name:
@@ -2390,7 +2394,7 @@ kind one target lacks. An extension no use derives is turned on by a string dire
 "enable subgroups";
 
 @compute([64])
-export function k(gid: builtin<"global_invocation_id", vec3u>) {
+export function k(gid: builtin<"global_invocation_id">) {
 }
 ```
 
@@ -2436,7 +2440,7 @@ A capability can need either half, both halves, or neither.
 | `packed4x8Dot`       | unsupported, fails closed                                       | core, derived; a language feature to check                               |
 
 The bottom six rows are the ones nothing declares by hand. Writing
-`builtin<"clip_distances", T>`, `builtin<"primitive_index", u32>`, `builtin<"subgroup_id", u32>`
+`builtin<"clip_distances", T>`, `builtin<"primitive_index">`, `builtin<"subgroup_id">`
 or a `blend_src` option derives the capability, because WGSL refuses each of those without the matching
 `enable`; a `"bgra8unorm"` storage texture, a call into the packed 4x8 family and a call to a
 subgroup built-in function (`subgroupAdd(x)`, change 0117) derive theirs from the binding and
@@ -2474,9 +2478,9 @@ Two notes before you trust a row.
   no way to spell `layout(num_views = N) in;` or read `gl_ViewID_OVR`. A module declaring
   `multiview` emits the directive and renders single-view. The other four are reachable:
   `clipDistances`, `primitiveIndex` and `dualSourceBlending` are what their attributes need,
-  and `subgroups` is reached by `builtin<"subgroup_invocation_id", u32>` or
-  `builtin<"subgroup_size", u32>` on a compute or fragment entry, by `builtin<"subgroup_id", u32>`
-  or `builtin<"num_subgroups", u32>` on a compute entry, and by a call to one of the 21 subgroup
+  and `subgroups` is reached by `builtin<"subgroup_invocation_id">` or
+  `builtin<"subgroup_size">` on a compute or fragment entry, by `builtin<"subgroup_id">`
+  or `builtin<"num_subgroups">` on a compute entry, and by a call to one of the 21 subgroup
   built-in functions (`subgroupAdd` and the rest, change 0117). On GLSL ES 3.00 it costs
   nothing: a subgroup there is one invocation (Rule 11.21), so a fold is the lane's own value
   and `subgroup_size` is `1u`. Whether a given adapter HAS one of the
@@ -2584,7 +2588,7 @@ declare const field: storage<array<f32>>;
 declare const outColor: storage<array<u32>, "read_write">;
 
 @compute([64])
-export function evalField(gid: builtin<"global_invocation_id", vec3u>): void {
+export function evalField(gid: builtin<"global_invocation_id">): void {
   const i = gid.x;
   if (i >= field.length) {
     return;
@@ -2958,12 +2962,12 @@ function terrainShade(uv: vec2): vec4 {
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): vec4 {
+export function vs(vi: builtin<"vertex_index">): vec4 {
   return vec4(f32(vi & 1) * 4. - 1., f32(vi >> 1) * 4. - 1., 0., 1.);
 }
 
 @fragment
-export function fs(p: builtin<"position", vec4>): vec4 {
+export function fs(p: builtin<"position">): vec4 {
   return terrainShade(p.xy * 0.01);
 }
 ```
@@ -3218,19 +3222,19 @@ export function vs(pos: location<0, vec2>): vec4 {
 ### Builtin values
 
 A builtin is a value the hardware supplies to a stage. The vocabulary for them is WGSL's,
-written as the type `builtin<"id", T>` on a parameter or a struct field, so a `gl_*` spelling or a typo
+written as the type `builtin<"id">` on a parameter or a struct field, so a `gl_*` spelling or a typo
 is an error that names TypeShade's spelling. Each backend then spells the id its own way.
 
-| GLSL global                        | `"use typeshade"` spelling                                   | Notes                                                                                                                                                                                            |
-| ---------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `gl_Position`                      | `builtin<"position", vec4>` on the vertex output             | writes `gl_Position` on GLSL. A vertex entry that returns a bare `vec4` returns the position                                                                                                     |
-| `gl_FragCoord`                     | `builtin<"position", vec4>` on a fragment input              | reads `gl_FragCoord` on GLSL. Mind the y origin: GL window space is bottom-left and WGSL framebuffer space is top-left, so flip per target, or derive a y-symmetric value, before consuming `.y` |
-| `gl_VertexID`                      | `vi: builtin<"vertex_index", u32>`                           | GLSL wraps the read as `uint(gl_VertexID)`, since the surface types it u32 and GLSL's is int                                                                                                     |
-| `gl_InstanceID`                    | `ii: builtin<"instance_index", u32>`                         | the same `uint()` wrap                                                                                                                                                                           |
-| `gl_FrontFacing`                   | `front: builtin<"front_facing", bool>`                       |                                                                                                                                                                                                  |
-| `gl_FragDepth`                     | `builtin<"frag_depth", f32>` on a field of the return struct |                                                                                                                                                                                                  |
-| `gl_PointSize` and `gl_PointCoord` | unsupported on both writers                                  | point size caps vary per vendor, and WebGPU point primitives are always one pixel. Expand an instanced quad in the vertex stage and interpolate a `location<n, vec2>` corner uv                  |
-| float `mod(x, y)`                  | the builtin `mod()`                                          | that is floor-mod. `%` is trunc-mod, which is WGSL's semantics and spells portably on GLSL too. Pick by the semantics you mean on negative operands                                              |
+| GLSL global                        | `"use typeshade"` spelling                              | Notes                                                                                                                                                                                            |
+| ---------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `gl_Position`                      | `builtin<"position">` on the vertex output              | writes `gl_Position` on GLSL. A vertex entry that returns a bare `vec4` returns the position                                                                                                     |
+| `gl_FragCoord`                     | `builtin<"position">` on a fragment input               | reads `gl_FragCoord` on GLSL. Mind the y origin: GL window space is bottom-left and WGSL framebuffer space is top-left, so flip per target, or derive a y-symmetric value, before consuming `.y` |
+| `gl_VertexID`                      | `vi: builtin<"vertex_index">`                           | GLSL wraps the read as `uint(gl_VertexID)`, since the surface types it u32 and GLSL's is int                                                                                                     |
+| `gl_InstanceID`                    | `ii: builtin<"instance_index">`                         | the same `uint()` wrap                                                                                                                                                                           |
+| `gl_FrontFacing`                   | `front: builtin<"front_facing">`                        |                                                                                                                                                                                                  |
+| `gl_FragDepth`                     | `builtin<"frag_depth">` on a field of the return struct |                                                                                                                                                                                                  |
+| `gl_PointSize` and `gl_PointCoord` | unsupported on both writers                             | point size caps vary per vendor, and WebGPU point primitives are always one pixel. Expand an instanced quad in the vertex stage and interpolate a `location<n, vec2>` corner uv                  |
+| float `mod(x, y)`                  | the builtin `mod()`                                     | that is floor-mod. `%` is trunc-mod, which is WGSL's semantics and spells portably on GLSL too. Pick by the semantics you mean on negative operands                                              |
 
 A fragment stage reads the framebuffer coordinate through the same `position` builtin the
 vertex stage writes, and writes the depth through a field of its return struct:
@@ -3240,11 +3244,11 @@ vertex stage writes, and writes the depth through a field of its return struct:
 
 interface FragOut {
   color: location<0, vec4>;
-  depth: builtin<"frag_depth", f32>;
+  depth: builtin<"frag_depth">;
 }
 
 @fragment
-export function fsCoord(pos: builtin<"position", vec4>): FragOut {
+export function fsCoord(pos: builtin<"position">): FragOut {
   return { color: vec4(pos.x * 0.001, pos.y * 0.001, 0., 1.), depth: 0.5 };
 }
 ```

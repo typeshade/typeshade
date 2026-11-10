@@ -34,7 +34,7 @@ const FS = `@fragment export function fs(): vec4 {
 describe('a vertex entry returns the position, alone or in a struct', () => {
   it('alone, and on both targets', () => {
     const r = compile(`"use typeshade"
-@vertex export function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex export function vs(vi: builtin<"vertex_index">): vec4 {
   return vec4(f32(vi), 0., 0., 1.)
 }
 ${FS}`);
@@ -49,7 +49,7 @@ ${FS}`);
   it('in a struct, with as many varyings as the program wants', () => {
     const r = compile(`"use typeshade";
 interface Out {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
   color: location<1, vec3>;
   w: location<2, f32>;
@@ -127,7 +127,7 @@ export function fs(v: Out): vec4 {
 }
 `)[0],
     ).toBe(
-      `${TS_CODES.FUNCTION_SHAPE} "vs" is a vertex entry, so what it returns has to carry the position: give "Out" a field typed builtin<"position", vec4>.`,
+      `${TS_CODES.FUNCTION_SHAPE} "vs" is a vertex entry, so what it returns has to carry the position: give "Out" a field typed builtin<"position">.`,
     );
   });
 
@@ -137,7 +137,7 @@ export function fs(v: Out): vec4 {
 @vertex export function vs(): void {}
 ${FS}`)[0],
     ).toBe(
-      `${TS_CODES.FUNCTION_SHAPE} "vs" is a vertex entry, so it returns the position: a vec4, which is the position on its own, or a struct with a field typed builtin<"position", vec4>. It returns nothing.`,
+      `${TS_CODES.FUNCTION_SHAPE} "vs" is a vertex entry, so it returns the position: a vec4, which is the position on its own, or a struct with a field typed builtin<"position">. It returns nothing.`,
     );
     expect(
       errorsOf(`"use typeshade"
@@ -146,7 +146,7 @@ ${FS}`)[0],
 }
 ${FS}`)[0],
     ).toBe(
-      `${TS_CODES.FUNCTION_SHAPE} "vs" is a vertex entry, so it returns the position: a vec4, which is the position on its own, or a struct with a field typed builtin<"position", vec4>. It returns f32.`,
+      `${TS_CODES.FUNCTION_SHAPE} "vs" is a vertex entry, so it returns the position: a vec4, which is the position on its own, or a struct with a field typed builtin<"position">. It returns f32.`,
     );
   });
 });

@@ -263,7 +263,7 @@ describe('each replacement is clean on both halves and computes what the removed
     const kernel = (read: string): string => `"use typeshade";
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
-@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= ${read}) {
     return;
   }

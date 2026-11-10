@@ -24,9 +24,9 @@ const BIG = `class Big {
   bump(k: f32): void { this.a = this.a + vec4f(k); }
 }`;
 
-const FRAGMENT = `interface VsOut { pos: builtin<"position", vec4>; uv: location<0, vec2>; }
+const FRAGMENT = `interface VsOut { pos: builtin<"position">; uv: location<0, vec2>; }
 class Color { color: location<0, vec4>; }
-@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(vi: builtin<"vertex_index">): VsOut {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
 }`;
 
@@ -210,7 +210,7 @@ let tile: workgroup<Cell>;
 const out = storage<array<f32>, "read_write">();
 function late(c: Cell): f32 { workgroupBarrier(); return c.a; }
 function early(c: Cell): f32 { return c.a; }
-@compute([64]) export function main(i: builtin<"local_invocation_index", u32>) {
+@compute([64]) export function main(i: builtin<"local_invocation_index">) {
   if (i == u32(0)) { tile.a = 1.; }
   out[i] = late(tile) + early(tile);
 }`);

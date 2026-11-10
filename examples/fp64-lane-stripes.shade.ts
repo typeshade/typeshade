@@ -43,14 +43,14 @@ class Uniforms {
 declare const u: uniform<Uniforms>;
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
   // No f64 here, and no words standing in for one: `origin: location<1, f64>` is refused at
   // this declaration, and the fragment stage reads `u.origin` instead.
 }
 
 @vertex
-export function vs(idx: builtin<"vertex_index", u32>): VsOut {
+export function vs(idx: builtin<"vertex_index">): VsOut {
   const x = f32(idx & 1) * 4. - 1.;
   const y = f32(idx >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };

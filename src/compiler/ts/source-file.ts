@@ -66,6 +66,7 @@ import {
   type DerivativeRewriteReason,
 } from '../../core/passes/derivative-rewrite.js';
 import { checkBuiltinTypeForms } from './builtin-type-form.js';
+import { giveEntryLocations } from './entry-locations.js';
 import { interstageMismatches } from '../../core/passes/lint/rules/interstage-io.js';
 import {
   authorTypeText,
@@ -340,6 +341,11 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
       vars,
     ),
   );
+  // A user-defined input or output that writes no location takes it from the compiler, once
+  // every entry is read, since a fragment input reads the vertex results (Rule 6.6, change
+  // 0135). Before anything reads a location: the interstage check below, the writers and
+  // `reflect()`.
+  giveEntryLocations(sourceFile, diagnostics, structs, funcs);
   // The optional structs the functions and the structs use (Rule 7.10, changes 0088 and
   // 0093): declared by no file, each placed before the first struct that holds it and after
   // the struct its `T` names (decision D11), and emitted as the ordinary structs they are.
@@ -918,14 +924,14 @@ function uniformityMessage(v: UniformityViolation): string {
       `${v.callee}() is reached ${reached}, and every invocation of the subgroup has to reach ` +
       `it together: WGSL's subgroup_uniformity rule refuses the call where one may not. ` +
       `${site.move}, or ${site.on} a value the whole workgroup shares (a uniform, a module ` +
-      `const, builtin<"workgroup_id", vec3u>).`
+      `const, builtin<"workgroup_id">).`
     );
   }
   return (
     `${v.callee}() is reached ${reached}, and every invocation of the workgroup has ` +
     `to reach it: one that does not is a workgroup that waits forever. ${site.move}, or ` +
     `${site.on} a value the whole workgroup shares (a uniform, a module const, ` +
-    `builtin<"workgroup_id", vec3u>).`
+    `builtin<"workgroup_id">).`
   );
 }
 

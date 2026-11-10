@@ -187,7 +187,7 @@ describe('field assignment', () => {
     const body = lowerBody(`
       ${STRUCTS}
       declare const ps: storage<array<P>, "read_write">
-      @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>) {
+      @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">) {
         ps[gid.x].a = 1.;
       }
     `);
@@ -202,7 +202,7 @@ describe('field assignment', () => {
   it('lowers a component of a field: o.pos.x = 2.', () => {
     const body = lowerBody(`
       interface VsOut {
-        pos: builtin<"position", vec4>
+        pos: builtin<"position">
         uv: location<0, vec2>
       }
       @vertex export function vs(p: location<0, vec2>): VsOut {
@@ -226,7 +226,7 @@ describe('emitted text', () => {
   const RENDER = `
     "use typeshade";
     interface VsOut {
-      pos: builtin<"position", vec4>;
+      pos: builtin<"position">;
       uv: location<0, vec2>;
     }
     interface Color {
@@ -278,7 +278,7 @@ describe('emitted text', () => {
       "use typeshade";
       ${STRUCTS}
       declare const ps: storage<array<P>, "read_write">
-      @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>) {
+      @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">) {
         ps[gid.x].a = 1.;
         ps[gid.x].b += 2.;
       }
@@ -485,7 +485,7 @@ describe('a write through a storage binding survives the optimizer', () => {
     "use typeshade";
     ${STRUCTS}
     declare const ps: storage<array<P>, "read_write">
-    @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>) {
+    @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">) {
       ps[gid.x + u32(1)].b = ps[gid.x + u32(1)].a * ps[gid.x + u32(1)].a;
     }
   `;
@@ -503,7 +503,7 @@ describe('a write through a storage binding survives the optimizer', () => {
       "use typeshade";
       ${STRUCTS}
       declare const ps: storage<array<P>, "read_write">
-      @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>) {
+      @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">) {
         ps[gid.x * u32(2) + u32(1)].a++;
       }
     `);
@@ -565,7 +565,7 @@ describe('what ++ and -- step', () => {
     expect(
       diagnose(`
         declare const vs: storage<array<vec3f64>, "read_write">
-        @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>) {
+        @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">) {
           vs[gid.x]++;
         }
       `),
@@ -618,7 +618,7 @@ describe('what ++ and -- step', () => {
       [
         `"use typeshade";
         declare const xs: storage<array<f64>, "read_write">;
-        @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>) {
+        @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">) {
           xs[gid.x]++;
         }`,
         'fn df64_add(',
@@ -626,7 +626,7 @@ describe('what ++ and -- step', () => {
       [
         `"use typeshade";
         declare const xs: storage<array<f64>, "read_write">;
-        @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>) {
+        @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">) {
           xs[gid.x]--;
         }`,
         'fn df64_sub(',
@@ -637,7 +637,7 @@ describe('what ++ and -- step', () => {
           a: f64;
         }
         declare const ds: storage<array<P>, "read_write">;
-        @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>) {
+        @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">) {
           ds[gid.x].a++;
         }`,
         'fn df64_add(',
@@ -764,7 +764,7 @@ describe('the root rule reaches an element target too', () => {
     const c = compile(`
       "use typeshade";
       declare const xs: storage<array<f32>, "read_write">;
-      @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>) {
+      @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">) {
         xs[gid.x] = 1.;
       }
     `);

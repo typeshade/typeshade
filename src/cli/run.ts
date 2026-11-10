@@ -66,11 +66,13 @@ the module (the Vite plugin rewrites them as modules change). Run it before tsc 
 a clean checkout; its home is the "prepare" script. With --check it writes
 nothing and fails when a view is missing or stale.
 
-migrate rewrites each *.shade.ts to the language's own forms (changes 0130 and
-0137): a stage attribute for each stage call ("@vertex export function vs" for
-"export const vs = vertex(function vs"), a named entry for an "export default"
-one, an attribute type for each @builtin or @location, "@inout v: T" for
-"v: inout<T>", and no "!" on a field or a local. It keeps every other byte and
+migrate rewrites each *.shade.ts to the language's own forms (changes 0130,
+0135 and 0137): a stage attribute for each stage call ("@vertex export function
+vs" for "export const vs = vertex(function vs"), a named entry for an "export
+default" one, an attribute type for each @builtin or @location, builtin<N> for
+a built-in value's written type that WGSL fixes ("builtin<"vertex_index">" for
+"builtin<"vertex_index", u32>"), "@inout v: T" for "v: inout<T>", and no "!" on
+a field or a local. It keeps every other byte and
 names, by line, a form it leaves as written. With --check it writes nothing and
 fails when a file would
 change.
@@ -359,8 +361,8 @@ function sync(files: readonly string[], host: CliHost, check: boolean): number {
 
 /**
  * `tshc migrate`: rewrite each file to the language's own forms, the stage attributes of change
- * 0130 and the attribute types of change 0111, or with `check`, name each file that would change
- * and write nothing.
+ * 0130, the attribute types of change 0111 and the built-in value without its type of change
+ * 0135, or with `check`, name each file that would change and write nothing.
  * A form the rewrite leaves as written is printed with its line; it does not fail the command.
  */
 function migrate(files: readonly string[], host: CliHost, check: boolean): number {

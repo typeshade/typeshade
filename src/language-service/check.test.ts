@@ -146,7 +146,7 @@ declare const scale: uniform<array<vec4, 2>>;
     const compute = `"use typeshade";
 declare const data: storage<array<f32>, "read_write">;
 
-@compute([64]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function main(gid: builtin<"global_invocation_id">) {
   data[gid.x] = 1.;
 }
 `;
@@ -157,11 +157,11 @@ declare const data: storage<array<f32>, "read_write">;
     const both = `"use typeshade";
 declare const img: storage<array<f32>, "read_write">;
 
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(img[u32(p.x)], 0., 0., 1.);
 }
 
-@compute([4]) export function cs(g: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function cs(g: builtin<"global_invocation_id">) {
   img[g.x] = 2.;
 }
 `;

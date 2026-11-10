@@ -891,7 +891,7 @@ export function tex(t: texture_2d<f32>, uv: vec2i): vec4 {
 interface FsOut {
   color: location<0, vec4>;
 }
-@fragment export function fs(p: builtin<"position", vec4>): FsOut {
+@fragment export function fs(p: builtin<"position">): FsOut {
   return { color: tex(img, vec2i(p.xy)) };
 }`;
     expect(compiled(body)).toEqual([]);

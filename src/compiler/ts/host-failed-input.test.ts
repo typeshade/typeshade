@@ -304,19 +304,19 @@ declare const xs: storage<array<f32>>;
 declare const other: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
 function sample(i: u32): f32 { return xs[i]; }
-@compute([1]) export function copy(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function copy(gid: builtin<"global_invocation_id">) {
   if (gid.x < dst.length) dst[gid.x] = GAIN * sample(gid.x);
 }
-@compute([1]) export function sum(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function sum(gid: builtin<"global_invocation_id">) {
   if (gid.x < dst.length) dst[gid.x] = xs[gid.x] + other[gid.x];
 }
-@compute([1]) export function reset(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function reset(gid: builtin<"global_invocation_id">) {
   if (gid.x < dst.length) dst[gid.x] = 7.;
 }
-@compute([1]) export function mutate(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function mutate(gid: builtin<"global_invocation_id">) {
   if (gid.x < dst.length) dst[gid.x] += 1.;
 }
-@compute([1]) export function capacity(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function capacity(gid: builtin<"global_invocation_id">) {
   if (gid.x < dst.length) dst[gid.x] = f32(xs.length);
 }
 @fragment export function color(): vec4 { return vec4(xs[0], 0., 0., 1.); }
@@ -560,10 +560,10 @@ export function cells(out: array<Cell>, n: u32) {
   for (let i: u32 = 0; i < n; i++) out[i].value = 1.;
 }
 declare const dst: storage<array<atomic<u32>>, "read_write">;
-@compute([1]) export function clear(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function clear(gid: builtin<"global_invocation_id">) {
   if (gid.x < dst.length) atomicStore(dst[gid.x], 7);
 }
-@compute([1]) export function increment(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function increment(gid: builtin<"global_invocation_id">) {
   if (gid.x < dst.length) atomicAdd(dst[gid.x], 1);
 }
 export function words(out: array<u32>, n: u32) {

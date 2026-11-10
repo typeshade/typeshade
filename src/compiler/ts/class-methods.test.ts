@@ -563,7 +563,7 @@ class Particle {
     return length(this.vel);
   }
 }
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   ps[gid.x].tick(0.5);
   let p = ps[gid.x];
   p.step(1.);

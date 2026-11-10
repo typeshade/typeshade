@@ -277,9 +277,9 @@ describe('"use typeshade" examples — passes (change 0026)', () => {
   /** A program with a fullscreen vertex entry and a fragment entry that declares `decls`. */
   const program = (decls: string, entries = 'both'): ReturnType<typeof compile>['module'] => {
     const vs = `
-interface VsOut { pos: builtin<"position", vec4>; uv: location<0, vec2>; }
+interface VsOut { pos: builtin<"position">; uv: location<0, vec2>; }
 interface Color { color: location<0, vec4>; }
-@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) * 0.5 + vec2(0.5, 0.5) };

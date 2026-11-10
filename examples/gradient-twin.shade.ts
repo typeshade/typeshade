@@ -32,14 +32,14 @@ class Uniforms {
 declare const u: uniform<Uniforms>;
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 // Oversized fullscreen triangle (3 verts, NDC −1..3) — covers the screen from a single
 // non-indexed draw with no vertex buffer.
 @vertex
-export function vs_full(idx: builtin<"vertex_index", u32>): VsOut {
+export function vs_full(idx: builtin<"vertex_index">): VsOut {
   let pos = vec2(-1., -1.);
   if (idx === 1) {
     pos = vec2(3., -1.);

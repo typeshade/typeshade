@@ -25,7 +25,7 @@ let tile: workgroup<array<array<f32, 2>, SCRATCH>>;
 let gain: f32 = 0.;
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
-@compute([WORK, HEIGHT]) export function scale(gid: builtin<"global_invocation_id", vec3u>, lid: builtin<"local_invocation_id", vec3u>, li: builtin<"local_invocation_index", u32>, nw: builtin<"num_workgroups", vec3u>) {
+@compute([WORK, HEIGHT]) export function scale(gid: builtin<"global_invocation_id">, lid: builtin<"local_invocation_id">, li: builtin<"local_invocation_index">, nw: builtin<"num_workgroups">) {
   gain = GAIN;
   const i = gid.x + WORK * nw.x * gid.y;
   if (i >= src.length) return;

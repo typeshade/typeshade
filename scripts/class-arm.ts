@@ -645,7 +645,7 @@ function twinSource(
     };
     lines.push(
       '',
-      `@compute([64]) export function twin_${tag}(gid: builtin<"global_invocation_id", vec3u>): void {`,
+      `@compute([64]) export function twin_${tag}(gid: builtin<"global_invocation_id">): void {`,
       '  const i = gid.x;',
       `  if (i >= ${tag}_xs.length) {`,
       '    return;',

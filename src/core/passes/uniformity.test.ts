@@ -134,7 +134,7 @@ const derivativeRefusal = (reached: string, past: string, reason: string): strin
 /** The whole TS8052 sentence for a call the workgroup has to reach together: where it is
  *  reached, where to move it, and what to write the statement on instead. */
 const barrierRefusal = (callee: string, reached: string, move: string, on: string): string =>
-  `${TS_CODES.UNIFORMITY} ${callee}() is reached ${reached}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. ${move}, or ${on} a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).`;
+  `${TS_CODES.UNIFORMITY} ${callee}() is reached ${reached}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. ${move}, or ${on} a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id">).`;
 
 const UV = '"VsOut.uv" (a fragment input at @location(0))';
 const LID = '"lid" (@builtin(local_invocation_id))';
@@ -335,7 +335,7 @@ ${attrs}${top}namespace N {
       READS_HELD,
     );
     const helper = 'function half(x: f32): f32 { return x * 0.5 }\n';
-    const vs = '@vertex export function vs(): builtin<"position", vec4> { return vec4(0.) }\n';
+    const vs = '@vertex export function vs(): builtin<"position"> { return vec4(0.) }\n';
     for (const top of ['', helper, vs]) {
       // Reached as written: the gradients are computed above the return.
       expect(compiled(ns(top)).wgsl, top).toContain('textureSampleGrad(t, s, p.xy,');
@@ -880,7 +880,7 @@ declare const out: storage<array<f32>, "read_write">
 declare const k: uniform<f32>
 ${extra}
 ${helper}
-@compute([64, 1, 1]) export function cs(lid: builtin<"local_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(lid: builtin<"local_invocation_id">): void {
   let local = k;
   if (${condition}) { workgroupBarrier(); }
   out[lid.x] = 1.;

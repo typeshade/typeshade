@@ -32,15 +32,15 @@ class Uniforms {
 declare const u: uniform<Uniforms>;
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 // Oversized fullscreen triangle, the same pattern as gradient-pass.ts. The original reaches it
 // with If().elif() over an auto-var, which here is a reassigned `let`; the comparison is `===`
 // because `==` is refused with TS8099.
 @vertex
-export function vs_full(idx: builtin<"vertex_index", u32>): VsOut {
+export function vs_full(idx: builtin<"vertex_index">): VsOut {
   let pos = vec2(-1., -1.);
   if (idx === 1) {
     pos = vec2(3., -1.);

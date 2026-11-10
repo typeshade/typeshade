@@ -78,13 +78,13 @@ describe('a GLSL or HLSL name is refused with TypeShade spelling as the remedy (
     gl_FragCoord: [
       '@fragment export function f(): vec4 {\n  return vec4(gl_FragCoord.x);\n}',
       `${TS_CODES.UNKNOWN_NAME} Unknown identifier "gl_FragCoord". GLSL's gl_FragCoord is a ` +
-        'parameter here: pos: builtin<"position", vec4>.',
+        'parameter here: pos: builtin<"position">.',
     ],
     // What a GLSL vertex shader ends with: an output, so a field of the entry's return.
     gl_Position: [
       '@vertex export function f(): vec4 {\n  gl_Position = vec4(0.);\n  return vec4(0.);\n}',
       `${TS_CODES.UNKNOWN_NAME} Cannot assign to unknown name "gl_Position". GLSL's ` +
-        'gl_Position is a field of the entry\'s return here: pos: builtin<"position", vec4>.',
+        'gl_Position is a field of the entry\'s return here: pos: builtin<"position">.',
     ],
     numthreads: [
       '@numthreads([64])\nexport function f(): void {}',
@@ -134,7 +134,7 @@ describe('an address space is refused where it is written, and names the wrapper
     ['shared', 'GLSL'],
   ] as const;
   const KERNEL =
-    '@compute([64]) export function k(li: builtin<"local_invocation_index", u32>): void {\n';
+    '@compute([64]) export function k(li: builtin<"local_invocation_index">): void {\n';
   const positions: Readonly<Record<string, (type: string) => string>> = {
     'a module let': (type) =>
       `let tile: ${type};\n${KERNEL}  tile[li] = 1.;\n  workgroupBarrier();\n}`,

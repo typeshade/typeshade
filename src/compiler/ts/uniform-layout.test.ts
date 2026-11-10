@@ -374,7 +374,7 @@ declare const U_: uniform<U>
       'a bool in a storage struct',
       `interface S { flag: bool }
 declare const S_: storage<array<S>, "read_write">
-@compute([64]) export function cs(g: builtin<"global_invocation_id", vec3u>): void {
+@compute([64]) export function cs(g: builtin<"global_invocation_id">): void {
   S_[g.x].flag = true
 }`,
       TS_CODES.LAYOUT,

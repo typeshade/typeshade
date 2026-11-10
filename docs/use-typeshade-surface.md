@@ -284,14 +284,14 @@ Shader-stage inputs are **explicit function parameters**. TypeShade does not inj
 ```ts
 @compute([64, 1, 1])
 export function paint(
-  gid: builtin<"global_invocation_id", vec3u>
+  gid: builtin<"global_invocation_id">
 ) {
   pixels[gid.x] += camera.pos.x;
 }
 
 @vertex
 export function vs(
-  vid: builtin<"vertex_index", u32>,
+  vid: builtin<"vertex_index">,
   vin: VsIn
 ): vec4 {
   return camera.view * vec4(vin.position, 1);
@@ -299,7 +299,7 @@ export function vs(
 
 @fragment
 export function fs(
-  pid: builtin<"position", vec4>
+  pid: builtin<"position">
 ): vec4 {
   return vec4(pid.x, 0, 0, 1);
 }
@@ -308,8 +308,9 @@ export function fs(
 - No stage attribute → helper, not an entry.
 - Two stage attributes on one function are refused (`TS8028`):
   `"@fragment" is a second stage attribute on "fs", after "@vertex": an entry has exactly one stage, "@vertex", "@fragment" or "@compute([…])" (Rule 8.1).`
-- Builtins are ordinary entry parameters typed `builtin<"...", T>` (Rule 6.6). The type means
-  `T`, so `gid.x` is a `u32` to the compiler and to TypeScript.
+- Builtins are ordinary entry parameters typed `builtin<"...">` (Rule 6.6). The type means the
+  type WGSL gives the built-in value, so `gid` is a `vec3u` and `gid.x` a `u32` to the compiler
+  and to the editor (Entry inputs and outputs, below).
 - A builtin is not a hidden global; its dependency is visible in the function signature.
 - The builtin name must match the target backend's supported builtin set.
 - Workgroup size is the argument of `@compute`, an array of one to three whole-number
@@ -382,6 +383,94 @@ named one. A decorator on a parameter, `@builtin("vertex_index") i: u32`, is the
 of change 0111: it warns once (`TS8028`, §7), and `tshc migrate` rewrites it to the attribute
 type.
 
+### Entry inputs and outputs
+
+An entry's input or output is a built-in value or a user-defined value (Rule 6.6, change 0135).
+
+**A built-in value takes its type from WGSL.** `builtin<N>` is the value WGSL defines for `N`,
+of the type WGSL gives it: `vi: builtin<"vertex_index">` is a `u32`, and
+`pos: builtin<"position">` is a `vec4`, to the compiler and to the editor. A hover on `vi` reads
+`vi: u32`. The compiler and the editor read the type from one table (`WGSL_BUILTIN_TYPES`).
+
+- An option is the second argument: `builtin<"position", { invariant: true }>` (§53).
+- `clip_distances` is the one name whose type the author chooses, `array<f32, N>` with N from 1
+  to 8. It keeps its type argument: `builtin<"clip_distances", array<f32, 4>>`.
+  `builtin<"clip_distances">` is refused (`TS8003`), and the editor shows that diagnostic alone:
+  `Builtin "clip_distances" has no single type: write builtin<"clip_distances", array<f32, N>> with N from 1 to 8.`
+- A written type that WGSL fixes, `builtin<"vertex_index", u32>`, is the migration form. In the
+  release that ships change 0135 it compiles, with a `TS8028` warning on the written type, in
+  the compiler and in the editor:
+  `"vertex_index" has the type WGSL gives it, u32: write builtin<"vertex_index">, or run "tshc migrate".`
+  The release after it refuses the written type. `tshc migrate` deletes it, and moves an option
+  to the second argument.
+- A written type that is not WGSL's stays `TS8003`:
+  `Builtin "vertex_index" is "u32"; this declares it "f32".`
+
+**A user-defined value takes its location from the compiler.** An input or an output that
+carries no `builtin<…>` is user-defined: `uv: vec2`. The compiler gives it its location, unless
+`location<n, T>` writes one. A written `n` is always the location. Where the value stands
+decides what it is, as in WGSL, and how the compiler numbers it:
+
+| Where the value stands | What it is | Its location when none is written |
+| --- | --- | --- |
+| A vertex entry's parameter, or a field of one | A vertex attribute | The lowest number no written location of that entry holds, in declaration order (the order the vertex buffer is packed in, Rule 6.8) |
+| A field of a struct that a vertex entry returns | A value between stages | The lowest number no written location of that struct holds, in declaration order. The scope is the struct, so a struct has one set of locations wherever it is used |
+| A fragment entry's input: a field of a struct no vertex entry returns, or a bare parameter | A value between stages | The location the field of the same name has in the vertex results of the program |
+| A fragment entry's result, or a field of it | A render target | The lowest number no written location of that entry holds, in declaration order. A bare result is location 0 |
+| A compute entry's parameter, or a field of one | Refused | None: a compute entry has no user-defined input (`TS8029`, §7) |
+
+```ts
+"use typeshade";
+
+interface VsOut {
+  pos: builtin<"position">;
+  uv: vec2;   // @location(0)
+  n: vec3;    // @location(1)
+}
+
+interface Color {
+  color: vec4;   // @location(0), the first render target
+}
+
+@vertex
+export function vs(i: builtin<"vertex_index">): VsOut {
+  const x = f32(i32(i) / 2) * 4. - 1.;
+  const y = f32(i32(i) % 2) * 4. - 1.;
+  return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y), n: vec3(0., 0., 1.) };
+}
+
+@fragment
+export function fs(v: VsOut): Color {
+  return { color: vec4(v.uv, v.n.z, 1.) };
+}
+```
+
+- A fragment input that is a field of the struct the vertex entry returns has that struct's
+  locations. This is the common case.
+- A value between stages is linked by its name. GLSL ES 3.00 links a varying by name, and the
+  compiler refuses two names at one location (§53).
+- A fragment input that writes no location and whose name no vertex result has, or to which two
+  vertex results give different locations, is refused (`TS8010`):
+  `"FsIn.n" has no location and the vertex results give "n" none: write location<n, T> on it.`
+  `"FsIn.n" has no location and the vertex results give "n" 1 in "A" and 0 in "C": write location<n, T> on it.`
+  A fragment entry in a file with no vertex entry therefore writes `location<n, T>` on each
+  user-defined input.
+- A struct has one set of locations. A field that two places of its struct would give two
+  numbers is refused (`TS8010`):
+  `"S.a" has no location and its uses give it 1 as an input of "v1" and 0 as an input of "v2": write location<n, T> on it.`
+- A user-defined value is a numeric scalar or a numeric vector. Another type is refused
+  (`TS8003`), in the sentence `location<n, bool>` has (§53).
+- An option is written on `location<n, T, O>`, with its number:
+  `location<1, vec2, { interpolate: ["perspective", "centroid"] }>`.
+- **The mixed case.** Each struct keeps its written numbers. With
+  `interface A { pos: builtin<"position">; uv: location<0, vec2>; n: vec3 }`, `A.n` is 1: the
+  lowest number no written field of `A` holds. With
+  `interface B { pos: builtin<"position">; n: location<0, vec3> }`, `B.n` stays 0, as written.
+- `reflect()` (`vertex.attributes[].location`, `entries[].io`) and the manifest report each
+  location, written or given, in the same fields. A host that binds a vertex attribute or a
+  render target by a number of its own writes `location<n, T>`, since reordering the fields
+  renumbers the ones the compiler gives.
+
 ### What an entry may return
 
 The shapes are the target's, not this compiler's, and there is one constraint per stage.
@@ -396,12 +485,12 @@ whose fields are its names (§16). Both forms stay valid:
 "use typeshade";
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>) {
+export function vs(vi: builtin<"vertex_index">) {
   const x = f32(i32(vi) / 2) * 4. - 1.;
   const y = f32(i32(vi) % 2) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) * 0.5 + vec2(0.5, 0.5) }; // VsOut
@@ -414,11 +503,11 @@ export function fs(v: VsOut) {
 ```
 
 The return type stays the author's to write where it says what the body cannot: a result that
-is another built-in value (`builtin<"frag_depth", f32>`, `builtin<"sample_mask", u32>`), the
-position with an option (`builtin<"position", vec4, { invariant: true }>`), or a location with an
+is another built-in value (`builtin<"frag_depth">`, `builtin<"sample_mask">`), the
+position with an option (`builtin<"position", { invariant: true }>`), or a location with an
 option (`location<0, vec4, { blend_src: 1 }>`). A returned `f32` is a colour at location 0 unless
 the signature says it is the depth. The editor shows the inferred result where the type would be
-written: a hover on `vs` reads `vs(vi: builtin<"vertex_index", u32>): VsOut` (Rule 12.7). A
+written: a hover on `vs` reads `vs(vi: builtin<"vertex_index">): VsOut` (Rule 12.7). A
 compute entry returns nothing, and one that returns a value with no return type is `TS8021`.
 
 **A vertex entry returns the position.** A return typed `vec4` carries the position built-in on
@@ -426,19 +515,19 @@ its own, so the smallest vertex shader needs no struct and no parameters:
 
 ```ts
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): vec4 {
+export function vs(vi: builtin<"vertex_index">): vec4 {
   return vec4(xs[i32(vi)], ys[i32(vi)], 0., 1.);
 }
 ```
 
 That reaches both targets: `-> @builtin(position) vec4<f32>` on WGSL, and `gl_Position` on GLSL
 ES 3.00, where it is not a varying and links nothing. A struct return carries the position in a
-field, `pos: builtin<"position", vec4>`, and adds as many `location<n, T>` varyings as the
-program wants, which is the shape to reach
-for the moment anything travels to the fragment stage.
+field, `pos: builtin<"position">`, and adds as many user-defined fields as the program wants,
+each a value between stages (`uv: vec2`), which is the shape to reach for the moment anything
+travels to the fragment stage.
 
 The one constraint: a vertex entry has to produce a position, and nothing can invent one. A
-struct return with no `builtin<"position", vec4>` field, a `void` return, and a bare type that is not
+struct return with no `builtin<"position">` field, a `void` return, and a bare type that is not
 a `vec4` are each refused, naming the field or the type to write. WGSL says the same thing ("a
 vertex shader must include the 'position' builtin in its return type"); saying it here means an
 author reads it against the line they wrote instead of against generated text.
@@ -453,7 +542,8 @@ export function fs(): f32 {
 }
 ```
 
-A struct return is the multiple-render-target form, one `location<n, T>` field per target. A fragment
+A struct return is the multiple-render-target form, one field per target, numbered in
+declaration order where no `location<n, T>` states the number. A fragment
 entry may also return nothing, which is what a program that only writes to storage does.
 
 ---
@@ -542,11 +632,16 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | an attribute where the place does not apply it: `@location`, `@builtin`, `@interpolate` or `@invariant` on a class, `@location` or `@builtin` on a function, a stage on a field or a parameter, `@blend_src` on a parameter | `TS8028`, naming what it marks: `"@location" does not apply to a class: it marks an entry's input or output. Remove it.` Each was dropped with no word |
 | `@builtin`, `@location`, `@interpolate`, `@invariant` or `@blend_src` on a parameter of a function that is not an entry: a helper, a local function, a method, a constructor | `TS8028`, `"@location" does not apply to a parameter of a function that is not an entry: it marks an entry's input or output. Remove it.` Tint refuses the WGSL it was (`'@location' is not valid for non-entry point function parameters`) |
 | builtin parameter on an incompatible stage | stage mismatch |
+| a written type that WGSL fixes on a built-in value: `builtin<"vertex_index", u32>`, `builtin<"position", vec4, { invariant: true }>` | a `TS8028` warning, once, on the written type, in the compiler and in the editor (Rule 6.6, change 0135, the migration release): `"vertex_index" has the type WGSL gives it, u32: write builtin<"vertex_index">, or run "tshc migrate".` The release after it refuses the written type. A written type that is not WGSL's keeps `TS8003` alone (§53) |
+| `builtin<"clip_distances">`, with no type | `TS8003`, in the compiler and in the editor, which shows it alone: `Builtin "clip_distances" has no single type: write builtin<"clip_distances", array<f32, N>> with N from 1 to 8.` (§3) |
+| a fragment input that writes no location, a field or a bare parameter, whose name no vertex result has, or to which two give different locations | `TS8010`: `"FsIn.n" has no location and the vertex results give "n" none: write location<n, T> on it.`; `… give "n" 1 in "A" and 0 in "C": …` (§3) |
+| a field with no location that two places of its struct would give two numbers | `TS8010`: `"S.a" has no location and its uses give it 1 as an input of "v1" and 0 as an input of "v2": write location<n, T> on it.` (§3) |
+| a user-defined input of a compute entry: a bare parameter, or a field of its struct, with a `location<…>` or with no attribute | `TS8029`: `"x" is a user-defined input of a compute entry, which has no user IO: a compute shader reads its work from resources and the builtin<…> invocation ids.`; with a location, `"x" is at a location<…> on a compute entry, …`. A bare parameter with no attribute compiled before, to WGSL that Tint refuses (§3) |
 | `@compute` method on a class | an entry is declared at the top level, not on a class (Rule 8.1) |
 | `@diagnostic(…)` anywhere: on a function, a field, a parameter or a declaration | `TS8028`, an error, in the compiler and in the editor: `"@diagnostic(…)" is not a decorator the compiler reads (Rule 6.7). Delete it: the compiler rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5) and reports each other one with TS8052 and the reason. "tshc migrate" deletes it.` Change 0132 removed the filter, with no warning release (§54) |
 | a stage call of change 0111, `vertex(f)`, `fragment(f)`, `compute([…], f)` or `workgroup_size([…], f)`, and so an entry written as a `const`, an arrow function or a function expression through one, wherever it is written | `TS8028`, an error, once, on the name called, in the compiler and in the editor (Rule 6.7, changes 0130 and 0140): `a stage is an attribute on the function declaration: write "@vertex export function vs(…)", or run "tshc migrate" (change 0130)`. The text names the attribute with its size, and an option written after the function to delete. Nothing else is said about the refused entry. A declaration of the file under one of the four names is the file's, and a call of it is not refused (§3) |
 | `export default` on an entry | `TS8028`, an error, on `default`, in the compiler and in the editor (Rule 8.1, change 0140): `an entry takes its declaration's name; write "export function k"` (§3) |
-| a decorator of the decorated form where it is read: `@builtin`, `@location`, `@interpolate`, `@invariant` or `@blend_src` on a parameter or a field | a `TS8028` warning, one per decorator, in the compiler and in the editor, naming the new spelling (change 0111, the migration release): for an attribute the member's type, `write "pos: builtin<"position", vec4, { invariant: true }>"`. A decorator refused where it is written keeps that refusal alone. The release after it refuses each one. The editor drops TypeScript's TS1206 on a parameter's decorator only while `compile()` warns on it. A stage attribute on a function, `@vertex`, `@fragment`, `@compute(…)` or `@workgroup_size(…)`, is the entry's form (change 0130): no warning, and the editor drops its TS1206 in every file. A parameter qualifier, `@inout` or `@out`, is no decorated form and warns nowhere (change 0137). The editor reports no TS2564 (`strictPropertyInitialization: false`) |
+| a decorator of the decorated form where it is read: `@builtin`, `@location`, `@interpolate`, `@invariant` or `@blend_src` on a parameter or a field | a `TS8028` warning, one per decorator, in the compiler and in the editor, naming the new spelling (change 0111, the migration release): for an attribute the member's type, `write "pos: builtin<"position", { invariant: true }>"`. A decorator refused where it is written keeps that refusal alone. The release after it refuses each one. The editor drops TypeScript's TS1206 on a parameter's decorator only while `compile()` warns on it. A stage attribute on a function, `@vertex`, `@fragment`, `@compute(…)` or `@workgroup_size(…)`, is the entry's form (change 0130): no warning, and the editor drops its TS1206 in every file. A parameter qualifier, `@inout` or `@out`, is no decorated form and warns nowhere (change 0137). The editor reports no TS2564 (`strictPropertyInitialization: false`) |
 | the type form of a parameter qualifier, `inout<T>` or `out<T>`, in any type position: a parameter, a local, a result, a type alias, a generic argument or a field | a `TS8028` error, once, at the written `inout<…>`, in the compiler and in the editor (change 0137): `"inout<f32>" is the type form of a parameter qualifier, which the language does not have: write "@inout a: f32", or run "tshc migrate" (change 0137).`; away from a parameter, `… a qualifier is written before a parameter, as "@inout a: f32", and here the type is "f32"; "tshc migrate" rewrites a parameter's type form (change 0137).` |
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
 | `.length` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
@@ -6857,23 +6952,26 @@ and for both spellings of a varying — a struct field and a bare entry paramete
 form is its own row: a fragment entry that takes `id: location<0, u32>` and declares no struct
 reaches no struct, so rewriting the structs alone left it bare and Tint answered `integral
 user-defined fragment inputs must have a '@interpolate(flat)' attribute`. A VERTEX entry's
-`location<n, T>` parameters are vertex ATTRIBUTES, not varyings, and are left alone.
+user-defined parameters are vertex ATTRIBUTES, not varyings, and are left alone.
+
+A field with no attribute is a varying too (Rule 6.6, change 0135): the compiler gives it its
+location (§3), and an integer one takes `flat` the same way.
 
 ```ts
 "use typeshade";
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  id: location<0, u32>;       // WGSL @interpolate(flat) · GLSL `flat out uint id;`
-  uv: location<1, vec2>;      // untouched: a float varying interpolates
+  pos: builtin<"position">;
+  id: u32;       // @location(0) · WGSL @interpolate(flat) · GLSL `flat out uint id;`
+  uv: vec2;      // @location(1) · untouched: a float varying interpolates
 }
 ```
 
 `examples/id-pick.shade.ts` is the gate's evidence, compiled on Tint and on ANGLE.
 
 **`interpolate`, `invariant` and `blend_src` are attributes an author writes.** Each is an
-option in the third type argument of `location<n, T, O>` or `builtin<"...", T, O>` (change
-0111, D7). All three parse and reach the emitted struct; `@align`, `@size`, `@offset` and
+option of `location<n, T, O>`, its third type argument, or of `builtin<"...", O>`, its second
+(change 0111, D7; change 0135). A user-defined value that states an option writes its location. All three parse and reach the emitted struct; `@align`, `@size`, `@offset` and
 `@ignore` still do not (§2). The decorated form, `@interpolate("flat")`, `@invariant` and
 `@blend_src(1)` on a class field or an entry parameter, stays accepted until the release after
 the migration release (change 0111, D5).
@@ -6883,7 +6981,7 @@ the migration release (change 0111, D5).
 | `location<1, u32, { interpolate: "flat" }>` | `@interpolate(flat)` | `flat` |
 | `{ interpolate: ["perspective", "centroid"] }` | `@interpolate(perspective, centroid)` | `smooth centroid` |
 | `{ interpolate: "linear" }`, `{ interpolate: [ …, "sample"] }` | as written | **no form** — the module has no GLSL half |
-| `builtin<"position", vec4, { invariant: true }>` | `@invariant @builtin(position)` | `invariant gl_Position;` |
+| `builtin<"position", { invariant: true }>` | `@invariant @builtin(position)` | `invariant gl_Position;` |
 | `{ blend_src: 0 }` / `{ blend_src: 1 }` at one location | `enable dual_source_blending;` + the attributes | **no form** — GLSL ES 3.00 has no second source |
 
 The two "no form" rows fail the module CLOSED on GLSL rather than emitting something else:
@@ -6894,16 +6992,16 @@ itself, so the directive is emitted for any module that declares one. No example
 `extension 'dual_source_blending' is not allowed in the current environment` — so a gate example
 would test the adapter, not the emit.
 
-`interpolate` belongs on a `location<n, T>` field. On a `builtin<"...", T>` it is refused: a built-in value
+`interpolate` belongs on a `location<n, T>` field. On a `builtin<"...">` it is refused: a built-in value
 carries its own rule, and WGSL has no interpolation to give it.
 
 **What is refused, one sentence each.**
 
 | Written | Why |
 | --- | --- |
-| `ok: location<0, bool>` | a value passed between stages is a numeric scalar or a numeric vector; `bool` is not host-shareable. Send a `u32` and compare it. |
+| `ok: location<0, bool>`, or `ok: bool` as a user-defined input or output | a value passed between stages is a numeric scalar or a numeric vector; `bool` is not host-shareable. Send a `u32` and compare it. |
 | two members at one location | each slot carries one value. The exception is a dual-source pair, where the slot is the location AND the blend source. Checked after `extends` splices a base's fields in, and across an entry's parameter list as well as a struct. |
-| `x: location<0, f32>` on a compute entry | a compute shader has no user IO: it reads its work from resources and the built-in invocation ids. Both spellings — a bare parameter and a struct member. |
+| `x: location<0, f32>` or `x: f32` on a compute entry | a compute shader has no user IO: it reads its work from resources and the built-in invocation ids. Both spellings — a bare parameter and a struct member. |
 | `i: builtin<"vertex_index", f32>` | each built-in value has one type, which `WGSL_BUILTIN_TYPES` holds; this one is `u32`. |
 | `{ interpolate: "perspective" }` on a `u32` varying | an integer has one interpolation and it is `flat`. Tint: `interpolation type must be 'flat' for integral user-defined IO types`, while GLSL answers from the type and emits `flat` whatever the attribute says. |
 | `{ blend_src: 0 }` with no `{ blend_src: 1 }` | a dual-source blend mixes two colours, so both sit at the same location. Stated from the spec: the gate's adapter has no `dual-source-blending` feature, so Tint refuses the directive before reaching the rule. |

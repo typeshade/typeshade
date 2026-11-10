@@ -236,6 +236,10 @@ interface Job {
   /** Set for WGSL the writer emitted before #613, the instrument of the const-call leg: Tint must
    *  refuse it, and its message must contain this text. It is judged apart from the examples. */
   readonly refusedConst?: string;
+  /** Set for WGSL the writer emitted before change 0135 for a compute entry's user-defined input,
+   *  the instrument of the entry-I/O leg: Tint must refuse it, and its message must contain this
+   *  text. It is judged apart from the examples. */
+  readonly refusedEntryIo?: string;
   /** Set for a job of the reserved-names leg (Proposal 0070, C10), judged apart from the examples. */
   readonly reserved?: Reserved;
   /** Set for a measurement of Proposal 0070's question Q1b: printed with its result, never judged. */
@@ -624,13 +628,13 @@ function sqrt(x: f32): f32 { return x * x; }
 function exp2(x: f32): f32 { return x * 3.; }
 function f32(x: f32): f32 { return x; }
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 interface Color {
   color: location<0, vec4>;
 }
-@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index">): VsOut {
   const x = f32(i) * 0.25;
   return { pos: vec4(fract(x), sqrt(x), 0., 1.), uv: vec2(exp2(x), x) };
 }
@@ -778,8 +782,8 @@ function ${SUBJECT_FN}(x: f32): f32 {
   return x + 0.5;
 }
 @compute([64, 1, 1]) export function main(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
 ): void {
   if (gid.x >= src.length) {
     return;
@@ -815,13 +819,13 @@ function ${SUBJECT_FN}(x: f32): f32 {
   return x + 0.5;
 }
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 interface Color {
   color: location<0, vec4>;
 }
-@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index">): VsOut {
   const x = f32(i) * 0.25;
   let s = ${SUBJECT_FN}(x);
   s = s + abs(x) + sin(x) + fract(x) + mix(x, 1., 0.5);
@@ -939,10 +943,10 @@ const wrapperSource = (stage: 'vertex' | 'fragment', name: string, helper = fals
   return `"use typeshade";
 ${helper ? 'function fs_impl(uv: vec2): vec4 { return vec4(uv, 0., 1.); }' : ''}
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
-@vertex export function ${vs}(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function ${vs}(i: builtin<"vertex_index">): VsOut {
   const x = f32(i) * 0.5;
 ${stage === 'vertex' ? '  if (i > u32(2)) {\n    return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };\n  }' : ''}
   return { pos: vec4(x, x, 0., 1.), uv: vec2(x, x) };
@@ -1038,10 +1042,10 @@ const shadowedCallSource = (parts: {
 }): string => `"use typeshade";
 ${parts.declarations}
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 ${parts.varying ?? '  uv: location<0, vec2>;'}
 }
-@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index">): VsOut {
   const x = f32(i) * 0.5;
   return { pos: vec4(x, x, 0., 1.), ${parts.varying === undefined ? 'uv: vec2(x, x)' : 'Voice_shift: x'} };
 }
@@ -1133,12 +1137,12 @@ const SHADOWED_CALL_EXAMPLES = SHADOWED_CALL_SOURCES.map(({ id, source }) => {
  *  no return type. */
 const OPEN_LOOP_SOURCE = `"use typeshade";
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 interface Frame { n: i32; m: u32 }
 declare const frame: uniform<Frame>;
-@vertex export function vs(i: builtin<"vertex_index", u32>) {
+@vertex export function vs(i: builtin<"vertex_index">) {
   const x = f32(i) * 0.5;
   return { pos: vec4(x, x, 0., 1.), uv: vec2(x, x) };
 }
@@ -1219,10 +1223,10 @@ const OPEN_LOOP_EXAMPLES = ((): { id: string; module: ModuleDecl; renderable: bo
  *  just inside the range of f32, and a run-time value divided by `sqrt(0.)`. */
 const CONST_CALL_NEIGHBOURS_SOURCE = `"use typeshade";
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
-@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index">): VsOut {
   const x = f32(i) * 0.5;
   return { pos: vec4(x, x, 0., 1.), uv: vec2(x, x) };
 }
@@ -1305,6 +1309,135 @@ function constCallVerdicts(all: readonly Job[], verdicts: readonly Verdict[]): n
     console.log(
       `instrument: Tint refused each of the ${String(spellings.length)} spellings #613 recorded, ` +
         'with its message — the const-call leg can fail',
+    );
+  }
+  return failures;
+}
+
+// ── The entry-I/O leg (change 0135; Rules 6.6, 12.6 and 13.3) ──
+//
+// A user-defined input or output that writes no location takes it from the compiler, and a
+// compute entry has no user-defined input, which the front end refuses (`TS8029`). The refusal
+// stands in for Tint's, so it is measured against Tint once, with its valid neighbours:
+// `ENTRY_IO_NEIGHBOURS` are the programs the front end accepts, judged as an example is, on Tint
+// and on WebGL2, and `ENTRY_IO_REFUSED` is the WGSL the writer emitted for each refused source
+// before the refusal, which Tint must refuse, each with its recorded message.
+
+/** The programs the front end accepts beside the ones it refuses: a vertex attribute as a bare
+ *  parameter and as a field, a vertex result and a fragment result with no location, a fragment
+ *  input that takes its location by name, a written location beside given ones, and a compute
+ *  entry whose parameters are built-in values, bare and in a struct. */
+const ENTRY_IO_NEIGHBOURS: readonly { id: string; source: string; renderable: boolean }[] = [
+  {
+    id: 'entry-io/neighbours: render',
+    renderable: true,
+    source: `"use typeshade";
+interface VsIn {
+  position: vec3;
+  uv: vec2;
+}
+interface VsOut {
+  pos: builtin<"position">;
+  tint: location<1, vec3>;
+  uv: vec2;
+  id: u32;
+}
+interface Targets {
+  color: vec4;
+}
+@vertex export function vs(v: VsIn, scale: f32, i: builtin<"vertex_index">): VsOut {
+  return { pos: vec4(v.position * scale, 1.), tint: vec3(1.), uv: v.uv, id: i };
+}
+@fragment export function fs(uv: vec2, id: u32, ff: builtin<"front_facing">): Targets {
+  return { color: vec4(uv, f32(id), ff ? 1. : 0.) };
+}
+`,
+  },
+  {
+    id: 'entry-io/neighbours: compute',
+    renderable: false,
+    source: `"use typeshade";
+declare const out: storage<array<u32>, "read_write">;
+interface Ids {
+  gid: builtin<"global_invocation_id">;
+  li: builtin<"local_invocation_index">;
+}
+@compute([4]) export function main(ids: Ids, wg: builtin<"workgroup_id">) {
+  out[ids.gid.x] = ids.li + wg.x;
+}
+`,
+  },
+];
+
+/** The entry-I/O neighbours, judged as an example is. */
+const ENTRY_IO_EXAMPLES = ENTRY_IO_NEIGHBOURS.map(({ id, source, renderable }) => {
+  const c = compile(source);
+  if (c.diagnostics.length > 0) {
+    throw new Error(`${id} does not compile clean: ${c.diagnostics[0]!.message}`);
+  }
+  return { id, module: c.module, renderable };
+});
+
+/** The WGSL the writer emitted for a compute entry's user-defined input, and what Tint said of
+ *  each (measured on Chromium's headless shell, SwiftShader, on 2026-11-10). The front end now
+ *  refuses each source with `TS8029`. */
+const ENTRY_IO_REFUSED: readonly {
+  readonly what: string;
+  readonly wgsl: string;
+  readonly message: string;
+}[] = [
+  {
+    what: 'a bare parameter with no attribute',
+    wgsl: '@compute @workgroup_size(64)\nfn c(x: u32) {\n}\n',
+    message: 'missing entry point IO attribute on parameter',
+  },
+  {
+    what: 'a struct field with no attribute',
+    wgsl:
+      'struct In {\n  @builtin(global_invocation_id) id: vec3<u32>,\n  x: u32,\n}\n\n' +
+      '@compute @workgroup_size(64)\nfn c(v: In) {\n}\n',
+    message: 'missing entry point IO attribute',
+  },
+  {
+    what: 'a parameter at a location',
+    wgsl: '@compute @workgroup_size(64)\nfn c(@location(0) x: u32) {\n}\n',
+    message: "'@location' cannot be used by compute shaders",
+  },
+];
+
+/** The refused spellings as jobs. */
+function entryIoJobs(): Job[] {
+  return ENTRY_IO_REFUSED.map(({ what, wgsl, message }) => ({
+    id: `entry-io/refused: ${what}`,
+    wgsl,
+    glsl: null,
+    pipeline: null,
+    pipelineSkip: 'a spelling the entry-I/O leg hands Tint to refuse',
+    refusedEntryIo: message,
+  }));
+}
+
+/** Print the entry-I/O leg's instrument; the number of failures. */
+function entryIoVerdicts(all: readonly Job[], verdicts: readonly Verdict[]): number {
+  const byId = new Map(verdicts.map((v) => [v.id, v] as const));
+  const spellings = all.filter((j) => j.refusedEntryIo !== undefined);
+  let failures = 0;
+  for (const job of spellings) {
+    const errors = byId.get(job.id)?.wgslErrors ?? [];
+    if (errors.some((e) => e.includes(job.refusedEntryIo!))) continue;
+    failures += 1;
+    console.error(
+      `FAIL instrument: ${job.id}  Tint ${errors.length === 0 ? 'accepted it' : `said ${errors[0]!}`}, ` +
+        `not "${job.refusedEntryIo!}" — the front end's TS8029 stands in for no Tint error`,
+    );
+  }
+  if (spellings.length === 0) {
+    failures += 1;
+    console.error('FAIL instrument: the entry-I/O leg has no spelling to hand Tint');
+  } else if (failures === 0) {
+    console.log(
+      `instrument: Tint refused each of the ${String(spellings.length)} compute inputs the front ` +
+        'end refuses (TS8029), with its message — the entry-I/O leg can fail',
     );
   }
   return failures;
@@ -1678,6 +1811,7 @@ function jobs(): Job[] {
     ...ENTRY_WRAPPER_EXAMPLES,
     ...SHADOWED_CALL_EXAMPLES,
     ...CONST_CALL_EXAMPLES,
+    ...ENTRY_IO_EXAMPLES,
     ...OPEN_LOOP_EXAMPLES,
   ]
     .map((ex) => {
@@ -1706,6 +1840,7 @@ function jobs(): Job[] {
       refusedSpellingJobs(),
       wrapperSpellingJobs(),
       constCallJobs(),
+      entryIoJobs(),
       reservedNamesJobs(),
       q1bJobs(),
     );
@@ -3025,7 +3160,7 @@ function fract(x: f32): f32 { return x - floor(x) + 0.5; }
 interface Color {
   color: location<0, vec4>;
 }
-@fragment export function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position">): Color {
   const a = fract(p.x);
   const b = fract(1.25);
   return { color: vec4(a, b, 0., 1.) };
@@ -3260,6 +3395,7 @@ struct Out { @builtin(position) pos: vec4<f32> }
           j.refused !== undefined ||
           j.refusedGlsl !== undefined ||
           j.refusedConst !== undefined ||
+          j.refusedEntryIo !== undefined ||
           j.reserved !== undefined ||
           j.probe !== undefined,
       )
@@ -3290,6 +3426,7 @@ struct Out { @builtin(position) pos: vec4<f32> }
   failures += constantExpressionVerdicts(all, report.verdicts);
   failures += entryWrapperVerdicts(all, report.verdicts);
   failures += constCallVerdicts(all, report.verdicts);
+  failures += entryIoVerdicts(all, report.verdicts);
   failures += reservedNamesVerdicts(all, report.verdicts);
   q1bReport(report.verdicts);
   failures += valueVerdicts(VALUE_CASES, valueReport);

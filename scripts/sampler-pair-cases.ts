@@ -8,7 +8,7 @@ declare const tex: texture_2d<f32>;
 declare const tex2: texture_2d<f32>;
 declare const nearest: sampler;
 declare const linear: sampler;`;
-const VERTEX = `@vertex export function vs(i: builtin<"vertex_index", u32>): vec4 {
+const VERTEX = `@vertex export function vs(i: builtin<"vertex_index">): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   return vec4(xs[i], ys[i], 0., 1.);
@@ -23,8 +23,8 @@ const fragment = (a: string, b: string): string => `${PRE}\n${VERTEX}
   return vec4(${a}.x, ${b}.x, 0., 1.);
 }`;
 const stages = (vertexRead: string, fragmentRead: string): string => `${PRE}
-interface Out { p: builtin<"position", vec4>; r: location<0, f32>; }
-@vertex export function vs(i: builtin<"vertex_index", u32>): Out {
+interface Out { p: builtin<"position">; r: location<0, f32>; }
+@vertex export function vs(i: builtin<"vertex_index">): Out {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   return { p: vec4(xs[i], ys[i], 0., 1.), r: ${vertexRead}.x };
@@ -118,8 +118,8 @@ export const SAMPLER_CASES: Readonly<Record<string, SamplerCase>> = {
   },
   depthCross: {
     source: `${DEPTH_PRE}
-interface Out { p: builtin<"position", vec4>; r: location<0, f32>; }
-@vertex export function vs(i: builtin<"vertex_index", u32>): Out {
+interface Out { p: builtin<"position">; r: location<0, f32>; }
+@vertex export function vs(i: builtin<"vertex_index">): Out {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   return { p: vec4(xs[i], ys[i], 0., 1.),

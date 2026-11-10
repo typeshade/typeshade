@@ -20,7 +20,8 @@ const FIXTURE = [
   '  let y = x;',
   '  return y;',
   '}',
-  '@fragment',
+  // A function of the module, not an entry: an entry's bare parameter is a user-defined input
+  // (Rule 6.6, change 0135), and an emulated double is none.
   'export function fs(v: vec3, d: vec3<f64>): vec4 {',
   '  let x = 1.;',
   '  const half = 0.5;',
@@ -175,7 +176,7 @@ describe('DeclaredSymbol table: a binding, and what mutable means for one', () =
     '"use typeshade";',
     'declare const ro: storage<array<f32>>',
     'declare const rw: storage<array<f32>, "read_write">',
-    '@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {',
+    '@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {',
     '  rw[gid.x] = ro[gid.x];',
     '}',
   ].join('\n');

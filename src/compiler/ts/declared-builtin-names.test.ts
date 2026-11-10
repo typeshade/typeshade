@@ -62,7 +62,7 @@ function fract(x: f32): f32 { return x - floor(x) + 0.5; }
 interface Color {
   color: location<0, vec4>;
 }
-@fragment export function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position">): Color {
   const a = fract(p.x);
   const b = fract(1.25);
   return { color: vec4(a, b, 0., 1.) };
@@ -140,7 +140,7 @@ export function g(x: f32): f32 {
 interface Color {
   color: location<0, vec4>;
 }
-@fragment export function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position">): Color {
   const v = g(p.x);
   return { color: vec4(v, v, v, 1.) };
 }
@@ -217,7 +217,7 @@ export function g(x: f32): f32 { return ${expr}; }
 interface Color {
   color: location<0, vec4>;
 }
-@fragment export function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position">): Color {
   const v = g(p.x);
   return { color: vec4(v, v, v, 1.) };
 }
@@ -531,7 +531,7 @@ export function g(): f32 { return ${name}(1.); }
 interface Color {
   color: location<0, vec4>;
 }
-@fragment export function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position">): Color {
   const v = ${name}(p.x);
   return { color: vec4(v, v, v, 1.) };
 }

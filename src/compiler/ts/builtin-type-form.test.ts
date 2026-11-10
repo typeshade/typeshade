@@ -4,7 +4,7 @@
 // read by both halves (Rule 12.7): `compile()` for the diagnostics and the emit, the language
 // service for its merged diagnostics and the hover.
 //
-// The rule tag joins this file with the Rule 6.6 text of change 0135.
+// Verifies: Rule 6.6 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

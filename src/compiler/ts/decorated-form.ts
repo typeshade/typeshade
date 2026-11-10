@@ -20,6 +20,9 @@ import ts from 'typescript';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
+import { mapTsTypeToShaderType } from './type-map.js';
+import { typeKey } from '../../core/ir/types.js';
+import { WGSL_BUILTIN_TYPES, type FixedTypeBuiltinName } from '../../core/sot.js';
 
 /** The stage attributes on a function declaration: the language's form of an entry's stage and
  *  of a kernel function's size (Rules 8.1 and 8.22, change 0130). */
@@ -54,8 +57,23 @@ export function decoratorParts(
   return { name: d.getText(sf), args: [] };
 }
 
+/** Whether `type`, as written, is the type WGSL fixes for the built-in value `name`, written
+ *  with its quotes. */
+function isFixedBuiltinType(name: string | undefined, type: string): boolean {
+  const id = name?.replace(/^['"`]|['"`]$/g, '');
+  if (id === undefined || !Object.hasOwn(WGSL_BUILTIN_TYPES, id)) return false;
+  const sf = ts.createSourceFile('t.ts', `type T = ${type};`, ts.ScriptTarget.ES2022, true);
+  const alias = sf.statements[0];
+  if (alias === undefined || !ts.isTypeAliasDeclaration(alias)) return false;
+  const mapped = mapTsTypeToShaderType(alias.type, sf);
+  return (
+    mapped !== undefined &&
+    typeKey(mapped) === typeKey(WGSL_BUILTIN_TYPES[id as FixedTypeBuiltinName])
+  );
+}
+
 /** The attribute type a run of attribute decorators stands for around `type`,
- *  `builtin<"position", vec4, { invariant: true }>`, or undefined when the run holds none, or
+ *  `builtin<"position", { invariant: true }>`, or undefined when the run holds none, or
  *  holds an option with no `@builtin` or `@location` to carry it. A qualifier in the run stays a
  *  decorator, written before the parameter (change 0137), so it adds nothing to the type. */
 export function attributeTypeOf(
@@ -73,8 +91,13 @@ export function attributeTypeOf(
     if (a.name === 'blend_src') options.push(`blend_src: ${a.args[0]}`);
   }
   const third = options.length > 0 ? `, { ${options.join('; ')} }` : '';
-  if (builtin) out = `builtin<${builtin.args[0]}, ${out}${third}>`;
-  else if (location) out = `location<${location.args[0]}, ${out}${third}>`;
+  // A built-in value takes its type from WGSL, so the type is not written where it is WGSL's
+  // (change 0135, decision D1.2); `clip_distances`, and a type that is not WGSL's, keep it.
+  if (builtin) {
+    out = isFixedBuiltinType(builtin.args[0], type)
+      ? `builtin<${builtin.args[0]}${third}>`
+      : `builtin<${builtin.args[0]}, ${out}${third}>`;
+  } else if (location) out = `location<${location.args[0]}, ${out}${third}>`;
   else if (options.length > 0) return undefined;
   return out === type ? undefined : out;
 }

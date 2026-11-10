@@ -65,7 +65,7 @@ describe('declare uniform / storage', () => {
       const r = compileTsSource(`
         "use typeshade";
         declare let counts: storage<array<u32>>;
-        @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+        @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
           counts[gid.x] = 1;
         }
       `);
@@ -148,7 +148,7 @@ describe('declare uniform / storage', () => {
       const r = compileTsSource(`
         "use typeshade";
         declare const dst: storage<array<f32>, "write">;
-        @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+        @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
           dst[gid.x] = 1.;
         }
       `);
@@ -223,7 +223,7 @@ describe('declare uniform / storage', () => {
     const r = compileTsSource(`
       "use typeshade";
       declare const src: storage<array<f32>>;
-      @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+      @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
         src[gid.x] = 1.;
       }
     `);
@@ -261,7 +261,7 @@ describe('a binding is a module-scope var, not a const (#14)', () => {
     const GAIN: f32 = 2.;
     declare const input: storage<array<f32>>;
     declare const output: storage<array<f32>, "read_write">;
-    @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+    @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
       output[gid.x] = input[gid.x] * GAIN;
     }
   `;

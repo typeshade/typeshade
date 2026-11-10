@@ -1,4 +1,4 @@
-// Rule 6.6 as change 0135 writes it; the rule tag joins this file with that text.
+// Implements: Rule 6.6 (docs/language-design.md; traced in reqs/).
 //
 // The type a `builtin<N, …>` writes, read once for the whole file (change 0135, decision D1.2).
 //

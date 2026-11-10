@@ -46,7 +46,7 @@ declare const shadowSmp: sampler_comparison`;
 
 const fragment = (body: string, decls = DECLS): string => `"use typeshade"
 ${decls}
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   const dir: vec3 = normalize(vec3(p.xy, 1.))
 ${body}
 }
@@ -236,7 +236,7 @@ describe('texture_cube_array: a cube with a layer', () => {
     const compute = (call: string): string => `"use typeshade"
 ${DECLS}
 declare const out: storage<array<vec4>, "read_write">
-@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   const dir: vec3 = vec3(1., 0., 0.)
   out[gid.x] = ${call}
 }
@@ -262,8 +262,8 @@ declare const out: storage<array<vec4>, "read_write">
     // (tests-critique T1b, control T1c): both stages, both dims, one sentence, one span.
     const vertex = (call: string): string => `"use typeshade"
 ${DECLS}
-interface Clip { pos: builtin<"position", vec4> }
-@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
+interface Clip { pos: builtin<"position"> }
+@vertex export function vs(i: builtin<"vertex_index">): Clip {
   const dir: vec3 = vec3(0., 0., 1.)
   return { pos: ${call} }
 }
@@ -356,7 +356,7 @@ declare const smp: sampler`,
     const r = compile(`"use typeshade"
 ${DECLS}
 declare const out: storage<array<vec4>, "read_write">
-@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   out[gid.x] = textureGather(0, atlas, smp, vec2(0.5)) + textureGatherCompare(shadow, shadowSmp, vec2(0.5), 0.5)
 }
 `);
@@ -384,7 +384,7 @@ declare const out: storage<array<vec4>, "read_write">
     const r = compile(`"use typeshade"
 ${DECLS}
 const CHANNEL = 1
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return textureGather(CHANNEL, atlas, smp, p.xy)
 }
 `);
@@ -395,7 +395,7 @@ const CHANNEL = 1
       errorsOf(`"use typeshade"
 ${DECLS}
 const CHANNEL = 9
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return textureGather(CHANNEL, atlas, smp, p.xy)
 }
 `)[0],

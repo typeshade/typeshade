@@ -18,7 +18,7 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 const program = (decl: string, read: string): string => `"use typeshade";
 ${decl}
 declare const out: storage<array<u32>, "read_write">;
-@compute([64]) export function first(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64]) export function first(gid: builtin<"global_invocation_id">): void {
   out[gid.x] = ${read};
 }
 `;

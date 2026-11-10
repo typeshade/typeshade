@@ -11,9 +11,9 @@
 
 // The `"use typeshade"` twin of `julia.ts`.
 
-// The uniform block and `VsOut` below are both interfaces: entry I/O carries its attributes in
-// its field types, `builtin<"position", vec4>` and `location<0, vec2>`, which any struct
-// spelling can hold. Both emit a struct.
+// The uniform block and `VsOut` below are both interfaces: entry I/O carries a built-in value
+// in its field type, `builtin<"position">`, and a user-defined value as a plain field,
+// `uv: vec2`, which any struct spelling can hold. Both emit a struct.
 interface Uniforms {
   time: f32;
   resolution: vec2;
@@ -24,12 +24,12 @@ interface Uniforms {
 declare const U: uniform<Uniforms>;
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };

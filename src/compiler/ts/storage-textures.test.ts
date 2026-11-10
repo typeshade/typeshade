@@ -36,7 +36,7 @@ const wgslOf = (src: string): string => {
 
 const compute = (bindings: string, body: string): string => `"use typeshade"
 ${bindings}
-@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
 ${body}
 }
 `;
@@ -152,9 +152,9 @@ describe('the binding', () => {
     // neutral id is the sampled fetch's, so the texture's own type decides, not the name: a
     // "read" storage texture and every sampled fetch stay legal in a vertex entry.
     const vs = (decl: string, body: string): string => `"use typeshade"
-interface Clip { pos: builtin<"position", vec4> }
+interface Clip { pos: builtin<"position"> }
 ${decl}
-@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index">): Clip {
 ${body}
 }
 `;
@@ -317,9 +317,9 @@ ${body}
     // cannot be a list of names — `textureDimensions` is the id a sampled texture uses — and a
     // size query of a writable storage texture is refused with the read and the write.
     const vs = (decl: string): string => `"use typeshade"
-interface Clip { pos: builtin<"position", vec4> }
+interface Clip { pos: builtin<"position"> }
 ${decl}
-@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index">): Clip {
   const d = textureDimensions(acc)
   return { pos: vec4(f32(d.x), 0., 0., 1.) }
 }
@@ -339,13 +339,13 @@ ${decl}
     const vertex = (fns: string): string => `"use typeshade"
 declare const dst: texture_storage_2d<"rgba8unorm", "write">
 interface Clip {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
 ${fns}
 `;
     expect(
       errorsOf(
-        vertex(`@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
+        vertex(`@vertex export function vs(i: builtin<"vertex_index">): Clip {
   textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))
   return { pos: vec4(0., 0., 0., 1.) }
 }`),
@@ -358,7 +358,7 @@ ${fns}
         vertex(`function write(): void {
   textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))
 }
-@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index">): Clip {
   write()
   return { pos: vec4(0., 0., 0., 1.) }
 }`),
@@ -381,7 +381,7 @@ ${fns}
   it('is not a module variable', () => {
     const errors = errorsOf(`"use typeshade";
 let dst: texture_storage_2d<"rgba8unorm", "write">;
-@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   textureStore(dst, vec2i(0, 0), vec4(1.));
 }
 `);
@@ -568,7 +568,7 @@ describe('the write is an effect', () => {
 describe('what the storage path checks, and the two rows #164 closed', () => {
   const store = (decls: string, body: string): string => `"use typeshade"
 ${decls}
-@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
 ${body}
 }
 `;
@@ -582,9 +582,9 @@ ${body}
   const VERTEX_READ = `"use typeshade";
 declare const src: texture_storage_2d<"r32float", "read_write">;
 interface Clip {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
-@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index">): Clip {
   const v = textureLoad(src, vec2i(0, 0));
   return { pos: v };
 }

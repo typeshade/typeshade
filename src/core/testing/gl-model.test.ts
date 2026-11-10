@@ -47,7 +47,7 @@ describe("the GL executor, modelled on words, leaves the oracle's memory (change
     const src = `"use typeshade";
 class P { pos: vec3f; mass: f32; tag: u32; }
 declare const ps: storage<array<P>, "read_write">;
-@compute([4, 1, 1]) export function main(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([4, 1, 1]) export function main(gid: builtin<"global_invocation_id">): void {
   const p = ps[gid.x];
   ps[gid.x].pos = p.pos * 2. + vec3f(p.mass, 0., 1.);
   ps[gid.x].tag = p.tag + gid.x;

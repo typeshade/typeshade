@@ -5,14 +5,14 @@ const SRC = `
 "use typeshade";
 
 interface Clip {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
 
 interface Color {
   color: location<0, vec4>;
 }
 
-@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index">): Clip {
   return { pos: vec4(0., 0., 0., 1.) };
 }
 

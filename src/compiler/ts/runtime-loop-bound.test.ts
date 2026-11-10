@@ -58,7 +58,7 @@ describe('a for loop takes a runtime bound', () => {
     const src = `"use typeshade";
 declare const verts: storage<array<vec3f>>;
 declare const hits: storage<array<u32>, "read_write">;
-@compute([64]) export function main(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64]) export function main(gid: builtin<"global_invocation_id">): void {
   let count: u32 = 0;
   for (let t: u32 = 0; t < verts.length / 3; t++) {
     if (verts[t * 3].y > f32(gid.x)) {
@@ -97,7 +97,7 @@ interface Params { count: u32 }
 declare const params: uniform<Params>;
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
-@compute([64]) export function main(lid: builtin<"local_invocation_index", u32>): void {
+@compute([64]) export function main(lid: builtin<"local_invocation_index">): void {
   let s = 0.;
   for (let i: u32 = lid; i < params.count; i += 64) {
     s += src[i];
@@ -116,7 +116,7 @@ declare const dst: storage<array<f32>, "read_write">;
     const src = `"use typeshade";
 interface Frame { steps: i32 }
 declare const frame: uniform<Frame>;
-@fragment export function fs(p: builtin<"position", vec4f>): vec4f {
+@fragment export function fs(p: builtin<"position">): vec4f {
   let a = 0.;
   for (let i: i32 = 0; i < frame.steps; i++) {
     a += 0.01;
@@ -138,7 +138,7 @@ class Params { count: u32 }
 declare const params: uniform<Params>
 declare const data: storage<array<f32>>
 declare const out: storage<array<f32>, "read_write">
-@compute([64]) export function sum(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function sum(gid: builtin<"global_invocation_id">) {
   let s = 0
   for (${head}) {
     s += data[i]
@@ -176,7 +176,7 @@ interface Params { rounds: u32 }
 declare const params: uniform<Params>;
 declare const out: storage<array<f32>, "read_write">;
 let tile: workgroup<array<f32, 64>>;
-@compute([64]) export function main(lid: builtin<"local_invocation_index", u32>): void {
+@compute([64]) export function main(lid: builtin<"local_invocation_index">): void {
   for (let r: u32 = 0; r < ${bound}; r++) {
     tile[lid] = f32(r);
     workgroupBarrier();
@@ -243,7 +243,7 @@ let tile: workgroup<array<f32, 64>>;
 interface Field { scale: f32; data: array<f32> }
 declare const xs: storage<array<f32>, "read_write">;
 declare const field: storage<Field, "read_write">;
-@compute([64]) export function main(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64]) export function main(gid: builtin<"global_invocation_id">): void {
   ${body}
 }
 `;

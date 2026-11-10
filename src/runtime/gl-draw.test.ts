@@ -225,7 +225,7 @@ const refusalOfAsync = async (run: () => Promise<unknown>): Promise<string> => {
 // A uniform block, which WebGL2 takes as a std140 struct (the GLSL writer refuses a bare vec4).
 const DRAW = `"use typeshade";
 interface VsIn { pos: location<0, vec2>; }
-interface VsOut { p: builtin<"position", vec4>; }
+interface VsOut { p: builtin<"position">; }
 interface Color { c: location<0, vec4>; }
 class Tint { c: vec4; }
 declare const tint: uniform<Tint>;
@@ -234,9 +234,9 @@ declare const tint: uniform<Tint>;
 `;
 
 const FRAG_DEPTH = `"use typeshade";
-interface VsOut { p: builtin<"position", vec4>; }
-interface Depth { depth: builtin<"frag_depth", f32>; }
-@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+interface VsOut { p: builtin<"position">; }
+interface Depth { depth: builtin<"frag_depth">; }
+@vertex export function vs(vi: builtin<"vertex_index">): VsOut {
   return { p: vec4(f32(vi), 0., 0., 1.) };
 }
 @fragment export function fs(v: VsOut): Depth { return { depth: 0.5 }; }
@@ -1377,10 +1377,10 @@ describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2
 // Verifies: Rule 11.11.
 describe('attachments and the read-only checks on WebGL2 (proposal 0064, PR-3)', () => {
   const SAMPLED = `"use typeshade";
-interface VsOut { p: builtin<"position", vec4>; }
+interface VsOut { p: builtin<"position">; }
 interface Color { c: location<0, vec4>; }
 declare const photo: texture_2d<f32>;
-@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut { return { p: vec4(f32(vi), 0., 0., 1.) }; }
+@vertex export function vs(vi: builtin<"vertex_index">): VsOut { return { p: vec4(f32(vi), 0., 0., 1.) }; }
 @fragment export function fs(v: VsOut): Color { return { c: textureLoad(photo, vec2i(0), 0) }; }
 `;
   const geometry = { vertices: new Float32Array(6), count: 3 };

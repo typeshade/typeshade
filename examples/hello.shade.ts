@@ -9,15 +9,15 @@
 */
 
 interface Clip {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
 
 interface Color {
-  color: location<0, vec4>;
+  color: vec4;
 }
 
 @vertex
-export function vs(i: builtin<"vertex_index", u32>): Clip {
+export function vs(i: builtin<"vertex_index">): Clip {
   let x = -0.8;
   let y = -0.8;
   if (i === 1) {

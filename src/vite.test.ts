@@ -355,7 +355,7 @@ describe('the plugin hook', () => {
   it('records console calls in vite dev, and none in a build', async () => {
     const src = `"use typeshade";
 declare const ys: storage<array<f32>, "read_write">;
-@compute([1]) export function note(gid: builtin<"global_invocation_id", vec3u>) { console.log("n", gid.x); ys[0] = 1.; }
+@compute([1]) export function note(gid: builtin<"global_invocation_id">) { console.log("n", gid.x); ys[0] = 1.; }
 `;
     const dir = tempDir();
     const file = join(dir, 'note.shade.ts');
@@ -370,7 +370,7 @@ declare const ys: storage<array<f32>, "read_write">;
   it("records in a build with console: 'always', never with 'never', and says so once at the build's start", async () => {
     const src = `"use typeshade";
 declare const ys: storage<array<f32>, "read_write">;
-@compute([1]) export function note(gid: builtin<"global_invocation_id", vec3u>) { console.log("n", gid.x); ys[0] = 1.; }
+@compute([1]) export function note(gid: builtin<"global_invocation_id">) { console.log("n", gid.x); ys[0] = 1.; }
 `;
     const file = join(tempDir(), 'note.shade.ts');
     const plugin = (console: 'dev' | 'always' | 'never', command: string) => {
@@ -408,7 +408,7 @@ declare const ys: storage<array<f32>, "read_write">;
   it("puts the program's portable IR in the manifest with ir: true, and only then (change 0025)", async () => {
     const src = `"use typeshade";
 declare const ys: storage<array<f32>, "read_write">;
-@compute([1]) export function note(gid: builtin<"global_invocation_id", vec3u>) { ys[gid.x] = 1.; }
+@compute([1]) export function note(gid: builtin<"global_invocation_id">) { ys[gid.x] = 1.; }
 `;
     const file = join(tempDir(), 'note.shade.ts');
     const code = async (options: Parameters<typeof typeshade>[0]): Promise<string> => {
@@ -475,7 +475,7 @@ export function prefix(out: array<f32>) {
     const src = `"use typeshade";
 declare const albedo: texture_2d<f32>;
 declare const smp: sampler;
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   let c: vec4 = vec4(0., 0., 0., 1.);
   if (p.x > 8.) {
     c = textureSample(albedo, smp, p.xy / 16.);

@@ -34,7 +34,7 @@ const cases: readonly Case[] = [
   {
     name: 'guard-only',
     guard: true,
-    source: `@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+    source: `@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(f32(f64(p.x) * f64(p.x)) * 0.25, 0., 0., 1.);
 }`,
   },

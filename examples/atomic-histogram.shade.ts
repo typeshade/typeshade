@@ -34,7 +34,7 @@ declare const firstValue: storage<atomic<u32>, "read_write">;
 const BINS: f32 = 8.;
 
 @compute([64, 1, 1])
-export function histogram(gid: builtin<"global_invocation_id", vec3u>): void {
+export function histogram(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= src.length) {
     return;
   }

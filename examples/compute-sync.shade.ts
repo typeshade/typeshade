@@ -38,8 +38,8 @@ let tile: workgroup<array<u32, 64>>;
 
 @compute([64, 1, 1])
 export function cs(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
 ): void {
   tile[lid.x] = out[gid.x];
   workgroupBarrier();

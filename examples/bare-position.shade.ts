@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "A vertex that returns only the position",
-  "blurb": "The smallest render pair: a vertex entry whose return is typed `vec4`, which carries `@builtin(position)` on its own, and a fragment entry that reads `builtin<\"position\", vec4>` and returns one colour. Nothing travels between the stages, so no I/O struct is needed. On GLSL ES 3.00 the return is `gl_Position`, which is not a varying and links nothing.",
+  "blurb": "The smallest render pair: a vertex entry whose return is typed `vec4`, which carries `@builtin(position)` on its own, and a fragment entry that reads `builtin<\"position\">` and returns one colour. Nothing travels between the stages, so no I/O struct is needed. On GLSL ES 3.00 the return is `gl_Position`, which is not a varying and links nothing.",
   "renderable": true
 }
 */
@@ -21,7 +21,7 @@
 // evidence that the pair compiles and links.
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): vec4 {
+export function vs(vi: builtin<"vertex_index">): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
@@ -29,7 +29,7 @@ export function vs(vi: builtin<"vertex_index", u32>): vec4 {
 }
 
 @fragment
-export function fs(p: builtin<"position", vec4>): vec4 {
+export function fs(p: builtin<"position">): vec4 {
   const uv: vec2 = fract(p.xy * 0.01);
   return vec4(uv, 0.4, 1.);
 }

@@ -44,7 +44,7 @@ function coefficient(index: u32): f64 {
 
 @compute([64])
 export function evaluate(
-  gid: builtin<"global_invocation_id", vec3u>,
+  gid: builtin<"global_invocation_id">,
 ): void {
   if (gid.x >= src.length) return;
   // A runtime multiply and add also exercise each flavor's emulation helpers.

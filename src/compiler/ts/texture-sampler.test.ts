@@ -43,13 +43,13 @@ describe('a texture and a sampler declaration', () => {
       "use typeshade";
       ${TEX}
       interface VsOut {
-        pos: builtin<"position", vec4>
+        pos: builtin<"position">
         uv: location<0, vec2>
       }
       interface Color {
         color: location<0, vec4>
       }
-      @vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
+      @vertex export function vs(i: builtin<"vertex_index">): VsOut {
         return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
       }
       @fragment export function fs(v: VsOut): Color {
@@ -196,12 +196,12 @@ describe('override constants', () => {
       }
       declare const camera: uniform<U>;
       interface VsOut {
-        pos: builtin<"position", vec4>;
+        pos: builtin<"position">;
       }
       interface Color {
         color: location<0, vec4>;
       }
-      @vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
+      @vertex export function vs(i: builtin<"vertex_index">): VsOut {
         return { pos: vec4(0., 0., 0., 1.) };
       }
       @fragment export function fs(): Color {
@@ -326,7 +326,7 @@ describe('what the review of #54 found (the four majors)', () => {
     const prog = (name: string): string => `
       "use typeshade";
       interface VsOut {
-        pos: builtin<"position", vec4>
+        pos: builtin<"position">
         uv: location<0, vec2>
       }
       interface Color {
@@ -337,7 +337,7 @@ describe('what the review of #54 found (the four majors)', () => {
       }
       declare const params: uniform<U>
       const ${name}: override<f32> = 0.85
-      @vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
+      @vertex export function vs(i: builtin<"vertex_index">): VsOut {
         return { pos: vec4(f32(i), 0., 0., 1.), uv: vec2(0., 0.) };
       }
       @fragment export function fs(v: VsOut): Color {
@@ -366,7 +366,7 @@ describe('what the review of #54 found (the four majors)', () => {
       declare const atlas: texture_2d_array<f32>
       declare const tex: texture_2d<f32>
       declare const smp: sampler
-      @fragment export function fs(p: builtin<"position", vec4>): Color {
+      @fragment export function fs(p: builtin<"position">): Color {
         const c: vec2i = vec2i(i32(0), i32(0));
         return { color: ${call} };
       }
@@ -435,7 +435,7 @@ declare const atlas: texture_2d_array<f32>
 declare const tex: texture_2d<f32>
 declare const smp: sampler
 interface V {
-  pos: builtin<"position", vec4>
+  pos: builtin<"position">
   uv: location<0, vec2>
 }
 @fragment export function fs(v: V): vec4 {

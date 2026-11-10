@@ -27,18 +27,18 @@
 // which costs this example nothing.
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 interface FsOut {
-  color: location<0, vec4>;
+  color: vec4;
 }
 
 // Fullscreen triangle: three vertices covering the screen, with a centred [-1, 1] uv. No
 // vertex buffer — the position comes from the vertex index alone.
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };

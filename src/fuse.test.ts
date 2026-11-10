@@ -168,7 +168,7 @@ export function uadd(out: array<u32>, a: array<u32>, b: array<u32>) {
   }
 }
 declare const sink: storage<array<f32>, "read_write">;
-@compute([64]) export function fill(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function fill(gid: builtin<"global_invocation_id">) {
   if (gid.x >= sink.length) {
     return;
   }
@@ -177,14 +177,14 @@ declare const sink: storage<array<f32>, "read_write">;
 interface Color {
   color: location<0, vec4>;
 }
-@fragment export function shade(p: builtin<"position", vec4>): Color {
+@fragment export function shade(p: builtin<"position">): Color {
   return { color: vec4(p.x, p.y, 0., 1.) };
 }
 declare const data: storage<array<f32>>;
-@fragment export function show(p: builtin<"position", vec4>): vec4 {
+@fragment export function show(p: builtin<"position">): vec4 {
   return vec4(data[u32(p.x)], 0., 0., 1.);
 }
-@compute([64]) export function copyData(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function copyData(gid: builtin<"global_invocation_id">) {
   if (gid.x >= sink.length) {
     return;
   }
@@ -5208,8 +5208,8 @@ declare const n: uniform<u32>;
 let ta: workgroup<array<f32, 256>>;
 let tb: workgroup<array<f32, 256>>;
 @compute([16, 16, 1]) export function tiled(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
 ): void {
   let acc: f32 = 0.;
   for (let t: u32 = 0; t < n / 16; t++) {
@@ -5651,7 +5651,7 @@ export function vlanes(xs: array<vec4f>): vec4f {
   return s;
 }
 declare const sink: storage<array<f32>, "read_write">;
-@compute([64]) export function fill(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function fill(gid: builtin<"global_invocation_id">) {
   if (gid.x >= sink.length) {
     return;
   }
@@ -5961,14 +5961,14 @@ declare const marks: storage<array<u32>, "read_write">;
 declare const words: storage<array<u32>>;
 declare const table: storage<array<u32>, "read_write">;
 @compute([2]) export function mark(
-  gid: builtin<"global_invocation_id", vec3u>,
-  nw: builtin<"num_workgroups", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  nw: builtin<"num_workgroups">,
 ) {
   if (gid.x < marks.length) {
     marks[gid.x] = nw.x + words[0];
   }
 }
-@compute([1]) export function peek(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function peek(gid: builtin<"global_invocation_id">) {
   marks[gid.x] = table[gid.x];
 }
 `;

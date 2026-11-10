@@ -42,11 +42,11 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 import { checkDocuments } from '../../language-service/check.js';
 
 const VS = `interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 
-@vertex export function vs(idx: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(idx: builtin<"vertex_index">): VsOut {
   const x = f32(idx & 1) * 4. - 1.;
   const y = f32(idx >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };

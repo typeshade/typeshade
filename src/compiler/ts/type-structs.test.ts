@@ -234,35 +234,44 @@ describe('the three spellings agree', () => {
   });
 });
 
-describe('entry I/O needs an attribute type, which every spelling carries (change 0111)', () => {
+describe('an entry I/O field with no attribute is user-defined in every spelling (change 0135)', () => {
   const VS = (decl: string) => `
     ${decl}
-    @vertex export function vs(p: location<0, vec2>): VsOut {
+    @vertex export function vs(p: vec2): VsOut {
       return { pos: vec4(p, 0., 1.), uv: p };
     }
   `;
-  const FIELDS = `
-    pos: vec4
+  const FIELDS = (pos: string): string => `
+    pos: ${pos}
     uv: vec2
   `;
 
-  // An interface or a type alias member carries the attribute in its type as a class field
-  // does, so no spelling is told to become a class (the remedy before change 0111).
+  // A field that carries no `builtin<…>` is a user-defined output, which the compiler numbers
+  // (Rule 6.6); before change 0135 it was `TS8029`. So a struct that writes the position as a
+  // plain `vec4` has no position, and the vertex entry says so in the one sentence, whichever
+  // spelling declares the struct.
   const SAID =
-    'Struct "VsOut" field "pos" is used as a vertex output but has neither a builtin<…> nor ' +
-    'a location<…> type: WGSL requires every entry output struct member to declare one.';
+    '"vs" is a vertex entry, so what it returns has to carry the position: give "VsOut" a ' +
+    'field typed builtin<"position">.';
 
-  it('asks a type-alias author for the attribute type', () => {
-    expect(diagnoseCode(VS(`type VsOut = {${FIELDS}}`), 'TS8029')).toBe(SAID);
-  });
-
-  it('asks an interface author the same', () => {
-    expect(diagnoseCode(VS(`interface VsOut {${FIELDS}}`), 'TS8029')).toBe(SAID);
-  });
-
-  it('asks a class author the same', () => {
-    expect(diagnoseCode(VS(`class VsOut {${FIELDS}}`), 'TS8029')).toBe(SAID);
-  });
+  for (const [spelling, open] of [
+    ['type alias', 'type VsOut = {'],
+    ['interface', 'interface VsOut {'],
+    ['class', 'class VsOut {'],
+  ] as const) {
+    it(`numbers the fields of a ${spelling}, and asks for the position it lacks`, () => {
+      // Both halves say it: `diagnoseCode` holds the editor's rows to the compiler's.
+      expect(diagnoseCode(VS(`${open}${FIELDS('vec4')}}`), 'TS8020')).toBe(SAID);
+      const r = analyze(VS(`${open}${FIELDS('builtin<"position">')}}`));
+      expect(r.diagnostics).toEqual([]);
+      const fields = r.structs.find((x) => x.decl.name === 'VsOut')!.decl.fields;
+      expect(fields.map((f) => [f.name, f.builtin ?? f.location])).toEqual([
+        ['pos', 'position'],
+        ['uv', 0],
+      ]);
+      expect(r.funcs.find((f) => f.name === 'vs')!.params[0]!.location).toBe(0);
+    });
+  }
 });
 
 describe('shapes a WGSL struct has no form for', () => {

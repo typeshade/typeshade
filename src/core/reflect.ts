@@ -543,6 +543,8 @@ export interface VertexAttr {
   readonly name: string;
   /** The parameter's name in the emitted text (Rule 11.10). */
   readonly emitted: string;
+  /** The location, written (`location<n, T>`) or given by the compiler (Rule 6.6, change
+   *  0135). */
   readonly location: number;
   readonly type: string;
   readonly offset: number;
@@ -576,7 +578,8 @@ export interface EntryIoField {
   /** The DSL type key (the string {@link typeKey} returns), the same spelling
    *  `StructLayout.fields[].type` and `VertexAttr.type` use. */
   readonly type: string;
-  /** The declared `@location(n)`. Absent on a `@builtin` field and on an unattributed one;
+  /** The location, written (`location<n, T>`) or given by the compiler (Rule 6.6, change
+   *  0135). Absent on a `@builtin` field and on an unattributed one of a module built in code;
    *  the two are told apart by whether `builtin` is set. */
   readonly location?: number;
   /** The declared `@builtin(name)`, in WGSL's own vocabulary (`position`, `vertex_index`,

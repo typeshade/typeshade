@@ -34,7 +34,7 @@ declare const shadowSmp: sampler_comparison`;
 
 const fragment = (body: string, decls = DECLS): string => `"use typeshade"
 ${decls}
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   const c: vec2i = vec2i(p.xy)
 ${body}
 }

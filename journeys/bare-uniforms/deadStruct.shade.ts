@@ -5,7 +5,7 @@ interface Params { value: f32; }
 declare const deadStructValue: uniform<Params>;
 
 @vertex
-export function vs(i: builtin<"vertex_index", u32>): vec4 {
+export function vs(i: builtin<"vertex_index">): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   return vec4(xs[i], ys[i], 0., 1.);

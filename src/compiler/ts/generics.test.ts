@@ -34,7 +34,7 @@ describe('one compilation per set of argument types the file calls it with', () 
 function pick<T>(c: bool, a: T, b: T): T {
   return c ? a : b;
 }
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(pick(p.x > 0.5, 1., 2.), 0., 0., 1.);
 }
 `);
@@ -49,7 +49,7 @@ function pick<T>(c: bool, a: T, b: T): T {
 function pick<T>(c: bool, a: T, b: T): T {
   return c ? a : b;
 }
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   const s = pick(p.x > 0.5, 1., 2.);
   const t = pick(p.y > 0.5, 3., 4.);
   const v = pick(p.x > 0.5, vec3(0.), vec3(1.));
@@ -194,7 +194,7 @@ function keep<T>(c: bool, a: T): T {
   const held: T = a;
   return c ? held : a;
 }
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(keep(p.x > 0.5, 1.), 0., 0., 1.);
 }
 `);

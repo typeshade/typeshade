@@ -3,22 +3,22 @@
 /* @example
 {
   "title": "Hello varyings",
-  "blurb": "The triangle again, now carrying a `uv` varying from the vertex stage into the fragment stage through a shared `VsOut` interface — the `builtin<\"position\", vec4>` + `location<0, vec2>` pair that every interpolated value rides.",
+  "blurb": "The triangle again, now carrying a `uv` varying from the vertex stage into the fragment stage through a shared `VsOut` interface — the `builtin<\"position\">` field beside a plain `uv: vec2`, the pair that every interpolated value rides: the compiler gives `uv` its location.",
   "renderable": true
 }
 */
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 interface Color {
-  color: location<0, vec4>;
+  color: vec4;
 }
 
 @vertex
-export function vs(i: builtin<"vertex_index", u32>): VsOut {
+export function vs(i: builtin<"vertex_index">): VsOut {
   let x = -0.8;
   let y = -0.8;
   let u = 0.;

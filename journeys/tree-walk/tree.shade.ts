@@ -17,7 +17,7 @@ declare const sums: storage<array<f32>, "read_write">;
 declare const partial: storage<array<f32>, "read_write">;
 
 @compute([64])
-export function subtree(gid: builtin<"global_invocation_id", vec3u>) {
+export function subtree(gid: builtin<"global_invocation_id">) {
   if (gid.x >= params.roots) {
     return;
   }
@@ -56,7 +56,7 @@ function sqrtNewton(x: f32): f32 {
 }
 
 @compute([64])
-export function strided(lid: builtin<"local_invocation_index", u32>) {
+export function strided(lid: builtin<"local_invocation_index">) {
   let s = 0;
   for (let i = lid; i < params.count; i += 64) {
     s += values[i];
