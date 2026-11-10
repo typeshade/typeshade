@@ -127,6 +127,25 @@ describe('the constants derived from ln 2', () => {
     expect(value('IVLN2LO')).toBe(rounded(rest));
   });
 
+  it('sqrt(2) rounded and the rest (SQRT2, SQRT2TAIL)', () => {
+    // The integer square root of 2 * 2^(2 BITS) is sqrt(2) * 2^BITS, truncated.
+    const two = 2n << (2n * BITS);
+    let root = 1n << (BITS + 1n);
+    for (;;) {
+      const next = (root + two / root) >> 1n;
+      if (next >= root) break;
+      root = next;
+    }
+    expect(root * root <= two && (root + 1n) * (root + 1n) > two).toBe(true);
+    expect(value('SQRT2')).toBe(rounded(root));
+    expect(value('SQRT2')).toBe(Math.SQRT2);
+    const head = exactValue(value('SQRT2'));
+    const rest = root - (head.num << (BITS - head.scale));
+    // SQRT2 is above sqrt(2), so the rest is negative.
+    expect(rest < 0n).toBe(true);
+    expect(value('SQRT2TAIL')).toBe(-rounded(-rest));
+  });
+
   it('the powers of two and the splitter', () => {
     expect(value('TWO54')).toBe(f64OfWords((1023 + 54) << 20, 0));
     expect(value('TOINT')).toBe(1.5 * 4503599627370496);
@@ -174,7 +193,14 @@ describe('the special values that ECMA-262 and IEEE 754 fix', () => {
     same(LIBM.exp2F64(-1075), 0);
     // 2^-1074.5 rounds up to the smallest subnormal; 2^-1075 is a tie and rounds to even.
     expect(LIBM.exp2F64(-1074.5)).toBe(5e-324);
-    expect(LIBM.exp2F64(0.5)).toBeCloseTo(Math.SQRT2, 15);
+    // A half-integer gives sqrt(2) rounded, times the exact power: the correctly rounded result.
+    expect(LIBM.exp2F64(0.5)).toBe(Math.SQRT2);
+    expect(LIBM.exp2F64(-0.5)).toBe(Math.SQRT2 / 2);
+    for (let k = -1022; k <= 1022; k++) {
+      const got = LIBM.exp2F64(k + 0.5);
+      expect([k, got]).toEqual([k, Math.SQRT2 * f64OfWords((1023 + k) << 20, 0)]);
+      expect(Math.abs(ulpError(got, exactExp2(k + 0.5), F64_FORMAT)!)).toBeLessThanOrEqual(0.5);
+    }
   });
 
   it('log', () => {
@@ -438,6 +464,60 @@ describe('the error is under 1 ULP (decision N9), and ldexp is correctly rounded
         }
       }
       expect(measured).toBeGreaterThan(3000);
+    }
+  });
+});
+
+describe('exp2 near a half-integer, where the reduction by the nearest integer was weakest', () => {
+  // The independent review of #1181 measured 0.9282 ULP at the first operand, and a result
+  // below its lower neighbour's near the two others. The reduction by the nearest half-integer
+  // puts these operands at the centre of the kernel's range.
+  const hard = [1.5002300426153399, -0.49732986104567456, -0.4976949315592164];
+  const view = new DataView(new ArrayBuffer(8));
+  /** The f64 `steps` units above `x`, for a negative `x` toward zero. */
+  const above = (x: number, steps: number): number => {
+    view.setFloat64(0, x);
+    view.setBigInt64(0, view.getBigInt64(0) + BigInt(x > 0 ? steps : -steps));
+    return view.getFloat64(0);
+  };
+
+  it('the error at each operand is under half of the old one', () => {
+    for (const x of hard) {
+      const error = Math.abs(ulpError(LIBM.exp2F64(x), exactExp2(x), F64_FORMAT)!);
+      expect([x, error < 0.4]).toEqual([x, true]);
+    }
+  });
+
+  it('exp2 does not decrease over 2,048 neighbours around each operand', () => {
+    for (const x of hard) {
+      let previous = LIBM.exp2F64(above(x, -1024));
+      let inversions = 0;
+      for (let d = -1023; d <= 1024; d++) {
+        const y = LIBM.exp2F64(above(x, d));
+        if (y < previous) inversions++;
+        previous = y;
+      }
+      expect([x, inversions]).toEqual([x, 0]);
+    }
+  });
+
+  it('the product by sqrt(2) leaves out no term: the operands the review of #1199 measured', () => {
+    // Without SQRT2TAIL * t in the small term these measured 0.8122, 0.8084, 0.8036 and 0.8340
+    // ULP (the last has a subnormal result). With it they measure 0.1878, 0.1916, 0.1964 and
+    // 0.1660 ULP.
+    const worst = [
+      269.73395407326745, -0.27863143773179777, -0.26563800208571564, -1022.2663863890546,
+    ];
+    for (const x of worst) {
+      const error = Math.abs(ulpError(LIBM.exp2F64(x), exactExp2(x), F64_FORMAT)!);
+      expect([x, error < 0.25]).toEqual([x, true]);
+    }
+  });
+
+  it('an operand a quarter from an integer, the new edge of the kernel, is under 1 ULP', () => {
+    for (const x of [0.25, -0.25, 0.75, 6.749972967765296, -9.274719568356135, 0.2499999999999]) {
+      const error = Math.abs(ulpError(LIBM.exp2F64(x), exactExp2(x), F64_FORMAT)!);
+      expect([x, error < 1]).toEqual([x, true]);
     }
   });
 });
