@@ -242,7 +242,6 @@ export function recordModuleAbstractConst(
 export function resetAbstractConsts(sourceFile: ts.SourceFile): void {
   byDeclName.delete(sourceFile);
   divisionsOf.delete(sourceFile);
-  carriedByFunction.delete(sourceFile);
 }
 
 export function moduleAbstractConst(
