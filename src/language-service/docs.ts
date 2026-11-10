@@ -545,7 +545,7 @@ export const MATH_MEMBER_DOCS: Readonly<Record<string, string>> = {
   log2: scalarDoc(FUNCTION_DOCS.log2),
   max: scalarDoc(FUNCTION_DOCS.max),
   min: scalarDoc(FUNCTION_DOCS.min),
-  pow: "Returns `x` raised to the power of `y`; `x ** y` is the same operation. The GPU result is undefined when `x` is negative, and on GLSL ES 3.00 also when `x` is 0 and `y` is 0 or less. The CPU oracle follows JavaScript's `Math.pow`: `Math.pow(-2., 3.)` is -8 and `Math.pow(-2., 0.5)` is NaN.",
+  pow: "Returns `x` raised to the power of `y`; `x ** y` is the same operation. The GPU result is undefined when `x` is negative, when `x` is 1 and `y` is infinite, and when `x` is infinite and `y` is 0, and on GLSL ES 3.00 also when `x` is 0 and `y` is 0 or less. The CPU oracle gives JavaScript's special values (`Math.pow(-2., 3.)` is -8 and `Math.pow(-2., 0.5)` is NaN); a finite result is the compiler's own libm's, the same on every engine, and may differ from an engine's `Math.pow` in the last bit.",
   round: scalarDoc(FUNCTION_DOCS.round),
   sign: scalarDoc(FUNCTION_DOCS.sign),
   sin: scalarDoc(FUNCTION_DOCS.sin),

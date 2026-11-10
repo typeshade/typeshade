@@ -34,6 +34,7 @@ import {
   explogCases,
   invtrigCases,
   hyperCases,
+  powCases,
   type LibmCase,
   type LibmCaseFile,
 } from '../src/core/testing/libm-cases.js';
@@ -46,6 +47,7 @@ const CASE_FAMILIES: readonly (readonly [string, (libm: typeof LIBM) => LibmCase
   ['explog', (libm) => explogCases(libm)],
   ['invtrig', (libm) => invtrigCases(libm)],
   ['hyper', (libm) => hyperCases(libm)],
+  ['pow', (libm) => powCases(libm)],
 ];
 
 /** `LIBM` with a result of the routine `name` changed in its last bit, once in every 50,000
@@ -69,6 +71,7 @@ const PLANTED: Readonly<Record<string, keyof typeof LIBM>> = {
   explog: 'logF64',
   invtrig: 'atan2F64',
   hyper: 'acoshF64',
+  pow: 'powF64',
 };
 const caseFile = (family: string): string => `src/core/libm/${family}.gate.json`;
 

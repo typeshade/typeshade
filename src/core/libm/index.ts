@@ -43,6 +43,8 @@ export interface Libm {
   readonly asinhF64: (x: number) => number;
   readonly acoshF64: (x: number) => number;
   readonly atanhF64: (x: number) => number;
+  /** x to the power y, with ECMA-262's special values (Number::exponentiate). */
+  readonly powF64: (x: number, y: number) => number;
 }
 
 /** The routines of every family's source, built over `host`. */
