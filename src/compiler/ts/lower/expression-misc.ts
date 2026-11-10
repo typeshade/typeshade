@@ -11,7 +11,7 @@ import { resolveMathExpand } from '../math-alias.js';
 import { expandMath } from '../math-expand.js';
 import { lowerRandomHash } from '../random-hash.js';
 import { lowerScalarCast } from '../numeric.js';
-import { abstractLiteralOf } from '../abstract-const.js';
+import { abstractLiteralOf, isAbstractRead, noteIntegerRead } from '../abstract-const.js';
 import { foldConstNumber } from '../loop-bound.js';
 import { foldF64ModuleConst } from '../module-const-f64.js';
 import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
@@ -76,6 +76,12 @@ export function lowerScalarCastCall(
   // `u32(3)` does, at its exact value (change 0134 item 2). `f32(K)` keeps the name: the
   // constant is an `f32` there.
   const arg = name === 'f32' || name === 'bool' ? lowered : (abstractLiteralOf(lowered) ?? lowered);
+  // `i32(K)` and `u32(K)` read the constant as an integer, as an argument of that type does, so
+  // a `/` over `K` and written numbers elsewhere is refused (the owner's decision of
+  // 2026-11-10). `f32(K)` and `f64(K)` do not, and `f32(K) / 2` is the edit the refusal names.
+  if ((name === 'i32' || name === 'u32') && isAbstractRead(node.arguments[0]!)) {
+    noteIntegerRead(lowered, name);
+  }
   const out = lowerScalarCast(
     name,
     arg,

@@ -1373,8 +1373,9 @@ const HALF = N / 2; // refused when a loop bound reads N as an i32
 // division, or "f32(N) / 2" for 4.
 ```
 
-Where no line reads `N` as an integer, `N / 2` is the ECMAScript value, `4`, and `7 / 2` is
-`3.5`.
+A conversion is a read: `i32(N)` or `u32(N)` anywhere reads `N` as an integer, as an argument
+of that type does, and `f32(N)` or `f64(N)` does not. Where no line reads `N` as an integer,
+`N / 2` is the ECMAScript value, `4`, and `7 / 2` is `3.5`.
 
 **No window is open on the default.** Everything above is about a position or use that
 DECLARES a type. Where nothing establishes one for a variable (`let i = 0`), the literal takes

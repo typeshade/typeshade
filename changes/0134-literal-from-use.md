@@ -794,8 +794,57 @@ example of each option was shown (`OD-4`). Each decision is the agent's recommen
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the implementation pull requests with
-`Change: 0134`, the tests and gates listed under "What it touches", and the re-baked goldens.
+The change is delivered in parts. `status: accepted` stays until every part is delivered and
+audited. Each block below records one implementing pull request.
+
+**Part 1, the retirement of `TS8053`.** Pull request #1170, merged into `main` as `c9eea6ee`.
+The code, its reporter and its two test files are removed. `src/compiler/ts/deprecation-window.test.ts`
+verifies Rule 13.10 with no window open.
+
+**Part 2, item 5 for `examples/*.shade.ts`.** Pull request #1174, merged into `main` (merge
+commit `814496ae`). 94 files, 1166 lines. Each file compiled to the same WGSL and GLSL ES 3.00
+and the same diagnostics, in both halves, before and after. No golden changed.
+
+**Part 3, item 2, a constant of no fixed type.** Pull request #1184.
+
+- Delivered: Rules 5.1 and 5.2, surface §12 and §13, `src/compiler/ts/abstract-const.ts`, the
+  tests of `src/compiler/ts/abstract-const.test.ts` (both halves) and the journey
+  `journeys/untyped-constants/` (WebGPU, WebGL2 and the CPU oracle). `CHANGELOG.md`,
+  `### Changed`, names each value.
+- [fact, measured 2026-11-10 on `main` at `0fb8a53e`] "Values that change" says that the CPU
+  oracle records the rounded `f32` value of a constant that `f32` does not hold exactly. The
+  measurement shows otherwise. `compile().eval` already gave 16777217, 2654435761, the double
+  of 7 / 3 and the double 0.1 for the rows of that section, because a module constant keeps
+  its double for the oracle (`ConstDecl.cpuValue`). The emitted WGSL and GLSL carried the `f32`
+  rounding. So the device and the oracle disagreed on those programs before part 3, and agree
+  after it. The oracle's values do not move; the emitted text moves to them. The approved text
+  is not rewritten; this note corrects it.
+- [decision, owner, 2026-11-10] "캐스트도 세기". A cast is a read for the division rule. A
+  conversion `i32(K)` or `u32(K)` of a constant of no fixed type reads it as an integer, as an
+  argument of that type does. So `const K = 7; return f32(u32(K)) + f32(K / 2);` is refused
+  with `TS8003`, in the sentence of the rule. `f32(K)` and `f64(K)` do not make the constant an
+  integer, and `f32(K) / 2` is the edit the sentence names. Implemented in part 3. A conversion
+  of a quotient (`u32(K / 2)`) converts the written number and reads no integer `K`.
+- [decision, owner, 2026-11-10] "별도 PR로 결함 수정". `const K = 1e38;` with `f64(K) * 4.` is
+  newly refused: `f64(K)` is the written `f64(1e38)`, and the front end folds the product to a
+  double that the emulation cannot hold (`TS8015`, as the written form does on `main`). Part 3
+  goes on as it is: the constant behaves as the written number. The fold is a defect of its
+  own, and it is fixed in its own pull request under an issue that the session's coordinator
+  files. `src/core/passes/fp64-lower.test.ts` writes the type of its two `1e38` constants.
+- Deviations of part 3, each open for the audit at the end:
+  - Hover is not changed: a declaration and every read still show `const K: f32`. Item 4 is its
+    own part.
+  - An exported constant of no fixed type keeps its `f32` declaration in reflection, the
+    manifest and the host view. The estimate of item 2 (the host view spells it `number`) is
+    neither implemented nor measured.
+  - A position that reads a written number through a check that part 3 did not reach reads the
+    constant as an `f32`, as on `main`. Such a program stays refused; it computes no other
+    value.
+  - Rule 5.1's sentence "the literal must be an `f32`" stays for an unannotated `let`, a field
+    and a function's result until items 1 and 3 are delivered.
+
+Not delivered yet: items 1 and 3, item 4, the document part of item 5, item 5 for `journeys/`
+and the helper sources of `examples/` (Amendment A1), and the audit.
 
 ## What it owes downstream
 

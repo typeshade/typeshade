@@ -382,6 +382,45 @@ export function t(x: f32): f32 { return x * (K / 2); }`;
     expect(accepted(source).eval('t', [2])).toBe(7);
   });
 
+  // The owner's decision of 2026-11-10: a cast is a read, so `i32(K)` and `u32(K)` make the
+  // constant an integer for this rule, as an argument does.
+  it.each([
+    ['u32', 'a u32'],
+    ['i32', 'an i32'],
+  ])('refuses K / 2 where %s(K) reads K as an integer', (cast) => {
+    refused(
+      `"use typeshade";
+const K = 7;
+export function t(): f32 { return f32(${cast}(K)) + f32(K / 2); }`,
+      [
+        `"K" is ${cast === 'u32' ? 'a u32' : 'an i32'} where another line reads it, and no ` +
+          `operand of "K / 2" has a declared type, so the "/" does not say which division it ` +
+          `is. Write "const K: ${cast} = 7" for the integer division, or "f32(K) / 2" for 3.5.`,
+      ],
+    );
+  });
+
+  it('a cast to f32 or f64 alone does not make the constant an integer', () => {
+    const source = `"use typeshade";
+const K = 7;
+export function t(d: f64): f32 { return f32(K) + f32(f64(K) + d) + K / 2; }`;
+    expect(accepted(source).eval('t', [0])).toBe(7 + 7 + 3.5);
+  });
+
+  it('accepts the remedy beside an integer cast: f32(K) / 2, and x / K with a declared x', () => {
+    const source = `"use typeshade";
+const K = 7;
+export function t(x: f32): f32 { return f32(u32(K)) + f32(K) / 2 + x / K; }`;
+    expect(accepted(source).eval('t', [14])).toBe(7 + 3.5 + 2);
+  });
+
+  it('a cast of the quotient converts the written number and reads no integer K', () => {
+    const source = `"use typeshade";
+const K = 7;
+export function t(): u32 { return u32(K / 2); }`;
+    expect(accepted(source).eval('t')).toBe(3);
+  });
+
   it('accepts each of the two edits the sentence names', () => {
     const annotated = `"use typeshade";
 ${H}export function t(): f32 {

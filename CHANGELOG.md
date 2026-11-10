@@ -236,7 +236,8 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   `function h(a: u32): u32`, `const k = 7; h(k); return f32(k / 2);` emitted `3.0`,
   `const k = 7; const r = h(k); return r + k / 2;` emitted `r + 3u`, and
   `const k = 7; h(k); return xs[k / 2];` emitted `xs[3u]`. `vi / k` with a declared `u32` `vi`
-  stays an integer division, and `x / N` with a declared `f32` `x` a float one.
+  stays an integer division, and `x / N` with a declared `f32` `x` a float one. A conversion to
+  `i32` or `u32` is such a read too: `const K = 7; return f32(u32(K)) + f32(K / 2);` is refused.
   **Migration:** to keep an `f32` constant, write its type (`const K: f32 = 16777217`). For a
   refused `/`, write the constant's type for the integer division (`const k: u32 = 7`) or
   convert the operand for the float one (`f32(k) / 2`), as the sentence says. One more program
