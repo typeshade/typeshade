@@ -204,6 +204,18 @@ export interface LinkedCompile {
   readonly symbols: readonly DeclaredSymbol[];
 }
 
+/** What the linker made of each result of a linked compile, beside the result. The result's own
+ *  shape stays the single-file one, so this is where a reader of the whole program finds it. */
+const linkedCompiles = new WeakMap<CompileTsSourceResult, LinkedCompile>();
+
+/** What the linker made of the program `result` is the compile of: its files, and the table of
+ *  what the front end declared in every one of them. `undefined` for a source that imports
+ *  nothing. The language service reads it to join a declaration in an imported file to the
+ *  compiler's facts about it (Rule 12.7); nothing here is computed again. */
+export function linkedCompileOf(result: CompileTsSourceResult): LinkedCompile | undefined {
+  return linkedCompiles.get(result);
+}
+
 /** `compileTsSource`, and for a source that imports another, what the linker made of it (the
  *  Vite plugin's host face reads the module's exports there). `roots` are more files to keep
  *  whole beside the source, which `compileTsSources` passes; with any, the source is linked
@@ -650,16 +662,16 @@ function compileLinked(
     const at = inEntry(x.start, x.length);
     if (at !== undefined) expressions.push({ ...x, ...at });
   }
-  return {
-    result: {
-      ...inner,
-      diagnostics,
-      sourceFile: entry,
-      symbols,
-      expressions,
-    },
-    linked: { linked, sourceFile, symbols: inner.symbols },
+  const result: CompileTsSourceResult = {
+    ...inner,
+    diagnostics,
+    sourceFile: entry,
+    symbols,
+    expressions,
   };
+  const linkedCompile: LinkedCompile = { linked, sourceFile, symbols: inner.symbols };
+  linkedCompiles.set(result, linkedCompile);
+  return { result, linked: linkedCompile };
 }
 
 /** Maps every `SourceSpan` the IR under `roots` carries from the linked source back to the file
