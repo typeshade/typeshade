@@ -329,8 +329,9 @@ interface ResourceExport {
   readonly name: string;
   /** The exported class whose layouts it reads, by the name the host imports. */
   readonly cls: string;
-  /** A storage array's element count; absent for a uniform. */
-  readonly length?: number;
+  /** A storage array's element count, `null` for one with no size, whose length the host sets
+   *  (Amendment A3); absent for a uniform. */
+  readonly length?: number | null;
 }
 
 /** A binding the module exports, before the classes are known (`resourceFaces`). */
@@ -2290,9 +2291,10 @@ function faceOf(ref: ExportRef, c: FaceCtx): FaceExport | BindingRef {
  * Each exported binding as a host resource (change 0138, R10; Rule 6.1), or as `never` with the
  * reason it is none yet. A resource is laid out by an exported class's layouts, the ones
  * `uniform()` and `zeros()` read: a `uniform<T>` of a class is a `Uniform<T>`, and a
- * `storage<array<T, N>>` of one a `Buffer<T>` of `N` elements. A storage array with no size has
- * no length to make, and a scalar, a vector, a struct no class declares, one `storage<T>`, a
- * texture and a sampler have no resource of their own yet.
+ * `storage<array<T, N>>` of one a `Buffer<T>` of `N` elements. A `storage<array<T>>` of one, with
+ * no size, is a `Buffer<T>` whose length the host sets with `resize` or `set` (Amendment A3). A
+ * storage array whose size is an override, a scalar, a vector, a struct no class declares, one
+ * `storage<T>`, a texture and a sampler have no resource of their own yet.
  */
 function resourceFaces(
   faces: readonly (FaceExport | BindingRef)[],
@@ -2321,16 +2323,18 @@ function resourceFaces(
         : { kind: 'resource', name: e.name, cls: cls.name };
     }
     if (b.space === 'storage' && t.kind === 'array' && t.elem.kind === 'struct') {
-      if (t.size === undefined || t.sizeOverride !== undefined)
-        return refuse('a storage array with no fixed size has no length a host resource takes');
+      if (t.sizeOverride !== undefined)
+        return refuse(
+          'a storage array whose size is an override has no length a host resource takes',
+        );
       const cls = classOf(t.elem.name, 's');
       return typeof cls === 'string'
         ? refuse(cls)
-        : { kind: 'resource', name: e.name, cls: cls.name, length: t.size };
+        : { kind: 'resource', name: e.name, cls: cls.name, length: t.size ?? null };
     }
     if (b.space === 'uniform' || b.space === 'storage')
       return refuse(
-        'only a uniform of a class and a storage array of a class with a fixed size are host resources at milestone 1 of change 0138',
+        'only a uniform of a class and a storage array of a class are host resources at milestone 1 of change 0138',
       );
     return never(e.name, REASON.bindingExport);
   });
@@ -2910,7 +2914,7 @@ function viewText(
         const type = e.length === undefined ? `Uniform<${e.cls}>` : `Buffer<${e.cls}>`;
         out.push(
           ...above(
-            `A binding of the module, a host resource (Rule 6.1, change 0138): set its fields with \`set\` and read them with \`get\`; each \`set\` writes only what changed and widens its dirty range. It lives as long as the module. An entry call still takes the binding's value in its bindings object (Rule 8.24).`,
+            `A binding of the module, a host resource (Rule 6.1, change 0138): set its fields with \`set\` and read them with \`get\`; each \`set\` writes only what changed and widens its dirty range. It lives as long as the module.${e.length === null ? ' The shader states no size for this storage array, so the host sets its length: call \`resize(n)\` or \`set(data)\` before \`at\` or \`read\`, which throw a \`TypeError\` until then.' : ''} An entry call still takes the binding's value in its bindings object (Rule 8.24).`,
           ),
           `export declare const ${e.name}: ${type};`,
         );
@@ -3316,7 +3320,7 @@ function moduleText(
   for (const e of exports)
     if (e.kind === 'resource')
       out.push(
-        `const ${bind(e.name)} = ${RT}.exportedBinding(${q(e.name)}, ${q(stem)}, ${classIds.get(e.cls)}${e.length !== undefined ? `, ${e.length}` : ''});`,
+        `const ${bind(e.name)} = ${RT}.exportedBinding(${q(e.name)}, ${q(stem)}, ${classIds.get(e.cls)}${e.length !== undefined ? `, ${String(e.length)}` : ''});`,
       );
   if (bound.length > 0) out.push(`export { ${bound.join(', ')} };`);
   return `${out.join('\n')}\n`;

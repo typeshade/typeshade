@@ -88,11 +88,12 @@ describe('an exported binding is read by both halves (Rule 6.1)', () => {
     const f = face();
     expect(f.view).toContain('export declare const camera: Uniform<Camera>;');
     expect(f.view).toContain('export declare const ps: Buffer<Particle>;');
-    // No length to make, and no class to lay out by: each stays a binding with its reason.
+    // A storage array with no size is a resource whose length the host sets (Amendment A3,
+    // `unsized-storage.test.ts`). No class to lay out by: a scalar stays a binding with its reason.
+    expect(f.view).toContain('export declare const all: Buffer<Particle>;');
     expect(f.view).toContain(
-      'it is a resource binding, and a storage array with no fixed size has no length a host resource takes, so it is no host resource yet',
+      'it is a resource binding, and only a uniform of a class and a storage array of a class are host resources at milestone 1 of change 0138, so it is no host resource yet',
     );
-    expect(f.view).toContain('export declare const all: never;');
     expect(f.view).toContain('export declare const scale: never;');
     // The calls do not change at milestone 1: the entry takes the binding's value as before.
     expect(f.view).toContain('readonly camera: Camera;');
@@ -137,7 +138,7 @@ describe('the generated module makes each exported binding once (R10)', () => {
     expect(() =>
       (m.camera as unknown as { time: { set(v: unknown): void } }).time.set('x'),
     ).toThrow(new TypeError('camera.time: takes a number (f32), got the string "x".'));
-    expect(() => (m.all as () => void)()).toThrow(TypeError);
+    expect(() => (m.scale as () => void)()).toThrow(TypeError);
   });
 });
 
@@ -172,7 +173,7 @@ describe('a host program over the view types the exported bindings', () => {
     dirs.push(dir);
     writeFileSync(join(dir, 'scene.shade.ts'), SOURCE);
     writeFileSync(join(dir, 'scene.shade.typeshade.ts'), f.view);
-    const head = `import { createDevice, texture, type Buffer, type Uniform } from ${JSON.stringify(PUBLIC.replace(/\.ts$/, '.js'))};\nimport { camera, ps, all, Camera, Particle } from './scene.shade.ts';\n`;
+    const head = `import { createDevice, texture, type Buffer, type Uniform } from ${JSON.stringify(PUBLIC.replace(/\.ts$/, '.js'))};\nimport { camera, ps, scale, Camera, Particle } from './scene.shade.ts';\n`;
     const lines = [
       'camera.pos.set(0, 2, 5);',
       'camera.set({ time: 1 });',
@@ -181,7 +182,7 @@ describe('a host program over the view types the exported bindings', () => {
       'const p: Buffer<Particle> = ps;',
       'ps.at(0).life.set(1);',
       'camera = c;',
-      'all.length;',
+      'scale.length;',
       'const device = await createDevice();',
       '{ using _ = device.use(); texture({ size: [1, 1], format: "rgba8unorm" }); }',
       'device.use().dispose();',
@@ -218,7 +219,7 @@ describe('a host program over the view types the exported bindings', () => {
       'const p: Buffer<Particle> = ps;: ',
       'ps.at(0).life.set(1);: ',
       'camera = c;: TS2632',
-      'all.length;: TS2339',
+      'scale.length;: TS2339',
       'const device = await createDevice();: ',
       '{ using _ = device.use(); texture({ size: [1, 1], format: "rgba8unorm" }); }: ',
       'device.use().dispose();: ',

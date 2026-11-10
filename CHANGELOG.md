@@ -64,6 +64,20 @@ init?)`, `zeros(Class, n)` and `array(Class, data)`, which make a `Uniform<T>` o
   file 164,037 to 164,207 (+170), split initial 45,178 to 45,353 and split total 166,221 to
   166,395. The floors and the other caps do not change.
 
+- **An exported storage array with no size is sized by the host** (change 0138, Amendment A3).
+  `export declare const ps: storage<array<Particle>>`, which was `never` in the host view, is a
+  `Buffer<Particle>`. The host sets its length: `ps.resize(n)` gives it `n` elements, keeps the
+  ones that fit and zeroes the others, and `ps.set(data)` gives it the length of `data` and its
+  values. Until then `ps.length` is 0, and `ps.at()` and `ps.read()` throw a `TypeError` that
+  names the binding and says to call `resize` or `set`. Every `Buffer<T>` has `resize` and `set`,
+  one from `zeros()` or `array()` among them. An exported `storage<array<T, N>>` keeps its `N`
+  elements and refuses another length with a `TypeError`. A resize gives the buffer another
+  range of the region and marks its whole range dirty; an accessor made before reads the new
+  range. No call takes a resource yet (milestone 3). The caps of `scripts/bundle-budget.json` take
+  the measured gzip sizes: `typeshade/runtime` single file 164,207 to 164,811 (+604), split
+  initial 45,353 to 45,961 and split total 166,395 to 167,003. The floors and the other caps do
+  not change.
+
 - **WebGPU scratch acquisition counts** (change 0128, #992). New fuse reports include
   `webgpuScratch` allocation and reuse counts and their buffer descriptor bytes. Empty scopes,
   fused locals and CPU or WebGL2 plans report zero. Older reports may omit the member;

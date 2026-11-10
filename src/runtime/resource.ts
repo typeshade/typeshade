@@ -76,10 +76,17 @@ function layoutsOf(cls: unknown, at: string): ClassLayouts & { readonly name: st
 
 // ─── the resource ────────────────────────────────────────────────────────────────────────────
 
+/** What the garbage collector's registry holds of a resource: its region and the range it has
+ *  now, which a resize replaces. */
+interface Slot {
+  readonly region: Region;
+  range: Range;
+}
+
 /** What every accessor of one resource shares: its range, its dirty range and its name. */
 class Core {
   readonly region: Region;
-  readonly range: Range;
+  readonly slot: Slot;
   /** `Uniform<Camera>`, `Buffer<Particle>`: what an error names. */
   readonly name: string;
   /** How to make it again, for an error after `dispose()`. */
@@ -87,14 +94,40 @@ class Core {
   dirty = true;
   lo = 0;
   hi: number;
+  /** The bytes the resource's value takes of its range, which is rounded up. */
+  bytes: number;
 
   constructor(region: Region, bytes: number, name: string, remedy: string) {
     this.region = region;
-    this.range = region.allocate(bytes);
+    this.slot = { region, range: region.allocate(bytes) };
     this.name = name;
     this.remedy = remedy;
+    this.bytes = bytes;
     // A new resource has never been uploaded: all of it is dirty.
     this.hi = this.range.size;
+  }
+
+  /** The resource's range now. A resize gives the resource another one (Amendment A3). */
+  get range(): Range {
+    return this.slot.range;
+  }
+
+  /** Give the resource a zeroed range of `bytes` that keeps the first `keep` bytes of the one it
+   *  has, free that one, and mark the whole new range dirty. Every accessor reads the range at
+   *  each use, so a view of the freed range is never used again (R17). */
+  resize(bytes: number, keep: number): void {
+    const old = this.slot.range;
+    // The allocation may compact the region or replace its buffer, so the old range's offset is
+    // read after it.
+    const next = this.region.allocate(bytes);
+    if (keep > 0)
+      new Uint8Array(this.region.buffer).copyWithin(next.offset, old.offset, old.offset + keep);
+    this.region.free(old);
+    this.slot.range = next;
+    this.bytes = bytes;
+    this.dirty = true;
+    this.lo = 0;
+    this.hi = next.size;
   }
 
   /** Throw when the resource was freed: a freed range may be another resource's now. */
@@ -123,15 +156,13 @@ const cores = new WeakMap<object, Core>();
 /** Frees the range of a resource the garbage collector reclaimed (R17). */
 const registry =
   typeof FinalizationRegistry === 'function'
-    ? new FinalizationRegistry<{ region: Region; range: Range }>(({ region, range }) =>
-        region.free(range),
-      )
+    ? new FinalizationRegistry<Slot>(({ region, range }) => region.free(range))
     : undefined;
 
 /** The core of `resource`, which `owner` holds. */
 function adopt(owner: object, core: Core): void {
   cores.set(owner, core);
-  registry?.register(owner, { region: core.region, range: core.range }, core);
+  registry?.register(owner, core.slot, core);
 }
 
 function dispose(core: Core): void {
@@ -201,6 +232,7 @@ class Leaf {
   readonly #t: LayoutNumber;
   #view: Typed | undefined;
   #buffer: ArrayBuffer | undefined;
+  #range: Range | undefined;
   #gen = -1;
 
   constructor(core: Core, at: number, l: Layout & { k: 's' | 'v' | 'm' }, path: string) {
@@ -212,7 +244,8 @@ class Leaf {
     this.#t = l.k === 'm' ? 'f32' : l.t;
   }
 
-  /** The view, made again after the region moved (Amendment A1). */
+  /** The view, made again after the region moved (Amendment A1) and after a resize gave the
+   *  resource another range (Amendment A3). */
   #lanes(): Typed {
     const core = this.#core;
     core.live();
@@ -220,7 +253,8 @@ class Leaf {
     if (
       this.#view === undefined ||
       this.#gen !== region.generation ||
-      this.#buffer !== region.buffer
+      this.#buffer !== region.buffer ||
+      this.#range !== core.range
     ) {
       const l = this.#l;
       const n =
@@ -233,8 +267,16 @@ class Leaf {
               ? (l.lo ?? 0) / 4 + l.n
               : l.n
             : (l.c * l.cs) / 4 - (l.cs / 4 - l.r);
+      // An accessor of an element that a resize removed lies past the range the resource has now.
+      if (this.#at + 4 * n > core.bytes) {
+        this.#view = undefined;
+        throw new TypeError(
+          `${this.#path}: ${core.name} was resized, and this element is no longer in it. Take the accessor again with at().`,
+        );
+      }
       this.#view = new VIEW[this.#t](region.buffer, core.range.offset + this.#at, n);
       this.#buffer = region.buffer;
+      this.#range = core.range;
       this.#gen = region.generation;
     }
     return this.#view;
@@ -628,13 +670,30 @@ export type Uniform<T> = StructOf<T> & {
  * a storage array with no size (Rule 6.8). `ps.at(i).pos.set(x, y, z)` writes one field of element
  * `i`; `await ps.read()` gives every element, each an instance of the class. Made by
  * {@link zeros} or {@link array}; freed by `dispose()` or when the garbage collector reclaims
- * it, and by `[Symbol.dispose]()` as a uniform is.
+ * it, and by `[Symbol.dispose]()` as a uniform is. The host sets its length again with
+ * `resize(n)` or `set(data)`. A binding a shader module exports is one too (Rule 6.1): a
+ * `storage<array<T, N>>` keeps its `N` elements, and a `storage<array<T>>`, which states no
+ * size, has no length until the host calls `resize` or `set`; until then `length` is 0, and
+ * `at` and `read` throw a `TypeError` that names the binding.
  *
  * Exported from `typeshade/runtime`.
  */
 export interface Buffer<T> {
-  /** How many elements it holds. */
+  /** How many elements it holds. An exported storage array with no size holds 0 until the host
+   *  sets its length with `resize` or `set`. */
   readonly length: number;
+  /** Give the array `length` elements (Amendment A3): the elements that fit keep their values, a
+   *  new element is zero, and the whole array is dirty. An accessor that `at` returned before
+   *  reads the array's new range, and throws a `TypeError` for an element that is gone.
+   *  @throws `TypeError` for a length that is not a whole number, and for another length than the
+   *  one a shader file states (`storage<array<T, N>>`). */
+  resize(length: number): void;
+  /** Give the array the length of `data` and its values (Amendment A3): each element gives some
+   *  of its fields, and the others are zero, as `array(Class, data)` reads them. The whole array
+   *  is dirty. A `data` that does not fit changes nothing.
+   *  @throws `TypeError` for `data` that is no array, for an element that does not fit, and for
+   *  another length than the one a shader file states. */
+  set(data: readonly Some<T>[]): void;
   /** Element `index`'s accessor. @throws `RangeError` for an index outside the array. */
   at(index: number): StructOf<T>;
   /** Every element, each an instance of the class, built without its constructor. */
@@ -675,30 +734,70 @@ class UniformRoot extends StructField {
   }
 }
 
+/** How a storage array's length is decided (Amendment A3). */
+interface Sizing {
+  /** The length a shader file states (`storage<array<T, N>>`), which the host cannot change. */
+  readonly fixed?: { readonly length: number; readonly module: string };
+  /** The module of an exported storage array with no size, whose length the host has not set
+   *  yet. */
+  readonly unset?: string;
+}
+
 /** A storage array of structs. */
 class BufferRoot {
   readonly #core: Core;
   readonly #l: Layout & { k: 'a' };
   readonly #Element: typeof StructField;
   readonly #proto: object;
-  /** How many elements it holds. */
-  readonly length: number;
+  readonly #fixed: Sizing['fixed'];
+  /** The module of a binding whose length the host has not set yet (Amendment A3). */
+  #unset: string | undefined;
+  #length: number;
 
-  constructor(core: Core, l: Layout & { k: 'a' }, length: number, proto: object) {
+  constructor(core: Core, l: Layout & { k: 'a' }, length: number, proto: object, sizing: Sizing) {
     this.#core = core;
     this.#l = l;
-    this.length = length;
+    this.#length = length;
     this.#proto = proto;
+    this.#fixed = sizing.fixed;
+    this.#unset = sizing.unset;
     this.#Element = structClass(StructField, l.e as Layout & { k: 'o' }, STRUCT_OWN, core.name);
     adopt(this, core);
   }
 
+  /** How many elements it holds; 0 while the host has not set the length. */
+  get length(): number {
+    return this.#length;
+  }
+
+  /** Throw when the host has not set the length of a storage array with no size. */
+  #sized(at: string): void {
+    this.#core.live();
+    if (this.#unset !== undefined) {
+      const name = this.#core.name;
+      throw new TypeError(
+        `${name}.${at}: ${name} is a storage array with no size that ${this.#unset} exports, and its length is not set. Call ${name}.resize(n) or ${name}.set(data) first.`,
+      );
+    }
+  }
+
+  /** Throw when `length` is not the one the shader file states. */
+  #fits(at: string, length: number): void {
+    const fixed = this.#fixed;
+    if (fixed !== undefined && length !== fixed.length) {
+      const name = this.#core.name;
+      throw new TypeError(
+        `${name}.${at}: ${name} is a storage array of ${fixed.length} elements in ${fixed.module}, which states its size, so it cannot hold ${length}. Declare it storage<array<T>>, with no size, for a length the host sets.`,
+      );
+    }
+  }
+
   /** Element `index`'s accessor. */
   at(index: number): StructField {
-    this.#core.live();
-    if (!Number.isInteger(index) || index < 0 || index >= this.length)
+    this.#sized('at()');
+    if (!Number.isInteger(index) || index < 0 || index >= this.#length)
       throw new RangeError(
-        `${this.#core.name}.at(): takes a whole number from 0 to ${this.length - 1}, got ${String(index)}.`,
+        `${this.#core.name}.at(): takes a whole number from 0 to ${this.#length - 1}, got ${String(index)}.`,
       );
     return new this.#Element(
       this.#core,
@@ -711,12 +810,74 @@ class BufferRoot {
   /** Every element, each an instance of the class. */
   read(): Promise<unknown[]> {
     const core = this.#core;
-    core.live();
+    this.#sized('read()');
     const dv = new DataView(core.region.buffer, core.range.offset, core.range.size);
     const out: unknown[] = [];
-    for (let i = 0; i < this.length; i++)
+    for (let i = 0; i < this.#length; i++)
       out.push(readValue(dv, i * this.#l.st, this.#l.e, this.#proto));
     return Promise.resolve(out);
+  }
+
+  /** Give the array `length` elements: the ones that fit keep their values. */
+  resize(length: unknown): void {
+    const core = this.#core;
+    core.live();
+    const name = core.name;
+    if (
+      typeof length !== 'number' ||
+      !Number.isInteger(length) ||
+      length < 0 ||
+      length > 0xffffffff
+    )
+      throw new TypeError(
+        `${name}.resize(): takes a length that is a whole number from 0 to 4294967295, got ${describe(length)}.`,
+      );
+    this.#fits('resize()', length);
+    core.resize(length * this.#l.st, Math.min(length, this.#length) * this.#l.st);
+    this.#length = length;
+    this.#unset = undefined;
+  }
+
+  /** Give the array the length of `data` and its values. */
+  set(data: unknown): void {
+    const core = this.#core;
+    core.live();
+    const name = core.name;
+    const xs = data as ArrayLike<unknown>;
+    if (
+      typeof data !== 'object' ||
+      data === null ||
+      typeof xs.length !== 'number' ||
+      !Number.isInteger(xs.length) ||
+      xs.length < 0
+    )
+      throw new TypeError(
+        `${name}.set(): takes an array of the elements' values, got ${describe(data)}.`,
+      );
+    const length = xs.length;
+    this.#fits('set()', length);
+    // The values are written into a new range, and the array takes it only when every one fits.
+    const old = core.slot.range;
+    const bytes = core.bytes;
+    const next = core.region.allocate(length * this.#l.st);
+    core.slot.range = next;
+    core.bytes = length * this.#l.st;
+    try {
+      const e = this.#l.e as Layout & { k: 'o' };
+      for (let i = 0; i < length; i++)
+        new this.#Element(core, i * this.#l.st, e, `${name}[${i}]`).set(xs[i]);
+    } catch (e) {
+      core.slot.range = old;
+      core.bytes = bytes;
+      core.region.free(next);
+      throw e;
+    }
+    core.region.free(old);
+    core.dirty = true;
+    core.lo = 0;
+    core.hi = next.size;
+    this.#length = length;
+    this.#unset = undefined;
   }
 
   get needsUpdate(): boolean {
@@ -769,7 +930,8 @@ export function makeUniform(
   return root;
 }
 
-/** A storage array of `length` elements of `cls` in `region`, from `data` when given. Not API. */
+/** A storage array of `length` elements of `cls` in `region`, from `data` when given. `sizing`
+ *  says whether a shader file states the length or the host has yet to set it. Not API. */
 export function makeBuffer(
   region: Region,
   cls: unknown,
@@ -777,6 +939,7 @@ export function makeBuffer(
   data: unknown,
   at: string,
   label?: string,
+  sizing: Sizing = {},
 ): unknown {
   const l = layoutsOf(cls, at);
   if (l.s === undefined || l.s.e.k !== 'o')
@@ -789,7 +952,13 @@ export function makeBuffer(
     );
   const name = label ?? `Buffer<${l.name}>`;
   const core = new Core(region, length * l.s.st, name, `zeros(${l.name}, ${length})`);
-  const buffer = new BufferRoot(core, l.s, length, (cls as { prototype: object }).prototype);
+  const buffer = new BufferRoot(
+    core,
+    l.s,
+    length,
+    (cls as { prototype: object }).prototype,
+    sizing,
+  );
   if (data !== undefined) {
     const xs = data as ArrayLike<unknown>;
     for (let i = 0; i < length; i++) buffer.at(i).set(xs[i]);
@@ -878,7 +1047,10 @@ export function array(...args: unknown[]): unknown {
 /**
  * The resource of a binding a shader module exports (change 0138, R10; Rule 6.1):
  * `export declare const camera: uniform<Camera>` is a `Uniform<Camera>` of the global region, and
- * `export declare const ps: storage<array<Particle, 64>>` a `Buffer<Particle>` of 64 elements.
+ * `export declare const ps: storage<array<Particle, 64>>` a `Buffer<Particle>` of 64 elements,
+ * which `length` gives, and `export declare const all: storage<array<Particle>>` a
+ * `Buffer<Particle>` whose length the host sets with `resize` or `set` (Amendment A3), for which
+ * `length` is `null`.
  * The generated module makes it once, when the module is evaluated, under the name the module
  * exports it as, which its errors name. It lives as long as its module: an import is a read-only
  * binding, and a host that freed it could make no other, so `dispose()` is refused with a
@@ -888,13 +1060,16 @@ export function exportedBinding(
   name: string,
   module: string,
   cls: unknown,
-  length?: number,
+  length?: number | null,
+  region: Region = globalRegion(),
 ): unknown {
   const at = `${name} of ${module}`;
   const resource =
     length === undefined
-      ? makeUniform(globalRegion(), cls, undefined, at, name)
-      : makeBuffer(globalRegion(), cls, length, undefined, at, name);
+      ? makeUniform(region, cls, undefined, at, name)
+      : length === null
+        ? makeBuffer(region, cls, 0, undefined, at, name, { unset: module })
+        : makeBuffer(region, cls, length, undefined, at, name, { fixed: { length, module } });
   const refuse = (): never => {
     throw new TypeError(
       `${name}.dispose(): ${name} is a binding that ${module} exports, which lives as long as its module; it is not disposed.`,
