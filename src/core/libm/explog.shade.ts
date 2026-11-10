@@ -149,8 +149,12 @@ export function expF64(x: f64): f64 {
  *
  *  x = h / 2 + r with h the nearest integer to 2x, so |r| <= 1/4 and the kernel of exp runs on
  *  |r ln 2| <= ln 2 / 4, half the range of `exp`. h = 2k + j with j 0 or 1. For j = 0 the result
- *  is 2^k (1 + t). For j = 1 it is 2^k sqrt(2) (1 + t), and the product is one sum of the head of
- *  sqrt(2) and a small term, so it rounds once. */
+ *  is 2^k (1 + t). For j = 1 it is 2^k sqrt(2) (1 + t), and sqrt(2) is the head SQRT2 plus the
+ *  tail SQRT2TAIL. The product is the head plus a small term that holds the three other terms:
+ *  SQRT2 * t + (SQRT2TAIL + SQRT2TAIL * t). Five steps round. The product SQRT2TAIL * t and the
+ *  sum of the two tail terms round far below a unit of the result. The product SQRT2 * t and the
+ *  sum of the small term each round by 1/8 ULP of the result at most. The last sum, with the
+ *  head, rounds by 1/2 ULP at most. */
 export function exp2F64(x: f64): f64 {
   if (x != x) {
     return x;
@@ -190,7 +194,7 @@ export function exp2F64(x: f64): f64 {
   const c = v - vv * (P1 + vv * (P2 + vv * (P3 + vv * (P4 + vv * P5))));
   const t = v * c / (2.0 - c) - lo + hi;
   if (odd) {
-    return scale(SQRT2 + (SQRT2 * t + SQRT2TAIL), k);
+    return scale(SQRT2 + (SQRT2 * t + (SQRT2TAIL + SQRT2TAIL * t)), k);
   }
   return scale(1.0 + t, k);
 }

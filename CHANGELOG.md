@@ -236,16 +236,23 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 - **`exp2` on the CPU has a wider margin under 1 ULP** (change 0042, milestone 1a). The libm's
   `exp2` took the nearest integer out of its operand and ran its kernel on the rest. It now
   takes the nearest half-integer out, so the kernel runs on half the range, and an odd
-  half-step multiplies by sqrt(2), held as a head and a tail, in one rounding. On 2,800,000
-  seeded operands the largest error falls from 0.9056 ULP to 0.7873 ULP, and no result is past
-  0.8 ULP where 2,083 were. The operand at which a review measured 0.9282 ULP now measures
-  0.0718 ULP, and `exp2` no longer decreases at the two pairs of operands near -0.4973 and
+  half-step multiplies by sqrt(2), held as a head and a tail: the result is the head plus one
+  small term, which holds the head's product with the kernel's result, the tail, and the tail's
+  product with it. The numbers that follow are results on samples, not a bound for every
+  operand. On 2,800,000 seeded operands the largest error fell from 0.9056 ULP to 0.7873 ULP,
+  and the results past 0.8 ULP from 2,083 to 0, before the tail's product joined the small
+  term. An independent review of #1199 then measured up to 0.8340 ULP on 115,300,000 operands.
+  With the tail's product, the largest error measured is 0.7718 ULP: 0.7718 on the review's
+  operands, and 0.7688 on 84,000,000 seeded operands against the exact BigInt reference. No
+  result of these runs is past 0.8 ULP. The operand at which a review measured 0.9282 ULP now
+  measures 0.0718 ULP, and `exp2` no longer decreases at the two pairs of operands near -0.4973 and
   -0.4977. An integer operand still gives the exact power of two, and a half-integer now gives
   the correctly rounded result. A CPU result of `exp2` may differ from before in the last bit.
   The caps of `scripts/bundle-budget.json` take the measured gzip sizes: `typeshade/algorithms`
-  single file 56,681 to 56,827 (+146), split initial and total 55,861 to 55,991;
-  `typeshade/random` single file 37,946 to 38,059 (+113), split initial and total 37,138 to
-  37,257. The floors and the other caps do not change.
+  single file 56,681 to 56,835 (+154), split initial and total 55,861 to 55,998;
+  `typeshade/random` single file 37,946 to 38,068 (+122), split initial and total 37,138 to
+  37,264. The tail's product is 8 and 9 of those bytes. The floors and the other caps do not
+  change.
 
 - **`exp`, `exp2`, `log`, `log2` and `ldexp` on the CPU are the libm's** (change 0042, milestone
   1a, slice 2). The CPU oracle and the CPU tier computed them with the engine's `Math.exp`,

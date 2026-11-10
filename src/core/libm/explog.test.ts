@@ -501,6 +501,19 @@ describe('exp2 near a half-integer, where the reduction by the nearest integer w
     }
   });
 
+  it('the product by sqrt(2) leaves out no term: the operands the review of #1199 measured', () => {
+    // Without SQRT2TAIL * t in the small term these measured 0.8122, 0.8084, 0.8036 and 0.8340
+    // ULP (the last has a subnormal result). With it they measure 0.1878, 0.1916, 0.1964 and
+    // 0.1660 ULP.
+    const worst = [
+      269.73395407326745, -0.27863143773179777, -0.26563800208571564, -1022.2663863890546,
+    ];
+    for (const x of worst) {
+      const error = Math.abs(ulpError(LIBM.exp2F64(x), exactExp2(x), F64_FORMAT)!);
+      expect([x, error < 0.25]).toEqual([x, true]);
+    }
+  });
+
   it('an operand a quarter from an integer, the new edge of the kernel, is under 1 ULP', () => {
     for (const x of [0.25, -0.25, 0.75, 6.749972967765296, -9.274719568356135, 0.2499999999999]) {
       const error = Math.abs(ulpError(LIBM.exp2F64(x), exactExp2(x), F64_FORMAT)!);
