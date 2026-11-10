@@ -831,8 +831,14 @@ function lowerDeclarationKind(
       diagnostics,
       sourceFile,
       decl,
-      numericMismatch(`let/const ${name}`, annotated, init.type) +
-        scope.inheritanceNote(annotated, init.type),
+      // The uses gave the type, so the sentence says so: the author wrote no integer here.
+      decl.type === undefined && inferredValue !== undefined
+        ? `"${name}" is ${typeKey(annotated) === 'i32' ? 'an' : 'a'} ${typeKey(annotated)} by its ` +
+            `uses, and its value "${inferredValue.written ?? ''}" is not one. Write the type, ` +
+            `"let ${name}: ${authorTypeText(init.type)} = ${inferredValue.written ?? '...'}", ` +
+            `and convert the uses that need ${typeKey(annotated)}.`
+        : numericMismatch(`let/const ${name}`, annotated, init.type) +
+            scope.inheritanceNote(annotated, init.type),
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;

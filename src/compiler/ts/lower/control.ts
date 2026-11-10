@@ -1,4 +1,4 @@
-import { isOpenCounter, noteOpenCounter } from '../use-inference.js';
+import { isOpenCounter, noteDemand, noteOpenCounter } from '../use-inference.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
@@ -787,6 +787,8 @@ export function lowerSwitch(
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | undefined {
   const scrut = lowerExpression(node.expression, sourceFile, scope, diagnostics);
+  // A value its uses decide is an integer of no kind here (change 0134 item 1).
+  if (scrut) noteDemand(scrut, 'int');
   if (!scrut) return undefined;
   const k = typeKey(scrut.type);
   if (k !== 'i32' && k !== 'u32') {

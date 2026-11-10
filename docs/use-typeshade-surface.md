@@ -1349,12 +1349,8 @@ parameter supplies the same demand. An inherited constructor or method supplies 
 signature; an override supplies its own. `let selected: i32 = objectIndex` and
 `selected = objectIndex` take the explicitly typed destination's demand. Conversely,
 `objectIndex = hit.objectIndex` takes `i32` when the resolved field explicitly declares
-`i32` independently of the local. Compound assignments and circular inference supply no
-demand. A shadowing class or receiver binding cannot name the outer declaration.
-
-Calls through unresolved names or function values and direct calls to generic functions
-do not establish an integer type. A concrete member parameter such as `index: i32` can
-establish a demand inside a generic class; an unresolved parameter such as `index: T` cannot.
+`i32` independently of the local. A shadowing class or receiver binding cannot name the outer
+declaration. An unresolved generic parameter such as `index: T` states no type.
 
 **A `const` of a written number takes its type at each read** (Rules 5.1 and 5.2, change 0134;
 §12 shows the forms). `const k = 1` in a function, `const K = 3` at module scope and a static
@@ -1378,12 +1374,64 @@ A conversion is a read: `i32(N)` or `u32(N)` anywhere reads `N` as an integer, a
 of that type does, and `f32(N)` or `f64(N)` does not. Where no line reads `N` as an integer,
 `N / 2` is the ECMAScript value, `4`, and `7 / 2` is `3.5`.
 
-**No window is open on the default.** Everything above is about a position or use that
-DECLARES a type. Where nothing establishes one for a variable (`let i = 0`), the literal takes
-`f32` today, so `xs[i]` is `Index must be i32 or u32`. Change 0134 decided that a number takes
-its type from every place it reaches, with no default for an author to learn. It supersedes
-#148's flip of this default to `i32` and retired the warning `TS8053`, which announced that <!-- doc-refs: skip — a retired code, named as retired -->
-flip. `compile(source, { deprecations: true })` stays as the mechanism of Rule 13.10 and reports
+**A `let` of a written number takes its type from its uses** (Rule 5.1, change 0134;
+`docs/owner-decisions.md` OD-7). The declared uses above are not the only ones that count. The
+compiler reads every place the value reaches: an operator or a comparison beside a typed peer,
+a builtin's typed argument, a constructor argument, an arm of a conditional, a field of an
+object literal, a bitwise or shift operand, an index, a `switch` selector, an assignment or a
+compound assignment from a typed value, a `return` in a function with a declared result, an
+argument of a declared parameter, and another value typed the same way:
+
+```ts
+"use typeshade";
+
+export function count(vi: u32, x: f32, xs: array<f32, 8>): f32 {
+  let n = 0; // a u32: n += vi
+  let m = 0; // a u32: max(m, vi)
+  let j = 0; // an i32: xs[j]
+  let f = 0; // an i32: f | 4
+  let acc = 0; // an f32: acc += x
+  n += vi;
+  m = max(m, vi);
+  j = j + 1;
+  f = f | 4;
+  acc += x + xs[j];
+  return acc + f32(n + m) + f32(f);
+}
+```
+
+An index, a `switch` selector, a shift and a bitwise operand with no typed peer ask for an
+integer of no kind, which is an `i32` unless another use says `u32`. The values are solved
+together, so the order of the lines does not matter: `let b = 0; let a = 0; b += a; a += vi;`
+makes both a `u32`. Uses that require `i32` and `u32` are refused (`TS8003`) with the
+annotation remedy. An integer use and a float use of one value are refused where the float use
+stands. The initializer has to fit the type the uses give: `let n = -1; n += vi` is refused.
+
+Where no use decides (`let k = 7; let h = k / 2;`, a value read only through a conversion, a
+value no line reads), the compiler chooses `f32` by itself. No default type is part of the
+language: an author writes a number as a number.
+
+A `/` or a `/=` is an integer division only when one operand has an integer type the author
+wrote. Where every operand is an integer by inference, it is refused:
+
+```ts
+let k = 7;
+h(k); // h(a: u32): k is a u32 by its uses
+return r + k / 2;
+// TS8003: "k" is a u32 by its uses, and no operand of "k / 2" has a declared type, so the "/"
+// does not say which division it is. Write "let k: u32 = 7" for the integer division, or
+// "f32(k) / 2" for the float one.
+```
+
+`vi / k` with a declared `u32` `vi` is an integer division, as `vi / 7` is.
+
+The counter of a counted `for` keeps its rule (an `i32`, or a `u32` against a `u32` bound; §9).
+The counter of a `for` that is not counted is such a `let`: in
+`for (let j = 0; ; j++) { a += j; … }` with an `f32` `a`, `j` is an `f32`.
+
+A module variable (§24), a class field (§26) and a function's inferred result (§14) still take
+`f32` from a written number; the next part of change 0134 gives them the same rule.
+`compile(source, { deprecations: true })` stays as the mechanism of Rule 13.10 and reports
 nothing until a window opens (`RELEASING.md` §7).
 
 ## 14. TypeScript shapes the parser already had
