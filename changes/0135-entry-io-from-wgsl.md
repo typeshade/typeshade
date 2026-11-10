@@ -6,10 +6,39 @@ rules:
   - '6.6'
   - '6.8'
   - '8.2'
+  - '8.19'
+  - '12.1'
 surface:
+  - 1
   - 3
+  - 5
   - 7
+  - 8
+  - 10
+  - 15
+  - 16
+  - 17
+  - 19
+  - 20
+  - 23
+  - 24
+  - 25
+  - 26
+  - 33
+  - 42
+  - 43
+  - 50
   - 53
+  - 54
+  - 62
+  - 63
+  - 64
+  - 66
+  - 67
+  - 68
+  - 69
+  - 70
+  - 78
 exports: []
 exports-removed: []
 codes: []
@@ -559,6 +588,44 @@ approved revision is this file as merged; the approved scope is D1.2 and D2.1, a
 implementation follows in its own pull requests, each commit with `Change: 0135`. An implementing
 pull request that changes how an author writes an example shows one example before and after and
 waits for the owner's "merge" (`CLAUDE.md`, Merging). Duration and cost are not estimated.
+
+### Amendment A1. The owner's decisions on the deviations of pull request #1161 (2026-11-10)
+
+Pull request #1161 (merged into `main` as `dd407504`) delivered items 1 and 2 and recorded three
+open deviations. The owner decided each in the Claude Code session on 2026-11-10, after the
+options and their costs were shown (`OD-4`).
+
+- [decision, owner, 2026-11-10] "거부 유지", on the agent's recommendation. Deviation 1: a field
+  with no location that two places of its struct would give two numbers stays refused with
+  `TS8010`, in the delivered sentence: `"S.a" has no location and its uses give it 1 as an input
+of "v1" and 0 as an input of "v2": write location<n, T> on it.` The cost is recorded under
+  `OD-3`: in this one case the author writes the number. A later change may let the compiler
+  number it (one emitted struct for each numbering) without breaking a program that compiles
+  today. The options "the first use fixes the numbers" and "one emitted struct for each
+  numbering now" are rejected for this change.
+- [decision, owner, 2026-11-10] "0135 수정안 후 옮기기", on the agent's recommendation.
+  Deviation 2: the documents stop teaching the form that warns. The front matter gains Rules
+  8.19 and 12.1 and the surface sections that write `builtin<N, T>` with a type that WGSL fixes
+  in an example: §1, §5, §8, §10, §15, §16, §17, §19, §20, §23, §24, §25, §26, §33, §42, §43,
+  §50, §54, §62, §63, §64, §66, §67, §68, §70 and §78, and §69, whose sentence says "its
+  `location<n, T>` inputs". One pull request, with `Change: 0135`, moves each example to
+  `builtin<N>` with `tshc migrate`'s rewrite, and drops a written location where the compiler
+  gives the same number and the section does not teach the written form. No rule sentence
+  changes: in Rules 8.19 and 12.1 only the examples and the "Enforced by" text that quotes the
+  remedy `builtin<"position">` change. Each example compiles to the WGSL and GLSL it compiled to
+  before.
+- [decision, owner, 2026-11-10] "구현", on the agent's recommendation. Deviation 5: the hover on
+  a user-defined input or output shows the location the compiler gave it, in both the written
+  and the given case, so the author sees the number the host reads ("The editor (Rule 12.7)",
+  the recommended item, is now required). One pull request, with `Change: 0135`, delivers it
+  with tests that read the hover beside `reflect()`'s location for the same source.
+- Affects: the front matter `rules` (8.19, 12.1) and `surface` (the 27 sections above). No code,
+  name, export or example file is added. Items 1 and 2 and decisions D1.2 and D2.1 do not
+  change.
+- Status: `status: accepted` does not change. When both pull requests are merged, the pull
+  request that finishes the work sets `implemented` (`changes/README.md`, lifecycle, step 4);
+  the refusal of a written type in the release after the migration release (D1.2) is the work
+  of that release.
 
 ### Configuration and validation record
 
