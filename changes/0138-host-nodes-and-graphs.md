@@ -35,10 +35,12 @@ exports:
   - Uniform
   - Node
   - Device
+  - HostExport
 exports-removed:
   - resident
   - configure
-codes: []
+codes:
+  - TS8080
 examples: []
 names: []
 downstream:
@@ -418,7 +420,9 @@ buffers, barriers, uploads) the compiler and the runtime decide (OD-3).
 - **Surface §65 and §69.** The manifest and `rt.load` stop being the host's entry point for a
   draw.
 - **Exports.** `zeros`, `uniform`, `texture`, `show`, `device`, `node`, `inspect` and the types
-  `Buffer`, `Texture`, `Uniform` and `Node` are new in `typeshade/runtime`. `array` is reshaped:
+  `Buffer`, `Uniform` and `Node` are new in `typeshade/runtime`. `Texture` is an existing export,
+  which `texture()` returns (Amendment A5, D5). `HostExport` gains a kind for a host resource (A5,
+  D6). `array` is reshaped:
   it is a type export of `typeshade/runtime` today (`src/runtime.ts`) and becomes also a
   function. `fuse` is reshaped and is exported by `typeshade/runtime` as well as `typeshade/fuse`. The removals (`createRuntime`, `runtime`, the
   bindings-object and canvas calls) are left to a later proposal after a deprecation release.
@@ -673,90 +677,118 @@ sits under it.
 ### A5. Before milestone 3: Q4, Q14, the order of milestones 2 and 3, and D1 to D7 (2026-11-10)
 
 - [fact] Why. Milestone 3 (non-blocking calls) needs Q4 and Q14 (the table of the approval
-  record), and Amendment A3 leaves D1 to D7 of milestone 1 for it. Milestone 2 is carried out
-  under proposal 0042 (Amendment A4). At `main` `25103b0b`, its milestone 1a is not finished,
-  and its milestones 1b to 1h are not started.
-- [fact] An independent review of the first draft of this amendment found that the answers to
-  Q4 and Q14 contradicted each other for a `show` whose canvas has a frame in flight, and that
-  they left nine cases open. The owner answered them on 2026-11-10, below.
+  record). Amendment A3 leaves D1 to D7 of milestone 1 for it.
+- [fact] Milestone 2 is carried out under proposal 0042 (Amendment A4). At `main` `25103b0b`, its
+  milestone 1a is not finished, and its milestones 1b to 1h are not started.
+- [fact] Two independent reviews read the drafts of this amendment. The first found that the
+  answers to Q4 and Q14 contradicted each other for a `show` whose canvas has a frame in flight.
+  It also listed thirteen open questions. The second found three more conflicts. The owner
+  answered them on 2026-11-10, below.
 
 **Q4, submission.**
 
 - [decision, owner, 2026-11-10] Asked when a recorded call is submitted, the owner chose
   "둘 다: 마이크로태스크 끝 + read/show에서 즉시". The runtime submits the calls recorded in a
-  microtask at the current microtask checkpoint. A `read()` submits at once every call recorded
-  before it. A `show` does the same, except where the Q14 decision makes it wait. The author
-  writes no submit (OD-3). The alternatives were the checkpoint only, or `read()` and `show`
-  only. Cost recorded: calls with an `await` between them go in separate submissions.
+  microtask when the current microtask checkpoint ends. A `read()` submits at once every call
+  recorded before it. A `show` does the same, except where the Q14 decisions make it wait. The
+  author writes no submit (OD-3). The alternatives were the checkpoint only, or `read()` and
+  `show` only. Cost recorded: calls separated by an `await` that ends the task (a `read()`, a
+  timer, an event) go in separate submissions.
 
 **Q14, back-pressure.**
 
 - [decision, owner, 2026-11-10] Asked how a `requestAnimationFrame` loop is kept from queuing
-  frames, the owner chose "show가 같은 캔버스의 이전 프레임을 기다림". At most one frame waits
-  for each canvas. The alternatives were a runtime that drops frames, or a host that decides.
-  Cost recorded: when the GPU is slow, the canvas updates at the GPU's rate.
+  frames, the owner chose "show가 같은 캔버스의 이전 프레임을 기다림". At most one submission waits
+  for each canvas. A submission that waits for its canvas is a held submission. The alternatives
+  were a runtime that drops frames, or a host that decides. Cost recorded: when the GPU is slow,
+  the canvas updates at the GPU's rate.
 - [decision, owner, 2026-11-10] Asked what waits, the owner chose "그 프레임의 호출 전체가 함께
-  기다림". The calls recorded before the `show` wait with it and are submitted together, so the
-  loop's computation is held too. The alternative was to hold the write to the canvas only.
-  Cost recorded: a `read()` of a resource that those calls write waits for the canvas.
-- [decision, owner, 2026-11-10] Asked what a second `show` on a canvas with a waiting frame
+  기다림". The calls recorded before the `show` are held with it, so the loop's computation is
+  held too. The alternative was to hold the write to the canvas only.
+- [decision, owner, 2026-11-10] Asked what a second `show` on a canvas with a held submission
   does, the owner chose "계산은 모두 실행, 표시는 최신 것만". The calls of both frames run, in
   order. The canvas shows only the newer image. No computation is dropped. The alternatives were
-  to wait for both, or to throw. Cost recorded: the older image may never reach the canvas.
+  to hold both, or to throw. Cost recorded: the older image may never reach the canvas.
+- [decision, owner, 2026-11-10] Asked how a `read()` relates to a held submission, the owner
+  chose "read()가 대기 호출을 풀어 바로 제출". A `read()` submits the held submission at once,
+  with every other call recorded before it. Only the write to the canvas still waits for the
+  previous frame. A call with plain data only does the same. The alternative was a `read()` that
+  waits for the canvas. Cost recorded: a loop that reads every frame has no back-pressure on its
+  computation.
+- [decision, owner, 2026-11-10] Asked what happens when the GPU stays slower than the loop, the
+  owner chose "대기 프레임에 합침". A further `show` adds its calls to the held submission and
+  replaces the image to show. The GPU receives one frame at a time. The alternatives were to
+  submit the oldest frame's calls, or a `show` that returns a promise. Cost recorded: while the
+  GPU stays slower, the list of held calls grows in the host's memory.
+- [decision, owner, 2026-11-10] Asked about three details together, the owner chose "추천 기본값
+  채택":
+  1. A canvas's previous frame is done when the GPU work of its submission completes. A `show`
+     on a canvas with no previous frame submits at once.
+  2. A graph that writes two canvases is submitted when neither canvas has a frame in flight.
+  3. On WebGL2, each frame places a `fenceSync`, and a `show` polls it.
 
-**The cases the first draft left open.**
+**The defaults of the first review.**
 
 - [decision, owner, 2026-11-10] Asked about nine defaults together, the owner chose "추천 기본값을
   모두 채택":
   1. `show` returns at once, with no value.
   2. A `read()` submits every call recorded before it, not only the calls it depends on.
-  3. A `set()` between two calls of one submission is taken as a snapshot at each call, so each
-     call sees the value at its own call (R10).
-  4. "The end of the microtask" is the current microtask checkpoint.
+  3. A `set()` between two calls of one submission is taken as a snapshot at each call. Each
+     call sees the value at its own call (R10). R8's upload "at submission" becomes an upload for
+     each call that sees a new value.
+  4. "The end of the microtask" is the end of the current microtask checkpoint.
   5. On the CPU tier, a submission runs the calls.
-  6. On WebGL2, a submission flushes; a `read()` waits on a fence.
+  6. On WebGL2, a submission flushes, and a `read()` waits on a fence.
   7. An error of a held submission is thrown at the next `read()`, `show` or call, with the call
      site of the failed call (R2).
   8. One submission is not made one fused plan; only `fuse` fuses (Rule 11.13).
-  9. A call with plain data only submits the waiting calls first.
+  9. A call with plain data only first submits the calls recorded and not yet submitted.
 
 **Order of milestones 2 and 3.**
 
 - [decision, owner, 2026-11-10] Asked for the order, the owner chose "마일스톤 3을 먼저".
-  Milestone 3 is implemented before milestone 2. The approval record's order holds for the other
-  milestones. Cost recorded: the WebAssembly tier comes later.
-- [inference] Milestone 3 needs only the JavaScript CPU tier, WebGPU and WebGL2. Its uploads
-  and read backs use the region of R17 as it is today, an `ArrayBuffer`.
-- [fact] Proposal 0042 assumes the earlier order: its row "Today" (line 117) and its note that
-  milestone 3 of this proposal comes after its stage 1 (lines 391 to 394). Its milestones 1f and
-  1g name no `Buffer<T>` or `Uniform<T>`. Open: 0042 must say how its tier takes the resources
-  of milestone 3. Next action: an amendment of 0042 before its milestone 1b starts.
+  Milestone 3 is implemented before milestone 2. Cost recorded: the WebAssembly tier comes later.
+- [proposal] The approval record's order holds for the other milestones. The owner was not asked
+  about them.
+- [inference] Milestone 3 needs only the JavaScript CPU tier, WebGPU and WebGL2. Its uploads and
+  read backs use the region of R17 as it is today, an `ArrayBuffer`.
+- [fact] Proposal 0042 at `main` `25103b0b` assumes the earlier order. Its row "Today" (line 117)
+  and its note at lines 391 to 394 put milestone 3 of this proposal after its stage 1. Its
+  milestones 1f and 1g name no `Buffer<T>` or `Uniform<T>`. Open: 0042 must say how its tier takes
+  the resources of milestone 3. Next action: an amendment of 0042 before its milestone 1b starts.
 - [fact] Amendment A4 calls proposal 0042 a draft. It was accepted by
   [#1162](https://github.com/typeshade/typeshade/pull/1162).
 
 **D1 to D7 of milestone 1.**
 
-- [decision, owner, 2026-11-10] D1: "숫자 유지, R7을 개정". A scalar field's `get()` returns
-  its number; a vector or an array field returns its view. R7 reads so. Cost recorded: a scalar
-  and a vector field return different kinds.
+- [decision, owner, 2026-11-10] D1: "숫자 유지, R7을 개정". R8 is amended: `get` returns a
+  scalar field's number, and the view of a vector or an array field as `Readonly`. An `f64` scalar
+  field returns its joined number. Cost recorded: a scalar and a vector field return different
+  kinds.
 - [decision, owner, 2026-11-10] D2: "범위 여러 개를 두되 개수에 상한". Milestone 3 keeps a dirty
-  range for each element written, and joins them into one when their count passes a limit. R9
-  stands. Cost recorded: more code and tests than one widened range.
-- [decision, owner, 2026-11-10] D3: "거부 유지, 컴파일 시점에도 진단". A field named `set`, and
-  `needsUpdate` or `dispose` in a uniform's struct, stays refused, and the compiler and the
-  editor report it on a struct that becomes a host resource. R9 names the reserved names. Cost
-  recorded: these names cannot be fields of such a struct.
-- [decision, owner, 2026-11-10] D4 to D7: "네 가지 모두 추천대로". D4: the types of `Uniform`
-  and `Buffer` declare `[Symbol.dispose]`, so `using` works. D5: `texture()` returns the
-  existing `Texture` export, and the front matter is corrected. D6: `HostExport` gains a kind
-  for a host resource, so `HostFace.exports` and the compiler agree (Rule 12.7). D7: the type of
-  an exported binding has no `dispose()`; the runtime still throws a `TypeError`.
-- [fact] Milestone 3's first pull request carries D1 to D7 out. D3 adds a diagnostic, and D6
-  changes `HostExport`, a public type.
-- Affects: Q4, Q14, R7, R9, the approval record's Milestones line (milestones 2 and 3 change
-  places) and D1 to D7. The front matter's `exports` (D5: `Texture` is not new; D6:
-  `HostExport`) and the sentence that calls `Texture` new are corrected by milestone 3's first
-  pull request. No front-matter entry changes here.
+  range for each element written. It joins them into one range when their count passes a limit.
+  R9 stands. Cost recorded: more code and tests than one widened range.
+- [decision, owner, 2026-11-10] D3: "거부 유지, 컴파일 시점에도 진단", then, for its code, "새 코드
+  - 호스트 쪽은 편집기". A field named `set` stays refused. A field named `needsUpdate` or
+    `dispose` stays refused in a uniform's struct. The new code `TS8080` reports each on the struct
+    of an exported binding, in the compiler and the editor. On a host's `uniform(Class, …)` or
+    `zeros(Class, n)`, the editor reports `TS8080`, and the runtime keeps its `TypeError`. R7, R8
+    and R9 name the reserved names. Cost recorded: these names cannot be fields of such a struct.
+- [decision, owner, 2026-11-10] D4 to D7: "네 가지 모두 추천대로". D4: the types of `Uniform` and
+  `Buffer` declare `[Symbol.dispose]`, so `using` works. D5: `texture()` returns the existing
+  `Texture` export; the section "What it touches" no longer calls `Texture` new. D6: `HostExport`
+  gains a kind for a host resource, so `HostFace.exports` and the compiler agree (Rule 12.7). D7:
+  the type of an exported binding has no `dispose()`; the runtime still throws a `TypeError`.
+- [fact] This amendment adds `TS8080` to `codes` and `HostExport` to `exports` in the front
+  matter. Milestone 3's first pull request carries D1 to D7 out.
+
+**Open.**
+
+- [fact] Open for milestone 4: a `read()` or a `show` inside a `fuse(fn)` trace. Open for
+  milestone 5: a `show` into a texture.
+- Affects: Q4, Q14, R7, R8, R9, the approval record's Milestones line (milestones 2 and 3 change
+  places), D1 to D7, the section "What it touches" (Exports), and the front matter's `codes` and
+  `exports`.
 - Status: `status: accepted` does not change.
 
 ## What it owes downstream
