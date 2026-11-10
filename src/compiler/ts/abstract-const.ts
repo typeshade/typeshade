@@ -610,23 +610,6 @@ function withOriginsConverted(node: ts.Node, type: string, sourceFile: ts.Source
   return (out + writtenRange(sourceFile, at, node.getEnd())).replace(/\s+/g, ' ');
 }
 
-/** Whether a read of `info` inside `node` stands under a unary minus. */
-function negatedIn(node: ts.Node, info: AbstractConst): boolean {
-  let found = false;
-  const visit = (n: ts.Node): void => {
-    if (
-      ts.isPrefixUnaryExpression(n) &&
-      n.operator === ts.SyntaxKind.MinusToken &&
-      originLeaves(n.operand).some((leaf) => readByNode.get(leaf as ts.Expression) === info)
-    ) {
-      found = true;
-    }
-    ts.forEachChild(n, visit);
-  };
-  visit(node);
-  return found;
-}
-
 const ANOTHER_READ = 'where another line reads it, and no operand of';
 
 /** Whether `d` is the refusal of {@link reportAbstractDivisions}. It depends on the whole
@@ -688,9 +671,7 @@ export function abstractDivisionMessage(
         ? read.type
         : division.asked;
     const declarable =
-      sameFile(info.nameNode, node) &&
-      info.integerReads.every((r) => r.type === type) &&
-      !(type === 'u32' && negatedIn(node, info));
+      sameFile(info.nameNode, node) && info.integerReads.every((r) => r.type === type);
     edit = declarable
       ? `${info.keyword} ${short}: ${type} = ${info.written}`
       : withOriginsConverted(node, type, sourceFile);
@@ -718,9 +699,7 @@ export function reportAbstractDivisions(
     let found: { info: AbstractConst; read: IntegerRead } | undefined;
     for (const reached of division.reads) {
       for (const info of withSources(reached)) {
-        const read = info.integerReads.find(
-          (r) => !holds(division.node, r.node) && !holds(r.node, division.node),
-        );
+        const read = info.integerReads.find((r) => !holds(r.node, division.node));
         if (read !== undefined) found ??= { info, read };
       }
     }

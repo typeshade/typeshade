@@ -1026,6 +1026,28 @@ export function t(vi: u32): u32 { return B.f(vi); }`);
     ]);
   });
 
+  it('an element of a value that carries the mark carries it', () => {
+    refused(t('const k = 7; h(k); return f32(vec2(k, 1)[0] / 2);'), [
+      '"k" is a u32 where another line reads it, and no operand of "vec2(k, 1)[0] / 2" has a ' +
+        'declared type, so the "/" does not say which division it is. Write ' +
+        '"vec2(f32(k), 1)[0] / 2" for the float division.',
+    ]);
+  });
+
+  it('an imported constant is not declared in the importing file: the edit converts', () => {
+    const lib = `"use typeshade";\nexport const K = 7;\n`;
+    const main = `"use typeshade";
+import { K } from "./lib.shade";
+${H}export function t(xs: array<f32, 8>): f32 { h(K); return xs[K / 2]; }`;
+    const read = (uri: string): string | undefined => (uri.includes('lib.shade') ? lib : undefined);
+    const compiled = compile(main, { fileName: '/app/main.shade.ts', readDocument: read });
+    expect(compiled.diagnostics.map((d) => d.message)).toEqual([
+      '"K" is a u32 where another line reads it, and no operand of "K / 2" has a declared ' +
+        'type, so the "/" does not say which division it is. Write "u32(K) / 2" for the ' +
+        'integer division.',
+    ]);
+  });
+
   it('a second compile of the same source file reports each / once', () => {
     const source = t('const k = 7; h(k); return f32(k / 2);');
     const sf = ts.createSourceFile('a.ts', source, ts.ScriptTarget.Latest, true);
