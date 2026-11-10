@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { Expr, ModuleDecl } from '../ir/index.js';
 import { f32T, vec2fT, i32T } from '../ir/index.js';
 import { compileModule } from '../oracle.js';
-import { LIBM_TRIG } from '../cpu-runtime.js';
+import { LIBM } from '../cpu-runtime.js';
 import { compileModuleJs } from '../cpu-codegen.js';
 import { froundF32 } from './precision.js';
 import { compile } from '../../compiler/ts/compile.js';
@@ -331,15 +331,15 @@ export function functionV(): vec2 { return vec2(sin(X), 0.1); }
   });
 
   it("in 'f32' precision the constant is the function's value, on every CPU walk", () => {
-    const sinX = fr(LIBM_TRIG.sinF64(fr(100.7)));
+    const sinX = fr(LIBM.sinF64(fr(100.7)));
     // The operand is where the two differed: the f64 routine on the unrounded 100.7.
-    expect(sinX).not.toBe(fr(LIBM_TRIG.sinF64(100.7)));
+    expect(sinX).not.toBe(fr(LIBM.sinF64(100.7)));
     for (const build of [compileModule, compileModuleJs]) {
       const fns = build(compiled.module, { precision: 'f32' }).fns as Record<string, () => unknown>;
       expect(fns['functionS']!()).toBe(sinX);
       expect(fns['constantS']!()).toBe(sinX);
       expect(fns['constantC']!()).toBe(fns['functionC']!());
-      expect(fns['constantC']!()).toBe(fr(fr(LIBM_TRIG.cosF64(fr(100.7))) * 2));
+      expect(fns['constantC']!()).toBe(fr(fr(LIBM.cosF64(fr(100.7))) * 2));
       expect(fns['constantV']!()).toEqual(fns['functionV']!());
       expect(fns['constantV']!()).toEqual([sinX, fr(0.1)]);
     }
@@ -356,8 +356,8 @@ export function functionV(): vec2 { return vec2(sin(X), 0.1); }
   it("in 'f64' precision nothing rounds, as before", () => {
     for (const build of [compileModule, compileModuleJs]) {
       const fns = build(compiled.module, { precision: 'f64' }).fns as Record<string, () => unknown>;
-      expect(fns['constantS']!()).toBe(LIBM_TRIG.sinF64(100.7));
-      expect(fns['functionS']!()).toBe(LIBM_TRIG.sinF64(100.7));
+      expect(fns['constantS']!()).toBe(LIBM.sinF64(100.7));
+      expect(fns['functionS']!()).toBe(LIBM.sinF64(100.7));
     }
   });
 
