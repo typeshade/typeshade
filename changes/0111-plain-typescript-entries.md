@@ -186,6 +186,18 @@ downstream:
 | Review baseline               | `main` at `c9efde0f79df0e6b10883b87c8af21d0c72dfbc9` (the merge of pull request #870), read on 2026-11-02.                                                                                                                                                                                                                                                                                                                       |
 | Review and revision authority | Pull request [#875](https://github.com/typeshade/typeshade/pull/875) (branch `claude/proposal-0111-plain-typescript-entries`). Git records the revisions of this file. The review and merge of its pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                    |
 
+## Note: change 0130 replaces D1 and withdraws milestone 5 for the stage forms (2026-11-10)
+
+This note is recorded as change 0130 decides (D5, "Change 0111's record", the owner's decision of
+2026-11-09). It changes no decision of this proposal by itself.
+
+- Change 0130 replaces decision D1. An entry's stage is an attribute on its function
+  declaration: `@vertex`, `@fragment` or `@compute([x, y?, z?])`. A kernel function's size is the
+  optional attribute `@workgroup_size([n])`. Change 0140 refuses the stage calls of D1 and an
+  `export default` entry with `TS8028`, with no warning release.
+- Milestone 5 ("the old form is refused") is withdrawn for the stage forms. The stage attributes
+  are the language's form, and they are not refused.
+
 ## Amendment 4 (2026-11-02)
 
 This revision amends the accepted scope in one point, found while implementing milestone 4. The
