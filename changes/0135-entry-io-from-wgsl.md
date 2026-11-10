@@ -659,6 +659,34 @@ lists. It reported two open points, and the owner decided each in the Claude Cod
   file is added.
 - Status: `status: accepted` does not change.
 
+### Amendment A3. One sentence of Rule 6.6, and the decorated form in five sentences (2026-11-10)
+
+Pull request #1176 (merged into `main` as `5c547c83`) delivered amendment A2 and reported what
+it found and did not edit. The owner decided it in the Claude Code session on 2026-11-10, after
+the sentence was shown before and after (`OD-4`).
+
+- [fact] Rule 6.6 says "a field of one carries its attribute in its type and needs no
+  initializer and no `!`". Since item 2, a user-defined input or output may write no attribute:
+  `uv: vec2` takes its location from the compiler. The sentence is true only of a field that
+  writes one.
+- [fact] Five sentences outside the surface document name a built-in value in the decorated
+  form, `@builtin("...")`, as the form in use: `docs/language-design.md` §2.3 ("is an argument
+  of `@builtin("...")`"), `docs/compiler-owns-performance.md` (a capability the source implies),
+  `docs/debugging.md` (the value a field gets) and `docs/language-service-api.md` (the `TS8024`
+  row and the string-completion note). None is in a compiled block.
+- [decision, owner, 2026-11-10] "수정안으로 고치기", on the agent's recommendation. Rule 6.6's
+  clause is replaced. Old: "a field of one carries its attribute in its type and needs no
+  initializer and no `!`". New: "a field of one writes its attribute in its type where it
+  writes one (a user-defined input or output may leave its location to the compiler), and
+  needs no initializer and no `!`". No other sentence of the rule changes.
+- The five sentences name the built-in value in the language's form, `builtin<"...">`. A
+  sentence that describes what the editor does inside the string of the decorated form (the
+  completion of built-in names) says what the editor does today, in both forms if it serves
+  both; the implementing pull request measures it and writes what is true.
+- Affects: Rule 6.6, which the front matter declares, and `reqs/rules/RULE-0606.md`. No
+  front-matter field changes. One pull request, with `Change: 0135`, delivers it.
+- Status: `status: accepted` does not change.
+
 ### Configuration and validation record
 
 The front-matter `status` stays `accepted`: the deviations below that are open wait for the
