@@ -1681,6 +1681,9 @@ function initAssigns(
 ): Stmt[] {
   const out: Stmt[] = [];
   for (const f of inits) {
+    // A field the struct does not carry was refused where it is declared (a field that makes
+    // its struct hold itself, #1204), and its initializer says nothing more (Rule 12.4).
+    if (type.kind === 'struct' && scope.isWithheld(type.name, f.name)) continue;
     const lowered = lowerExpression(f.init, sourceFile, scope, diagnostics, f.type);
     if (!lowered) continue;
     const retargeted = retargetIntLitCtx(lowered, f.init, f.type);

@@ -72,7 +72,7 @@ import {
   qualifiedParts,
   refuseNamespaceStatement,
 } from './namespaces.js';
-import { markOmittableField, optionalDeclaredType } from './optional.js';
+import { markOmittableField, optionalDeclaredType, optionalInner } from './optional.js';
 
 /** Refused IO metadata is not an IR field and never reaches emit or portable payloads.
  *  Inheritance keeps field identity, so the original declaration owns the one refusal. */
@@ -1001,11 +1001,186 @@ export function collectStructs(
     );
   }
   checkOverrideKinds(sourceFile, diagnostics);
-  return withUnimplementedAbstracts(
-    promoteClassValues(inherited, sourceFile),
+  return refuseStructCycles(
+    withUnimplementedAbstracts(promoteClassValues(inherited, sourceFile), sourceFile, diagnostics),
+    candidates,
+    reachable,
+    nodeOf,
     sourceFile,
     diagnostics,
   );
+}
+
+/** The struct names a field of type `t` holds by value: the struct itself, an array's element
+ *  (with a size or without), and the `T` of an optional `T | undefined`, which is a struct that
+ *  holds a `T` (Rule 7.10). */
+function heldStructs(t: ShaderType): string[] {
+  if (t.kind === 'array') return heldStructs(t.elem);
+  if (t.kind !== 'struct') return [];
+  const inner = optionalInner(t);
+  return inner === undefined ? [t.name] : heldStructs(inner);
+}
+
+/** Whether a declaration is exported from its file: an `export` modifier on it, or a name an
+ *  `export { … }` clause of the file lists. */
+function exportedNamesOf(sourceFile: ts.SourceFile): Set<string> {
+  const out = new Set<string>();
+  for (const stmt of sourceFile.statements) {
+    if (
+      (ts.isInterfaceDeclaration(stmt) || ts.isTypeAliasDeclaration(stmt)) &&
+      stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+    )
+      out.add(stmt.name.text);
+    if (
+      ts.isExportDeclaration(stmt) &&
+      stmt.moduleSpecifier === undefined &&
+      stmt.exportClause !== undefined &&
+      ts.isNamedExports(stmt.exportClause)
+    ) {
+      for (const e of stmt.exportClause.elements) out.add((e.propertyName ?? e.name).text);
+    }
+  }
+  return out;
+}
+
+/** Refuse a struct that holds itself, through its own fields or through other structs', once,
+ *  on the field that closes the cycle, and cut that field from the struct (#1204).
+ *
+ *  WGSL gives every struct a fixed size, so a struct that holds itself, by value, in an array
+ *  with a size or without, or in an optional, has none; Tint refuses it with
+ *  `cyclic dependency found: 'R' -> 'R'`, a struct nothing uses included (measured in headless
+ *  Chromium 156 on 2026-11-10, Rule 13.3). The front end says so in the author's words instead
+ *  (Rule 12.6), before anything below walks the fields: the runtime-array checks, the
+ *  constructor's zero values, the layout and the CPU oracle each recurse through a struct's
+ *  fields and overflowed the stack on one. The field is withheld rather than kept, so no later
+ *  walk meets the cycle and a read of the field says nothing more (Rule 12.4).
+ *
+ *  Checked: every struct the program collects (each class, and each interface or object type a
+ *  use reaches), and an exported interface or object type nothing in its file uses, since a file
+ *  that exports a struct is checked on its own. One neither exported nor used stays unchecked,
+ *  as every other rule leaves it. The walk starts from the structs in source order, so a cycle
+ *  is named from the struct declared first. */
+function refuseStructCycles(
+  structs: CollectedStruct[],
+  candidates: ReadonlyMap<string, Candidate>,
+  reachable: ReadonlySet<string>,
+  nodeOf: ReadonlyMap<string, ts.Node>,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): CollectedStruct[] {
+  const collected = new Map(structs.map((s) => [s.decl.name, s]));
+  const exported = exportedNamesOf(sourceFile);
+  // An exported interface or object type no use reached was never collected; its fields are
+  // read here for the walk alone, and whatever else is wrong with them stays unsaid, as it was.
+  const uncollected = new Map<string, readonly StructField[]>();
+  const fieldsOf = (name: string): readonly StructField[] => {
+    const struct = collected.get(name);
+    if (struct !== undefined) return struct.decl.fields;
+    const known = uncollected.get(name);
+    if (known !== undefined) return known;
+    const candidate = candidates.get(name);
+    if (candidate === undefined || candidate.generic) return [];
+    const fields: StructField[] = [];
+    uncollected.set(name, fields);
+    for (const member of candidate.members) {
+      if (!ts.isPropertySignature(member) || !ts.isIdentifier(member.name)) continue;
+      const type = mapTsTypeToShaderType(member.type, sourceFile, []);
+      if (type !== undefined) fields.push({ name: member.name.text, type });
+    }
+    return fields;
+  };
+  const roots = [
+    ...structs.filter((s) => s.namespace !== true).map((s) => s.decl.name),
+    ...[...candidates.keys()].filter((name) => !reachable.has(name) && exported.has(name)),
+  ];
+  const positionOf = (name: string): number =>
+    (nodeOf.get(name) ?? candidates.get(name)?.nameNode)?.getStart(sourceFile) ?? 0;
+  roots.sort((a, b) => positionOf(a) - positionOf(b));
+
+  const cut = new Map<string, Set<string>>();
+  const done = new Set<string>();
+  const stack: string[] = [];
+  const shownStruct = (name: string): string => authorTypeText(structT(name));
+  const visit = (name: string): void => {
+    stack.push(name);
+    for (const field of fieldsOf(name)) {
+      for (const held of heldStructs(field.type)) {
+        if (stack.includes(held)) {
+          const path = [...stack.slice(stack.indexOf(held)), held];
+          const written =
+            collected.get(name)?.privateFields?.get(field.name)?.written ?? field.name;
+          const root = shownStruct(held);
+          diagnostics.push(
+            diag(
+              sourceFile,
+              fieldNodeOf(name, field.name, collected, candidates) ??
+                nodeOf.get(name) ??
+                sourceFile,
+              `Field "${shownStruct(name)}.${written}" makes "${root}" contain itself, through ` +
+                `${path.map((n) => `"${shownStruct(n)}"`).join(' -> ')}. A struct has a fixed ` +
+                `size, so it cannot hold itself: hold an index into an array of "${root}" ` +
+                `instead, or remove the field.`,
+            ),
+          );
+          let fields = cut.get(name);
+          if (fields === undefined) cut.set(name, (fields = new Set()));
+          fields.add(field.name);
+          break;
+        }
+        if (!done.has(held)) visit(held);
+      }
+    }
+    stack.pop();
+    done.add(name);
+  };
+  for (const root of roots) if (!done.has(root)) visit(root);
+  if (cut.size === 0) return structs;
+  return structs.map((s) => {
+    const fields = cut.get(s.decl.name);
+    if (fields === undefined) return s;
+    return {
+      ...s,
+      decl: { ...s.decl, fields: s.decl.fields.filter((f) => !fields.has(f.name)) },
+      withheld: new Set([...(s.withheld ?? []), ...fields]),
+    };
+  });
+}
+
+/** Where `field` of the struct `name` is written: its member in the class, the interface or
+ *  the object type, or in the base it inherits the field from. */
+function fieldNodeOf(
+  name: string,
+  field: string,
+  collected: ReadonlyMap<string, CollectedStruct>,
+  candidates: ReadonlyMap<string, Candidate>,
+  seen: Set<string> = new Set(),
+): ts.Node | undefined {
+  if (seen.has(name)) return undefined;
+  seen.add(name);
+  const struct = collected.get(name);
+  const written = struct?.privateFields?.get(field)?.written ?? field;
+  const named = (n: ts.PropertyName | ts.BindingName | undefined): boolean =>
+    n !== undefined && (ts.isIdentifier(n) || ts.isPrivateIdentifier(n)) && n.text === written;
+  const cls = struct?.classNode;
+  if (cls !== undefined) {
+    for (const member of cls.members) {
+      if (ts.isPropertyDeclaration(member) && named(member.name)) return member;
+      if (ts.isConstructorDeclaration(member)) {
+        const param = member.parameters.find(
+          (p) => ts.getModifiers(p)?.length !== undefined && named(p.name),
+        );
+        if (param !== undefined) return param;
+      }
+    }
+  }
+  const candidate = candidates.get(name);
+  const member = candidate?.members.find((m) => ts.isPropertySignature(m) && named(m.name));
+  if (member !== undefined) return member;
+  for (const base of struct?.bases ?? []) {
+    const found = fieldNodeOf(base, field, collected, candidates, seen);
+    if (found !== undefined) return found;
+  }
+  return undefined;
 }
 
 /** Static-only classes need no value declaration until a construction or type position uses
