@@ -1084,7 +1084,7 @@ sets the status.
 | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | The refusal of a written type that WGSL fixes (decision D1.2)                                                       | Pending. It is the work of the release after the migration release. No official release exists (`OD-6`).         | The release that follows the migration release delivers it.                                                                                                                      |
 | Deviation 7 of pull request #1161: a follow-on `TS8022` after a refused `builtin<"clip_distances">` field           | Closed. Pull request #1188 (merged as `e3c2a1cd`) fixed issue #1185.                                             | Fix in pull request #1188, open (Rule 12.4). No part of this change.                                                                                                             |
-| Deviation B of the delivery of Amendment A3: sentences outside the amendment that name the decorated form           | Decided: Amendment A4 (2026-11-10). One pull request delivers it.                                                | The owner decides whether a later amendment moves them.                                                                                                                          |
+| Deviation B of the delivery of Amendment A3: sentences outside the amendment that name the decorated form           | Closed. Amendment A4 (2026-11-10) lists the nine sentences, and "Delivery of Amendment A4" records their edit.   | None.                                                                                                                                                                            |
 | Deviation B of pull request #1182: `getDiagnostics` shows a program's diagnostic in an imported file in no document | Open. Issue #1186. It predates the hover and is no part of this change.                                          | A pull request of its own: the compiler reports the refusal in the importing program's file, at the use, with the declaring site as related information (the owner, 2026-11-10). |
 | The downstream work of "What it owes downstream"                                                                    | Not started. `changes/README.md` (lifecycle, steps 4 and 5) tracks it apart from the compiler repository's work. | Each repository does it when its pin moves.                                                                                                                                      |
 
@@ -1120,6 +1120,31 @@ forms on `main` at `34cea187`. The owner decided them in the Claude Code session
   delivers it.
 - Status: `status: implemented` does not change. This amendment is open work until its pull
   request merges, as Amendment A1 of change 0130 was.
+
+### Delivery of Amendment A4 (2026-11-10)
+
+This section states what the pull request that carries it delivers. The coordinating session
+(Claude Code) wrote it on 2026-11-10 (UTC). The base is `main` at `eeb7df1b`.
+
+**Delivered.** The nine sentences of Amendment A4's table read as its "New" column says, in
+`README.md`, `examples/README.md`, `docs/debugging.md`, `docs/language-service-api.md` (four
+sentences) and `docs/language-design.md` (Rule 10.1 and Rule 12.1). `reqs/rules/RULE-1001.md` and
+`reqs/rules/RULE-1201.md` follow from `bun run reqs:sync`. No source file and no test changes.
+
+**Document audit.** `RULE-1001` and `RULE-1201` were read and reviewed. The links
+`SURF-007 → RULE-1201` and `SURF-050 → RULE-1001` were cleared after surface §7 and §50 were read
+against the two rules: neither rule changes what it requires, and both sections stay true.
+
+**Deviations.**
+
+- A. Surface §7's row for an undeclared name keeps the words "a `@builtin` id", and so do comments
+  in `src/compiler/ts/unknown-names.ts`, `src/compiler/ts/foreign-names.ts` and
+  `src/core/backends/capability-reachability.test.ts`. Amendment A4 does not list them, and the
+  decorated form `@builtin("...")` is still read, so no sentence is false. Disposition: open, for
+  the owner to decide.
+- B. `src/core/coverage/wgsl.ts` cites `docs/language-design.md:1125-1129` as evidence for
+  Rule 10.1, and the rule is at line 1333. The reference was stale on the base. Disposition: open,
+  no part of this change.
 
 ## What it owes downstream
 
