@@ -55,7 +55,15 @@ function calledDeclarations(
   uri: string,
   start: number,
 ): readonly ts.SignatureDeclaration[] {
-  return (callAround(languageService, uri, start)?.symbol?.declarations ?? []).filter(
+  const named = callAround(languageService, uri, start)?.symbol;
+  // An imported function is an alias of its declaration in the file that declares it, and
+  // that declaration carries the parameters and their qualifiers (Rule 12.7).
+  const checker = languageService.getProgram()?.getTypeChecker();
+  const symbol =
+    named !== undefined && checker !== undefined && named.flags & ts.SymbolFlags.Alias
+      ? checker.getAliasedSymbol(named)
+      : named;
+  return (symbol?.declarations ?? []).filter(
     (d): d is ts.SignatureDeclaration => ts.isFunctionDeclaration(d) && d.parameters.length > 0,
   );
 }

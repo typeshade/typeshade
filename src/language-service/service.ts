@@ -286,8 +286,9 @@ export function createTypeshadeLanguageServiceWith(
   /**
    * The program of every open document other than `uri` that links `declaringUri` (Rule 3.9),
    * with the document's uri: what the hover in `uri` reads for a field that `declaringUri`
-   * declares and that the program of `uri` gives no place among its entries (`hover.ts`,
-   * `entryLocationLines`).
+   * declares, where the program of `uri` gives the field no place among its entries
+   * (`hover.ts`, `entryLocationLines`) or no symbol at all (`getHover`, the signature of a
+   * field of a struct that its own file does not use).
    * Each is that document's own cache entry, the one its diagnostics, symbols and tokens read,
    * so a hover adds no analysis that the service does not keep: an open document is analysed
    * once per version, here or at its own first request.
@@ -301,6 +302,17 @@ export function createTypeshadeLanguageServiceWith(
         out.push({ uri: open, analysis: entryOf(open, sourceFile).analysis });
     }
     return out;
+  }
+
+  /** The program of the open document `uri`, its own cache entry, or `undefined` when the
+   *  document is not open: what the hover reads for a name its document imports and its
+   *  program does not keep (`hover.ts`, `unlinkedSymbolAt`). No other document is analysed. */
+  function programOf(uri: string): HoverProgram | undefined {
+    if (!tsHost.hasDocument(uri)) return undefined;
+    const sourceFile = sourceFileOf(uri);
+    return sourceFile === undefined
+      ? undefined
+      : { uri: sourceFile.fileName, analysis: entryOf(sourceFile.fileName, sourceFile).analysis };
   }
 
   /** The cache entry for `uri` under its current `dependencyKey`, computing the front-end
@@ -366,14 +378,10 @@ export function createTypeshadeLanguageServiceWith(
       const sourceFile = sourceFileOf(uri);
       if (!sourceFile) return undefined;
       const offset = offsetAt(sourceFile, position);
-      return getHover(
-        languageService,
-        sourceFile,
-        uri,
-        offset,
-        entryOf(uri, sourceFile).analysis,
-        (declaringUri) => programsLinking(sourceFile.fileName, declaringUri),
-      );
+      return getHover(languageService, sourceFile, uri, offset, entryOf(uri, sourceFile).analysis, {
+        linking: (declaringUri) => programsLinking(sourceFile.fileName, declaringUri),
+        of: (other) => programOf(other),
+      });
     },
 
     getDefinition(uri, position) {
