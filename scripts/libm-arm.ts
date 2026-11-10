@@ -33,6 +33,7 @@ import {
   caseRows,
   explogCases,
   invtrigCases,
+  hyperCases,
   type LibmCase,
   type LibmCaseFile,
 } from '../src/core/testing/libm-cases.js';
@@ -44,6 +45,7 @@ export const LIBM_GATE_FILE = 'src/core/libm/trig.gate.json';
 const CASE_FAMILIES: readonly (readonly [string, (libm: typeof LIBM) => LibmCase[]])[] = [
   ['explog', (libm) => explogCases(libm)],
   ['invtrig', (libm) => invtrigCases(libm)],
+  ['hyper', (libm) => hyperCases(libm)],
 ];
 
 /** `LIBM` with a result of the routine `name` changed in its last bit, once in every 50,000
@@ -66,6 +68,7 @@ function withOneBitChanged(name: keyof typeof LIBM): typeof LIBM {
 const PLANTED: Readonly<Record<string, keyof typeof LIBM>> = {
   explog: 'logF64',
   invtrig: 'atan2F64',
+  hyper: 'acoshF64',
 };
 const caseFile = (family: string): string => `src/core/libm/${family}.gate.json`;
 

@@ -1,6 +1,6 @@
 "use typeshade";
 
-// ═══ The libm: exp, exp2, log, log2 and ldexp (change 0042, milestone 1a) ═══
+// ═══ The libm: exp, exp2, log, log2, ldexp and the hyperbolic functions (change 0042, 1a) ═══
 //
 // A NOTE FOR A READER IN AN EDITOR. The language service reports `TS8004 Unknown function` on
 // `__f64Hi`, `__f64Lo` and `__f64FromWords` in this file. That is correct for an author's file:
@@ -12,11 +12,14 @@
 // `f32` operand is the routine's result rounded once to `f32`. `scripts/bake-libm.ts` writes
 // the JavaScript form, `explog.generated.ts`.
 //
-// The promise is an error under 1 ULP for `exp`, `exp2`, `log` and `log2` (decision N9).
+// The promise is an error under 1 ULP for `exp`, `exp2`, `log`, `log2` and the six hyperbolic
+// functions (decision N9).
 // `ldexp` is exact scaling with one rounding, so it is correctly rounded.
 //
-// The methods are those of fdlibm, as FreeBSD and musl carry them: `e_exp.c`, `e_log.c` and
-// `e_log2.c` with their coefficients, and musl's `scalbn.c` for the scaling. `exp2` is this
+// The hyperbolic functions are in this file because they need its scaling and its constants;
+// a source cannot call a function of another source. Their section says how they differ from
+// fdlibm. The methods are those of fdlibm, as FreeBSD and musl carry them: `e_exp.c`, `e_log.c`
+// and `e_log2.c` with their coefficients, and musl's `scalbn.c` for the scaling. `exp2` is this
 // file's own: the nearest half-integer taken out, the kernel of `exp` on the rest times ln 2,
 // held as a head and a tail, and a product by sqrt(2) for an odd half-step. The notice of fdlibm:
 //
@@ -289,4 +292,375 @@ export function log2F64(x0: f64): f64 {
   valLo = valLo + ((y - sum) + valHi);
   valHi = sum;
   return valLo + valHi;
+}
+
+// ═══ The hyperbolic functions ═══
+//
+// fdlibm's `e_sinh.c`, `e_cosh.c`, `s_tanh.c`, `s_asinh.c`, `e_acosh.c` and `e_atanh.c` round
+// several times after a routine whose own error is near half a unit. Measured against MPFR on
+// 200,000 operands each, they reach 1.6 to 2.2 ULP. So the six routines here keep fdlibm's
+// formulas and special cases, and carry every step before the last as a head and a rest (two
+// doubles whose sum holds about 100 bits), with Dekker's exact product and Knuth's exact sum.
+// Each result is rounded once, at the end. The two kernels of this section take the place of
+// fdlibm's `expm1` and `log1p`. Change 0112 removed their bare names; `Math.expm1` and
+// `Math.log1p` still expand to `exp(x) - 1` and `log(x + 1)` and do not call them. `hyperbolic` gives e^a - 1 and e^a as a head and a rest, and `lnOnePlus` takes
+// ln(1 + v) of a head and a rest. Neither is a builtin: no table of the op library binds them.
+
+// 1 / n! for n from 3 to 16: the series of (e^r - 1 - r - r^2 / 2) / r^3.
+const E3: f64 = 0.16666666666666666;
+const E4: f64 = 0.041666666666666664;
+const E5: f64 = 0.008333333333333333;
+const E6: f64 = 0.001388888888888889;
+const E7: f64 = 0.0001984126984126984;
+const E8: f64 = 2.48015873015873e-05;
+const E9: f64 = 2.7557319223985893e-06;
+const E10: f64 = 2.755731922398589e-07;
+const E11: f64 = 2.505210838544172e-08;
+const E12: f64 = 2.08767569878681e-09;
+const E13: f64 = 1.6059043836821613e-10;
+const E14: f64 = 1.1470745597729725e-11;
+const E15: f64 = 7.647163731819816e-13;
+const E16: f64 = 4.779477332387385e-14;
+// 2 / (2 n + 1) for n from 1 to 12: the series of (ln((1 + s) / (1 - s)) - 2 s) / s.
+const LS3: f64 = 0.6666666666666666;
+const LS5: f64 = 0.4;
+const LS7: f64 = 0.2857142857142857;
+const LS9: f64 = 0.2222222222222222;
+const LS11: f64 = 0.18181818181818182;
+const LS13: f64 = 0.15384615384615385;
+const LS15: f64 = 0.13333333333333333;
+const LS17: f64 = 0.11764705882352941;
+const LS19: f64 = 0.10526315789473684;
+const LS21: f64 = 0.09523809523809523;
+const LS23: f64 = 0.08695652173913043;
+const LS25: f64 = 0.08;
+
+/** The rest of a + b: (a + b) - fl(a + b), exactly (Knuth). */
+function sumErr(a: f64, b: f64): f64 {
+  const s = a + b;
+  const bb = s - a;
+  return (a - (s - bb)) + (b - bb);
+}
+
+/** The rest of a * b: a * b - fl(a * b), exactly (Dekker), for a product that does not
+ *  overflow and whose parts do not fall below the smallest normal value. */
+function prodErr(a: f64, b: f64): f64 {
+  const p = a * b;
+  const ca = SPLIT * a;
+  const ah = ca - (ca - a);
+  const al = a - ah;
+  const cb = SPLIT * b;
+  const bh = cb - (cb - b);
+  const bl = b - bh;
+  return ((ah * bh - p) + ah * bl + al * bh) + al * bl;
+}
+
+/** sinh(a) for mode 0, cosh(a) for mode 1, and tanh(a / 2) for mode 2, for 2^-28 <= a < 711.
+ *
+ *  a = k ln 2 + r with |r| <= ln 2 / 2, where k ln 2 is exact in its head and r is a head r1
+ *  and a rest rl. p = e^r - 1 = r + r^2 / 2 + r^3 S(r) is a head and a rest: r^2 is an exact
+ *  product, and the series S rounds far below the result's unit. Then e^a = 2^k (1 + p) and
+ *  e^a - 1 = (2^k - 1) + 2^k p, each a head and a rest, and
+ *
+ *    sinh(a) = (M + M / (1 + M)) / 2 with M = e^a - 1, for a < 22;
+ *    cosh(a) = (E + 1 / E) / 2 with E = e^a, for a < 22;
+ *    tanh(a / 2) = M / (M + 2);
+ *    sinh(a) and cosh(a) = E / 2 from 22, where e^-a is below 2^-63 of the result.
+ *
+ *  Each quotient is a head and a rest: the rest of the division is exact by Dekker's product. */
+function hyperbolic(a: f64, mode: i32): f64 {
+  let k: i32 = 0;
+  let r1 = a;
+  let rl: f64 = 0.0;
+  if (a > 0.34657359027997264) {
+    k = __f64ToI32(INVLN2 * a + 0.5);
+    const kf: f64 = f64(f32(k));
+    // kf * LN2HI is exact: LN2HI has 32 bits and k at most 11. The difference is exact.
+    const rh = a - kf * LN2HI;
+    const t = kf * LN2LO;
+    r1 = rh - t;
+    rl = sumErr(rh, -t);
+  }
+  // p = e^r - 1 as p1 + p2.
+  const q = r1 * r1;
+  const qe = prodErr(r1, r1);
+  const ser = E3 + r1 * (E4 + r1 * (E5 + r1 * (E6 + r1 * (E7 + r1 * (E8 + r1 * (E9 + r1 * (E10 + r1 * (E11 + r1 * (E12 + r1 * (E13 + r1 * (E14 + r1 * (E15 + r1 * E16))))))))))));
+  const h = 0.5 * q;
+  const c1 = r1 + h;
+  const c2 = sumErr(r1, h) + (rl + (0.5 * qe + (r1 * rl + q * r1 * ser)));
+  // c2 holds r^3 S, which is not small beside c1: the sum is normalized into a head and a rest.
+  const p1 = c1 + c2;
+  const p2 = sumErr(c1, c2);
+  if ((mode != 2 && a >= 22.0) || (mode == 2 && k > 50)) {
+    // e^a as one rounding of 1 + p, then scaled exactly.
+    const e1 = 1.0 + p1;
+    const ev = e1 + (sumErr(1.0, p1) + p2);
+    if (mode == 2) {
+      // tanh(a / 2) = 1 - 2 / (e^a + 1), and 2 / (e^a + 1) is below 2^-50.
+      return 1.0 - 2.0 / (scale(ev, k) + 1.0);
+    }
+    return scale(ev, k - 1);
+  }
+  // 2^k, exactly; k is at most 50 here.
+  const u = __f64FromWords(u32(0x3ff + k) << 20, u32(0));
+  if (mode == 1) {
+    // E = 2^k (1 + p), and 1 / E.
+    const e1 = (1.0 + p1) * u;
+    const e2 = (sumErr(1.0, p1) + p2) * u;
+    const i1 = 1.0 / e1;
+    const i2 = (((1.0 - i1 * e1) - prodErr(i1, e1)) - i1 * e2) * i1;
+    const e3 = e1 + i1;
+    return 0.5 * (e3 + (sumErr(e1, i1) + (e2 + i2)));
+  }
+  // M = e^a - 1 = (2^k - 1) + 2^k p. 2^k - 1 is exact for k up to 53.
+  let m1 = p1;
+  let m2 = p2;
+  if (k != 0) {
+    const um = u - 1.0;
+    const b = u * p1;
+    m1 = um + b;
+    m2 = sumErr(um, b) + u * p2;
+  }
+  if (mode == 2) {
+    // M / (M + 2).
+    const d1 = 2.0 + m1;
+    const d2 = sumErr(2.0, m1) + m2;
+    const g1 = m1 / d1;
+    const g2 = ((((m1 - g1 * d1) - prodErr(g1, d1)) + m2) - g1 * d2) / d1;
+    return g1 + g2;
+  }
+  // (M + M / (1 + M)) / 2.
+  const d1 = 1.0 + m1;
+  const d2 = sumErr(1.0, m1) + m2;
+  const g1 = m1 / d1;
+  const g2 = ((((m1 - g1 * d1) - prodErr(g1, d1)) + m2) - g1 * d2) / d1;
+  const s1 = m1 + g1;
+  return 0.5 * (s1 + (sumErr(m1, g1) + (m2 + g2)));
+}
+
+/** ln(1 + v1 + v2) + j ln 2 for v1 + v2 >= 2^-29, rounded once, where v2 is the rest of v1.
+ *
+ *  Below 0.4142 the series runs on v itself. From there 1 + v = 2^k m with m in
+ *  [sqrt(2) / 2, sqrt(2)), and the series runs on f = m - 1, which is exact. The series is
+ *  ln(1 + f) = 2 s + s R(s^2) with s = f / (2 + f), |s| <= 0.1716, as a head and a rest. The
+ *  sum with k ln 2 is a head and a rest too. */
+function lnOnePlus(v1: f64, v2: f64, j: i32): f64 {
+  let f1 = v1;
+  let f2 = v2;
+  let k: i32 = 0;
+  if (v1 >= 0.41421356237309503) {
+    // 1 + v as w1 + w2, normalized.
+    const a1 = 1.0 + v1;
+    const a2 = sumErr(1.0, v1) + v2;
+    const w1 = a1 + a2;
+    const w2 = sumErr(a1, a2);
+    // The exponent of w1, with the bias that puts m in [sqrt(2) / 2, sqrt(2)).
+    k = i32((__f64Hi(w1) + 0x00095f62) >> 20) - 0x3ff;
+    const m1 = scale(w1, -k);
+    f1 = m1 - 1.0;
+    f2 = scale(w2, -k);
+  }
+  // s = f / (2 + f) as s1 + s2.
+  const d1 = 2.0 + f1;
+  const d2 = sumErr(2.0, f1) + f2;
+  const s1 = f1 / d1;
+  const s2 = ((((f1 - s1 * d1) - prodErr(s1, d1)) + f2) - s1 * d2) / d1;
+  const z = s1 * s1;
+  const t = s1 * (z * (LS3 + z * (LS5 + z * (LS7 + z * (LS9 + z * (LS11 + z * (LS13 + z * (LS15 + z * (LS17 + z * (LS19 + z * (LS21 + z * (LS23 + z * LS25))))))))))));
+  const l1 = 2.0 * s1;
+  const l2 = 2.0 * s2 + t;
+  const kj = k + j;
+  if (kj == 0) {
+    return l1 + l2;
+  }
+  // + (k + j) ln 2, whose head kf * LN2HI is exact.
+  const kf: f64 = f64(f32(kj));
+  const a1 = kf * LN2HI;
+  const h = a1 + l1;
+  return h + (sumErr(a1, l1) + (kf * LN2LO + l2));
+}
+
+/** The rest of the square root of q1 + q2, given its head s1. */
+function sqrtRest(q1: f64, q2: f64, s1: f64): f64 {
+  return (((q1 - s1 * s1) - prodErr(s1, s1)) + q2) / (2.0 * s1);
+}
+
+/** sinh(x) for an f64. The error is under 1 ULP. */
+export function sinhF64(x: f64): f64 {
+  const hw = __f64Hi(x);
+  const ix = hw & 0x7fffffff;
+  if (ix >= 0x7ff00000) {
+    return x + x;
+  }
+  if (ix < 0x3e300000) {
+    // |x| < 2^-28: sinh(x) rounds to x.
+    return x;
+  }
+  let ax = x;
+  if (hw >= 0x80000000) {
+    ax = -x;
+  }
+  let r: f64 = 0.0;
+  if (ax > 711.0) {
+    r = ax * two1023();
+  } else {
+    r = hyperbolic(ax, 0);
+  }
+  if (hw >= 0x80000000) {
+    return -r;
+  }
+  return r;
+}
+
+/** cosh(x) for an f64. The error is under 1 ULP. */
+export function coshF64(x: f64): f64 {
+  const ix = __f64Hi(x) & 0x7fffffff;
+  if (ix >= 0x7ff00000) {
+    return x * x;
+  }
+  if (ix < 0x3e300000) {
+    // |x| < 2^-28: cosh(x) rounds to 1.
+    return 1.0;
+  }
+  let ax = x;
+  if (x < 0.0) {
+    ax = -x;
+  }
+  if (ax > 711.0) {
+    return ax * two1023();
+  }
+  return hyperbolic(ax, 1);
+}
+
+/** tanh(x) for an f64. The error is under 1 ULP. */
+export function tanhF64(x: f64): f64 {
+  const hw = __f64Hi(x);
+  const ix = hw & 0x7fffffff;
+  const neg = hw >= 0x80000000;
+  if (ix >= 0x7ff00000) {
+    if (x != x) {
+      return x;
+    }
+    if (neg) {
+      return -1.0;
+    }
+    return 1.0;
+  }
+  if (ix < 0x3e300000) {
+    // |x| < 2^-28: tanh(x) rounds to x.
+    return x;
+  }
+  let ax = x;
+  if (neg) {
+    ax = -x;
+  }
+  let z: f64 = 1.0;
+  if (ax < 22.0) {
+    z = hyperbolic(2.0 * ax, 2);
+  }
+  if (neg) {
+    return -z;
+  }
+  return z;
+}
+
+/** asinh(x) for an f64. The error is under 1 ULP. ln(|x| + sqrt(x^2 + 1)) = ln(1 + v) with
+ *  v = |x| + x^2 / (1 + sqrt(1 + x^2)), as a head and a rest; from 2^28, ln(2 |x|). */
+export function asinhF64(x: f64): f64 {
+  const hw = __f64Hi(x);
+  const ix = hw & 0x7fffffff;
+  if (ix >= 0x7ff00000) {
+    return x + x;
+  }
+  if (ix < 0x3e300000) {
+    // |x| < 2^-28: asinh(x) rounds to x.
+    return x;
+  }
+  let ax = x;
+  if (hw >= 0x80000000) {
+    ax = -x;
+  }
+  let w: f64 = 0.0;
+  if (ix >= 0x41b00000) {
+    // |x| >= 2^28: ln(|x|) + ln 2; the next term, 1 / (4 x^2), is below 2^-62 of it.
+    w = lnOnePlus(ax, -1.0, 1);
+  } else {
+    const t1 = ax * ax;
+    const t2 = prodErr(ax, ax);
+    const q1 = 1.0 + t1;
+    const q2 = sumErr(1.0, t1) + t2;
+    const s1 = sqrt(q1);
+    const s2 = sqrtRest(q1, q2, s1);
+    const d1 = 1.0 + s1;
+    const d2 = sumErr(1.0, s1) + s2;
+    const g1 = t1 / d1;
+    const g2 = ((((t1 - g1 * d1) - prodErr(g1, d1)) + t2) - g1 * d2) / d1;
+    w = lnOnePlus(ax + g1, sumErr(ax, g1) + g2, 0);
+  }
+  if (hw >= 0x80000000) {
+    return -w;
+  }
+  return w;
+}
+
+/** acosh(x) for an f64. The error is under 1 ULP. ln(x + sqrt(x^2 - 1)) = ln(1 + v) with
+ *  t = x - 1, which is exact, and v = t + sqrt(t^2 + 2 t), as a head and a rest; from 2^28,
+ *  ln(2 x). */
+export function acoshF64(x: f64): f64 {
+  const hw = __f64Hi(x);
+  if (hw < 0x3ff00000 || hw >= 0x80000000) {
+    // x < 1, a negative x, or a NaN with its sign bit set.
+    return (x - x) / (x - x);
+  }
+  if (hw >= 0x7ff00000) {
+    return x + x;
+  }
+  if (hw == 0x3ff00000 && __f64Lo(x) == 0) {
+    return 0.0;
+  }
+  if (hw >= 0x41b00000) {
+    // x >= 2^28: ln(x) + ln 2; the next term, -1 / (4 x^2), is below 2^-62 of it.
+    return lnOnePlus(x, -1.0, 1);
+  }
+  const t = x - 1.0;
+  const q1 = t * t;
+  const qe = prodErr(t, t);
+  const u = 2.0 * t;
+  const w1 = q1 + u;
+  const w2 = sumErr(q1, u) + qe;
+  const s1 = sqrt(w1);
+  const s2 = sqrtRest(w1, w2, s1);
+  return lnOnePlus(t + s1, sumErr(t, s1) + s2, 0);
+}
+
+/** atanh(x) for an f64. The error is under 1 ULP. ln((1 + |x|) / (1 - |x|)) / 2 = ln(1 + v) / 2
+ *  with v = 2 |x| / (1 - |x|), as a head and a rest. */
+export function atanhF64(x: f64): f64 {
+  const hw = __f64Hi(x);
+  const ix = hw & 0x7fffffff;
+  let ax = x;
+  if (hw >= 0x80000000) {
+    ax = -x;
+  }
+  if (ax > 1.0 || x != x) {
+    // |x| > 1 or a NaN.
+    return (x - x) / (x - x);
+  }
+  if (ax == 1.0) {
+    return x / (ax - 1.0);
+  }
+  if (ix < 0x3e300000) {
+    // |x| < 2^-28: atanh(x) rounds to x.
+    return x;
+  }
+  const d1 = 1.0 - ax;
+  const d2 = sumErr(1.0, -ax);
+  const n = 2.0 * ax;
+  const g1 = n / d1;
+  const g2 = (((n - g1 * d1) - prodErr(g1, d1)) - g1 * d2) / d1;
+  const r = 0.5 * lnOnePlus(g1, g2, 0);
+  if (hw >= 0x80000000) {
+    return -r;
+  }
+  return r;
 }

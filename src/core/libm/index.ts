@@ -37,6 +37,12 @@ export interface Libm {
   readonly logF64: (x: number) => number;
   readonly log2F64: (x: number) => number;
   readonly ldexpF64: (x: number, n: number) => number;
+  readonly sinhF64: (x: number) => number;
+  readonly coshF64: (x: number) => number;
+  readonly tanhF64: (x: number) => number;
+  readonly asinhF64: (x: number) => number;
+  readonly acoshF64: (x: number) => number;
+  readonly atanhF64: (x: number) => number;
 }
 
 /** The routines of every family's source, built over `host`. */
