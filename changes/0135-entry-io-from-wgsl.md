@@ -10,6 +10,7 @@ rules:
   - '12.1'
 surface:
   - 1
+  - 2
   - 3
   - 5
   - 7
@@ -24,7 +25,9 @@ surface:
   - 24
   - 25
   - 26
+  - 29
   - 33
+  - 38
   - 42
   - 43
   - 50
@@ -38,6 +41,7 @@ surface:
   - 68
   - 69
   - 70
+  - 77
   - 78
 exports: []
 exports-removed: []
@@ -626,6 +630,34 @@ of "v1" and 0 as an input of "v2": write location<n, T> on it.` The cost is reco
   request that finishes the work sets `implemented` (`changes/README.md`, lifecycle, step 4);
   the refusal of a written type in the release after the migration release (D1.2) is the work
   of that release.
+
+### Amendment A2. Four more surface sections, and the decorated form in three documents (2026-11-10)
+
+Pull request #1171 (merged into `main` as `ae9bbf61`) moved the documents that amendment A1
+lists. It reported two open points, and the owner decided each in the Claude Code session on
+2026-11-10.
+
+- [fact] Amendment A1 found its 27 sections with a search of single lines, and it missed four
+  sections that still write or describe the form that warns: §2 (the header table and the
+  sentences that say an I/O field "carries its attribute in its type" and name
+  `builtin<"...", T>`), §29 (a mixin field "typed `builtin<"...", T>` or `location<n, T>`"), §38
+  (`color: location<0, vec4>` in a `Color` struct, where the compiler gives the same number) and
+  §77 (a compiled block in the decorated form, `@builtin("global_invocation_id") gid: vec3u`,
+  the last block of the document that compiles with the `TS8028` warning).
+- [decision, owner, 2026-11-10] "수정안 A2 후 옮기기", on the agent's recommendation. Surface
+  §2, §29, §38 and §77 join `surface`. One pull request, with `Change: 0135`, moves them as
+  amendment A1 says for the others: an example to `builtin<N>`, a written location dropped
+  where the compiler gives the same number and the section does not teach the written form,
+  and a sentence that describes the older form reworded to this proposal's text. Each compiled
+  block emits the WGSL and GLSL it emitted before.
+- [decision, owner, 2026-11-10] "두기", on the agent's recommendation. Pull request #1171 also
+  moved three places that wrote the decorated form of change 0111, which warns too:
+  `README.md`, `docs/use-typeshade.md` and the `hello-vsout` row of `examples/README.md`. They
+  stay as moved: amendment A1's decision is that the documents stop teaching a form that
+  warns, whichever older form it is.
+- Affects: the front matter `surface` (2, 29, 38, 77). No rule, code, name, export or example
+  file is added.
+- Status: `status: accepted` does not change.
 
 ### Configuration and validation record
 
