@@ -25,16 +25,16 @@
 // spells `invariant gl_Position;`.
 
 interface VsOut {
-  pos: builtin<"position", vec4, { invariant: true }>;
+  pos: builtin<"position", { invariant: true }>;
   // The integer varying. No `interpolate` option here: the compiler derives `flat` because the type
   // is integral, which is the only interpolation either target has for one.
-  id: location<0, u32>;
+  id: u32;
   // A float varying that says how it is interpolated, rather than taking the default.
   uv: location<1, vec2, { interpolate: ["perspective", "centroid"] }>;
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);

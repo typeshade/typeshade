@@ -24,7 +24,7 @@ function stableProbability(z: f32, peak: f32, total: f32): f32 {
 }
 
 @compute([64])
-export function forward(gid: builtin<"global_invocation_id", vec3u>) {
+export function forward(gid: builtin<"global_invocation_id">) {
   const row = gid.x;
   if (row >= batch.count) { return; }
   for (let c: u32 = 0; c < 10; c++) {
@@ -37,7 +37,7 @@ export function forward(gid: builtin<"global_invocation_id", vec3u>) {
 }
 
 @compute([64])
-export function objective(gid: builtin<"global_invocation_id", vec3u>) {
+export function objective(gid: builtin<"global_invocation_id">) {
   const row = gid.x;
   if (row >= batch.count) { return; }
   let peak = logits[row * 10];
@@ -71,7 +71,7 @@ export function reduce() {
 // Explicit backward, not automatic differentiation. Storage-array reverse mode from
 // change 0056 is not implemented on the inspected main. One writer per parameter.
 @compute([64])
-export function backward(gid: builtin<"global_invocation_id", vec3u>) {
+export function backward(gid: builtin<"global_invocation_id">) {
   const k = gid.x;
   if (k < 7840) {
     const p = k / 10;
@@ -90,7 +90,7 @@ export function backward(gid: builtin<"global_invocation_id", vec3u>) {
 }
 
 @compute([64])
-export function update(gid: builtin<"global_invocation_id", vec3u>) {
+export function update(gid: builtin<"global_invocation_id">) {
   const k = gid.x;
   if (k < 7840) { weights[k] -= batch.rate * gradW[k]; }
   if (k < 10) { bias[k] -= batch.rate * gradB[k]; }

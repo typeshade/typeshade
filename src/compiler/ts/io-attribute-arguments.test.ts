@@ -235,7 +235,7 @@ describe('existing IO attribute neighbours', () => {
   }
   it('keeps modern types and a valid option object', () => {
     paired(
-      `@vertex export function vs(i: builtin<"vertex_index", u32>, x: location<0, f32>): vec4 { return vec4(x + f32(i)); }`,
+      `@vertex export function vs(i: builtin<"vertex_index">, x: location<0, f32>): vec4 { return vec4(x + f32(i)); }`,
     );
     paired(
       `@fragment export function fs(x: location<0, f32, { interpolate: "flat" }>): vec4 { return vec4(x); }`,

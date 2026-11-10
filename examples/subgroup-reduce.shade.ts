@@ -31,9 +31,9 @@ declare const seen: storage<array<u32>, "read_write">;
 
 @compute([64, 1, 1])
 export function histogram(
-  gid: builtin<"global_invocation_id", vec3u>,
-  subgroup: builtin<"subgroup_id", u32>,
-  subgroups: builtin<"num_subgroups", u32>,
+  gid: builtin<"global_invocation_id">,
+  subgroup: builtin<"subgroup_id">,
+  subgroups: builtin<"num_subgroups">,
 ): void {
   // A lane past the end contributes 0, so the subgroup fold stays in uniform control flow:
   // an early `return` here would be a lane the fold cannot wait for (§54).

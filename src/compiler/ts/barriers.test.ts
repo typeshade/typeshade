@@ -26,9 +26,9 @@ declare const src: storage<array<f32>>;
 declare const sums: storage<array<f32>, "read_write">;
 let tile: workgroup<array<f32, 64>>;
 @compute([64, 1, 1]) export function reduce(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
-  wid: builtin<"workgroup_id", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
+  wid: builtin<"workgroup_id">,
 ): void {
   tile[lid.x] = src[gid.x];
   workgroupBarrier();
@@ -69,7 +69,7 @@ declare const out: storage<array<f32>, "read_write">;
 `;
 const kernel = (
   body: string,
-) => `${HEAD}@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+) => `${HEAD}@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
 ${body}
 }
 `;
@@ -117,11 +117,11 @@ describe('barriers: dispatch runs a workgroup in lockstep', () => {
 declare const out: storage<array<u32>, "read_write">;
 declare const last: storage<u32, "read_write">;
 @compute([4, 1, 1]) export function k(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
-  li: builtin<"local_invocation_index", u32>,
-  wid: builtin<"workgroup_id", vec3u>,
-  n: builtin<"num_workgroups", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
+  li: builtin<"local_invocation_index">,
+  wid: builtin<"workgroup_id">,
+  n: builtin<"num_workgroups">,
 ): void {
   out[gid.x] = lid.x * 1000 + li * 100 + wid.x * 10 + n.x;
   storageBarrier();
@@ -150,10 +150,10 @@ declare const out: storage<array<u32>, "read_write">;
 declare const ids: storage<array<u32>, "read_write">;
 let tile: workgroup<array<u32, 4>>;
 @compute([2, 2]) export function box(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
-  li: builtin<"local_invocation_index", u32>,
-  wid: builtin<"workgroup_id", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
+  li: builtin<"local_invocation_index">,
+  wid: builtin<"workgroup_id">,
 ): void {
   const p: u32 = gid.y * 4 + gid.x;
   tile[li] = img[p];
@@ -260,7 +260,7 @@ describe('barriers: where one may stand', () => {
   // to reach the barrier — and the walk reports one whenever the control flow is not PROVABLY
   // uniform, so a shape it cannot read keeps the refusal it had.
   const branchedOn = (name: string, cause: string) =>
-    `${TS_CODES.UNIFORMITY} ${name}() is reached under ${cause}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it out of the branch, or branch on a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).`;
+    `${TS_CODES.UNIFORMITY} ${name}() is reached under ${cause}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it out of the branch, or branch on a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id">).`;
 
   it('not inside a branch on a value the invocations do not share', () => {
     expect(errorsOf(kernel('  if (gid.x > 1) {\n    workgroupBarrier()\n  }'))).toEqual([
@@ -279,7 +279,7 @@ describe('barriers: where one may stand', () => {
     const uniform = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
 declare const k: uniform<f32>;
-@compute([64, 1, 1]) export function g(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function g(gid: builtin<"global_invocation_id">): void {
   if (k > 0.5) {
     workgroupBarrier();
   }
@@ -291,7 +291,7 @@ declare const k: uniform<f32>;
     // is the same answer for every invocation of the group.
     const byGroup = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-@compute([64, 1, 1]) export function g(wg: builtin<"workgroup_id", vec3u>, id: builtin<"local_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function g(wg: builtin<"workgroup_id">, id: builtin<"local_invocation_id">): void {
   if (wg.x > u32(1)) {
     workgroupBarrier();
   }
@@ -309,7 +309,7 @@ declare const out: storage<array<f32>, "read_write">;
       errorsOf(`${HEAD}function sync(): void {
   workgroupBarrier()
 }
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   sync()
 }
 `),
@@ -338,15 +338,15 @@ declare const out: storage<array<f32>, "read_write">;
     // No branch surrounds either barrier, so "move it out of the branch" pointed at nothing
     // the author could find (Rule 12.1). Each remedy named compiles on Tint: the barrier above
     // the `if (…) { return; }`, and a loop bound every invocation shares.
-    const lid = `${HEAD}@compute([64, 1, 1]) export function k(lid: builtin<"local_invocation_id", vec3u>): void {
+    const lid = `${HEAD}@compute([64, 1, 1]) export function k(lid: builtin<"local_invocation_id">): void {
 `;
     expect(errorsInBoth(`${lid}  if (lid.x > 2) { return; }\n  workgroupBarrier();\n}\n`)).toEqual([
-      `${TS_CODES.UNIFORMITY} workgroupBarrier() is reached after a return taken under "lid" (@builtin(local_invocation_id)), and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it above the return, or return on a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).`,
+      `${TS_CODES.UNIFORMITY} workgroupBarrier() is reached after a return taken under "lid" (@builtin(local_invocation_id)), and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it above the return, or return on a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id">).`,
     ]);
     expect(errorsInBoth(`${lid}  workgroupBarrier();\n  if (lid.x > 2) { return; }\n}\n`)).toEqual(
       [],
     );
-    const inLoop = `${TS_CODES.UNIFORMITY} workgroupBarrier() is reached in a loop whose condition reads "lid" (@builtin(local_invocation_id)), and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it out of the loop, or bound the loop by a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).`;
+    const inLoop = `${TS_CODES.UNIFORMITY} workgroupBarrier() is reached in a loop whose condition reads "lid" (@builtin(local_invocation_id)), and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it out of the loop, or bound the loop by a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id">).`;
     expect(
       errorsInBoth(
         `${lid}  let i: u32 = lid.x;\n  while (i < 8) {\n    workgroupBarrier();\n    i++;\n  }\n}\n`,
@@ -363,7 +363,7 @@ declare const out: storage<array<f32>, "read_write">;
     const r = compileTsSource(`${HEAD}function workgroupBarrier(): void {
   out[0] = 1.
 }
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   workgroupBarrier()
 }
 `);
@@ -381,7 +381,7 @@ describe('a call that returns nothing is not a value', () => {
       errorsOf(`${HEAD}function store(i: u32): void {
   out[i] = 1.
 }
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   const x = store(1)
 }
 `),
@@ -403,7 +403,7 @@ describe("textureBarrier and workgroupUniformLoad carry a barrier's rules", () =
   const CS = (decls: string, body: string): string => `"use typeshade"
 declare const o: storage<array<u32>, "read_write">
 ${decls}
-@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
 ${body}
 }
 `;
@@ -481,7 +481,7 @@ ${body}
       `${TS_CODES.UNIFORMITY} workgroupUniformLoad() is reached under "o" (a read_write storage buffer), and every ` +
         'invocation of the workgroup has to reach it: one that does not is a workgroup that ' +
         'waits forever. Move it out of the branch, or branch on a value the whole workgroup ' +
-        'shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).',
+        'shares (a uniform, a module const, builtin<"workgroup_id">).',
     ]);
     // A fragment entry has no workgroup memory at all, and Tint refuses the VARIABLE there
     // ("var with 'workgroup' address space cannot be used by fragment pipeline stage") rather
@@ -515,12 +515,12 @@ declare const k: uniform<f32>;
 let w: workgroup<u32>;
 `;
   const load = (body: string, helpers = ''): string =>
-    `${LOAD_HEAD}${helpers}@compute([64, 1, 1]) export function cs(lid: builtin<"local_invocation_id", vec3u>, wid: builtin<"workgroup_id", vec3u>): void {
+    `${LOAD_HEAD}${helpers}@compute([64, 1, 1]) export function cs(lid: builtin<"local_invocation_id">, wid: builtin<"workgroup_id">): void {
 ${body}
 }
 `;
   const refusal = (reached: string, move: string, on: string): string =>
-    `${TS_CODES.UNIFORMITY} workgroupUniformLoad() is reached ${reached}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. ${move}, or ${on} a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).`;
+    `${TS_CODES.UNIFORMITY} workgroupUniformLoad() is reached ${reached}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. ${move}, or ${on} a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id">).`;
   const LID = '"lid" (@builtin(local_invocation_id))';
 
   it.each([
@@ -814,13 +814,13 @@ describe('a jump and workgroupUniformLoad read the same in the editor', () => {
   const kernel = (body: string, decls = ''): string => `"use typeshade";
 declare const o: storage<array<u32>, "read_write">;
 let w: workgroup<u32>;
-${decls}@compute([64, 1, 1]) export function cs(lid: builtin<"local_invocation_id", vec3u>, wid: builtin<"workgroup_id", vec3u>): void {
+${decls}@compute([64, 1, 1]) export function cs(lid: builtin<"local_invocation_id">, wid: builtin<"workgroup_id">): void {
 ${body}
 }
 `;
   const LID = '"lid" (@builtin(local_invocation_id))';
   const said = (callee: string, reached: string, move: string, on: string): string =>
-    `${TS_CODES.UNIFORMITY} ${callee}() is reached ${reached}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. ${move}, or ${on} a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id", vec3u>).`;
+    `${TS_CODES.UNIFORMITY} ${callee}() is reached ${reached}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. ${move}, or ${on} a value the whole workgroup shares (a uniform, a module const, builtin<"workgroup_id">).`;
 
   it.each([
     [

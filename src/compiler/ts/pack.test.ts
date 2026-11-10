@@ -128,7 +128,7 @@ declare const out: storage<array<f32>, "read_write">;
 function fract(x: f32): f32 { return x - floor(x) + 0.5; }
 @compute([1]) export function main() { out[0] = fract(out[1]); out[2] = fract(1.25) + random(out[1]); }
 interface Color { color: location<0, vec4>; }
-@fragment export function fs(p: builtin<"position", vec4>): Color { return { color: vec4(fract(p.x), 0., 0., 1.) }; }
+@fragment export function fs(p: builtin<"position">): Color { return { color: vec4(fract(p.x), 0., 0., 1.) }; }
 `;
 
   it('spells the declaration fract_ in every program, and keeps the builtin random calls', () => {

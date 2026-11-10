@@ -163,7 +163,7 @@ const write = (decl: string, body: string): string =>
   `"use typeshade"
 interface Params { scale: f32 }
 ${decl}
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   ${body}
 }
 `;
@@ -392,7 +392,7 @@ declare const acc: storage<Acc>;
       program: `"use typeshade";
 declare const tex: texture_2d<f32>;
 declare const smp: uniform<sampler>;
-@fragment export function f(pos: builtin<"position", vec4>): vec4 {
+@fragment export function f(pos: builtin<"position">): vec4 {
   return textureSample(tex, smp, pos.xy);
 }
 `,
@@ -402,7 +402,7 @@ declare const smp: uniform<sampler>;
       site: 'module-vars.ts lowerPlain',
       program: `"use typeshade";
 let src: storage<array<f32>>;
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   let n = src[gid.x];
 }
 `,
@@ -419,7 +419,7 @@ let src: storage<array<f32>>;
       site: 'module-vars.ts lowerPlain, the access mode the keyword asked for',
       program: `"use typeshade";
 let dst: storage<array<f32>>;
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   dst[gid.x] = 1.;
 }
 `,
@@ -433,7 +433,7 @@ let dst: storage<array<f32>>;
       site: 'module-vars.ts lowerPlain, quoting the author back',
       program: `"use typeshade";
 let src: storage<array<f32>, "read">;
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   let n = src[gid.x];
 }
 `,
@@ -444,7 +444,7 @@ let src: storage<array<f32>, "read">;
       site: 'module-vars.ts lowerPlain',
       program: `"use typeshade";
 let gain: uniform<f32>;
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   let n = gain * 2.;
 }
 `,

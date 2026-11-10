@@ -16,23 +16,23 @@ class Sky {
 declare const sky: uniform<Sky>;
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
 
 interface Color {
-  color: location<0, vec4>;
+  color: vec4;
 }
 
 // Three vertices that cover the target: the host draws `{ count: 3 }` and binds no vertex buffer.
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(i32(vi) / 2) * 4. - 1.;
   const y = f32(i32(vi) % 2) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.) };
 }
 
 @fragment
-export function fs(p: builtin<"position", vec4>): Color {
+export function fs(p: builtin<"position">): Color {
   const uv = p.xy / sky.size;
   return { color: vec4(uv.x, 1. - uv.y, 0.5 + 0.5 * cos(sky.time), 1.) };
 }

@@ -40,7 +40,7 @@ declare const smp: sampler`;
 
 const fragment = (body: string, decls = DECLS): string => `"use typeshade"
 ${decls}
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   const dir: vec3 = normalize(vec3(p.xy, 1.))
 ${body}
 }
@@ -187,7 +187,7 @@ describe('bias and gradients', () => {
   const compute = (call: string): string => `"use typeshade"
 ${DECLS}
 declare const out: storage<array<vec4>, "read_write">
-@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   const dir: vec3 = vec3(1., 0., 0.)
   out[gid.x] = ${call}
 }
@@ -500,7 +500,7 @@ declare const shadowSmp: sampler_comparison`;
     const errors = errorsOf(`"use typeshade"
 ${D}
 declare const out: storage<array<f32>, "read_write">
-@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   out[gid.x] = textureSampleCompare(pointShadow, shadowSmp, vec3(1., 0., 0.), 0.5)
 }
 `);
@@ -589,7 +589,7 @@ declare const smp: sampler`;
 
   const scalar = (body: string): string => `"use typeshade"
 ${SCALAR_DECLS}
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
 ${body}
 }
 `;

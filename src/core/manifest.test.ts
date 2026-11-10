@@ -206,10 +206,10 @@ declare const photo: texture_2d<f32>;
 declare const trail: texture_2d<f32>;
 declare const smp: sampler;
 interface Color { c: location<0, vec4>; }
-@vertex export function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex export function vs(vi: builtin<"vertex_index">): vec4 {
   return vec4(f32(vi), 0., 0., 1.);
 }
-@fragment export function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position">): Color {
   console.log("at", p.x);
   return { c: textureSample(photo, smp, p.xy) + textureLoad(trail, vec2i(p.xy), 0) };
 }
@@ -259,10 +259,10 @@ declare const ids: storage<array<u32>>;
 declare const offsets: storage<array<i32>>;
 declare const uvs: storage<array<vec2>>;
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   i: location<0, u32, { interpolate: "flat" }>;
 }
-@vertex export function vs(v: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(v: builtin<"vertex_index">): VsOut {
   return { pos: vec4(f32(v), heights[v], 0., 1.), i: v };
 }
 interface Color {
@@ -402,7 +402,7 @@ describe('a manifest packed under emit options (change 0028)', () => {
 class Zoom { cx: f64; scale: f64; }
 declare const zoom: uniform<Zoom>;
 declare const out: storage<array<f32>, "read_write">;
-@compute([4]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function main(gid: builtin<"global_invocation_id">) {
   const x: f64 = zoom.cx + f64(f32(gid.x)) * zoom.scale;
   console.log("x", f32(x));
   out[gid.x] = f32(fract(x * 1000));
@@ -411,7 +411,7 @@ declare const out: storage<array<f32>, "read_write">;
   const F64_DRAW = compiled(`"use typeshade";
 class Zoom { cx: f64; scale: f64; }
 declare const zoom: uniform<Zoom>;
-@fragment export function deep(p: builtin<"position", vec4>): vec4 {
+@fragment export function deep(p: builtin<"position">): vec4 {
   const x: f64 = zoom.cx + f64(p.x) * zoom.scale;
   console.log("x", f32(x));
   return vec4(f32(fract(x * 1000)), p.y / 32, 0, 1);

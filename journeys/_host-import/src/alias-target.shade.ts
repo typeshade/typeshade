@@ -14,17 +14,17 @@ function aliasPrivate(value: f32): f32 {
 }
 
 @compute([1])
-function aliasHidden(gid: builtin<"global_invocation_id", vec3u>): void {
+function aliasHidden(gid: builtin<"global_invocation_id">): void {
   if (gid.x < aliasOut.length) aliasOut[gid.x] = 23.;
 }
 
 @compute([8])
-export function aliasCompute(gid: builtin<"global_invocation_id", vec3u>): void {
+export function aliasCompute(gid: builtin<"global_invocation_id">): void {
   if (gid.x < aliasOut.length) aliasOut[gid.x] = f32(gid.x) * aliasLive.value + 1.;
 }
 
 @fragment
-export function aliasRender(p: builtin<"position", vec4>): vec4 {
+export function aliasRender(p: builtin<"position">): vec4 {
   return vec4(p.x / 32., p.y / 32., aliasLive.value, 1.);
 }
 

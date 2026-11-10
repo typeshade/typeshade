@@ -56,7 +56,7 @@ it('keeps symbolic outer array extents through flat and nested fp64 lowering (#7
     const result = compile(`"use typeshade";
 const WG: override<u32> = 64;
 let tile: workgroup<array<${nested ? 'array<f64, 3>' : 'f64'}, WG>>;
-@compute([WG]) export function main(lid: builtin<"local_invocation_id", vec3u>): void {
+@compute([WG]) export function main(lid: builtin<"local_invocation_id">): void {
   tile[lid.x]${nested ? '[0]' : ''} = f64(1);
 }
 `);
@@ -283,7 +283,7 @@ function bump(i: u32): f64 {
 function half(x: f64): f64 {
   return x * 0.5;
 }
-@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id">): void {
   const x = f64(dst[gid.x]);
   dst[gid.x] = f32(bump(gid.x) * bump(gid.x)) + f32(half(x) * half(x));
 }
@@ -411,7 +411,7 @@ const scale: override<f32> = 3e30;
 class U { c: f64; pad: vec2; }
 declare const u: uniform<U>;
 declare const dst: storage<array<f32>, "read_write">;
-@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id">): void {
   const k = 1e38;
   const t: f64 = u.c + f64(dst[gid.x]);
   dst[1] = f32(f64(k) * 4. + u.c);
@@ -491,7 +491,7 @@ function nextv(i: u32): vec3<f64> {
 function purev(x: f32): vec3<f64> {
   return vec3<f64>(f64(x), f64(x * 2.), f64(3.));
 }
-@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id">): void {
   const u = vec3<f64>(f64(dst[gid.x]), f64(dst[gid.y]), f64(dst[gid.z]));
   const w = vec3<f64>(f64(dst[gid.y]), f64(1.0), f64(2.0));
   const a = normalize(u * w) * f64(2.0);
@@ -528,7 +528,7 @@ function nextv(i: u32): vec3<f64> {
 function purev(x: f32): vec3<f64> {
   return vec3<f64>(f64(x), f64(x * 2.), f64(3.));
 }
-@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id">): void {
   dst[0] = f32(dot(nextv(gid.x), nextv(gid.x)));
   dst[1] = f32(dot(purev(dst[2]), purev(dst[2])));
 }

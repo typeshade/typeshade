@@ -2859,6 +2859,79 @@ function isAboutRefusedIoArgument(
   return false;
 }
 
+/** The declarations whose `builtin<N>` the compiler refused for having no type to give: a
+ *  `builtin<"clip_distances">` (`TS8003`), or a name WGSL does not have with no type written
+ *  (`TS8024`). The ambient library reads such a value as `never` (change 0135). */
+function refusedBuiltinDeclarations(
+  sourceFile: ts.SourceFile,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): ts.Node[] {
+  const out: ts.Node[] = [];
+  for (const error of compilerErrors) {
+    if (error.code !== TS_CODES.TYPE_MISMATCH && error.code !== TS_CODES.BUILTIN_NAME) continue;
+    let node: ts.Node | undefined = nodeAtPosition(sourceFile, error.span.start);
+    while (node !== undefined && !ts.isTypeReferenceNode(node)) node = node.parent;
+    if (
+      node === undefined ||
+      !ts.isIdentifier(node.typeName) ||
+      node.typeName.text !== 'builtin' ||
+      fileDeclaresType(node, 'builtin', sourceFile)
+    )
+      continue;
+    const second = node.typeArguments?.[1];
+    if (second !== undefined && !ts.isTypeLiteralNode(second)) continue;
+    const declaration = node.parent;
+    if (
+      ts.isParameter(declaration) ||
+      ts.isPropertySignature(declaration) ||
+      ts.isPropertyDeclaration(declaration)
+    )
+      out.push(declaration);
+  }
+  return out;
+}
+
+/**
+ * Whether a TypeScript error is about the value of a built-in value the compiler refused for
+ * having no type (`refusedBuiltinDeclarations`): the ambient `builtin<"clip_distances">` is
+ * `never`, so TypeScript reports each write of the field, `Type 'number' is not assignable to
+ * type 'never'`. The compiler's refusal of the declaration is the one diagnostic (Rule 12.4,
+ * change 0135).
+ */
+function isAboutRefusedBuiltinValue(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  refused: readonly ts.Node[],
+): boolean {
+  const checker = context.checker;
+  if (refused.length === 0 || checker === undefined) return false;
+  if (!diagnostic.message.includes("'never'")) return false;
+  const end = diagnostic.span.start + diagnostic.span.length;
+  let found = false;
+  const declares = (symbol: ts.Symbol | undefined): boolean =>
+    symbol?.declarations?.some((d) => refused.includes(d)) === true;
+  const visit = (node: ts.Node): void => {
+    if (found || node.getEnd() <= diagnostic.span.start || node.getStart(context.sourceFile) >= end)
+      return;
+    if (ts.isIdentifier(node)) {
+      const parent = node.parent;
+      if (
+        ts.isPropertyAssignment(parent) &&
+        parent.name === node &&
+        ts.isObjectLiteralExpression(parent.parent)
+      ) {
+        const expected = checker.getContextualType(parent.parent);
+        if (declares(expected?.getProperty(node.text))) found = true;
+      }
+      if (!found && declares(checker.getSymbolAtLocation(node))) found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(context.sourceFile);
+  return found;
+}
+
 /**
  * The merged list for one document: `typescript` (already filtered by
  * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). These
@@ -2874,6 +2947,8 @@ function isAboutRefusedIoArgument(
  *   (`isAboutRefusedStageCall`) goes;
  * - a TypeScript constraint error on an IO attribute type's first argument repeats the
  *   compiler error spanning that type or its unknown builtin name (`isAboutRefusedIoArgument`);
+ * - a TypeScript error about the value of a `builtin<N>` the compiler refused for having no
+ *   type, which the ambient library reads as `never` (`isAboutRefusedBuiltinValue`), goes;
  * - a TypeScript error that `SAME_MISTAKE` pairs by code with a compiler error, and whose span
  *   sits where one mistake would put the two (`sameMistakeSpans`), goes: the compiler's stays;
  * - a TypeScript error about what the compiler refused whole, a `throw` and what it throws, an
@@ -2913,6 +2988,7 @@ export function mergeDiagnostics(
     ],
     vars: refusedVars(analysis.sourceFile).map((n) => spanOfNode(n, analysis.sourceFile)),
   };
+  const refusedBuiltins = refusedBuiltinDeclarations(sourceFile, compilerErrors);
   const keptTypescript = typescript.filter((diagnostic) => {
     if (diagnostic.severity !== 'error') return true;
     if (isKnockOn(context, diagnostic, typescript)) return false;
@@ -2920,6 +2996,7 @@ export function mergeDiagnostics(
     if (isInRefusedDecorator(context, diagnostic, compilerErrors)) return false;
     if (isAboutRefusedStageCall(context, diagnostic, compilerErrors)) return false;
     if (isAboutRefusedIoArgument(context, diagnostic, compilerErrors)) return false;
+    if (isAboutRefusedBuiltinValue(context, diagnostic, refusedBuiltins)) return false;
     if (repeatsRefusal(context, diagnostic, refusals, compilerErrors)) return false;
     if (repeatsStrictModeRefusal(context, diagnostic, compilerErrors)) return false;
     if (readsDeclarationAsValue(context, diagnostic, compilerErrors)) return false;

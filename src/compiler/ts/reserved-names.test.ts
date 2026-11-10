@@ -143,7 +143,7 @@ describe('GLSL ES 3.00 reserves the name, and the module has a GLSL form (#103)'
   it('compiles a struct field named half, spelled half_ in the GLSL', () => {
     const src = `"use typeshade";
 interface V {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   half: location<0, vec2>;
 }
 @vertex export function vs(): V { return { pos: vec4(0., 0., 0., 1.), half: vec2(0., 0.) }; }
@@ -197,7 +197,7 @@ declare const cam: uniform<S>
   it('compiles a struct whose own name WGSL reserves, under a fresh WGSL spelling', () => {
     const src = `"use typeshade";
 interface Self {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
 @vertex export function vs(): Self { return { pos: vec4(0., 0., 0., 1.) }; }
 `;
@@ -390,7 +390,7 @@ describe('a module the target never reaches is not held to its list (#103)', () 
     const r = compile(`"use typeshade";
 declare const sink: storage<array<f32>, "read_write">;
 class P { half: f32; }
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   const p: P = { half: 2. };
   sink[gid.x] = p.half;
 }

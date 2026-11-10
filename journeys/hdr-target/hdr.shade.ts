@@ -7,7 +7,7 @@
 // the significand or of the exponent, is a value the journey fails on.
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
 
 interface Color {
@@ -16,7 +16,7 @@ interface Color {
 
 /** A fullscreen triangle. */
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(i32(vi) / 2) * 4 - 1;
   const y = f32(i32(vi) % 2) * 4 - 1;
   return { pos: vec4(x, y, 0, 1) };

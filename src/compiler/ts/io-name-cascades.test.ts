@@ -9,7 +9,7 @@ const LIB = '/io/lib.shade.ts';
 const D = '"use typeshade";\n';
 const UNKNOWN = 'Unknown builtin "positon". Did you mean "position"?';
 const POSITION =
-  '"vs" is a vertex entry, so what it returns has to carry the position: give "Out" a field typed builtin<"position", vec4>.';
+  '"vs" is a vertex entry, so what it returns has to carry the position: give "Out" a field typed builtin<"position">.';
 type Expected = { code: string; message: string; at: string; uri?: string; length?: number };
 
 function paired(body: string, expected: readonly Expected[], library?: string) {
@@ -189,18 +189,11 @@ describe('a refused entry IO name is one diagnostic', () => {
     );
   });
 
-  it('still reports the truly unattributed sibling', () => {
+  it('numbers the sibling with no attribute, and says nothing more', () => {
+    // A field with no attribute is a user-defined output, which the compiler numbers (Rule
+    // 6.6, change 0135): before it was `TS8029` beside the refused name.
     const entry = '@vertex export function vs(): Out { return {pos: vec4(0.),uv: vec2(0.)}; }';
-    paired('class Out { @builtin("positon") pos: vec4; uv: vec2; }\n' + entry, [
-      unknown(),
-      {
-        code: 'TS8029',
-        message:
-          'Struct "Out" field "uv" is used as a vertex output but has neither a builtin<…> nor a location<…> type: WGSL requires every entry output struct member to declare one.',
-        at: 'Out { return',
-        length: 3,
-      },
-    ]);
+    paired('class Out { @builtin("positon") pos: vec4; uv: vec2; }\n' + entry, [unknown()]);
   });
 
   it('keeps an independent option argument error', () => {
@@ -317,9 +310,9 @@ describe('a refused entry IO name is one diagnostic', () => {
   });
 
   for (const declaration of [
-    'class Out { pos: builtin<"position", vec4>; }',
-    'interface Out { pos: builtin<"position", vec4>; }',
-    'type Out = { pos: builtin<"position", vec4> };',
+    'class Out { pos: builtin<"position">; }',
+    'interface Out { pos: builtin<"position">; }',
+    'type Out = { pos: builtin<"position"> };',
     'class Out { @builtin("position") pos: vec4; }',
   ]) {
     it(`preserves the valid position in ${declaration}`, () => {

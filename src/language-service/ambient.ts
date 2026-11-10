@@ -33,7 +33,11 @@ import {
 } from '../compiler/ts/math-alias.js';
 import { EXPAND_ARITY } from '../compiler/ts/math-expand.js';
 import { isRemovedCall } from '../compiler/ts/removed-names.js';
-import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js';
+import {
+  WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES,
+  WGSL_BUILTIN_TYPES as SOT_WGSL_BUILTIN_TYPES,
+} from '../core/sot.js';
+import { authorTypeText } from '../compiler/ts/context.js';
 import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js';
 import { STORAGE_BUFFER_ACCESS as COMPILER_STORAGE_BUFFER_ACCESS } from '../compiler/ts/bindings.js';
 import {
@@ -99,6 +103,20 @@ const VEC_CTOR_NAMES = [...VEC_TYPE_ELEM.keys()].filter((name) => !/d$/.test(nam
  * front end's `@builtin(...)` allow-list check reads the same one), re-exported here as a
  * completion/hover data source too — see `completions.ts`. */
 export const WGSL_BUILTIN_NAMES: readonly string[] = SOT_WGSL_BUILTIN_NAMES;
+
+/** The type WGSL gives the built-in value `N`, as the ambient \`builtin<N>\` reads it: one arm
+ * for each row of `core/sot.ts`'s `WGSL_BUILTIN_TYPES`, the table the compiler reads the same
+ * type from (change 0135, decision D1.2), so the editor and the compiler cannot give one name
+ * two types (Rule 12.7). `clip_distances` has no row, since its author chooses its
+ * `array<f32, N>`, and reads as `never`: the compiler refuses `builtin<"clip_distances">`
+ * (TS8003), and the language service leaves that one diagnostic standing alone. Written inline
+ * where it is used, so the library declares no name for it. */
+const BUILTIN_VALUE_TYPE: string =
+  '(' +
+  Object.entries(SOT_WGSL_BUILTIN_TYPES)
+    .map(([name, type]) => `N extends '${name}' ? ${authorTypeText(type)} : `)
+    .join('') +
+  'never)';
 
 /**
  * The attribute names the compiler parses as decorators, per `lower/function.ts`'s
@@ -1641,7 +1659,7 @@ declare function inout(target: unknown, context?: unknown, index?: number): void
 ${renderJSDoc(ATTRIBUTE_DOCS.out)}
 declare function out(target: unknown, context?: unknown, index?: number): void
 ${renderJSDoc(ATTRIBUTE_TYPE_DOCS.builtin!)}
-type builtin<N extends ${WGSL_BUILTIN_NAMES.map((n) => `'${n}'`).join(' | ')}, T, O extends { readonly invariant?: true } = {}> = T
+type builtin<N extends ${WGSL_BUILTIN_NAMES.map((n) => `'${n}'`).join(' | ')}, T = ${BUILTIN_VALUE_TYPE}, O extends { readonly invariant?: true } = {}> = T extends boolean ? T : T extends { readonly invariant?: true } ? ${BUILTIN_VALUE_TYPE} : T
 ${renderJSDoc(ATTRIBUTE_TYPE_DOCS.location!)}
 type location<I extends number, T, O extends { readonly interpolate?: 'perspective' | 'linear' | 'flat' | readonly [type: 'perspective' | 'linear' | 'flat', sampling: 'center' | 'centroid' | 'sample' | 'first' | 'either']; readonly blend_src?: 0 | 1 } = {}> = T
 ${renderJSDoc(ATTRIBUTE_TYPE_DOCS.inout!)}

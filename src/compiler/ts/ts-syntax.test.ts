@@ -179,7 +179,7 @@ describe('the bitwise compound assignments', () => {
       interface Color {
         color: location<0, vec4>;
       }
-      @fragment export function fs(p: builtin<"position", vec4>): Color {
+      @fragment export function fs(p: builtin<"position">): Color {
         let y: i32 = i32(p.x);
         let k: i32 = i32(p.y);
         y <<= k;

@@ -19,6 +19,17 @@ repository is an official release yet: the `typeshade` package on npm holds only
 
 ### Added
 
+- **An entry's I/O without what the compiler knows** (change 0135). A built-in value takes its
+  type from WGSL: `vi: builtin<"vertex_index">` is a `u32`, and an option is the second
+  argument, `builtin<"position", { invariant: true }>`. `builtin<"clip_distances", array<f32, N>>`
+  keeps its type. A user-defined input or output takes its location from the compiler:
+  `uv: vec2` on an entry I/O struct, a bare vertex or fragment parameter and a field of a
+  fragment result are numbered as Rule 6.6 says, per entry for a vertex attribute and a render
+  target, per struct for a vertex result, and by name from the vertex results for any other
+  fragment input. `location<n, T>` stays to fix a number or to carry an option. The emitted
+  WGSL and GLSL ES 3.00, `reflect()` and the manifest keep their shapes, and report each
+  location, written or given.
+
 - **Every `for` loop, and an entry's inferred result** (change 0136). A `for` that is not
   counted compiles as an open loop, as a `while` does (Rule 7.5): `for (;;)` with a `break`, an
   `f32` counter, a bound the body writes, an exit with another test, a header with no
@@ -184,7 +195,19 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   runtime and fuse move from 151,804 to 152,037 and from 111,762 to 111,902, and the runtime's
   split initial from 36,465 to 36,469; the floors and `typeshade/emit` do not change.
 
+### Deprecated
+
+- **A built-in value's written type** (change 0135, decision D1.2). `builtin<"vertex_index", u32>`,
+  a type that WGSL fixes, compiles with a `TS8028` warning that names `builtin<"vertex_index">`
+  and `tshc migrate`, which rewrites it. The release after this one refuses the written type.
+
 ### Changed
+
+- **A bare compute entry parameter is refused** (change 0135). `@compute([64]) export function
+c(x: u32)` compiled to `fn c(x: u32)`, which Tint refuses, with no diagnostic. It is `TS8029`
+  now, in the sentence a `location<…>` on a compute entry has. `TS8029` no longer reports a
+  field with no attribute on a vertex or a fragment entry: the compiler gives it its location.
+  A fragment input with no location whose name no vertex result has is `TS8010`.
 
 - **A parameter qualifier is written before the parameter, `@inout a: f32` and `@out c: f32`
   (§70, Rule 8.25, change 0137).** It is the language's form: neither half warns on it, and the

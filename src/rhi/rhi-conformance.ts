@@ -46,7 +46,7 @@ const FULL_SCREEN_WGSL = `@vertex fn vs(@builtin(vertex_index) i: u32) -> @built
   return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
 }`;
 
-const FULL_SCREEN_SHADE = `@vertex export function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> {
+const FULL_SCREEN_SHADE = `@vertex export function vs(i: builtin<"vertex_index">): builtin<"position"> {
   const p = vec2(f32((i << u32(1)) & u32(2)), f32(i & u32(2)));
   return vec4(p * 2. - vec2(1., 1.), 0., 1.);
 }`;
@@ -221,7 +221,7 @@ class U {
   c: vec4;
 }
 declare const u: uniform<U>;
-@vertex export function vs(q: location<0, vec2>): builtin<"position", vec4> {
+@vertex export function vs(q: location<0, vec2>): builtin<"position"> {
   return vec4(q, 0., 1.);
 }
 @fragment export function fs(): vec4 {
@@ -263,7 +263,7 @@ void main() { o = vec4(a, bq / bw, f, 1.0); }
 `,
   shade: `"use typeshade";
 interface V {
-  p: builtin<"position", vec4>;
+  p: builtin<"position">;
   a: location<0, f32>;
   b: location<1, f32, { interpolate: "linear" }>;
   f: location<2, f32, { interpolate: "flat" }>;
@@ -551,7 +551,7 @@ void main() { o = vec4(floor(gl_FragCoord.x) / 255.0, floor(gl_FragCoord.y) / 25
 `,
           shade: `"use typeshade";
 ${FULL_SCREEN_SHADE}
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(floor(p.x) / 255., floor(p.y) / 255., 0., 1.);
 }
 `,
@@ -612,10 +612,10 @@ void main() { o = c; }
           shade: `"use typeshade";
 declare const colours: storage<array<vec4>>;
 interface Out {
-  p: builtin<"position", vec4>;
+  p: builtin<"position">;
   c: location<0, vec4, { interpolate: "flat" }>;
 }
-@vertex export function vs(q: location<0, vec2>, k: builtin<"instance_index", u32>): Out {
+@vertex export function vs(q: location<0, vec2>, k: builtin<"instance_index">): Out {
   return { p: vec4(q.x + f32(k), q.y, 0., 1.), c: colours[k] };
 }
 @fragment export function fs(c: location<0, vec4, { interpolate: "flat" }>): vec4 {
@@ -720,7 +720,7 @@ void main() { o = texture(tex, gl_FragCoord.xy / 4.0); }
 declare const tex: texture_2d<f32>;
 declare const smp: sampler;
 ${FULL_SCREEN_SHADE}
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return textureSample(tex, smp, p.xy / 4.);
 }
 `,
@@ -807,7 +807,7 @@ class U {
   z: vec4;
 }
 declare const u: uniform<U>;
-@vertex export function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> {
+@vertex export function vs(i: builtin<"vertex_index">): builtin<"position"> {
   const p = vec2(f32((i << u32(1)) & u32(2)), f32(i & u32(2)));
   return vec4(p * 2. - vec2(1., 1.), u.z.x, 1.);
 }
@@ -1093,7 +1093,7 @@ declare const u: uniform<U>;
           device.caps.shaderLanguage === 'cpu'
             ? `"use typeshade";
 declare const d: storage<array<u32>, "read_write">;
-@compute([4, 1, 1]) export function main(g: builtin<"global_invocation_id", vec3u>): void {
+@compute([4, 1, 1]) export function main(g: builtin<"global_invocation_id">): void {
   d[g.x] = d[g.x] * u32(2) + u32(1);
 }
 `
@@ -1139,7 +1139,7 @@ declare const d: storage<array<u32>, "read_write">;
           device.caps.shaderLanguage === 'cpu'
             ? `"use typeshade";
 declare const d: storage<array<u32>, "read_write">;
-@compute([2, 1, 1]) export function main(g: builtin<"global_invocation_id", vec3u>): void {
+@compute([2, 1, 1]) export function main(g: builtin<"global_invocation_id">): void {
   d[g.x] = d[g.x] + u32(100);
 }
 `
@@ -1315,10 +1315,10 @@ layout(location = 0) out vec4 o;
 void main() { o = gl_FrontFacing ? vec4(1.0) : vec4(0.4, 0.4, 0.4, 1.0); }
 `,
           shade: `"use typeshade";
-@vertex export function vs(q: location<0, vec2>): builtin<"position", vec4> {
+@vertex export function vs(q: location<0, vec2>): builtin<"position"> {
   return vec4(q, 0., 1.);
 }
-@fragment export function fs(f: builtin<"front_facing", bool>): vec4 {
+@fragment export function fs(f: builtin<"front_facing">): vec4 {
   if (f) {
     return vec4(1., 1., 1., 1.);
   }

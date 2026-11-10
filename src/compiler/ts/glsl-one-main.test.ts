@@ -20,7 +20,7 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 import { checkDocuments } from '../../language-service/check.js';
 
 const program = (second: string): string => `"use typeshade";
-@vertex export function vsA(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex export function vsA(vi: builtin<"vertex_index">): vec4 {
   return vec4(f32(vi), 0., 0., 1.);
 }
 ${second}
@@ -29,7 +29,7 @@ ${second}
 }
 `;
 
-const TWO_VERTEX = program(`@vertex export function vsB(vi: builtin<"vertex_index", u32>): vec4 {
+const TWO_VERTEX = program(`@vertex export function vsB(vi: builtin<"vertex_index">): vec4 {
   return vec4(0., f32(vi), 0., 1.);
 }`);
 

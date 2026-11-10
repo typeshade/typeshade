@@ -39,15 +39,15 @@ class Planes {
 declare const planes: uniform<Planes>;
 
 class VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   // The one built-in value whose type the AUTHOR picks: `array<f32, N>` with N from 1 to 8.
   // A wider one, or any other type, is refused at this line.
   clip: builtin<"clip_distances", array<f32, 4>>;
-  uv: location<0, vec2>;
+  uv: vec2;
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   const p = vec4(x, y, 0., 1.);
@@ -65,11 +65,11 @@ export function vs(vi: builtin<"vertex_index", u32>): VsOut {
 // The fragment stage takes its OWN struct, not `VsOut`. `clip_distances` is a vertex output
 // and nothing else — WGSL never hands it to a fragment entry — so a fragment parameter
 // carrying it is refused at the authoring line (`Builtin "clip_distances" is not a valid
-// fragment input; it is a vertex output.`). The two structs share the `uv: location<0, vec2>`
-// varying, which is the one the rasterizer actually interpolates.
+// fragment input; it is a vertex output.`). The two structs share the `uv: vec2`
+// varying, linked by its name, which is the one the rasterizer actually interpolates.
 interface FsIn {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 @fragment

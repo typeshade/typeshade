@@ -15,11 +15,11 @@ import { compile } from '../compiler/ts/compile.js';
 
 const SOURCE = `"use typeshade";
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 @vertex
-export function vs(i: builtin<"vertex_index", u32>): VsOut {
+export function vs(i: builtin<"vertex_index">): VsOut {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
 }
 @fragment
@@ -35,10 +35,10 @@ export function scale(xs: array<f32>): void {
 /** The same program in the stage calls of change 0111, which change 0140 refuses. */
 const CALLED = `"use typeshade";
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+export const vs = vertex(function vs(i: builtin<"vertex_index">): VsOut {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
 });
 export const fs = fragment(function fs(v: VsOut): vec4 {
@@ -158,11 +158,11 @@ const ATTRIBUTES = `"use typeshade";
 declare const buf: storage<array<f32>, "read_write">;
 const WG: u32 = 8;
 class VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 @vertex
-export function vs(i: builtin<"vertex_index", u32>): VsOut {
+export function vs(i: builtin<"vertex_index">): VsOut {
   const o = new VsOut();
   o.pos = vec4(f32(i), 0., 0., 1.);
   o.uv = vec2(0.);
@@ -173,7 +173,7 @@ export function fs(v: VsOut): location<0, vec4> {
   return vec4(v.uv.x, 0., 0., 1.);
 }
 @compute([WG, 8])
-export function blur(gid: builtin<"global_invocation_id", vec3u>) {
+export function blur(gid: builtin<"global_invocation_id">) {
   buf[gid.x] = 1.;
 }
 @workgroup_size([WG])

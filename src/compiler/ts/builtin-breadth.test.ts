@@ -237,7 +237,7 @@ describe('builtin breadth: the coarse and fine derivatives', () => {
     expect(r.eval('fs', [[0.5, 0.5]])).toEqual([0, 0, 0, 1]);
     expect(
       errorsOf(`"use typeshade";
-@vertex export function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex export function vs(vi: builtin<"vertex_index">): vec4 {
   return vec4(dpdyCoarse(f32(vi)));
 }
 `),

@@ -1,5 +1,5 @@
 // The attribute types of change 0111 (decision D2, D8, amendment 1): an entry input's or
-// output's attribute written in its type, `builtin<'position', vec4>`, `location<0, vec2>`. A
+// output's attribute written in its type, `builtin<'position'>`, `location<0, vec2>`. A
 // parameter's qualifier is written before the parameter, `@inout v: f32` (Rule 8.25, change
 // 0137), in both programs, and each entry carries its stage attribute (change 0130). Each
 // program is read by both halves, and the emit of each pair is the decorated form's byte for
@@ -49,12 +49,12 @@ type Struct = 'class' | 'interface' | 'type';
 // A class's field is written with "!" here, which is accepted and changes nothing (Rule 6.6).
 const TYPED = (struct: Struct, bang = struct === 'class' ? '!' : ''): string => `"use typeshade";
 ${struct === 'type' ? 'type VsOut = {' : `${struct} VsOut {`}
-  pos${bang}: builtin<"position", vec4, { invariant: true }>;
+  pos${bang}: builtin<"position", { invariant: true }>;
   uv${bang}: location<0, vec2>;
   id${bang}: location<1, u32, { interpolate: "flat" }>;
 }
 @vertex
-export function vs(i: builtin<"vertex_index", u32>): VsOut {
+export function vs(i: builtin<"vertex_index">): VsOut {
   let x = -0.8;
   if (i === 1) { x = 0.8; }
   return { pos: vec4(x, -0.8, 0., 1.), uv: vec2(x, 0.), id: i };

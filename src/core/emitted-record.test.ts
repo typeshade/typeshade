@@ -27,7 +27,7 @@ class Frame {
 declare const frame: uniform<Frame>;
 declare const dst: storage<array<f32>, "read_write">;
 const quality: override<f32> = 0.5;
-@compute([64, 1, 1]) export function step(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64, 1, 1]) export function step(gid: builtin<"global_invocation_id">) {
   dst[gid.x] = frame.time * SCALE * quality;
 }
 `;

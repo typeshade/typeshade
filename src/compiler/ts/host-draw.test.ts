@@ -125,15 +125,15 @@ declare const smp: sampler;
 interface Color { color: location<0, vec4>; }
 interface Two { a: location<0, vec4>; b: location<1, vec4>; }
 
-@fragment export function bare(p: builtin<"position", vec4>, ff: builtin<"front_facing", bool>): vec4 {
+@fragment export function bare(p: builtin<"position">, ff: builtin<"front_facing">): vec4 {
   return ff ? vec4(p.xy * frame.time, 0., 1.) : vec4(0.);
 }
-@fragment export function inStruct(p: builtin<"position", vec4>): Color { return { color: p }; }
+@fragment export function inStruct(p: builtin<"position">): Color { return { color: p }; }
 @fragment export function fromVertex(uv: location<0, vec2>): vec4 { return vec4(uv, 0., 1.); }
-@fragment export function twoTargets(p: builtin<"position", vec4>): Two { return { a: p, b: p }; }
-@fragment export function stored(p: builtin<"position", vec4>): vec4 { return vec4(data[u32(p.x)]); }
-@fragment export function sampled(p: builtin<"position", vec4>): vec4 { return textureSample(tex, smp, p.xy); }
-@fragment export function derivative(p: builtin<"position", vec4>): vec4 { return vec4(dpdx(p.x)); }
+@fragment export function twoTargets(p: builtin<"position">): Two { return { a: p, b: p }; }
+@fragment export function stored(p: builtin<"position">): vec4 { return vec4(data[u32(p.x)]); }
+@fragment export function sampled(p: builtin<"position">): vec4 { return textureSample(tex, smp, p.xy); }
+@fragment export function derivative(p: builtin<"position">): vec4 { return vec4(dpdx(p.x)); }
 `);
 
   it('draws an entry that reads its position and writes one @location(0) vec4', () => {
@@ -160,7 +160,7 @@ interface Two { a: location<0, vec4>; b: location<1, vec4>; }
     );
     const plain = face(`"use typeshade";
 declare const k: uniform<f32>;
-@fragment export function plainUniform(p: builtin<"position", vec4>): vec4 { return p * k; }
+@fragment export function plainUniform(p: builtin<"position">): vec4 { return p * k; }
 `);
     expect(fragmentOf(plain.exports, 'plainUniform').entry.noGl).toBeUndefined();
     expect(fragmentOf(plain.exports, 'plainUniform').entry.gl?.blocks.k).toBeDefined();
@@ -173,7 +173,7 @@ declare const k: uniform<f32>;
 declare const tex: texture_2d<f32>;
 declare const smp: sampler;
 function pick(t: texture_2d<f32>, s: sampler, uv: vec2): vec4 { return textureSample(t, s, uv); }
-@fragment export function throughHelper(p: builtin<"position", vec4>): vec4 { return pick(tex, smp, p.xy); }
+@fragment export function throughHelper(p: builtin<"position">): vec4 { return pick(tex, smp, p.xy); }
 `);
     expect(fragmentOf(helper.exports, 'throughHelper').entry.noGl).toMatch(
       /^the GLSL backend refuses it: .*standalone sampler/,
@@ -274,7 +274,7 @@ describe('the draw, on the CPU tier where there is no WebGPU or WebGL2', () => {
 
   it('writes a discarded pixel as the clear colour, opaque black', async () => {
     const m = await load(`"use typeshade";
-@fragment export function half(p: builtin<"position", vec4>): vec4 {
+@fragment export function half(p: builtin<"position">): vec4 {
   if (p.x < 2.) { discard; }
   return vec4(1., 1., 1., 0.5);
 }
@@ -296,9 +296,9 @@ function shade(p: vec2): vec4 {
   if (p.x < 2.) { discard; }
   return vec4(1., 1., 1., 0.5);
 }
-@fragment export function whole(p: builtin<"position", vec4>): vec4 { return shade(p.xy); }
-@fragment export function wrapped(p: builtin<"position", vec4>): Color { return { color: shade(p.xy) }; }
-@fragment export function halved(p: builtin<"position", vec4>): vec4 {
+@fragment export function whole(p: builtin<"position">): vec4 { return shade(p.xy); }
+@fragment export function wrapped(p: builtin<"position">): Color { return { color: shade(p.xy) }; }
+@fragment export function halved(p: builtin<"position">): vec4 {
   const c = shade(p.xy);
   return c * 0.5;
 }
@@ -327,7 +327,7 @@ export function fill(xs: array<f32>, v: f32) {
     xs[i] = v * f32(i);
   }
 }
-@fragment export function show(p: builtin<"position", vec4>): vec4 {
+@fragment export function show(p: builtin<"position">): vec4 {
   return vec4(data[u32(p.x)] * k, 0., 0., 1.);
 }
 `;
@@ -448,7 +448,7 @@ class Zoom {
   scale: f64;
 }
 declare const zoom: uniform<Zoom>;
-@fragment export function deep(p: builtin<"position", vec4>): vec4 {
+@fragment export function deep(p: builtin<"position">): vec4 {
   const x: f64 = zoom.cx + f64(p.x) * zoom.scale;
   return vec4(f32(fract(x * 1000)), 0, 0, 1);
 }
@@ -499,7 +499,7 @@ describe('a draw refuses what does not fit, naming the entry and the binding', (
     const m = await load(`"use typeshade";
 declare const tex: texture_2d<f32>;
 declare const smp: sampler;
-@fragment export function show(p: builtin<"position", vec4>): vec4 { return textureSample(tex, smp, p.xy); }
+@fragment export function show(p: builtin<"position">): vec4 { return textureSample(tex, smp, p.xy); }
 `);
     const show = m.show as (...a: unknown[]) => Promise<void>;
     const c = new FakeCanvas(2, 2);

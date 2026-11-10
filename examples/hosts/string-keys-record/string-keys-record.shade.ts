@@ -30,15 +30,15 @@ export function boost(pixels: array<f32>, c: Channel, scale: f32) {
 }
 
 interface Clip {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
 
 interface Color {
-  color: location<0, vec4>;
+  color: vec4;
 }
 
 @vertex
-export function vs(i: builtin<"vertex_index", u32>): Clip {
+export function vs(i: builtin<"vertex_index">): Clip {
   let p = vec2(-1., -1.);
   if (i === 1) { p = vec2(3., -1.); }
   if (i === 2) { p = vec2(-1., 3.); }
@@ -46,7 +46,7 @@ export function vs(i: builtin<"vertex_index", u32>): Clip {
 }
 
 @fragment
-export function fs(p: builtin<"position", vec4>): Color {
+export function fs(p: builtin<"position">): Color {
   const c: Channel = p.x < 16. ? "r" : p.x < 32. ? "g" : "b";
   const by: Record<Channel, f32> = { b: 0.5, r: 0.5, g: 0.5 };
   return { color: vec4(gain(c, 1., by), 0.25, 0.5, 1.) };

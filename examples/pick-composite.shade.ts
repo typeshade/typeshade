@@ -36,7 +36,7 @@ class Palette {
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): vec4 {
+export function vs(vi: builtin<"vertex_index">): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
@@ -44,7 +44,7 @@ export function vs(vi: builtin<"vertex_index", u32>): vec4 {
 }
 
 @fragment
-export function fs(frag: builtin<"position", vec4>): vec4 {
+export function fs(frag: builtin<"position">): vec4 {
   const uv: vec2 = fract(frag.xy * 0.008);
 
   const warm: Palette = { lo: vec3(0.35, 0.1, 0.05), hi: vec3(1., 0.75, 0.35) };

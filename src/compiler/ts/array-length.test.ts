@@ -16,7 +16,7 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 const KERNEL = `"use typeshade";
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
-@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= src.length) {
     return;
   }

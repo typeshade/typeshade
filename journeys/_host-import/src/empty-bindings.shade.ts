@@ -2,6 +2,6 @@
 
 // No authored or runtime binding: all three host argument forms draw this same gradient.
 @fragment
-export function unbound(p: builtin<"position", vec4>): vec4 {
+export function unbound(p: builtin<"position">): vec4 {
   return vec4(p.x / 32., p.y / 32., 0.25, 1.);
 }

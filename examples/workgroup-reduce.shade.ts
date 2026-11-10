@@ -28,9 +28,9 @@ let tile: workgroup<array<f32, 64>>;
 
 @compute([64, 1, 1])
 export function reduce(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
-  wid: builtin<"workgroup_id", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
+  wid: builtin<"workgroup_id">,
 ): void {
   tile[lid.x] = src[gid.x];
   workgroupBarrier();

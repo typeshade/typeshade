@@ -170,7 +170,7 @@ interface U {
 declare const un: uniform<U>;
 declare const out: storage<array<f32>, "read_write">;
 interface V {
-  pos: builtin<"position", vec4, { invariant: true }>;
+  pos: builtin<"position", { invariant: true }>;
   uv: location<0, vec2>;
   id: location<1, u32, { interpolate: "flat" }>;
 }
@@ -178,7 +178,7 @@ interface Dual {
   a: location<0, vec4, { blend_src: 0 }>;
   b: location<0, vec4, { blend_src: 1 }>;
 }
-@vertex export function vs(i: builtin<"vertex_index", u32>): V {
+@vertex export function vs(i: builtin<"vertex_index">): V {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.), id: i };
 }
 @fragment export function fs(v: V): Dual {
@@ -191,7 +191,7 @@ function bump(@inout v: f32): void {
 function put(@out v: f32): void {
   v = un.k;
 }
-@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   put(out[gid.x]);
   bump(out[gid.x]);
 }

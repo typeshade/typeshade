@@ -41,9 +41,9 @@ class Uniforms {
 declare const u: uniform<Uniforms>;
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
-  normal: location<1, vec3>;
+  pos: builtin<"position">;
+  uv: vec2;
+  normal: vec3;
 }
 
 /** The normal matrix: the model's upper-left 3×3. Truncation, not padding. */
@@ -52,7 +52,7 @@ export function normalMatrix(model: mat4): mat3 {
 }
 
 @vertex
-export function vs(idx: builtin<"vertex_index", u32>): VsOut {
+export function vs(idx: builtin<"vertex_index">): VsOut {
   const x = f32(idx & 1) * 4. - 1.;
   const y = f32(idx >> 1) * 4. - 1.;
   const n = normalMatrix(u.model);

@@ -3,23 +3,23 @@
 /* @example
 {
   "title": "Hello vertex attributes",
-  "blurb": "Vertex input from a buffer rather than from `vertex_index`: a `VsIn` interface of `location<…>`-typed attributes becomes GLSL `in` declarations and WGSL struct parameters from the one declaration.",
+  "blurb": "Vertex input from a buffer rather than from `vertex_index`: a `VsIn` interface of vertex attributes, numbered in the order written, becomes GLSL `in` declarations and WGSL struct parameters from the one declaration.",
   "renderable": true
 }
 */
 
 interface VsIn {
-  position: location<0, vec3>;
-  uv: location<1, vec2>;
+  position: vec3;
+  uv: vec2;
 }
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 interface Color {
-  color: location<0, vec4>;
+  color: vec4;
 }
 
 @vertex

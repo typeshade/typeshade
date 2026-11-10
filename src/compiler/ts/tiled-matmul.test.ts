@@ -17,8 +17,8 @@ declare const n: uniform<u32>;
 let ta: workgroup<array<f32, 256>>;
 let tb: workgroup<array<f32, 256>>;
 @compute([16, 16, 1]) export function tiled(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
 ): void {
   let acc: f32 = 0.;
   for (let t: u32 = 0; t < n / 16; t++) {

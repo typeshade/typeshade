@@ -234,7 +234,7 @@ describe('runGlCompute (change 0054)', () => {
 declare const photo: texture_2d<f32>;
 declare const smp: sampler;
 declare const out: storage<array<f32>, "read_write">;
-@compute([4]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function main(gid: builtin<"global_invocation_id">) {
   out[gid.x] = textureSampleLevel(photo, smp, vec2f(0.5), 0.).x;
 }
 `).module;
@@ -310,7 +310,7 @@ declare const out: storage<array<f32>, "read_write">;
       compile(`"use typeshade";
 declare const gain: uniform<f32>;
 declare const out: storage<array<f32>, "read_write">;
-@compute([4]) export function main(gid: builtin<"global_invocation_id", vec3u>) { out[gid.x] = gain; }
+@compute([4]) export function main(gid: builtin<"global_invocation_id">) { out[gid.x] = gain; }
 `).module,
       'main',
     );
@@ -384,7 +384,7 @@ function wave(i: u32): f32 {
   const angle: f64 = k * 0.7853981633974483;
   return f32(sin(angle)) + f32(cos(angle)) * 2.;
 }
-@compute([4]) export function twiddle(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function twiddle(gid: builtin<"global_invocation_id">) {
   data[gid.x] = data[gid.x] + wave(gid.x);
 }
 `;
@@ -456,7 +456,7 @@ function wave(i: u32): f32 {
     const plain = buildGlCompute(
       compile(`"use typeshade";
 declare const data: storage<array<f32>, "read_write">;
-@compute([4]) export function twice(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function twice(gid: builtin<"global_invocation_id">) {
   data[gid.x] = data[gid.x] * 2.;
 }
 `).module,
@@ -491,7 +491,7 @@ declare const data: storage<array<f32>, "read_write">;
       compile(`"use typeshade";
 declare const acc: texture_storage_2d<"r32float", "read">;
 declare const out: storage<array<f32>, "read_write">;
-@compute([4]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function main(gid: builtin<"global_invocation_id">) {
   out[gid.x] = textureLoad(acc, vec2i(i32(gid.x), 0)).x;
 }
 `).module,

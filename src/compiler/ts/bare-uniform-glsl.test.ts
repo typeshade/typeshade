@@ -166,7 +166,7 @@ declare const U: uniform<f32>;
 declare const idle: uniform<f32>;
 const U_block_: f32 = 0.25;
 function local(U: f32): f32 { return U + U_block_; }
-@vertex export function vs(vi: builtin<"vertex_index", u32>): builtin<"position", vec4> {
+@vertex export function vs(vi: builtin<"vertex_index">): builtin<"position"> {
   return vec4(f32(vi) + U, 0., 0., 1.);
 }
 @fragment export function fs(): location<0, vec4> {

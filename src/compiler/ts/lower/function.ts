@@ -2204,7 +2204,9 @@ export function parseParams(
   // at the decorator and not read.
   const site = stage ? 'a parameter' : 'a parameter of a function that is not an entry';
   for (const p of parameters) {
-    for (const d of decoratorsOf(p)) checkAttributeName(diagnostics, sourceFile, d, site);
+    let unknownAttribute = false;
+    for (const d of decoratorsOf(p))
+      if (checkAttributeName(diagnostics, sourceFile, d, site)) unknownAttribute = true;
     if (!ts.isIdentifier(p.name)) {
       pushDiag(
         diagnostics,
@@ -2463,6 +2465,22 @@ export function parseParams(
       checkStructBuiltinFields(diagnostics, sourceFile, p, pType.name, structs, stage, 'input');
     }
     const location = io?.location;
+    // A compute entry has no user-defined input (WGSL), so a parameter that is no built-in
+    // value and no struct of them is refused here: `c(x: u32)` was emitted as `fn c(x: u32)`,
+    // which Tint refuses, with nothing said (Rule 6.6, change 0135). One written at a
+    // `location<…>` is refused below, in the sentence that names the location.
+    if (stage === 'compute' && builtinArg === undefined && location === undefined) {
+      if (pType.kind !== 'struct') {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          p,
+          `"${p.name.text}" is a user-defined input of a compute entry, which has no user IO: a ` +
+            `compute shader reads its work from resources and the builtin<…> invocation ids.`,
+          TS_CODES.STRUCT_FIELD_MISSING_ATTR,
+        );
+      }
+    }
     // An emulated double on the entry's IO boundary (#151 F64-09). A FRAGMENT @location input
     // is interpolated; a VERTEX one is a buffer read, which carries a scalar f64's pair in one
     // slot but cannot carry a vec64's two.
@@ -2543,9 +2561,22 @@ export function parseParams(
       ...(kernelArray || referenced !== undefined ? { mode: 'inout' as const } : {}),
     };
     if (referenced === 'out') markOutParam(param);
+    // An attribute the front end refused, an unknown built-in name or an unknown attribute,
+    // leaves the parameter with none. That is a consequence of the refusal and no second
+    // mistake, so the parameter takes no location (Rule 12.4, `entry-locations.ts`).
+    if (builtin === undefined && location === undefined && (builtinArg || unknownAttribute))
+      refusedIoParams.add(param);
     params.push(param);
   }
   return params;
+}
+
+const refusedIoParams = new WeakSet<FuncDecl['params'][number]>();
+
+/** Whether the front end refused the entry I/O attribute `param` wrote, so that the parameter
+ *  carries none: the refusal is the one diagnostic, and nothing gives it a location. */
+export function hasRefusedIoParam(param: FuncDecl['params'][number]): boolean {
+  return refusedIoParams.has(param);
 }
 
 /** Why `p`, which carries `qualifiers`, cannot take them here, or `undefined` where it can: a
@@ -2945,7 +2976,7 @@ export function parseSignature(
  *  A SCALAR `f64` vertex attribute is not refused: a vertex `@location` input is a buffer
  *  read, not a varying, and one `vec2<f32>` slot carries the pair exactly — which is what the
  *  pass accepts. */
-type F64IoPlace =
+export type F64IoPlace =
   /** A `@location` that is INTERPOLATED between the stages: a fragment input, any entry
    *  output. The pair's two words would be blended one at a time. */
   | 'varying'
@@ -2956,7 +2987,7 @@ type F64IoPlace =
    *  faces — its struct rule keys on `f.location !== undefined` alone. */
   | 'io-struct-field';
 
-function refuseF64EntryIo(
+export function refuseF64EntryIo(
   type: ShaderType,
   what: string,
   place: F64IoPlace,
@@ -3029,7 +3060,7 @@ function refuseVertexWithoutPosition(
       sourceFile,
       node,
       `"${name}" is a vertex entry, so what it returns has to carry the position: give ` +
-        `"${authorTypeText(ret)}" a field typed builtin<"position", vec4>.`,
+        `"${authorTypeText(ret)}" a field typed builtin<"position">.`,
       TS_CODES.FUNCTION_SHAPE,
     );
     return;
@@ -3039,7 +3070,7 @@ function refuseVertexWithoutPosition(
     sourceFile,
     node,
     `"${name}" is a vertex entry, so it returns the position: a vec4, which is the position ` +
-      `on its own, or a struct with a field typed builtin<"position", vec4>. ` +
+      `on its own, or a struct with a field typed builtin<"position">. ` +
       `${typeKey(ret) === 'void' ? 'It returns nothing' : `It returns ${authorTypeText(ret)}`}.`,
     TS_CODES.FUNCTION_SHAPE,
   );
@@ -4202,14 +4233,15 @@ function decoratorsOf(node: ts.Node): readonly ts.Decorator[] {
 }
 
 /** Validates every field of the struct named `structName` (a parameter's or a return type's
- *  struct) against `stage`/`direction`: a `@builtin(...)` field is checked with
- *  `checkBuiltinStage`, and a field with neither `@builtin(...)` nor `@location(...)` is a
- *  `STRUCT_FIELD_MISSING_ATTR` error — WGSL requires every entry-IO struct member to carry one,
- *  and the compiler otherwise emits that struct's WGSL text with a member neither backend nor
- *  Tint accepts, silently. Every diagnostic anchors at `node` (the parameter or the return type
- *  annotation) since a `StructField` carries no source position of its own — see `structs.ts`'s
- *  `collectStructs`, which already validated each field's builtin name and type independently
- *  of how the struct ends up used. */
+ *  struct) against `stage`/`direction`: a `builtin<…>` field is checked with
+ *  `checkBuiltinStage`, and a field of a compute entry's struct that is no built-in value is
+ *  `STRUCT_FIELD_MISSING_ATTR`, since a compute entry has no user-defined input. A field with
+ *  no attribute on a vertex or a fragment entry is a user-defined input or output, and the
+ *  compiler gives it its location once every entry is read (`entry-locations.ts`, Rule 6.6,
+ *  change 0135), where its type and an emulated double are checked too. Every diagnostic
+ *  anchors at `node` (the parameter or the return type annotation) since a `StructField`
+ *  carries no source position of its own; see `structs.ts`'s `collectStructs`, which already
+ *  validated each field's builtin name and type independently of how the struct ends up used. */
 function checkStructBuiltinFields(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
@@ -4223,38 +4255,25 @@ function checkStructBuiltinFields(
   if (!collected) return;
   // The struct as the author wrote it, `N.VOut` for the `N_VOut` a namespace's class emits as.
   const shown = authorTypeText(structT(structName));
-  // A class, an interface and a type alias each carry the attribute in a field's type
-  // (change 0111), so one remedy fits every spelling.
-  const remedy = `WGSL requires every entry ${direction} struct member to declare one.`;
   // The slot-collision and varying-type rules read the struct alone and live in `structs.ts`,
   // which sees each declaration once: raised here they printed one mistake twice, because a
   // vertex output and a fragment input are the SAME struct. What is left below reads the
   // stage, which is genuinely different between the two uses.
   for (const field of collected.decl.fields) {
     if (hasRefusedIoAttribute(field)) continue;
-    // A `@location` on a COMPUTE entry, reached through a struct parameter. The bare-parameter
-    // spelling was refused where it is parsed, and this one walked past it: Tint answers
-    // `'@location' cannot be used by compute shaders`. Stage-dependent, so it belongs here
-    // rather than in the struct collector, which sees no stage.
-    if (stage === 'compute' && field.location !== undefined) {
+    // A user-defined value on a COMPUTE entry, reached through a struct parameter, with a
+    // `location<…>` or with no attribute at all. Tint answers `'@location' cannot be used by
+    // compute shaders`, and a member with no attribute is refused there too. Stage-dependent,
+    // so it belongs here rather than in the struct collector, which sees no stage.
+    if (stage === 'compute' && !field.builtin) {
       pushDiag(
         diagnostics,
         sourceFile,
         node,
-        `Struct "${shown}" field "${field.name}" is at a location<…> and "${shown}" is ` +
-          `a compute entry ${direction}, which has no user IO: a compute shader reads its work ` +
-          `from resources and the builtin<…> invocation ids.`,
-        TS_CODES.STRUCT_FIELD_MISSING_ATTR,
-      );
-      continue;
-    }
-    if (!field.builtin && field.location === undefined) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `Struct "${shown}" field "${field.name}" is used as a ${stage} ${direction} but ` +
-          `has neither a builtin<…> nor a location<…> type: ${remedy}`,
+        `Struct "${shown}" field "${field.name}" is ` +
+          `${field.location !== undefined ? 'at a location<…>' : `a user-defined ${direction}`} ` +
+          `and "${shown}" is a compute entry ${direction}, which has no user IO: a compute ` +
+          `shader reads its work from resources and the builtin<…> invocation ids.`,
         TS_CODES.STRUCT_FIELD_MISSING_ATTR,
       );
       continue;

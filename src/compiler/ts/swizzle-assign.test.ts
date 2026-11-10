@@ -142,7 +142,7 @@ export function f(): vec4f {
   it('writes through a storage<…, "read_write"> element and a workgroup vector', () => {
     const { compiled, result } = bothHalves(`declare const buf: storage<array<vec4f>, "read_write">;
 let shared: workgroup<vec2f>;
-@compute([1]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function main(gid: builtin<"global_invocation_id">) {
   buf[gid.x].wy = vec2f(5., 6.);
   shared.yx = vec2f(1., 2.);
   buf[gid.x].xz += shared;
@@ -191,7 +191,7 @@ describe('what stays refused (change 0106)', () => {
     // read-only error before compile() runs (surface §7, TS2540 / TS2542).
     const result = compile(
       source(`declare const ro: storage<array<vec2f>>;
-@compute([1]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function main(gid: builtin<"global_invocation_id">) {
   ro[gid.x].xx = vec2f(1.);
   ro[gid.x].xy = vec2f(1.);
 }`),

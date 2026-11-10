@@ -5,7 +5,7 @@ describe('parameter builtins', () => {
   it('reads @builtin on a vertex param', () => {
     const r = compileTsSource(`
       "use typeshade";
-      @vertex export function vs(i: builtin<"vertex_index", u32>): vec4 {
+      @vertex export function vs(i: builtin<"vertex_index">): vec4 {
         return vec4(0., 0., 0., 1.);
       }
     `);
@@ -19,7 +19,7 @@ describe('parameter builtins', () => {
   it('reads @builtin on a compute param', () => {
     const r = compileTsSource(`
       "use typeshade";
-      @compute([64]) export function paint(id: builtin<"global_invocation_id", vec3u>): void {
+      @compute([64]) export function paint(id: builtin<"global_invocation_id">): void {
         const x = id.x;
       }
     `);

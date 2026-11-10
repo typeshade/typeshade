@@ -1155,15 +1155,17 @@ function h(x: f32): f32 { return x * 2.; }
   });
 });
 
-// Regression: a struct field with neither @builtin nor @location, used as an entry function's
-// parameter or return type, used to emit invalid WGSL (a member the backend and Tint both
-// reject) with zero diagnostics from either the compiler or the language service.
-describe('entry-IO struct fields need @builtin or @location (STRUCT_FIELD_MISSING_ATTR)', () => {
-  it('rejects an unattributed field in a @vertex return struct', () => {
-    const r = diag(`
+// A struct field with neither `builtin<…>` nor `location<…>`, used as a vertex or a fragment
+// entry's parameter or return type, is a user-defined input or output, and the compiler gives
+// it its location (Rule 6.6, change 0135). Before change 0135 it was `TS8029`, and before that
+// it emitted WGSL that Tint refuses with no diagnostic. `TS8029` is now a compute entry's, which
+// has no user-defined input; `entry-locations.test.ts` reads both halves of each case.
+describe('an entry-IO struct field with no attribute takes its location (Rule 6.6)', () => {
+  it('numbers an unattributed field in a @vertex return struct', () => {
+    const r = compile(`
       "use typeshade";
-      class Out {
-        @builtin("position") pos: vec4;
+      interface Out {
+        pos: builtin<"position">;
         extra: vec4;
       }
       @vertex
@@ -1171,17 +1173,15 @@ describe('entry-IO struct fields need @builtin or @location (STRUCT_FIELD_MISSIN
         return { pos: vec4(0., 0., 0., 1.), extra: vec4(0., 0., 0., 0.) };
       }
     `);
-    const d = r.diagnostics.find((d) => d.code === TS_CODES.STRUCT_FIELD_MISSING_ATTR);
-    expect(d, 'expected a STRUCT_FIELD_MISSING_ATTR diagnostic').toBeDefined();
-    expect(d!.category).toBe('error');
-    expect(d!.message).toContain('extra');
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('@location(0) extra: vec4<f32>,');
   });
 
-  it('rejects an unattributed field in a @fragment input struct', () => {
+  it('refuses an unattributed field in a @fragment input struct that no vertex result names', () => {
     const r = diag(`
       "use typeshade";
-      class In {
-        @location(0) uv: vec2;
+      interface In {
+        uv: location<0, vec2>;
         extra: f32;
       }
       @fragment
@@ -1189,7 +1189,30 @@ describe('entry-IO struct fields need @builtin or @location (STRUCT_FIELD_MISSIN
         return vec4(v.uv, v.extra, 1.);
       }
     `);
-    expect(r.diagnostics.some((d) => d.code === TS_CODES.STRUCT_FIELD_MISSING_ATTR)).toBe(true);
+    expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual([
+      [
+        TS_CODES.STRUCT_FIELD,
+        '"In.extra" has no location and the vertex results give "extra" none: write location<n, T> on it.',
+      ],
+    ]);
+  });
+
+  it("refuses an unattributed field of a @compute entry's struct (STRUCT_FIELD_MISSING_ATTR)", () => {
+    const r = diag(`
+      "use typeshade";
+      interface In {
+        id: builtin<"global_invocation_id">;
+        extra: f32;
+      }
+      @compute([4])
+      export function main(v: In) {
+        const x = v.extra + f32(v.id.x);
+      }
+    `);
+    const d = r.diagnostics.find((d) => d.code === TS_CODES.STRUCT_FIELD_MISSING_ATTR);
+    expect(d, 'expected a STRUCT_FIELD_MISSING_ATTR diagnostic').toBeDefined();
+    expect(d!.category).toBe('error');
+    expect(d!.message).toContain('extra');
   });
 
   it('is silent when every entry-IO field carries @builtin or @location', () => {
@@ -1237,11 +1260,11 @@ describe('the stage attributes are the form of an entry (Rule 8.1, change 0130)'
   };
   const clean = { compiler: [], editor: [] };
   const BUF = 'declare const buf: storage<array<f32>, "read_write">;\n';
-  const GID = 'gid: builtin<"global_invocation_id", vec3u>';
+  const GID = 'gid: builtin<"global_invocation_id">';
 
   it('reads each stage attribute, in both orders and in a namespace, with no diagnostic', () => {
     const sources = [
-      `"use typeshade";\n@vertex\nexport function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> { return vec4(f32(i)); }\n@fragment\nexport function fs(): location<0, vec4> { return vec4(1.); }\n`,
+      `"use typeshade";\n@vertex\nexport function vs(i: builtin<"vertex_index">): builtin<"position"> { return vec4(f32(i)); }\n@fragment\nexport function fs(): location<0, vec4> { return vec4(1.); }\n`,
       `"use typeshade";\nexport @fragment function fs(): location<0, vec4> { return vec4(1.); }\n`,
       `"use typeshade";\nnamespace N { @fragment export function fs(): location<0, vec4> { return vec4(1.); } }\n`,
       `"use typeshade";\n${BUF}const WG: u32 = 8;\n@compute([WG, 8])\nexport function blur(${GID}) { buf[gid.x] = 1.; }\n`,
@@ -1288,7 +1311,7 @@ describe('the stage attributes are the form of an entry (Rule 8.1, change 0130)'
         'fs',
       ],
       [
-        `"use typeshade";\nexport default @vertex function vs(): builtin<"position", vec4> { return vec4(1.); }\n`,
+        `"use typeshade";\nexport default @vertex function vs(): builtin<"position"> { return vec4(1.); }\n`,
         'vs',
       ],
       // With no name, which only `default` allows: the placeholder of the rule's text.
@@ -1367,7 +1390,7 @@ describe('the stage attributes are the form of an entry (Rule 8.1, change 0130)'
       expect(compile(source).wgsl, source).toBeUndefined();
     };
     const vs = (attr: string) =>
-      `"use typeshade";\n${attr}\nexport function vs(): builtin<"position", vec4> { return vec4(1.); }\n`;
+      `"use typeshade";\n${attr}\nexport function vs(): builtin<"position"> { return vec4(1.); }\n`;
     const fs = (attr: string) =>
       `"use typeshade";\n${attr}\nexport function fs(): location<0, vec4> { return vec4(1.); }\n`;
     const k = (attr: string) =>
@@ -1422,7 +1445,7 @@ describe('the stage attributes are the form of an entry (Rule 8.1, change 0130)'
       // The entry is still read: a second entry of the file is not reported as the only one,
       // and the refused one is not reported as missing.
       refusedOnce(
-        `"use typeshade";\n@vertex(1)\nexport function vs(): builtin<"position", vec4> { return vec4(1.); }\n@fragment\nexport function fs(): location<0, vec4> { return vec4(1.); }\n`,
+        `"use typeshade";\n@vertex(1)\nexport function vs(): builtin<"position"> { return vec4(1.); }\n@fragment\nexport function fs(): location<0, vec4> { return vec4(1.); }\n`,
         noArgument('vertex', '1'),
         '@vertex(1)',
       );
@@ -1530,7 +1553,7 @@ describe('the stage attributes are the form of an entry (Rule 8.1, change 0130)'
   it('reads an entry I/O class whose fields have no "!" with no TS2564 (change 0130, D3)', () => {
     expect(
       both(`"use typeshade";
-class VsOut { pos: builtin<"position", vec4>; uv: location<0, vec2>; }
+class VsOut { pos: builtin<"position">; uv: location<0, vec2>; }
 @vertex
 export function vs(): VsOut { const o = new VsOut(); o.pos = vec4(1.); o.uv = vec2(0.); return o; }
 @fragment

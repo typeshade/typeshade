@@ -18,8 +18,8 @@ const MAX_BOUNCES: i32 = 3;
 const SAMPLES_PER_PIXEL: i32 = 2;
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  ndc: location<0, vec2>;
+  pos: builtin<"position">;
+  ndc: vec2;
 }
 
 interface Frame {
@@ -576,7 +576,7 @@ function renderSample(
   frame: f32,
   sample: i32,
 ): vec3 {
-  // Use a user-defined NDC varying instead of `builtin<"position", vec4>`: WGSL fragment position is
+  // Use a user-defined NDC varying instead of `builtin<"position">`: WGSL fragment position is
   // top-left-origin while GLSL gl_FragCoord is bottom-left-origin. NDC is shared by both targets.
   const pixel = (ndc * 0.5 + vec2(0.5)) * resolution;
   const jitter = pixelJitter(pixel, frame, sample);
@@ -603,7 +603,7 @@ function toneMap(color: vec3): vec3 {
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
 

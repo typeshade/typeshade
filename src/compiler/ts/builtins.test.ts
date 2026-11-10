@@ -422,7 +422,7 @@ describe('discard', () => {
     interface Color {
       color: location<0, vec4>;
     }
-    @fragment export function fs(p: builtin<"position", vec4>): Color {
+    @fragment export function fs(p: builtin<"position">): Color {
       if (p.x > 0.5) {
         discard;
       }
@@ -467,7 +467,7 @@ describe('discard', () => {
   it('is rejected in a vertex or compute entry', () => {
     expect(
       diagnose(`
-        @vertex export function vs(i: builtin<"vertex_index", u32>): vec4 {
+        @vertex export function vs(i: builtin<"vertex_index">): vec4 {
           discard;
           return vec4(0.);
         }
@@ -476,7 +476,7 @@ describe('discard', () => {
     expect(
       diagnose(`
         declare const xs: storage<array<f32>, "read_write">
-        @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>) {
+        @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">) {
           discard;
           xs[gid.x] = 1.;
         }
@@ -523,7 +523,7 @@ describe('the fragment-only rule follows calls, not just the entry body', () => 
         return x;
       }
       interface VsOut {
-        pos: builtin<"position", vec4>;
+        pos: builtin<"position">;
       }
       @vertex export function vs(): VsOut {
         const k = cut(1.);
@@ -550,7 +550,7 @@ describe('the fragment-only rule follows calls, not just the entry body', () => 
         return inner(x) * 2.;
       }
       declare const out: storage<array<f32>, "read_write">;
-      @compute([1, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>) {
+      @compute([1, 1, 1]) export function k(gid: builtin<"global_invocation_id">) {
         out[gid.x] = outer(1.);
       }
     `);
@@ -572,7 +572,7 @@ describe('the fragment-only rule follows calls, not just the entry body', () => 
         return x;
       }
       interface VsOut {
-        pos: builtin<"position", vec4>;
+        pos: builtin<"position">;
       }
       @vertex export function vs(): VsOut {
         return { pos: vec4(0., 0., 0., 1.) };
@@ -617,7 +617,7 @@ describe('the derivative stubs keep the shape their argument has', () => {
       interface Color {
         color: location<0, vec4>;
       }
-      @fragment export function fs(p: builtin<"position", vec4>): Color {
+      @fragment export function fs(p: builtin<"position">): Color {
         const d = dpdx(p.xyz);
         const w = length(fwidth(p.xy));
         return { color: vec4(d.x, w, 0., 1.) };
@@ -750,7 +750,7 @@ describe('a function the file declares wins over a builtin of its name (Rule 9.5
           color: location<0, vec4>
         }
         export function ${decl}
-        @fragment export function fs(p: builtin<"position", vec4>): Color {
+        @fragment export function fs(p: builtin<"position">): Color {
           const v = ${call};
           return { color: vec4(v, v, v, 1.) };
         }

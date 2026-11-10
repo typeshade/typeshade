@@ -36,7 +36,7 @@ class Weights {
 }
 
 @compute([64, 1, 1])
-export function scale_all(gid: builtin<"global_invocation_id", vec3u>): void {
+export function scale_all(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= src.length) {
     return;
   }

@@ -37,7 +37,7 @@ function bump(): u32 {
   seed = seed + 1;
   return seed;
 }
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>, lid: builtin<"local_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">, lid: builtin<"local_invocation_id">): void {
   tile[lid.x] = src[gid.x] * SCALE;
   bump();
   bump();
@@ -53,7 +53,7 @@ const errorsOf = (src: string) =>
     .map((d) => `${d.code} ${d.message}`);
 
 const TAIL = `
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {}
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {}
 `;
 
 describe('module variables: the WGSL', () => {
@@ -119,8 +119,8 @@ declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
 let tile: workgroup<array<f32, WG_SIZE>>;
 @compute([WG_SIZE]) export function copy(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
 ): void {
   tile[lid.x] = src[gid.x];
   dst[gid.x] = tile[lid.x];
@@ -165,7 +165,7 @@ let tile: workgroup<array<f32, WG_SIZE>>;
     const src = `"use typeshade";
 declare const out: storage<array<u32>, "read_write">;
 let hits: workgroup<u32>;
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   hits = hits + 1;
   out[gid.x] = hits;
 }
@@ -367,7 +367,7 @@ let hits: u32;
 let a: array<f32, 2> = [1., 2.];
 let z: array<f32, 2> = [0., 0.];
 let p: P = { a: 1., b: vec2(2., 3.) };
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   z[0] = a[0] + a[1] + p.b.y;
   out[gid.x] = z[0] + a[1] + f32(hits);
 }

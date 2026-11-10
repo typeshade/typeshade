@@ -1,6 +1,6 @@
 import ts from 'typescript';
 import {
-  ATTRIBUTE_TYPES,
+  attributeArgumentsOf,
   attributeDecoratorsOf,
   isAttributeType,
   typeDecoratorsOf,
@@ -9,6 +9,7 @@ import type { StructDecl, StructField } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { boolT, f32T, structT, typeKey as typeKeyOf } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
+import { isUntypedBuiltin } from './builtin-type-form.js';
 import {
   aliasTargetsOf,
   declaredTypeNamesOf,
@@ -824,7 +825,8 @@ export function collectStructs(
           // (Rule 12.4).
           const mapped = member.type
             ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
-              (writesRefusedType(member.type, sourceFile)
+              (writesRefusedType(member.type, sourceFile) ||
+              isUntypedBuiltin(member.type, sourceFile)
                 ? undefined
                 : structT(member.type.getText(sourceFile))))
             : member.initializer !== undefined
@@ -2239,7 +2241,7 @@ function signatureFields(
     // (Rule 12.4).
     const mapped = member.type
       ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
-        (writesRefusedType(member.type, sourceFile)
+        (writesRefusedType(member.type, sourceFile) || isUntypedBuiltin(member.type, sourceFile)
           ? undefined
           : structT(member.type.getText(sourceFile))))
       : undefined;
@@ -2259,7 +2261,7 @@ function signatureFields(
     }
     if (member.questionToken !== undefined) markOmittableField(sourceFile, owner, member.name.text);
     const field: StructField = { name: member.name.text, type };
-    // An interface field carries an attribute only in its type, `pos: builtin<'position', vec4>`
+    // An interface field carries an attribute only in its type, `pos: builtin<'position'>`
     // (change 0111): TypeScript has no decorator on an interface member.
     let unknownAttribute = false;
     for (const d of typeDecoratorsOf(member))
@@ -2300,7 +2302,7 @@ function checkUncollectedIo(
       });
       if (dependent) return;
     }
-    type = type.typeArguments?.[ATTRIBUTE_TYPES[name]!];
+    type = attributeArgumentsOf(type).value;
   }
   const decos = attributeDecoratorsOf(member);
   const io = readIoAttributes(diagnostics, sourceFile, decos);
@@ -2389,7 +2391,7 @@ function setEntryAttributes(
       diag(
         sourceFile,
         member,
-        `The invariant option belongs on builtin<"position", vec4>: it is WGSL's promise that this ` +
+        `The invariant option belongs on builtin<"position">: it is WGSL's promise that this ` +
           `position is computed the same way in two pipelines, and no other output ` +
           `has that meaning.`,
       ),

@@ -1,5 +1,7 @@
 // === `tshc migrate`: a "use typeshade" file to the language's own forms ===
 //
+// Implements: Rule 6.6 (docs/language-design.md; traced in reqs/).
+//
 // Change 0130 (with change 0140): an entry's stage is an attribute on its function declaration,
 // and the stage calls of change 0111, which the compiler refuses (`TS8028`) with a text that
 // names this command, are rewritten to it. The rewrite is textual and keeps every
@@ -25,7 +27,14 @@
 // attribute type that replaces it (change 0130, Migration order step 3):
 //
 //   @location(1) @interpolate("flat") id: u32        → id: location<1, u32, { interpolate: "flat" }>
-//   @builtin("position") @invariant pos: vec4        → pos: builtin<"position", vec4, { invariant: true }>
+//   @builtin("position") @invariant pos: vec4        → pos: builtin<"position", { invariant: true }>
+//
+// A built-in value takes its type from WGSL (change 0135, decision D1.2), so a written type that
+// WGSL fixes, which the compiler warns on (`TS8028`), is deleted, and an option moves to the
+// second argument. `clip_distances` keeps its type, and so does a type that is not WGSL's:
+//
+//   i: builtin<"vertex_index", u32>                  → i: builtin<"vertex_index">
+//   pos: builtin<"position", vec4, { invariant: true }> → pos: builtin<"position", { invariant: true }>
 //
 // A parameter qualifier is written before the parameter, `@inout v: f32` (Rule 8.25, change
 // 0137): the rewrite leaves a written `@inout` or `@out` as it is, and rewrites the type form of
@@ -51,6 +60,7 @@ import {
   decoratorParts,
   isQualifierTypeForm,
 } from '../compiler/ts/decorated-form.js';
+import { shortBuiltinForm, writtenBuiltinTypes } from '../compiler/ts/builtin-type-form.js';
 import { stageCallOf, type StageCall } from '../compiler/ts/stage-call.js';
 
 export interface MigrateResult {
@@ -309,6 +319,14 @@ export function migrateSource(text: string, fileName = 'a.shade.ts'): MigrateRes
     ts.forEachChild(n, visitLocals);
   };
   visitLocals(sf);
+
+  // A built-in value's written type, where it is the type WGSL fixes: `builtin<N, T>` is
+  // `builtin<N>`, and an option moves to the second argument (change 0135, decision D1.2). The
+  // list and the text are the compiler's, which names them in its `TS8028` warning.
+  for (const { ref } of writtenBuiltinTypes(sf)) {
+    edits.push({ start: ref.getStart(sf), end: ref.getEnd(), text: shortBuiltinForm(ref, sf) });
+    changes++;
+  }
 
   // Stage calls, at the top of the file and in a namespace: each becomes the function
   // declaration with its stage attribute (change 0130, D1).

@@ -895,7 +895,7 @@ export function vs(@builtin("vertex_index") i: u32): VsOut {
     // front end must not be stricter than the pass in the other direction either.
     expect(
       errorsOf(`"use typeshade";
-interface V { pos: builtin<"position", vec4>; }
+interface V { pos: builtin<"position">; }
 @vertex export function vs(p: location<0, f64>): V { return { pos: vec4(f32(p), 0., 0., 1.) }; }
 `),
     ).toEqual([]);

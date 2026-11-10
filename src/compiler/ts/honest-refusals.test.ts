@@ -1308,7 +1308,7 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
     ],
     [
       'a generic interface typing an entry output field',
-      `"use typeshade";\n${G}class VO {\n  pos: builtin<"position", vec4>;\n  g: location<0, G<f32>>;\n}\n` +
+      `"use typeshade";\n${G}class VO {\n  pos: builtin<"position">;\n  g: location<0, G<f32>>;\n}\n` +
         '@vertex export function vs(): VO {\n' +
         '  return { pos: vec4(0.), g: { x: 1. } };\n' +
         '}\n' +

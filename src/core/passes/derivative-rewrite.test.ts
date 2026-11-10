@@ -17,7 +17,7 @@ const HEAD = `declare const t: texture_2d<f32>;
 declare const s: sampler;
 declare const k: uniform<f32>;
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 @vertex export function vs(): VsOut {
@@ -197,7 +197,7 @@ function near(uv: vec2): vec4 { return textureSample(t, s, uv); }
   it('textureSampleCompare: the whole call recomputed before the branch', () => {
     const { wgsl } = reached(`declare const shadowMap: texture_depth_2d;
 declare const shadowSmp: sampler_comparison;
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   if (p.x > 0.5) { return vec4(textureSampleCompare(shadowMap, shadowSmp, p.xy * 0.01, 0.5)); }
   return vec4(0.);
 }`);
@@ -339,7 +339,7 @@ describe('the calls the rewrite cannot reach keep TS8052, with the reason', () =
 export function hold(uv: vec2): void { held = uv; }
 declare const shadowMap: texture_depth_2d;
 declare const shadowSmp: sampler_comparison;
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   if (p.x > 0.5) { return vec4(textureSampleCompare(shadowMap, shadowSmp, held, 0.5)); }
   return vec4(0.);
 }`);
@@ -375,7 +375,7 @@ describe('the CPU oracle reads the rewritten IR (change 0132, decision 2)', () =
   const src = `"use typeshade";
 declare const t: texture_2d<f32>;
 declare const s: sampler;
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   if (p.x > 0.5) { return textureSample(t, s, p.xy); }
   return vec4(0., 0., 1., 1.);
 }`;

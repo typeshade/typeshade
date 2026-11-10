@@ -181,16 +181,6 @@ export const FOREIGN_NAMES: Readonly<Record<string, ForeignName>> = {
   gl_NumWorkGroups: { from: 'GLSL', name: 'num_workgroups', kind: 'builtin', io: 'input' },
 };
 
-/** The spelling an author writes for the type a built-in value has. */
-function spelled(type: ShaderType): string {
-  if (type.kind === 'scalar') return type.scalar;
-  if (type.kind === 'vec') {
-    const suffix = { f32: '', i32: 'i', u32: 'u', bool: 'b' }[type.elem];
-    return `vec${String(type.n)}${suffix}`;
-  }
-  return type.kind;
-}
-
 /** The parameter or field name a remedy writes for a built-in value: `pos` for the position,
  *  as the surface's own examples name it, and the id in camel case otherwise. */
 const paramName = (id: string): string =>
@@ -226,7 +216,9 @@ export function foreignNameRemedy(name: string): string | undefined {
     case 'builtin': {
       const type = WGSL_BUILTIN_TYPES[row.name as keyof typeof WGSL_BUILTIN_TYPES] as
         ShaderType | undefined;
-      const declaration = `${paramName(row.name)}: builtin<"${row.name}", ${type === undefined ? '…' : spelled(type)}>`;
+      // A built-in value takes its type from WGSL, so none is written (Rule 6.6, change 0135);
+      // `clip_distances` is the one name that writes its `array<f32, N>`.
+      const declaration = `${paramName(row.name)}: builtin<"${row.name}"${type === undefined ? ', …' : ''}>`;
       const where =
         row.io === 'output'
           ? "a field of the entry's return"

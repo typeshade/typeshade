@@ -20,12 +20,12 @@
 // called with and without the argument (`clampTo`).
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 interface Color {
-  color: location<0, vec4>;
+  color: vec4;
 }
 
 /** A hit along a ray: the distance, the normal where the surface has one, and the circle's
@@ -91,7 +91,7 @@ function sampleAll(samples: array<f32 | undefined, 4>): f32 {
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);

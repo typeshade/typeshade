@@ -1,11 +1,12 @@
 // === TypeScript type node -> TypeShade ShaderType (Phase 2+) ===
 //
-// Implements: Rule 4.1, Rule 4.8 (docs/language-design.md; traced in reqs/).
+// Implements: Rule 4.1, Rule 4.8, Rule 6.6 (docs/language-design.md; traced in reqs/).
 
 import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
-import { ATTRIBUTE_TYPES } from './attribute-types.js';
+import { ATTRIBUTE_TYPES, attributeArgumentsOf, builtinNameOf } from './attribute-types.js';
 import { type ShaderType } from '../../core/ir/types.js';
+import { WGSL_BUILTIN_TYPES, type FixedTypeBuiltinName } from '../../core/sot.js';
 import {
   f32T,
   f64T,
@@ -1251,12 +1252,21 @@ function mapGeneric(
   if (name === 'uniform' || name === 'storage') {
     return mapType(args[0], sourceFile, diagnostics, resolving, sizeOverrides);
   }
-  // An attribute type of change 0111 is its value type, `builtin<'position', vec4>` a `vec4`;
+  // An attribute type of change 0111 is its value type, `builtin<'position'>` a `vec4`;
   // its attribute is read where it is written (`attribute-types.ts`).
   if (name !== undefined && Object.hasOwn(ATTRIBUTE_TYPES, name)) {
-    const value = args[ATTRIBUTE_TYPES[name]!];
+    const value = attributeArgumentsOf(typeNode).value;
     if (value !== undefined)
       return mapType(value, sourceFile, diagnostics, resolving, sizeOverrides);
+    // `builtin<N>` is the value WGSL defines for `N`, of the type WGSL gives it (change 0135,
+    // decision D1.2). `clip_distances` has no single type and an unknown name has none: each
+    // is refused once, where it is written (`builtin-type-form.ts`), and types nothing here.
+    const id = name === 'builtin' ? builtinNameOf(typeNode) : undefined;
+    if (id !== undefined) {
+      return Object.hasOwn(WGSL_BUILTIN_TYPES, id)
+        ? (WGSL_BUILTIN_TYPES[id as FixedTypeBuiltinName] as ShaderType)
+        : undefined;
+    }
   }
   // `atomic<u32>` / `atomic<i32>` (roadmap 0.2 item 4): a location in storage memory for the
   // atomic builtins. Where it may be declared is decided by the declaration sites, not here.

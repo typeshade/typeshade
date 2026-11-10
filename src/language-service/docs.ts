@@ -111,13 +111,13 @@ export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
   workgroup_size:
     'Optionally states the workgroup size of each loop that does not reduce in a kernel function, an exported function that takes an array with no size or a 2D storage texture, as one extent: `@workgroup_size([128]) export function scale(xs: array<f32>) { … }`. Without it the compiler chooses the size, and a loop that reduces runs at 256 whatever is written. An entry takes its size as `@compute([128])`.',
   builtin:
-    'The decorated form of `builtin<N, T>`, a WebGPU builtin value: `i: builtin<"vertex_index", u32>` for `@builtin("vertex_index") i: u32`.',
+    'The decorated form of `builtin<N>`, a WebGPU builtin value: `i: builtin<"vertex_index">` for `@builtin("vertex_index") i: u32`.',
   location:
     'The decorated form of `location<I, T>`, a numeric shader IO location: `uv: location<0, vec2>` for `@location(0) uv: vec2`.',
   interpolate:
     'The decorated form of the `interpolate` option, `location<0, u32, { interpolate: "flat" }>`, or a type and a sampling as `{ interpolate: ["linear", "centroid"] }`. An integer varying takes `flat` automatically. GLSL ES 3.00 has `smooth`, `flat` and `centroid` only, so `"linear"` and the `"sample"` position fail the module closed on that target.',
   invariant:
-    'The decorated form of the `invariant` option, `builtin<"position", vec4, { invariant: true }>`: WGSL\'s promise that this position is computed the same way in two pipelines, so a depth pre-pass matches the shading pass. Emits `invariant gl_Position;` on GLSL ES 3.00.',
+    'The decorated form of the `invariant` option, `builtin<"position", { invariant: true }>`: WGSL\'s promise that this position is computed the same way in two pipelines, so a depth pre-pass matches the shading pass. Emits `invariant gl_Position;` on GLSL ES 3.00.',
   blend_src:
     'The decorated form of the `blend_src` option, `location<0, vec4, { blend_src: 0 }>` beside `{ blend_src: 1 }`: which of the two colours a dual-source blend mixes this fragment output is. Derives the `dualSourceBlending` capability; GLSL ES 3.00 has no second source, so a module using it fails closed there.',
   inout:
@@ -131,9 +131,9 @@ export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
  *  so TypeScript adds no second diagnostic to the compiler's `TS8028` (Rule 12.4). */
 export const ATTRIBUTE_TYPE_DOCS: Readonly<Record<string, string>> = {
   builtin:
-    'A WebGPU builtin value of type `T`: `i: builtin<"vertex_index", u32>` on an entry parameter, `pos: builtin<"position", vec4>` on an entry IO field. Options: `{ invariant: true }` on the position.',
+    'A WebGPU builtin value, of the type WGSL gives it: `i: builtin<"vertex_index">` on an entry parameter is a `u32`, `pos: builtin<"position">` on an entry IO field a `vec4`. An option is the second argument: `builtin<"position", { invariant: true }>`. `clip_distances` is the one name that writes its type, `builtin<"clip_distances", array<f32, 4>>`. A written type that WGSL fixes, `builtin<"vertex_index", u32>`, is the migration form: the compiler warns on it (TS8028), and `tshc migrate` rewrites it.',
   location:
-    'A shader IO location of type `T`: `uv: location<0, vec2>`. Options: `{ interpolate: "flat" }` or `{ interpolate: ["linear", "centroid"] }`, and `{ blend_src: 0 | 1 }` on a dual-source fragment output.',
+    'A shader IO location of type `T`, at the number written: `uv: location<0, vec2>`. An input or output that writes none, `uv: vec2`, takes its location from the compiler; write `location<n, T>` to fix the number or to carry an option. Options: `{ interpolate: "flat" }` or `{ interpolate: ["linear", "centroid"] }`, and `{ blend_src: 0 | 1 }` on a dual-source fragment output.',
   inout:
     "Not the language's form: a parameter qualifier is written before the parameter, `@inout a: T` (Rule 8.25, change 0137). The compiler refuses `inout<T>` (TS8028), and `tshc migrate` rewrites it on a parameter.",
   out: "Not the language's form: a parameter qualifier is written before the parameter, `@out c: T` (Rule 8.25, change 0137). The compiler refuses `out<T>` (TS8028), and `tshc migrate` rewrites it on a parameter.",

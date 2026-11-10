@@ -142,9 +142,9 @@ const VERTEX_GAPS: Readonly<Record<string, string>> = {};
 const atomicVertex = (call: string, yieldsValue: boolean): string => `"use typeshade"
 declare const hist: storage<array<atomic<u32>>, "read_write">
 interface Clip {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
-@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index">): Clip {
 ${
   yieldsValue
     ? `  const r = ${call}\n  return { pos: vec4(f32(r), 0., 0., 1.) }`
@@ -264,7 +264,7 @@ describe('the compiler stage sets equal the sets core.def states (S4)', () => {
     for (const id of ids) {
       const fragment = `"use typeshade"
 interface V {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 @fragment export function fs(v: V): vec4 {
@@ -274,15 +274,15 @@ interface V {
 `;
       const vertex = `"use typeshade"
 interface Clip {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
-@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index">): Clip {
   ${id}()
   return { pos: vec4(0., 0., 0., 1.) }
 }
 `;
       const compute = `"use typeshade"
-@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   ${id}()
 }
 `;

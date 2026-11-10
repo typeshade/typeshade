@@ -714,7 +714,7 @@ const SOURCE_WITNESSES: Readonly<Partial<Record<Capability, string>>> = {
   subgroups: `"use typeshade";
 declare const src: storage<array<u32>>;
 declare const out: storage<array<u32>, "read_write">;
-@compute([64]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64]) export function cs(gid: builtin<"global_invocation_id">): void {
   out[gid.x] = subgroupAdd(src[gid.x]);
 }
 `,
@@ -724,19 +724,19 @@ declare const out: storage<array<u32>, "read_write">;
   // and `["dualSourceBlending"]` for these three programs.
   clipDistances: `"use typeshade";
 interface Clip {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   cd: builtin<"clip_distances", array<f32, 4>>;
 }
-@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index">): Clip {
   return { pos: vec4(0., 0., 0., 1.), cd: array<f32, 4>(1., 1., 1., 1.) };
 }
 `,
   primitiveIndex: `"use typeshade";
 interface V {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
-@fragment export function fs(v: V, pi: builtin<"primitive_index", u32>): vec4 {
+@fragment export function fs(v: V, pi: builtin<"primitive_index">): vec4 {
   return vec4(f32(pi), 0., 0., 1.);
 }
 `,
@@ -748,7 +748,7 @@ interface Dual {
   b: location<0, vec4, { blend_src: 1 }>;
 }
 interface V {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 @fragment export function fs(v: V): Dual {
@@ -766,7 +766,7 @@ interface U {
 }
 declare const u: uniform<U>;
 interface V {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 @fragment export function fs(v: V): vec4 {
@@ -778,26 +778,26 @@ interface V {
   // there is no builtin to call for it.
   bgra8unormStorage: `"use typeshade";
 declare const dst: texture_storage_2d<"bgra8unorm", "write">;
-@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.));
 }
 `,
   storageBuffer: `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   out[gid.x] = 1.;
 }
 `,
   compute: `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   out[gid.x] = 1.;
 }
 `,
   msaaTextureLoad: `"use typeshade";
 declare const ms: texture_multisampled_2d<f32>;
 interface V {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 @fragment export function fs(v: V): vec4 {
@@ -806,7 +806,7 @@ interface V {
 `,
   storageTexture: `"use typeshade";
 declare const dst: texture_storage_2d<"rgba8unorm", "write">;
-@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.));
 }
 `,
@@ -814,7 +814,7 @@ declare const dst: texture_storage_2d<"rgba8unorm", "write">;
 declare const ramp: texture_1d<f32>;
 declare const smp: sampler;
 interface V {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 @fragment export function fs(v: V): vec4 {
@@ -825,7 +825,7 @@ interface V {
 declare const envs: texture_cube_array<f32>;
 declare const smp: sampler;
 interface V {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 @fragment export function fs(v: V): vec4 {
@@ -836,7 +836,7 @@ interface V {
 declare const atlas: texture_2d<f32>;
 declare const smp: sampler;
 interface V {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 @fragment export function fs(v: V): vec4 {

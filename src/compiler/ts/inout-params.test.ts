@@ -110,7 +110,7 @@ class P {
     this.v = this.v + d;
   }
 }
-@compute([1, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   ps[gid.x].bump(0.25);
   held.bump(0.5);
   let local = new P();
@@ -167,7 +167,7 @@ class P {
     this.v = this.v + d;
   }
 }
-@compute([1, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   ps[gid.x].bump(0.25);
 }
 `);
@@ -216,7 +216,7 @@ class P {
     this.v = this.v + d;
   }
 }
-@compute([4, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([4, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= u32(ps.length)) {
     return;
   }

@@ -4243,12 +4243,12 @@ class NamekScene {
 
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(vi & u32(1)) * 4.0 - 1.0;
   const y = f32(vi >> u32(1)) * 4.0 - 1.0;
   const ndc = vec2(x, y);
@@ -4261,7 +4261,7 @@ export function vs(vi: builtin<"vertex_index", u32>): VsOut {
 
 @fragment
 export function main(
-  uv: location<0, vec2>
+  uv: vec2
 ): vec4 {
   const scene =
     new NamekScene();

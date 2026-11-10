@@ -23,7 +23,7 @@ declare const msaa: texture_multisampled_2d<f32>;
 declare const depthMs: texture_depth_multisampled_2d;
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): vec4 {
+export function vs(vi: builtin<"vertex_index">): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
@@ -31,7 +31,7 @@ export function vs(vi: builtin<"vertex_index", u32>): vec4 {
 }
 
 @fragment
-export function fs(p: builtin<"position", vec4>): vec4 {
+export function fs(p: builtin<"position">): vec4 {
   // The integer texel this fragment covers: a multisampled load takes no normalised coordinate.
   const c: vec2i = vec2i(p.xy);
   // A 4× resolve, one load per sample. The count is a fact about the texture the host bound;

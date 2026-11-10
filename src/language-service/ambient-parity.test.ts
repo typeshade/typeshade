@@ -542,6 +542,55 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
     `"use typeshade"\ninterface P { a: location<0, vec4> }\ninterface Q { a: location<0, vec4> }\n@fragment export function fs(uv: location<0, vec2>) {\n  return { a: vec4(uv, 0., 1.) };\n}\n`,
     'refuse',
   ],
+  // Change 0135: a built-in value takes its type from WGSL, and a user-defined input or output
+  // its location from the compiler. `builtin-type-form.test.ts` and `entry-locations.test.ts`
+  // read the diagnostics, the hover and the emit of each; these rows hold the two verdicts
+  // together. The `TS8028` warning on a written type is no row here: a warning is no refusal.
+  [
+    'builtin<"vertex_index"> with no type',
+    `"use typeshade"\n@vertex export function vs(vi: builtin<"vertex_index">): vec4 {\n  const i: u32 = vi\n  return vec4(f32(i), 0., 0., 1.)\n}\n`,
+    'accept',
+  ],
+  [
+    'builtin<"position", { invariant: true }>, an option second',
+    `"use typeshade"\ninterface VsOut { pos: builtin<"position", { invariant: true }> }\n@vertex export function vs(): VsOut {\n  const p: vec4 = vec4(0., 0., 0., 1.)\n  return { pos: p }\n}\n`,
+    'accept',
+  ],
+  [
+    'builtin<"clip_distances"> with no type, written in the body',
+    `"use typeshade"\ninterface VsOut { pos: builtin<"position">; cd: builtin<"clip_distances"> }\n@vertex export function vs(): VsOut {\n  let out: VsOut = { pos: vec4(0.), cd: [0., 0.] }\n  out.cd[0] = 1.\n  return out\n}\n`,
+    'refuse',
+  ],
+  [
+    'a VsOut with uv: vec2 and a Color with color: vec4',
+    `"use typeshade"\ninterface VsOut { pos: builtin<"position">; uv: vec2 }\ninterface Color { color: vec4 }\n@vertex export function vs(i: builtin<"vertex_index">): VsOut {\n  return { pos: vec4(f32(i), 0., 0., 1.), uv: vec2(0., 0.) }\n}\n@fragment export function fs(v: VsOut): Color {\n  return { color: vec4(v.uv, 0., 1.) }\n}\n`,
+    'accept',
+  ],
+  [
+    'the mixed case: A.n given, B.n taken by its name',
+    `"use typeshade"\ninterface A { pos: builtin<"position">; uv: location<0, vec2>; n: vec3 }\ninterface B { pos: builtin<"position">; n: vec3 }\n@vertex export function va(): A {\n  return { pos: vec4(0.), uv: vec2(0.), n: vec3(0.) }\n}\n@fragment export function fb(v: B): vec4 {\n  return vec4(v.n, 1.)\n}\n`,
+    'accept',
+  ],
+  [
+    'a fragment input whose name no vertex result has',
+    `"use typeshade"\ninterface VsOut { pos: builtin<"position">; uv: vec2 }\ninterface FsIn { n: vec3 }\n@vertex export function vs(): VsOut {\n  return { pos: vec4(0.), uv: vec2(0.) }\n}\n@fragment export function fs(v: FsIn): vec4 {\n  return vec4(v.n, 1.)\n}\n`,
+    'refuse',
+  ],
+  [
+    'a bool field of an entry I/O struct with no attribute',
+    `"use typeshade"\ninterface VsOut { pos: builtin<"position">; ok: bool }\n@vertex export function vs(): VsOut {\n  return { pos: vec4(0.), ok: true }\n}\n`,
+    'refuse',
+  ],
+  [
+    'a bare vertex parameter and a bare fragment parameter of its name',
+    `"use typeshade"\ninterface VsOut { pos: builtin<"position">; uv: vec2 }\n@vertex export function vs(p: vec2): VsOut {\n  return { pos: vec4(p, 0., 1.), uv: p }\n}\n@fragment export function fs(uv: vec2): vec4 {\n  return vec4(uv, 0., 1.)\n}\n`,
+    'accept',
+  ],
+  [
+    'a bare compute parameter',
+    `"use typeshade"\n@compute([64]) export function c(x: u32) {\n  const y = x + 1\n}\n`,
+    'refuse',
+  ],
 ];
 
 describe('the ambient library declares what the compiler lowers, no wider and no narrower', () => {

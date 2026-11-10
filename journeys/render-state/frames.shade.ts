@@ -7,7 +7,7 @@
 // of the triangle and the colour of the fragment are overrides, which each pipeline sets.
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 
@@ -23,7 +23,7 @@ const pick: override<i32> = 0;
 
 /** A fullscreen triangle at `depth`, with `uv` running from 0 at the top left to 1 at the bottom right. */
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(i32(vi) / 2) * 4 - 1;
   const y = f32(i32(vi) % 2) * 4 - 1;
   return { pos: vec4(x, y, depth, 1), uv: vec2(x * 0.5 + 0.5, 0.5 - y * 0.5) };
@@ -47,6 +47,6 @@ declare const out: storage<array<f32>, "read_write">;
 
 /** Writes 7 to the first word: a kernel pass the host runs after a render pass. */
 @compute([1])
-export function bump(gid: builtin<"global_invocation_id", vec3u>) {
+export function bump(gid: builtin<"global_invocation_id">) {
   out[gid.x] = 7.;
 }

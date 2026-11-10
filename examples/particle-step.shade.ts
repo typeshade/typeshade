@@ -44,7 +44,7 @@ class Particle {
 }
 
 @compute([64, 1, 1])
-export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+export function k(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= u32(ps.length)) {
     return;
   }

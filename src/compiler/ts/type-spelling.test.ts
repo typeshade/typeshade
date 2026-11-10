@@ -121,7 +121,7 @@ describe('a message names a class by the name the author gave it', () => {
       said(
         [
           'class In { p: location<0, vec3> = vec3(0.); }',
-          'class VO { pos: builtin<"position", vec4> = vec4(0.); b: location<0, In> = new In(); }',
+          'class VO { pos: builtin<"position"> = vec4(0.); b: location<0, In> = new In(); }',
           '@vertex export function vs(): VO { return new VO(); }',
         ].join('\n'),
       ),
@@ -308,16 +308,15 @@ describe('a message names a class in a namespace, and a generic one, as written'
         [
           '"use typeshade";',
           'namespace S {',
-          '  export class VOut { pos: builtin<"position", vec4> = vec4(0.); uv: vec2 = vec2(0.); }',
+          '  export class VOut { pos: builtin<"position"> = vec4(0.); ok: bool = false; }',
           '}',
           '@vertex export function vs(): S.VOut { return new S.VOut(); }',
           '',
         ].join('\n'),
       ).diagnostics.map((d) => `${d.code} ${d.message}`),
     ).toEqual([
-      'TS8029 Struct "S.VOut" field "uv" is used as a vertex output but has neither ' +
-        'a builtin<…> nor a location<…> type: WGSL requires every entry output struct member to ' +
-        'declare one.',
+      'TS8003 "S.VOut.ok" is at a location and is "bool"; a value passed between stages is a ' +
+        'numeric scalar or a numeric vector. Send a u32 and compare it.',
     ]);
   });
 
@@ -353,7 +352,7 @@ describe('the messages round one left on the key', () => {
         [
           'declare const dt: texture_depth_2d;',
           'declare const smp: sampler;',
-          `@fragment export function fs(p: builtin<"position", vec4>): vec4 { return ${call}; }`,
+          `@fragment export function fs(p: builtin<"position">): vec4 { return ${call}; }`,
         ].join('\n'),
       );
     expect(fragment('vec4(textureSampleCompare(dt, p.xy, p.xy, 0.5))')).toEqual([
@@ -377,7 +376,7 @@ describe('the messages round one left on the key', () => {
           '@fragment export function fs(i: FIn): vec4 { return vec4(i.uv, 0., 1.); }',
         ].join('\n'),
       );
-    const vout = '{ pos: builtin<"position", vec4> = vec4(0.); uv: location<0, vec3> = vec3(0.); }';
+    const vout = '{ pos: builtin<"position"> = vec4(0.); uv: location<0, vec3> = vec3(0.); }';
     expect(pair(`class VOut ${vout}`, 'VOut')).toEqual([
       'TS8010 @location(0) leaves "vs" as vec3 (VOut.uv) and enters "fs" as vec2 (FIn.uv); ' +
         'an interstage slot is one type on both sides.',
@@ -467,7 +466,7 @@ describe('a class named while the structs are collected, and a sentence about a 
       saidOf(
         [
           'class VO {',
-          '  pos: builtin<"position", vec4> = vec4(0.);',
+          '  pos: builtin<"position"> = vec4(0.);',
           '  b: location<0, N.In> = new N.In();',
           '  c: location<1, Slot<f32>> = new Slot<f32>(1.);',
           '}',
@@ -510,7 +509,7 @@ describe('a class named while the structs are collected, and a sentence about a 
       ),
     ).toEqual([
       'TS8020 "vs" is a vertex entry, so what it returns has to carry the position: give ' +
-        '"S.VOut" a field typed builtin<"position", vec4>.',
+        '"S.VOut" a field typed builtin<"position">.',
     ]);
   });
 
@@ -564,7 +563,7 @@ describe('a class named while the structs are collected, and a sentence about a 
           'namespace S {',
           '  export class E {}',
           '  export class VOut {',
-          '    pos: builtin<"position", vec4> = vec4(0.);',
+          '    pos: builtin<"position"> = vec4(0.);',
           '    uv: location<0, vec2> = vec2(0.);',
           '    c: location<0, vec2> = vec2(0.);',
           '  }',

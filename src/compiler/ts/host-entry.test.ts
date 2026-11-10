@@ -72,7 +72,7 @@ class Sim {
 declare const sim: uniform<Sim>;
 declare const particles: storage<array<Particle>, "read_write">;
 
-@compute([64]) export function step(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function step(gid: builtin<"global_invocation_id">) {
   if (gid.x >= particles.length) {
     return;
   }
@@ -97,7 +97,7 @@ declare const xs: storage<array<f32>>;
 declare const ys: storage<array<f32>, "read_write">;
 declare const pts: storage<array<vec2>, "read_write">;
 
-@compute([8]) export function scale(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([8]) export function scale(gid: builtin<"global_invocation_id">) {
   if (gid.x >= xs.length) {
     return;
   }
@@ -109,11 +109,11 @@ declare const pts: storage<array<vec2>, "read_write">;
 describe('which entries a host can call (Rule 8.24)', () => {
   it('calls a @compute entry, draws a fragment entry, and says why a vertex entry is neither', () => {
     const f = face(`"use typeshade";
-interface VsOut { pos: builtin<"position", vec4>; }
-@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut { return { pos: vec4(f32(vi), 0., 0., 1.) }; }
-@fragment export function fs(p: builtin<"position", vec4>): vec4 { return p; }
+interface VsOut { pos: builtin<"position">; }
+@vertex export function vs(vi: builtin<"vertex_index">): VsOut { return { pos: vec4(f32(vi), 0., 0., 1.) }; }
+@fragment export function fs(p: builtin<"position">): vec4 { return p; }
 declare const out: storage<array<u32>, "read_write">;
-@compute([64]) export function fill(gid: builtin<"global_invocation_id", vec3u>) { out[gid.x] = gid.x; }
+@compute([64]) export function fill(gid: builtin<"global_invocation_id">) { out[gid.x] = gid.x; }
 `);
     const kinds = Object.fromEntries(
       f.exports.map((e) => [e.name, e.kind === 'never' ? e.reason : e.kind]),
@@ -128,10 +128,10 @@ declare const out: storage<array<u32>, "read_write">;
 declare const tex: texture_2d<f32>;
 declare const vol: texture_3d<f32>;
 declare const out: storage<array<vec4>, "read_write">;
-@compute([8]) export function copy(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([8]) export function copy(gid: builtin<"global_invocation_id">) {
   out[gid.x] = textureLoad(tex, vec2i(i32(gid.x), 0), 0);
 }
-@compute([8]) export function deep(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([8]) export function deep(gid: builtin<"global_invocation_id">) {
   out[gid.x] = textureLoad(vol, vec3i(i32(gid.x), 0, 0), 0);
 }
 `);
@@ -253,7 +253,7 @@ class U { a: vec3; b: f32; c: array<f32, 3>; m: mat3x3; }
 class S { a: vec3; b: f32; c: array<f32, 3>; d: vec2; }
 declare const u: uniform<U>;
 declare const s: storage<S, "read_write">;
-@compute([1]) export function touch(gid: builtin<"global_invocation_id", vec3u>) { s.b = u.b + u.c[1] + u.m[0].x; }
+@compute([1]) export function touch(gid: builtin<"global_invocation_id">) { s.b = u.b + u.c[1] + u.m[0].x; }
 `;
     const e = entryOf(face(src).exports, 'touch');
     const structs = new Map(compile(src).module.structs.map((d) => [d.name, d]));
@@ -347,7 +347,7 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
     const SRC = `"use typeshade";
 declare const pos: storage<array<vec3>>;
 declare const out: storage<array<vec3>, "read_write">;
-@compute([8]) export function scale(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([8]) export function scale(gid: builtin<"global_invocation_id">) {
   out[gid.x] = pos[gid.x] * 2.;
 }
 `;
@@ -423,7 +423,7 @@ declare const affine: uniform<Affine>;
 declare const xs: storage<array<f64>>;
 declare const ys: storage<array<f64>, "read_write">;
 declare const ps: storage<array<vec3f64>, "read_write">;
-@compute([64]) export function axpy(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function axpy(gid: builtin<"global_invocation_id">) {
   if (gid.x >= xs.length) {
     return;
   }
@@ -460,7 +460,7 @@ declare const ps: storage<array<vec3f64>, "read_write">;
     // A module that emulates no f64 carries one text, as before.
     const plain = face(`"use typeshade";
 declare const xs: storage<array<f32>, "read_write">;
-@compute([64]) export function twice(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function twice(gid: builtin<"global_invocation_id">) {
   if (gid.x >= xs.length) {
     return;
   }
@@ -630,8 +630,8 @@ declare const n: uniform<u32>;
 declare const seen: storage<array<u32>, "read_write">;
 declare const shape: storage<array<u32>, "read_write">;
 @compute([2]) export function mark(
-  gid: builtin<"global_invocation_id", vec3u>,
-  nw: builtin<"num_workgroups", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  nw: builtin<"num_workgroups">,
 ) {
   if (gid.x < seen.length) {
     seen[gid.x] = gid.x + 1;
@@ -789,11 +789,11 @@ describe('console.* from an entry, in vite dev (change 0014)', () => {
   const LOGS = `"use typeshade";
 declare const xs: storage<array<f32>>;
 declare const ys: storage<array<f32>, "read_write">;
-@compute([4]) export function report(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function report(gid: builtin<"global_invocation_id">) {
   console.log("x", gid.x, xs[gid.x]);
   ys[gid.x] = xs[gid.x];
 }
-@compute([4]) export function quiet(gid: builtin<"global_invocation_id", vec3u>) { ys[gid.x] = 0.; }
+@compute([4]) export function quiet(gid: builtin<"global_invocation_id">) { ys[gid.x] = 0.; }
 `;
 
   it('records the calls in the WGSL, with the log, only when the build asks for it', () => {

@@ -34,13 +34,13 @@ import { SUBGROUP_INTRINSICS } from '../../core/intrinsics.js';
 
 const HEAD = `"use typeshade";
 interface V {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 `;
 
 /** Every subgroup function once, in a fragment entry, with the two fragment built-in values. */
-const EVERY = `${HEAD}@fragment export function fs(v: V, lane: builtin<"subgroup_invocation_id", u32>, size: builtin<"subgroup_size", u32>): vec4 {
+const EVERY = `${HEAD}@fragment export function fs(v: V, lane: builtin<"subgroup_invocation_id">, size: builtin<"subgroup_size">): vec4 {
   const x = v.uv.x;
   const u = u32(x * 8.);
   const a = subgroupAdd(x) + subgroupMul(x) + subgroupMin(x) + subgroupMax(x);
@@ -101,7 +101,7 @@ describe('WGSL: the calls, behind the directive the use derives (§50)', () => {
   const source = `"use typeshade";
 declare const src: storage<array<u32>>;
 declare const bins: storage<array<atomic<u32>>, "read_write">;
-@compute([64]) export function cs(gid: builtin<"global_invocation_id", vec3u>, sg: builtin<"subgroup_id", u32>, n: builtin<"num_subgroups", u32>): void {
+@compute([64]) export function cs(gid: builtin<"global_invocation_id">, sg: builtin<"subgroup_id">, n: builtin<"num_subgroups">): void {
   const v = subgroupAdd(src[gid.x]);
   if (subgroupElect()) {
     atomicAdd(bins[sg % n], v);
@@ -188,7 +188,7 @@ describe('GLSL ES 3.00 and the CPU oracle: a subgroup of one invocation (Rule 11
     expect(out[3]).toBe(1);
     const compute = compile(`"use typeshade";
 declare const out: storage<array<u32>, "read_write">;
-@compute([8, 2, 1]) export function cs(i: builtin<"local_invocation_index", u32>, sg: builtin<"subgroup_id", u32>, n: builtin<"num_subgroups", u32>, lane: builtin<"subgroup_invocation_id", u32>, size: builtin<"subgroup_size", u32>): void {
+@compute([8, 2, 1]) export function cs(i: builtin<"local_invocation_index">, sg: builtin<"subgroup_id">, n: builtin<"num_subgroups">, lane: builtin<"subgroup_invocation_id">, size: builtin<"subgroup_size">): void {
   out[i] = sg * 1000 + n * 100 + lane * 10 + size;
 }
 `);
@@ -273,7 +273,7 @@ describe('the refusals the front end states (Rule 12.6)', () => {
   });
 
   it('a vertex entry, which has no subgroup to fold', () => {
-    const errors = errorsOf(`${HEAD}@vertex export function vs(i: builtin<"vertex_index", u32>): V {
+    const errors = errorsOf(`${HEAD}@vertex export function vs(i: builtin<"vertex_index">): V {
   const s = subgroupAdd(f32(i));
   return { pos: vec4(s), uv: vec2(0., 0.) };
 }`);
@@ -285,7 +285,7 @@ describe('the refusals the front end states (Rule 12.6)', () => {
 
   it('a call reached under a value the invocations do not share (§54), and not under a uniform', () => {
     const under =
-      errorsOf(`${HEAD}@compute([64]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+      errorsOf(`${HEAD}@compute([64]) export function cs(gid: builtin<"global_invocation_id">): void {
   if (gid.x > 4) {
     const s = subgroupAdd(f32(gid.x));
   }
@@ -297,7 +297,7 @@ describe('the refusals the front end states (Rule 12.6)', () => {
     expect(
       errorsOf(`${HEAD}class U { k: f32; }
 declare const u: uniform<U>;
-@compute([64]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64]) export function cs(gid: builtin<"global_invocation_id">): void {
   if (u.k > 0.5) {
     const s = subgroupAdd(f32(gid.x));
   }
@@ -307,7 +307,7 @@ declare const u: uniform<U>;
 
   it('the compute-only built-in values on a fragment entry', () => {
     const errors = errorsOf(
-      `${HEAD}@fragment export function fs(v: V, s: builtin<"subgroup_id", u32>): vec4 { return vec4(f32(s)); }`,
+      `${HEAD}@fragment export function fs(v: V, s: builtin<"subgroup_id">): vec4 { return vec4(f32(s)); }`,
     );
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('subgroup_id');

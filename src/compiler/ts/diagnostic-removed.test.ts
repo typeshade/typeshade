@@ -45,7 +45,7 @@ declare const s: sampler;
 describe('a written { diagnostic: [...] } option is one TS8028 in both halves (change 0132)', () => {
   const FILTER = '{ diagnostic: ["off", "derivative_uniformity"] }';
   const sources: Readonly<Record<string, string>> = {
-    vertex: `${HEAD}export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): builtin<"position", vec4> {
+    vertex: `${HEAD}export const vs = vertex(function vs(i: builtin<"vertex_index">): builtin<"position"> {
   return vec4(f32(i), 0., 0., 1.);
 }, ${FILTER});
 `,
@@ -54,7 +54,7 @@ describe('a written { diagnostic: [...] } option is one TS8028 in both halves (c
   return vec4(0.);
 }, ${FILTER});
 `,
-    compute: `${HEAD}export const main = compute([64], function main(g: builtin<"global_invocation_id", vec3u>): void {
+    compute: `${HEAD}export const main = compute([64], function main(g: builtin<"global_invocation_id">): void {
 }, ${FILTER});
 `,
     "a namespace's entry": `${HEAD}namespace N {

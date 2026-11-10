@@ -36,7 +36,7 @@ function viaStore(i: u32): f32 {
   store(i);
   return 3.;
 }
-@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id">): void {
   viaStore(gid.x);
   pure(1.);
 }
@@ -269,7 +269,7 @@ describe('synchronisation is an effect', () => {
   it('a workgroupUniformLoad in a loop body is not replaced by the one before the loop', () => {
     for (const read of ['workgroupUniformLoad(flag)', 'ld()']) {
       const r = compile(`${WG}
-@compute([4, 1, 1]) export function k(lid: builtin<"local_invocation_id", vec3u>): void {
+@compute([4, 1, 1]) export function k(lid: builtin<"local_invocation_id">): void {
   let y: f32 = 0.
   y = y + 1.
   if (lid.x === u32(0)) {
@@ -294,7 +294,7 @@ describe('synchronisation is an effect', () => {
 
   it('O2 keeps a helper that holds the barrier, and dispatch still sees the neighbour', () => {
     const src = `${WG}
-@compute([4, 1, 1]) export function k(lid: builtin<"local_invocation_id", vec3u>): void {
+@compute([4, 1, 1]) export function k(lid: builtin<"local_invocation_id">): void {
   tile[lid.x] = f32(lid.x) + 1.
   sync()
   out[lid.x] = tile[(lid.x + u32(1)) % u32(4)]
@@ -319,7 +319,7 @@ describe('synchronisation is an effect', () => {
 declare const cnt: storage<atomic<u32>, "read_write">;
 declare const out: storage<array<u32>, "read_write">;
 let flag: workgroup<f32>;
-@compute([4, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([4, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   let old = atomicAdd(cnt, u32(1));
   let w = workgroupUniformLoad(flag);
   let unused = gid.x * u32(3);

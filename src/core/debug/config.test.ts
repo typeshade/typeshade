@@ -49,9 +49,9 @@ interface VsIn {
   uv: location<1, vec2>;
 }
 interface Clip {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
-@vertex export function vs(i: builtin<"vertex_index", u32>, vin: VsIn): Clip {
+@vertex export function vs(i: builtin<"vertex_index">, vin: VsIn): Clip {
   return { pos: vec4(vin.position, f32(i) + vin.uv.x) };
 }
 `;
@@ -60,10 +60,10 @@ const COMPUTE = `"use typeshade";
 declare const params: uniform<vec4u>;
 declare const out: storage<array<f32>, "read_write">;
 @compute([8, 1, 1]) export function k(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
-  wid: builtin<"workgroup_id", vec3u>,
-  li: builtin<"local_invocation_index", u32>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
+  wid: builtin<"workgroup_id">,
+  li: builtin<"local_invocation_index">,
 ): void {
   out[gid.x] = f32(lid.x) * 100. + f32(wid.x) * 10. + f32(li) + f32(params.x);
 }
@@ -481,7 +481,7 @@ describe('the JSON Schema and the interface describe the same object', () => {
 // ═══ What the first review of this PR found, each with the test that would have caught it ═══
 
 const FRAGMENT = `"use typeshade";
-@fragment export function fs(pos: builtin<"position", vec4>, ff: builtin<"front_facing", bool>): vec4 {
+@fragment export function fs(pos: builtin<"position">, ff: builtin<"front_facing">): vec4 {
   const ndc = pos.xyz / pos.w;
   let face = 0.;
   if (ff) {
@@ -494,8 +494,8 @@ const FRAGMENT = `"use typeshade";
 const NWG = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
 @compute([8]) export function k(
-  gid: builtin<"global_invocation_id", vec3u>,
-  nwg: builtin<"num_workgroups", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  nwg: builtin<"num_workgroups">,
 ): void {
   out[gid.x] = f32(nwg.x) * 100. + f32(nwg.y);
 }
@@ -692,7 +692,7 @@ describe('the guards a malformed declaration needs', () => {
     // the malformed module is built by retyping the parameter on the IR. The resolver guard
     // is what is under test, and a hand-built or pass-produced module can still reach it.
     const good = compiled(`"use typeshade";
-@compute([8]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([8]) export function k(gid: builtin<"global_invocation_id">): void {
   let x: u32 = gid.x;
 }
 `);

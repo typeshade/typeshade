@@ -61,7 +61,7 @@ const refusedElsewhere = (callee: string, written: string): string =>
   `"${written}" at the top of the file or of a namespace (change 0130)`;
 
 const IO = `interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 `;
@@ -77,7 +77,7 @@ const FORMS: readonly {
     attribute: `"use typeshade";
 ${IO}
 @vertex
-export function vs(i: builtin<"vertex_index", u32>): VsOut {
+export function vs(i: builtin<"vertex_index">): VsOut {
   const x = i === 1 ? 0.8 : -0.8;
   return { pos: vec4(x, -0.8, 0., 1.), uv: vec2(x, 0.) };
 }
@@ -86,7 +86,7 @@ export function fs(v: VsOut): vec4 { return vec4(v.uv.x, v.uv.y, 0.2, 1.); }
 `,
     called: `"use typeshade";
 ${IO}
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+export const vs = vertex(function vs(i: builtin<"vertex_index">): VsOut {
   const x = i === 1 ? 0.8 : -0.8;
   return { pos: vec4(x, -0.8, 0., 1.), uv: vec2(x, 0.) };
 });
@@ -104,7 +104,7 @@ declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
 const TILE: u32 = 128;
 @compute([8, 8, 1])
-export function main(gid: builtin<"global_invocation_id", vec3u>): void {
+export function main(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= src.length) { return; }
   dst[gid.x] = src[gid.x] * 2.;
 }
@@ -117,7 +117,7 @@ export function scale(xs: array<f32>, k: f32): void {
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
 const TILE: u32 = 128;
-export const main = compute([8, 8, 1], function main(gid: builtin<"global_invocation_id", vec3u>): void {
+export const main = compute([8, 8, 1], function main(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= src.length) { return; }
   dst[gid.x] = src[gid.x] * 2.;
 });
@@ -137,9 +137,9 @@ export const scale = workgroup_size([TILE], function scale(xs: array<f32>, k: f3
     attribute: `"use typeshade";
 function twice(f: (x: f32) => f32, x: f32): f32 { return f(f(x)); }
 @vertex
-function vs(): builtin<"position", vec4> { return vec4(0., 0., 0., 1.); }
+function vs(): builtin<"position"> { return vec4(0., 0., 0., 1.); }
 @fragment
-export function fs(p: builtin<"position", vec4>): vec4 {
+export function fs(p: builtin<"position">): vec4 {
   const r = 0.1;
   const petal = (q: vec2): f32 => length(q) - r;
   return vec4(petal(p.xy), twice((x) => x * r, p.x), 0., 1.);
@@ -147,8 +147,8 @@ export function fs(p: builtin<"position", vec4>): vec4 {
 `,
     called: `"use typeshade";
 function twice(f: (x: f32) => f32, x: f32): f32 { return f(f(x)); }
-const vs = vertex((): builtin<"position", vec4> => vec4(0., 0., 0., 1.));
-export const fs = fragment(function (p: builtin<"position", vec4>): vec4 {
+const vs = vertex((): builtin<"position"> => vec4(0., 0., 0., 1.));
+export const fs = fragment(function (p: builtin<"position">): vec4 {
   const r = 0.1;
   const petal = (q: vec2): f32 => length(q) - r;
   return vec4(petal(p.xy), twice((x) => x * r, p.x), 0., 1.);
@@ -190,7 +190,7 @@ describe('a stage call is refused with one TS8028, in the compiler and in the ed
     bothSay(
       `"use typeshade";
 namespace N {
-  export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+  export const fs = fragment(function fs(p: builtin<"position">): vec4 {
     return vec4(p.x, 0., 0., 1.);
   });
 }
@@ -212,7 +212,7 @@ export const fs = fragment(function main(): vec4 { return vec4(1., 0., 0., 1.); 
     const lib = `"use typeshade";\nexport function half(x: f32): f32 { return x * 0.5; }\n`;
     const main = `"use typeshade";
 import { half } from "./lib.shade.ts";
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+export const fs = fragment(function fs(p: builtin<"position">): vec4 {
   return vec4(half(p.x), 0., 0., 1.);
 });
 `;
@@ -239,7 +239,7 @@ export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
   it('a constant named as the stage it calls', () => {
     bothSay(
       `"use typeshade";
-export const vertex = vertex(function vertex(): builtin<"position", vec4> {
+export const vertex = vertex(function vertex(): builtin<"position"> {
   return vec4(0., 0., 0., 1.);
 });
 `,
@@ -253,7 +253,7 @@ describe('a refused stage call says its options with the call, once (changes 013
 declare const t: texture_2d<f32>;
 declare const s: sampler;
 export const fs = fragment(
-  function fs(p: builtin<"position", vec4>): vec4 {
+  function fs(p: builtin<"position">): vec4 {
     if (p.x > 10.) { return textureSample(t, s, p.xy); }
     return vec4(0.);
   },
@@ -308,7 +308,7 @@ export const scale = workgroup_size([128], function scale(xs: array<f32>): void 
 });
 
 describe('a stage call that declares no entry is refused where it is written', () => {
-  const FS = `@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+  const FS = `@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(p.x, 0., 0., 1.);
 }
 `;
@@ -320,7 +320,7 @@ function h(x: f32): f32 {
   const g = compute([8], function k(): void {});
   return x;
 }
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   const inner = fragment(function shade(q: vec4): vec4 { return q; });
   return vec4(h(p.x), 0., 0., 1.);
 }
@@ -335,7 +335,7 @@ function h(x: f32): f32 {
   it('after export default, where the call declares no name', () => {
     bothSay(
       `"use typeshade";
-export default fragment(function fs(p: builtin<"position", vec4>): vec4 {
+export default fragment(function fs(p: builtin<"position">): vec4 {
   return vec4(p.x, 0., 0., 1.);
 });
 `,
@@ -346,7 +346,7 @@ export default fragment(function fs(p: builtin<"position", vec4>): vec4 {
   it('as a statement at the top of the file', () => {
     bothSay(
       `"use typeshade";
-vertex(function vs(): builtin<"position", vec4> { return vec4(0., 0., 0., 1.); });
+vertex(function vs(): builtin<"position"> { return vec4(0., 0., 0., 1.); });
 ${FS}`,
       [refusedElsewhere('vertex', '@vertex export function vs(…)')],
     );
@@ -355,9 +355,9 @@ ${FS}`,
   it('in a let, and in a list of constants', () => {
     bothSay(
       `"use typeshade";
-let vs = vertex(function vs(): builtin<"position", vec4> { return vec4(0., 0., 0., 1.); });
+let vs = vertex(function vs(): builtin<"position"> { return vec4(0., 0., 0., 1.); });
 const a: f32 = 1., k = compute([4, 4], function k(): void {});
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(p.x * a, 0., 0., 1.);
 }
 `,
@@ -372,7 +372,7 @@ const a: f32 = 1., k = compute([4, 4], function k(): void {});
     bothSay(
       `"use typeshade";
 export const k = compute(1);
-const { a } = vertex(function vs(): builtin<"position", vec4> { return vec4(0., 0., 0., 1.); });
+const { a } = vertex(function vs(): builtin<"position"> { return vec4(0., 0., 0., 1.); });
 ${FS}`,
       [
         refusedElsewhere('compute', '@compute export function k(…)'),
@@ -389,18 +389,18 @@ describe("the four names are the file's when the file declares them (Rule 2.1)",
   const programs: Record<string, string> = {
     'a function named vertex, called with a number': `"use typeshade";
 function vertex(x: f32): f32 { return x * 2.; }
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(vertex(p.x), 0., 0., 1.);
 }
 `,
     'a function named vertex that takes a function, called with an arrow function': `"use typeshade";
 function vertex(f: (x: f32) => f32, x: f32): f32 { return f(x); }
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(vertex((x) => x * 2., p.x), 0., 0., 1.);
 }
 `,
     'a local arrow function named compute': `"use typeshade";
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   const compute = (x: f32): f32 => x * 2.;
   return vec4(compute(p.x), 0., 0., 1.);
 }
@@ -408,7 +408,7 @@ function vertex(f: (x: f32) => f32, x: f32): f32 { return f(x); }
     'a module constant named fragment and a parameter named vertex': `"use typeshade";
 const fragment: f32 = 2.;
 function h(vertex: f32): f32 { return vertex * fragment; }
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(h(p.x), 0., 0., 1.);
 }
 `,
@@ -417,7 +417,7 @@ namespace N {
   export function workgroup_size(x: f32): f32 { return x * 2.; }
   export function g(x: f32): f32 { return workgroup_size(x); }
 }
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(N.g(p.x), N.workgroup_size(1.), 0., 1.);
 }
 `,
@@ -434,7 +434,7 @@ namespace N {
       `"use typeshade";
 function vertex(f: (x: f32) => f32): f32 { return f(1.); }
 const k = vertex((x: f32): f32 => x * 2.);
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(k, 0., 0., 1.);
 }
 `,
@@ -454,7 +454,7 @@ declare const tint: uniform<vec4>;
 const GAIN: f32 = 2.;
 function lit(c: vec2): vec4 { return vec4(c * GAIN, 0., 1.) * tint; }
 @vertex
-export function vs(i: builtin<"vertex_index", u32>): VsOut {
+export function vs(i: builtin<"vertex_index">): VsOut {
   return { pos: vec4(f32(i), 0., 0., 1.), uv: vec2(f32(i), 0.) };
 }
 export const fs = fragment((v: VsOut) => lit(v.uv));
@@ -466,7 +466,7 @@ export const fs = fragment((v: VsOut) => lit(v.uv));
   it('a mistake in its body is that mistake, said once beside the refusal', () => {
     bothSay(
       `"use typeshade";
-export const fs = fragment((p: builtin<"position", vec4>): vec4 => vec4(nope(p.x), 0., 0., 1.));
+export const fs = fragment((p: builtin<"position">): vec4 => vec4(nope(p.x), 0., 0., 1.));
 `,
       [
         refused('fragment', '@fragment export function fs(…)'),
@@ -504,7 +504,7 @@ export const fs = fragment(function fs(f: (x: f32) => f32): vec4 {
       '"fs" is an entry, which the pipeline calls with no type arguments, so a generic entry has no instance to compile: write its types out, or move the generic code into a helper the entry calls (Rule 8.9).';
     bothSay(
       `"use typeshade";
-export const fs = fragment(function fs<T>(p: builtin<"position", vec4>): vec4 {
+export const fs = fragment(function fs<T>(p: builtin<"position">): vec4 {
   return p;
 });
 `,
@@ -513,7 +513,7 @@ export const fs = fragment(function fs<T>(p: builtin<"position", vec4>): vec4 {
     bothSay(
       `"use typeshade";
 @fragment
-export function fs<T>(p: builtin<"position", vec4>): vec4 {
+export function fs<T>(p: builtin<"position">): vec4 {
   return p;
 }
 `,
@@ -524,10 +524,10 @@ export function fs<T>(p: builtin<"position", vec4>): vec4 {
   it('the module has no host face until it is migrated, and then the face of the attribute form', () => {
     const called = `"use typeshade";
 declare const data: storage<array<f32>, "read_write">;
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+export const fs = fragment(function fs(p: builtin<"position">): vec4 {
   return vec4(p.x, 0., 0., 1.);
 });
-export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>): void {
+export const main = compute([64], function main(gid: builtin<"global_invocation_id">): void {
   data[gid.x] = 1.;
 });
 export const scale = workgroup_size([128], function scale(xs: array<f32>): void {
@@ -563,8 +563,8 @@ describe('the editor offers no call signature for a stage name (change 0140)', (
 
   it('none inside a refused call, for each of the four names', () => {
     const source = `"use typeshade";
-export const vs = vertex(function vs(): builtin<"position", vec4> { return vec4(0., 0., 0., 1.); });
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 { return p; });
+export const vs = vertex(function vs(): builtin<"position"> { return vec4(0., 0., 0., 1.); });
+export const fs = fragment(function fs(p: builtin<"position">): vec4 { return p; });
 export const main = compute([8], function main(): void {});
 export const scale = workgroup_size([128], function scale(xs: array<f32>): void {
   for (let i = 0; i < xs.length; i++) { xs[i] = 1.; }
@@ -585,7 +585,7 @@ export const scale = workgroup_size([128], function scale(xs: array<f32>): void 
       signatures(
         `"use typeshade";
 function vertex(x: f32): f32 { return x; }
-@fragment export function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position">): vec4 {
   return vec4(vertex(p.x), 0., 0., 1.);
 }
 `,

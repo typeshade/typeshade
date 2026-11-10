@@ -64,7 +64,7 @@ interface U {
 }
 declare const u: uniform<U>;
 interface V {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 @fragment export function fs(v: V): vec4 {
@@ -99,7 +99,7 @@ interface U {
 }
 declare const u: uniform<U>;
 interface V {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 @fragment export function fs(v: V): vec4 {
@@ -122,10 +122,10 @@ describe('an integer varying emitted without @interpolate(flat) (L53)', () => {
   // two targets disagree: the WebGL2 leg links and the WebGPU one does not.
   const src = `"use typeshade";
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   id: location<0, u32>;
 }
-@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index">): VsOut {
   return { pos: vec4(0., 0., 0., 1.), id: i };
 }
 @fragment export function fs(o: VsOut): vec4 {
@@ -141,10 +141,10 @@ interface VsOut {
     // A FLOAT varying must not pick it up: the rule is about integers, not about locations.
     const float = compilesClean(`"use typeshade";
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
-@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index">): VsOut {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
 }
 @fragment export function fs(o: VsOut): vec4 {
@@ -165,7 +165,7 @@ export function h(a: f32): f32 {
   return a;
 }
 interface V {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 @fragment export function fs(v: V): vec4 {
@@ -189,7 +189,7 @@ export function h(a: f32): f32 {
   return a_;
 }
 interface V {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 @fragment export function fs(v: V): vec4 {
@@ -232,7 +232,7 @@ interface U {
 }
 declare const u: uniform<U>
 interface V {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 @fragment export function fs(v: V): vec4 {

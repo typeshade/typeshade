@@ -17,7 +17,7 @@ declare const xs: storage<array<f64>>;
 declare const ys: storage<array<f64>, "read_write">;
 
 @compute([64])
-export function axpy(gid: builtin<"global_invocation_id", vec3u>) {
+export function axpy(gid: builtin<"global_invocation_id">) {
   if (gid.x >= xs.length) {
     return;
   }
