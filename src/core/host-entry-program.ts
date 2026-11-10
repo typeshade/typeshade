@@ -57,6 +57,7 @@ import {
 import { VERSION } from './version.js';
 import type { CpuValue } from './cpu-runtime.js';
 import type { IncomingReads } from './host-failure.js';
+import type { Tier } from './tiers.js';
 import {
   cpuRuntimeOf,
   glImageTexture,
@@ -98,8 +99,9 @@ export function callCompute(
 
 // ─── the manifest of an entry call ───────────────────────────────────────────────────────────
 
-/** The tier a call's manifest is made for: each binds a little differently. */
-type CallTier = 'webgpu' | 'webgl2' | 'cpu';
+/** The tier a call's manifest is made for: each binds a little differently. One of `TIERS`
+ *  (`./tiers.ts`), so the names are written there only. */
+type CallTier = Tier;
 
 /** Each entry's call manifest, by tier. */
 const manifests = new WeakMap<ComputeEntry, Map<CallTier, Pack>>();

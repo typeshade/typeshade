@@ -2,7 +2,10 @@
 //
 // `FuseReport` is what `fuse()` and `device.fuse()` resolve to. It lives here, apart from the
 // planner in `fuse-plan.ts`, so that `typeshade/runtime` can export the type and `mergeReports`
-// without importing one line of the planner (Rule 11.11, change 0071 Amendment 2).
+// without importing one line of the planner (Rule 11.11, change 0071 Amendment 2). Its tiers are
+// the `Tier` of `./tiers.ts`, the one list of the tier names; the import is of a type only.
+
+import type { Tier } from './tiers.js';
 
 /**
  * What a `fuse` scope did once its plan had run. Dispatch and submission counts describe calls
@@ -18,7 +21,7 @@ export interface FuseReport {
    *  before WebGL2 before the CPU tier, and `'cpu'` when no call ran on a device. Each call runs
    *  on the first tier of `configure({ prefer })` that can run it, as a call outside a scope
    *  does. */
-  readonly tier: 'webgpu' | 'webgl2' | 'cpu';
+  readonly tier: Tier;
   /** How many dispatches the plan made: none on the CPU tier. */
   readonly dispatches: number;
   /** How many times the plan gave the WebGPU queue commands: none on the other tiers. One for
@@ -58,7 +61,7 @@ export interface FuseReport {
      *  `createDevice({ prefer })`) before its own, in that order, joined by `; `. Each reason is
      *  the one the `Error` of a call that no tier can run gives that tier, without the
      *  `webgpu: `, `webgl2: ` or `cpu: ` before it. */
-    readonly tier: 'webgpu' | 'webgl2' | 'cpu';
+    readonly tier: Tier;
     /** Device commands this group made: direct/indirect dispatches on WebGPU, draws on WebGL2,
      *  zero on the CPU. Includes push stages, reduction folds and store-only entries. These
      *  counts sum to the report's `dispatches`; workgroup shapes do not determine them. */
