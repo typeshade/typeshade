@@ -789,6 +789,17 @@ ${H2}export function t(vi: u32, x: f32, xs: array<f32, 8>): f32 {
     ).toBe(3.5);
   });
 
+  it('a counter started by a local constant keeps the type main gave it from declared uses', () => {
+    // On `main`, `const k = 3; h(k);` made `k` a `u32`, and the counter took it: `xs[j]` compiled.
+    const source = t(
+      'const k = 3; h(k); let a = 0.; for (let j = k; j < 8; j++) { a += xs[j]; } return a;',
+    );
+    const result = accepted(source);
+    // The counted loop is unrolled with `u32` indices.
+    expect(result.wgsl).toContain('xs[3u]');
+    expect(result.eval('t', [1, 1, [1, 2, 3, 4, 5, 6, 7, 8]])).toBe(4 + 5 + 6 + 7 + 8);
+  });
+
   it('a counter started by the constant keeps its f32, as on main, and carries the mark', () => {
     // Each gave the same value on `main` (the counter was an f32 there).
     const plain = t(

@@ -1,4 +1,6 @@
 import { abstractTreeOf, originOf } from '../abstract-const.js';
+import { declarationOf } from './closures.js';
+import { localNumericInference } from '../local-numeric-inference.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
@@ -15,7 +17,13 @@ import {
   forUpdateRefusal,
   openLoopError,
 } from '../loop-bound.js';
-import { fitsTarget, isIntegerLiteralTree, isIntegerWritten, isIntScalar } from '../lit-coerce.js';
+import {
+  fitsTarget,
+  isIntegerLiteralTree,
+  isIntegerWritten,
+  isIntScalar,
+  retargetIntLit,
+} from '../lit-coerce.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { keyTypeText, keysOf, sameKeys } from '../key-types.js';
 import { numericMismatch } from '../numeric.js';
@@ -471,6 +479,14 @@ function lowerHeaderCounter(
     scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined;
   const origin = decl.type === undefined ? originOf(written, builtin) : undefined;
   const fromConstant = origin !== undefined && origin.reaches.length > 0;
+  // On `main` a function-local `const` took an integer type from its declared uses (changes 0036
+  // and 0037), and a counter started by a bare read of it took that type. The counter keeps it.
+  const startDecl = fromConstant && ts.isIdentifier(start) ? declarationOf(start) : undefined;
+  const mainType =
+    startDecl !== undefined && ts.isVariableDeclaration(startDecl)
+      ? localNumericInference(startDecl, sourceFile)?.type
+      : undefined;
+  if (mainType !== undefined) init = retargetIntLit(init, written, mainType);
   if (!fromConstant && (annotated !== undefined || !floatWritten || intBound)) {
     // The induction variable's declared type, or i32 when there is no annotation. `for (let j:
     // i32 = -1; …)` reaches this with a PrefixUnaryExpression rather than a NumericLiteral, which
