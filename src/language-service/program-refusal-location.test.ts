@@ -1439,6 +1439,120 @@ export function fs(v: VsOut): vec4 {
     });
   }
 
+  // A name that is not ASCII, renamed by the linker beside a declaration of the importing file:
+  // the sentence names it as its file writes it (#1186).
+  const NON_ASCII: readonly (readonly [string, Files, string, string, string])[] = [
+    [
+      'an own mistake of a function named lümen',
+      {
+        [LIB]: `"use typeshade";\nexport async function lümen(c: f32): f32 {\n  return c;\n}\n`,
+        [B]: `"use typeshade";
+import { lümen as l2 } from "./lib.shade.ts";
+function lümen(c: f32): f32 {
+  return c * 3.;
+}
+${VS}@fragment
+export function fs(v: VsOut): vec4 {
+  return vec4(l2(v.uv.x) * lümen(1.), 0., v.uv);
+}
+`,
+      },
+      'TS8013',
+      'lib.shade.ts',
+      '"lümen" is async, and a shader function runs to completion in one call: there is no event loop to wait on. Remove "async" and each "await".',
+    ],
+    [
+      'a struct named Größe that an entry gives no location',
+      {
+        [LIB]: `"use typeshade";\nexport interface Größe {\n  n: vec3;\n  uv: vec2;\n}\n`,
+        [B]: `"use typeshade";
+import { Größe as G2 } from "./lib.shade.ts";
+interface Größe {
+  k: f32;
+}
+declare const u: uniform<Größe>;
+${VS}@fragment
+export function fs(v: G2): vec4 {
+  return vec4(v.n * u.k, v.uv.x);
+}
+`,
+      },
+      'TS8010',
+      'b.shade.ts',
+      '"Größe.n" has no location and the vertex results give "n" none: write location<n, T> on it.',
+    ],
+    [
+      'a type mismatch that names Größe',
+      {
+        [LIB]: `"use typeshade";
+export interface Größe {
+  a: f32;
+}
+export function mk(x: f32): Größe {
+  const p: Größe = { a: x };
+  return p + 1.;
+}
+`,
+        [B]: `"use typeshade";
+import { mk } from "./lib.shade.ts";
+interface Größe {
+  z: f32;
+}
+declare const u: uniform<Größe>;
+${VS}@fragment
+export function fs(v: VsOut): vec4 {
+  return vec4(mk(v.uv.x).a * u.z, 0., v.uv);
+}
+`,
+      },
+      'TS8003',
+      'lib.shade.ts',
+      'Type mismatch: cannot + Größe and f32. Types must match.',
+    ],
+  ];
+  for (const [name, files, code, file, message] of NON_ASCII) {
+    it(`${name}: once, in ${file}, in the words its file writes`, () => {
+      const inProgram = compilerSays(files, B).filter((d) => d.code === code);
+      expect(inProgram.map((d) => [d.file, d.message])).toEqual([[file, message]]);
+      const service = opened(files);
+      const shown = [B, LIB].flatMap((uri) =>
+        editorSays(service, files, uri).filter((d) => d.code === code),
+      );
+      expect(shown.map((d) => [d.file, d.message])).toEqual([[file, message]]);
+      const ran = check(files);
+      expect(ran.status).toBe(1);
+      expect(ran.text.match(new RegExp(` - error ${code}:`, 'g'))).toHaveLength(1);
+      expect(ran.text).not.toContain('lib_');
+    });
+  }
+
+  it("a binding's type is a use: a field of an imported struct no binding of its file holds", () => {
+    // `lib.shade.ts` alone holds no binding of `Lum`, so its `string` field is refused only in
+    // the program of `b.shade.ts`, at the type its binding writes.
+    const files: Files = {
+      [LIB]: `"use typeshade";\nexport interface Lum {\n  a: f32;\n  s: string;\n}\n`,
+      [B]: `"use typeshade";
+import { Lum } from "./lib.shade.ts";
+declare const u: uniform<Lum>;
+${VS}@fragment
+export function fs(v: VsOut): vec4 {
+  return vec4(u.a, 0., v.uv);
+}
+`,
+    };
+    const said = compilerSays(files, B).filter((d) => d.code === 'TS8002');
+    expect(said.map((d) => [d.file, d.at, d.related])).toEqual([
+      ['b.shade.ts', 'Lum', ['lib.shade.ts: string']],
+    ]);
+    expect(compilerSays(files, LIB)).toEqual([]);
+    const service = opened(files);
+    expect(editorSays(service, files, B).filter((d) => d.code === 'TS8002')).toEqual(said);
+    expect(editorSays(service, files, LIB).filter((d) => d.code.startsWith('TS8'))).toEqual([]);
+    const ran = check(files);
+    expect(ran.status).toBe(1);
+    expect(ran.text).toContain('b.shade.ts:3:26 - error TS8002:');
+  });
+
   it('the same mistake in both files: once in each, each in its own words', () => {
     const files: Files = {
       [LIB]: ASYNC_LUM,

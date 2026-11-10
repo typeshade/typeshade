@@ -391,20 +391,8 @@ export function collectStructs(
         if (refusedGenerics.has(candidate.name)) {
           const refusal = diag(sourceFile, candidate.nameNode, genericCandidateMessage(candidate));
           // The uses that reach it: a program that imports the declaration reports the refusal
-          // at the first of them its entry file writes (#1186). The last recorded is read first.
-          const uses: ts.Node[] = [];
-          const visit = (node: ts.Node): void => {
-            if (node === stmt) return;
-            if (
-              ts.isTypeReferenceNode(node) &&
-              ts.isIdentifier(node.typeName) &&
-              node.typeName.text === candidate.name
-            )
-              uses.push(node);
-            ts.forEachChild(node, visit);
-          };
-          visit(sourceFile);
-          for (const use of uses.reverse()) noteUse(refusal, use, sourceFile);
+          // at the first of them its entry file writes (#1186).
+          noteTypeUses([refusal], stmt, candidate.name, sourceFile);
           diagnostics.push(refusal);
         }
         continue;
@@ -455,6 +443,11 @@ export function collectStructs(
         undefined,
         withheld,
       );
+      // What the struct's own fields say is true of the places that use the struct: a program
+      // that imports it reports a refusal its own file does not make (a field no binding of
+      // that file holds) at the first of them its entry file writes (#1186).
+      if (diagnostics.length > before)
+        noteTypeUses(diagnostics.slice(before), stmt, candidate.name, sourceFile);
       continue;
     }
     if (!ts.isClassDeclaration(stmt) || !stmt.name) continue;
@@ -2354,6 +2347,29 @@ function readFieldOptions(
     );
   }
   return { interpolate, blendSrc };
+}
+
+/** Records, on each of `said`, every type reference to `name` outside its declaration `stmt`
+ *  as a use, the first written last, so that it is read first (`noteUse`, #1186). */
+function noteTypeUses(
+  said: readonly TsCompilerDiagnostic[],
+  stmt: ts.Statement,
+  name: string,
+  sourceFile: ts.SourceFile,
+): void {
+  const uses: ts.Node[] = [];
+  const visit = (node: ts.Node): void => {
+    if (node === stmt) return;
+    if (
+      ts.isTypeReferenceNode(node) &&
+      ts.isIdentifier(node.typeName) &&
+      node.typeName.text === name
+    )
+      uses.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  for (const d of said) for (const use of [...uses].reverse()) noteUse(d, use, sourceFile);
 }
 
 /** Whether `sourceFile` exports the declaration `stmt` of `name`: with `export` on it, or by

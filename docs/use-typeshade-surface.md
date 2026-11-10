@@ -9579,10 +9579,10 @@ reads nothing: a file with no import compiles as it always has, and an import in
 An error of a program stands in one file. The candidates are, in order: the file that holds the
 declaration or the expression the error is about, then each file that holds a use of it (the
 entry's parameter or result that takes a struct, the call or the type that makes an instance of
-a generic declaration), then each file on the way of imports up to the file the compile starts
+a generic declaration, the type that names an imported struct), then each file on the way of imports up to the file the compile starts
 from, which is the last. Each candidate has a place for the error: the declaration or the
-expression in the first file; else the outermost use the file writes; else its re-export of the
-entry point that holds the use; else its import of the file below. The error stands in the first
+expression in the first file; else the outermost use the file writes; else, where the front end
+records no use, its re-export of the entry point that holds the use; else its import of the file below. The error stands in the first
 candidate that reports the same error at that place when it is compiled on its own, and at that
 place: the same code and sentence, about the same span, reported on the same span. Two spans are
 the same when they end together and start together or with only `export`, optionally

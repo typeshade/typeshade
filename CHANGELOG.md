@@ -2095,8 +2095,9 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   from, which reports what reaches it. It stands on that file's use: the entry's parameter or result for a field of an imported struct with no
   location (`TS8010`) or of a type that cannot cross (`TS8003`, `TS8038`); the outermost call
   for the body of an imported generic function or of a function that takes a function; the
-  first `Box<P>` for a method of an imported generic class. A file that writes no use has it on
-  its re-export of the entry, else on its import. The editor's diagnostic carries the place the
+  first `Box<P>` for a method of an imported generic class; the type a binding writes for a
+  field of an imported struct that no binding of its own file holds. A file that holds no use the
+  front end records has it on its re-export of the entry, else on its import. The editor's diagnostic carries the place the
   error is about as related information. A program of one file, a warning, and a mistake of an
   imported file itself are reported where they were, once. When an imported file and the file
   the compile starts from both make one refused instance of a generic function, it is reported

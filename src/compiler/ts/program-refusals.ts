@@ -150,6 +150,12 @@ interface ProgramError {
   readonly mapped: TsCompilerDiagnostic;
 }
 
+/** Each word of a sentence that can be an identifier, as ECMAScript reads one: `lümen` and
+ *  `Größe` as much as `lum` (Unicode `ID_Start` and `ID_Continue`, `$`, `_`, ZWNJ and ZWJ). */
+const IDENTIFIER_WORDS = /[\p{ID_Start}_$][\p{ID_Continue}$\u200c\u200d]*/gu;
+/** One whole identifier, by the same pattern as {@link IDENTIFIER_WORDS}. */
+const IDENTIFIER = /^[\p{ID_Start}_$][\p{ID_Continue}$\u200c\u200d]*$/u;
+
 /** Whether `node` is a declaration the linker may give an emitted name: a function, a class,
  *  an interface, a type alias, an enum, a namespace or a variable. */
 function declaresModuleName(node: ts.Node): boolean {
@@ -214,7 +220,7 @@ export function locateProgramErrors(input: {
           if (parent.name !== node || !declaresModuleName(parent)) return;
           const m = linked.map(node.getStart(linkedSource), node.getEnd());
           const text = m?.file.sourceFile.text.slice(m.start, m.end);
-          if (text !== undefined && text !== node.text && /^[A-Za-z_$][\w$]*$/.test(text))
+          if (text !== undefined && text !== node.text && IDENTIFIER.test(text))
             found.set(node.text, text);
           return;
         }
@@ -224,7 +230,7 @@ export function locateProgramErrors(input: {
       renames = found;
     }
     if (renames.size === 0) return message;
-    return message.replace(/[A-Za-z_$][\w$]*/g, (name) => renames!.get(name) ?? name);
+    return message.replace(IDENTIFIER_WORDS, (name) => renames!.get(name) ?? name);
   };
 
   const edges = programEdges(linked, input.resolve);

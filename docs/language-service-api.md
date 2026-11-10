@@ -1124,7 +1124,8 @@ Document versions, for either adapter:
   which is the last. Each candidate has a place: what the error is about, in the first file;
   else the outermost use the file writes (the parameter or the result that takes a struct, the
   call that makes an instance of a generic function, the first type that writes an instance of
-  a generic class (`Box<P>`) or names a generic interface); else its re-export of the entry
+  a generic class (`Box<P>`) or names a generic interface or an imported struct, a binding's
+  type among them); else, where the front end records no use, its re-export of the entry
   point that holds the use (the name); else the module specifier of its import of the file
   below. The error is located in the first candidate whose own program reports the same error
   at that place, and at that place. "The same error" is the same code, the same sentence with
