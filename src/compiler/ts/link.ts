@@ -868,6 +868,52 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     }
   }
 
+  /** Every name a file declares at its top or binds by an import: what `valueNamedByType`
+   *  looks a name up among, so a builtin type (`f32`, `vec3`) costs no walk of the scope. */
+  const programNames = new Set<string>();
+  for (const u of units) for (const n of u.names) programNames.add(n.text);
+  for (const f of order) {
+    for (const s of f.sf.statements) {
+      if (!ts.isImportDeclaration(s) || s.importClause === undefined) continue;
+      if (s.importClause.name !== undefined) programNames.add(s.importClause.name.text);
+      const nb = s.importClause.namedBindings;
+      if (nb === undefined) continue;
+      if (ts.isNamespaceImport(nb)) programNames.add(nb.name.text);
+      else for (const e of nb.elements) programNames.add(e.name.text);
+    }
+  }
+  /** Whether `symbol`, or what it is an alias of, is a value. */
+  const isValueSymbol = (symbol: ts.Symbol): boolean => {
+    const target =
+      (symbol.flags & ts.SymbolFlags.Alias) !== 0 ? checker.getAliasedSymbol(symbol) : symbol;
+    return (checker.getExportSymbolOfSymbol(target).flags & ts.SymbolFlags.Value) !== 0;
+  };
+  /** The value a type names: `N` in `array<f32, N>`, the override that sizes an array (#1194).
+   *  TypeScript reads a type's name as a type, and no type is declared `N`, so its checker gives
+   *  the name a symbol that nothing declares. The front end reads the name as the value in
+   *  scope, so the linker does too: the innermost value TypeScript has in scope there. */
+  const valueNamedByType = (id: ts.Identifier): ts.Symbol | undefined => {
+    const p = id.parent;
+    if (!ts.isTypeReferenceNode(p) || p.typeName !== id || !programNames.has(id.text)) {
+      return undefined;
+    }
+    // An import's binding is an alias, which is in scope as a value only when asked for.
+    const local = checker
+      .getSymbolsInScope(id, ts.SymbolFlags.Value | ts.SymbolFlags.Alias)
+      .find((s) => s.name === id.text && isValueSymbol(s));
+    // An exported declaration is in scope as its local symbol; every other use names the export.
+    return local === undefined ? undefined : checker.getExportSymbolOfSymbol(local);
+  };
+  /** The symbol the identifier `id` names, as the front end reads the name. */
+  const symbolOf = (id: ts.Identifier): ts.Symbol | undefined => {
+    const p = id.parent;
+    const symbol = ts.isShorthandPropertyAssignment(p)
+      ? checker.getShorthandAssignmentValueSymbol(p)
+      : checker.getSymbolAtLocation(id);
+    if (symbol !== undefined && (symbol.declarations?.length ?? 0) > 0) return symbol;
+    return valueNamedByType(id) ?? symbol;
+  };
+
   /** Every name every file writes, which a generated name must not take. */
   const written = new Set<string>();
   /** Per statement, the names it uses and TypeScript resolves to nothing: a builtin, or a
@@ -900,9 +946,7 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
         written.add(id.text);
         if (!isUse(id)) continue;
         const p = id.parent;
-        let symbol = ts.isShorthandPropertyAssignment(p)
-          ? checker.getShorthandAssignmentValueSymbol(p)
-          : checker.getSymbolAtLocation(id);
+        let symbol = symbolOf(id);
         if (symbol === undefined) {
           const list = g.get(id.text) ?? [];
           list.push(id);
@@ -1202,9 +1246,7 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
       if (!carries(f, stmt)) continue;
       for (const id of identifiersIn(stmt)) {
         const parent = id.parent;
-        const symbol = ts.isShorthandPropertyAssignment(parent)
-          ? checker.getShorthandAssignmentValueSymbol(parent)
-          : checker.getSymbolAtLocation(id);
+        const symbol = symbolOf(id);
         const name = symbol === undefined ? undefined : localNames.get(symbol);
         if (name === undefined) continue;
         edits.push({

@@ -960,6 +960,142 @@ describe('what the module holds (Rule 3.9)', () => {
   });
 });
 
+describe('a value a type names is a use of it (Rule 3.9, Rule 12.7, #1194)', () => {
+  // `N` in `array<f32, N>` is a value, the override that sizes the array. TypeScript's checker
+  // reads a type's name as a type and finds none, so the linker saw no use of `N`: it left the
+  // override out of the module, and the size named nothing (TS8002). Each program here is the
+  // one-file program split in two, read by both halves on the same files.
+  const SIZE = 'export const N: override<u32> = 2;\n';
+  const TILE = 'export let tile: workgroup<array<f32, N>>;\n';
+  const MAIN = '@compute([1]) export function main() { tile[0] = tile[1] + 1.; }\n';
+  const ONE: Files = { '/p/main.shade.ts': `${D}${SIZE}${TILE}${MAIN}` };
+  const LIB = `${D}${SIZE}${TILE}`;
+  const editedEach = (files: Files): string[] =>
+    Object.keys(files).flatMap((uri) =>
+      edited(files, uri).map((d) => `${uri} ${d.source} ${d.code} ${d.message}`),
+    );
+
+  const SPLIT: readonly (readonly [string, Files])[] = [
+    [
+      'the override and the array it sizes, both imported by name',
+      {
+        '/p/main.shade.ts': `${D}import { N, tile } from "./lib.shade.ts";\n${MAIN}`,
+        '/p/lib.shade.ts': LIB,
+      },
+    ],
+    [
+      'the array alone, whose size the entry never names',
+      {
+        '/p/main.shade.ts': `${D}import { tile } from "./lib.shade.ts";\n${MAIN}`,
+        '/p/lib.shade.ts': LIB,
+      },
+    ],
+    [
+      'the array read through a module namespace',
+      {
+        '/p/main.shade.ts': `${D}import * as lib from "./lib.shade.ts";\n@compute([1]) export function main() { lib.tile[0] = lib.tile[1] + 1.; }\n`,
+        '/p/lib.shade.ts': LIB,
+      },
+    ],
+    [
+      'the array through a re-export',
+      {
+        '/p/main.shade.ts': `${D}import { tile } from "./mid.shade.ts";\n${MAIN}`,
+        '/p/mid.shade.ts': `${D}export { N, tile } from "./lib.shade.ts";\n`,
+        '/p/lib.shade.ts': LIB,
+      },
+    ],
+    [
+      'the array through `export *`',
+      {
+        '/p/main.shade.ts': `${D}import { tile } from "./mid.shade.ts";\n${MAIN}`,
+        '/p/mid.shade.ts': `${D}export * from "./lib.shade.ts";\n`,
+        '/p/lib.shade.ts': LIB,
+      },
+    ],
+    [
+      "an imported override that sizes the entry's own array",
+      {
+        '/p/main.shade.ts': `${D}import { N } from "./lib.shade.ts";\n${TILE}${MAIN}`,
+        '/p/lib.shade.ts': `${D}${SIZE}`,
+      },
+    ],
+    [
+      'an imported override under another name',
+      {
+        '/p/main.shade.ts': `${D}import { N as M } from "./lib.shade.ts";\nexport let tile: workgroup<array<f32, M>>;\n${MAIN}`,
+        '/p/lib.shade.ts': `${D}${SIZE}`,
+      },
+    ],
+  ];
+  for (const [name, files] of SPLIT) {
+    it(`${name}: both halves accept it, and the emit is the one-file program's`, () => {
+      expect(errorsOf(files)).toEqual([]);
+      expect(editedEach(files)).toEqual([]);
+      const one = compiled(ONE);
+      expect(errorsOf(ONE)).toEqual([]);
+      expect(editedEach(ONE)).toEqual([]);
+      expect(one.wgsl).toContain('override N');
+      const r = compiled(files);
+      expect(r.wgsl).toBe(one.wgsl);
+      expect(r.glsl).toEqual(one.glsl);
+      expect(r.module.overrides.map((o) => o.name)).toEqual(['N']);
+    });
+  }
+
+  // The neighbours stay refused, with the code and the sentence of the one-file program
+  // (Rule 12.5), in `compile()` and in the editor on the file that writes the size.
+  const REFUSED_SIZES: readonly (readonly [string, string])[] = [
+    ['an override that is not an integer', 'export const N: override<f32> = 2.;\n'],
+    ['an override with no default', 'export const N: override<u32>;\n'],
+    ['an override whose default is not positive', 'export const N: override<u32> = 0;\n'],
+    ['a constant, which is no override', 'export const N: u32 = 2;\n'],
+  ];
+  const SENTENCE =
+    'The outer size of a workgroup array must name an integer override with a positive ' +
+    'default; "N" does not.';
+  for (const [name, size] of REFUSED_SIZES) {
+    it(`${name} still sizes no imported array, in both halves`, () => {
+      const files: Files = {
+        '/p/main.shade.ts': `${D}import { tile } from "./lib.shade.ts";\n${MAIN}`,
+        '/p/lib.shade.ts': `${D}${size}${TILE}`,
+      };
+      const one: Files = { '/p/main.shade.ts': `${D}${size}${TILE}${MAIN}` };
+      expect(errorsOf(one)).toEqual([`/p/main.shade.ts:3:39 TS8002 ${SENTENCE}`]);
+      expect(errorsOf(files)).toEqual([`/p/lib.shade.ts:3:39 TS8002 ${SENTENCE}`]);
+      expect(compiled(files).wgsl).toBeUndefined();
+      const typeshadeOf = (list: readonly TypeshadeDiagnostic[]): string[] =>
+        list.filter((d) => d.source === 'typeshade').map((d) => `${d.code} ${d.message}`);
+      expect(typeshadeOf(edited(one))).toEqual([`TS8002 ${SENTENCE}`]);
+      expect(typeshadeOf(edited(files, '/p/lib.shade.ts'))).toEqual([`TS8002 ${SENTENCE}`]);
+    });
+  }
+
+  it("an imported array is sized by its own file's override, never by the entry's", () => {
+    // Before the fix the module left out the imported `N`, and the array took the entry's.
+    const files: Files = {
+      '/p/main.shade.ts': `${D}import { tile } from "./lib.shade.ts";\nconst N: override<u32> = 4;\n@compute([1]) export function main() { tile[0] = f32(N); }\n`,
+      '/p/lib.shade.ts': LIB,
+    };
+    expect(errorsOf(files)).toEqual([
+      `/p/lib.shade.ts:2:14 ${TS_CODES.DUPLICATE_SYMBOL} Override "N" is declared in both "/p/main.shade.ts" and "/p/lib.shade.ts". A program is one module, and the host knows an override by its name; rename one.`,
+    ]);
+    expect(compiled(files).wgsl).toBeUndefined();
+  });
+
+  it("a parameter of the entry's that shares the override's name does not take the size", () => {
+    const files: Files = {
+      '/p/main.shade.ts': `${D}import { tile } from "./lib.shade.ts";\nfunction g(N: f32): f32 { return N; }\n@compute([1]) export function main() { tile[0] = g(tile[1]); }\n`,
+      '/p/lib.shade.ts': LIB,
+    };
+    expect(errorsOf(files)).toEqual([]);
+    expect(editedEach(files)).toEqual([]);
+    const r = compiled(files);
+    expect(r.module.overrides.map((o) => o.name)).toEqual(['N']);
+    expect(r.wgsl).toContain('array<f32, N>');
+  });
+});
+
 describe('a mistake belongs to the file it is in (Rule 3.9)', () => {
   const files = {
     '/p/main.shade.ts': `${D}import { g } from "./lib.shade.ts";\nexport function f(x: f32): f32 {\n  return g(x);\n}\n`,
