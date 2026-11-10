@@ -764,12 +764,6 @@ describe('every refusal that names a line is pinned above', () => {
       lines: 0,
       note: 'names the head of the declaration that replaces a refused stage call, `@vertex export function vs(…)`, with its parameters left open, and of the one that replaces `export default` on an entry, `export function k`: a head and no whole declaration; `tshc migrate` writes each, and `stage-call.test.ts` holds the file it writes to compile clean in both halves (changes 0130 and 0140)',
     },
-    {
-      file: 'integer-literal-deprecation.ts',
-      sites: 1,
-      lines: 0,
-      note: "quotes the initializer to write, `name = 1.`, which completes the author's own declaration rather than replacing it",
-    },
   ];
 
   it('finds the sites this test was written against, and no others', () => {

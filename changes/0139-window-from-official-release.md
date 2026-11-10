@@ -14,6 +14,8 @@ names: []
 downstream: []
 ---
 
+<!-- doc-refs: skip-file — a proposal that names TS8053 and the files of its warning, which change 0134 retired and removed -->
+
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                           |

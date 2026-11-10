@@ -32,6 +32,8 @@ downstream:
     what: Optional cleanup of literal casts in shaders (4 grep hits at 8bd1ab1); review each module constant above 2^24, whose value becomes exact; record 0134 in compiler-changes.md when the pin moves
 ---
 
+<!-- doc-refs: skip-file — a proposal that names TS8053 and the files of its warning, which change 0134 retired and removed -->
+
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |

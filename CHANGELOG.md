@@ -1802,6 +1802,15 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Removed
 
+- **`TS8053`, the warning that an integer-written declaration "will type as i32"** (change 0134).
+  A written number takes its type from where the program uses it, and no default type is left
+  for an author to learn (`docs/owner-decisions.md` OD-7), so #148's flip of the default to
+  `i32` does not happen and its warning has no true text. `compile(src, { deprecations: true })`
+  and `tshc check --deprecations` stay as the mechanism of Rule 13.10 and report nothing until a
+  window opens. No official release carried the warning (OD-6). The number is retired and not
+  reused. **Migration:** none for a shader. A tool that matched on `TS8053`, or read
+  `TS_CODES.INT_LITERAL_DEPRECATION`, drops that case.
+
 - **The stage calls of change 0111, and `export default` on an entry, are refused** (changes
   0130 and 0140; Rule 1.8, Rule 6.7, Rule 8.1, surface §3, §6 and §54). A stage is an attribute
   on the entry's function declaration. The calls `vertex(f)`, `fragment(f)`, `compute([…], f)`

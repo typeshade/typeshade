@@ -88,7 +88,7 @@ Options:
   --format <text|short|json>  text (default): each diagnostic with its source line
                               short: one line per diagnostic
                               json: the report as data (one-based lines and columns)
-  --deprecations              also report deprecation warnings (TS8053)
+  --deprecations              also report deprecation warnings (none today)
   -h, --help                  show this help
   -v, --version               show the version
 

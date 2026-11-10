@@ -55,6 +55,11 @@ export const CODE_GAPS: readonly Gap[] = [
     why: 'unspent block of #162; the head comment of codes.ts (TS8039 to TS8067)',
   },
   { from: 8042, to: 8049, why: 'unspent block of #162; the head comment of codes.ts' },
+  {
+    from: 8053,
+    to: 8053,
+    why: 'retired by change 0134 (INT_LITERAL_DEPRECATION); recorded in codes.ts above RESERVED_BINDING_NAME',
+  },
   { from: 8054, to: 8067, why: 'unspent block of #162; the head comment of codes.ts' },
   {
     from: 8076,
