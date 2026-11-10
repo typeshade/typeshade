@@ -24,7 +24,8 @@
 // It uses no 64-bit integer and no `fma`.
 //
 // The methods are the published ones: fdlibm's `e_asin.c`, `e_acos.c`, `s_atan.c` and
-// `e_atan2.c`, as FreeBSD and musl carry them, with their coefficients. `atan2` differs from
+// `e_atan2.c`, as FreeBSD and musl carry them, with their coefficients. `asin` and `acos` each
+// differ from fdlibm in one step, which gives the result one rounding less. `atan2` differs from
 // fdlibm in two steps, which `atan2F64` describes: the error of the quotient y / x is put back,
 // and a result past pi/2 is one sum, not the difference of pi and a rounded arctangent. Every
 // constant derived from pi is held to a BigInt computation by `invtrig.test.ts`. The notice of
@@ -100,8 +101,9 @@ function asinRatio(t: f64): f64 {
 /** asin(x) for an f64. The error is under 1 ULP.
  *
  *  Below 0.5 it is x + x^3 R(x^2). From 0.5 it is pi/2 - 2 asin(sqrt((1 - |x|) / 2)): the square
- *  root s is taken as a head of 32 bits and the rest, so the difference from pi/4 keeps its
- *  bits. From 0.975 the plain form is close enough. */
+ *  root s is taken as a head w of 21 bits and the rest, so pi/2 - 2 w is exact and the rest joins
+ *  a small term. From 0.975 the plain form is close enough. This differs from fdlibm in one
+ *  step, which the body names. */
 export function asinF64(x: f64): f64 {
   const hx = __f64Hi(x);
   const ix = hx & 0x7fffffff;
@@ -134,8 +136,9 @@ export function asinF64(x: f64): f64 {
     const w = __f64FromWords(__f64Hi(s), u32(0));
     const c = (t - w * w) / (s + w);
     const p = 2.0 * s * r - (PIO2L - 2.0 * c);
-    const q = PIO4H - 2.0 * w;
-    res = PIO4H - (p - q);
+    // pi/2 - 2 w is exact: w has 21 bits. fdlibm takes pi/4 - (p - (pi/4 - 2 w)), whose inner
+    // difference rounds by a quarter of a unit of the result.
+    res = (PIO2H - 2.0 * w) - p;
   }
   if (hx >= 0x80000000) {
     return -res;
@@ -146,8 +149,9 @@ export function asinF64(x: f64): f64 {
 /** acos(x) for an f64. The error is under 1 ULP.
  *
  *  Below 0.5 it is pi/2 - (x + x^3 R(x^2)). For x >= 0.5 it is 2 asin(sqrt((1 - x) / 2)), with
- *  the square root as a head of 32 bits and the rest. For x <= -0.5 it is
- *  pi - 2 asin(sqrt((1 + x) / 2)). */
+ *  the square root as a head of 21 bits and the rest. For x <= -0.5 it is
+ *  pi - 2 asin(sqrt((1 + x) / 2)), with the same head and rest; this differs from fdlibm in one
+ *  step, which the body names. */
 export function acosF64(x: f64): f64 {
   const hx = __f64Hi(x);
   const ix = hx & 0x7fffffff;
@@ -173,8 +177,12 @@ export function acosF64(x: f64): f64 {
   if (hx >= 0x80000000) {
     const z = (1.0 + x) * 0.5;
     const s = sqrt(z);
-    const w = asinRatio(z) * s - PIO2L;
-    return PIH - 2.0 * (s + w);
+    const df = __f64FromWords(__f64Hi(s), u32(0));
+    const c = (z - df * df) / (s + df);
+    const w = asinRatio(z) * s + c;
+    // pi - 2 df is exact: df has 21 bits. fdlibm takes pi - 2 (s + w) with the rounded root,
+    // whose sum and whose root each round by a part of a unit of the result.
+    return (PIH - 2.0 * df) - (2.0 * w - PIL);
   }
   const z = (1.0 - x) * 0.5;
   const s = sqrt(z);

@@ -91,7 +91,13 @@ describe('the source of asin, acos, atan and atan2 and its baked form', () => {
     expect([...text.matchAll(/Math\.(\w+)/g)].filter((m) => m[1] !== 'fround')).toEqual([]);
     expect(text).not.toMatch(/\*\*/);
     const read = [...text.matchAll(/\$\.[BL]\["(\w+)"\]/g)].map((m) => m[1]!);
-    expect([...new Set(read)].sort()).toEqual(['__f64FromWords', '__f64Hi', '__f64Lo', 'i32', 'sqrt']);
+    expect([...new Set(read)].sort()).toEqual([
+      '__f64FromWords',
+      '__f64Hi',
+      '__f64Lo',
+      'i32',
+      'sqrt',
+    ]);
   });
 });
 
@@ -689,6 +695,40 @@ describe('each threshold of each routine', () => {
         );
       }
     }
+  });
+});
+
+describe('asin from 0.5 and acos to -0.5, where the form of fdlibm was weakest', () => {
+  // fdlibm takes pi/4 - (p - (pi/4 - 2 w)) for asin and pi - 2 (s + w) for acos. Each has a
+  // rounding that the routine does not need. On 11,000,000 operands of asin from 0.5 to 0.975
+  // that form measured up to 0.9235 ULP, and on 7,000,000 operands of acos from -1 to -0.5 up
+  // to 0.9081 ULP. These are the operands of the largest errors.
+  it('asin: the operands that measured past 0.8 ULP now measure under 0.25', () => {
+    for (const x of [0.5016389491494709, -0.5099626340270015, 0.5001724939144151]) {
+      expect([x, err64(LIBM.asinF64(x), exactAsin(x)) < 0.25]).toEqual([x, true]);
+    }
+  });
+
+  it('acos: the operands that measured past 0.8 ULP now measure under 0.25', () => {
+    for (const x of [-0.5138459653125964, -0.5188134151497021, -0.5043161080184964]) {
+      expect([x, err64(LIBM.acosF64(x), exactAcos(x)) < 0.25]).toEqual([x, true]);
+    }
+  });
+
+  it('on a sample of each range the error is under 0.8 ULP', () => {
+    const next = mulberry32(0x0a51a005);
+    const unit = (): number => (next() >>> 0) / 4294967296 + (next() >>> 0) / 2 ** 64;
+    let asin = 0;
+    let acos = 0;
+    for (let i = 0; i < 20_000; i++) {
+      const x = 0.5 + unit() * 0.475;
+      asin = Math.max(asin, err64(LIBM.asinF64(x), exactAsin(x)));
+      const y = -(0.5 + unit() * 0.5);
+      if (y > -1) acos = Math.max(acos, err64(LIBM.acosF64(y), exactAcos(y)));
+    }
+    expect(asin).toBeLessThan(0.8);
+    expect(acos).toBeLessThan(0.8);
+    expect(Math.min(asin, acos)).toBeGreaterThan(0.25);
   });
 });
 

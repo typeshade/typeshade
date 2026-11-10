@@ -41,7 +41,7 @@
       "count": 63,
       "nanResults": 32,
       "inputsSha256": "e977228fa7e5e3135b64f7716ee149718495aa4eab3cbc62ff27c6d4c719ca9b",
-      "resultsSha256": "f39b74c3df66428fed60c9ecf248db308162bea778ee042f3e6a50a7dc05198d"
+      "resultsSha256": "935e26ade122f2b8e7205fcf4388bb15426cb5bccba0eec0d8c2927622806c1c"
     },
     {
       "routine": "asinF64",
@@ -49,7 +49,7 @@
       "count": 250000,
       "nanResults": 0,
       "inputsSha256": "a2d2e3fc5053aae487eb37aaaa64648313b63396b656856f03200762c3ad6d14",
-      "resultsSha256": "f93915d7f1f5f577a3273d5c832b9172bfd67e3fa2b5f6515168d6b34f05245c"
+      "resultsSha256": "bfd3fe9c8004a49cbe1e456b1708fb7843a93e3ca63174ee68fb3a9f9b7ffc9a"
     },
     {
       "routine": "asinF64",
@@ -57,7 +57,7 @@
       "count": 250000,
       "nanResults": 0,
       "inputsSha256": "e1ea8d47585c2f65872fa22aa01949d25fcff5728a3f5e86f3e3ad5de3cf581c",
-      "resultsSha256": "bdd20dfe32d8036ba5c2c127083b1e1ec90dffda1d5b0564dbd69df801c1ca9c"
+      "resultsSha256": "b5c0c5f410b85df5f8e4364c55e9f29913a4bd428795a77e524bb5b85ed038e1"
     },
     {
       "routine": "asinF64",
@@ -65,7 +65,7 @@
       "count": 250000,
       "nanResults": 124901,
       "inputsSha256": "636ce3cced2776cc3dd06a8848b1393b9827416eba926af99ed66956bf370bff",
-      "resultsSha256": "c8a3c3deb4a1d678ba07b0e15fbde52650987d880d7cf32422c23062a886d12a"
+      "resultsSha256": "27e979ee9e33d131155b7d16aed17a2e3e6a1ca59dc2fb74cacb89d133edce7f"
     },
     {
       "routine": "acosF32",
@@ -113,7 +113,7 @@
       "count": 250000,
       "nanResults": 0,
       "inputsSha256": "a2d2e3fc5053aae487eb37aaaa64648313b63396b656856f03200762c3ad6d14",
-      "resultsSha256": "930b0563197c0723a063e18f4e28d9ee75259479c86a943057a41c13454caf1a"
+      "resultsSha256": "4459a379374b04612ae8521f83577d8fdf91224f11ba19aafa12b357d1e8cd63"
     },
     {
       "routine": "acosF64",
@@ -121,7 +121,7 @@
       "count": 250000,
       "nanResults": 0,
       "inputsSha256": "e1ea8d47585c2f65872fa22aa01949d25fcff5728a3f5e86f3e3ad5de3cf581c",
-      "resultsSha256": "1587af8442def51b9c9ea5d1b604eb07255389b95e6e05a06e9f90480fc90b10"
+      "resultsSha256": "2bb9a7fed221e559e1d355be2b7ab7fdacd8dbbbc4f8fba04198144990d6010d"
     },
     {
       "routine": "acosF64",
