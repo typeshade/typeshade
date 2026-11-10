@@ -98,7 +98,7 @@ declare const camera: uniform<Camera>;
 declare const pixels: storage<array<f32>, "read_write">;
 
 @compute([64, 1, 1])
-export function paint(@builtin("global_invocation_id") gid: vec3u) {
+export function paint(gid: builtin<"global_invocation_id">) {
   const i = gid.x;
   pixels[i] = pixels[i] + camera.pos.x;
 }
