@@ -28,10 +28,10 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 describe('a local function is a function of the module', () => {
   it('named after the body that declares it, in both spellings', () => {
     const arrow = compile(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const f = (x: f32): f32 => x * 2.;
   return vec4(f(3.), 0., 0., 1.);
-});
+}
 `);
     expect(arrow.diagnostics).toEqual([]);
     expect(arrow.wgsl).toContain('fn fs_f(x: f32) -> f32 {');
@@ -39,12 +39,12 @@ export const fs = fragment(function fs(): vec4 {
     expect(arrow.glsl?.fragment).toContain('float fs_f(float x) {');
     agree(arrow, [6, 0, 0, 1]);
     const expr = compile(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const f = function (x: f32): f32 {
     return x * 3.;
   };
   return vec4(f(3.), 0., 0., 1.);
-});
+}
 `);
     expect(expr.diagnostics).toEqual([]);
     expect(expr.wgsl).toContain('fn fs_f(x: f32) -> f32 {');
@@ -57,10 +57,10 @@ function g(): f32 {
   const f = (x: f32): f32 => x * 10.;
   return f(2.);
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const f = (x: f32): f32 => x * 100.;
   return vec4(f(2.), g(), 0., 1.);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('fn g_f(x: f32) -> f32 {');
@@ -71,13 +71,13 @@ export const fs = fragment(function fs(): vec4 {
   it('with a block body, a nested one, and a module const in reach', () => {
     const r = compile(`"use typeshade";
 const K: f32 = 4.;
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const outer = (x: f32): f32 => {
     const inner = (y: f32): f32 => y + 1.;
     return inner(x) * K;
   };
   return vec4(outer(3.), 0., 0., 1.);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('fn fs_outer_inner(y: f32) -> f32 {');
@@ -88,9 +88,9 @@ export const fs = fragment(function fs(): vec4 {
   it('at the module top level it is already one, and in a namespace it takes the flattened name', () => {
     const top = compile(`"use typeshade";
 const half = (x: f32): f32 => x * 0.5;
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(half(3.), 0., 0., 1.);
-});
+}
 `);
     expect(top.diagnostics).toEqual([]);
     expect(top.wgsl).toContain('fn half(x: f32) -> f32 {');
@@ -102,9 +102,9 @@ namespace N {
     return twice(x);
   }
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(N.use(3.), 0., 0., 1.);
-});
+}
 `);
     expect(ns.diagnostics).toEqual([]);
     expect(ns.wgsl).toContain('fn N_twice(x: f32) -> f32 {');
@@ -115,10 +115,10 @@ export const fs = fragment(function fs(): vec4 {
 describe('a local function reads the body around it (Rule 8.17)', () => {
   it('an entry parameter, which every call passes', () => {
     const r = compile(`"use typeshade";
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   const f = (x: f32): f32 => x * uv.x;
   return vec4(f(2.), 0., 0., 1.);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('fn fs_f(uv: vec2<f32>, x: f32) -> f32 {');
@@ -133,18 +133,18 @@ describe('what a local function may not do', () => {
   it("be a let (its return type, left off, is its body's to say: Rule 8.19)", () => {
     expect(
       errorsOf(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const f = (x: f32) => x * 2.;
   return vec4(f(3.), 0., 0., 1.);
-});
+}
 `),
     ).toEqual([]);
     expect(
       errorsOf(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   let f = (x: f32): f32 => x * 2.;
   return vec4(f(3.), 0., 0., 1.);
-});
+}
 `)[0],
     ).toBe(
       `${TS_CODES.FUNCTION_SHAPE} "f" is a function, so it is declared with const; a "let" would let the name point at another one, which no shader value does.`,
@@ -154,10 +154,10 @@ export const fs = fragment(function fs(): vec4 {
   it('take a type on the const rather than on itself', () => {
     expect(
       errorsOf(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const f: f32 = (x: f32): f32 => x * 2.;
   return vec4(f(3.), 0., 0., 1.);
-});
+}
 `)[0],
     ).toBe(
       `${TS_CODES.FUNCTION_SHAPE} "f" is a function; its types are written on its own parameters and after them, not as a type on the const.`,
@@ -169,17 +169,17 @@ describe('a triple-slash directive is a comment, and always was', () => {
   it('above the "use typeshade" directive and below it', () => {
     const above = compile(`/// <reference types="typeshade" />
 "use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(1.);
-});
+}
 `);
     expect(above.diagnostics).toEqual([]);
     expect(above.wgsl).toContain('fn fs()');
     const below = compile(`"use typeshade";
 /// <reference path="./other.d.ts" />
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(1.);
-});
+}
 `);
     expect(below.diagnostics).toEqual([]);
     expect(below.wgsl).toContain('fn fs()');

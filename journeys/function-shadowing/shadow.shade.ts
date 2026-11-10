@@ -14,9 +14,10 @@ function captured(K: f32): f32 {
   K = K + 1.;
   return add() + K;
 }
-export const main = compute([1, 1, 1], function main(): void {
+@compute([1, 1, 1])
+export function main(): void {
   out[0] = local();
   out[1] = parameter(2.);
   out[2] = captured(3.);
   out[3] = u.value + K;
-});
+}

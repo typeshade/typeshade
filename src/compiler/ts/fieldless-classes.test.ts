@@ -21,7 +21,7 @@ describe('fieldless classes', () => {
     const r = program(`class Empty {}
 export function make(): Empty { return new Empty(); }
 export function accept(e: Empty): Empty { return e; }
-export const fs = fragment(function fs(): vec4 { const e = new Empty(); return vec4(1.); });`);
+@fragment export function fs(): vec4 { const e = new Empty(); return vec4(1.); }`);
     expect(r.module.structs.find((s) => s.name === 'Empty')!.fields).toEqual([]);
     expect(r.eval('make')).toEqual({});
     expect(r.eval('accept', [{}])).toEqual({});
@@ -64,7 +64,7 @@ export function answer(): f32 { const u: Util = new Util(); const e = new N.Empt
 
   it('assigns memory footprint without exposing a generated field in reflection', () => {
     const r = program(`class Empty {}
-class Values { head!: f32; item!: Empty; items!: array<Empty, 2>; tail!: f32; }
+class Values { head: f32; item: Empty; items: array<Empty, 2>; tail: f32; }
 export function consume(v: Values): f32 { return v.head + v.tail; }`);
     const structs = new Map(r.module.structs.map((s) => [s.name, s]));
     const empty = structs.get('Empty')!;

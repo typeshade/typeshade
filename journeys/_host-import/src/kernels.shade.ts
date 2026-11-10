@@ -11,14 +11,16 @@ declare const ys: storage<array<f32>, "read_write">;
 declare const sums: storage<array<f32>, "read_write">;
 declare const scratch: storage<array<f32>, "read_write">;
 
-export const scale = compute([64], function scale(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64])
+export function scale(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x >= xs.length) {
     return;
   }
   ys[gid.x] = xs[gid.x] * k;
-});
+}
 
-export const blockSum = compute([64], function blockSum(
+@compute([64])
+export function blockSum(
   gid: builtin<"global_invocation_id", vec3u>,
   lid: builtin<"local_invocation_id", vec3u>,
   wid: builtin<"workgroup_id", vec3u>,
@@ -32,11 +34,12 @@ export const blockSum = compute([64], function blockSum(
     }
     sums[wid.x] = s;
   }
-});
+}
 
-export const report = compute([4], function report(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4])
+export function report(gid: builtin<"global_invocation_id", vec3u>) {
   console.log("x", gid.x, xs[gid.x]);
-});
+}
 
 // `planGroups` writes the workgroup count of the next call into a Resident, and `markGroups`
 // runs over that count (change 0075).
@@ -44,17 +47,19 @@ declare const groups: uniform<u32>;
 declare const counts: storage<array<u32>, "read_write">;
 declare const marks: storage<array<u32>, "read_write">;
 
-export const planGroups = compute([1], function planGroups() {
+@compute([1])
+export function planGroups() {
   counts[3] = groups;
   counts[4] = 1;
   counts[5] = 1;
-});
+}
 
-export const markGroups = compute([8], function markGroups(
+@compute([8])
+export function markGroups(
   gid: builtin<"global_invocation_id", vec3u>,
   nw: builtin<"num_workgroups", vec3u>,
 ) {
   if (gid.x < marks.length) {
     marks[gid.x] = nw.x * 1000 + gid.x;
   }
-});
+}

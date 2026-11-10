@@ -50,7 +50,7 @@ function paired(source: string, expected: Expected[], files: Record<string, stri
   }
 }
 
-const restBase = 'class B { x!: f32; constructor(...values: f32[]) { this.x = 1.; } }';
+const restBase = 'class B { x: f32; constructor(...values: f32[]) { this.x = 1.; } }';
 const derived = 'class D extends B { constructor() { super(); } }';
 const useDerived = 'export function value(): f32 { return new D().x; }';
 const restError: Expected = { code: 'TS8020', message: REST, text: '...values: f32[]' };
@@ -82,7 +82,7 @@ describe('a refused base constructor is diagnosed once', () => {
   it('uses the instantiated generic base refusal', () => {
     paired(
       `"use typeshade";
-class B<T> { x!: T; constructor(...values: T[]) {} }
+class B<T> { x: T; constructor(...values: T[]) {} }
 class D extends B<f32> { constructor() { super(); } }
 ${useDerived}`,
       [{ ...restError, text: '...values: T[]' }],
@@ -92,7 +92,7 @@ ${useDerived}`,
   it('keeps an unknown constructor parameter type at its declaration', () => {
     paired(
       `"use typeshade";
-class B { x!: f32; constructor(value: Missing) { this.x = 1.; } }
+class B { x: f32; constructor(value: Missing) { this.x = 1.; } }
 class D extends B { constructor() { super(1.); } }
 ${useDerived}`,
       [{ code: 'TS8002', message: UNKNOWN, text: 'Missing' }],
@@ -122,7 +122,7 @@ export function value(): f32 { return missing; }`,
 });
 
 describe('a valid base constructor still checks and executes super()', () => {
-  const base = 'class B { x!: f32; constructor(value: f32 = 2.) { this.x = value; } }';
+  const base = 'class B { x: f32; constructor(value: f32 = 2.) { this.x = value; } }';
   it.each([
     ['the default', '', 2],
     ['an explicit argument', '3.', 3],

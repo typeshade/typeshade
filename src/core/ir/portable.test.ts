@@ -91,10 +91,10 @@ describe('the portable IR emits the same program (Rule 11.10)', () => {
 export function pack4xU8(v: vec4u): u32 {
   return v.x;
 }
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   const p = pack4xU8(vec4u(7, 0, 0, 0));
   return vec4(f32(p) * 0., 0., 0., 1.);
-});
+}
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     const m = r.module!;
@@ -129,10 +129,10 @@ export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
 describe('repack, the load-time emitter (change 0025)', () => {
   const src = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-export const main = compute([4], function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
   console.log("x", gid.x);
   out[gid.x] = f32(gid.x);
-});
+}
 `;
   const m = compile(src, { fileName: 'x.shade.ts' }).module!;
 

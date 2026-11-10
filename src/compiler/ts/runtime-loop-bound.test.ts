@@ -58,7 +58,7 @@ describe('a for loop takes a runtime bound', () => {
     const src = `"use typeshade";
 declare const verts: storage<array<vec3f>>;
 declare const hits: storage<array<u32>, "read_write">;
-export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64]) export function main(gid: builtin<"global_invocation_id", vec3u>): void {
   let count: u32 = 0;
   for (let t: u32 = 0; t < verts.length / 3; t++) {
     if (verts[t * 3].y > f32(gid.x)) {
@@ -66,7 +66,7 @@ export const main = compute([64], function main(gid: builtin<"global_invocation_
     }
   }
   hits[gid.x] = count;
-});
+}
 `;
     const r = compile(src);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
@@ -97,13 +97,13 @@ interface Params { count: u32 }
 declare const params: uniform<Params>;
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
-export const main = compute([64], function main(lid: builtin<"local_invocation_index", u32>): void {
+@compute([64]) export function main(lid: builtin<"local_invocation_index", u32>): void {
   let s = 0.;
   for (let i: u32 = lid; i < params.count; i += 64) {
     s += src[i];
   }
   dst[lid] = s;
-});
+}
 `;
     const r = compile(src);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
@@ -116,13 +116,13 @@ export const main = compute([64], function main(lid: builtin<"local_invocation_i
     const src = `"use typeshade";
 interface Frame { steps: i32 }
 declare const frame: uniform<Frame>;
-export const fs = fragment(function fs(p: builtin<"position", vec4f>): vec4f {
+@fragment export function fs(p: builtin<"position", vec4f>): vec4f {
   let a = 0.;
   for (let i: i32 = 0; i < frame.steps; i++) {
     a += 0.01;
   }
   return vec4f(a, 0., 0., 1.);
-});
+}
 `;
     const r = compile(src);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
@@ -134,17 +134,17 @@ export const fs = fragment(function fs(p: builtin<"position", vec4f>): vec4f {
     // `data.length` is a u32. An unannotated counter was always an i32, so the first loop a
     // TypeScript author writes was `TS8003 cannot compare i32 and u32`.
     const kernel = (head: string): string => `"use typeshade"
-class Params { count!: u32 }
+class Params { count: u32 }
 declare const params: uniform<Params>
 declare const data: storage<array<f32>>
 declare const out: storage<array<f32>, "read_write">
-export const sum = compute([64], function sum(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64]) export function sum(gid: builtin<"global_invocation_id", vec3u>) {
   let s = 0
   for (${head}) {
     s += data[i]
   }
   out[gid.x] = s
-});`;
+}`;
     const byLength = compile(kernel('let i = 0; i < data.length; i++'));
     expect(byLength.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(byLength.wgsl).toContain('for (var i: u32 = 0u; ');
@@ -176,13 +176,13 @@ interface Params { rounds: u32 }
 declare const params: uniform<Params>;
 declare const out: storage<array<f32>, "read_write">;
 let tile: workgroup<array<f32, 64>>;
-export const main = compute([64], function main(lid: builtin<"local_invocation_index", u32>): void {
+@compute([64]) export function main(lid: builtin<"local_invocation_index", u32>): void {
   for (let r: u32 = 0; r < ${bound}; r++) {
     tile[lid] = f32(r);
     workgroupBarrier();
   }
   out[lid] = tile[u32(63) - lid];
-});
+}
 `;
     expect(errorsOf(kernel('params.rounds'))).toEqual([]);
     expect(errorsOf(kernel('lid')).map((d) => d.code)).toEqual(['TS8052']);
@@ -243,9 +243,9 @@ export const main = compute([64], function main(lid: builtin<"local_invocation_i
 interface Field { scale: f32; data: array<f32> }
 declare const xs: storage<array<f32>, "read_write">;
 declare const field: storage<Field, "read_write">;
-export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64]) export function main(gid: builtin<"global_invocation_id", vec3u>): void {
   ${body}
-});
+}
 `;
     for (const body of [
       'for (let i = 0; i < xs.length; i++) { xs[i] = f32(i); }',

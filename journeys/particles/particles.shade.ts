@@ -7,15 +7,15 @@
 // GPU, one invocation per particle, once per frame.
 
 class Particle {
-  pos!: vec4;
-  vel!: vec4;
+  pos: vec4;
+  vel: vec4;
 }
 
 class Sim {
-  dt!: f32;
-  gravity!: f32;
-  floor!: f32;
-  bounce!: f32;
+  dt: f32;
+  gravity: f32;
+  floor: f32;
+  bounce: f32;
 }
 
 export function step(particles: array<Particle>, sim: Sim) {

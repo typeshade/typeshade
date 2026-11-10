@@ -55,10 +55,10 @@ describe('a vector converts to another element kind', () => {
   it('converts a swizzle: vec2(gid.xy)', () => {
     const r = compileTsSource(`
       "use typeshade";
-      export const k = compute([64, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>) {
+      @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>) {
         let uv = vec2(gid.xy);
         uv = uv;
-      });
+      }
     `);
     expect(r.diagnostics).toEqual([]);
     const stmt = r.funcs[0]!.body[0]!;
@@ -202,11 +202,11 @@ describe('vecN<T>(...) names the element, and vecN() is the zero', () => {
   it('emits the element the type argument named, on both targets', () => {
     const r = compile(`"use typeshade";
 function pick(u: vec3<u32>, z: vec3f): f32 { return f32(u.x) + z.x; }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const u = vec3<u32>(1, 2, 3);
   const z = vec3();
   return vec4(pick(u, z), 0., 0., 1.);
-});
+}
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('vec3<u32>(1u, 2u, 3u)');
@@ -220,17 +220,17 @@ export const fs = fragment(function fs(): vec4 {
   it('array<T, N>() is the zero value: each element its type zero, on every target', () => {
     const r = compile(`"use typeshade";
 class P {
-  k!: u32;
-  v!: vec2;
+  k: u32;
+  v: vec2;
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   let stack: array<u32, 32> = array<u32, 32>();
   stack[3] = stack[3] + 1;
   const vs = array<vec3, 4>();
   const ms = array<mat2x2, 2>();
   const ps = array<P, 2>();
   return vec4(f32(stack[3] + stack[31]) + vs[3].z, ms[1][1].y, f32(ps[1].k) + ps[0].v.x, 1.);
-});
+}
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain(
@@ -332,11 +332,11 @@ describe('a scalar conversion takes a scalar, and a literal it can hold', () => 
     // must fit its target — a fact about the spelling, not about the program. So the surface
     // spells the conversion as the literal it yields, and no spelling Tint refuses is emitted.
     const r = compile(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const k: i32 = -1;
   const m: u32 = u32(4294967295);
   return vec4(f32(u32(k)) * 0., f32(i32(m)) * 0., 0., 1.);
-});
+}
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('4294967295u');
@@ -351,13 +351,13 @@ export const fs = fragment(function fs(): vec4 {
     // 10000000000 in an f64 fold, `i32 1 / 2` is 0 there and 0.5 here. A range rule built on
     // the second set refused programs that ran and admitted programs that did not.
     const r = compile(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const a: i32 = 100000;
   const b: i32 = 100000;
   const p: i32 = 1;
   const q: i32 = 2;
   return vec4(f32(u32(a * b)) * 0., f32(u32(p / q - 1)) * 0., 0., 1.);
-});
+}
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     // 100000 * 100000 wraps to 1410065408, and 1 / 2 - 1 truncates to -1, which is 4294967295
@@ -374,10 +374,10 @@ export const fs = fragment(function fs(): vec4 {
     // alias and a call initializer are all values the rule sees.
     const one = (body: string): readonly string[] =>
       compile(`"use typeshade"
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
 ${body}
   return vec4(f32(u32(k)) * 0., 0., 0., 1.)
-});
+}
 `)
         .diagnostics.filter((d) => d.category === 'error')
         .map((d) => d.message);
@@ -396,10 +396,10 @@ ${body}
     // on WGSL and bit-preserving on GLSL ES 3.00, one answer. This is the escape hatch, and the
     // reason nothing here refuses `u32` of a signed value on principle.
     const r = compile(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   let k: i32 = -1;
   return vec4(f32(u32(k)) * 0., 0., 0., 1.);
-});
+}
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('u32(k)');
@@ -428,10 +428,10 @@ describe('array(...) infers its element type and its count', () => {
   it('array(1., 2., 3.) infers array<f32, 3>', () => {
     expect(typeKey(lowerReturn('array(1., 2., 3.)[0]', '', 'f32').type)).toBe('f32');
     const r = compile(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const a = array(1., 2., 3.);
   return vec4(a[0], a[1], a[2], 1.);
-});
+}
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('array<f32, 3>(1.0, 2.0, 3.0)');
@@ -440,11 +440,11 @@ export const fs = fragment(function fs(): vec4 {
 
   it('infers a vector element too, and keeps the explicit form working', () => {
     const r = compile(`"use typeshade";
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   const a = array(uv, uv);
   const b = array<f32, 2>(1., 2.);
   return vec4(a[0], b[0], b[1]);
-});
+}
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('array<vec2<f32>, 2>(uv, uv)');

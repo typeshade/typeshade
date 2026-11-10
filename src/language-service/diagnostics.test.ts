@@ -407,10 +407,10 @@ describe('a wrong shape still reports when the call also does arithmetic (issue 
         '  pos: builtin<"position", vec4>\n' +
         '  uv: location<0, vec2>\n' +
         '}\n' +
-        'export const fs = fragment(function fs(vo: VsOut): vec4 {\n' +
+        '@fragment export function fs(vo: VsOut): vec4 {\n' +
         '  const c: vec3 = vec3(1., 0., 0.)\n' +
         '  return vec4(mix(c * 0.5, vo.uv, 0.5), 1.)\n' +
-        '});\n',
+        '}\n',
     );
   });
 
@@ -421,11 +421,11 @@ describe('a wrong shape still reports when the call also does arithmetic (issue 
       '  pos: builtin<"position", vec4>\n' +
       '  uv: location<0, vec2>\n' +
       '}\n' +
-      'export const fs = fragment(function fs(vo: VsOut): vec4 {\n' +
+      '@fragment export function fs(vo: VsOut): vec4 {\n' +
       '  const c: vec3 = vec3(1., 0., 0.)\n' +
       '  const d: vec3 = vec3(0., 1., 0.)\n' +
       '  return vec4(mix(c * 0.5, d, 0.5), 1.)\n' +
-      '});\n';
+      '}\n';
     expect(diagnosticsOf(source).map((d) => `${d.source} ${d.code}: ${d.message}`)).toEqual([]);
   });
 });
@@ -712,7 +712,7 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'typeshade TS8005',
     ],
     'a write to a readonly field (TS2540)': [
-      'class S {\n  readonly a!: f32\n}\nexport function f(s: S): f32 {\n  let t = s\n  t.a = 1.\n  return t.a\n}',
+      'class S {\n  readonly a: f32\n}\nexport function f(s: S): f32 {\n  let t = s\n  t.a = 1.\n  return t.a\n}',
       'typeshade TS8005',
     ],
     'one argument short (TS2554)': [
@@ -808,7 +808,7 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'typeshade TS8022',
     ],
     'a field the struct does not declare (TS2339)': [
-      'class S {\n  a!: f32\n}\nexport function f(s: S): f32 {\n  return s.b\n}',
+      'class S {\n  a: f32\n}\nexport function f(s: S): f32 {\n  return s.b\n}',
       'typeshade TS8022',
     ],
     // The compiler reports a return of the wrong type on the `return`, where TypeScript does.
@@ -821,7 +821,7 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'typeshade TS8003',
     ],
     'a vector returned for an entry output struct (TS2741)': [
-      '"use typeshade"\ninterface C {\n  color: location<0, vec4>;\n}\nexport const fs = fragment(function fs(): C {\n  return vec4(1.)\n});',
+      '"use typeshade"\ninterface C {\n  color: location<0, vec4>;\n}\n@fragment export function fs(): C {\n  return vec4(1.)\n}',
       'typeshade TS8003',
     ],
     'a vector declared as a scalar (TS2322)': [
@@ -884,7 +884,7 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'typeshade TS8004',
     ],
     'a value from an unknown field, through an operation (TS2322)': [
-      '"use typeshade"\nclass Frame {\n  time!: f32\n}\ndeclare const frame: uniform<Frame>\nexport function f(): vec3 {\n  const t = frame.tiem * 2.\n  const u: vec3 = t\n  return u\n}',
+      '"use typeshade"\nclass Frame {\n  time: f32\n}\ndeclare const frame: uniform<Frame>\nexport function f(): vec3 {\n  const t = frame.tiem * 2.\n  const u: vec3 = t\n  return u\n}',
       'typeshade TS8022',
     ],
     'a value from a call one argument short, through an operation (TS2345)': [
@@ -906,7 +906,7 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'typeshade TS8004',
     ],
     'a field TypeScript can correct (TS2561)': [
-      '"use typeshade"\ninterface C {\n  color: location<0, vec4>;\n}\nexport const fs = fragment(function fs(): C {\n  return { colr: vec4(0.) };\n});',
+      '"use typeshade"\ninterface C {\n  color: location<0, vec4>;\n}\n@fragment export function fs(): C {\n  return { colr: vec4(0.) };\n}',
       'typeshade TS8010',
     ],
     'a Math member TypeScript can correct (TS2551)': [
@@ -914,7 +914,7 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'typeshade TS8022',
     ],
     'a method (TS2339)': [
-      '"use typeshade"\nclass P {\n  x!: f32;\n  len(): f32 {\n    return this.x;\n  }\n}\nexport function f(p: P): f32 {\n  return p.lne();\n}',
+      '"use typeshade"\nclass P {\n  x: f32;\n  len(): f32 {\n    return this.x;\n  }\n}\nexport function f(p: P): f32 {\n  return p.lne();\n}',
       'typeshade TS8035',
     ],
     'a name read above its declaration (TS2448)': [
@@ -1022,7 +1022,7 @@ describe("the editor shows the compiler's one diagnostic, at its span (both halv
       'TS8004 Unknown function "lerp". HLSL\'s lerp is mix here. @lerp',
     ],
     'a value from an unknown field, into a declared local': [
-      '"use typeshade"\nclass Frame {\n  time!: f32\n}\ndeclare const frame: uniform<Frame>\nexport function f(): vec3 {\n  const t = frame.tiem * 2.\n  const u: vec3 = t\n  return u\n}\n',
+      '"use typeshade"\nclass Frame {\n  time: f32\n}\ndeclare const frame: uniform<Frame>\nexport function f(): vec3 {\n  const t = frame.tiem * 2.\n  const u: vec3 = t\n  return u\n}\n',
       'TS8022 Unknown field "tiem" on Frame. Did you mean "time"? @tiem',
     ],
     'a value from a call one argument short': [
@@ -1038,7 +1038,7 @@ describe("the editor shows the compiler's one diagnostic, at its span (both halv
       'TS8003 Function "f" return type mismatch: declared vec3, got f32. @return x',
     ],
     'a vector returned for an entry output struct': [
-      '"use typeshade"\ninterface C {\n  color: location<0, vec4>;\n}\nexport const fs = fragment(function fs(): C {\n  return vec4(1.)\n});\n',
+      '"use typeshade"\ninterface C {\n  color: location<0, vec4>;\n}\n@fragment export function fs(): C {\n  return vec4(1.)\n}\n',
       'TS8003 Function "fs" return type mismatch: declared C, got vec4. @return vec4(1.)',
     ],
   };
@@ -1098,13 +1098,13 @@ describe("a GLSL or HLSL name in a construct the compiler refused is the compile
     },
     'a built-in value read': {
       written: 'gl_FragCoord',
-      twin: 'export const f = fragment(function f(): vec4 {\n  return vec4(gl_FragCoord.x);\n});\n',
+      twin: '@fragment export function f(): vec4 {\n  return vec4(gl_FragCoord.x);\n}\n',
       expression: 'gl_FragCoord.x',
       statement: 'const v = gl_FragCoord.x;',
     },
     'a built-in value written': {
       written: 'gl_Position',
-      twin: 'export const f = vertex(function f(): vec4 {\n  gl_Position = vec4(0.);\n  return vec4(0.);\n});\n',
+      twin: '@vertex export function f(): vec4 {\n  gl_Position = vec4(0.);\n  return vec4(0.);\n}\n',
       statement: 'gl_Position = vec4(0.);',
     },
     'an address space': {
@@ -1338,9 +1338,9 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
     'declare const src: storage<array<f32>>\n' +
     'let tile: workgroup<array<f32, 64>>\n' +
     'let calls: u32\n' +
-    'export const k = compute([64, 1, 1], function k(lid: builtin<"local_invocation_id", vec3u>): void {\n' +
+    '@compute([64, 1, 1]) export function k(lid: builtin<"local_invocation_id", vec3u>): void {\n' +
     '  tile[lid.x] = src[lid.x] + f32(calls)\n' +
-    '});\n';
+    '}\n';
 
   /** What the service reports for `source` when TypeScript also reports TS2454, as 5.7 and
    *  later do, on every read of `names` inside the entry point. */
@@ -1349,7 +1349,7 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
     host.openDocument(URI, source);
     const service = ts.createLanguageService(host, ts.createDocumentRegistry());
     const sourceFile = service.getProgram()!.getSourceFile(URI)!;
-    const body = sourceFile.text.indexOf('export const k');
+    const body = sourceFile.text.indexOf('export function k');
     const added: ts.Diagnostic[] = names.flatMap((name) =>
       [...sourceFile.text.slice(body).matchAll(new RegExp(`\\b${name}\\b`, 'g'))].map((match) => ({
         file: sourceFile,
@@ -1386,13 +1386,13 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
     // as an assignment to `acc`.
     const source =
       '"use typeshade"\n' +
-      'class Acc { total!: f32; count!: u32 }\n' +
+      'class Acc { total: f32; count: u32 }\n' +
       'let calls: u32\n' +
       'let acc: Acc\n' +
-      'export const k = fragment(function k(uv: location<0, vec2>): vec4 {\n' +
+      '@fragment export function k(uv: location<0, vec2>): vec4 {\n' +
       '  acc.total = uv.x\n' +
       '  return vec4(acc.total, f32(acc.count + calls), 0., 1.)\n' +
-      '});\n';
+      '}\n';
     expect(compiled(source)).toEqual([]);
     const glsl = compile(source).glsl!.fragment;
     expect(glsl).toContain('uint calls = 0u;');
@@ -1407,11 +1407,11 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
       '"use typeshade"\n' +
       'declare const dst: storage<array<f32>, "read_write">\n' +
       'let tile: workgroup<array<f32, 64>>\n' +
-      'export const k = compute([64, 1, 1], function k(lid: builtin<"local_invocation_id", vec3u>): void {\n' +
+      '@compute([64, 1, 1]) export function k(lid: builtin<"local_invocation_id", vec3u>): void {\n' +
       '  tile[lid.x] = 1.\n' +
       '  let x: f32\n' +
       '  dst[lid.x] = x + tile[lid.x]\n' +
-      '});\n';
+      '}\n';
     const said =
       'TS8075 "x" is read here before it is assigned on every path. Assign it before this ' +
       'read, or declare it with a value (Rule 7.6).';
@@ -1427,10 +1427,10 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
       '"use typeshade"\n' +
       'declare const dst: storage<array<f32>, "read_write">\n' +
       'let tile: workgroup<array<f32, 64>>\n' +
-      'export const k = compute([64, 1, 1], function k(lid: builtin<"local_invocation_id", vec3u>): void {\n' +
+      '@compute([64, 1, 1]) export function k(lid: builtin<"local_invocation_id", vec3u>): void {\n' +
       '  let tile: f32\n' +
       '  dst[lid.x] = tile\n' +
-      '});\n';
+      '}\n';
     expect(compiled(source)).toEqual([
       'TS8075 "tile" is read here before it is assigned on every path. Assign it before this ' +
         'read, or declare it with a value (Rule 7.6).',
@@ -1445,9 +1445,9 @@ describe('an override-sized workgroup array draws no TS2749', () => {
       '"use typeshade"\n' +
       'const WG_SIZE: override<u32> = 64;\n' +
       'let tile: workgroup<array<f32, WG_SIZE>>;\n' +
-      'export const k = compute([WG_SIZE], function k(lid: builtin<"local_invocation_id", vec3u>): void {\n' +
+      '@compute([WG_SIZE]) export function k(lid: builtin<"local_invocation_id", vec3u>): void {\n' +
       '  tile[lid.x] = 1.;\n' +
-      '});\n';
+      '}\n';
 
     expect(compile(source).diagnostics).toEqual([]);
     expect(typeScriptDiagnosticsOf(source)).toEqual([]);

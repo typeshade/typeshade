@@ -25,8 +25,8 @@ interface Params { gain: f32; }
 declare const unused: uniform<Params>;
 declare const live: uniform<Params>;
 function uncalled(): f32 { return 9.; }
-const hidden = compute([1], function hidden(): void {});
-export const fs = fragment(function fs(): vec4 { return vec4(live.gain); });
+@compute([1]) function hidden(): void {}
+@fragment export function fs(): vec4 { return vec4(live.gain); }
 export function answer(): f32 { return 7.; }
 export function scale(xs: array<f32>): void {
   for (let i: u32 = 0; i < xs.length; i++) { xs[i] *= 2.; }
@@ -108,7 +108,7 @@ describe('pure aliases through the host paths', () => {
     const emptyAlias = join(dir, 'empty-alias.shade.ts');
     files[emptyTarget] =
       D +
-      'declare const unused: uniform<f32>; export const free = fragment(function free(): vec4 { return vec4(1.); });';
+      'declare const unused: uniform<f32>; @fragment export function free(): vec4 { return vec4(1.); }';
     files[emptyAlias] = D + 'export * from "./empty-body.shade.ts";';
     writeFileSync(join(dir, 'view.ts'), face(alias).view);
     writeFileSync(join(dir, 'empty-view.ts'), face(emptyAlias).view);

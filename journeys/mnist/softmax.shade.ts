@@ -1,9 +1,9 @@
 "use typeshade";
 
 class Batch {
-  count!: u32;
-  offset!: u32;
-  rate!: f32;
+  count: u32;
+  offset: u32;
+  rate: f32;
 }
 declare const batch: uniform<Batch>;
 declare const pixels: storage<array<f32>>;
@@ -23,7 +23,8 @@ function stableProbability(z: f32, peak: f32, total: f32): f32 {
   return exp(z - peak) / total;
 }
 
-export const forward = compute([64], function forward(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64])
+export function forward(gid: builtin<"global_invocation_id", vec3u>) {
   const row = gid.x;
   if (row >= batch.count) { return; }
   for (let c: u32 = 0; c < 10; c++) {
@@ -33,9 +34,10 @@ export const forward = compute([64], function forward(gid: builtin<"global_invoc
     }
     logits[row * 10 + c] = z;
   }
-});
+}
 
-export const objective = compute([64], function objective(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64])
+export function objective(gid: builtin<"global_invocation_id", vec3u>) {
   const row = gid.x;
   if (row >= batch.count) { return; }
   let peak = logits[row * 10];
@@ -48,9 +50,10 @@ export const objective = compute([64], function objective(gid: builtin<"global_i
   for (let c: u32 = 0; c < 10; c++) {
     delta[row * 10 + c] = (stableProbability(logits[row * 10 + c], peak, total) - (c === label ? 1. : 0.)) / f32(batch.count);
   }
-});
+}
 
-export const reduce = compute([1], function reduce() {
+@compute([1])
+export function reduce() {
   let total: f32 = 0.;
   let correct: f32 = 0.;
   for (let row: u32 = 0; row < batch.count; row++) {
@@ -63,11 +66,12 @@ export const reduce = compute([1], function reduce() {
   }
   stats[0] = total / f32(batch.count);
   stats[1] = correct;
-});
+}
 
 // Explicit backward, not automatic differentiation. Storage-array reverse mode from
 // change 0056 is not implemented on the inspected main. One writer per parameter.
-export const backward = compute([64], function backward(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64])
+export function backward(gid: builtin<"global_invocation_id", vec3u>) {
   const k = gid.x;
   if (k < 7840) {
     const p = k / 10;
@@ -83,18 +87,20 @@ export const backward = compute([64], function backward(gid: builtin<"global_inv
     for (let row: u32 = 0; row < batch.count; row++) { sum += delta[row * 10 + k]; }
     gradB[k] = sum;
   }
-});
+}
 
-export const update = compute([64], function update(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64])
+export function update(gid: builtin<"global_invocation_id", vec3u>) {
   const k = gid.x;
   if (k < 7840) { weights[k] -= batch.rate * gradW[k]; }
   if (k < 10) { bias[k] -= batch.rate * gradB[k]; }
-});
+}
 
 // One label-free inference entry, shared by the browser and the experiment host.
 // The first forward row is the digit being classified. All probability math stays
 // inside TypeShade, not in a second JavaScript implementation.
-export const predict = compute([1], function predict() {
+@compute([1])
+export function predict() {
   let peak = logits[0];
   let best: u32 = 0;
   for (let c: u32 = 1; c < 10; c++) {
@@ -107,4 +113,4 @@ export const predict = compute([1], function predict() {
     probabilities[c] = stableProbability(logits[c], peak, total);
   }
   predicted[0] = best;
-});
+}

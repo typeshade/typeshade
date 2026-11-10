@@ -227,19 +227,19 @@ const DRAW = `"use typeshade";
 interface VsIn { pos: location<0, vec2>; }
 interface VsOut { p: builtin<"position", vec4>; }
 interface Color { c: location<0, vec4>; }
-class Tint { c!: vec4; }
+class Tint { c: vec4; }
 declare const tint: uniform<Tint>;
-export const vs = vertex(function vs(v: VsIn): VsOut { return { p: vec4(v.pos, 0., 1.) }; });
-export const fs = fragment(function fs(v: VsOut): Color { return { c: tint.c }; });
+@vertex export function vs(v: VsIn): VsOut { return { p: vec4(v.pos, 0., 1.) }; }
+@fragment export function fs(v: VsOut): Color { return { c: tint.c }; }
 `;
 
 const FRAG_DEPTH = `"use typeshade";
 interface VsOut { p: builtin<"position", vec4>; }
 interface Depth { depth: builtin<"frag_depth", f32>; }
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   return { p: vec4(f32(vi), 0., 0., 1.) };
-});
-export const fs = fragment(function fs(v: VsOut): Depth { return { depth: 0.5 }; });
+}
+@fragment export function fs(v: VsOut): Depth { return { depth: 0.5 }; }
 `;
 
 const manifest = (src: string) => {
@@ -255,8 +255,8 @@ describe('a render pipeline keeps one sampler state per texture across its stage
 declare const photo: texture_2d<f32>;
 declare const nearest: sampler;
 declare const linear: sampler;
-export const vs = vertex(function vs(): vec4 { return ${vertex}; });
-export const fs = fragment(function fs(): vec4 { return ${fragment}; });
+@vertex export function vs(): vec4 { return ${vertex}; }
+@fragment export function fs(): vec4 { return ${fragment}; }
 `;
   const sample = (sampler: string) => `textureSampleLevel(photo, ${sampler}, vec2(0.3), 0.)`;
   const load = 'textureLoad(photo, vec2i(0), 0)';
@@ -1380,8 +1380,8 @@ describe('attachments and the read-only checks on WebGL2 (proposal 0064, PR-3)',
 interface VsOut { p: builtin<"position", vec4>; }
 interface Color { c: location<0, vec4>; }
 declare const photo: texture_2d<f32>;
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut { return { p: vec4(f32(vi), 0., 0., 1.) }; });
-export const fs = fragment(function fs(v: VsOut): Color { return { c: textureLoad(photo, vec2i(0), 0) }; });
+@vertex export function vs(vi: builtin<"vertex_index", u32>): VsOut { return { p: vec4(f32(vi), 0., 0., 1.) }; }
+@fragment export function fs(v: VsOut): Color { return { c: textureLoad(photo, vec2i(0), 0) }; }
 `;
   const geometry = { vertices: new Float32Array(6), count: 3 };
   const tint = { tint: { c: [1, 0, 0, 1] } };

@@ -46,9 +46,9 @@ const compilerRefusal = (source: string): string | null => {
 
 const FS = (decl: string, body: string): string => `"use typeshade"
 ${decl}
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
 ${body}
-});
+}
 `;
 
 /** A helper with one optional parameter `v`, called from the fragment entry (change 0088). */
@@ -375,7 +375,7 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
   [
     'optional: a member path narrowed by a test',
     FS(
-      'class Hit { t!: f32; k!: f32 | undefined; }\nfunction run(h: Hit): f32 { if (h.k !== undefined) { return h.k * 2.; } return h.t; }',
+      'class Hit { t: f32; k: f32 | undefined; }\nfunction run(h: Hit): f32 { if (h.k !== undefined) { return h.k * 2.; } return h.t; }',
       '  return vec4(uv, run({ t: 1., k: undefined }), 1.)',
     ),
     'accept',
@@ -383,7 +383,7 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
   [
     'optional: a member path cleared by an assignment to the root',
     FS(
-      'class Hit { t!: f32; k!: f32 | undefined; }\nfunction run(x: f32): f32 { let h: Hit = { t: x, k: undefined }; h.k = x; h = { t: x, k: undefined }; return h.k; }',
+      'class Hit { t: f32; k: f32 | undefined; }\nfunction run(x: f32): f32 { let h: Hit = { t: x, k: undefined }; h.k = x; h = { t: x, k: undefined }; return h.k; }',
       '  return vec4(uv, run(uv.x), 1.)',
     ),
     'refuse',
@@ -438,7 +438,7 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
   [
     'optional: o?.m()',
     FS(
-      'class P { x!: f32; len(): f32 { return this.x; } }\nfunction point(k: f32): P | undefined { if (k < 0.) { return undefined; } return { x: k }; }\nfunction run(k: f32): f32 { const p = point(k); return p?.len() ?? -1.; }',
+      'class P { x: f32; len(): f32 { return this.x; } }\nfunction point(k: f32): P | undefined { if (k < 0.) { return undefined; } return { x: k }; }\nfunction run(k: f32): f32 { const p = point(k); return p?.len() ?? -1.; }',
       '  return vec4(run(uv.x), 0., 0., 1.)',
     ),
     'refuse',
@@ -456,7 +456,7 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
   [
     'optional: a struct field',
     FS(
-      'class Q { f!: f32 | undefined; }\nfunction run(): f32 { const q = new Q(); return q.f ?? 1.; }',
+      'class Q { f: f32 | undefined; }\nfunction run(): f32 { const q = new Q(); return q.f ?? 1.; }',
       '  return vec4(uv, run(), 1.)',
     ),
     'accept',
@@ -472,7 +472,7 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
   [
     'optional: a struct with an optional field in a binding',
     FS(
-      'class Q { f!: f32 | undefined; }\ndeclare const q: uniform<Q>;',
+      'class Q { f: f32 | undefined; }\ndeclare const q: uniform<Q>;',
       '  return vec4(uv, 0., 1.)',
     ),
     'refuse',
@@ -534,12 +534,12 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
   ],
   [
     "an entry's inferred struct result",
-    `"use typeshade"\ninterface Color { color: location<0, vec4> }\nexport const fs = fragment(function fs(uv: location<0, vec2>) {\n  return { color: vec4(uv, 0., 1.) };\n});\n`,
+    `"use typeshade"\ninterface Color { color: location<0, vec4> }\n@fragment export function fs(uv: location<0, vec2>) {\n  return { color: vec4(uv, 0., 1.) };\n}\n`,
     'accept',
   ],
   [
     "an entry's literal two structs match",
-    `"use typeshade"\ninterface P { a: location<0, vec4> }\ninterface Q { a: location<0, vec4> }\nexport const fs = fragment(function fs(uv: location<0, vec2>) {\n  return { a: vec4(uv, 0., 1.) };\n});\n`,
+    `"use typeshade"\ninterface P { a: location<0, vec4> }\ninterface Q { a: location<0, vec4> }\n@fragment export function fs(uv: location<0, vec2>) {\n  return { a: vec4(uv, 0., 1.) };\n}\n`,
     'refuse',
   ],
 ];

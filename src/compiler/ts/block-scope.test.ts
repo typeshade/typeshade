@@ -15,7 +15,7 @@ import type { Stmt } from '../../core/ir/nodes.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
 
 const TWO_LOOPS = `"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   let a = 0.;
   for (let i: u32 = 0; i < 4; i++) {
     a = a + f32(i);
@@ -24,7 +24,7 @@ export const fs = fragment(function fs(): vec4 {
     a = a + f32(i) * 2.;
   }
   return vec4(a, 0., 0., 1.);
-});
+}
 `;
 
 const errorsOf = (src: string) =>
@@ -62,7 +62,7 @@ describe('block scope in the IR (#38)', () => {
 
   it('sibling blocks: a p in a loop body and a p in an if arm', () => {
     const r = compile(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   let acc = 0.;
   for (let i: u32 = 0; i < 4; i++) {
     const p = f32(i) * 2.;
@@ -73,7 +73,7 @@ export const fs = fragment(function fs(): vec4 {
     acc = p;
   }
   return vec4(acc, 0., 0., 1.);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     // The names the front end gives, before O2 unrolls the loop.
@@ -85,7 +85,7 @@ export const fs = fragment(function fs(): vec4 {
 
   it('an inner block shadows the outer name inside the block only', () => {
     const r = compile(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const p = 1.;
   let acc = 0.;
   if (p > 0.) {
@@ -93,7 +93,7 @@ export const fs = fragment(function fs(): vec4 {
     acc = p;
   }
   return vec4(acc, p, 0., 1.);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     const fs = r.module.funcs.find((f) => f.name === 'fs')!;
@@ -112,9 +112,9 @@ function g(p: f32): f32 {
   }
   return acc;
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(g(1.), 0., 0., 1.);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('fn g(p: f32) -> f32 {');
@@ -126,13 +126,13 @@ export const fs = fragment(function fs(): vec4 {
   it('a local that shadows a resource binding is renamed; the binding keeps its name', () => {
     const r = compile(`"use typeshade";
 declare const dst: storage<array<f32>, "read_write">;
-export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x > 0) {
     const dst = 2.;
     return;
   }
   dst[gid.x] = 1.;
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     const main = r.module.funcs.find((f) => f.name === 'main_k')!;
@@ -143,7 +143,7 @@ export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_i
 
   it('an IR name resolves back to its binding: a shadowing const still folds a loop bound', () => {
     const r = compile(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const n: i32 = 2;
   let a = 0.;
   if (a < 1.) {
@@ -153,7 +153,7 @@ export const fs = fragment(function fs(): vec4 {
     }
   }
   return vec4(a, f32(n), 0., 1.);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.eval('fs', [])).toEqual([3, 2, 0, 1]);
@@ -162,14 +162,14 @@ export const fs = fragment(function fs(): vec4 {
   it('follows a renamed alias to the storage binding it copies', () => {
     const r = compileTsSource(`"use typeshade";
 declare const src: storage<array<f32>>;
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const a = 1.;
   if (a > 0.) {
     const a = src;
     return vec4(f32(a.length), 0., 0., 1.);
   }
   return vec4(a, 0., 0., 1.);
-});
+}
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('arrayLength(&src)');
@@ -177,12 +177,12 @@ export const fs = fragment(function fs(): vec4 {
 
   it('names the counter as the author spelled it in a loop diagnostic', () => {
     const errors = errorsOf(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   let a = 0.;
   for (let i: u32 = 0; i < 4; i++) { a = a + f32(i); }
   for (let i: u32 = 0; i < 3; i += 0) { a = a + f32(i); }
   return vec4(a, 0., 0., 1.);
-});
+}
 `);
     expect(errors.map((d) => `${d.code} ${d.message}`)).toEqual([
       `${TS_CODES.LOOP_INFINITE} for step "i += 0" never advances "i": a step of 0 leaves it where it is.`,
@@ -191,11 +191,11 @@ export const fs = fragment(function fs(): vec4 {
 
   it('a repeat in one block is still refused, as TypeScript refuses it', () => {
     const errors = errorsOf(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const p = 1.;
   const p = 2.;
   return vec4(p, 0., 0., 1.);
-});
+}
 `);
     expect(errors).toHaveLength(1);
     expect(errors[0]?.code).toBe(TS_CODES.DUPLICATE_SYMBOL);

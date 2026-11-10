@@ -46,9 +46,9 @@ export function run(): f32 {
   a.add(a);
   return a.x;
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(run(), 0., 0., 1.);
-});
+}
 `;
     // `o` is `a` as the call found it, x = 1: 1 + 1 + 1.
     expect(everyPath(src)).toEqual([3, 3, 3, 3, 3]);
@@ -68,9 +68,9 @@ function f(p: V): f32 {
 export function run(): f32 {
   return f(g);
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(run(), 0., 0., 1.);
-});
+}
 `;
     expect(everyPath(src)).toEqual([1, 1, 1, 1, 1]);
   });
@@ -88,9 +88,9 @@ export function run(): f32 {
   grow();
   return n;
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(run(), 0., 0., 1.);
-});
+}
 `;
     expect(everyPath(src)).toEqual([9, 9, 9, 9, 9]);
   });

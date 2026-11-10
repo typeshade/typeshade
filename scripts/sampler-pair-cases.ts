@@ -8,30 +8,30 @@ declare const tex: texture_2d<f32>;
 declare const tex2: texture_2d<f32>;
 declare const nearest: sampler;
 declare const linear: sampler;`;
-const VERTEX = `export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): vec4 {
+const VERTEX = `@vertex export function vs(i: builtin<"vertex_index", u32>): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   return vec4(xs[i], ys[i], 0., 1.);
-});`;
+}`;
 const read = (texture: string, sampler: string): string =>
   `textureSample(${texture}, ${sampler}, vec2(0.375, 0.5))`;
 const load = 'textureLoad(tex, vec2i(0, 0), 0)';
 const level = (sampler: string): string =>
   `textureSampleLevel(tex, ${sampler}, vec2(0.375, 0.5), 0.)`;
 const fragment = (a: string, b: string): string => `${PRE}\n${VERTEX}
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(${a}.x, ${b}.x, 0., 1.);
-});`;
+}`;
 const stages = (vertexRead: string, fragmentRead: string): string => `${PRE}
 interface Out { p: builtin<"position", vec4>; r: location<0, f32>; }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Out {
+@vertex export function vs(i: builtin<"vertex_index", u32>): Out {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   return { p: vec4(xs[i], ys[i], 0., 1.), r: ${vertexRead}.x };
-});
-export const fs = fragment(function fs(o: Out): vec4 {
+}
+@fragment export function fs(o: Out): vec4 {
   return vec4(o.r, ${fragmentRead}.x, 0., 1.);
-});`;
+}`;
 const DEPTH_PRE = `"use typeshade";
 declare const shadow: texture_depth_2d;
 declare const cmpA: sampler_comparison;
@@ -108,9 +108,9 @@ export const SAMPLER_CASES: Readonly<Record<string, SamplerCase>> = {
   },
   depthSingle: {
     source: `${DEPTH_PRE}\n${VERTEX}
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(textureSampleCompare(shadow, cmpA, vec2(0.5), 0.25), 0., 0., 1.);
-});`,
+}`,
     expected: [255, 0, 0, 255],
     vertex: {},
     fragment: { shadow: 'cmpA' },
@@ -119,15 +119,15 @@ export const fs = fragment(function fs(): vec4 {
   depthCross: {
     source: `${DEPTH_PRE}
 interface Out { p: builtin<"position", vec4>; r: location<0, f32>; }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Out {
+@vertex export function vs(i: builtin<"vertex_index", u32>): Out {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   return { p: vec4(xs[i], ys[i], 0., 1.),
     r: textureSampleCompareLevel(shadow, cmpA, vec2(0.5), 0.25) };
-});
-export const fs = fragment(function fs(o: Out): vec4 {
+}
+@fragment export function fs(o: Out): vec4 {
   return vec4(o.r, textureSampleCompare(shadow, cmpB, vec2(0.5), 0.25), 0., 1.);
-});`,
+}`,
     expected: [255, 0, 0, 255],
     vertex: { shadow: 'cmpA' },
     fragment: { shadow: 'cmpB' },

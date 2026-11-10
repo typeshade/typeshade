@@ -43,7 +43,7 @@ const both = (source: string): string[] => {
 
 const PICK = `"use typeshade";
 type Channel = "r" | "g" | "b";
-class P { c!: Channel; w!: f32; }
+class P { c: Channel; w: f32; }
 function gain(c: Channel): f32 { return c === "g" ? 2. : 1.; }
 export function pick(c: Channel, x: f32): f32 {
   let d: Channel = "g";

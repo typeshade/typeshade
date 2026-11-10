@@ -20,23 +20,22 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 import { checkDocuments } from '../../language-service/check.js';
 
 const program = (second: string): string => `"use typeshade";
-export const vsA = vertex(function vsA(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex export function vsA(vi: builtin<"vertex_index", u32>): vec4 {
   return vec4(f32(vi), 0., 0., 1.);
-});
+}
 ${second}
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(1.);
-});
+}
 `;
 
-const TWO_VERTEX =
-  program(`export const vsB = vertex(function vsB(vi: builtin<"vertex_index", u32>): vec4 {
+const TWO_VERTEX = program(`@vertex export function vsB(vi: builtin<"vertex_index", u32>): vec4 {
   return vec4(0., f32(vi), 0., 1.);
-});`);
+}`);
 
-const TWO_FRAGMENT = program(`export const fs2 = fragment(function fs2(): vec4 {
+const TWO_FRAGMENT = program(`@fragment export function fs2(): vec4 {
   return vec4(0.5);
-});`);
+}`);
 
 const refusal = (stage: string, names: string): string =>
   `glsl-es300: the ${stage} stage has 2 entries (${names}) and a GLSL ES 3.00 shader has one ` +

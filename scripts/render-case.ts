@@ -27,28 +27,28 @@ export const SOURCES = {
   sky: `"use typeshade";
 
 class Sky {
-  color!: vec4;
-  z!: f32;
+  color: vec4;
+  z: f32;
 }
 
 declare const sky: uniform<Sky>;
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex export function vs(vi: builtin<"vertex_index", u32>): vec4 {
   const xs: array<f32, 3> = [-1., 3., -1.];
   const ys: array<f32, 3> = [-1., -1., 3.];
   const i = i32(vi);
   return vec4(xs[i], ys[i], sky.z, 1.);
-});
+}
 
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   return sky.color;
-});
+}
 `,
   // Positions in a vertex buffer (clip space, z included); the colour is a per-draw uniform.
   mesh: `"use typeshade";
 
 class Tint {
-  color!: vec4;
+  color: vec4;
 }
 
 declare const tint: uniform<Tint>;
@@ -57,32 +57,32 @@ interface VsIn {
   position: location<0, vec3>;
 }
 
-export const vs = vertex(function vs(v: VsIn): vec4 {
+@vertex export function vs(v: VsIn): vec4 {
   return vec4(v.position, 1.);
-});
+}
 
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   return tint.color;
-});
+}
 `,
   // Vertex pulling: no vertex input; each position is read from a storage buffer by
   // vertex_index, which in an indexed draw is the index value.
   pulled: `"use typeshade";
 
 class Tint {
-  color!: vec4;
+  color: vec4;
 }
 
 declare const verts: storage<array<vec4>>;
 declare const tint: uniform<Tint>;
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): vec4 {
+@vertex export function vs(vi: builtin<"vertex_index", u32>): vec4 {
   return verts[vi];
-});
+}
 
-export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   return tint.color;
-});
+}
 `,
 } as const;
 

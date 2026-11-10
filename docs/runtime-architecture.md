@@ -186,8 +186,8 @@ and:
 
 class Tile {
   // TypeScript syntax with TypeShade GPU semantics: a struct the GPU lays out
-  origin!: vec2;
-  zoom!: f32;
+  origin: vec2;
+  zoom: f32;
 }
 ```
 

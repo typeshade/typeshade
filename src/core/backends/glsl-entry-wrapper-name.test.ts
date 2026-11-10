@@ -23,12 +23,12 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 /** A fragment entry named `name` with an early return, the program of #612. */
 const earlyReturn = (name: string, helper = ''): string => `"use typeshade"
 ${helper}
-export const ${name} = fragment(function ${name}(uv: location<0, vec2>): vec4 {
+@fragment export function ${name}(uv: location<0, vec2>): vec4 {
   if (uv.x > 0.5) {
     return vec4(1., 0., 0., 1.)
   }
   return ${helper === '' ? 'vec4(0., 0., 1., 1.)' : 'fs_impl(uv)'}
-})
+}
 `;
 
 /** Every identifier of `text` that holds two consecutive underscores. */

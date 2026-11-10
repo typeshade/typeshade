@@ -15,9 +15,9 @@ import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const FRAGMENT = `interface VsOut { pos: builtin<"position", vec4>; }
-export const vs = vertex(function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.) }; });
+@vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.) }; }
 interface Color { color: location<0, vec4>; }
-export const fs = fragment(function fs(): Color { return { color: vec4(run(), 0., 0., 1.) }; });`;
+@fragment export function fs(): Color { return { color: vec4(run(), 0., 0., 1.) }; }`;
 
 /** Each place the compiler reports TS8075 in `body`, as `line:column` of the read. */
 function compilerReads(body: string): string[] {
@@ -102,7 +102,7 @@ describe('a read before an assignment is refused as TypeScript refuses it (Rule 
 
   it('takes an argument an @out parameter takes as an assignment, which TypeScript cannot', () => {
     const body = `function add(a: f32, b: f32, @out c: f32): void { c = a + b; }
-export function run(): f32 { let s!: f32; add(1., 2., s); return s; }`;
+export function run(): f32 { let s: f32; add(1., 2., s); return s; }`;
     expect(compilerReads(body)).toEqual([]);
     const source = `"use typeshade";\n${body}\n${FRAGMENT}`;
     const service = createTypeshadeLanguageService();

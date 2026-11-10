@@ -15,7 +15,7 @@ import { isGuard } from '../../core/host-entry.js';
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const dir = mkdtempSync(join(tmpdir(), 'typeshade-empty-bindings-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
-const RED = 'export const fs = fragment(function fs(): vec4 { return vec4(1., 0., 0., 1.); });';
+const RED = '@fragment export function fs(): vec4 { return vec4(1., 0., 0., 1.); }';
 interface Case {
   readonly name: string;
   readonly source: string;
@@ -29,22 +29,22 @@ const cases: readonly Case[] = [
   {
     name: 'another-entry',
     source: `declare const gain: uniform<f32>; ${RED}
-export const bound = fragment(function bound(): vec4 { return vec4(gain); });`,
+@fragment export function bound(): vec4 { return vec4(gain); }`,
   },
   {
     name: 'guard-only',
     guard: true,
-    source: `export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {
+    source: `@fragment export function fs(p: builtin<"position", vec4>): vec4 {
   return vec4(f32(f64(p.x) * f64(p.x)) * 0.25, 0., 0., 1.);
-});`,
+}`,
   },
   {
     name: 'console-only',
     record: true,
-    source: `export const fs = fragment(function fs(): vec4 {
+    source: `@fragment export function fs(): vec4 {
   console.log("pixel");
   return vec4(1., 0., 0., 1.);
-});`,
+}`,
   },
   {
     name: 'decorator',
@@ -54,20 +54,20 @@ export const bound = fragment(function bound(): vec4 { return vec4(gain); });`,
     name: 'direct',
     binding: 'gain',
     source: `declare const gain: uniform<f32>;
-export const fs = fragment(function fs(): vec4 { return vec4(gain, 0., 0., 1.); });`,
+@fragment export function fs(): vec4 { return vec4(gain, 0., 0., 1.); }`,
   },
   {
     name: 'transitive',
     binding: 'gain',
     source: `declare const gain: uniform<f32>;
 function color(): vec4 { return vec4(gain, 0., 0., 1.); }
-export const fs = fragment(function fs(): vec4 { return color(); });`,
+@fragment export function fs(): vec4 { return color(); }`,
   },
   ...['_fp64', '_console'].map((binding) => ({
     name: `authored${binding}`,
     binding,
     source: `declare const ${binding}: uniform<f32>;
-export const fs = fragment(function fs(): vec4 { return vec4(${binding}, 0., 0., 1.); });`,
+@fragment export function fs(): vec4 { return vec4(${binding}, 0., 0., 1.); }`,
   })),
 ];
 
@@ -239,7 +239,7 @@ ${c.binding ? `fs(canvas, { ${c.binding}: 1 });` : ''}
   });
 
   it('keeps a binding-free compute call positional', async () => {
-    const source = '"use typeshade"; export const run = compute([1], function run(): void {});';
+    const source = '"use typeshade"; @compute([1]) export function run(): void {}';
     const f = hostFace(source, { fileName: join(dir, 'compute.shade.ts'), runtime: RUNTIME });
     expect(f.diagnostics).toEqual([]);
     expect(f.view).toContain('run(bindings: {}, workgroups:');

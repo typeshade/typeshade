@@ -13,7 +13,7 @@ import type { TsCompilerDiagnostic } from './source-file.js';
 
 const FILE = '/module-atomic.shade.ts';
 const REASON = 'an atomic lives in storage or workgroup memory, not in a per-invocation variable';
-const ENTRY = 'export const main = compute([1], function main() {});';
+const ENTRY = '@compute([1]) export function main() {}';
 
 function paired(source: string, refusal?: { text: string; message: string }) {
   const result = compile(source, { fileName: FILE });
@@ -82,48 +82,48 @@ const SHAPES = [
     type: 'array<atomic<i32>, 2>',
     shown: 'array<atomic<i32>, 2>',
   },
-  { name: 'class', prefix: 'class S { value!: atomic<u32>; }', type: 'S', shown: 'S' },
+  { name: 'class', prefix: 'class S { value: atomic<u32>; }', type: 'S', shown: 'S' },
   { name: 'interface', prefix: 'interface S { value: atomic<u32>; }', type: 'S', shown: 'S' },
   { name: 'object alias', prefix: 'type S = { value: atomic<u32> };', type: 'S', shown: 'S' },
   {
     name: 'array of structs',
-    prefix: 'class S { value!: atomic<u32>; }',
+    prefix: 'class S { value: atomic<u32>; }',
     type: 'array<S, 2>',
     shown: 'array<S, 2>',
   },
   {
     name: 'nested struct and array',
-    prefix: 'class S { value!: atomic<u32>; } class O { inner!: array<S, 2>; }',
+    prefix: 'class S { value: atomic<u32>; } class O { inner: array<S, 2>; }',
     type: 'O',
     shown: 'O',
   },
   {
     name: 'type alias',
-    prefix: 'class S { value!: atomic<u32>; } type A = S;',
+    prefix: 'class S { value: atomic<u32>; } type A = S;',
     type: 'A',
     shown: 'S',
   },
   {
     name: 'inherited i32 field',
-    prefix: 'class S { value!: atomic<i32>; } class D extends S { other!: u32; }',
+    prefix: 'class S { value: atomic<i32>; } class D extends S { other: u32; }',
     type: 'D',
     shown: 'D',
   },
   {
     name: 'readonly field',
-    prefix: 'class S { readonly value!: atomic<u32>; }',
+    prefix: 'class S { readonly value: atomic<u32>; }',
     type: 'S',
     shown: 'S',
   },
   {
     name: 'namespace struct',
-    prefix: 'namespace N { export class S { value!: atomic<u32>; } }',
+    prefix: 'namespace N { export class S { value: atomic<u32>; } }',
     type: 'N.S',
     shown: 'N.S',
   },
   {
     name: 'generic struct',
-    prefix: 'class Box<T> { value!: T; }',
+    prefix: 'class Box<T> { value: T; }',
     type: 'Box<atomic<u32>>',
     shown: 'Box<atomic<u32>>',
   },
@@ -153,13 +153,13 @@ describe('atomic-containing module variables', () => {
 
   it('keeps ordinary nested private values', () => {
     paired(
-      `"use typeshade";\nclass S { value!: u32; }\nclass O { inner!: array<S, 2>; }\nlet s: O;\n${ENTRY}`,
+      `"use typeshade";\nclass S { value: u32; }\nclass O { inner: array<S, 2>; }\nlet s: O;\n${ENTRY}`,
     );
   });
 
   it('does not offer a private variable as the remedy for an atomic-containing workgroup initializer', () => {
     paired(
-      `"use typeshade";\nclass S { value!: atomic<u32>; }\ndeclare const source: storage<S, "read_write">;\nlet s: workgroup<S> = source;\n${ENTRY}`,
+      `"use typeshade";\nclass S { value: atomic<u32>; }\ndeclare const source: storage<S, "read_write">;\nlet s: workgroup<S> = source;\n${ENTRY}`,
       {
         text: 'source',
         message:
@@ -171,7 +171,7 @@ describe('atomic-containing module variables', () => {
   for (const use of ['atomicAdd(s.value, 1);', 'const value = s.value;', 's.value = s.value;']) {
     it(`does not cascade after the refused declaration: ${use}`, () => {
       paired(
-        `"use typeshade";\nclass S { value!: atomic<u32>; }\nlet s: S;\nexport const main = compute([1], function main() { ${use} });`,
+        `"use typeshade";\nclass S { value: atomic<u32>; }\nlet s: S;\n@compute([1]) export function main() { ${use} }`,
         {
           text: 'S',
           message: `"s" cannot be S: ${REASON}.`,

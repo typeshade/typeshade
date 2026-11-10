@@ -1074,7 +1074,7 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     // is ever narrowed without the argument root being counted.
     const r = compile(`"use typeshade";
 class P {
-  v!: f32;
+  v: f32;
   bump(d: f32): void {
     this.v = this.v + d;
   }
@@ -1089,9 +1089,9 @@ export function f(x: f32): f32 {
   }
   return r;
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(f(1.), 0., 0., 1.);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     const m = r.module;
@@ -1122,9 +1122,9 @@ function h(q: f32): f32 {
 }
 `;
   const FS = `
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(f(3.), 0., 0., 1.)
-});
+}
 `;
   const privModule = (body: string): ModuleDecl => {
     const r = compile(PRIV + body + FS);
@@ -1208,9 +1208,9 @@ export function f(i: u32): f32 {
   }
   return r;
 }
-export const k = compute([1, 1, 1], function k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([1, 1, 1]) export function k(gid: builtin<"global_invocation_id", vec3u>): void {
   buf[gid.x + 1] = f(gid.x);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     const m = r.module;

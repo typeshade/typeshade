@@ -30,13 +30,13 @@ export function bounds(out: array<u32>, n: array<u32>) {
 }
 declare const xs: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
-export const copy = compute([1], function copy(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function copy(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x < dst.length) dst[gid.x] = 3. * xs[gid.x];
-});
-export const reset = compute([1], function reset(gid: builtin<"global_invocation_id", vec3u>) {
+}
+@compute([1]) export function reset(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x < dst.length) dst[gid.x] = 7.;
-});
-export const color = fragment(function color(): vec4 { return vec4(xs[0], 0., 0., 1.); });
+}
+@fragment export function color(): vec4 { return vec4(xs[0], 0., 0., 1.); }
 `;
 
 interface Bundler {

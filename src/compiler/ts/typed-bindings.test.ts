@@ -27,8 +27,8 @@ afterAll(() => {
 
 const MESH = `"use typeshade";
 class View {
-  viewProj!: mat4x4;
-  time!: f32;
+  viewProj: mat4x4;
+  time: f32;
 }
 interface VsOut {
   pos: builtin<"position", vec4>;
@@ -40,16 +40,16 @@ declare const cells: storage<array<vec2>>;
 declare const heights: storage<array<f32>, "read_write">;
 declare const albedo: texture_2d<f32>;
 declare const samp: sampler;
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
   const c = cells[i];
   return { pos: view.viewProj * vec4(c, 0., 1.), uv: c };
-});
-export const fs = fragment(function fs(v: VsOut): vec4 {
+}
+@fragment export function fs(v: VsOut): vec4 {
   return textureSample(albedo, samp, v.uv) * tint * view.time;
-});
-export const grow = compute([64], function grow(gid: builtin<"global_invocation_id", vec3u>): void {
+}
+@compute([64]) export function grow(gid: builtin<"global_invocation_id", vec3u>): void {
   heights[gid.x] += 1.;
-});
+}
 `;
 
 /** The view of {@link MESH}, as the bundler's plugin writes it. */

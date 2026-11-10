@@ -33,7 +33,8 @@ class Scene {
   }
 }
 
-export const main = compute([1], function main(): void {
+@compute([1])
+export function main(): void {
   const signedIndex = -3;
   const unsignedIndex = 4294967295;
   out[0] = f32(new Hit(signedIndex).half());
@@ -47,4 +48,4 @@ export const main = compute([1], function main(): void {
   out[4] = f32(hit.accept(methodIndex));
   const inheritedIndex = -9;
   out[5] = f32(new DerivedHit(inheritedIndex).objectIndex);
-});
+}

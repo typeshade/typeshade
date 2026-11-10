@@ -149,7 +149,7 @@ for (const stage of ['vertex', 'fragment'] as const) {
 
 it('accepts compute use through shared helpers', () => {
   paired(
-    `${WORKGROUP}\nfunction write() { shared = 1.; }\nfunction read(): f32 { return shared; }\nfunction barrier() { workgroupBarrier(); storageBarrier(); textureBarrier(); }\nexport const main = compute([1], function main() { write(); barrier(); shared = read(); });`,
+    `${WORKGROUP}\nfunction write() { shared = 1.; }\nfunction read(): f32 { return shared; }\nfunction barrier() { workgroupBarrier(); storageBarrier(); textureBarrier(); }\n@compute([1]) export function main() { write(); barrier(); shared = read(); }`,
   );
 });
 
@@ -168,7 +168,7 @@ it('reports one shared helper use once across two fragment entries and a diamond
 
 it('does not let a compute caller make a shared helper legal for a fragment caller', () => {
   paired(
-    `function barrier() { workgroupBarrier(); }\nexport const cs = compute([1], function cs() { barrier(); });\n${entry('fragment', 'barrier(); return vec4(0.);')}`,
+    `function barrier() { workgroupBarrier(); }\n@compute([1]) export function cs() { barrier(); }\n${entry('fragment', 'barrier(); return vec4(0.);')}`,
     [
       {
         text: 'workgroupBarrier()',

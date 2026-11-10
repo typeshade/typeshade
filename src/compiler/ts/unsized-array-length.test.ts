@@ -23,10 +23,10 @@ import { TS_CODES } from './codes.js';
 const KERNEL = `"use typeshade";
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
-export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= u32(src.length)) { return; }
   dst[gid.x] = src[gid.x] * 2.;
-});
+}
 `;
 
 describe('#46 — a runtime-sized storage array reads its length from the buffer', () => {
@@ -50,9 +50,9 @@ describe('#46 — a runtime-sized storage array reads its length from the buffer
     const r = compileTsSource(`"use typeshade";
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
-export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   for (let i: u32 = 0; i < src.length; i++) { dst[gid.x] = dst[gid.x] + src[i]; }
-});
+}
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     // licm reads the length once, ahead of the loop, since nothing in the body resizes it.
@@ -64,9 +64,9 @@ export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_i
     const r = compileTsSource(`"use typeshade";
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
-export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   dst[gid.x] = src[gid.x] * 2.;
-});
+}
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('dst[gid.x]');
@@ -94,9 +94,9 @@ describe('#46 — the message tells each shape the truth about its own fix', () 
 
   it('a field of a storage binding reads its length too — the root is what decides', () => {
     const r = compileTsSource(`"use typeshade";
-class Buf { n!: u32; xs!: array<f32>; }
+class Buf { n: u32; xs: array<f32>; }
 declare const b: storage<Buf>;
-export const fs = fragment(function fs(): vec4 { return vec4(f32(b.xs.length), 0., 0., 1.); });
+@fragment export function fs(): vec4 { return vec4(f32(b.xs.length), 0., 0., 1.); }
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('arrayLength(&b.xs)');
@@ -107,11 +107,11 @@ export const fs = fragment(function fs(): vec4 { return vec4(f32(b.xs.length), 0
     // not size. The alias is followed to what it copies.
     const r = compileTsSource(`"use typeshade";
 declare const src: storage<array<f32>>;
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const a = src;
   const c = a;
   return vec4(f32(c.length), 0., 0., 1.);
-});
+}
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('arrayLength(&src)');
@@ -127,10 +127,10 @@ export const fs = fragment(function fs(): vec4 {
 
   it('a local array with no N is told to give it a size', () => {
     const m = declarationRefusal(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const xs = array<f32>(1., 2., 3.);
   return vec4(f32(xs.length), 0., 0., 1.);
-});
+}
 `);
     expect(m).toMatch(/^TS8099 .*Give the array a size: array<f32, 3>\.$/);
     expect(m).not.toContain('arrayLength');
@@ -139,7 +139,7 @@ export const fs = fragment(function fs(): vec4 {
   it('a uniform array is told to give it a size, NOT about arrayLength', () => {
     const src = `"use typeshade";
 declare const u: uniform<array<f32>>;
-export const fs = fragment(function fs(): vec4 { return vec4(f32(u.length), 0., 0., 1.); });
+@fragment export function fs(): vec4 { return vec4(f32(u.length), 0., 0., 1.); }
 `;
     const m = messageFor(src);
     expect(m).toContain('array<f32, 3>');
@@ -165,10 +165,10 @@ function n(xs: array<f32>): i32 { return xs.length; }
 describe('#46 — a sized array keeps the compile-time length it always had', () => {
   it('a fixed-size array literal', () => {
     const r = compileTsSource(`"use typeshade";
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const xs: array<f32, 4> = [1., 2., 3., 4.];
   return vec4(f32(xs.length), 0., 0., 1.);
-});
+}
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('vec4<f32>(4.0, 0.0, 0.0, 1.0)');
@@ -178,10 +178,10 @@ export const fs = fragment(function fs(): vec4 {
     const r = compileTsSource(`"use typeshade";
 declare const src: storage<array<f32, 8>>;
 declare const dst: storage<array<f32, 8>, "read_write">;
-export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= u32(src.length)) { return; }
   dst[gid.x] = src[gid.x] * 2.;
-});
+}
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     // The guard is real here: 8 is the declared length, not a stand-in for a missing one.

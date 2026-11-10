@@ -89,7 +89,7 @@ describe('uniform / storage', () => {
     const r = compileTsSource(`
       "use typeshade";
       const ys = storage<array<f32, 4>>({ binding: 3, access: "write" });
-      export const k = compute([1, 1, 1], function k(): void { ys[0] = 1.; });
+      @compute([1, 1, 1]) export function k(): void { ys[0] = 1.; }
     `);
     expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toContain(
       "TS8099 The { access } option is gone: a storage binding's access mode is its second " +

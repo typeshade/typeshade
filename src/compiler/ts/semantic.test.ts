@@ -129,7 +129,7 @@ describe('a statement at the top level is named by its keyword', () => {
   // `import x = require(...)`, an `export as namespace` and a `with` there too, and its report
   // is merged into the compiler's sentence.
   const topLevel = (stmt: string): string[] => {
-    const src = `"use typeshade";\n${stmt}\nexport const fs = fragment(function fs(): vec4 { return vec4(1.); });\n`;
+    const src = `"use typeshade";\n${stmt}\n@fragment export function fs(): vec4 { return vec4(1.); }\n`;
     const said = compileTsSource(src).diagnostics.map((d) => `${d.code} ${d.message}`);
     const service = createTypeshadeLanguageService();
     // The module a CommonJS import below names, so that the editor finds it.
@@ -246,7 +246,7 @@ namespace N {
     return s;
   }
 }
-export const main = compute([1], function main(): void { g(); out[4] = N.h(); });
+@compute([1]) export function main(): void { g(); out[4] = N.h(); }
 `);
     expect(r.diagnostics).toEqual([]);
   });

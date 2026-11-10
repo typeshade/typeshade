@@ -4,8 +4,8 @@
 // fragment shader that colours each pixel from its position and a uniform the host animates.
 
 class Frame {
-  time!: f32;
-  scale!: f32;
+  time: f32;
+  scale: f32;
 }
 
 declare const frame: uniform<Frame>;
@@ -18,18 +18,20 @@ interface Color {
   color: location<0, vec4>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(i32(vi) / 2) * 4 - 1;
   const y = f32(i32(vi) % 2) * 4 - 1;
   return { pos: vec4(x, y, 0, 1) };
-});
+}
 
 /** Where a pixel is in the pattern: a product of vectors, returned with no type written. */
 function toUv(p: vec4) {
   return p.xy * frame.scale;
 }
 
-export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+@fragment
+export function fs(p: builtin<"position", vec4>): Color {
   const uv = toUv(p);
   let v = 0;
   for (let i = 0; i < 4; i++) {
@@ -38,4 +40,4 @@ export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
   }
   const c = v * 0.5 + 0.5;
   return { color: vec4(c, c * c, 1 - c, 1) };
-});
+}

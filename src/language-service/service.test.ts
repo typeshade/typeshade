@@ -133,9 +133,9 @@ describe('getDiagnostics: a broken program', () => {
       'interface Clip {\n' +
       '  pos: builtin<"position", vec4>\n' +
       '}\n' +
-      'const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {\n' +
+      '@vertex function vs(i: builtin<"vertex_index", u32>): Clip {\n' +
       '  return { pos: vec4(0., 0., 0., 1.) }\n' +
-      '});\n';
+      '}\n';
     service.openDocument('unexported.ts', text);
     const ts1206 = service
       .getDiagnostics('unexported.ts')
@@ -330,7 +330,7 @@ describe('getDiagnostics: a broken program', () => {
     const text =
       '"use typeshade";\n' +
       'namespace N {\n' +
-      '  export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 { return p; });\n' +
+      '  @fragment export function fs(p: builtin<"position", vec4>): vec4 { return p; }\n' +
       '}\n';
     service.openDocument('ns-entry.ts', text);
     expect(service.getDiagnostics('ns-entry.ts')).toEqual([]);
@@ -345,7 +345,7 @@ describe('getCompiledOutput', () => {
     const entry =
       '"use typeshade";\n' +
       'import { noise } from "./lib/noise.shade.ts";\n' +
-      'export const main = fragment(function main(): vec4 { return vec4(noise(vec2(0.))); });';
+      '@fragment export function main(): vec4 { return vec4(noise(vec2(0.))); }';
     service.openDocument('/leaf.shade.ts', entry);
     service.openDocument('/lib/noise.shade.ts', library);
     expect(service.getDiagnostics('/leaf.shade.ts')).toEqual([]);
@@ -387,9 +387,9 @@ describe('getCompiledOutput', () => {
     const service = createTypeshadeLanguageService();
     const text =
       '"use typeshade";\n' +
-      'export const cs = compute([64, 1, 1], function cs(id: builtin<"global_invocation_id", vec3u>): void {\n' +
+      '@compute([64, 1, 1]) export function cs(id: builtin<"global_invocation_id", vec3u>): void {\n' +
       '  const x = id.x\n' +
-      '});\n';
+      '}\n';
     service.openDocument('compute.ts', text);
     expect(service.getDiagnostics('compute.ts')).toEqual([]);
     expect(service.getCompiledOutput('compute.ts', 'wgsl')?.text).toContain('@compute');
@@ -452,9 +452,9 @@ describe('getCompiledOutput', () => {
     const main =
       '"use typeshade";\n' +
       'import { pick } from "./lib.js";\n' +
-      'export const fs = fragment(function fs(p: builtin<"position", vec4>): vec4 {\n' +
+      '@fragment export function fs(p: builtin<"position", vec4>): vec4 {\n' +
       '  return vec4(pick(i32(p.x)));\n' +
-      '});\n';
+      '}\n';
     const start = lib.indexOf('pick');
     const service = createTypeshadeLanguageServiceWith(
       { readDocument: (uri) => (uri === '/lib.ts' ? lib : undefined) },
@@ -518,9 +518,9 @@ describe('getDiagnostics: Stage 3 TypeShade checks (design doc §10 step 5)', ()
     const service = createTypeshadeLanguageService();
     const text =
       '"use typeshade";\n' +
-      'export const vs = vertex(function vs(f: builtin<"front_facing", bool>): vec4 {\n' +
+      '@vertex export function vs(f: builtin<"front_facing", bool>): vec4 {\n' +
       '  return vec4(0., 0., 0., 1.)\n' +
-      '});\n';
+      '}\n';
     service.openDocument('builtin-stage.ts', text);
     const d = service
       .getDiagnostics('builtin-stage.ts')
@@ -549,12 +549,12 @@ describe('getDiagnostics: Stage 3 TypeShade checks (design doc §10 step 5)', ()
     const service = createTypeshadeLanguageService();
     const text =
       '"use typeshade";\n' +
-      'export const fs = fragment(function fs() {\n' +
+      '@fragment export function fs() {\n' +
       '  return vec4(1., 0., 0., 1.)\n' +
-      '});\n';
+      '}\n';
     service.openDocument('no-return-type.ts', text);
     expect(service.getDiagnostics('no-return-type.ts')).toEqual([]);
-    expect(service.getHover('no-return-type.ts', { line: 1, character: 37 })?.contents).toContain(
+    expect(service.getHover('no-return-type.ts', { line: 1, character: 27 })?.contents).toContain(
       'fs(): vec4',
     );
   });

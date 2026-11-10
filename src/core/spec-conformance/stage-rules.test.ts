@@ -144,13 +144,13 @@ declare const hist: storage<array<atomic<u32>>, "read_write">
 interface Clip {
   pos: builtin<"position", vec4>;
 }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
 ${
   yieldsValue
     ? `  const r = ${call}\n  return { pos: vec4(f32(r), 0., 0., 1.) }`
     : `  ${call}\n  return { pos: vec4(0., 0., 0., 1.) }`
 }
-});
+}
 `;
 
 const ATOMIC_VERTEX_WITNESS: Readonly<Record<string, string>> = {
@@ -267,24 +267,24 @@ interface V {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
 }
-export const fs = fragment(function fs(v: V): vec4 {
+@fragment export function fs(v: V): vec4 {
   ${id}()
   return vec4(0., 0., 0., 1.)
-});
+}
 `;
       const vertex = `"use typeshade"
 interface Clip {
   pos: builtin<"position", vec4>;
 }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
   ${id}()
   return { pos: vec4(0., 0., 0., 1.) }
-});
+}
 `;
       const compute = `"use typeshade"
-export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   ${id}()
-});
+}
 `;
       const why = WHY[id];
       expect(why, `${id} is compute-only with no pinned reason clause`).toBeDefined();

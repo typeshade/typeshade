@@ -304,23 +304,23 @@ declare const xs: storage<array<f32>>;
 declare const other: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
 function sample(i: u32): f32 { return xs[i]; }
-export const copy = compute([1], function copy(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function copy(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x < dst.length) dst[gid.x] = GAIN * sample(gid.x);
-});
-export const sum = compute([1], function sum(gid: builtin<"global_invocation_id", vec3u>) {
+}
+@compute([1]) export function sum(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x < dst.length) dst[gid.x] = xs[gid.x] + other[gid.x];
-});
-export const reset = compute([1], function reset(gid: builtin<"global_invocation_id", vec3u>) {
+}
+@compute([1]) export function reset(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x < dst.length) dst[gid.x] = 7.;
-});
-export const mutate = compute([1], function mutate(gid: builtin<"global_invocation_id", vec3u>) {
+}
+@compute([1]) export function mutate(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x < dst.length) dst[gid.x] += 1.;
-});
-export const capacity = compute([1], function capacity(gid: builtin<"global_invocation_id", vec3u>) {
+}
+@compute([1]) export function capacity(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x < dst.length) dst[gid.x] = f32(xs.length);
-});
-export const color = fragment(function color(): vec4 { return vec4(xs[0], 0., 0., 1.); });
-export const sizeColor = fragment(function sizeColor(): vec4 { return vec4(f32(xs.length) / 4., 0., 0., 1.); });
+}
+@fragment export function color(): vec4 { return vec4(xs[0], 0., 0., 1.); }
+@fragment export function sizeColor(): vec4 { return vec4(f32(xs.length) / 4., 0., 0., 1.); }
 export function fill(out: array<f32>, n: u32, value: f32) {
   for (let i: u32 = 0; i < n; i++) out[i] = value;
 }
@@ -551,7 +551,7 @@ for (const [name, body] of [
 
 it('checks a by-value aggregate helper argument and an atomic read/write, but permits atomic stores', async () => {
   const source = `"use typeshade";
-class Cell { value!: f32; }
+class Cell { value: f32; }
 function constant(cell: Cell): f32 { return 7.; }
 export function copy(out: array<f32>, xs: array<Cell>) {
   for (let i: u32 = 0; i < out.length; i++) out[i] = constant(xs[i]);
@@ -560,12 +560,12 @@ export function cells(out: array<Cell>, n: u32) {
   for (let i: u32 = 0; i < n; i++) out[i].value = 1.;
 }
 declare const dst: storage<array<atomic<u32>>, "read_write">;
-export const clear = compute([1], function clear(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([1]) export function clear(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x < dst.length) atomicStore(dst[gid.x], 7);
-});
-export const increment = compute([1], function increment(gid: builtin<"global_invocation_id", vec3u>) {
+}
+@compute([1]) export function increment(gid: builtin<"global_invocation_id", vec3u>) {
   if (gid.x < dst.length) atomicAdd(dst[gid.x], 1);
-});
+}
 export function words(out: array<u32>, n: u32) {
   for (let i: u32 = 0; i < n; i++) out[i] = 1;
 }

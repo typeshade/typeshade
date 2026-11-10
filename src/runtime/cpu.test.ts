@@ -24,27 +24,27 @@ function manifestWithCpu(source: string): Pack {
 
 const SCALE = `"use typeshade";
 class Params {
-  scale!: f32;
+  scale: f32;
 }
 declare const params: uniform<Params>;
 declare const xs: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
-export const scale = compute([4, 1, 1], function scale(g: builtin<"global_invocation_id", vec3u>): void {
+@compute([4, 1, 1]) export function scale(g: builtin<"global_invocation_id", vec3u>): void {
   out[g.x] = xs[g.x] * params.scale + f32(g.x);
-});
+}
 `;
 
 const QUAD = `"use typeshade";
 class Tint {
-  c!: vec4;
+  c: vec4;
 }
 declare const tint: uniform<Tint>;
-export const vs = vertex(function vs(q: location<0, vec2>): builtin<"position", vec4> {
+@vertex export function vs(q: location<0, vec2>): builtin<"position", vec4> {
   return vec4(q, 0., 1.);
-});
-export const fs = fragment(function fs(): vec4 {
+}
+@fragment export function fs(): vec4 {
   return tint.c;
-});
+}
 `;
 
 describe("the program runtime's CPU tier", () => {

@@ -71,9 +71,9 @@ for (const [name, body] of Object.entries(bodies)) {
     declare const output: storage<array<f32>, "read_write">;
     function stamp(i: u32): void { output[i] = 0.; }
     ${body}
-    export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>): void {
+    @compute([64]) export function main(gid: builtin<"global_invocation_id", vec3u>): void {
       if (gid.x < ${n}) output[gid.x] = evaluate(gid.x);
-    });`;
+    }`;
   sources[name] = source;
   shaders[name] = {};
   for (const [variant, cwd] of [

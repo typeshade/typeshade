@@ -104,7 +104,7 @@ describe('malformed IO attribute arguments', () => {
     ['location<0.5, f32>', 'TS8028', LOCATION],
   ]) {
     it(`reads the same refusal in parameter type ${type}`, () => {
-      paired(`export const vs = vertex(function vs(x: ${type}): vec4 { return vec4(f32(x)); });`, {
+      paired(`@vertex export function vs(x: ${type}): vec4 { return vec4(f32(x)); }`, {
         code: code!,
         message: message!,
         at: type!,
@@ -112,17 +112,17 @@ describe('malformed IO attribute arguments', () => {
     });
   }
   for (const [member, at, code, message] of [
-    ['@builtin() pos!: vec4;', '@builtin()', 'TS8024', BUILTIN],
-    ['@builtin(3) pos!: vec4;', '@builtin(3)', 'TS8024', BUILTIN],
-    ['@location(-1) pos!: vec4;', '@location(-1)', 'TS8028', LOCATION],
-    ['pos!: builtin<3, vec4>;', 'builtin<3, vec4>', 'TS8024', BUILTIN],
-    ['pos!: location<0.5, vec4>;', 'location<0.5, vec4>', 'TS8028', LOCATION],
+    ['@builtin() pos: vec4;', '@builtin()', 'TS8024', BUILTIN],
+    ['@builtin(3) pos: vec4;', '@builtin(3)', 'TS8024', BUILTIN],
+    ['@location(-1) pos: vec4;', '@location(-1)', 'TS8028', LOCATION],
+    ['pos: builtin<3, vec4>;', 'builtin<3, vec4>', 'TS8024', BUILTIN],
+    ['pos: location<0.5, vec4>;', 'location<0.5, vec4>', 'TS8028', LOCATION],
   ]) {
     it(`does not add missing-attribute or missing-position errors for ${at}`, () => {
       paired(
         `class Output { ${member} }
-export const vs = vertex(function vs(): Output { return { pos: vec4(0.) }; });
-export const fs = fragment(function fs(p: Output): vec4 { return p.pos; });`,
+@vertex export function vs(): Output { return { pos: vec4(0.) }; }
+@fragment export function fs(p: Output): vec4 { return p.pos; }`,
         { code: code!, message: message!, at: at! },
       );
     });
@@ -130,12 +130,12 @@ export const fs = fragment(function fs(p: Output): vec4 { return p.pos; });`,
   for (const declaration of [
     'interface Output { pos: builtin<3, vec4>; }',
     'type Output = { pos: builtin<3, vec4>; };',
-    'class Base { pos!: builtin<3, vec4>; } class Output extends Base {}',
+    'class Base { pos: builtin<3, vec4>; } class Output extends Base {}',
   ]) {
     it(`keeps the field refusal through ${declaration}`, () => {
       paired(
         `${declaration}
-export const vs = vertex(function vs(): Output { return { pos: vec4(0.) }; });`,
+@vertex export function vs(): Output { return { pos: vec4(0.) }; }`,
         { code: 'TS8024', message: BUILTIN, at: 'builtin<3, vec4>' },
       );
     });
@@ -148,7 +148,7 @@ describe('independent mistakes and refused declarations', () => {
     'location<"0", f32, { interpolate: "bogus" }>',
   ]) {
     it(`keeps the independent option refusal in ${type}`, () => {
-      paired(`export const fs = fragment(function fs(x: ${type}): vec4 { return vec4(0.); });`, {
+      paired(`@fragment export function fs(x: ${type}): vec4 { return vec4(0.); }`, {
         code: type.startsWith('builtin') ? 'TS8024' : 'TS8028',
         message: type.startsWith('builtin') ? BUILTIN : LOCATION,
         at: type,
@@ -165,7 +165,7 @@ describe('independent mistakes and refused declarations', () => {
   it('keeps an independent option refusal on a field', () => {
     paired(
       `interface Output { color: location<"0", vec4, { interpolate: "bogus" }>; }
-export const fs = fragment(function fs(): Output { return { color: vec4(0.) }; });`,
+@fragment export function fs(): Output { return { color: vec4(0.) }; }`,
       {
         code: 'TS8028',
         message: LOCATION,
@@ -183,7 +183,7 @@ export const fs = fragment(function fs(): Output { return { color: vec4(0.) }; }
   it('keeps an independent blend source refusal on a field', () => {
     paired(
       `interface Output { color: location<"0", vec4, { blend_src: 2 }>; }
-export const fs = fragment(function fs(): Output { return { color: vec4(0.) }; });`,
+@fragment export function fs(): Output { return { color: vec4(0.) }; }`,
       {
         code: 'TS8028',
         message: LOCATION,
@@ -209,7 +209,7 @@ export function use(): vec4 { ${call} }`,
   }
   it('does not cascade through a refused modern entry', () => {
     paired(
-      `export const vs = vertex(function vs(i: builtin<3, u32>): vec4 { return vec4(f32(i)); });
+      `@vertex export function vs(i: builtin<3, u32>): vec4 { return vec4(f32(i)); }
 export function use(): vec4 { return vs(0); }`,
       { code: 'TS8024', message: BUILTIN, at: 'builtin<3, u32>' },
     );
@@ -235,14 +235,14 @@ describe('existing IO attribute neighbours', () => {
   }
   it('keeps modern types and a valid option object', () => {
     paired(
-      `export const vs = vertex(function vs(i: builtin<"vertex_index", u32>, x: location<0, f32>): vec4 { return vec4(x + f32(i)); });`,
+      `@vertex export function vs(i: builtin<"vertex_index", u32>, x: location<0, f32>): vec4 { return vec4(x + f32(i)); }`,
     );
     paired(
-      `export const fs = fragment(function fs(x: location<0, f32, { interpolate: "flat" }>): vec4 { return vec4(x); });`,
+      `@fragment export function fs(x: location<0, f32, { interpolate: "flat" }>): vec4 { return vec4(x); }`,
     );
   });
   it('leaves the separate bare-parameter gap unchanged', () => {
-    const c = paired('export const vs = vertex(function vs(x: f32): vec4 { return vec4(x); });');
+    const c = paired('@vertex export function vs(x: f32): vec4 { return vec4(x); }');
     expect(c.wgsl).toContain('x: f32');
   });
   it('keeps misplaced malformed attributes under the existing site refusal', () => {
@@ -254,15 +254,12 @@ describe('existing IO attribute neighbours', () => {
     });
   });
   it('does not suppress an independent unknown value type', () => {
-    paired(
-      'export const fs = fragment(function fs(x: builtin<3, Unknown>): vec4 { return vec4(0.); });',
-      {
-        code: 'TS8002',
-        message:
-          'Unknown type "Unknown". Declare it in this file, or import it from another shader module.',
-        at: 'Unknown',
-      },
-    );
+    paired('@fragment export function fs(x: builtin<3, Unknown>): vec4 { return vec4(0.); }', {
+      code: 'TS8002',
+      message:
+        'Unknown type "Unknown". Declare it in this file, or import it from another shader module.',
+      at: 'Unknown',
+    });
   });
   it('preserves the existing unknown-name refusal at its string argument', () => {
     paired(
@@ -278,10 +275,10 @@ describe('existing IO attribute neighbours', () => {
 
 describe('attribute declarations in imported and uncollected types', () => {
   const shapes = [
-    ['class', 'export class Out { x!: location<0.5, f32>; }', 'Out', 'location<0.5, f32>'],
+    ['class', 'export class Out { x: location<0.5, f32>; }', 'Out', 'location<0.5, f32>'],
     [
       'generic class',
-      'export class Out<T> { x!: location<0.5, T>; }',
+      'export class Out<T> { x: location<0.5, T>; }',
       'Out<f32>',
       'location<0.5, T>',
     ],
@@ -292,7 +289,7 @@ describe('attribute declarations in imported and uncollected types', () => {
     it(`reports an imported ${name} at the declaration in both halves`, () => {
       const library = `"use typeshade"; ${declaration}`;
       const main = `"use typeshade"; import { Out } from "./lib.shade.ts";
-export const fs = fragment(function fs(x: ${type}): vec4 { return vec4(x.x); });`;
+@fragment export function fs(x: ${type}): vec4 { return vec4(x.x); }`;
       const readDocument = (path: string) =>
         path === '/attributes/lib.shade.ts' ? library : undefined;
       const c = compile(main, { fileName: URI, readDocument });
@@ -325,18 +322,18 @@ export const fs = fragment(function fs(x: ${type}): vec4 { return vec4(x.x); });
     'interface Host { seed: number; callback: () => number; } type RecordType = { text: string }; export {};',
     'type location<I, T> = T; interface Host { x: location<0.5, number>; } export {};',
     'type builtin<I, T> = T; type Host = { x: builtin<3, number> }; export {};',
-    'class location<I, T> { value!: T; } interface Host { x: location<0.5, number>; } export {};',
-    'class builtin<I, T> { value!: T; } type Host = { x: builtin<3, number> }; export {};',
+    'class location<I, T> { value: T; } interface Host { x: location<0.5, number>; } export {};',
+    'class builtin<I, T> { value: T; } type Host = { x: builtin<3, number> }; export {};',
     'interface location<I, T> { value: T; } interface Host { x: location<0.5, number>; } export {};',
-    'class Host<location> { value!: location; } export {};',
-    'class Host<L extends number> { value!: location<L, f32>; } export {};',
+    'class Host<location> { value: location; } export {};',
+    'class Host<L extends number> { value: location<L, f32>; } export {};',
   ]) {
     it(`does not collect or reinterpret host-only declarations: ${body}`, () => {
       expect(paired(body).wgsl).toBe('\n');
     });
   }
   it('checks an independent option on an uninstantiated generic declaration', () => {
-    paired('class Out<T> { x!: location<"0", T, { interpolate: "bogus" }>; } export {};', {
+    paired('class Out<T> { x: location<"0", T, { interpolate: "bogus" }>; } export {};', {
       code: 'TS8028',
       message: LOCATION,
       at: 'location<"0", T, { interpolate: "bogus" }>',

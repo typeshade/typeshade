@@ -13,10 +13,10 @@ declare const k: uniform<f32>;
 declare const out: storage<array<f32>, "read_write">;
 function edge(x: f32): bool { return x > 0.5; }
 ${helpers}
-export const cs = compute([64, 1, 1], function cs(lid: builtin<"local_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(lid: builtin<"local_invocation_id", vec3u>): void {
 ${body}
  out[lid.x] = 1.;
-});`;
+}`;
 const setter = 'function set(@inout a: f32, x: f32): void { a = x; }';
 
 function readBoth(source: string) {

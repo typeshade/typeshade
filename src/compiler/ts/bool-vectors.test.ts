@@ -13,11 +13,11 @@ import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
 
 const FS = (body: string) => `"use typeshade"
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   const a = vec3(uv, 0.5)
   const b = vec3(0.5, 0.5, 0.5)
 ${body}
-});
+}
 `;
 const errorsOf = (src: string) =>
   compileTsSource(src)

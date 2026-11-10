@@ -15,16 +15,18 @@ interface Color {
 }
 
 /** A fullscreen triangle. */
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(i32(vi) / 2) * 4 - 1;
   const y = f32(i32(vi) % 2) * 4 - 1;
   return { pos: vec4(x, y, 0, 1) };
-});
+}
 
 /** Red climbs from 0.25 in steps of 4, green runs from -3 to 2.625 in steps of 0.375, and blue is
  *  8 times the column times the row, up to 1800: the columns and rows of a 16 by 16 target. */
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment
+export function fs(v: VsOut): Color {
   const px = floor(v.pos.x);
   const py = floor(v.pos.y);
   return { color: vec4(px * 4 + 0.25, (py - 8) * 0.375, px * py * 8, 1) };
-});
+}

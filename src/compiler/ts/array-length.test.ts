@@ -16,12 +16,12 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 const KERNEL = `"use typeshade";
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
-export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= src.length) {
     return;
   }
   dst[gid.x] = src[gid.x] * 2.;
-});
+}
 `;
 
 const errorsOf = (src: string) =>
@@ -45,9 +45,9 @@ describe('xs.length on a runtime-sized storage array', () => {
 
   it('takes a trailing array field of a storage struct', () => {
     const src = `"use typeshade";
-class Buf { n!: u32; xs!: array<f32>; }
+class Buf { n: u32; xs: array<f32>; }
 declare const b: storage<Buf>;
-export const fs = fragment(function fs(): vec4 { return vec4(f32(b.xs.length), 0., 0., 1.); });
+@fragment export function fs(): vec4 { return vec4(f32(b.xs.length), 0., 0., 1.); }
 `;
     const r = compileTsSource(src);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
@@ -58,10 +58,10 @@ export const fs = fragment(function fs(): vec4 { return vec4(f32(b.xs.length), 0
   it('follows a local that copies the binding', () => {
     const src = `"use typeshade";
 declare const src: storage<array<f32>>;
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   const a = src;
   return vec4(f32(a.length), 0., 0., 1.);
-});
+}
 `;
     const r = compileTsSource(src);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
@@ -74,7 +74,7 @@ export const fs = fragment(function fs(): vec4 {
     // `.length`, and the front end says what it got.
     const src = `"use typeshade";
 declare const src: storage<array<f32>>;
-export const fs = fragment(function fs(): vec4 { return vec4(f32(src[0].length), 0., 0., 1.); });
+@fragment export function fs(): vec4 { return vec4(f32(src[0].length), 0., 0., 1.); }
 `;
     expect(errorsOf(src)).toEqual([
       `${TS_CODES.UNKNOWN_NAME} .length on f32 — swizzle requires vec2/vec3/vec4.`,
@@ -85,7 +85,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(f32(src[0].length),
   it('reads the size of a sized array as the number it is', () => {
     const src = `"use typeshade";
 declare const src: storage<array<f32, 8>>;
-export const fs = fragment(function fs(): vec4 { return vec4(f32(src.length), 0., 0., 1.); });
+@fragment export function fs(): vec4 { return vec4(f32(src.length), 0., 0., 1.); }
 `;
     const r = compileTsSource(src);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
@@ -97,7 +97,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(f32(src.length), 0.
   it('refuses an unsized array outside storage with the fix that works for it', () => {
     const uniform = errorsOf(`"use typeshade";
 declare const u: uniform<array<f32>>;
-export const fs = fragment(function fs(): vec4 { return vec4(f32(u.length), 0., 0., 1.); });
+@fragment export function fs(): vec4 { return vec4(f32(u.length), 0., 0., 1.); }
 `);
     // Two independent problems, so both are reported: the `.length` read below, and the
     // declaration itself — a runtime-sized array cannot live in the uniform address space at
@@ -121,7 +121,7 @@ function n(xs: array<f32>): u32 { return xs.length; }
   it('the removed call arrayLength(xs) is refused, whatever it is handed, on both halves', () => {
     const call = (args: string): string => `"use typeshade";
 declare const src: storage<array<f32>>;
-export const fs = fragment(function fs(): vec4 { return vec4(f32(arrayLength(${args})), 0., 0., 1.); });
+@fragment export function fs(): vec4 { return vec4(f32(arrayLength(${args})), 0., 0., 1.); }
 `;
     const sentence = `${TS_CODES.UNKNOWN_FN} arrayLength was removed: write xs.length.`;
     for (const args of ['src', 'src, 1', '', 'src[0]']) {
@@ -136,7 +136,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(f32(arrayLength(${a
     // predeclare, and the call through it with that name.
     const src = `"use typeshade";
 function arrayLength(x: f32): f32 { return x * 2.; }
-export const fs = fragment(function fs(): vec4 { return vec4(arrayLength(1.5), 0., 0., 1.); });
+@fragment export function fs(): vec4 { return vec4(arrayLength(1.5), 0., 0., 1.); }
 `;
     const r = compileTsSource(src);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);

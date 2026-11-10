@@ -282,14 +282,14 @@ describe('a loop proved never to end stays refused (Rule 7.5, change 0136)', () 
 describe('the editor shows the counter the compiler counts with (Rule 12.7)', () => {
   const src = `"use typeshade";
 declare const xs: storage<array<f32>>;
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   let a = 0.;
   for (let i = 0; i < 10; i++) { a += 1.; }
   for (let k = 0; k < xs.length; k++) { a += xs[k]; }
   for (let x = 0.; x < 1.; x += 0.25) { a += x; }
   for (let p = 0, q = 10; p < q; p++, q--) { a += f32(q); }
   return vec4(a, uv.x, 0., 1.);
-});
+}
 `;
   it('hovers an integer-literal counter as i32, against a storage length as u32, and a float one as f32', () => {
     expect(hoverAt(src, 'let i', 4)).toContain('let i: i32');

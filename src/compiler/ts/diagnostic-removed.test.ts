@@ -94,23 +94,23 @@ describe('a written @diagnostic(…) is one TS8028 in both halves (change 0132)'
   const sources: Readonly<Record<string, string>> = {
     'a top-level helper': `${HEAD}${FILTER}
 function sample(uv: vec2): vec4 { return textureSample(t, s, uv); }
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   if (uv.x > 0.5) { return sample(uv); }
   return vec4(0.);
-});
+}
 `,
     "a namespace's function": `${HEAD}namespace N {
   ${FILTER} export function h(x: f32): f32 { return x; }
 }
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   return vec4(N.h(uv.x));
-});
+}
 `,
     'a module constant': `${HEAD}${FILTER} const K: f32 = 1.;
-export const fs = fragment(function fs(): vec4 { return vec4(K); });
+@fragment export function fs(): vec4 { return vec4(K); }
 `,
-    'a field': `${HEAD}class P { ${FILTER} a!: f32; }
-export const fs = fragment(function fs(): vec4 { const p = new P(); return vec4(p.a); });
+    'a field': `${HEAD}class P { ${FILTER} a: f32; }
+@fragment export function fs(): vec4 { const p = new P(); return vec4(p.a); }
 `,
   };
   for (const [where, source] of Object.entries(sources))

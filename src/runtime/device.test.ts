@@ -298,7 +298,7 @@ function fakeGpu(
 
 it('alternates projected ordinary calls and full-layout resident/fused calls from one default face (0085)', async () => {
   const source = `"use typeshade";
-class Item { a!: f32; b!: f32; c!: f32; unused!: f32; }
+class Item { a: f32; b: f32; c: f32; unused: f32; }
 export function sample(xs: array<Item>, out: array<f32>): void {
   for (let i: u32 = 0; i < xs.length; i++) { out[i] = xs[i].a; }
 }
@@ -761,14 +761,14 @@ describe('two owners', () => {
 /** An entry whose workgroup count a `Resident` may hold (change 0075). */
 const COUNTED = `"use typeshade";
 declare const marks: storage<array<u32>, "read_write">;
-export const mark = compute([2], function mark(
+@compute([2]) export function mark(
   gid: builtin<"global_invocation_id", vec3u>,
   nw: builtin<"num_workgroups", vec3u>,
 ) {
   if (gid.x < marks.length) {
     marks[gid.x] = nw.x;
   }
-});
+}
 `;
 const counted = hostFace(COUNTED, { fileName: '/app/counted.shade.ts', runtime: RUNTIME });
 expect(counted.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
@@ -1414,12 +1414,12 @@ const ENABLED: override<bool> = true;
 let tile: workgroup<array<f64, WIDTH>>;
 declare const values: storage<array<f64>, "read_write">;
 declare const gain: uniform<f64>;
-export const scale = compute([WIDTH], function scale(gid: builtin<"global_invocation_id", vec3u>, lid: builtin<"local_invocation_id", vec3u>) {
+@compute([WIDTH]) export function scale(gid: builtin<"global_invocation_id", vec3u>, lid: builtin<"local_invocation_id", vec3u>) {
   if (gid.x < values.length) {
     tile[lid.x] = values[gid.x];
     values[gid.x] = ENABLED ? tile[lid.x] * gain : f64(-1.);
   }
-});
+}
 `;
 async function loadSpecialized(): Promise<{ scale: Call }> {
   const face = hostFace(SPECIALIZED_ENTRY, {

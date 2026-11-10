@@ -12,7 +12,7 @@ import { lowerKernel } from '../../core/passes/kernel-lower.js';
 import { projectKernelInputs } from '../../core/passes/kernel-project.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 
-const item = 'class Item { a!:f32; b!:i32; c!:u32; unused!:f32; }';
+const item = 'class Item { a:f32; b:i32; c:u32; unused:f32; }';
 function read(body: string, helpers = '', fuse?: boolean, declaration = item) {
   const source = `"use typeshade"; ${declaration} ${helpers}
 export function sample(xs:array<Item>,out:array<f32>) { ${body} }`;
@@ -116,8 +116,8 @@ describe('private kernel input projection', () => {
   });
 
   it.each([
-    'class Item { a!:f32; other!:vec3f; }',
-    'class Inner { value!:f32; } class Item { a!:f32; other!:Inner; }',
+    'class Item { a:f32; other:vec3f; }',
+    'class Inner { value:f32; } class Item { a:f32; other:Inner; }',
   ])('keeps unsupported element layouts intact', (declaration) => {
     expect(fields(read(one, '', false, declaration).face)).toBeUndefined();
   });

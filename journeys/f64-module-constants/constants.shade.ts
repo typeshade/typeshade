@@ -42,10 +42,11 @@ function coefficient(index: u32): f64 {
   return Offsets.BIAS;
 }
 
-export const evaluate = compute([64], function evaluate(
+@compute([64])
+export function evaluate(
   gid: builtin<"global_invocation_id", vec3u>,
 ): void {
   if (gid.x >= src.length) return;
   // A runtime multiply and add also exercise each flavor's emulation helpers.
   dst[gid.x] = src[gid.x] * GAIN + coefficient(gid.x % 12);
-});
+}

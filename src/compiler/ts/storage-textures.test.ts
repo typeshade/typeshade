@@ -36,9 +36,9 @@ const wgslOf = (src: string): string => {
 
 const compute = (bindings: string, body: string): string => `"use typeshade"
 ${bindings}
-export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
 ${body}
-});
+}
 `;
 
 describe('the binding', () => {
@@ -154,9 +154,9 @@ describe('the binding', () => {
     const vs = (decl: string, body: string): string => `"use typeshade"
 interface Clip { pos: builtin<"position", vec4> }
 ${decl}
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
 ${body}
-});
+}
 `;
     expect(
       errorsOf(
@@ -319,10 +319,10 @@ ${body}
     const vs = (decl: string): string => `"use typeshade"
 interface Clip { pos: builtin<"position", vec4> }
 ${decl}
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
   const d = textureDimensions(acc)
   return { pos: vec4(f32(d.x), 0., 0., 1.) }
-});
+}
 `;
     expect(errorsOf(vs(`declare const acc: texture_storage_2d<"r32float", "read_write">`))).toEqual(
       [
@@ -345,10 +345,10 @@ ${fns}
 `;
     expect(
       errorsOf(
-        vertex(`export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
+        vertex(`@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
   textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))
   return { pos: vec4(0., 0., 0., 1.) }
-});`),
+}`),
       ),
     ).toEqual([
       '"textureStore" is only valid in a fragment or compute shader; "vs" is a vertex entry. WGSL allows a texture write in a fragment or compute stage only.',
@@ -358,10 +358,10 @@ ${fns}
         vertex(`function write(): void {
   textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))
 }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
   write()
   return { pos: vec4(0., 0., 0., 1.) }
-});`),
+}`),
       ),
     ).toEqual([
       '"textureStore" is only valid in a fragment or compute shader; "write" is reachable from the vertex entry "vs". WGSL allows a texture write in a fragment or compute stage only.',
@@ -381,9 +381,9 @@ export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
   it('is not a module variable', () => {
     const errors = errorsOf(`"use typeshade";
 let dst: texture_storage_2d<"rgba8unorm", "write">;
-export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
   textureStore(dst, vec2i(0, 0), vec4(1.));
-});
+}
 `);
     expect(errors[0]).toContain(
       'a storage texture is a resource, declared bare with "declare const"',
@@ -568,9 +568,9 @@ describe('the write is an effect', () => {
 describe('what the storage path checks, and the two rows #164 closed', () => {
   const store = (decls: string, body: string): string => `"use typeshade"
 ${decls}
-export const cs = compute([64, 1, 1], function cs(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id", vec3u>): void {
 ${body}
-});
+}
 `;
 
   const WRONG_WIDTH = store(
@@ -584,10 +584,10 @@ declare const src: texture_storage_2d<"r32float", "read_write">;
 interface Clip {
   pos: builtin<"position", vec4>;
 }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
   const v = textureLoad(src, vec2i(0, 0));
   return { pos: v };
-});
+}
 `;
 
   // Both rows were `it.fails` against an emit Tint refuses — the coordinate one measured as

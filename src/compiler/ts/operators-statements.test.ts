@@ -56,7 +56,7 @@ function cpu(c: ReturnType<typeof compiled>, fn: string, args: readonly number[]
 describe('a shift amount is a u32 on both paths', () => {
   it('wraps an i32 shift count in u32 on WGSL and masks it on GLSL', () => {
     const c = compiled(`export function f(x: i32, n: i32): i32 { return x << n }
-export const fs = fragment(function fs(): vec4 { return vec4(f32(f(1, 3))) });`);
+@fragment export function fs(): vec4 { return vec4(f32(f(1, 3))) }`);
     expect(c.wgsl).toContain('(x << u32(n))');
     // The cast is in the IR, so GLSL carries it too, as `uint(n)` — which that spec accepts
     // (§5.9 lets the two operands of a shift have different kinds), and which is exactly what
@@ -98,9 +98,9 @@ export const fs = fragment(function fs(): vec4 { return vec4(f32(f(1, 3))) });`)
     // amount takes the same conversion the scalar path gives it, one lane wider.
     const c = compiled(`export function f(x: vec2u, n: vec2u): vec2u { return x << n }
 export function g(x: vec2i, n: vec2i): vec2i { return x << n }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   return vec4(f32(f(vec2u(1, 1), vec2u(1, 1)).x) + f32(g(vec2i(1, 1), vec2i(1, 1)).x))
-});`);
+}`);
     expect(c.wgsl).toContain('(x << n)');
     expect(c.wgsl).toContain('(x << vec2<u32>(n))');
     // A run-time amount is masked on GLSL, a scalar mask applied to each lane (Rule 11.12).
@@ -170,7 +170,7 @@ describe('a switch clause may carry several selectors', () => {
     default: return 99
   }
 }
-export const fs = fragment(function fs(): vec4 { return vec4(f32(pick(1))) });`;
+@fragment export function fs(): vec4 { return vec4(f32(pick(1))) }`;
 
   it('shares a switch clause between selectors on both targets', () => {
     const c = compiled(SRC);
@@ -445,7 +445,7 @@ describe('the statements that now say what is wrong', () => {
   });
 
   it('refuses calling an entry point', () => {
-    const d = diagnose(`export const fs = fragment(function fs(): vec4 { return vec4(0.) });
+    const d = diagnose(`@fragment export function fs(): vec4 { return vec4(0.) }
 export function g(): vec4 { return fs() }`);
     expect(d.message).toBe(
       '"fs" is a fragment entry point and cannot be called; the pipeline invokes it. ' +
@@ -455,7 +455,7 @@ export function g(): vec4 { return fs() }`);
 
   it('takes _ = f() as the phony assignment it is', () => {
     const c = compiled(`export function g(x: f32): f32 { return x }
-export const fs = fragment(function fs(): vec4 { _ = g(1.); return vec4(0.) });`);
+@fragment export function fs(): vec4 { _ = g(1.); return vec4(0.) }`);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     // `g` is pure and its result is dropped, so the optimizer removes the call outright —
     // what `_ =` buys the author is that the LINE is accepted, not text in the emit.
@@ -465,7 +465,7 @@ export const fs = fragment(function fs(): vec4 { _ = g(1.); return vec4(0.) });`
     // `@must_use` builtin (issue #47).
     const live = compiled(`declare const dst: storage<array<f32>, "read_write">
 export function g(x: f32): f32 { dst[0] = x; return x }
-export const cs = compute([64, 1, 1], function cs() { _ = g(1.); });`);
+@compute([64, 1, 1]) export function cs() { _ = g(1.); }`);
     expect(live.wgsl).toContain('  g(1.0);');
     expect(live.wgsl).not.toContain('_ = g(1.0);');
     // A declared `_` is an ordinary variable escaped by the backend, while an undeclared
@@ -654,13 +654,13 @@ describe('an operator takes the kinds of operand WGSL gives it (Rule 7.1)', () =
       '== on two samplers',
       'declare const s: sampler\n' +
         'export function k(): bool { return s === s }\n' +
-        'export const fs = fragment(function fs(): vec4 { return vec4(select(0., 1., k())) });',
+        '@fragment export function fs(): vec4 { return vec4(select(0., 1., k())) }',
       'Cannot === sampler: WGSL compares scalars and vectors, not a texture or a sampler.',
     ],
     [
       '+ on two textures',
       'declare const t: texture_2d<f32>\n' +
-        'export const fs = fragment(function fs(): vec4 { return textureLoad(t + t, vec2i(0), 0) });',
+        '@fragment export function fs(): vec4 { return textureLoad(t + t, vec2i(0), 0) }',
       'Cannot + texture_2d<f32>: WGSL has no arithmetic on a texture or a sampler.',
     ],
     [
@@ -669,14 +669,14 @@ describe('an operator takes the kinds of operand WGSL gives it (Rule 7.1)', () =
       '* on two samplers',
       'declare const s: sampler\n' +
         'export function k(): f32 { const u = s * s; return 0. }\n' +
-        'export const fs = fragment(function fs(): vec4 { return vec4(k()) });',
+        '@fragment export function fs(): vec4 { return vec4(k()) }',
       'Cannot * sampler: WGSL has no arithmetic on a texture or a sampler.',
     ],
     [
       '< on two samplers',
       'declare const s: sampler\n' +
         'export function k(): bool { return s < s }\n' +
-        'export const fs = fragment(function fs(): vec4 { return vec4(select(0., 1., k())) });',
+        '@fragment export function fs(): vec4 { return vec4(select(0., 1., k())) }',
       'Cannot < sampler: WGSL orders numbers and vectors of numbers, not a texture or a sampler.',
     ],
     [
@@ -706,7 +706,7 @@ describe('an operator takes the kinds of operand WGSL gives it (Rule 7.1)', () =
       'unary - on a texture',
       'declare const t: texture_2d<f32>\n' +
         'export function k(): f32 { const u = -t; return 0. }\n' +
-        'export const fs = fragment(function fs(): vec4 { return vec4(k()) });',
+        '@fragment export function fs(): vec4 { return vec4(k()) }',
       'Unary "-" is not defined on texture_2d<f32>; WGSL has no negation for a texture or a ' +
         'sampler.',
     ],
@@ -739,7 +739,7 @@ describe('an operator takes the kinds of operand WGSL gives it (Rule 7.1)', () =
     [
       'unary + on a texture',
       'declare const t: texture_2d<f32>\n' +
-        'export const fs = fragment(function fs(): vec4 { return textureLoad(+t, vec2i(0, 0), 0) });',
+        '@fragment export function fs(): vec4 { return textureLoad(+t, vec2i(0, 0), 0) }',
       'Unary "+" is not defined on texture_2d<f32>; it takes a number, a vector or a matrix, ' +
         'not a texture or a sampler. Remove it.',
     ],

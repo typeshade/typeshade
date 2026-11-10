@@ -124,7 +124,7 @@ class Out {
   @location(0) @blend_src(0) a: vec4;
   @location(0) @blend_src(1) b: vec4;
 }
-export const fs = fragment(function fs(): Out { return { a: vec4(1.), b: vec4(0.) }; });
+@fragment export function fs(): Out { return { a: vec4(1.), b: vec4(0.) }; }
 `;
     const said = [
       warns('@location(0)', 'write "a: location<0, vec4, { blend_src: 0 }>"'),
@@ -150,7 +150,7 @@ export const fs = fragment(function fs(): Out { return { a: vec4(1.), b: vec4(0.
     // `@location` on a helper's parameter is read nowhere, and refused (Rule 12.4).
     const source = `"use typeshade";
 function h(@location(0) x: f32): f32 { return x; }
-export const fs = fragment(function fs(): vec4 { return vec4(h(1.)); });
+@fragment export function fs(): vec4 { return vec4(h(1.)); }
 `;
     const said = [
       'error TS8028 "@location" does not apply to a parameter of a function that is not an entry: it marks an entry\'s input or output. Remove it.',

@@ -27,7 +27,7 @@ declare const linear: sampler;
 const SAMPLE = 'textureSample(photo, nearest, vec2(0.3))';
 const OTHER_SAMPLE = 'textureSample(photo, linear, vec2(0.3))';
 const fragment = (body: string, declarations = '') => `${PREFIX}${declarations}
-export const fs = fragment(function fs(): vec4 { ${body} });
+@fragment export function fs(): vec4 { ${body} }
 `;
 const WHY =
   'glsl-es300: it samples "photo" with "nearest" and "linear", and GLSL ES 3.00 fuses a texture with one sampler. ' +
@@ -145,8 +145,8 @@ describe('GLSL refuses two samplers for one texture', () => {
 
   it('checks only the selected entry, including batched per-entry emit', () => {
     const source = `${PREFIX}
-export const bad = fragment(function bad(): vec4 { return ${SAMPLE} + ${OTHER_SAMPLE}; });
-export const good = fragment(function good(): vec4 { return ${SAMPLE}; });
+@fragment export function bad(): vec4 { return ${SAMPLE} + ${OTHER_SAMPLE}; }
+@fragment export function good(): vec4 { return ${SAMPLE}; }
 `;
     const { module } = compile(source);
     expect(emitGlslStages(module, { fragmentEntry: 'good' }).fragment).toContain('texture(photo,');
@@ -161,8 +161,8 @@ export const good = fragment(function good(): vec4 { return ${SAMPLE}; });
 
   it('checks the selected vertex and fragment together, without refusing either stage alone', () => {
     const source = `${PREFIX}
-export const vs = vertex(function vs(): vec4 { return textureSampleLevel(photo, nearest, vec2(0.3), 0.); });
-export const fs = fragment(function fs(): vec4 { return ${OTHER_SAMPLE}; });
+@vertex export function vs(): vec4 { return textureSampleLevel(photo, nearest, vec2(0.3), 0.); }
+@fragment export function fs(): vec4 { return ${OTHER_SAMPLE}; }
 `;
     const { c } = checked(source);
     expect(c.glsl).toBeUndefined();
@@ -175,7 +175,7 @@ export const fs = fragment(function fs(): vec4 { return ${OTHER_SAMPLE}; });
   it('resolves a public IR local shadow before checking pairs', () => {
     const source = `${PREFIX}
 function helper(uv: vec2): vec4 { const local = other; return textureSampleLevel(local, linear, uv, 0.); }
-export const fs = fragment(function fs(): vec4 { return textureSampleLevel(photo, nearest, vec2(0.3), 0.) + helper(vec2(0.7)); });
+@fragment export function fs(): vec4 { return textureSampleLevel(photo, nearest, vec2(0.3), 0.) + helper(vec2(0.7)); }
 `;
     const { module, diagnostics } = compile(source);
     expect(diagnostics).toEqual([]);
@@ -217,9 +217,9 @@ export const fs = fragment(function fs(): vec4 { return textureSampleLevel(photo
 
   it('keeps separate textures across stages and ignores unselected sibling entries', () => {
     const source = `${PREFIX}
-export const vs = vertex(function vs(): vec4 { return textureSampleLevel(photo, nearest, vec2(0.3), 0.); });
-export const bad = fragment(function bad(): vec4 { return ${OTHER_SAMPLE}; });
-export const good = fragment(function good(): vec4 { return textureSample(other, linear, vec2(0.3)); });
+@vertex export function vs(): vec4 { return textureSampleLevel(photo, nearest, vec2(0.3), 0.); }
+@fragment export function bad(): vec4 { return ${OTHER_SAMPLE}; }
+@fragment export function good(): vec4 { return textureSample(other, linear, vec2(0.3)); }
 `;
     const { module } = compile(source);
     expect(emitGlslStages(module, { fragmentEntry: 'good' }).fragment).toContain('texture(other,');
@@ -242,7 +242,7 @@ export function b(): vec4 { return ${OTHER_SAMPLE}; }
 declare const shadow: texture_depth_2d;
 declare const a: sampler_comparison;
 declare const b: sampler_comparison;
-export const fs = fragment(function fs(): vec4 { return vec4(textureSampleCompare(shadow, a, vec2(0.3), 0.5)); });
+@fragment export function fs(): vec4 { return vec4(textureSampleCompare(shadow, a, vec2(0.3), 0.5)); }
 `;
     const { c } = checked(source);
     expect(c.diagnostics).toEqual([]);

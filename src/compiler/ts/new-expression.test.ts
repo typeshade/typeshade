@@ -21,9 +21,9 @@ const errorsOf = (src: string) =>
     .map((d) => `${d.code} ${d.message}`);
 
 const file = (head: string, body: string) => `"use typeshade"
-${head}export const fs = fragment(function fs(): vec4 {
+${head}@fragment export function fs(): vec4 {
 ${body}
-});
+}
 `;
 const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
   for (const make of [compileModule, compileModuleJs]) {
@@ -36,8 +36,8 @@ describe('a class the file declares is built with new', () => {
     const withCtor = compile(
       file(
         `class P {
-  x!: f32
-  y!: f32
+  x: f32
+  y: f32
   constructor(x: f32, y: f32) {
     this.x = x
     this.y = y
@@ -54,7 +54,7 @@ describe('a class the file declares is built with new', () => {
     // No constructor: TypeScript's implicit one, which takes nothing and zeroes the fields.
     const without = compile(
       file(
-        `class P {\n  x!: f32\n  y: f32\n}\n`,
+        `class P {\n  x: f32\n  y: f32\n}\n`,
         `  const p = new P()\n  return vec4(p.x, p.y, 0., 1.)`,
       ),
     );
@@ -74,7 +74,7 @@ describe('a class the file declares is built with new', () => {
     const inMethod = compile(
       file(
         `class V {
-  x!: f32
+  x: f32
   constructor(x: f32) {
     this.x = x
   }
@@ -106,7 +106,7 @@ function take(v: V): f32 {
 });
 
 describe('what a new is refused on says its own reason', () => {
-  const TAIL = `\nexport const fs = fragment(function fs(): vec4 {\n  return vec4(1.)\n});\n`;
+  const TAIL = `\n@fragment export function fs(): vec4 {\n  return vec4(1.)\n}\n`;
 
   /** One body that builds something with `new` and returns without reading it. */
   const built = (head: string, target: string) =>
@@ -244,11 +244,11 @@ describe('what a new is refused on says its own reason', () => {
       errorsOf(
         file(
           `abstract class S {
-  k!: f32
+  k: f32
   abstract area(): f32
 }
 class Q extends S {
-  s!: f32
+  s: f32
   area(): f32 {
     return this.s
   }
@@ -280,7 +280,7 @@ class Q extends S {
     expect(
       errorsOf(
         file(
-          `class P {\n  x!: f32\n  y: f32\n}\n`,
+          `class P {\n  x: f32\n  y: f32\n}\n`,
           `  const p = new P(1., 2.)\n  return vec4(p.x, p.y, 0., 1.)`,
         ),
       )[0],
@@ -353,7 +353,7 @@ namespace N {
     ]);
     expect(
       ns(
-        `  export class P {\n    x!: f32\n    constructor(a: f32) {\n      this.x = a\n    }\n  }\n`,
+        `  export class P {\n    x: f32\n    constructor(a: f32) {\n      this.x = a\n    }\n  }\n`,
         `  const p = new N.P()\n  return vec4(1.)`,
       ),
     ).toEqual([`${TS_CODES.ARITY_MISMATCH} "new N.P" expects 1 argument(s), got 0.`]);
@@ -371,7 +371,7 @@ namespace N {
     expect(
       errorsOf(
         file(
-          `class C {\n  x!: f32\n  constructor(...a: f32[]) {\n    this.x = 1.\n  }\n}\n`,
+          `class C {\n  x: f32\n  constructor(...a: f32[]) {\n    this.x = 1.\n  }\n}\n`,
           `  const c = new C()\n  return vec4(c.x)`,
         ),
       ),
@@ -442,7 +442,7 @@ describe('a value built at module scope is refused once, by its own declaration'
 });
 
 describe('each thing a new is refused on is named for what it is (Rule 8.13, Rule 12.1)', () => {
-  const TAIL = `\nexport const fs = fragment(function fs(): vec4 {\n  return vec4(1.)\n});\n`;
+  const TAIL = `\n@fragment export function fs(): vec4 {\n  return vec4(1.)\n}\n`;
   const built = (head: string, target: string) =>
     `"use typeshade"\n${head}function g(): f32 {\n  const d = ${target}\n  return 1.\n}${TAIL}`;
   const one = (
@@ -554,7 +554,7 @@ describe('each thing a new is refused on is named for what it is (Rule 8.13, Rul
     // body no call reached (Rule 12.4).
     const generic = (calls: string) =>
       `"use typeshade"\nfunction mk<T>(x: T): f32 {\n  const d = new vec3f(1.)\n  const e = new Date()\n  return 1.\n}\n` +
-      `export const fs = fragment(function fs(): vec4 {\n  return vec4(${calls})\n});\n`;
+      `@fragment export function fs(): vec4 {\n  return vec4(${calls})\n}\n`;
     const said = [
       `${TS_CODES.CLASS_MEMBER} "vec3f" is a WGSL constructor, which is called without "new": vec3f(1.).`,
       `${TS_CODES.UNKNOWN_NAME} Unknown identifier "Date".`,
@@ -569,7 +569,7 @@ describe('each thing a new is refused on is named for what it is (Rule 8.13, Rul
     expect(
       errorsOf(
         file(
-          `namespace N {\n  export class P {\n    x!: f32\n    constructor(g: (a: f32) => f32) {\n      this.x = g(1.)\n    }\n  }\n}\n`,
+          `namespace N {\n  export class P {\n    x: f32\n    constructor(g: (a: f32) => f32) {\n      this.x = g(1.)\n    }\n  }\n}\n`,
           `  const p = new N.P()\n  return vec4(1.)`,
         ),
       )[0],
@@ -579,7 +579,7 @@ describe('each thing a new is refused on is named for what it is (Rule 8.13, Rul
     expect(
       errorsOf(
         file(
-          `namespace N {\n  export class P<T> {\n    v!: T\n    constructor(v: T) {\n      this.v = v\n    }\n  }\n}\n`,
+          `namespace N {\n  export class P<T> {\n    v: T\n    constructor(v: T) {\n      this.v = v\n    }\n  }\n}\n`,
           `  const a = new N.P<f32>(1.)\n  const b = new N.P<i32>(1)\n  const c = new N.P(2.)\n  return vec4(a.v)`,
         ),
       ),
@@ -696,7 +696,7 @@ describe('a new of a class with a constructor, through the list form of a progra
 
   it('in a statement and in a return', () => {
     for (const body of [
-      `export const fs = fragment(function fs(): vec4 {\n  let c = vec4(0.);\n  c.x = new P(2.).a;\n  return c;\n});\n`,
+      `@fragment export function fs(): vec4 {\n  let c = vec4(0.);\n  c.x = new P(2.).a;\n  return c;\n}\n`,
       `export function mk(): P {\n  return new P(1.);\n}\n`,
     ]) {
       const r = compileTsSources([{ fileName: 'lib.ts', source: LIB + body }]);
@@ -708,7 +708,7 @@ describe('a new of a class with a constructor, through the list form of a progra
 
 describe('a module-scope value, and every read and write of it, says one sentence', () => {
   const head = `function g(): f32 {\n  return 1.\n}\n`;
-  const fs = (body: string) => `export const fs = fragment(function fs(): vec4 {\n${body}\n});\n`;
+  const fs = (body: string) => `@fragment export function fs(): vec4 {\n${body}\n}\n`;
   const notConstant = (name: string, init: string) =>
     `${TS_CODES.MODULE_VAR} "${name}" needs a constant initializer (a literal, a module const, arithmetic or a math builtin over those); "${init}" is not one. Assign it inside the entry.`;
 
@@ -778,7 +778,7 @@ describe('a module-scope value, and every read and write of it, says one sentenc
         },
         {
           fileName: 'main.ts',
-          source: `"use typeshade";\nimport { g } from "./lib";\nconst K: f32 = g();\nexport const fs = fragment(function fs(): vec4 {\n  return vec4(K);\n});\n`,
+          source: `"use typeshade";\nimport { g } from "./lib";\nconst K: f32 = g();\n@fragment export function fs(): vec4 {\n  return vec4(K);\n}\n`,
         },
       ],
       'main.ts',
@@ -832,8 +832,8 @@ describe('a new finds what TypeScript finds, and names it as the file writes it'
   it('a generic instance by the type arguments the file writes, never by its emitted name', () => {
     // They were `Pair<N_Q>`, `Pair<Box_f32>` and `new Pair<Box_f32>`, the structs the module
     // emits.
-    const box = `class Box<T> {\n  v!: T\n  constructor(v: T) {\n    this.v = v\n  }\n}\n`;
-    const pair = `class Pair<T> {\n  a!: T\n  constructor(a: T) {\n    this.a = a\n  }\n}\n`;
+    const box = `class Box<T> {\n  v: T\n  constructor(v: T) {\n    this.v = v\n  }\n}\n`;
+    const pair = `class Pair<T> {\n  a: T\n  constructor(a: T) {\n    this.a = a\n  }\n}\n`;
     const ambiguous = (instances: string) =>
       `${TS_CODES.CLASS_MEMBER} "Pair" is generic and this file writes it at 2 sets of type arguments (${instances}), so "new Pair(…)" does not say which one to build. Write the type argument: "new Pair<f32>(…)".`;
     expect(
@@ -855,7 +855,7 @@ describe('a new finds what TypeScript finds, and names it as the file writes it'
     expect(
       said(
         file(
-          `${box}class Pair<T> {\n  a!: f32\n  constructor(g: (a: f32) => f32) {\n    this.a = g(1.)\n  }\n}\n`,
+          `${box}class Pair<T> {\n  a: f32\n  constructor(g: (a: f32) => f32) {\n    this.a = g(1.)\n  }\n}\n`,
           `  const p = new Pair<Box<f32>>()\n  return vec4(1.)`,
         ),
       ),
@@ -915,7 +915,7 @@ describe('a new finds what TypeScript finds, and names it as the file writes it'
       fileName: 'lib.ts',
       source: `"use typeshade";\nexport function g(): f32 {\n  return 1.;\n}\nexport class P {\n  a: f32 = 1.;\n}\n`,
     };
-    const FS = `export const fs = fragment(function fs(): vec4 {\n  return vec4(1.);\n});\n`;
+    const FS = `@fragment export function fs(): vec4 {\n  return vec4(1.);\n}\n`;
     const multi = (files: { fileName: string; source: string }[], entry = 'main.ts') =>
       compileTsSources([...files, LIB], entry).diagnostics.map(
         (d) => `${d.fileName}:${d.line} ${d.code} ${d.message}`,
@@ -971,7 +971,7 @@ describe('a new finds what TypeScript finds, and names it as the file writes it'
     };
     const main = (spec: string) => ({
       fileName: 'main.ts',
-      source: `"use typeshade";\nimport { P } from "${spec}";\nexport function f(): f32 {\n  const o = new P();\n  return o.a;\n}\nexport const fs = fragment(function fs(): vec4 {\n  return vec4(f());\n});\n`,
+      source: `"use typeshade";\nimport { P } from "${spec}";\nexport function f(): f32 {\n  const o = new P();\n  return o.a;\n}\n@fragment export function fs(): vec4 {\n  return vec4(f());\n}\n`,
     });
     const said = (spec: string) =>
       compileTsSources([main(spec), LIB], 'main.ts').diagnostics.map(

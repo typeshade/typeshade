@@ -85,12 +85,12 @@ declare const ka: uniform<f32>;
 declare const kb: uniform<f32>;
 let scratch: workgroup<array<f32, 64>>;
 function put(i: u32) { b[i] = kb + scratch[63 - i]; }
-export const first = compute([64], function first(gid: builtin<"global_invocation_id", vec3u>) { a[gid.x] = ka; });
-export const second = compute([64], function second(i: builtin<"local_invocation_index", u32>) {
+@compute([64]) export function first(gid: builtin<"global_invocation_id", vec3u>) { a[gid.x] = ka; }
+@compute([64]) export function second(i: builtin<"local_invocation_index", u32>) {
   scratch[i] = 1.;
   workgroupBarrier();
   put(i);
-});
+}
 `).module;
     const first = buildGlCompute(m, 'first');
     expect(first.roots.map((r) => r.name)).toEqual(['a']);
@@ -190,11 +190,11 @@ let row: workgroup<array<f32, 8>>;
 function texel(t: texture_2d<f32>, i: u32): f32 {
   return textureLoad(t, vec2i(i32(i), 0), 0).y;
 }
-export const main = compute([8], function main(li: builtin<"local_invocation_index", u32>) {
+@compute([8]) export function main(li: builtin<"local_invocation_index", u32>) {
   row[li] = texel(photo, li) + f32(textureLoad(ids, vec2i(0), 0).x);
   workgroupBarrier();
   out[li] = row[(li + 1) % 8] + textureSampleLevel(photo, smp, vec2f(0.5), 0.).x;
-});
+}
 `).module;
     const g = buildGlCompute(m, 'main');
     expect(g.textures).toEqual([
@@ -217,14 +217,14 @@ export const main = compute([8], function main(li: builtin<"local_invocation_ind
     // the one `compile()` assembles from the same result.
     const r = compileTsSource(
       `"use typeshade";
-class half { scale!: f32; }
+class half { scale: f32; }
 declare const cfg: uniform<half>;
 declare const texture: texture_2d<f32>;
 declare const smp: sampler;
 declare const out: storage<array<f32>, "read_write">;
-export const main = compute([8], function main(li: builtin<"local_invocation_index", u32>) {
+@compute([8]) export function main(li: builtin<"local_invocation_index", u32>) {
   out[li] = cfg.scale + textureSampleLevel(texture, smp, vec2f(0.5), 0.).x;
-});
+}
 `,
     );
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
@@ -255,9 +255,9 @@ declare const photo: texture_2d<f32>;
 declare const a: sampler;
 declare const b: sampler;
 declare const out: storage<array<f32>, "read_write">;
-export const main = compute([1], function main() {
+@compute([1]) export function main() {
   out[0] = textureSampleLevel(photo, a, vec2f(0.), 0.).x + textureSampleLevel(photo, b, vec2f(0.), 0.).x;
-});
+}
 `).module;
     expect(() => buildGlCompute(twice, 'main')).toThrow(
       'it samples "photo" with "a" and "b", and GLSL ES 3.00 fuses a texture with one sampler',
@@ -291,9 +291,9 @@ export const main = compute([1], function main() {
       const m = compile(`"use typeshade";
 ${decl}
 declare const out: storage<array<f32>, "read_write">;
-export const main = compute([1], function main() {
+@compute([1]) export function main() {
   ${use}
-});
+}
 `);
       expect(m.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
       expect(() => buildGlCompute(m.module, 'main')).toThrow(
@@ -313,7 +313,7 @@ declare const point: texture_depth_cube;
 declare const smp: sampler;
 declare const cmp: sampler_comparison;
 declare const out: storage<array<f32>, "read_write">;
-export const main = compute([4], function main(li: builtin<"local_invocation_index", u32>) {
+@compute([4]) export function main(li: builtin<"local_invocation_index", u32>) {
   const a = textureLoad(layers, vec2i(i32(li), 0), 1, 0).x;
   const b = f32(textureLoad(vol, vec3i(i32(li), 0, 0), 0).x);
   const c = textureSampleLevel(env, smp, vec3f(1., 0., 0.), 0.).y;
@@ -321,7 +321,7 @@ export const main = compute([4], function main(li: builtin<"local_invocation_ind
   const e = textureSampleCompareLevel(cascades, cmp, vec2f(0.5), 1, 0.5);
   const f = textureSampleCompareLevel(point, cmp, vec3f(0., 1., 0.), 0.5);
   out[li] = a + b + c + d + e + f + f32(textureDimensions(vol).z);
-});
+}
 `);
     expect(m.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     const g = buildGlCompute(m.module, 'main');
@@ -353,13 +353,13 @@ declare const acc: texture_storage_2d<"r32float", "read_write">;
 declare const img: texture_storage_2d<"rgba8unorm", "write">;
 declare const lay: texture_storage_2d_array<"rgba32uint", "write">;
 declare const src: texture_storage_2d<"rgba8snorm", "read">;
-export const main = compute([4, 4], function main(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([4, 4]) export function main(gid: builtin<"global_invocation_id", vec3u>) {
   const at = vec2i(gid.xy);
   const seen = textureLoad(acc, at).x + textureLoad(src, at).y;
   textureStore(acc, at, vec4f(seen + f32(textureDimensions(acc).x), 0., 0., 0.));
   textureStore(img, vec2u(gid.xy), vec4f(seen, 0.5, 0.25, 1.));
   textureStore(lay, at, 1, vec4u(gid.x, gid.y, textureNumLayers(lay), u32(7)));
-});
+}
 `);
     expect(m.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     const g = buildGlCompute(m.module, 'main');
@@ -403,9 +403,9 @@ declare const img: texture_storage_2d<"r32float", "write">;
 function put(t: texture_storage_2d<"r32float", "write">, i: i32) {
   textureStore(t, vec2i(i, 0), vec4f(1.));
 }
-export const main = compute([1], function main() {
+@compute([1]) export function main() {
   put(img, 0);
-});
+}
 `);
     if (m.diagnostics.some((d) => d.category === 'error')) return; // the front end refuses it first
     expect(() => buildGlCompute(m.module, 'main')).toThrow(
@@ -441,11 +441,11 @@ declare const out: storage<array<f32>, "read_write">;
 let scratch: workgroup<array<f32, 4>>;
 function fract(x: f32): f32 { return x - floor(x) + 0.5; }
 function clamp(x: f32, lo: f32, hi: f32): f32 { return x + lo + hi; }
-export const main = compute([4], function main(i: builtin<"local_invocation_index", u32>) {
+@compute([4]) export function main(i: builtin<"local_invocation_index", u32>) {
   scratch[i] = fract(out[i]) + random(out[i]) * 0.;
   workgroupBarrier();
   out[i] = clamp(scratch[3 - i], 1., 2.);
-});
+}
 `;
 
   it('emits each declaration under a name GLSL ES 3.00 does not have, across a barrier', () => {
@@ -488,12 +488,12 @@ describe('an emulated double kept in state across a barrier (#970)', () => {
   const source = (local: string, use: string): string => `"use typeshade";
 declare const data: storage<array<f32>, "read_write">;
 let tile: workgroup<array<f32, 64>>;
-export const fftSmallDouble = compute([64, 1, 1], function fftSmallDouble(li: builtin<"local_invocation_index", u32>): void {
+@compute([64, 1, 1]) export function fftSmallDouble(li: builtin<"local_invocation_index", u32>): void {
   ${local}
   tile[li] = data[li];
   workgroupBarrier();
   data[li] = tile[(li + 1) % 64] * ${use};
-});
+}
 `;
   const entry = (local: string, use: string) => compile(source(local, use));
 
@@ -571,13 +571,13 @@ export const fftSmallDouble = compute([64, 1, 1], function fftSmallDouble(li: bu
 declare const mu: uniform<mat2<f64>>;
 declare const data: storage<array<f32>, "read_write">;
 let tile: workgroup<array<f32, 64>>;
-export const mm = compute([64, 1, 1], function mm(li: builtin<"local_invocation_index", u32>): void {
+@compute([64, 1, 1]) export function mm(li: builtin<"local_invocation_index", u32>): void {
   const m = transpose(mu);
   tile[li] = data[li];
   workgroupBarrier();
   const v = m * vec2<f64>(f64(f32(li)), f64(1.));
   data[li] = tile[li] + f32(v.x);
-});
+}
 `);
     expect(r.diagnostics).toEqual([]);
     expect(() => buildGlCompute(r.module, 'mm')).toThrow('a mat2x2<f64> cannot be kept in state');

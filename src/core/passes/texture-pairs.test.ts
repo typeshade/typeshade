@@ -31,9 +31,9 @@ declare const smp: sampler;
 
 /** A fragment entry `fs` with `body`, and whatever else the module declares before it. */
 const program = (body: string, before = ''): string => `${PRELUDE}${before}
-export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position", vec4>): Color {
 ${body}
-});
+}
 `;
 
 const moduleOf = (src: string): ModuleDecl => {
@@ -71,12 +71,12 @@ describe('a texture only loaded, measured or counted is laid out unfilterable-fl
   it('loads, sizes and layer counts pair nothing, whatever sampler sits beside the texture', () => {
     const m = moduleOf(`${PRELUDE}
 declare const layers: texture_2d_array<f32>;
-export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position", vec4>): Color {
   const texel = textureLoad(photo, vec2i(p.xy), 0);
   const size = textureDimensions(photo);
   const count = f32(textureNumLayers(layers));
   return { c: texel * count + f32(size.x) };
-});
+}
 `);
     expect(pairsOf(m)).toEqual({});
     // `smp` is declared and unused, which WebGPU allows beside an unfilterable texture.
@@ -95,9 +95,9 @@ export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
   it('a multisampled f32 texture is, which no sampler reads (#414)', () => {
     const m = moduleOf(`${PRELUDE}
 declare const msaa: texture_multisampled_2d<f32>;
-export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position", vec4>): Color {
   return { c: textureLoad(msaa, vec2i(p.xy), 1) };
-});
+}
 `);
     expect(sampleTypes(m).msaa).toBe(UNFILTERABLE);
   });
@@ -132,9 +132,9 @@ describe('a texture a call pairs with a sampler is laid out float', () => {
 
   it('a texture one entry samples and another loads is float for the module', () => {
     const m = moduleOf(`${program(`  return { c: textureSample(photo, smp, p.xy) };`)}
-export const fsLoad = fragment(function fsLoad(p: builtin<"position", vec4>): Color {
+@fragment export function fsLoad(p: builtin<"position", vec4>): Color {
   return { c: textureLoad(photo, vec2i(p.xy), 0) };
-});
+}
 `);
     expect(sampleTypes(m).photo).toBe(FLOAT);
   });
@@ -221,9 +221,9 @@ function withTexture(s: sampler, uv: vec2): vec4 {
     const m = moduleOf(`${PRELUDE}
 declare const shadow: texture_depth_2d;
 declare const cmp: sampler_comparison;
-export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position", vec4>): Color {
   return { c: vec4(textureSampleCompare(shadow, cmp, p.xy, 0.5)) };
-});
+}
 `);
     expect(pairsOf(m)).toEqual({});
     expect(sampleTypes(m).shadow).toBe('depth');
@@ -259,12 +259,12 @@ declare const shadow: texture_depth_2d;
 declare const cmp: sampler_comparison;
 declare const depthMs: texture_depth_multisampled_2d;
 declare const store: texture_storage_2d<"r32float", "write">;
-export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position", vec4>): Color {
   const at = vec2i(p.xy);
   textureStore(store, at, vec4(1.));
   const held = f32(textureLoad(ids, at, 0).x) + f32(textureLoad(deltas, at, 0).x);
   return { c: vec4(held + textureLoad(depthMs, at, 0) + textureSampleCompare(shadow, cmp, p.xy, 0.5)) };
-});
+}
 `);
     expect(sampleTypes(m)).toEqual({
       photo: UNFILTERABLE,
@@ -335,11 +335,11 @@ describe('what it cannot read, it takes the safe way', () => {
 describe('the WebGL2 tier fuses the sampler this reads (Rule 11.10)', () => {
   it('a texture read through a const of it is fused with the sampler, not left with none', () => {
     const src = `${PRELUDE}
-export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position", vec4>): Color {
   const t = photo;
   const s = smp;
   return { c: textureSample(t, s, p.xy) };
-});
+}
 `;
     const draw = buildManifest(moduleOf(src)).gl?.draws?.fs;
     expect(draw).toBeDefined();

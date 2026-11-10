@@ -10,7 +10,7 @@ function fixture(source: string): ModuleDecl {
     declare const input: storage<array<f32>, "read_write">;
     declare const output: storage<array<f32>, "read_write">;
     ${source}
-    export const main = compute([1], function main(): void { output[0] = run(2.); });
+    @compute([1]) export function main(): void { output[0] = run(2.); }
   `);
   expect(result.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
   return result.module;

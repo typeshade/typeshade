@@ -49,12 +49,12 @@ describe('a texture and a sampler declaration', () => {
       interface Color {
         color: location<0, vec4>
       }
-      export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+      @vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
         return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
-      });
-      export const fs = fragment(function fs(v: VsOut): Color {
+      }
+      @fragment export function fs(v: VsOut): Color {
         return { color: textureSample(tex, smp, v.uv) };
-      });
+      }
     `);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(c.wgsl).toContain('@group(0) @binding(0) var tex: texture_2d<f32>;');
@@ -192,7 +192,7 @@ describe('override constants', () => {
       // latter and refuses the module, which would leave the GLSL half undefined for a reason
       // that has nothing to do with overrides.
       class U {
-        k!: f32;
+        k: f32;
       }
       declare const camera: uniform<U>;
       interface VsOut {
@@ -201,12 +201,12 @@ describe('override constants', () => {
       interface Color {
         color: location<0, vec4>;
       }
-      export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+      @vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
         return { pos: vec4(0., 0., 0., 1.) };
-      });
-      export const fs = fragment(function fs(): Color {
+      }
+      @fragment export function fs(): Color {
         return { color: vec4(quality * camera.k, 0., 0., 1.) };
-      });
+      }
     `);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(c.wgsl).toContain('override quality: f32 = 0.5;');
@@ -333,16 +333,16 @@ describe('what the review of #54 found (the four majors)', () => {
         color: location<0, vec4>
       }
       class U {
-        k!: f32
+        k: f32
       }
       declare const params: uniform<U>
       const ${name}: override<f32> = 0.85
-      export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+      @vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
         return { pos: vec4(f32(i), 0., 0., 1.), uv: vec2(0., 0.) };
-      });
-      export const fs = fragment(function fs(v: VsOut): Color {
+      }
+      @fragment export function fs(v: VsOut): Color {
         return { color: vec4(v.uv, ${name} + params.k, 1.) };
-      });
+      }
     `;
     for (const name of ['uv', 'color', 'k', 'params']) {
       expect(diagnose(prog(name))).toContain(`override "${name}" collides with a struct field`);
@@ -366,10 +366,10 @@ describe('what the review of #54 found (the four majors)', () => {
       declare const atlas: texture_2d_array<f32>
       declare const tex: texture_2d<f32>
       declare const smp: sampler
-      export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+      @fragment export function fs(p: builtin<"position", vec4>): Color {
         const c: vec2i = vec2i(i32(0), i32(0));
         return { color: ${call} };
-      });
+      }
     `;
     expect(diagnose(prog('textureLoad(tex, c, 2.5)'))).toBe(
       'A texture mip level must be a whole number of 0 or more, got 2.5. WGSL rejects a ' +
@@ -438,10 +438,10 @@ interface V {
   pos: builtin<"position", vec4>
   uv: location<0, vec2>
 }
-export const fs = fragment(function fs(v: V): vec4 {
+@fragment export function fs(v: V): vec4 {
 `;
 
-  const read = (body: string): string => wgslOf(`${HEAD}  return ${body}\n});\n`);
+  const read = (body: string): string => wgslOf(`${HEAD}  return ${body}\n}\n`);
 
   it('takes an unsigned coordinate on textureLoad, and keeps the level unsigned with it', () => {
     expect(read('textureLoad(tex, vec2u(0, 0), 0)')).toContain(

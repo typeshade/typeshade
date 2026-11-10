@@ -5,9 +5,9 @@ describe('@compute entry', () => {
   it('marks @compute([64]) as compute', () => {
     const r = compileTsSource(`
       "use typeshade";
-      export const paint = compute([64], function paint(id: builtin<"global_invocation_id", vec3u>): void {
+      @compute([64]) export function paint(id: builtin<"global_invocation_id", vec3u>): void {
         const i = id.x;
-      });
+      }
     `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     const f = r.funcs.find((fn) => fn.name === 'paint')!;
@@ -30,7 +30,7 @@ describe('@compute entry', () => {
   it('accepts bare @compute as workgroup 64', () => {
     const r = compileTsSource(`
       "use typeshade";
-      export const paint = compute([64], function paint(): void {});
+      @compute([64]) export function paint(): void {}
     `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.funcs[0]!.workgroupSize).toBe(64);

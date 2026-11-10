@@ -21,15 +21,15 @@ import { allKindsModule } from './testing/all-kinds-module.js';
 const SRC = `"use typeshade";
 const SCALE: f32 = 2.;
 class Frame {
-  time!: f32;
-  count!: u32;
+  time: f32;
+  count: u32;
 }
 declare const frame: uniform<Frame>;
 declare const dst: storage<array<f32>, "read_write">;
 const quality: override<f32> = 0.5;
-export const step = compute([64, 1, 1], function step(gid: builtin<"global_invocation_id", vec3u>) {
+@compute([64, 1, 1]) export function step(gid: builtin<"global_invocation_id", vec3u>) {
   dst[gid.x] = frame.time * SCALE * quality;
-});
+}
 `;
 
 const moduleOf = () => {

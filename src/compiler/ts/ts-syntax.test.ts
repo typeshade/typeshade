@@ -179,12 +179,12 @@ describe('the bitwise compound assignments', () => {
       interface Color {
         color: location<0, vec4>;
       }
-      export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+      @fragment export function fs(p: builtin<"position", vec4>): Color {
         let y: i32 = i32(p.x);
         let k: i32 = i32(p.y);
         y <<= k;
         return { color: vec4(f32(y), 0., 0., 1.) };
-      });
+      }
     `);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     // A run-time amount is masked on GLSL, as WGSL masks it (Rule 11.12).

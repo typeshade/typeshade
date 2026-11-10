@@ -335,8 +335,7 @@ ${attrs}${top}namespace N {
       READS_HELD,
     );
     const helper = 'function half(x: f32): f32 { return x * 0.5 }\n';
-    const vs =
-      'export const vs = vertex(function vs(): builtin<"position", vec4> { return vec4(0.) })\n';
+    const vs = '@vertex export function vs(): builtin<"position", vec4> { return vec4(0.) }\n';
     for (const top of ['', helper, vs]) {
       // Reached as written: the gradients are computed above the return.
       expect(compiled(ns(top)).wgsl, top).toContain('textureSampleGrad(t, s, p.xy,');
@@ -881,11 +880,11 @@ declare const out: storage<array<f32>, "read_write">
 declare const k: uniform<f32>
 ${extra}
 ${helper}
-export const cs = compute([64, 1, 1], function cs(lid: builtin<"local_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function cs(lid: builtin<"local_invocation_id", vec3u>): void {
   let local = k;
   if (${condition}) { workgroupBarrier(); }
   out[lid.x] = 1.;
-});`;
+}`;
 
   it.each([
     [

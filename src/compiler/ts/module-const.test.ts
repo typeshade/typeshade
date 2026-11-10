@@ -46,11 +46,11 @@ describe('module const', () => {
       const WINDOW: u32 = 8;
       declare const input: storage<array<f32>>;
       declare const output: storage<array<f32>, "read_write">;
-      export const reduce_windows = compute([64, 1, 1], function reduce_windows(gid: builtin<"global_invocation_id", vec3u>): void {
+      @compute([64, 1, 1]) export function reduce_windows(gid: builtin<"global_invocation_id", vec3u>): void {
         let sum = 0.;
         for (let j: u32 = 0; j < WINDOW; j++) { sum = sum + input[gid.x * WINDOW + j]; }
         output[gid.x] = sum;
-      });
+      }
     `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.wgsl).toContain('const WINDOW: u32 = 8u;');

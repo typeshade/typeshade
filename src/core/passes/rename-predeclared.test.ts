@@ -141,7 +141,7 @@ export function g(x: f32): f32 { return fract(x) + fract_(x) + min(x, x); }
       'min',
       moduleOf(`"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-export const main = compute([1], function main() { out[0] = 1.; });
+@compute([1]) export function main() { out[0] = 1.; }
 `),
     );
     expect(renamePredeclaredFunctions(m, 'wgsl')).toBe(m);
@@ -257,10 +257,10 @@ export function g(x: f32): f32 { return fract(x) + random(x); }
 interface Color {
   color: location<0, vec4>;
 }
-export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position", vec4>): Color {
   const v = g(p.x);
   return { color: vec4(v, v, v, 1.) };
-});
+}
 `);
     const wgsl = emitModule(m);
     const glsl = emitGlslModule(m, 'fragment');
@@ -364,9 +364,9 @@ describe('an entry point named like a builtin (Rule 3.2)', () => {
 interface Color {
   color: location<0, vec4>;
 }
-export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position", vec4>): Color {
   return { color: vec4(fract(p.x), random(p.y), 0., 1.) };
-});
+}
 `),
   );
 

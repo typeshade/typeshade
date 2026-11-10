@@ -5,8 +5,8 @@
 // it with `console: 'gpu'`, and the lines come back from WebGPU as the CPU would print them.
 
 class Sample {
-  value!: f32;
-  scaled!: vec2;
+  value: f32;
+  scaled: vec2;
 }
 
 declare const xs: storage<array<f32>>;
@@ -20,7 +20,8 @@ function doubled(v: f32): f32 {
   return s;
 }
 
-export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64])
+export function main(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x >= xs.length) {
     return;
   }
@@ -28,4 +29,4 @@ export const main = compute([64], function main(gid: builtin<"global_invocation_
   const sample: Sample = { value: x, scaled: vec2(x, x * 0.5) };
   console.log("i =", gid.x, sample, x > 1.);
   out[gid.x] = doubled(x);
-});
+}

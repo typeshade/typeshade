@@ -24,9 +24,9 @@ declare const dst: storage<array<f32>, "read_write">;
 function store(i: u32): void {
   dst[i] = 1.;
 }
-export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   store(gid.x);
-});
+}
 `;
 
 const BUMP = `"use typeshade";
@@ -35,14 +35,14 @@ function bump(i: u32): f32 {
   dst[i] = dst[i] + 1.;
   return dst[i];
 }
-export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   const a = dst[gid.x];
   bump(gid.x);
   bump(gid.x);
   const b = dst[gid.x];
   max(a, 1.);
   dst[gid.x] = a + b;
-});
+}
 `;
 
 function runOnDst(
@@ -95,10 +95,10 @@ describe('a call as a statement', () => {
   it('refuses a value that is not a call standing alone', () => {
     const r = compileTsSource(`"use typeshade";
 interface Color { color: location<0, vec4>; }
-export const fs = fragment(function fs(uv: location<0, vec2>): Color {
+@fragment export function fs(uv: location<0, vec2>): Color {
   vec3(1., 2., 3.);
   return { color: vec4(uv, 0., 1.) };
-});
+}
 `);
     expect(r.diagnostics.map((d) => d.code)).toEqual(['TS8099']);
     expect(r.diagnostics[0]!.message).toContain('builds a value and drops it');
@@ -134,11 +134,11 @@ declare const dst: storage<array<f32>, "read_write">;
 function store(i: u32): void {
   dst[i] = 1.;
 }
-export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   for (let i: u32 = 0; i < 2; i++) {
     store(i + gid.x);
   }
-});
+}
 `;
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
@@ -174,11 +174,11 @@ function h(i: u32): f32 {
   store(i);
   return 2.;
 }
-export const main_k = compute([64, 1, 1], function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+@compute([64, 1, 1]) export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
   if (gid.x > 4) {
     dst[gid.x] = h(gid.x);
   }
-});
+}
 `;
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);

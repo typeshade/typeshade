@@ -69,20 +69,20 @@ const unknown = (uri?: string): Expected => ({
   at: '"positon"',
   uri,
 });
-const modernEntry = 'export const vs = vertex(function vs(): Out { return {pos: vec4(0.)}; });';
+const modernEntry = '@vertex export function vs(): Out { return {pos: vec4(0.)}; }';
 const legacyEntry = '@vertex export function vs(): Out { return {pos: vec4(0.)}; }';
 
 describe('a refused entry IO name is one diagnostic', () => {
   it('keeps the legacy builtin sentence and its string span', () => {
-    paired('class Out { @builtin("positon") pos!: vec4; }\n' + legacyEntry, [unknown()]);
+    paired('class Out { @builtin("positon") pos: vec4; }\n' + legacyEntry, [unknown()]);
   });
 
   for (const declaration of [
-    'class Out { pos!: builtin<"positon", vec4>; }',
+    'class Out { pos: builtin<"positon", vec4>; }',
     'interface Out { pos: builtin<"positon", vec4>; }',
     'type Out = { pos: builtin<"positon", vec4> };',
-    'class Base { pos!: builtin<"positon", vec4>; } class Out extends Base {}',
-    'class Base<T> { pos!: builtin<"positon", T>; } class Out extends Base<vec4> {}',
+    'class Base { pos: builtin<"positon", vec4>; } class Out extends Base {}',
+    'class Base<T> { pos: builtin<"positon", T>; } class Out extends Base<vec4> {}',
   ]) {
     it(`keeps the modern builtin sentence through ${declaration}`, () => {
       paired(declaration + '\n' + modernEntry, [unknown()]);
@@ -93,19 +93,19 @@ describe('a refused entry IO name is one diagnostic', () => {
     paired(
       'import { Out } from "./lib.shade.ts";\n' + modernEntry,
       [unknown(LIB)],
-      'export class Out { pos!: builtin<"positon", vec4>; }',
+      'export class Out { pos: builtin<"positon", vec4>; }',
     );
   });
 
   for (const [declaration, type] of [
-    ['export class Out<T> { pos!: builtin<"positon", T>; }', 'Out<vec4>'],
+    ['export class Out<T> { pos: builtin<"positon", T>; }', 'Out<vec4>'],
     ['export interface Out { pos: builtin<"positon", vec4>; }', 'Out'],
     ['export type Out = { pos: builtin<"positon", vec4> };', 'Out'],
   ]) {
     it(`reports the imported unknown name in the library editor for ${declaration}`, () => {
       paired(
         'import { Out } from "./lib.shade.ts";\n' +
-          `export const vs = vertex(function vs(): ${type} { return {pos: vec4(0.)}; });`,
+          `@vertex export function vs(): ${type} { return {pos: vec4(0.)}; }`,
         [unknown(LIB)],
         declaration,
       );
@@ -114,43 +114,43 @@ describe('a refused entry IO name is one diagnostic', () => {
 
   it('reports a literal unknown name without collecting the unused generic layout', () => {
     paired(
-      'class Unused<T> { pos!: builtin<"positon", T>; }\nexport function f(): f32 { return 1.; }',
+      'class Unused<T> { pos: builtin<"positon", T>; }\nexport function f(): f32 { return 1.; }',
       [unknown()],
     );
   });
 
   it('keeps one unknown-name error for two actual generic instances', () => {
     paired(
-      'class Out<T> { pos!: builtin<"positon", T>; }\nexport function f(a: Out<f32>, b: Out<vec2>): f32 { return a.pos + b.pos.x; }',
+      'class Out<T> { pos: builtin<"positon", T>; }\nexport function f(a: Out<f32>, b: Out<vec2>): f32 { return a.pos + b.pos.x; }',
       [unknown()],
     );
   });
 
   it('does not preflight a dependent builtin name before instantiation', () => {
     paired(
-      'class Unused<N extends "position"> { pos!: builtin<N, vec4>; }\nexport function f(): f32 { return 1.; }',
+      'class Unused<N extends "position"> { pos: builtin<N, vec4>; }\nexport function f(): f32 { return 1.; }',
       [],
     );
   });
 
   it('does not preflight an unused generic field with a user type named builtin', () => {
     paired(
-      'type builtin<N, T> = T; class Unused<T> { pos!: builtin<"positon", T>; }\nexport function f(): f32 { return 1.; }',
+      'type builtin<N, T> = T; class Unused<T> { pos: builtin<"positon", T>; }\nexport function f(): f32 { return 1.; }',
       [],
     );
   });
 
   it('keeps two identical name refusals in their own files', () => {
     paired(
-      'import { Other } from "./lib.shade.ts";\nclass Out extends Other { pos!: builtin<"positon", vec4>; }\nexport const vs = vertex(function vs(): Out { return {pos: vec4(0.),other: vec4(0.)}; });',
+      'import { Other } from "./lib.shade.ts";\nclass Out extends Other { pos: builtin<"positon", vec4>; }\n@vertex export function vs(): Out { return {pos: vec4(0.),other: vec4(0.)}; }',
       [unknown(), unknown(LIB)],
-      'export class Other { other!: builtin<"positon", vec4>; }',
+      'export class Other { other: builtin<"positon", vec4>; }',
     );
   });
 
   it('keeps a modern parameter unknown name alone', () => {
     const body =
-      'export const vs = vertex(function vs(i: builtin<"vertex_indx", u32>): vec4 { return vec4(f32(i)); });';
+      '@vertex export function vs(i: builtin<"vertex_indx", u32>): vec4 { return vec4(f32(i)); }';
     paired(body, [
       {
         code: 'TS8024',
@@ -161,13 +161,13 @@ describe('a refused entry IO name is one diagnostic', () => {
   });
 
   it('does not call an unknown builtin a second invariant mistake', () => {
-    paired('class Out { pos!: builtin<"positon", vec4, {invariant: true}>; }\n' + modernEntry, [
+    paired('class Out { pos: builtin<"positon", vec4, {invariant: true}>; }\n' + modernEntry, [
       unknown(),
     ]);
   });
 
   it('keeps an unknown attribute name alone on a vertex output', () => {
-    paired('class Out { @buitlin("position") pos!: vec4; }\n' + legacyEntry, [
+    paired('class Out { @buitlin("position") pos: vec4; }\n' + legacyEntry, [
       {
         code: 'TS8028',
         message: 'Unknown attribute "@buitlin". Did you mean "@builtin"?',
@@ -178,7 +178,7 @@ describe('a refused entry IO name is one diagnostic', () => {
 
   it('keeps an unknown location attribute alone on a fragment input', () => {
     paired(
-      'class In { @locaton(0) uv!: vec2; }\n@fragment export function fs(input: In): vec4 { return vec4(input.uv,0.,1.); }',
+      'class In { @locaton(0) uv: vec2; }\n@fragment export function fs(input: In): vec4 { return vec4(input.uv,0.,1.); }',
       [
         {
           code: 'TS8028',
@@ -191,7 +191,7 @@ describe('a refused entry IO name is one diagnostic', () => {
 
   it('still reports the truly unattributed sibling', () => {
     const entry = '@vertex export function vs(): Out { return {pos: vec4(0.),uv: vec2(0.)}; }';
-    paired('class Out { @builtin("positon") pos!: vec4; uv!: vec2; }\n' + entry, [
+    paired('class Out { @builtin("positon") pos: vec4; uv: vec2; }\n' + entry, [
       unknown(),
       {
         code: 'TS8029',
@@ -205,7 +205,7 @@ describe('a refused entry IO name is one diagnostic', () => {
 
   it('keeps an independent option argument error', () => {
     paired(
-      'class Out { @builtin("positon") @interpolate("wrong") @invariant pos!: vec4; }\n' +
+      'class Out { @builtin("positon") @interpolate("wrong") @invariant pos: vec4; }\n' +
         legacyEntry,
       [
         unknown(),
@@ -219,23 +219,20 @@ describe('a refused entry IO name is one diagnostic', () => {
   });
 
   it('keeps a modern option argument error beside the name error', () => {
-    paired(
-      'class Out { pos!: builtin<"positon", vec4, {interpolate: "wrong"}>; }\n' + modernEntry,
-      [
-        unknown(),
-        {
-          code: 'TS8028',
-          message: 'interpolate type "wrong" is not one WGSL has: perspective, linear, flat.',
-          at: 'interpolate: "wrong"',
-        },
-      ],
-    );
+    paired('class Out { pos: builtin<"positon", vec4, {interpolate: "wrong"}>; }\n' + modernEntry, [
+      unknown(),
+      {
+        code: 'TS8028',
+        message: 'interpolate type "wrong" is not one WGSL has: perspective, linear, flat.',
+        at: 'interpolate: "wrong"',
+      },
+    ]);
   });
 
   for (const attribute of ['@builtin("positon")', '@bogus']) {
     it(`keeps location type and missing position errors beside ${attribute}`, () => {
       const entry = '@vertex export function vs(): Out { return {uv: false}; }';
-      paired(`class Out { ${attribute} @location(0) uv!: bool; }\n` + entry, [
+      paired(`class Out { ${attribute} @location(0) uv: bool; }\n` + entry, [
         attribute === '@bogus'
           ? {
               code: 'TS8028',
@@ -277,7 +274,7 @@ describe('a refused entry IO name is one diagnostic', () => {
     // Its TS8024 must not absorb TypeScript's independent constraint on the user's alias.
     const source =
       D +
-      'type builtin<N extends "good", T> = T; class Out { pos!: builtin<"bad", vec4>; }\n' +
+      'type builtin<N extends "good", T> = T; class Out { pos: builtin<"bad", vec4>; }\n' +
       modernEntry;
     const service = createTypeshadeLanguageService();
     service.openDocument(URI, source);
@@ -295,8 +292,8 @@ describe('a refused entry IO name is one diagnostic', () => {
   });
 
   it('keeps missing position beside a bad location value type', () => {
-    const entry = 'export const vs = vertex(function vs(): Out { return {uv: false}; });';
-    paired('class Out { uv!: location<0, bool>; }\n' + entry, [
+    const entry = '@vertex export function vs(): Out { return {uv: false}; }';
+    paired('class Out { uv: location<0, bool>; }\n' + entry, [
       {
         code: 'TS8003',
         message:
@@ -309,7 +306,7 @@ describe('a refused entry IO name is one diagnostic', () => {
 
   it('keeps missing position beside a bad interpolation option', () => {
     const entry = '@vertex export function vs(): Out { return {uv: vec2(0.)}; }';
-    paired('class Out { @location(0) @interpolate("wrong") uv!: vec2; }\n' + entry, [
+    paired('class Out { @location(0) @interpolate("wrong") uv: vec2; }\n' + entry, [
       {
         code: 'TS8028',
         message: 'interpolate type "wrong" is not one WGSL has: perspective, linear, flat.',
@@ -320,10 +317,10 @@ describe('a refused entry IO name is one diagnostic', () => {
   });
 
   for (const declaration of [
-    'class Out { pos!: builtin<"position", vec4>; }',
+    'class Out { pos: builtin<"position", vec4>; }',
     'interface Out { pos: builtin<"position", vec4>; }',
     'type Out = { pos: builtin<"position", vec4> };',
-    'class Out { @builtin("position") pos!: vec4; }',
+    'class Out { @builtin("position") pos: vec4; }',
   ]) {
     it(`preserves the valid position in ${declaration}`, () => {
       expect(paired(declaration + '\n' + modernEntry, []).wgsl).toContain('@builtin(position)');

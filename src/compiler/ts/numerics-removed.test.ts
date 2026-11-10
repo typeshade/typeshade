@@ -25,9 +25,9 @@ const bothHalves = (source: string): { compiler: string[]; editor: string[] } =>
 describe('a leftover numerics(...) call (change 0131, decision 3)', () => {
   const SOURCE = `"use typeshade";
 const half = numerics(["finite-math"], function half(x: f32): f32 { return x * 0.5; });
-export const fs = fragment(function fs(uv: location<0, vec2>): vec4 {
+@fragment export function fs(uv: location<0, vec2>): vec4 {
   return vec4(half(uv.x), 0., 0., 1.);
-});
+}
 `;
 
   it('is TS8004 in compile() and in the editor, with no TS8078', () => {

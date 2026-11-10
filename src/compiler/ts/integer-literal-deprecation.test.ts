@@ -124,9 +124,9 @@ export function f(): f32 { return LEVELS; }`,
   ])('does not warn for an already-integer loop counter (%s; %s)', (start, bound, type) => {
     const source = `"use typeshade";
 declare const out: storage<array<i32>, "read_write">;
-export const cs = compute([1], function cs() {
+@compute([1]) export function cs() {
   for (let i = ${start}; i < ${bound}; i++) out[u32(i + 1)] = i32(i);
-});`;
+}`;
     const result = paired(source);
     expect(result.diagnostics).toEqual([]);
     const loop = result.module.funcs
@@ -139,9 +139,9 @@ export const cs = compute([1], function cs() {
   it('still warns for a float-typed local declared inside a loop', () => {
     const source = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-export const cs = compute([1], function cs() {
+@compute([1]) export function cs() {
   for (let i = 0; i < 4; i++) { let x = 3; x += 1.; out[i] = x; }
-});`;
+}`;
     const result = paired(source);
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0]!.message).toContain('"x" is written as an integer');
@@ -155,10 +155,10 @@ export const cs = compute([1], function cs() {
     'offers a compiling annotation for a radix literal %s',
     (literal) => {
       const source = `"use typeshade";
-export const fs = fragment(function fs(): location<0, vec4> {
+@fragment export function fs(): location<0, vec4> {
   const x = ${literal};
   return vec4(x);
-});`;
+}`;
       const result = paired(source);
       expect(result.diagnostics).toHaveLength(1);
       const fix = `x: f32 = ${literal}`;
@@ -179,7 +179,7 @@ export const fs = fragment(function fs(): location<0, vec4> {
   it('uses the same radix remedy for a module constant', () => {
     const source = `"use typeshade";
 const K = 0xff;
-export const fs = fragment(function fs(): location<0, vec4> { return vec4(K); });`;
+@fragment export function fs(): location<0, vec4> { return vec4(K); }`;
     const result = paired(source);
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0]!.message).toContain('Annotate it — "K: f32 = 0xff"');
@@ -190,9 +190,9 @@ export const fs = fragment(function fs(): location<0, vec4> { return vec4(K); })
 
   it.each(['10', '1_000'])('keeps the compiling decimal-point remedy for %s', (literal) => {
     const source = `"use typeshade";
-export const fs = fragment(function fs(): location<0, vec4> {
+@fragment export function fs(): location<0, vec4> {
   const x = ${literal}; return vec4(x);
-});`;
+}`;
     const result = paired(source);
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0]!.message).toContain(`Write "x = ${literal}."`);

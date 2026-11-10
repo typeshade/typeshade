@@ -1659,11 +1659,11 @@ export function strong(xs: array<f32>, t: f32, out: array<u32>): u32 {
     // one lane within the trip count and 65,533 workgroups wholly past it.
     const { got, want } = both(
       `"use typeshade";
-export const ramp = workgroup_size([1], function ramp(out: array<f32>, k: f32) {
+@workgroup_size([1]) export function ramp(out: array<f32>, k: f32) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = f32(i) * k;
   }
-});`,
+}`,
       'ramp',
       [new Array<number>(65537).fill(0), 0.25],
     );

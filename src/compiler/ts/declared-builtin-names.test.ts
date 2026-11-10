@@ -53,7 +53,7 @@ function editorHover(source: string, needle: string, uri = 'a.ts'): string {
 const ISSUE_403 = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
 function fract(x: f32): f32 { return x - floor(x) + 0.5; }
-export const main = compute([1], function main() { out[0] = fract(out[1]); out[2] = fract(1.25); });
+@compute([1]) export function main() { out[0] = fract(out[1]); out[2] = fract(1.25); }
 `;
 
 /** The same declaration, called from a fragment entry, which is what GLSL ES 3.00 has a program for. */
@@ -62,11 +62,11 @@ function fract(x: f32): f32 { return x - floor(x) + 0.5; }
 interface Color {
   color: location<0, vec4>;
 }
-export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position", vec4>): Color {
   const a = fract(p.x);
   const b = fract(1.25);
   return { color: vec4(a, b, 0., 1.) };
-});
+}
 `;
 
 describe('#403: a declared fract has one answer', () => {
@@ -140,10 +140,10 @@ export function g(x: f32): f32 {
 interface Color {
   color: location<0, vec4>;
 }
-export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position", vec4>): Color {
   const v = g(p.x);
   return { color: vec4(v, v, v, 1.) };
-});
+}
 `;
   const DECLARED = 'function fract(x: f32): f32 { return 99.; }';
 
@@ -217,10 +217,10 @@ export function g(x: f32): f32 { return ${expr}; }
 interface Color {
   color: location<0, vec4>;
 }
-export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position", vec4>): Color {
   const v = g(p.x);
   return { color: vec4(v, v, v, 1.) };
-});
+}
 `;
     const c = compile(source);
     expect(errorsOf(c)).toEqual([]);
@@ -471,7 +471,7 @@ export function f(x: f32): f32 {
     [
       'a method of the name, which the call of a method never reaches',
       `"use typeshade";
-class V { v!: f32; min(o: f32): f32 { return this.v - o; } }
+class V { v: f32; min(o: f32): f32 { return this.v - o; } }
 function min(a: f32, b: f32): f32 { return a + b; }
 export function f(x: f32): f32 { const v: V = { v: x }; return v.min(1.) + min(x, 2.) + Math.min(x, 1.); }
 `,
@@ -531,10 +531,10 @@ export function g(): f32 { return ${name}(1.); }
 interface Color {
   color: location<0, vec4>;
 }
-export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position", vec4>): Color {
   const v = ${name}(p.x);
   return { color: vec4(v, v, v, 1.) };
-});
+}
 `;
 
   // WGSL's own names, from the specification (the baked fixture of `spec-conformance`), not from
@@ -604,14 +604,14 @@ describe('an entry point named like something WGSL predeclares (Rule 3.2)', () =
       'fract',
       `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-export const fract = compute([1], function fract() { out[0] = random(out[1]); });
+@compute([1]) export function fract() { out[0] = random(out[1]); }
 `,
     ],
     [
       'f32',
       `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-export const f32 = compute([1], function f32() { out[0] = out[1] + 1.; });
+@compute([1]) export function f32() { out[0] = out[1] + 1.; }
 `,
     ],
     [
@@ -619,7 +619,7 @@ export const f32 = compute([1], function f32() { out[0] = out[1] + 1.; });
       `"use typeshade";
 declare const src: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
-export const read = compute([1], function read() { out[0] = src[0]; });
+@compute([1]) export function read() { out[0] = src[0]; }
 `,
     ],
   ];
@@ -636,7 +636,7 @@ export const read = compute([1], function read() { out[0] = src[0]; });
   it('spells an entry the module never uses under a fresh name (Proposal 0070, Q1)', () => {
     const source = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
-export const step = compute([1], function step() { out[0] = out[1] + 1.; });
+@compute([1]) export function step() { out[0] = out[1] + 1.; }
 `;
     const c = compile(source);
     expect(errorsOf(c)).toEqual([]);
@@ -648,7 +648,7 @@ export const step = compute([1], function step() { out[0] = out[1] + 1.; });
     const c = compile(`"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
 function fract(x: f32): f32 { return x; }
-export const main = compute([1], function main() { out[0] = fract(out[1]); });
+@compute([1]) export function main() { out[0] = fract(out[1]); }
 `);
     expect(errorsOf(c)).toEqual([]);
     expect(c.wgsl).toContain('fn fract_(x: f32) -> f32 {');
@@ -665,11 +665,11 @@ describe('a local or helper parameter named like a builtin its function calls (P
 declare const out: storage<array<f32>, "read_write">;
 function clampTo(max: f32, x: f32): f32 { return Math.max(max, x); }
 function twice(sign: f32): f32 { return sign * 2.; }
-export const main = compute([1], function main() {
+@compute([1]) export function main() {
   const fract = random(out[1]);
   const sign = twice(out[2]);
   out[0] = clampTo(fract, out[2]) + sign;
-});
+}
 `;
 
   it('respells the local where its function calls the builtin, and leaves it where it does not', () => {
@@ -703,7 +703,7 @@ describe('a declaration named like a stage-restricted builtin is no such builtin
   const COMPUTE = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
 function dpdx(x: f32): f32 { return x * 2.; }
-export const main = compute([1], function main() { out[0] = dpdx(out[1]); });
+@compute([1]) export function main() { out[0] = dpdx(out[1]); }
 `;
 
   it('calls the declaration from a compute entry, in the compiler and in the editor', () => {

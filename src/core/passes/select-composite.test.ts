@@ -15,9 +15,9 @@ import { armCost, COSTLY_ARM, collectiveFunctions } from './select-composite.js'
 const program = (body: string, call = 'w'): string => `"use typeshade";
 function heavy(x: f32): f32 { return sin(x) * cos(x * 3.) + sqrt(abs(x)) * exp(-x * x); }
 ${body}
-export const fs = fragment(function fs(uv: location<0, vec2>, w: location<1, f32>): vec4 {
+@fragment export function fs(uv: location<0, vec2>, w: location<1, f32>): vec4 {
   return vec4(uv, ${call}, 1.);
-});
+}
 `;
 
 const compiled = (body: string, call?: string) => {

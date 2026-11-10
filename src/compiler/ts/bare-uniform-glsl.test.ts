@@ -15,9 +15,9 @@ const FILE = '/bare-uniform.shade.ts';
 const sourceOf = (type: string, value: string, wrapped = false): string => `"use typeshade";
 ${wrapped ? `interface Params { value: ${type}; }` : ''}
 declare const U: uniform<${wrapped ? 'Params' : type}>;
-export const fs = fragment(function fs(): location<0, vec4> {
+@fragment export function fs(): location<0, vec4> {
   return vec4(${value.replaceAll('U', wrapped ? 'U.value' : 'U')}, 0., 0., 1.);
-});`;
+}`;
 
 function both(source: string) {
   const result = compile(source, { fileName: FILE });
@@ -166,14 +166,14 @@ declare const U: uniform<f32>;
 declare const idle: uniform<f32>;
 const U_block_: f32 = 0.25;
 function local(U: f32): f32 { return U + U_block_; }
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): builtin<"position", vec4> {
+@vertex export function vs(vi: builtin<"vertex_index", u32>): builtin<"position", vec4> {
   return vec4(f32(vi) + U, 0., 0., 1.);
-});
-export const fs = fragment(function fs(): location<0, vec4> {
+}
+@fragment export function fs(): location<0, vec4> {
   let v: f32 = U;
   if (v > 0.) { const U: f32 = 0.5; v += local(U); }
   return vec4(v + U, 0., 0., 1.);
-});`;
+}`;
     const result = both(source);
     expect(result.diagnostics).toEqual([]);
     const pack = packModule(result.module, { ir: true });

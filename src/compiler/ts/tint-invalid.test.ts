@@ -67,9 +67,9 @@ interface V {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
 }
-export const fs = fragment(function fs(v: V): vec4 {
+@fragment export function fs(v: V): vec4 {
   return vec4(u.xs[0] + u.k, 0., 0., 1.);
-});
+}
 `;
 
   // CLOSED by #156, which chose the second of the two answers this row admitted: the array is
@@ -102,9 +102,9 @@ interface V {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
 }
-export const fs = fragment(function fs(v: V): vec4 {
+@fragment export function fs(v: V): vec4 {
   return vec4(f32(u.x << u.n), 0., 0., 1.);
-});
+}
 `;
 
   // CLOSED by #160: the binary path now wraps the right-hand side the way the compound path
@@ -125,12 +125,12 @@ interface VsOut {
   pos: builtin<"position", vec4>;
   id: location<0, u32>;
 }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
   return { pos: vec4(0., 0., 0., 1.), id: i };
-});
-export const fs = fragment(function fs(o: VsOut): vec4 {
+}
+@fragment export function fs(o: VsOut): vec4 {
   return vec4(f32(o.id), 0., 0., 1.);
-});
+}
 `;
 
   // CLOSED by #158: `flat` is derived for every integer varying, so the two targets agree —
@@ -144,12 +144,12 @@ interface VsOut {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
 }
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): VsOut {
+@vertex export function vs(i: builtin<"vertex_index", u32>): VsOut {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
-});
-export const fs = fragment(function fs(o: VsOut): vec4 {
+}
+@fragment export function fs(o: VsOut): vec4 {
   return vec4(o.uv, 0., 1.);
-});
+}
 `);
     expect(float).toContain('@location(0) uv: vec2<f32>,');
     expect(float).not.toContain('@interpolate(flat)');
@@ -168,9 +168,9 @@ interface V {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
 }
-export const fs = fragment(function fs(v: V): vec4 {
+@fragment export function fs(v: V): vec4 {
   return vec4(h(v.uv.x), 0., 0., 1.);
-});
+}
 `;
 
   // #431 keeps the immutable input and writes a fresh value local instead (Rule 8.8).
@@ -192,9 +192,9 @@ interface V {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
 }
-export const fs = fragment(function fs(v: V): vec4 {
+@fragment export function fs(v: V): vec4 {
   return vec4(h(v.uv.x), 0., 0., 1.);
-});
+}
 `;
     expect(compilesClean(fixed)).toContain('var a_: f32 = a;');
   });
@@ -235,9 +235,9 @@ interface V {
   pos: builtin<"position", vec4>;
   uv: location<0, vec2>;
 }
-export const fs = fragment(function fs(v: V): vec4 {
+@fragment export function fs(v: V): vec4 {
   return vec4(u.${name}, 0., 0., 1.)
-});
+}
 `;
 
   it('compiles every name WGSL reserves, under a fresh spelling of the field (change 0070)', () => {

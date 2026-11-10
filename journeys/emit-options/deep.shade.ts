@@ -7,8 +7,8 @@
 // it binds none.
 
 class Zoom {
-  cx!: f64;
-  scale!: f64;
+  cx: f64;
+  scale: f64;
 }
 
 declare const zoom: uniform<Zoom>;
@@ -21,14 +21,16 @@ interface Color {
   color: location<0, vec4>;
 }
 
-export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {
+@vertex
+export function vs(vi: builtin<"vertex_index", u32>): VsOut {
   const x = f32(vi & u32(1)) * 4. - 1.;
   const y = f32(vi >> u32(1)) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.) };
-});
+}
 
-export const fs = fragment(function fs(v: VsOut): Color {
+@fragment
+export function fs(v: VsOut): Color {
   const x: f64 = zoom.cx + f64(v.pos.x) * zoom.scale;
   // The blue and the alpha are sums the optimizer folds and O0 leaves.
   return { color: vec4(f32(fract(x * 1000)), 0., 0.25 * 4. - 1., 0.5 + 0.5) };
-});
+}

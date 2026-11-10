@@ -35,16 +35,16 @@ const HELPER = `"use typeshade";
 function g(x: f32): void {
   return x;
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   g(1.);
   return vec4(1.);
-});
+}
 `;
 
 const ENTRY = `"use typeshade";
-export const fs = fragment(function fs(): void {
+@fragment export function fs(): void {
   return vec4(1.);
-});
+}
 `;
 
 describe('a `: void` function that returns a value is refused (#212)', () => {
@@ -78,10 +78,10 @@ function g(x: f32): void {
   }
   return 2. * x;
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   g(1.);
   return vec4(1.);
-});
+}
 `;
     const starts = compile(src)
       .diagnostics.filter((d) => d.category === 'error')
@@ -104,10 +104,10 @@ function g(x: f32): void {
     return;
   }
 }
-export const fs = fragment(function fs(): vec4 {
+@fragment export function fs(): vec4 {
   g(1.);
   return vec4(1.);
-});
+}
 `;
     expect(compilerErrors(src)).toEqual([]);
     expect(compile(src).wgsl).toContain('fn g(x: f32) {');
@@ -116,8 +116,8 @@ export const fs = fragment(function fs(): vec4 {
 
   it('a `: void` entry with no return', () => {
     const src = `"use typeshade";
-export const main = compute([64], function main(): void {
-});
+@compute([64]) export function main(): void {
+}
 `;
     expect(compilerErrors(src)).toEqual([]);
     expect(compile(src).wgsl).toContain('fn main() {');

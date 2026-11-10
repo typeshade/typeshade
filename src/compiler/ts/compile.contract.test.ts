@@ -20,21 +20,21 @@ interface Color {
   color: location<0, vec4>;
 }
 
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
   return { pos: vec4(0., 0., 0., 1.) };
-});
+}
 
-export const fs = fragment(function fs(): Color {
+@fragment export function fs(): Color {
   return { color: vec4(1., 0., 0., 1.) };
-});
+}
 `;
 
 const COMPUTE_ONLY = `
 "use typeshade";
 
-export const main = compute([64], function main(gid: builtin<"global_invocation_id", vec3<u32>>): void {
+@compute([64]) export function main(gid: builtin<"global_invocation_id", vec3<u32>>): void {
   const x = gid.x;
-});
+}
 `;
 
 const VERTEX_ONLY = `
@@ -44,9 +44,9 @@ interface Clip {
   pos: builtin<"position", vec4>;
 }
 
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
   return { pos: vec4(0., 0., 0., 1.) };
-});
+}
 `;
 
 const FRAGMENT_ONLY = `
@@ -56,9 +56,9 @@ interface Color {
   color: location<0, vec4>;
 }
 
-export const fs = fragment(function fs(): Color {
+@fragment export function fs(): Color {
   return { color: vec4(1., 0., 0., 1.) };
-});
+}
 `;
 
 // A normal WebGPU program: a render pair plus a compute entry. The WGSL emitter takes it; the
@@ -66,9 +66,9 @@ export const fs = fragment(function fs(): Color {
 const RENDER_PLUS_COMPUTE =
   CLIP_COLOR +
   `
-export const cs = compute([1], function cs(g: builtin<"global_invocation_id", vec3<u32>>): void {
+@compute([1]) export function cs(g: builtin<"global_invocation_id", vec3<u32>>): void {
   const x = g.x;
-});
+}
 `;
 
 // A compute entry that writes the storage the fragment entry reads, and an atomic counter only
@@ -86,18 +86,18 @@ interface Color {
   color: location<0, vec4>;
 }
 
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
   return { pos: vec4(0., 0., 0., 1.) };
-});
+}
 
-export const fs = fragment(function fs(p: builtin<"position", vec4>): Color {
+@fragment export function fs(p: builtin<"position", vec4>): Color {
   return { color: vec4(img[u32(p.x)], 0., 0., 1.) };
-});
+}
 
-export const cs = compute([4], function cs(g: builtin<"global_invocation_id", vec3<u32>>): void {
+@compute([4]) export function cs(g: builtin<"global_invocation_id", vec3<u32>>): void {
   atomicAdd(acc[0], 1);
   img[g.x] = 2.;
-});
+}
 `;
 
 // A compute entry that writes a storage texture, which the WebGL2 pass program does not bind
@@ -106,9 +106,9 @@ const RENDER_PLUS_TEXTURE_COMPUTE =
   CLIP_COLOR +
   `
 declare const t: texture_storage_2d<"rgba8snorm", "write">;
-export const cs = compute([4], function cs(g: builtin<"global_invocation_id", vec3<u32>>): void {
+@compute([4]) export function cs(g: builtin<"global_invocation_id", vec3<u32>>): void {
   textureStore(t, vec2<i32>(i32(g.x), 0), vec4<f32>(1., 0., 0., 1.));
-});
+}
 `;
 
 // A vertex+fragment module whose storage binding the GLSL storage emulation cannot spell
@@ -125,13 +125,13 @@ interface Color {
   color: location<0, vec4>;
 }
 
-export const vs = vertex(function vs(i: builtin<"vertex_index", u32>): Clip {
+@vertex export function vs(i: builtin<"vertex_index", u32>): Clip {
   return { pos: vec4(0., 0., 0., 1.) };
-});
+}
 
-export const fs = fragment(function fs(): Color {
+@fragment export function fs(): Color {
   return { color: m[0][0] };
-});
+}
 `;
 
 // `a + b` on f32 and i32 is a TYPE_MISMATCH the front end reports; `f` still lowers to a
