@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
+import { markProjectedAnnotations } from './abstract-const.js';
 import { compileModule } from '../../core/oracle.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { checkDocuments } from '../../language-service/check.js';
@@ -1046,6 +1047,23 @@ ${H}export function t(xs: array<f32, 8>): f32 { h(K); return xs[K / 2]; }`;
         'type, so the "/" does not say which division it is. Write "u32(K) / 2" for the ' +
         'integer division.',
     ]);
+  });
+
+  it('a second compile of one source file forgets the divisions of the first', () => {
+    // The same file compiles differently when the language service marks `: f32` as its own
+    // annotation (a constant of no fixed type) and then as the author's (an `f32` field).
+    const source = `"use typeshade";
+class S { static K: f32 = 7; }
+${H}export function t(): f32 { return f32(h(S.K)) + f32(S.K / 2); }`;
+    const sf = ts.createSourceFile('a.ts', source, ts.ScriptTarget.Latest, true);
+    markProjectedAnnotations(sf, [source.indexOf(': f32 = 7')]);
+    expect(
+      compileTsSource(source, { sourceFile: sf, emit: false }).diagnostics.map((d) => d.code),
+    ).toEqual(['TS8003']);
+    markProjectedAnnotations(sf, []);
+    expect(
+      compileTsSource(source, { sourceFile: sf, emit: false }).diagnostics.map((d) => d.message),
+    ).toEqual(['Argument 1 of "h" type mismatch.']);
   });
 
   it('a second compile of the same source file reports each / once', () => {

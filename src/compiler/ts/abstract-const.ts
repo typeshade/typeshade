@@ -82,7 +82,25 @@ interface Division {
 }
 
 const readByExpr = new WeakMap<Expr, AbstractConst>();
-const readByNode = new WeakMap<ts.Node, AbstractConst>();
+/** The marks one compile of a source file puts on its nodes. A source file can be compiled
+ *  again (the language service's projected annotations, a second analysis), and a mark of the
+ *  first compile must not decide the second, so each compile starts its own table. */
+interface NodeMarks {
+  readonly read: Map<ts.Node, AbstractConst>;
+  readonly carried: Map<ts.Node, Carried>;
+}
+const nodeMarks = new WeakMap<ts.SourceFile, NodeMarks>();
+function marksOf(node: ts.Node): NodeMarks {
+  const sf = node.getSourceFile();
+  let marks = nodeMarks.get(sf);
+  if (marks === undefined) nodeMarks.set(sf, (marks = { read: new Map(), carried: new Map() }));
+  return marks;
+}
+const readByNode = {
+  get: (node: ts.Node): AbstractConst | undefined => marksOf(node).read.get(node),
+  has: (node: ts.Node): boolean => marksOf(node).read.has(node),
+  set: (node: ts.Node, info: AbstractConst): void => void marksOf(node).read.set(node, info),
+};
 /** A module constant's record, for the scope of each function, which is built from the IR
  *  declarations and not from the collector's scope. */
 const byDeclName = new WeakMap<ts.SourceFile, Map<string, AbstractConst>>();
@@ -242,6 +260,7 @@ export function recordModuleAbstractConst(
 export function resetAbstractConsts(sourceFile: ts.SourceFile): void {
   byDeclName.delete(sourceFile);
   divisionsOf.delete(sourceFile);
+  nodeMarks.delete(sourceFile);
 }
 
 export function moduleAbstractConst(
@@ -286,7 +305,11 @@ export interface Carried extends Origin {
   };
 }
 
-const carriedByNode = new WeakMap<ts.Node, Carried>();
+const carriedByNode = {
+  get: (node: ts.Node): Carried | undefined => marksOf(node).carried.get(node),
+  has: (node: ts.Node): boolean => marksOf(node).carried.has(node),
+  set: (node: ts.Node, carried: Carried): void => void marksOf(node).carried.set(node, carried),
+};
 /** The origin each function of the module returns, by its IR name, when it writes no result
  *  type: a call of it carries that origin (A3: "the result of a function, a method, a getter or
  *  a closure that returns such a value"). */
