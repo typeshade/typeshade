@@ -4,11 +4,12 @@
 //
 // The generated code is a factory over the op library, as the generated code of any module is
 // (`cpu-codegen.ts`). `src/core/cpu-runtime.ts` builds the routines once from its own tables
-// and binds `sin` and `cos` to them, so the interpreter, the generated JavaScript and every
+// and binds each builtin of the libm to them, so the interpreter, the generated JavaScript and every
 // helper call one form. No code is built at run time.
 
 import { trigFactory } from './trig.generated.js';
 import { explogFactory } from './explog.generated.js';
+import { invtrigFactory } from './invtrig.generated.js';
 
 /** What the generated routines read off the op library: its builtin tables and the integer
  *  division helpers. */
@@ -25,11 +26,23 @@ export interface LibmHost {
 export interface Libm {
   readonly sinF64: (x: number) => number;
   readonly cosF64: (x: number) => number;
+  readonly tanF64: (x: number) => number;
+  readonly asinF64: (x: number) => number;
+  readonly acosF64: (x: number) => number;
+  readonly atanF64: (x: number) => number;
+  /** The angle of the point (x, y): the first operand is y. */
+  readonly atan2F64: (y: number, x: number) => number;
   readonly expF64: (x: number) => number;
   readonly exp2F64: (x: number) => number;
   readonly logF64: (x: number) => number;
   readonly log2F64: (x: number) => number;
   readonly ldexpF64: (x: number, n: number) => number;
+  readonly sinhF64: (x: number) => number;
+  readonly coshF64: (x: number) => number;
+  readonly tanhF64: (x: number) => number;
+  readonly asinhF64: (x: number) => number;
+  readonly acoshF64: (x: number) => number;
+  readonly atanhF64: (x: number) => number;
 }
 
 /** The routines of every family's source, built over `host`. */
@@ -42,5 +55,9 @@ export function makeLibm(host: LibmHost): Libm {
     $.F = fns;
     return fns;
   };
-  return { ...build(trigFactory), ...build(explogFactory) } as unknown as Libm;
+  return {
+    ...build(trigFactory),
+    ...build(explogFactory),
+    ...build(invtrigFactory),
+  } as unknown as Libm;
 }

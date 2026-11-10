@@ -32,6 +32,8 @@ import {
 import {
   caseRows,
   explogCases,
+  invtrigCases,
+  hyperCases,
   type LibmCase,
   type LibmCaseFile,
 } from '../src/core/testing/libm-cases.js';
@@ -42,6 +44,8 @@ export const LIBM_GATE_FILE = 'src/core/libm/trig.gate.json';
 /** The families after `trig`, each with its gate file `src/core/libm/<family>.gate.json`. */
 const CASE_FAMILIES: readonly (readonly [string, (libm: typeof LIBM) => LibmCase[]])[] = [
   ['explog', (libm) => explogCases(libm)],
+  ['invtrig', (libm) => invtrigCases(libm)],
+  ['hyper', (libm) => hyperCases(libm)],
 ];
 
 /** `LIBM` with a result of the routine `name` changed in its last bit, once in every 50,000
@@ -61,7 +65,11 @@ function withOneBitChanged(name: keyof typeof LIBM): typeof LIBM {
   };
 }
 /** The routine of each family whose result the instrument changes. */
-const PLANTED: Readonly<Record<string, keyof typeof LIBM>> = { explog: 'logF64' };
+const PLANTED: Readonly<Record<string, keyof typeof LIBM>> = {
+  explog: 'logF64',
+  invtrig: 'atan2F64',
+  hyper: 'acoshF64',
+};
 const caseFile = (family: string): string => `src/core/libm/${family}.gate.json`;
 
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -112,13 +120,30 @@ export function libmArm(): number {
     return 1;
   }
   console.log(`instrument: a libm result with one bit changed was REPORTED (${planted[0]!})`);
+  // The same for `tan`, whose rows the file holds after those of `sin` and `cos`.
+  let tanCalls = 0;
+  const tanFlipped: Record<LibmRoutine, (x: number) => number> = {
+    ...libm,
+    tanF64: (x) => {
+      const r = libm.tanF64(x);
+      return tanCalls++ === 1000 ? r + r * 2 ** -52 : r;
+    },
+  };
+  const tanPlanted = differences(libmGateRows(tanFlipped, sha256), file.rows);
+  if (!tanPlanted.some((d) => d.startsWith('tanF64 '))) {
+    console.log('FAIL  libm arm: a result of tan with one bit changed was not reported');
+    return 1;
+  }
+  console.log(
+    `instrument: a result of tan with one bit changed was REPORTED (${tanPlanted.find((d) => d.startsWith('tanF64 '))!})`,
+  );
   const rows = libmGateRows(libm, sha256);
   const failures = differences(rows, file.rows);
   for (const f of failures) console.log(`FAIL  libm ${f}`);
   const total = rows.reduce((n, r) => n + r.count, 0);
   const nans = rows.reduce((n, r) => n + r.nanResults, 0);
   console.log(
-    `libm differential: ${engine()} · ${String(rows.length)} sets of sin and cos, for an f32 and an f64 operand, ` +
+    `libm differential: ${engine()} · ${String(rows.length)} sets of sin, cos and tan, for an f32 and an f64 operand, ` +
       `${String(total)} results held to ${LIBM_GATE_FILE} by hash (${String(nans)} NaN results hashed as the canonical NaN) · failures: ${String(failures.length)}`,
   );
   let failed = failures.length;

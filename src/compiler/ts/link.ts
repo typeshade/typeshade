@@ -758,6 +758,24 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
       unitOfStatement.set(stmt, unit);
     }
   }
+  // A function's overload signatures and its implementation are statements of one function
+  // (#1195): the front end reads them together, so the module keeps all of them or none. Each
+  // names the others, and whatever reaches one reaches the one that has the body.
+  const overloadsOf = new Map<Unit, readonly Unit[]>();
+  {
+    const groups = new Map<string, Unit[]>();
+    for (const u of units) {
+      if (!ts.isFunctionDeclaration(u.stmt) || u.names.length !== 1) continue;
+      const k = `${u.file.name}\0${u.names[0]!.text}`;
+      groups.set(k, [...(groups.get(k) ?? []), u]);
+    }
+    for (const group of groups.values()) {
+      for (const u of group) {
+        overloadsOf.set(u, group);
+        for (const other of group) if (other !== u) u.refs.add(other);
+      }
+    }
+  }
   /** The unit that declares `symbol` at the top of a file of the program, if any. */
   const unitsOf = (symbol: ts.Symbol): Unit[] => {
     const out: Unit[] = [];
@@ -1224,7 +1242,8 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
       hasModifier(e.unit.stmt, ts.SyntaxKind.ExportKeyword) &&
       !hasModifier(e.unit.stmt, ts.SyntaxKind.DefaultKeyword)
     ) {
-      keepsExport.add(e.unit);
+      // Every signature of an overloaded function keeps it, as TypeScript requires.
+      for (const u of overloadsOf.get(e.unit) ?? [e.unit]) keepsExport.add(u);
     } else {
       exportList.push({ text: `export { ${name} as ${e.name} };`, at: e.at });
     }
@@ -1233,7 +1252,9 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
   const dropsExport = new Set<Unit>();
   for (const e of entryExports) {
     if (e.unit.file !== entry) continue;
-    if (emittedName(e.unit, e.declared) !== e.name) dropsExport.add(e.unit);
+    if (emittedName(e.unit, e.declared) !== e.name) {
+      for (const u of overloadsOf.get(e.unit) ?? [e.unit]) dropsExport.add(u);
+    }
   }
 
   /** Whether the linked source carries `stmt`: not an import, an export the linker writes

@@ -19,20 +19,30 @@ import { f32OfBits, f64OfWords } from './libm-reference.js';
 
 /** What the gates measure: each function of the libm for an `f64` operand, and for an `f32`
  *  operand, whose result is the `f64` routine's result rounded once to `f32`. */
-export type LibmRoutine = 'sinF32' | 'cosF32' | 'sinF64' | 'cosF64';
-export const LIBM_ROUTINES: readonly LibmRoutine[] = ['sinF32', 'cosF32', 'sinF64', 'cosF64'];
+export type LibmRoutine = 'sinF32' | 'cosF32' | 'sinF64' | 'cosF64' | 'tanF32' | 'tanF64';
+export const LIBM_ROUTINES: readonly LibmRoutine[] = [
+  'sinF32',
+  'cosF32',
+  'sinF64',
+  'cosF64',
+  'tanF32',
+  'tanF64',
+];
 
-/** The four measured functions over the two `f64` routines `trig`. The `f32` ones round the
- *  operand and the result to `f32`, as the CPU engines do in `'f32'` precision. */
+/** The measured functions over the `f64` routines `trig`. The `f32` ones round the operand and
+ *  the result to `f32`, as the CPU engines do in `'f32'` precision. */
 export function libmFunctions(trig: {
   readonly sinF64: (x: number) => number;
   readonly cosF64: (x: number) => number;
+  readonly tanF64: (x: number) => number;
 }): Record<LibmRoutine, (x: number) => number> {
   return {
     sinF32: (x) => Math.fround(trig.sinF64(Math.fround(x))),
     cosF32: (x) => Math.fround(trig.cosF64(Math.fround(x))),
     sinF64: trig.sinF64,
     cosF64: trig.cosF64,
+    tanF32: (x) => Math.fround(trig.tanF64(Math.fround(x))),
+    tanF64: trig.tanF64,
   };
 }
 
@@ -110,6 +120,27 @@ const EDGES_F64: readonly (readonly [number, number])[] = [
   [0x7ff00000, 0x00000001],
 ];
 
+/** The edge values that only `tan` takes, past the ones above: around 2^-27, below which
+ *  tan(x) is x, around 0.625, from which the kernel runs on pi/4 - |x|, and around 0.6744, where
+ *  fdlibm's kernel has that switch. They are a list of
+ *  their own, so the sets of `sin` and `cos` keep their hashes. */
+const TAN_EDGES_F32: readonly number[] = [
+  0x31ffffff, 0x32000000, 0x3f2ca13f, 0x3f2ca140, 0xbf2ca140, 0x3f2ca141, 0x3f1fffff, 0x3f200000,
+  0xbf200000, 0x3f200001,
+];
+const TAN_EDGES_F64: readonly (readonly [number, number])[] = [
+  [0x3e3fffff, 0xffffffff],
+  [0x3e400000, 0x00000000],
+  [0x3fe59427, 0xffffffff],
+  [0x3fe59428, 0x00000000],
+  [0xbfe59428, 0x00000000],
+  [0x3fe59428, 0x00000001],
+  [0x3fe3ffff, 0xffffffff],
+  [0x3fe40000, 0x00000000],
+  [0xbfe40000, 0x00000000],
+  [0x3fe40000, 0x00000001],
+];
+
 /** A set of inputs: its name, and its values. */
 export interface LibmInputSet {
   readonly name: string;
@@ -122,6 +153,7 @@ export interface LibmInputSet {
  *  bound between the two reductions. `count` is the size of each seeded set. */
 export function libmInputs(routine: LibmRoutine, count = LIBM_GATE_COUNT): LibmInputSet[] {
   const next = mulberry32(LIBM_GATE_SEED);
+  const tan = routine.startsWith('tan');
   if (routine.endsWith('F32')) {
     const bits = new Float32Array(count);
     for (let i = 0; i < count; i++) bits[i] = f32OfBits(next());
@@ -129,7 +161,10 @@ export function libmInputs(routine: LibmRoutine, count = LIBM_GATE_COUNT): LibmI
     // A multiple of 2^-24 in [-128, 128), which an f32 holds exactly.
     for (let i = 0; i < count; i++) near[i] = ((next() | 0) / 16777216) * 0.78125;
     return [
-      { name: 'edges', values: Float32Array.from(EDGES_F32, f32OfBits) },
+      {
+        name: 'edges',
+        values: Float32Array.from(tan ? [...EDGES_F32, ...TAN_EDGES_F32] : EDGES_F32, f32OfBits),
+      },
       { name: 'bits', values: bits },
       { name: 'near', values: near },
     ];
@@ -144,7 +179,12 @@ export function libmInputs(routine: LibmRoutine, count = LIBM_GATE_COUNT): LibmI
   const medium = new Float64Array(count);
   for (let i = 0; i < count; i++) medium[i] = signed53() / 2147483648;
   return [
-    { name: 'edges', values: Float64Array.from(EDGES_F64, ([hi, lo]) => f64OfWords(hi, lo)) },
+    {
+      name: 'edges',
+      values: Float64Array.from(tan ? [...EDGES_F64, ...TAN_EDGES_F64] : EDGES_F64, ([hi, lo]) =>
+        f64OfWords(hi, lo),
+      ),
+    },
     { name: 'bits', values: bits },
     { name: 'near', values: near },
     { name: 'medium', values: medium },
