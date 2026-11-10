@@ -244,10 +244,12 @@ export function fs(v: Varyings): Color {
     };
     expect(messagesOf(files, MAIN)).toEqual([]);
     expect(reflected(files, MAIN, 'fs', 'inputs', 'uv')).toBe(0);
-    const uv = withLine('(property) VsOut.uv: vec2<f32>', 'value between stages at @location(0)');
-    expect(hover(files, MAIN, 'v.uv', 2)).toBe(uv);
+    // The importing file knows the struct as `Varyings`, the name the file between them
+    // exports it under, and the hover shows the name the file writes.
+    const line = 'value between stages at @location(0)';
+    expect(hover(files, MAIN, 'v.uv', 2)).toBe(withLine('(property) Varyings.uv: vec2<f32>', line));
     // The declaring file is linked by the program through the file that re-exports it.
-    expect(hover(files, IO, 'uv:')).toBe(uv);
+    expect(hover(files, IO, 'uv:')).toBe(withLine('(property) VsOut.uv: vec2<f32>', line));
   });
 
   it('a struct in a namespace of the imported file', () => {

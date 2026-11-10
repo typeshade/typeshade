@@ -536,16 +536,26 @@ and the linker's map (`LinkedProgram.map`) gives the symbol the front end declar
 - A binding shows its resource line, with the slot it has in the hovered document's program.
 - The name is the one the hovered document writes. `bp` of `import { bump as bp }` hovers as
   `function bp(@inout v: f32): void`, as signature help shows it, and `k` of
-  `import { HALF as k }` as `const k: f32`. A struct that the document imports under a name of
-  its own reads by that name in the type of a value and in a field's signature:
-  `(property) L.dir: vec3<f32>` for `import { Light as L }`. A struct the document reaches
-  another way (through `import * as`, or as the type of an imported function's parameter)
-  reads by its declared name.
-- A name the linker generated is never shown. The module emits a declaration under a name of
-  its own where two files declare one name (`lib_Light`, `lib_HALF`), and the front end spells
-  a type and a parameter by it. The hover replaces each such name with the one the author
-  wrote, in a struct's name, in the type of a value and in a parameter's name, for a symbol
-  of the hovered document too (`generatedNames`).
+  `import { HALF as k }` as `const k: f32`.
+- A struct, in the type of a value and as the owner of a field, is named from its declaration
+  (`structNamesOf`), never by a search of the text:
+  1. The compiler's type carries the name the module emits. The linker's map gives the
+     declaration behind it: the file and the offset where the author declared the struct, and
+     the identifier the author wrote there.
+  2. Where the hovered document imports that declaration under exactly one name, the struct
+     reads by that name, wherever it stands: `(property) L.dir: vec3<f32>`, `let far: L` and
+     `function lum(l: L): f32` for `import { Light as L, lum }`, and `Lamp` for
+     `import { Lamp }` where another file has `export { Light as Lamp }`. Otherwise it reads by
+     its declared name: a struct the document does not import by name (one it reaches through
+     `import * as`, or only as the type of an imported function's parameter), and a struct it
+     imports under two names.
+  3. So a name the linker generated is never shown. The module emits a declaration under a name
+     of its own where two files declare one name (`lib_Light`, `lib_Light_2`, `lib_HALF`). And
+     a name an author wrote is never changed: a field's, a parameter's, the hovered symbol's
+     own, and any identifier that holds such a name as a part (`lib_Light_gain`).
+- A function's parameters are those of its declaration: each with its qualifier and the name
+  the author wrote. The front end keeps no parameter that takes a function, so the hover
+  joins the parameters it kept to the declaration by their place, not by their position.
 - The hover has no marker of the import: TypeScript's `(alias)` and `import HALF` lines are
   not shown, so one symbol has one text.
 - A field that its own file's program gives no symbol, since the front end records a field
@@ -556,20 +566,28 @@ and the linker's map (`LinkedProgram.map`) gives the symbol the front end declar
   resource line then: the hovered document's program does not bind it. When the declaring
   document is not open, such an import keeps TypeScript's quick info.
 - The hover asks TypeScript for one definition for each identifier of a program that links
-  another file. A name that is no field starts no analysis of another document, but for an
-  import the program does not keep, which reads the declaring document's cached analysis. A
-  field reads the cached analyses of the open documents that link its declaring file, as its
-  location line does: each runs once for each version of its document.
+  another file. What it reads of other documents is cached analyses, each made once for each
+  version of its document:
+  - a name the document's program declares reads this document's analysis alone;
+  - an import the program does not keep reads the declaring document's analysis, and no other;
+  - a field reads the analyses of the open documents that link its declaring file, as its
+    location line does.
+- The names a hover needs are made once: an index of a program's structs and parameters for
+  each analysis, and the names a document imports for each version of the document, and only
+  when a hover has a struct to name.
 
 Five kinds of name keep TypeScript's quick info instead. One that no file of the document's
 program declares (a host-side declaration) is in no table. A member is recorded under a longer
 name than the hovered one (`Ray.reach` for a method, a getter and a static function, `Ray_UP`
 for a static field, `Tone_map` for a member of a namespace, `Mode_Lit` for a member of an
 enum), so it reads as TypeScript's quick info in the file that declares it and across an import
-alike. A declaration that the front end lowered as more than one instance, a generic function
-or a field of a generic class with two instances in the program, has no one type: each use
-keeps TypeScript's quick info, which names the instance of that use
-(`twice<vec3>(x: vec3): vec3`), in one file and across an import. The name of an imported
+alike. A declaration that the front end lowered as instances of different types, a generic
+function or a field of a generic class with two instances in the program, has no one type: each
+use keeps TypeScript's quick info, which names the instance of that use
+(`twice<vec3>(x: vec3): vec3`), in one file and across an import. A field that the instances
+type alike (a field of a mixin, a field of a generic class whose type is no type parameter)
+keeps the compiler's type, and TypeScript's name for its owner, since no one struct owns it:
+`(property) Box<f32>.n: vec2<f32>`. The name of an imported
 struct, class, namespace or enum keeps TypeScript's `(alias)` and `import` lines. One
 the front end could not lower is never recorded
 either, so `for (let j = 0; ...)`, which the loop-induction check rejects, still hovers as

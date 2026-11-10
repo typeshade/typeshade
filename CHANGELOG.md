@@ -1973,10 +1973,12 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   the type is the one the declaring file shows, with no `(alias)` or `import` line. The name is
   the one the hovered file writes: `bp` of `import { bump as bp }` reads
   `function bp(@inout v: f32): void`. Signature help of an imported function shows its
-  qualifiers too. A name the linker generated (`lib_Light`) no longer shows in a hover, in a
-  type or in a parameter's name, in the importing file's own symbols included. A generic
-  function or class with two instances in a program keeps TypeScript's quick info at each use,
-  where the hover showed every use the first instance. An override reads the compiler's type
+  qualifiers too. A struct reads by the name the hovered file imports it under, when it has
+  exactly one, and by its declared name otherwise, so a name the linker generated
+  (`lib_Light`) no longer shows in a hover, in the importing file's own symbols included. A
+  function's qualifiers stay on their parameters when a parameter before them takes a
+  function. A generic function or class with two instances in a program keeps TypeScript's
+  quick info at each use, where the hover showed every use the first instance. An override reads the compiler's type
   in its own file too: `override<bool>` is `const flag: bool`, where it read `boolean`. A
   method, a getter, a static member and a member of a namespace or of an enum keep
   TypeScript's quick info, as they do in one file.
