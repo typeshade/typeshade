@@ -40,7 +40,7 @@ exports-removed:
   - resident
   - configure
 codes:
-  - TS8080
+  - TS8079
 examples: []
 names: []
 downstream:
@@ -704,7 +704,8 @@ sits under it.
   the canvas updates at the GPU's rate.
 - [decision, owner, 2026-11-10] Asked what waits, the owner chose "그 프레임의 호출 전체가 함께
   기다림". The calls recorded before the `show` are held with it, so the loop's computation is
-  held too. The alternative was to hold the write to the canvas only.
+  held too. A `read()` or a plain-data call releases them (below). The alternative was to hold the
+  write to the canvas only.
 - [decision, owner, 2026-11-10] Asked what a second `show` on a canvas with a held submission
   does, the owner chose "계산은 모두 실행, 표시는 최신 것만". The calls of both frames run, in
   order. The canvas shows only the newer image. No computation is dropped. The alternatives were
@@ -712,12 +713,14 @@ sits under it.
 - [decision, owner, 2026-11-10] Asked how a `read()` relates to a held submission, the owner
   chose "read()가 대기 호출을 풀어 바로 제출". A `read()` submits the held submission at once,
   with every other call recorded before it. Only the write to the canvas still waits for the
-  previous frame. A call with plain data only does the same. The alternative was a `read()` that
+  previous frame. The write to the canvas stays the held submission. A call with plain data only
+  does the same. The alternative was a `read()` that
   waits for the canvas. Cost recorded: a loop that reads every frame has no back-pressure on its
   computation.
 - [decision, owner, 2026-11-10] Asked what happens when the GPU stays slower than the loop, the
   owner chose "대기 프레임에 합침". A further `show` adds its calls to the held submission and
-  replaces the image to show. The GPU receives one frame at a time. The alternatives were to
+  replaces the image to show. Unless a `read()` or a plain-data call releases it, the GPU receives
+  one frame at a time. The alternatives were to
   submit the oldest frame's calls, or a `show` that returns a promise. Cost recorded: while the
   GPU stays slower, the list of held calls grows in the host's memory.
 - [decision, owner, 2026-11-10] Asked about three details together, the owner chose "추천 기본값
@@ -725,7 +728,13 @@ sits under it.
   1. A canvas's previous frame is done when the GPU work of its submission completes. A `show`
      on a canvas with no previous frame submits at once.
   2. A graph that writes two canvases is submitted when neither canvas has a frame in flight.
-  3. On WebGL2, each frame places a `fenceSync`, and a `show` polls it.
+  3. On WebGL2, each frame places a `fenceSync`. The runtime polls it before it submits the held
+     submission.
+- [decision, owner, 2026-11-10] Asked about a `show` after a `read()` released the calls, and
+  about the CPU tier, the owner chose "합침 + CPU는 그리기가 끝난 때". A further `show` joins the
+  held submission that the canvas write left. On the CPU tier, a canvas's previous frame is done
+  when its draw (the pixels and the write to the canvas) ends. The alternative was a second held
+  submission for the canvas.
 
 **The defaults of the first review.**
 
@@ -739,10 +748,11 @@ sits under it.
   4. "The end of the microtask" is the end of the current microtask checkpoint.
   5. On the CPU tier, a submission runs the calls.
   6. On WebGL2, a submission flushes, and a `read()` waits on a fence.
-  7. An error of a held submission is thrown at the next `read()`, `show` or call, with the call
-     site of the failed call (R2).
+  7. An error of a submission is thrown at the next `read()`, `show` or call, with the call site
+     of the failed call (R2).
   8. One submission is not made one fused plan; only `fuse` fuses (Rule 11.13).
-  9. A call with plain data only first submits the calls recorded and not yet submitted.
+  9. A call with plain data only first submits the calls recorded and not yet submitted, a held
+     submission included.
 
 **Order of milestones 2 and 3.**
 
@@ -761,25 +771,27 @@ sits under it.
 
 **D1 to D7 of milestone 1.**
 
-- [decision, owner, 2026-11-10] D1: "숫자 유지, R7을 개정". R8 is amended: `get` returns a
+- [decision, owner, 2026-11-10] D1: "숫자 유지, R7을 개정". R8 is amended, since `get` is in R8 (the
+  option named R7): `get` returns a
   scalar field's number, and the view of a vector or an array field as `Readonly`. An `f64` scalar
   field returns its joined number. Cost recorded: a scalar and a vector field return different
   kinds.
 - [decision, owner, 2026-11-10] D2: "범위 여러 개를 두되 개수에 상한". Milestone 3 keeps a dirty
   range for each element written. It joins them into one range when their count passes a limit.
   R9 stands. Cost recorded: more code and tests than one widened range.
-- [decision, owner, 2026-11-10] D3: "거부 유지, 컴파일 시점에도 진단", then, for its code, "새 코드
-  - 호스트 쪽은 편집기". A field named `set` stays refused. A field named `needsUpdate` or
-    `dispose` stays refused in a uniform's struct. The new code `TS8080` reports each on the struct
-    of an exported binding, in the compiler and the editor. On a host's `uniform(Class, …)` or
-    `zeros(Class, n)`, the editor reports `TS8080`, and the runtime keeps its `TypeError`. R7, R8
-    and R9 name the reserved names. Cost recorded: these names cannot be fields of such a struct.
+- [decision, owner, 2026-11-10] D3: "거부 유지, 컴파일 시점에도 진단". For its code, the owner
+  chose "새 코드 + 호스트 쪽은 편집기". A field named `set` stays refused. A field named
+  `needsUpdate` or `dispose` stays refused in a uniform's struct. The new code `TS8079` reports
+  each on the struct of an exported binding, in the compiler and the editor. On a host's
+  `uniform(Class, …)` or `zeros(Class, n)`, the editor reports `TS8079`, and the runtime keeps its
+  `TypeError`. R7, R8 and R17 name the reserved names. Cost recorded: these names cannot be fields
+  of such a struct.
 - [decision, owner, 2026-11-10] D4 to D7: "네 가지 모두 추천대로". D4: the types of `Uniform` and
   `Buffer` declare `[Symbol.dispose]`, so `using` works. D5: `texture()` returns the existing
   `Texture` export; the section "What it touches" no longer calls `Texture` new. D6: `HostExport`
   gains a kind for a host resource, so `HostFace.exports` and the compiler agree (Rule 12.7). D7:
   the type of an exported binding has no `dispose()`; the runtime still throws a `TypeError`.
-- [fact] This amendment adds `TS8080` to `codes` and `HostExport` to `exports` in the front
+- [fact] This amendment adds `TS8079` to `codes` and `HostExport` to `exports` in the front
   matter. Milestone 3's first pull request carries D1 to D7 out.
 
 **Open.**
