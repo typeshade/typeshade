@@ -57,7 +57,7 @@ import {
   type MixinApplication,
 } from './mixins.js';
 import { pushTypeArguments } from './generics.js';
-import { authorTypeText, useWrittenStructs, type StructOrigin } from './context.js';
+import { authorTypeText, useWrittenStructs, writtenText, type StructOrigin } from './context.js';
 import {
   genericClasses,
   genericStructName,
@@ -848,7 +848,7 @@ export function collectStructs(
               (writesRefusedType(member.type, sourceFile) ||
               isUntypedBuiltin(member.type, sourceFile)
                 ? undefined
-                : structT(member.type.getText(sourceFile))))
+                : structT(writtenText(member.type))))
             : member.initializer !== undefined
               ? initializerType(member.initializer, sourceFile)
               : undefined;
@@ -2263,7 +2263,7 @@ function signatureFields(
       ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
         (writesRefusedType(member.type, sourceFile) || isUntypedBuiltin(member.type, sourceFile)
           ? undefined
-          : structT(member.type.getText(sourceFile))))
+          : structT(writtenText(member.type))))
       : undefined;
     // `w?: f32` is `w: f32 | undefined` (Rule 7.10, change 0093, decision D3): one struct rule
     // for the three spellings.
