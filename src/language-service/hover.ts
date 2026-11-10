@@ -2,9 +2,12 @@
 
 import ts from 'typescript';
 import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
+import { entryNode } from '../compiler/ts/entry-locations.js';
 import { qualifiersOf } from '../compiler/ts/lower/references.js';
 import type { CompileTsSourceResult } from '../compiler/ts/source-file.js';
 import type { DeclaredSymbol } from '../compiler/ts/symbols.js';
+import { ioAttrOf, retIoAttrOf } from '../core/ir/entry-io.js';
+import type { FuncDecl } from '../core/ir/nodes.js';
 import type { ShaderType } from '../core/ir/types.js';
 import { wgslType } from '../core/backends/wgsl.js';
 import { optionalInner, optionalAbsence } from '../compiler/ts/optional.js';
@@ -89,6 +92,82 @@ function resourceBindingLine(
   const mode = binding.space === 'storage' ? `${binding.access ?? 'read'} ` : '';
   const slot = `@group(${binding.group}) @binding(${binding.binding})`;
   return `${mode}${binding.space} resource at ${slot}`;
+}
+
+/** Whether `f` is an entry whose user-defined inputs and outputs stand at locations. */
+const isRenderEntry = (f: FuncDecl): boolean => f.stage === 'vertex' || f.stage === 'fragment';
+
+/** What a field of the struct `struct` is, by where the entries of `analysis` put the struct, in
+ *  the words of Rule 6.6's table. Empty for a struct no vertex or fragment entry reads or
+ *  returns. */
+function rolesOfStruct(analysis: CompileTsSourceResult, struct: string): string[] {
+  const is = (t: ShaderType): boolean => t.kind === 'struct' && t.name === struct;
+  const entries = analysis.funcs.filter(isRenderEntry);
+  const attribute = entries.some((f) => f.stage === 'vertex' && f.params.some((p) => is(p.type)));
+  const between = entries.some((f) =>
+    f.stage === 'vertex' ? is(f.ret) : f.params.some((p) => is(p.type)),
+  );
+  const target = entries.some((f) => f.stage === 'fragment' && is(f.ret));
+  return [
+    ...(attribute ? ['vertex attribute'] : []),
+    ...(between ? ['value between stages'] : []),
+    ...(target ? ['render target'] : []),
+  ];
+}
+
+/**
+ * For a user-defined input or output of a vertex or fragment entry, the TypeShade line the hover
+ * adds under the type: what the value is and the location it stands at, written
+ * (`location<n, T>`) or given by the compiler (Rule 6.6, change 0135). The TypeScript type
+ * (`vec2`) says nothing about the number, and it is the number a host reads from `reflect()`.
+ *
+ * The location is read off the IR of `analysis` with the reader `reflect()` and the backends
+ * use (`ioAttrOf`, `retIoAttrOf`), after the front end numbered it (`giveEntryLocations`), so
+ * the hover cannot name another number than the emitted module has (Rule 12.7). A value with no
+ * location in the IR gets no line: a built-in value, a field of a struct no entry uses, and a
+ * field or parameter the front end refused to number (`TS8010`).
+ *
+ * - A `field`: the location of that field of its struct, wherever the struct is used.
+ * - A `param` of a vertex or fragment entry that is no struct: a vertex attribute, or a value
+ *   between stages.
+ * - A `function` that is a fragment entry with a bare result: the render target it returns.
+ */
+function locationLine(
+  analysis: CompileTsSourceResult,
+  sourceFile: ts.SourceFile,
+  declared: DeclaredSymbol,
+): string | undefined {
+  const at = (what: string, location: number | undefined): string | undefined =>
+    location === undefined ? undefined : `${what} at @location(${String(location)})`;
+  if (declared.kind === 'field') {
+    const decl = analysis.structs.find((s) => s.decl.name === declared.struct)?.decl;
+    const field = decl?.fields.find((f) => f.name === declared.name);
+    if (decl === undefined || field === undefined) return undefined;
+    const roles = rolesOfStruct(analysis, decl.name);
+    return at(
+      roles.length > 0 ? roles.join(' and ') : 'user-defined input or output',
+      ioAttrOf(field).location,
+    );
+  }
+  if (declared.kind !== 'param' && declared.kind !== 'function') return undefined;
+  // The entry the declaration belongs to: the function whose name, or whose parameter, it is.
+  let node: ts.Node | undefined = nodeAt(sourceFile, declared.start);
+  while (node !== undefined && !ts.isFunctionLike(node)) node = node.parent;
+  if (node === undefined) return undefined;
+  const entry = analysis.funcs.find(
+    (f) => isRenderEntry(f) && entryNode(sourceFile, f.name) === node,
+  );
+  if (entry === undefined) return undefined;
+  if (declared.kind === 'function') {
+    if (entry.stage !== 'fragment' || entry.ret.kind === 'struct') return undefined;
+    return at('returns a render target', retIoAttrOf(entry).location);
+  }
+  const param = entry.params.find((p) => p.name === declared.name);
+  if (param === undefined || param.type.kind === 'struct') return undefined;
+  return at(
+    entry.stage === 'vertex' ? 'vertex attribute' : 'value between stages',
+    ioAttrOf(param).location,
+  );
 }
 
 /**
@@ -270,7 +349,9 @@ function declarationLine(
  * document, a host-side declaration, a data class name (`class Vertex` already says it), a
  * declaration the front end refused to lower and so never recorded (its own diagnostic on that
  * line says why), and the documentation section of every hover. A resource binding also gains
- * one line from `analysis`: its access mode, address space and `@group`/`@binding` slot.
+ * one line from `analysis`: its access mode, address space and `@group`/`@binding` slot. A
+ * user-defined input or output of an entry gains one too: what it is and its location, written
+ * or given by the compiler (Rule 6.6, change 0135).
  */
 export function getHover(
   languageService: ts.LanguageService,
@@ -352,6 +433,9 @@ export function getHover(
   const sections = [`\`\`\`ts\n${display}\n\`\`\``];
   if (qualifier !== undefined) sections.push(referenceLine(declared!, qualifier));
   if (resource !== undefined) sections.push(resource);
+  const location =
+    declared !== undefined ? locationLine(analysis, sourceFile, declared) : undefined;
+  if (location !== undefined) sections.push(location);
   if (documentation) sections.push(documentation);
   return { contents: sections.join('\n\n'), range: rangeForSpan(sourceFile, quickInfo.textSpan) };
 }
