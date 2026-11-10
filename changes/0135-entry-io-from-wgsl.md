@@ -10,6 +10,7 @@ rules:
   - '12.1'
 surface:
   - 1
+  - 2
   - 3
   - 5
   - 7
@@ -24,7 +25,9 @@ surface:
   - 24
   - 25
   - 26
+  - 29
   - 33
+  - 38
   - 42
   - 43
   - 50
@@ -38,6 +41,7 @@ surface:
   - 68
   - 69
   - 70
+  - 77
   - 78
 exports: []
 exports-removed: []
@@ -627,6 +631,34 @@ of "v1" and 0 as an input of "v2": write location<n, T> on it.` The cost is reco
   the refusal of a written type in the release after the migration release (D1.2) is the work
   of that release.
 
+### Amendment A2. Four more surface sections, and the decorated form in three documents (2026-11-10)
+
+Pull request #1171 (merged into `main` as `ae9bbf61`) moved the documents that amendment A1
+lists. It reported two open points, and the owner decided each in the Claude Code session on
+2026-11-10.
+
+- [fact] Amendment A1 found its 27 sections with a search of single lines, and it missed four
+  sections that still write or describe the form that warns: §2 (the header table and the
+  sentences that say an I/O field "carries its attribute in its type" and name
+  `builtin<"...", T>`), §29 (a mixin field "typed `builtin<"...", T>` or `location<n, T>`"), §38
+  (`color: location<0, vec4>` in a `Color` struct, where the compiler gives the same number) and
+  §77 (a compiled block in the decorated form, `@builtin("global_invocation_id") gid: vec3u`,
+  the last block of the document that compiles with the `TS8028` warning).
+- [decision, owner, 2026-11-10] "수정안 A2 후 옮기기", on the agent's recommendation. Surface
+  §2, §29, §38 and §77 join `surface`. One pull request, with `Change: 0135`, moves them as
+  amendment A1 says for the others: an example to `builtin<N>`, a written location dropped
+  where the compiler gives the same number and the section does not teach the written form,
+  and a sentence that describes the older form reworded to this proposal's text. Each compiled
+  block emits the WGSL and GLSL it emitted before.
+- [decision, owner, 2026-11-10] "두기", on the agent's recommendation. Pull request #1171 also
+  moved three places that wrote the decorated form of change 0111, which warns too:
+  `README.md`, `docs/use-typeshade.md` and the `hello-vsout` row of `examples/README.md`. They
+  stay as moved: amendment A1's decision is that the documents stop teaching a form that
+  warns, whichever older form it is.
+- Affects: the front matter `surface` (2, 29, 38, 77). No rule, code, name, export or example
+  file is added.
+- Status: `status: accepted` does not change.
+
 ### Configuration and validation record
 
 The front-matter `status` stays `accepted`: the deviations below that are open wait for the
@@ -686,19 +718,92 @@ request's description lists each command with its result.
 
 **Deviations from the approved text.**
 
-| #   | Difference                                                                                                                                                                                                                                                                                                                                                                                                             | Disposition                                                                           |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| 1   | The table of item 2 numbers a vertex attribute by its entry and a vertex result by its struct. It does not say what a struct gets when two places give one field two numbers (one struct as an input of two vertex entries at two offsets). The emitted struct has one set of locations. The implementation refuses the field with `TS8010`, in a sentence this proposal does not give, and asks for `location<n, T>`. | Open: the owner decides whether the refusal and its sentence hold.                    |
-| 2   | Surface sections other than §3, §7 and §53, and Rules 8.19 and 12.1, write `builtin<N, T>` in their examples; the remedy of `src/compiler/ts/foreign-names.ts` that Rule 12.1 describes now names `builtin<"position">`. The front matter does not declare them, so they keep the migration form, which compiles with the warning. Surface §69 names a vertex entry's "`location<n, T>` inputs".                       | Open: an amendment that declares the sections lets a later pull request respell them. |
-| 3   | The compute sentence of `TS8029` for a value with no attribute says "is a user-defined input", where the sentence for a written location says "is at a location<…>". The value is at no location, so the approved wording would be untrue (Rule 12.5).                                                                                                                                                                 | Closed: the tail of the sentence, which the proposal quotes, is unchanged.            |
-| 4   | `tshc migrate` rewrites item 1 only. A written `location<n, T>` stays valid, so the command does not delete one.                                                                                                                                                                                                                                                                                                       | Closed: the examples' locations were dropped by a script and held to emit identity.   |
-| 5   | The hover does not show the location the compiler gives a field. The proposal recommends it and does not require it.                                                                                                                                                                                                                                                                                                   | Open: not started. `reflect()` and the emitted WGSL show each number.                 |
-| 6   | `src/core/passes/lint/rules/interstage-io.ts` is unchanged. The pass writes the location into the IR before the interstage check reads it.                                                                                                                                                                                                                                                                             | Closed.                                                                               |
-| 7   | A field whose `builtin<"clip_distances">` is refused is withheld from its struct. A write and a read of it say nothing more. A `const` declared from a read of it is not declared, so a later use of that `const` is `TS8022`.                                                                                                                                                                                         | Open: the withheld-field recovery predates this change; no issue names it yet.        |
-| 8   | `scripts/compile-gate.ts` gains the entry-I/O leg, which "What it touches" does not list. Rules 12.6 and 13.3 require the measurement.                                                                                                                                                                                                                                                                                 | Closed.                                                                               |
+| #   | Difference                                                                                                                                                                                                                                                                                                                                                                                                             | Disposition                                                                         |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| 1   | The table of item 2 numbers a vertex attribute by its entry and a vertex result by its struct. It does not say what a struct gets when two places give one field two numbers (one struct as an input of two vertex entries at two offsets). The emitted struct has one set of locations. The implementation refuses the field with `TS8010`, in a sentence this proposal does not give, and asks for `location<n, T>`. | Open: the owner decides whether the refusal and its sentence hold.                  |
+| 2   | Surface sections other than §3, §7 and §53, and Rules 8.19 and 12.1, write `builtin<N, T>` in their examples; the remedy of `src/compiler/ts/foreign-names.ts` that Rule 12.1 describes now names `builtin<"position">`. The front matter does not declare them, so they keep the migration form, which compiles with the warning. Surface §69 names a vertex entry's "`location<n, T>` inputs".                       | Closed by pull request #1171, under Amendment A1 (the record below).                |
+| 3   | The compute sentence of `TS8029` for a value with no attribute says "is a user-defined input", where the sentence for a written location says "is at a location<…>". The value is at no location, so the approved wording would be untrue (Rule 12.5).                                                                                                                                                                 | Closed: the tail of the sentence, which the proposal quotes, is unchanged.          |
+| 4   | `tshc migrate` rewrites item 1 only. A written `location<n, T>` stays valid, so the command does not delete one.                                                                                                                                                                                                                                                                                                       | Closed: the examples' locations were dropped by a script and held to emit identity. |
+| 5   | The hover does not show the location the compiler gives a field. The proposal recommends it and does not require it.                                                                                                                                                                                                                                                                                                   | Open: not started. `reflect()` and the emitted WGSL show each number.               |
+| 6   | `src/core/passes/lint/rules/interstage-io.ts` is unchanged. The pass writes the location into the IR before the interstage check reads it.                                                                                                                                                                                                                                                                             | Closed.                                                                             |
+| 7   | A field whose `builtin<"clip_distances">` is refused is withheld from its struct. A write and a read of it say nothing more. A `const` declared from a read of it is not declared, so a later use of that `const` is `TS8022`.                                                                                                                                                                                         | Open: the withheld-field recovery predates this change; no issue names it yet.      |
+| 8   | `scripts/compile-gate.ts` gains the entry-I/O leg, which "What it touches" does not list. Rules 12.6 and 13.3 require the measurement.                                                                                                                                                                                                                                                                                 | Closed.                                                                             |
+
+**Delivery of amendment A1, the third decision (the hover).** Written on 2026-11-10 (UTC) by
+the AI agent (Claude Code) that implemented it, at the direction of the coordinating session.
+Its pull request records the delivered commit and each check with its result. This record
+closes deviation 5 of the table above.
+
+- Configuration: branch `claude/clever-ramanujan-yrfjsq-0135-hover`, based on `main` at
+  `d238dc27`. Tools: Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3, Vitest 5.0.5, Doorstop 3.2.
+- Delivered: `src/language-service/hover.ts` (`locationLine`). The hover adds one line under
+  the type, where a resource binding has its `@group`/`@binding` line: what the value is, in
+  the words of the table of item 2, and its location.
+
+  | Hovered                                                              | The line under the type                                                               |
+  | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+  | A field of a struct a vertex entry reads                             | `vertex attribute at @location(n)`                                                    |
+  | A field of a struct a vertex entry returns or a fragment entry reads | `value between stages at @location(n)`                                                |
+  | A field of a struct a fragment entry returns                         | `render target at @location(n)`                                                       |
+  | A field of a struct in two of those places                           | both, joined by "and", as `vertex attribute and value between stages at @location(n)` |
+  | A bare parameter of a vertex entry                                   | `vertex attribute at @location(n)`                                                    |
+  | A bare parameter of a fragment entry                                 | `value between stages at @location(n)`                                                |
+  | The name of a fragment entry with a bare result                      | `returns a render target at @location(0)`                                             |
+  | A field that writes a location, in a struct no entry uses            | `user-defined input or output at @location(n)`                                        |
+  | A built-in value, a field with no location, a value refused `TS8010` | no line                                                                               |
+
+- The hover computes no number (Rule 12.7). It reads the IR of the language service's cached
+  analysis, which `giveEntryLocations` numbered, with `ioAttrOf` and `retIoAttrOf`
+  (`src/core/ir/entry-io.ts`), the reader `reflect()` uses. `entryNode` of
+  `src/compiler/ts/entry-locations.ts` is exported for it. No public type changes:
+  `bun run bake:api-surface` changes no file.
+- Documents: surface §3, `docs/language-service-api.md`, `CHANGELOG.md`.
+- Functional validation: `src/language-service/entry-location-hover.test.ts`, 15 tests. Each
+  reads `compile()` (the diagnostics, the emitted `@location(n)`, `reflect()`) and the language
+  service's `getHover` on the same source, and holds the hover's number to `reflect()`'s.
+- Deviations from amendment A1:
+
+  | #   | Difference                                                                                                                                                                                                             | Disposition                                                   |
+  | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+  | A   | A field of a struct that another document declares shows TypeScript's quick info, as every imported symbol does, so it shows no location line. The hover joins a name to the compiler's facts by its span in one file. | Open: the owner decides whether a later change adds the line. |
+  | B   | The line names what the value is ("vertex attribute", "value between stages", "render target") beside the number. Amendment A1 asks for the location only.                                                             | Open: the owner reads the wording on the pull request.        |
+  | C   | A fragment entry's bare result has no declared name of its own, so its line shows on the entry's name.                                                                                                                 | Closed: the line says "returns a render target".              |
 
 **Remaining.** The downstream work of "What it owes downstream" is not started. The refusal of a
 written type in the release after the migration release (D1.2) is not part of this pull request.
+
+**Delivery of Amendment A1, deviation 2: the documents (pull request #1171).** Written on
+2026-11-10 (UTC) by the AI agent (Claude Code) that made the change, at the direction of the
+coordinating session. The merge of pull request #1171 records the delivered commit.
+
+- Configuration: branch `claude/clever-ramanujan-yrfjsq-0135-docs`, based on `main` at
+  `d238dc27`. Tools: Bun 1.4.4, Node 22.23.4, TypeScript 5.6.3, Vitest 5.0.5, Doorstop 3.2.
+- Delivered: `docs/use-typeshade-surface.md` writes `builtin<N>` on 36 lines of §1, §5, §8, §10,
+  §15, §16, §17, §19, §20, §23, §24, §25, §26, §33, §42, §43, §50, §54, §62, §63, §64, §66, §67,
+  §68, §70 and §78, and in one sentence of §50. Five written locations are dropped, in §10, §15,
+  §16, §62 and §68. The sentences of §54, §67 and §69 that named a written location as the form
+  to write are rewritten. Rule 8.19's two examples and the remedy that Rule 12.1's "Enforced by"
+  quotes read `builtin<N>`. No rule sentence changes. `AUTHORING.md` drops five locations.
+- Method: a scratch script called `migrateSource` (`src/cli/migrate.ts`) on each fenced block and
+  took only a deleted built-in type. It dropped each `location<n, T>` with no option, one at a
+  time, and kept the drop only where `compile()` and `reflect()` gave the same result.
+- Functional validation: the WGSL, the GLSL ES 3.00, `reflect()` and the diagnostics of the 131
+  fenced blocks that compile are the same as on `d238dc27`, less the `TS8028` warning of the
+  written type. 21 blocks gave 29 such warnings before, and none gives one after. The pull
+  request's description lists each command with its result.
+- Document validation: `bun run docs:refs`, `bun run docs:impact`,
+  `bun scripts/changes.ts --base origin/main`, `bun scripts/rule-citation.ts`,
+  `bun run reqs:sync` and `python scripts/doorstop-check.py -C -e -F` (`RULE-0819` and
+  `RULE-1201` reviewed; the suspect links of `SURF-003`, `SURF-007`, `SURF-014`, `SURF-026`,
+  `SURF-063` and `SURF-076` cleared after reading each section).
+
+| #   | Difference from Amendment A1                                                                                                                                                                                                                                         | Disposition                                                                                |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| A   | `README.md`, `docs/use-typeshade.md` and one row of `examples/README.md` wrote the decorated form of change 0111, which warns too. They move to the type form with the same rewrite.                                                                                 | Open: the owner decides whether these lines belong to this change.                         |
+| B   | `AUTHORING.md` ("Stage parameters") keeps `uv: location<0, vec2>`, although the compiler gives the same number. Its paragraph introduces `location<n, T>`, and the block is its example.                                                                             | Closed: the section teaches the written form.                                              |
+| C   | Surface §2 and §29 still name `builtin<"...", T>` as the form of a field. §38 writes a location that the compiler would give. One block of §77 writes the decorated form, with its `TS8028` warning. The front matter does not declare these sections, so they stay. | Open: an amendment that declares §2, §29, §38 and §77 lets a later pull request move them. |
+
+The hover of Amendment A1 (deviation 5) is a separate pull request. `status` stays `accepted`.
 
 ## What it owes downstream
 

@@ -27,21 +27,21 @@ interface VsOut {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & 1) * 4. - 1.;
-  const y = f32(vi >> 1) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
 }
 
 // normalize() is a builtin, but the original spells the reciprocal-length form inline; the
 // twin keeps that so the two surfaces build the same expression.
 function normalize3(v: vec3): vec3 {
-  return v * (1. / length(v));
+  return v * (1 / length(v));
 }
 
 // Reusable terrain height field, ~[0,1]. Emitted once, called 3× — a real function.
 function terrain(p: vec2, t: f32): f32 {
   const h =
-    sin(p.x * 3. + t) * cos(p.y * 3.) +
+    sin(p.x * 3 + t) * cos(p.y * 3) +
     sin(p.x * 6.1 - t * 0.7) * cos(p.y * 5.3) * 0.5 +
     sin(p.x * 12.7) * cos(p.y * 11.1) * 0.25;
   return h * 0.28 + 0.5;
@@ -58,7 +58,7 @@ export function fs(vo: VsOut): vec4 {
   // program that compiles (issue #43). Both annotated locals in this file, `p` here and `lit`
   // below, are that and only that: emit-neutral, the WGSL and GLSL are byte-identical without
   // them.
-  const p: vec2 = uv * 6.;
+  const p: vec2 = uv * 6;
   const eps = 0.015;
 
   // Height + two neighbours → a finite-difference surface normal.
@@ -69,7 +69,7 @@ export function fs(vo: VsOut): vec4 {
 
   // Sun from the azimuth (fixed elevation) → Lambert term.
   const sun = normalize3(vec3(cos(az) * 0.6, sin(az) * 0.6, 0.55));
-  const shade = clamp(dot(n, sun), 0., 1.);
+  const shade = clamp(dot(n, sun), 0, 1);
 
   // Hypsometric tint: lowland green → upland tan → snow.
   const low = vec3(0.16, 0.32, 0.2);
@@ -77,5 +77,5 @@ export function fs(vo: VsOut): vec4 {
   const high = vec3(0.93, 0.93, 0.96);
   const base = mix(mix(low, mid, smoothstep(0.3, 0.55, h)), high, smoothstep(0.62, 0.85, h));
   const lit: vec3 = base * (shade * 0.8 + 0.3);
-  return vec4(lit, 1.);
+  return vec4(lit, 1);
 }

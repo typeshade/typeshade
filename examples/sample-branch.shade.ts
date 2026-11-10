@@ -50,9 +50,9 @@ interface VsOut {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & u32(1)) * 4. - 1.;
-  const y = f32(vi >> u32(1)) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
 }
 
 // The two samples the branch below chooses between. Both are called from uniform control flow
@@ -71,7 +71,7 @@ export function fs(v: VsOut): vec4 {
   // The sample under a NON-uniform condition — `v.uv` is a `location<…>` input, so the two sides
   // of this branch are taken by different invocations of the same quad. The compiler computes
   // each helper's coordinate and its gradients before the `if`, and samples with them inside.
-  let base: vec4 = vec4(0., 0., 0., 1.);
+  let base: vec4 = vec4(0, 0, 0, 1);
   if (v.uv.x > 0.5) {
     base = sharp(v.uv);
   } else {
@@ -82,7 +82,7 @@ export function fs(v: VsOut): vec4 {
   if (tint.rgb.w > 0.5) {
     const near: vec2 = v.uv * 0.75;
     const warm: vec4 = textureSample(albedo, smp, near);
-    return vec4(base.xyz * tint.rgb.xyz + warm.xyz * 0.25, 1.);
+    return vec4(base.xyz * tint.rgb.xyz + warm.xyz * 0.25, 1);
   }
-  return vec4(base.xyz * tint.rgb.xyz, 1.);
+  return vec4(base.xyz * tint.rgb.xyz, 1);
 }

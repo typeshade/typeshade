@@ -37,18 +37,18 @@ interface VsOut {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & 1) * 4. - 1.;
-  const y = f32(vi >> 1) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
 }
 
 @fragment
 export function fs_rtc(vo: VsOut): vec4 {
-  const span = 10.0 ** -u.zoom_exp;
-  const half = vo.uv.x * 2.0;
-  const sx = half - (vo.uv.x < 0.5 ? 0.0 : 1.0);
+  const span = 10 ** -u.zoom_exp;
+  const half = vo.uv.x * 2;
+  const sx = half - (vo.uv.x < 0.5 ? 0 : 1);
   const dx = (sx - 0.5) * span;
-  const dy = (vo.uv.y - 0.5) * span * (u.resolution.y / u.resolution.x * 2.0);
+  const dy = (vo.uv.y - 0.5) * span * (u.resolution.y / u.resolution.x * 2);
 
   const isF32 = vo.uv.x < 0.5 || u.fp64 < 0.5;
   // f64 path: subtract FIRST as a double (exact by Sterbenz-style cancellation), narrow the
@@ -69,16 +69,16 @@ export function fs_rtc(vo: VsOut): vec4 {
   const r = length(vec2(ex, ey));
   const pixw = span / (u.resolution.x * 0.5);
   const tri = (-abs(fract(r / rw) - 0.5) + 0.5) * rw; // dist to ring
-  const ring = 1. - smoothstep(0., pixw * 1.6 + 1e-9, tri);
-  const cross = 1. - smoothstep(0., pixw * 1.4 + 1e-9, min(abs(ex), abs(ey)));
-  const dotGlow = exp(-(r / (pixw * 6.0 + 1e-9)));
-  const vignette = max(0., 1. - r / (span * 0.75));
+  const ring = 1 - smoothstep(0, pixw * 1.6 + 1e-9, tri);
+  const cross = 1 - smoothstep(0, pixw * 1.4 + 1e-9, min(abs(ex), abs(ey)));
+  const dotGlow = exp(-(r / (pixw * 6 + 1e-9)));
+  const vignette = max(0, 1 - r / (span * 0.75));
 
   const bg = mix(vec3(0.01, 0.04, 0.02), vec3(0.02, 0.09, 0.045), vignette);
   const rgb =
     bg +
     vec3(0.1, 0.75, 0.3) * (ring * 0.8) +
     vec3(0.12, 0.9, 0.4) * (cross * 0.55) +
-    vec3(1.0, 0.45, 0.25) * dotGlow;
-  return vec4(rgb, 1.);
+    vec3(1, 0.45, 0.25) * dotGlow;
+  return vec4(rgb, 1);
 }

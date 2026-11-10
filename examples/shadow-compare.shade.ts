@@ -37,10 +37,10 @@ declare const cascades: texture_depth_2d_array;
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): vec4 {
-  const xs: array<f32, 3> = [-1., 3., -1.];
-  const ys: array<f32, 3> = [-1., -1., 3.];
+  const xs: array<f32, 3> = [-1, 3, -1];
+  const ys: array<f32, 3> = [-1, -1, 3];
   const i = i32(vi);
-  return vec4(xs[i], ys[i], 0., 1.);
+  return vec4(xs[i], ys[i], 0, 1);
 }
 
 @fragment
@@ -58,7 +58,7 @@ export function fs(p: builtin<"position">): vec4 {
   const litFar = textureSampleCompareLevel(cascades, shadowSmp, uv, band, depthHere);
 
   const size = textureDimensions(shadowMap);
-  const texel = 1. / f32(size.x);
-  const shade = mix(0.15, 1., lit * 0.6 + litFar * 0.4);
-  return vec4(shade * (0.9 - texel), shade * 0.8, shade * 0.6, 1.);
+  const texel = 1 / f32(size.x);
+  const shade = mix(0.15, 1, lit * 0.6 + litFar * 0.4);
+  return vec4(shade * (0.9 - texel), shade * 0.8, shade * 0.6, 1);
 }

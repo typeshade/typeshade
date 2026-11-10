@@ -29,9 +29,9 @@ interface FsOut {
 // Fullscreen triangle, as `rng-method.shade.ts` draws it.
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & u32(1)) * 4. - 1.;
-  const y = f32(vi >> u32(1)) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x, y) };
 }
 
 /** A distance field: how far `p` is outside a shape, negative inside it. */
@@ -39,12 +39,12 @@ type Field = (p: vec2) => f32;
 
 /** How much of the pixel at `p` a field's shape covers. */
 function cover(f: Field, p: vec2): f32 {
-  return 1. - smoothstep(0., 0.01, f(p));
+  return 1 - smoothstep(0, 0.01, f(p));
 }
 
 /** A field copied four times around the origin: the nearest of the four quarter turns. */
 function around4(f: Field, p: vec2): f32 {
-  let best = 1000.;
+  let best = 1000;
   for (let i = 0; i < 4; i++) {
     const a = f32(i) * 1.5707964;
     const q = vec2(p.x * cos(a) + p.y * sin(a), p.y * cos(a) - p.x * sin(a));
@@ -88,28 +88,28 @@ export function fs(v: VsOut): FsOut {
   const p = v.uv;
   const r = 0.1;
   // A local function, handed to `around4` inside an arrow that `cover` is handed.
-  const petal = (q: vec2): f32 => length(q - vec2(0.5, 0.)) - r;
+  const petal = (q: vec2): f32 => length(q - vec2(0.5, 0)) - r;
   let col = vec3(0.05, 0.06, 0.1);
   col = mix(col, vec3(0.95, 0.7, 0.3), cover(circle, p));
   col = mix(col, vec3(0.3, 0.7, 0.95), cover((q) => around4(petal, q), p));
   // `glow` is written through a pointer by the arrow `times3` is handed.
-  let glow = 0.;
+  let glow = 0;
   times3((i) => {
-    glow += 0.15 / (1. + 40. * abs(length(p) - 0.3 - 0.05 * f32(i)));
+    glow += 0.15 / (1 + 40 * abs(length(p) - 0.3 - 0.05 * f32(i)));
   });
   col += vec3(glow * 0.3, glow * 0.2, glow * 0.6);
   // A method takes a function the same way: `ring.each` is copied for the arrow it is handed,
   // which reads `p` and writes `dots`.
   const ring = new Ring(6, 0.7);
-  let dots = 0.;
+  let dots = 0;
   ring.each((c) => {
-    dots = max(dots, 1. - smoothstep(0.03, 0.04, length(p - c)));
+    dots = max(dots, 1 - smoothstep(0.03, 0.04, length(p - c)));
   });
   col = mix(col, vec3(0.9, 0.3, 0.5), dots);
   // A fold's test, written as an arrow that reads `p`.
   const bands = array<f32, 3>(0.8, 0.88, 0.96);
   if (bands.some((b) => abs(length(p) - b) < 0.012)) {
-    col = vec3(1.);
+    col = vec3(1);
   }
-  return { color: vec4(col, 1.) };
+  return { color: vec4(col, 1) };
 }

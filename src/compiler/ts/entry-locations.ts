@@ -63,8 +63,9 @@ function take(held: Set<number>): number {
   return n;
 }
 
-/** The function an entry is declared as, at the top of the file. */
-function entryNode(
+/** The function an entry is declared as, at the top of the file. The language service reads it
+ *  too, to find the entry a hovered parameter or name belongs to (Rule 12.7). */
+export function entryNode(
   sourceFile: ts.SourceFile,
   name: string,
 ): ts.FunctionLikeDeclaration | undefined {

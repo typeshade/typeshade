@@ -22,14 +22,14 @@
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): vec4 {
-  const xs: array<f32, 3> = [-1., 3., -1.];
-  const ys: array<f32, 3> = [-1., -1., 3.];
+  const xs: array<f32, 3> = [-1, 3, -1];
+  const ys: array<f32, 3> = [-1, -1, 3];
   const i = i32(vi);
-  return vec4(xs[i], ys[i], 0., 1.);
+  return vec4(xs[i], ys[i], 0, 1);
 }
 
 @fragment
 export function fs(p: builtin<"position">): vec4 {
   const uv: vec2 = fract(p.xy * 0.01);
-  return vec4(uv, 0.4, 1.);
+  return vec4(uv, 0.4, 1);
 }

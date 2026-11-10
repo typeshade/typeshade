@@ -933,6 +933,41 @@ Milestone 1f reads the 17 and the 21; the list is in that pull request's body.
 
 **Status.** N9 and N14 are closed. Milestone 1a has no open question.
 
+### A2. An `f32` result is the `f64` routine's result rounded once; the split by function comes last (2026-11-10)
+
+**What was measured.** [observed result] The first slice of milestone 1a
+([#1168](https://github.com/typeshade/typeshade/pull/1168), at `9444c8b4`) delivered `sin` and
+`cos` with a routine of its own for `f32` beside the `f64` routine. On Bun 1.4.4 and Node
+v22.23.4:
+
+- The largest error of the `f32` routines was 0.5009 ULP. The `f64` routine's result rounded
+  once to `f32` measured 0.5000 ULP on the same sample.
+- On Bun the `f32` routines took 3.4 to 5.2 times the time of `Math`. The `f64` routines took
+  1.2 to 2.4 times.
+- The independent review of #1168 found that a module constant in `'f32'` precision took the
+  `f64` routine while a call took the `f32` routine. The two differed for 1,136 of 3,595,118
+  sampled operands.
+- Two functions in one table added about 3,000 gzip bytes to `typeshade/algorithms` and to
+  `typeshade/random`.
+
+**Decision, the `f32` result.** Asked on 2026-11-10, the owner chose "f64 루틴을 한 번
+반올림". For each of the 19 functions the libm has one routine, on `f64`. The `f32` result is
+that routine's result for the operand, rounded once to `f32`. The alternative was a routine of
+its own for each precision. This replaces "`sin` for `f32`, `sin` for `f64`" in "The source and
+the two forms" and "19 routines for `f32` and 19 for `f64`" in the draft impact estimate. It
+keeps decision C1: the libm serves `f32` and `f64`. Cost recorded: `f32` results of #1168 at
+`9444c8b4` change for about 3 operands in 10,000, and an `f32` call pays for an `f64` routine.
+
+**Decision, the split.** Asked on 2026-11-10, the owner chose "19개가 다 생긴 뒤 분리". The
+routines enter through one table until the 19 functions exist. The last slice of milestone 1a
+splits them into one module and one export for each function, as "The source and the two forms"
+says. Cost recorded: until that slice, a bundle that holds the op library carries every
+routine that exists.
+
+**Slices of milestone 1a.** The milestone is delivered in slices, each its own pull request:
+the internal operations with `sin` and `cos` (#1168); the other 17 functions; the rule text of
+Rules 1.3, 9.4 and 11.24; the split by function; the sweep against CORE-MATH.
+
 ## What it owes downstream
 
 The downstream repositories were not searched for this revision. Each item below is expected

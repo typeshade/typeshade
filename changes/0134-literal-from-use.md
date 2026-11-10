@@ -32,6 +32,8 @@ downstream:
     what: Optional cleanup of literal casts in shaders (4 grep hits at 8bd1ab1); review each module constant above 2^24, whose value becomes exact; record 0134 in compiler-changes.md when the pin moves
 ---
 
+<!-- doc-refs: skip-file — a proposal that names TS8053 and the files of its warning, which change 0134 retired and removed -->
+
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
@@ -746,6 +748,49 @@ after acceptance: its body shows one example before and after, and it waits for 
 "merge" (`CLAUDE.md`, Merging). Each implementing pull request that changes a value or newly
 refuses a program is not approved in advance either: its body shows each change before and
 after, and it waits for the owner's "merge" (OD-4).
+
+### Amendment A1. The owner's decisions on five questions of the implementation (2026-11-10)
+
+The implementing agent measured 47 forms on `main` at `d238dc27`, in both halves, and found no
+difference from "Today". It then found five places where this text has two readings, or leaves
+a choice open. The owner decided each in the Claude Code session on 2026-11-10, after one
+example of each option was shown (`OD-4`). Each decision is the agent's recommendation.
+
+- [decision, owner, 2026-11-10] "x / N은 허용". A `/` on a constant of no fixed type. Item 2's
+  edge says "a constant that some read makes an integer and that a `/` divides is refused". The
+  Division paragraph says a `/` is refused "where the integer type of every operand came from
+  inference". The Division paragraph holds. With `const N = 8;` that a loop bound reads as an
+  integer, `x / N` with `x` a declared `f32` compiles as float division, and `N` is an `f32` at
+  that read. `const HALF = N / 2;` is refused (`TS8003`): no operand has a declared type. The
+  cost is recorded: an author who divides a loop-bound constant by a written number writes
+  `const N: i32 = 8` or `f32(N)`. Item 2's edge sentence is read with this limit.
+- [decision, owner, 2026-11-10] "쓰임에서 추론". The counter of an open `for` (change 0136).
+  This text says loop induction variables keep their rules, and change 0136 says the
+  integer-literal counter follows this proposal's rule. For a counted `for` the two agree, and
+  nothing changes: an `i32`, or a `u32` against a `u32` bound. For a `for` that is not counted,
+  the counter is a value of item 1 and takes its type from its uses (`OD-7`): in
+  `let a = 0; for (let j = 0; ; j++) { a += j; if (a > x) { break; } }`, `j` is an `f32`. The
+  tests of change 0136 that pin an `i32` counter on an open `for` are rewritten to this rule.
+- [decision, owner, 2026-11-10] "사본마다 추론". A function whose `return` is a value of item
+  1 and whose callers ask for two types. Rule 8.19's new text gives one copy for each result
+  type. Each copy infers its own locals: in `function g() { let k = 0; k += 1; return k; }`,
+  called as `vi + g()` and as `x * g()`, `k` is a `u32` in one copy and an `f32` in the other,
+  and both calls compile (`OD-3`). The hover on `k` (item 4) names each type the copies give
+  it.
+- [decision, owner, 2026-11-10] "f32 선언 유지". The emitted text of a module constant of no
+  fixed type. The compiler keeps the declaration `const K: f32 = 3.0;` and the name at each
+  `f32` read, as today, and writes the value at a read of another type (`vi * 3u`, a cast, an
+  `f64` read). The text never carries WGSL's untyped `const K = 3;`. A golden changes only
+  where a row of "Values that change" applies.
+- [decision, owner, 2026-11-10] "별도 PR로 옮기기". Item 5 beyond `examples/*.shade.ts`. The
+  shader sources of `journeys/` and of `examples/hosts`, `examples/lib` and `examples/passes`
+  (683 sites in 81 files at the measurement) move to the forms of item 5 in a pull request of
+  their own, each file with the emit it had before. A literal whose respelling changes the
+  emit stays as written (`f32(0.1)` in `journeys/f64-module-constants/constants.shade.ts`).
+  Sources written inside tests stay as they are.
+- Affects: no front-matter field. Rules 5.1, 8.14 and 8.19 and surface §13, §14, §24 and §26,
+  which the front matter declares, carry these readings when items 1 to 3 are implemented.
+- Status: `status: accepted` does not change.
 
 ### Configuration and validation record
 

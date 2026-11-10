@@ -30,9 +30,9 @@ interface FsOut {
 // Fullscreen triangle, as `rng-method.shade.ts` draws it.
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const x = f32(vi & u32(1)) * 4. - 1.;
-  const y = f32(vi >> u32(1)) * 4. - 1.;
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
+  const x = f32(vi & 1) * 4 - 1;
+  const y = f32(vi >> 1) * 4 - 1;
+  return { pos: vec4(x, y, 0, 1), uv: vec2(x, y) };
 }
 
 /** A disc: where it is, how big and what colour, each set by a method that hands the disc back. */
@@ -40,8 +40,8 @@ class Disc {
   static SIZE = 0.2;
 
   protected radius: f32 = 0.2;
-  private center: vec2 = vec2(0.);
-  tint: vec3 = vec3(1.);
+  private center: vec2 = vec2(0);
+  tint: vec3 = vec3(1);
 
   at(c: vec2): this {
     this.center = c;
@@ -64,7 +64,7 @@ class Disc {
   }
 
   coverage(p: vec2): f32 {
-    return 1. - smoothstep(this.radius - 0.01, this.radius, length(p - this.center));
+    return 1 - smoothstep(this.radius - 0.01, this.radius, length(p - this.center));
   }
 
   /** A disc of the class the call names, `SIZE` across: the `this` parameter says so, and
@@ -92,16 +92,16 @@ class Capped extends Disc {
 export function fs(v: VsOut): FsOut {
   // A chain as a statement: `at`, then `tinted`, each on `a`.
   let a = Disc.unit();
-  a.at(vec2(-0.45, 0.)).tinted(vec3(0.95, 0.74, 0.32));
+  a.at(vec2(-0.45, 0)).tinted(vec3(0.95, 0.74, 0.32));
   // `Disc.unit`'s body run for `Capped`: `SIZE` is 0.35, and `Capped`'s setter clamps it to 0.3,
   // as it clamps the doubling below.
   let b = Capped.unit();
-  b.at(vec2(0.4, 0.)).tinted(vec3(0.3, 0.6, 0.95));
-  b.size *= 2.;
+  b.at(vec2(0.4, 0)).tinted(vec3(0.3, 0.6, 0.95));
+  b.size *= 2;
   // A chain that starts at `new` is held in a temporary, and the declaration takes what it built.
-  const c = new Disc().at(vec2(0., 0.55)).sized(0.1).tinted(vec3(0.9, 0.3, 0.4));
+  const c = new Disc().at(vec2(0, 0.55)).sized(0.1).tinted(vec3(0.9, 0.3, 0.4));
   let col = mix(vec3(0.07, 0.08, 0.14), a.tint, a.coverage(v.uv));
   col = mix(col, b.tint, b.coverage(v.uv));
   col = mix(col, c.tint, c.coverage(v.uv));
-  return { color: vec4(col, 1.) };
+  return { color: vec4(col, 1) };
 }

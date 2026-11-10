@@ -17,6 +17,8 @@ downstream:
   what: Extend authoring inference guidance and constructor, method and assignment hover and diagnostic fixtures; record this proposal in compiler-changes.md.
 ---
 
+<!-- doc-refs: skip-file — a proposal that names TS8053 and the files of its warning, which change 0134 retired and removed -->
+
 ## What changes
 
 Proposal 0036 lets an unannotated function-local `let` or `const` initialized by an integer-written literal take `i32` or `u32` from direct arguments of declared nongeneric functions. Extend the declared contexts that can establish the same demand to constructor arguments, instance and static method arguments, and explicitly typed initialization and simple assignment.

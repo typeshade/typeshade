@@ -21,7 +21,7 @@ transfer to a shader compiler.
 The TypeShade half is a measurement of the tree this document was written against (no later than
 `d5c7305`), and its counts and line references describe that tree: `src/compiler/ts/codes.ts`, for
 one, has since grown from 30 codes to 43 (TS8001 to TS8038 with TS8011 and TS8012 retired, TS8041,
-TS8050 to TS8053, TS8068 and TS8099).
+TS8050 to TS8053, TS8068 and TS8099; change 0134 has since retired the last of that range).
 
 ## Diagnostics
 

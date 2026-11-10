@@ -116,14 +116,13 @@ export interface CompileOptions {
   /** Host sink for `console.*` calls made by CPU/debug evaluation. */
   readonly consoleSink?: ConsoleSink;
   /**
-   * Report DEPRECATION warnings for spellings whose meaning is scheduled to change. One
-   * today: an integer-written literal in a declaration with no annotation or declared integer
-   * use still types as `f32` and will type as `i32` (§13, #148).
+   * Report DEPRECATION warnings for spellings whose meaning is scheduled to change (Rule
+   * 13.10). No window is open today, so the option reports nothing.
    *
    * Off by default, and off is the whole of the compiler's behaviour: the flag adds
    * `category: 'warning'` diagnostics and moves no emitted byte, so `wgsl` and `glsl` are
-   * byte-identical with it on and with it off. It is how a build finds the lines the flip
-   * will move, one release ahead of it.
+   * byte-identical with it on and with it off. It is how a build finds the lines a change of
+   * meaning will move, one release ahead of it.
    */
   readonly deprecations?: boolean;
   /**

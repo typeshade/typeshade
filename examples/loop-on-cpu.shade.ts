@@ -21,14 +21,14 @@ export function halve(xs: array<f32>) {
   let n = xs.length;
   while (n > 1) {
     n = n / 2;
-    xs[n] = 0.;
+    xs[n] = 0;
   }
 }
 
 // R2: a return inside the loop, so whether an iteration runs depends on the ones before it.
 export function firstNegative(xs: array<f32>): i32 {
   for (let i: u32 = 0; i < xs.length; i++) {
-    if (xs[i] < 0.) {
+    if (xs[i] < 0) {
       return i32(i);
     }
   }
@@ -64,6 +64,6 @@ export function counted(xs: array<f32>) {
 export function logged(xs: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     console.log(xs[i]);
-    xs[i] = xs[i] * 2.;
+    xs[i] = xs[i] * 2;
   }
 }

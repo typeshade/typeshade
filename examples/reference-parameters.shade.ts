@@ -58,7 +58,7 @@ function advance(@inout r: Ray, t: f32): void {
 
 /** Bend one weight toward 1, in place. */
 function lift(@inout w: f32, k: f32): void {
-  w = mix(w, 1., k);
+  w = mix(w, 1, k);
 }
 
 /** Bend every weight toward 1, in place: the local function writes through the reference it
@@ -84,11 +84,11 @@ function shrink(@inout column: vec2, k: f32): void {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const xs: array<f32, 3> = [-1., 3., -1.];
-  const ys: array<f32, 3> = [-1., -1., 3.];
+  const xs: array<f32, 3> = [-1, 3, -1];
+  const ys: array<f32, 3> = [-1, -1, 3];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
-  return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
+  return { pos: vec4(p, 0, 1), uv: p * 0.5 + vec2(0.5, 0.5) };
 }
 
 @fragment
@@ -102,9 +102,9 @@ export function fs(v: VsOut): Color {
   advance(r, b - a);
   let w = array<f32, 3>(a, b, 0.5);
   liftAll(w, 0.25);
-  let basis = mat2(1., 0., 0., 1.);
+  let basis = mat2(1, 0, 0, 1);
   shrink(basis[1], 0.5);
   let q: vec2;
   project(basis, v.uv - vec2(0.5, 0.5), q);
-  return { color: vec4(fract(r.origin.x * 3.), w[0] * w[1], w[2] * (1. - length(q)), 1.) };
+  return { color: vec4(fract(r.origin.x * 3), w[0] * w[1], w[2] * (1 - length(q)), 1) };
 }

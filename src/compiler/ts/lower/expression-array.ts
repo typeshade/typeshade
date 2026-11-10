@@ -105,8 +105,7 @@ export function lowerArrayCtor(
  *  message names the explicit form, which settles it.
  *
  *  A bare integer literal is left alone here. It lowers to an `f32` on this surface, so
- *  `array(1, 2, 3)` infers `array<f32, 3>` — the same type `const x = 1` gives, and changing
- *  that is #148's decision, not this one's. */
+ *  `array(1, 2, 3)` infers `array<f32, 3>` — the same type `const x = 1` gives (Rule 5.1). */
 function inferredArray(
   node: ts.Node,
   elements: readonly ts.Expression[],

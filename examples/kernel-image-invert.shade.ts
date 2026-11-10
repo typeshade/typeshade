@@ -20,6 +20,6 @@ export function invert(
 ) {
   for (let i: u32 = 0; i < w * h; i++) {
     const c = textureLoad(src, vec2u(i % w, i / w), 0);
-    textureStore(dst, vec2u(i % w, i / w), vec4(1.0 - c.rgb, c.a));
+    textureStore(dst, vec2u(i % w, i / w), vec4(1 - c.rgb, c.a));
   }
 }

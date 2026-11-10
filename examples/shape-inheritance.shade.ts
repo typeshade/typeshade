@@ -34,7 +34,7 @@ abstract class Shape {
   // Inherited, not overridden: lowered once per concrete class, where `this.sdf` is that
   // class's own.
   coverage(p: vec2): f32 {
-    return 1. - smoothstep(0., 0.02, this.sdf(p));
+    return 1 - smoothstep(0, 0.02, this.sdf(p));
   }
 }
 
@@ -58,7 +58,7 @@ class Square extends Shape {
   }
   sdf(p: vec2): f32 {
     const d: vec2 = abs(p - this.center) - vec2(this.extent);
-    return length(max(d, vec2(0.))) + min(max(d.x, d.y), 0.);
+    return length(max(d, vec2(0))) + min(max(d.x, d.y), 0);
   }
 }
 
@@ -77,21 +77,21 @@ class Ring extends Circle {
 
 @vertex
 export function vs(vi: builtin<"vertex_index">): VsOut {
-  const xs: array<f32, 3> = [-1., 3., -1.];
-  const ys: array<f32, 3> = [-1., -1., 3.];
+  const xs: array<f32, 3> = [-1, 3, -1];
+  const ys: array<f32, 3> = [-1, -1, 3];
   const i = i32(vi);
   const p: vec2 = vec2(xs[i], ys[i]);
-  return { pos: vec4(p, 0., 1.), uv: p };
+  return { pos: vec4(p, 0, 1), uv: p };
 }
 
 @fragment
 export function fs(v: VsOut): vec4 {
-  const circle = new Circle(vec2(-0.45, 0.), 0.3);
-  const square = new Square(vec2(0.45, 0.), 0.26);
-  const ring = new Ring(vec2(0., 0.55), 0.22, 0.05);
+  const circle = new Circle(vec2(-0.45, 0), 0.3);
+  const square = new Square(vec2(0.45, 0), 0.26);
+  const ring = new Ring(vec2(0, 0.55), 0.22, 0.05);
   const lit: vec3 =
     vec3(0.95, 0.42, 0.3) * circle.coverage(v.uv) +
     vec3(0.36, 0.7, 0.98) * square.coverage(v.uv) +
     vec3(0.98, 0.86, 0.4) * ring.coverage(v.uv);
-  return vec4(lit + vec3(0.05, 0.05, 0.08), 1.);
+  return vec4(lit + vec3(0.05, 0.05, 0.08), 1);
 }

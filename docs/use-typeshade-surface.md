@@ -52,7 +52,7 @@ declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
 
 @compute([64, 1, 1])
-export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+export function k(gid: builtin<"global_invocation_id">): void {
   dst[gid.x] = src[gid.x] * camera.fov;
 }
 ```
@@ -486,6 +486,11 @@ export function fs(v: VsOut): Color {
   location, written or given, in the same fields. A host that binds a vertex attribute or a
   render target by a number of its own writes `location<n, T>`, since reordering the fields
   renumbers the ones the compiler gives.
+- The editor's hover shows the same number under the type, written or given:
+  `value between stages at @location(0)` on `uv`, `vertex attribute at @location(1)`,
+  `render target at @location(0)`, and `returns a render target at @location(0)` on a fragment
+  entry with a bare result. A value with no location shows no such line: a built-in value, a
+  field of a struct no entry uses, and a value refused with `TS8010`.
 
 ### What an entry may return
 
@@ -594,7 +599,7 @@ camera / pixels in a function
 class Camera { view, pos }
         → StructDecl + field attrs
 
-gid: builtin<"global_invocation_id", vec3u>
+gid: builtin<"global_invocation_id">
         → entry parameter + builtin metadata
 
 @compute([64]) export function paint(…)
@@ -699,7 +704,7 @@ declare const pixels: storage<array<f32>, "read_write">;
 
 @compute([64, 1, 1])
 export function paint(
-  gid: builtin<"global_invocation_id", vec3u>
+  gid: builtin<"global_invocation_id">
 ) {
   const i = gid.x;
   pixels[i] = pixels[i] + camera.pos.x;
@@ -891,11 +896,11 @@ calls, where both reached WGSL's builtin before.
 "use typeshade";
 
 interface Color {
-  color: location<0, vec4>;
+  color: vec4;
 }
 
 @fragment
-export function fs(p: builtin<"position", vec4>): Color {
+export function fs(p: builtin<"position">): Color {
   if (p.x > 0.5) {
     discard;
   }
@@ -1314,25 +1319,13 @@ Calls through unresolved names or function values and direct calls to generic fu
 do not establish an integer type. A concrete member parameter such as `index: i32` can
 establish a demand inside a generic class; an unresolved parameter such as `index: T` cannot.
 
-**A window is open on the default (#148; the policy it follows is roadmap item 25, the
-deprecation-policy row, and `RELEASING.md` §7).** Everything above is
-about a position or use that DECLARES a type. Where nothing establishes one — `let i = 0`, `const K = 5`
-— the literal still takes `f32`, so `xs[i]` is `Index must be i32 or u32`. WGSL concretizes an
-abstract integer to `i32` when nothing else decides (wgsl.txt:3929-3933, 4100-4104), GLSL's `5`
-is an `int`, and a TypeScript reader expects `let i = 0` to index an array — so that default
-will change. It has NOT changed yet: this release carries the window, not the flip. A build
-that wants to see which of its lines the flip will move asks for the warning, which is off by
-default and moves no emitted byte. A local that already takes an integer type from its declared uses
-does not carry that warning. Unannotated class fields that take this default also carry it,
-including static and readonly fields:
-
-```ts
-compile(source, { deprecations: true });
-// TS8053 (warning): "i" is written as an integer and types as f32 today; it will type as i32
-// (§13, #148). Write "i = 0." to keep f32, or leave it and take i32.
-```
-
-`RELEASING.md` §7 is the policy the window follows and the list of the windows that are open.
+**No window is open on the default.** Everything above is about a position or use that
+DECLARES a type. Where nothing establishes one (`let i = 0`, `const K = 5`), the literal takes
+`f32` today, so `xs[i]` is `Index must be i32 or u32`. Change 0134 decided that a number takes
+its type from every place it reaches, with no default for an author to learn. It supersedes
+#148's flip of this default to `i32` and retired the warning `TS8053`, which announced that <!-- doc-refs: skip — a retired code, named as retired -->
+flip. `compile(source, { deprecations: true })` stays as the mechanism of Rule 13.10 and reports
+nothing until a window opens (`RELEASING.md` §7).
 
 ## 14. TypeScript shapes the parser already had
 
@@ -1865,7 +1858,7 @@ const tint: override<f32> = 0.85;
 declare const bias: override<f32>;
 
 interface Color {
-  color: location<0, vec4>;
+  color: vec4;
 }
 
 @fragment
@@ -1914,7 +1907,7 @@ const WG_SIZE: override<u32> = 64;
 let scratch: workgroup<array<f32, WG_SIZE>>;
 
 @compute([WG_SIZE, 1, 1])
-export function reduce(lid: builtin<"local_invocation_id", vec3u>) {
+export function reduce(lid: builtin<"local_invocation_id">) {
   scratch[lid.x] = 0.;
 }
 ```
@@ -1955,12 +1948,12 @@ return type, a `let`/`const` annotation, or a parameter type.
 "use typeshade";
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 interface FsIn {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 
@@ -1969,7 +1962,7 @@ export function shade(o: FsIn): f32 {
 }
 
 @vertex
-export function vs(i: builtin<"vertex_index", u32>): VsOut {
+export function vs(i: builtin<"vertex_index">): VsOut {
   const p = vec2(0., 0.);
   return { pos: vec4(p, 0., 1.), uv: p }; // the return type says VsOut
 }
@@ -2159,7 +2152,7 @@ declare const verts: storage<array<vec3f>>;
 declare const hits: storage<array<u32>, "read_write">;
 
 @compute([64])
-export function main(gid: builtin<"global_invocation_id", vec3u>): void {
+export function main(gid: builtin<"global_invocation_id">): void {
   let count: u32 = 0;
   for (let t = 0; t < verts.length / 3; t++) {
     if (verts[t * 3].y > f32(gid.x)) {
@@ -2430,7 +2423,7 @@ function store(i: u32): void {
 }
 
 @compute([64, 1, 1])
-export function main_k(gid: builtin<"global_invocation_id", vec3u>): void {
+export function main_k(gid: builtin<"global_invocation_id">): void {
   store(gid.x);
 }
 ```
@@ -2497,7 +2490,7 @@ declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
 
 @compute([64, 1, 1])
-export function scale_all(gid: builtin<"global_invocation_id", vec3u>): void {
+export function scale_all(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= src.length) {
     return;
   }
@@ -2677,7 +2670,7 @@ declare const bins: storage<array<atomic<u32>>, "read_write">;
 declare const summary: storage<Summary, "read_write">;
 
 @compute([64, 1, 1])
-export function histogram(gid: builtin<"global_invocation_id", vec3u>): void {
+export function histogram(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= src.length) {
     return;
   }
@@ -2755,8 +2748,8 @@ function next(): u32 {
 
 @compute([64, 1, 1])
 export function k(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
 ): void {
   tile[lid.x] = src[gid.x];
   dst[gid.x] = tile[lid.x] + f32(next() >> 24);
@@ -2834,9 +2827,9 @@ let tile: workgroup<array<f32, 64>>;
 
 @compute([64, 1, 1])
 export function reduce(
-  gid: builtin<"global_invocation_id", vec3u>,
-  lid: builtin<"local_invocation_id", vec3u>,
-  wid: builtin<"workgroup_id", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  lid: builtin<"local_invocation_id">,
+  wid: builtin<"workgroup_id">,
 ): void {
   tile[lid.x] = src[gid.x];
   workgroupBarrier();
@@ -3083,7 +3076,7 @@ class Particle {
   }
 }
 @compute([64, 1, 1])
-export function k(gid: builtin<"global_invocation_id", vec3u>): void {
+export function k(gid: builtin<"global_invocation_id">): void {
   ps[gid.x].step(0.5);
 }
 ```
@@ -4773,7 +4766,7 @@ declare const acc: texture_storage_2d<"r32float", "read_write">
 declare const ids: texture_storage_2d<"rgba8uint", "write">
 
 @compute([64, 1, 1])
-export function paint(gid: builtin<"global_invocation_id", vec3u>): void {
+export function paint(gid: builtin<"global_invocation_id">): void {
   const at: vec2i = …
   const seen = textureLoad(acc, at)
   textureStore(acc, at, vec4(seen.x + 1., 0., 0., 0.))
@@ -5595,7 +5588,7 @@ declare const t: texture_2d<f32>;
 declare const s: sampler;
 
 @fragment
-export function fs(p: builtin<"position", vec4>): vec4 {
+export function fs(p: builtin<"position">): vec4 {
   const l: i32 = 2;
   return textureSampleLevel(t, s, p.xy, l);
 }
@@ -5647,11 +5640,11 @@ so.)
 declare const total: storage<atomic<u32>, "read_write">;
 
 interface Clip {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
 }
 
 @vertex
-export function vs(i: builtin<"vertex_index", u32>): Clip {
+export function vs(i: builtin<"vertex_index">): Clip {
   const n = atomicAdd(total, 1);
   return { pos: vec4(f32(n), 0., 0., 1.) };
 }
@@ -6502,12 +6495,12 @@ at `requestDevice`.
 "use typeshade";
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   cd: builtin<"clip_distances", array<f32, 4>>; // vertex OUTPUT only, N from 1 to 8
 }
 
 @fragment
-export function fs(pi: builtin<"primitive_index", u32>): vec4 { // fragment INPUT only
+export function fs(pi: builtin<"primitive_index">): vec4 { // fragment INPUT only
   return vec4(f32(pi), 0., 0., 1.);
 }
 ```
@@ -6573,7 +6566,7 @@ requires readonly_and_readwrite_storage_textures;
 **What this deliberately does not reach.** Three rows were settled by measurement against the
 Tint of the Chromium the compile gate runs (2026-09-21):
 
-- `builtin<"global_invocation_index", u32>` and `builtin<"workgroup_index", u32>` are in the WGSL text
+- `builtin<"global_invocation_index">` and `builtin<"workgroup_index">` are in the WGSL text
   and in neither Tint's builtin vocabulary: the module dies with `expected builtin value name`,
   whose own "possible values" list omits both. Admitting them would move the failure further
   from the author, not closer.
@@ -7387,7 +7380,7 @@ front end emits no `diagnostic(...)` directive, and `CompileTsSourceResult` has 
 declare const t: texture_2d<f32>;
 declare const s: sampler;
 interface VsOut {
-  pos: builtin<"position", vec4>;
+  pos: builtin<"position">;
   uv: location<0, vec2>;
 }
 
@@ -7399,7 +7392,7 @@ export function fs(v: VsOut): vec4 {
 ```
 
 `examples/sample-branch.shade.ts` is the gate's evidence for the rewrite: two samples under a
-branch on a `location<0, vec2>` input, in two helpers, both rewritten to `textureSampleGrad`
+branch on a value between stages, `v.uv`, in two helpers, both rewritten to `textureSampleGrad`
 with the gradients computed before the `if`, and compiled on Tint and on ANGLE with no
 `diagnostic(...)` line. A sample under a `uniform` condition sits beside them, left as written.
 `examples/capsule-corp-namek-class.shade.ts` has six derivatives in `Terrain.shade`, under an
@@ -7528,8 +7521,8 @@ debugger keep the source name.
 "use typeshade";
 
 interface Vertex {
-  pos: builtin<"position", vec4>;
-  half: location<0, vec2>; // WGSL keeps `half`; the GLSL spells it `half_` in both stages
+  pos: builtin<"position">;
+  half: vec2; // WGSL keeps `half`; the GLSL spells it `half_` in both stages
 }
 ```
 
@@ -7627,7 +7620,7 @@ function sq(x: f32): f32 {
 }
 
 @compute([64])
-export function main(gid: builtin<"global_invocation_id", vec3u>) {
+export function main(gid: builtin<"global_invocation_id">) {
   const p = vec2(f32(gid.x) / 64., 0.5);
   const weights: array<f32, 4> = [0.1, 0.2, 0.3, 0.4];
   const scaled = weights.map((w, i) => w * f32(i + 1));
@@ -7737,7 +7730,7 @@ declare const xs: storage<array<f32>>;
 declare const out: storage<array<f32>, "read_write">;
 
 @compute([64])
-export function scale(gid: builtin<"global_invocation_id", vec3u>): void {
+export function scale(gid: builtin<"global_invocation_id">): void {
   if (gid.x >= xs.length) {
     return;
   }
@@ -7882,7 +7875,7 @@ export function normal(p: vec2, k: vec4): vec3 {
 }
 
 @fragment
-export function fs(p: builtin<"position", vec4>): vec4 {
+export function fs(p: builtin<"position">): vec4 {
   return vec4(normal(p.xy * 0.01, vec4(1., 0.5, 2., 0.25)) * 0.5 + 0.5, 1.);
 }
 ```
@@ -9066,7 +9059,7 @@ declare const xs: storage<array<f32>>;
 declare const ys: storage<array<f32>, "read_write">;
 
 @compute([WIDTH])
-export function scale(gid: builtin<"global_invocation_id", vec3u>) {
+export function scale(gid: builtin<"global_invocation_id">) {
   if (gid.x >= xs.length) {
     return;
   }
@@ -9209,8 +9202,8 @@ export function planGroups() {
 
 @compute([8])
 export function markGroups(
-  gid: builtin<"global_invocation_id", vec3u>,
-  nw: builtin<"num_workgroups", vec3u>,
+  gid: builtin<"global_invocation_id">,
+  nw: builtin<"num_workgroups">,
 ) {
   if (gid.x < marks.length) {
     marks[gid.x] = nw.x * 1000 + gid.x;
@@ -9275,7 +9268,7 @@ the entry throws, naming why.
 ### Drawing a fragment entry
 
 A fragment entry that reads no builtin but `position` and `front_facing`, and writes one
-`location<0, vec4>` (as its result, or as a struct of that one field), draws one frame into a
+`vec4` at location 0 (as its result, or as a struct of that one field), draws one frame into a
 canvas with a full-screen triangle the runtime supplies:
 
 ```ts
@@ -9399,12 +9392,12 @@ export function fbm(p: vec2): f32 {
 import { fbm } from "./noise.shade.ts";
 
 interface VsOut {
-  pos: builtin<"position", vec4>;
-  uv: location<0, vec2>;
+  pos: builtin<"position">;
+  uv: vec2;
 }
 
 @vertex
-export function vs(vi: builtin<"vertex_index", u32>): VsOut {
+export function vs(vi: builtin<"vertex_index">): VsOut {
   const x = f32(vi & 1) * 4. - 1.;
   const y = f32(vi >> 1) * 4. - 1.;
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
@@ -9610,8 +9603,9 @@ An `'integer'` manifest has no guard; fixed manifests keep the flavor they were 
 
 **An entry** carries its `stage`, its `workgroupSize`, its `inputs` and `outputs` with their
 locations, builtins and interpolation, the `bindings` it reaches through its calls with whether it
-writes each, a vertex entry's `vertex` buffer (its `location<n, T>` inputs, loose or fields of a struct
-parameter, tightly packed with their formats, the layout `reflect().vertex` reports too), and the
+writes each, a vertex entry's `vertex` buffer (its user-defined inputs, the vertex attributes, loose
+or fields of a struct parameter, tightly packed with their formats and each at the location written
+or given by the compiler, the layout `reflect().vertex` reports too), and the
 `line` it is declared on.
 
 **The rest.** `overrides` with their types and defaults; `features`, the `GPUFeatureName`s a device
@@ -10269,7 +10263,7 @@ function advance(@inout r: Ray, t: f32): void {
 }
 
 @compute([64, 1, 1])
-export function main(id: builtin<"global_invocation_id", vec3u>): void {
+export function main(id: builtin<"global_invocation_id">): void {
   let x: f32 = 1.;
   let y: f32 = 2.;
   swap(x, y); // x is 2., y is 1.
@@ -11560,7 +11554,7 @@ function tick(base: vec3f, x: vec3f, spread: f32): vec3f {
 }
 
 @fragment
-export function fs(p: builtin<"position", vec4f>): vec4f {
+export function fs(p: builtin<"position">): vec4f {
   return vec4f(tick(p.xyz, p.zyx, 0.5), 1.);
 }
 ```

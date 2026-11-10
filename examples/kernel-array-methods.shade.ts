@@ -14,7 +14,7 @@
 // of the same function reduces runs on the CPU, so the reduction and its use are two calls.
 
 export function sumOfSquares(xs: array<f32>): f32 {
-  return xs.reduce((a, x) => a + x * x, 0.);
+  return xs.reduce((a, x) => a + x * x, 0);
 }
 
 export function scale(xs: array<f32>, out: array<f32>, k: f32) {
