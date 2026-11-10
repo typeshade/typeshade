@@ -27,21 +27,21 @@
     }
   },
   "typeshade/algorithms": {
-    "bytes": 56681,
+    "bytes": 56827,
     "floor": 19000,
     "split": {
-      "initial": 55861,
+      "initial": 55991,
       "floor": 21700,
-      "total": 55861
+      "total": 55991
     }
   },
   "typeshade/random": {
-    "bytes": 37946,
+    "bytes": 38059,
     "floor": 11500,
     "split": {
-      "initial": 37138,
+      "initial": 37257,
       "floor": 14300,
-      "total": 37138
+      "total": 37257
     }
   }
 }

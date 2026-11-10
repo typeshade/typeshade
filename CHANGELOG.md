@@ -233,6 +233,20 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   `tshc migrate` rewrites neither form: the author deletes `()` or the second attribute. No
   official release accepted the refused forms (OD-6).
 
+- **`exp2` on the CPU has a wider margin under 1 ULP** (change 0042, milestone 1a). The libm's
+  `exp2` took the nearest integer out of its operand and ran its kernel on the rest. It now
+  takes the nearest half-integer out, so the kernel runs on half the range, and an odd
+  half-step multiplies by sqrt(2), held as a head and a tail, in one rounding. On 2,800,000
+  seeded operands the largest error falls from 0.9056 ULP to 0.7873 ULP, and no result is past
+  0.8 ULP where 2,083 were. The operand at which a review measured 0.9282 ULP now measures
+  0.0718 ULP, and `exp2` no longer decreases at the two pairs of operands near -0.4973 and
+  -0.4977. An integer operand still gives the exact power of two, and a half-integer now gives
+  the correctly rounded result. A CPU result of `exp2` may differ from before in the last bit.
+  The caps of `scripts/bundle-budget.json` take the measured gzip sizes: `typeshade/algorithms`
+  single file 56,681 to 56,827 (+146), split initial and total 55,861 to 55,991;
+  `typeshade/random` single file 37,946 to 38,059 (+113), split initial and total 37,138 to
+  37,257. The floors and the other caps do not change.
+
 - **`exp`, `exp2`, `log`, `log2` and `ldexp` on the CPU are the libm's** (change 0042, milestone
   1a, slice 2). The CPU oracle and the CPU tier computed them with the engine's `Math.exp`,
   `Math.log`, `Math.log2` and `**`, whose results ECMAScript leaves to the engine. They now

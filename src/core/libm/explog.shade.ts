@@ -17,8 +17,8 @@
 //
 // The methods are those of fdlibm, as FreeBSD and musl carry them: `e_exp.c`, `e_log.c` and
 // `e_log2.c` with their coefficients, and musl's `scalbn.c` for the scaling. `exp2` is this
-// file's own: the nearest integer taken out, and the kernel of `exp` on the rest times ln 2,
-// held as a head and a tail. The notice of fdlibm:
+// file's own: the nearest half-integer taken out, the kernel of `exp` on the rest times ln 2,
+// held as a head and a tail, and a product by sqrt(2) for an odd half-step. The notice of fdlibm:
 //
 //   Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
 //   Developed at SunSoft, a Sun Microsystems, Inc. business.
@@ -34,6 +34,9 @@ const INVLN2: f64 = 1.44269504088896338700e+00;
 // ln 2 rounded, and the rest rounded.
 const LN2: f64 = 0.6931471805599453;
 const LN2TAIL: f64 = 2.319046813846299616e-17;
+// sqrt(2) rounded, and the rest rounded.
+const SQRT2: f64 = 1.4142135623730951;
+const SQRT2TAIL: f64 = -9.667293313452913e-17;
 // 1 / ln 2 in a head of 32 bits and a tail.
 const IVLN2HI: f64 = 1.44269504072144627571e+00;
 const IVLN2LO: f64 = 1.67517131648865118353e-10;
@@ -142,7 +145,12 @@ export function expF64(x: f64): f64 {
   return 1.0 + x;
 }
 
-/** 2^x for an f64. The error is under 1 ULP, and an integer x gives the exact power. */
+/** 2^x for an f64. The error is under 1 ULP, and an integer x gives the exact power.
+ *
+ *  x = h / 2 + r with h the nearest integer to 2x, so |r| <= 1/4 and the kernel of exp runs on
+ *  |r ln 2| <= ln 2 / 4, half the range of `exp`. h = 2k + j with j 0 or 1. For j = 0 the result
+ *  is 2^k (1 + t). For j = 1 it is 2^k sqrt(2) (1 + t), and the product is one sum of the head of
+ *  sqrt(2) and a small term, so it rounds once. */
 export function exp2F64(x: f64): f64 {
   if (x != x) {
     return x;
@@ -153,10 +161,17 @@ export function exp2F64(x: f64): f64 {
   if (x <= -1075.0) {
     return 0.0;
   }
-  const kf = (x + TOINT) - TOINT;
-  const r = x - kf;
-  const k = __f64ToI32(kf);
+  const hf = (2.0 * x + TOINT) - TOINT;
+  const r = x - hf * 0.5;
+  // h = 2k + j: an arithmetic shift is the floor of h / 2, for a negative h too.
+  const h = __f64ToI32(hf);
+  const k = h >> 1;
+  const odd = (h & 1) == 1;
   if (r == 0.0) {
+    // An integer gives the exact power, and a half-integer sqrt(2) rounded, times the power.
+    if (odd) {
+      return scale(SQRT2, k);
+    }
     return scale(1.0, k);
   }
   // r * ln 2 as a head and a tail: Dekker's exact product by the head of ln 2, and the product
@@ -167,9 +182,17 @@ export function exp2F64(x: f64): f64 {
   const cb = SPLIT * LN2;
   const bh = cb - (cb - LN2);
   const bl = LN2 - bh;
-  const p = r * LN2;
-  const pe = ((ah * bh - p) + ah * bl + al * bh) + al * bl;
-  return scale(kexp(p, -(pe + r * LN2TAIL)), k);
+  const hi = r * LN2;
+  const lo = -((((ah * bh - hi) + ah * bl + al * bh) + al * bl) + r * LN2TAIL);
+  // t = exp(hi - lo) - 1, the kernel of exp without its last sum.
+  const v = hi - lo;
+  const vv = v * v;
+  const c = v - vv * (P1 + vv * (P2 + vv * (P3 + vv * (P4 + vv * P5))));
+  const t = v * c / (2.0 - c) - lo + hi;
+  if (odd) {
+    return scale(SQRT2 + (SQRT2 * t + SQRT2TAIL), k);
+  }
+  return scale(1.0 + t, k);
 }
 
 /** x * 2^n for an f64, correctly rounded. `n` is an `i32`: the builtin's exponent has that type,
