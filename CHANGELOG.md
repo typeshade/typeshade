@@ -2134,6 +2134,30 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **The hover of an imported symbol reads the compiler's type, as a local one does** (Rule
+  12.7). A field, a function, a module constant, a module variable, an override and a binding
+  that another `"use typeshade"` file declares showed TypeScript's quick info in the importing
+  file: `vec2` where the declaring file shows `vec2<f32>`, `(alias) const HALF: 0.5` for
+  `const HALF: f32`, `number` for an instance of a generic function, a binding as its expanded
+  structure with no resource line, and a function without its `@inout` and `@out` qualifiers.
+  The editor now reads such a symbol in the linked program of the hovered file (Rule 3.9), so
+  the type is the one the declaring file shows, with no `(alias)` or `import` line. The name is
+  the one the hovered file writes: `bp` of `import { bump as bp }` reads
+  `function bp(@inout v: f32): void`. Signature help of an imported function shows its
+  qualifiers too. A struct reads by the name the hovered file imports it under, when it has
+  exactly one, and by its declared name otherwise, so a name the linker generated
+  (`lib_Light`, `lib_Stage_VsOut`) no longer shows as a struct's name in a hover, in the
+  importing file's own symbols included. The arguments of an instance of a generic class keep
+  the module's spelling. A call of an overloaded function reads its implementation, with its
+  qualifiers. A
+  function's qualifiers stay on their parameters when a parameter before them takes a
+  function. A generic function or class with two instances in a program keeps TypeScript's
+  quick info at each use, where the hover showed every use the first instance. An override reads the compiler's type
+  in its own file too: `override<bool>` is `const flag: bool`, where it read `boolean`. A
+  method, a getter, a static member and a member of a namespace or of an enum keep
+  TypeScript's quick info across an import.
+  `src/language-service/imported-symbol-hover.test.ts` reads both halves on the same files.
+
 - **A scalar cast of a written number is a value of its type** (Rule 5.3). The front end folded
   an integer-typed expression of literals with ECMAScript doubles, so `f32(u32(7) / 2)` emitted
   `3.5`, `f32(i32(-7) / 2)` emitted `-3.5`, `f32(u32(7) - 8)` emitted `-1.0`,
