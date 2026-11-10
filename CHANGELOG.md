@@ -1926,6 +1926,14 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A module constant with an expression rounds as a function does, in `'f32'` precision**
+  (Rule 11.7). `const X: f32 = 100.7; const S: f32 = sin(X);` gave `S` the value of `sin` on the
+  unrounded 100.7, rounded, on the CPU oracle and the CPU tier in `'f32'` precision, while
+  `sin(X)` in a function read `X` as the `f32` it is, as a GPU does. The two differed in the
+  fifth digit for this `X`. The `'f32'` precision pass rewrote function bodies only; it now
+  rewrites a module constant's expression too. The emitted WGSL and GLSL do not change, and
+  `'f64'` precision does not change.
+
 - **A function an author names `__fround` is called on the CPU** (Rule 9.5). The `'f32'`
   precision pass read the name alone and took a call of such a function for its own rounding
   step, so `__fround(x)` gave `x` rounded on the CPU oracle and the CPU tier, while the emitted
