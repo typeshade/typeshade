@@ -1644,6 +1644,29 @@ describe("an array's size is a use of the value it names (Rule 3.9, Rule 12.7, #
         undefined,
       ],
       [
+        '`export * as ns` beside `export type *` of the same module (only the second exports `N`)',
+        starFrom({
+          '/p/c.shade.ts': `${D}export * as ns from "./a.shade.ts";\nexport type * from "./a.shade.ts";\n`,
+        }),
+        '/p/main.shade.ts:3:39',
+      ],
+      [
+        'an `export *` cycle whose only way out is `export type *`',
+        starFrom({
+          '/p/c.shade.ts': `${D}export * from "./b.shade.ts";\n`,
+          '/p/b.shade.ts': `${D}export * from "./c.shade.ts";\nexport type * from "./a.shade.ts";\n`,
+        }),
+        '/p/main.shade.ts:3:39',
+      ],
+      [
+        'an `export *` cycle with a value way out',
+        starFrom({
+          '/p/c.shade.ts': `${D}export * from "./b.shade.ts";\n`,
+          '/p/b.shade.ts': `${D}export * from "./c.shade.ts";\nexport * from "./a.shade.ts";\n`,
+        }),
+        undefined,
+      ],
+      [
         'a value `export *` beside a type `export type *` of the same module',
         starFrom({
           '/p/c.shade.ts': `${D}export type * from "./a.shade.ts";\nexport * from "./a.shade.ts";\n`,
@@ -1715,6 +1738,88 @@ describe("an array's size is a use of the value it names (Rule 3.9, Rule 12.7, #
       expect(compiled(files).wgsl).toBe(compiled(plain).wgsl);
     }
     expect(linkedSource(programs[0]!)).toContain('type main_N = f32;');
+  });
+
+  it('a renamed re-export of a type-only export sizes no array (`export { N as M }`)', () => {
+    const files: Files = {
+      '/p/main.shade.ts': `${D}import { M } from "./b.shade.ts";\nexport let tile: workgroup<array<f32, M>>;\n${MAIN}`,
+      '/p/b.shade.ts': `${D}export { N as M } from "./c.shade.ts";\n`,
+      '/p/c.shade.ts': `${D}export type { N } from "./a.shade.ts";\n`,
+      '/p/a.shade.ts': `${D}${SIZE}`,
+    };
+    const sentence = SENTENCE.replace('"N"', '"M"');
+    expect(errorsOf(files)).toEqual([`/p/main.shade.ts:3:39 TS8002 ${sentence}`]);
+    expect(typeshadeOf(edited(files))).toEqual([`TS8002 ${sentence}`]);
+    expect(checkStatus(files)).toBe(1);
+  });
+
+  it('a cycle through a named re-export gives one verdict wherever the walk enters (N1)', () => {
+    // `c` exports `N` as a type and through `b`, and `b` exports `N` back from `c`. TypeScript
+    // refuses the program (TS2308, TS2303). A way that comes back to a module on the walk
+    // brings no value, so the size is refused from either module.
+    const between = (entry: string): Files => ({
+      '/p/main.shade.ts': `${D}import { N } from "./${entry}.shade.ts";\n${TILE}${MAIN}`,
+      '/p/c.shade.ts': `${D}export type * from "./a.shade.ts";\nexport * from "./b.shade.ts";\n`,
+      '/p/b.shade.ts': `${D}export { N } from "./c.shade.ts";\n`,
+      '/p/a.shade.ts': `${D}${SIZE}`,
+    });
+    for (const entry of ['c', 'b']) {
+      const files = between(entry);
+      expect(errorsOf(files)).toEqual([`/p/main.shade.ts:3:39 TS8002 ${SENTENCE}`]);
+      expect(typeshadeOf(edited(files))).toEqual([`TS8002 ${SENTENCE}`]);
+      expect(checkStatus(files)).toBe(1);
+    }
+  });
+
+  it('a sentence names a type as its file writes it, not as the linker writes it (Rule 12.5)', () => {
+    // F1: a field whose array size names nothing. The linker writes the size `main_N`; the
+    // index of the field still names `array<f32, N>`, as one file does.
+    const g = 'export function g(): f32 {\n  return 1.;\n}\n';
+    const field =
+      'interface S { a: array<f32, N> }\nexport declare const s: storage<S, "read_write">;\n' +
+      '@compute([1]) export function main() { s.a[0] = g(); }\n';
+    const one: Files = { '/p/main.shade.ts': `${D}${g}${field}` };
+    const files: Files = {
+      '/p/main.shade.ts': `${D}import { g } from "./lib.shade.ts";\n${field}`,
+      '/p/lib.shade.ts': `${D}${g}`,
+    };
+    const index = 'TS8003 Cannot index array<f32, N>.';
+    expect(errorsOf(one).map((line) => line.slice(line.indexOf(' ') + 1))).toEqual([
+      `TS8002 ${SENTENCE}`,
+      index,
+    ]);
+    expect(errorsOf(files)).toEqual([
+      `/p/main.shade.ts:3:29 TS8002 ${SENTENCE}`,
+      `/p/main.shade.ts:5:40 ${index}`,
+    ]);
+    expect(typeshadeOf(edited(files))).toEqual([`TS8002 ${SENTENCE}`, index]);
+    expect(checkStatus(files)).toBe(1);
+    // F2: a generic type alias the linker renames, because an imported override takes `N`.
+    const generic: Files = {
+      '/p/main.shade.ts': `${D}${IMPORT}type N<T> = vec2<T>;\nexport function h(x: N<f32>): f32 { return x.x; }\n${MAIN}`,
+      '/p/lib.shade.ts': LIB,
+    };
+    const sentence = 'TS8002 Type arguments are not supported yet (got "N<...>").';
+    expect(errorsOf(generic)).toEqual([`/p/main.shade.ts:4:22 ${sentence}`]);
+    expect(typeshadeOf(edited(generic))).toEqual([sentence]);
+    expect(checkStatus(generic)).toBe(1);
+  });
+
+  it("an entry's type alias leaves an imported struct its own name (N2, the owner, 2026-11-10)", () => {
+    // `main` was the first to name `Light`, so the struct of `lib` was emitted `lib_Light`. A
+    // type alias now names itself last, so the struct keeps `Light`, as in one file. The owner
+    // accepted the change of this host-visible name as an improvement.
+    const files: Files = {
+      '/p/main.shade.ts': `${D}import { s } from "./lib.shade.ts";\ntype Light = f32;\nexport function h(x: Light): Light { return x; }\n@compute([1]) export function main() { s.a = h(1.); }\n`,
+      '/p/lib.shade.ts': `${D}export interface Light { a: f32 }\nexport declare const s: storage<Light, "read_write">;\n`,
+    };
+    expect(errorsOf(files)).toEqual([]);
+    expect(editedEach(files)).toEqual([]);
+    expect(checkStatus(files)).toBe(0);
+    const r = compiled(files);
+    expect(r.wgsl).toContain('struct Light {');
+    expect(r.wgsl).not.toContain('lib_Light');
+    expect(linkedSource(files)).toContain('type main_Light = f32;');
   });
 
   describe('an override two files declare is one diagnostic (Rule 12.4)', () => {

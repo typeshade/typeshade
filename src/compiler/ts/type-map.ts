@@ -1396,7 +1396,9 @@ function mapGeneric(
     diagnostics,
     sourceFile,
     typeNode,
-    `Type arguments are not supported yet (got "${name}<...>").`,
+    `Type arguments are not supported yet (got "${
+      ts.isIdentifier(typeNode.typeName) ? writtenName(typeNode.typeName) : name
+    }<...>").`,
   );
   return undefined;
 }

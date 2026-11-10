@@ -929,13 +929,16 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     return module !== undefined && exportedTypeOnly(module, name, seen) === true;
   };
   /** How `module` exports `name`: `true` when every way it does is type-only, `false` when one
-   *  way is a value, as TypeScript reads a value use; `undefined` when it does not export it. */
+   *  way is a value, as TypeScript reads a value use; `undefined` when it does not export it.
+   *  A way that comes back to a module already on the walk is a cycle, which TypeScript refuses
+   *  (TS2303, TS2308) and which brings no value: it counts as type-only, so the verdict does not
+   *  depend on the module the walk starts from. */
   const exportedTypeOnly = (
     module: ts.Symbol,
     name: string,
     seen: Set<ts.Symbol>,
   ): boolean | undefined => {
-    if (seen.has(module)) return undefined;
+    if (seen.has(module)) return true;
     seen.add(module);
     const own = module.exports?.get(ts.escapeLeadingUnderscores(name));
     if (own !== undefined) return importsTypeOnly(own, seen);
