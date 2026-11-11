@@ -20,6 +20,8 @@ import {
 import { fitsTarget, foldNumericLit, retargetIntLit } from './lit-coerce.js';
 import { authorTypeText } from './context.js';
 import { wrapInt } from '../../core/passes/opt/expr-utils.js';
+import { abstractLiteralOf } from './abstract-const.js';
+import { noteDemand } from './use-inference.js';
 
 export const SCALAR_CAST: Readonly<Record<string, ShaderType>> = {
   f32: f32T,
@@ -53,6 +55,7 @@ function stripParens(node: ts.Expression): ts.Expression {
  *  scalar peer behaves as before). Against an emulated double — a `vec64` or, since #151, a
  *  scalar `f64` — it is {@link retargetF64Lit}. */
 export function retargetLit(expr: Expr, node: ts.Expression, peer: ShaderType): Expr {
+  noteDemand(expr, peer);
   if (isF64(peer) || isVec64(peer)) return retargetF64Lit(expr, node);
   return retargetIntLit(expr, node, literalPeerType(peer));
 }
@@ -68,6 +71,13 @@ export function retargetLit(expr: Expr, node: ts.Expression, peer: ShaderType): 
  *  type mismatch with nothing an author could write instead (#151 F64-02). An explicit call
  *  such as `f32(0.1)` is left alone: it says which precision it means. */
 function retargetF64Lit(expr: Expr, node: ts.Expression): Expr {
+  // A constant of no fixed type beside an `f64` carries the full double, as the written number
+  // does (Rule 5.2, change 0134 item 2); where it does not become one it is left as lowered.
+  const abstract = abstractLiteralOf(expr);
+  if (abstract !== undefined) {
+    const lifted = retargetF64Lit(abstract, node);
+    return lifted.op === 'lit' && isF64(lifted.type) ? lifted : expr;
+  }
   const folded = foldNumericLit(expr);
   if (folded.op !== 'lit' || typeof folded.value !== 'number') return folded;
   if (typeKey(folded.type) !== 'f32') return folded;
@@ -339,7 +349,9 @@ export function lowerScalarCast(
   if (v !== undefined) {
     if (name !== 'f32' && !Number.isFinite(v)) return `${name}() needs a finite number.`;
     if (name !== 'f32') {
-      const truncated = Math.trunc(v);
+      // `+ 0` turns the `-0` of `u32(-0.1)` into the `0` the integer has: an integer type has
+      // no negative zero.
+      const truncated = Math.trunc(v) + 0;
       // An INT -> INT conversion is never out of range. It is a bit reinterpretation, which
       // both targets perform and agree on: measured, `u32(-1i)` compiles on Tint and is
       // 4294967295, and GLSL ES 3.00 compiles `uint(-1)` and answers 4294967295 too. What

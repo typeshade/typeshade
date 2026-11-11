@@ -1010,7 +1010,10 @@ expression body applies one of those operators (`ERASING_OPERATORS`, so `return 
 `vec3b`), and whose type is one of the same vectors or matrices, or a scalar (`f32`, `i32`,
 `u32`, `f64`), which TypeScript types `number` where the front end has a brand (0015's class B:
 `get period() { return this.r * 2. }`). An arrow function's one bare parameter gets parentheses
-too, `(x): vec2 => x * k`. And a class field with an initializer and no annotation, static or not,
+too, `(x): vec2 => x * k`. The front end does not read an inserted return type as the author's (change 0134,
+`hasNoWrittenResult`): a function declaration, an arrow function or a function expression still
+infers its result, in the order `compile()` lowers it, and a method's or a getter's result still
+carries a constant's origin. And a class field with an initializer and no annotation, static or not,
 private or not, whose front-end type is a scalar gets its type after its name: `#width: f32 =
 0.05`, `static readonly MIN_WIDTH: f32 = 0.01`, which TypeScript would type `number` and the
 literal `0.01`. A local keeps the vector-and-matrix rule above: hover answers for a local from

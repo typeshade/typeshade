@@ -284,6 +284,104 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **A function-local `let` of a written number takes its type from its uses** (change 0134,
+  items 1 and 3, part 4a; Rule 5.1, surface §13; `docs/owner-decisions.md` OD-7). An
+  unannotated `let` initialized by integer-written numbers, by a constant of no fixed type that
+  is one, or by `+ - * /` over those, takes the type its uses give it: an operator beside a typed
+  peer, a builtin's typed argument, a constructor argument, an arm of a conditional, a field of
+  an object literal, a bitwise or shift operand, an index, a `switch` selector, an assignment or
+  a compound assignment from a typed value, a `return` in a function with a declared result, an
+  argument of a declared parameter, the uses of a counter that starts at it, and another such
+  value. The values of a module are solved together, so the order of the lines does not matter.
+  Where no use decides, the value is the `f32` it always was. The counter of a `for` that is not
+  counted is such a `let` (Amendment A1); a counted `for` keeps Rule 7.5. A function that writes
+  no result type and returns a value over a function-local constant returns the type that value
+  had: `function g() { const k = 7; h(k); return k; }` returns a `u32`.
+  **Newly accepted**, each refused before: `let n = 0; n += vi;` (a `u32`),
+  `let n = 7; return f32(vi / n);`, `let j = 0; xs[j]`, `let f = 0; f | 4`, and an open `for`
+  whose counter an `f32` uses (`let a = 0; for (let j = 0; ; j++) { a += j; … }`). With
+  pull request #1184's constants, `let y = k;` with `vi + y`, `xs[y]`, `h(y)` and `switch (y)`,
+  `xs[g()]`, and a counter started through `let y = k` or `g()`, compile as they did before #1184.
+  **Newly refused** (`TS8003`): a `/` or `/=` whose operands are all integers by inference,
+  as for a constant: `let k = 7; h(k); return f32(k / 2);` computed 3 and is refused with
+  `Write "let k: u32 = 7" for the integer division.`; `let k = 7; h(k); k /= 2;` too.
+  `vi / k` with a declared `u32` `vi` stays an integer division. A `/` over the counter of an
+  open `for` that no use gives a type is refused too (the owner's decision of 2026-11-11):
+  `for (let j = 0; ; j++) { a += f32(j / 2); if (j > 5) { break; } }` computed 9 and is refused
+  with `Write "f32(j) / 2" for the float division.`; `let j: i32 = 0` keeps the 9.
+  A counted `for` whose start or bound is such a `let` counts in the type the `let`'s other uses
+  give it: `let n = 0; n += vi; for (let j = 0; j < n; j++)` counts in `u32`.
+  **Values that change:** a `let` whose use is an `f64` is an `f64`: with `const K = 16777217;`,
+  `let j = K; return d * j;` (`d: f64`) multiplies by 16777217 where it multiplied by the `f32` 16777216. A function result over a function-local constant has its type from before change
+  0134 again, so the item 2 entry's function-result rows go back: `f32(g() - 8)` is 4294967295
+  and `f32(g() * 1000000000)` is 2705032704, as before item 2.
+- **A `const` of a written number has no fixed type; each read takes the type the written number
+  would take there** (change 0134 item 2; Rules 5.1 and 5.2, surface §12 and §13;
+  `docs/owner-decisions.md` OD-7). It covers a module `const`, a function-local `const` and a
+  static field that no code writes, with no annotation, whose initializer is written numbers or
+  `+ - * /` over written numbers and such constants. `const K = 3; vi * K` is `vi * 3u`, `x * K`
+  is an `f32` product, and `const N = 8; for (let j = 0; j < N; j++)` compiles. The emitted
+  declaration stays `const K: f32 = 3.0;`, and an `f32` read names it. No official release
+  carried the old meaning, so the change takes effect with no warning release (OD-6).
+  **Values that change** in the emitted WGSL and GLSL, and on the CPU oracle in `'f32'`
+  precision, each through a conversion or beside an `f64`, where the constant was rounded to
+  `f32` before:
+  - `const PRIME = 2654435761; vi * u32(PRIME)` multiplied by 2654435840 and multiplies by 2654435761.
+  - `const K = 16777217; vi + u32(K)` added 16777216 and adds 16777217.
+  - `const K = -16777219; i32(K)` read -16777220 and reads -16777219.
+  - `class S { static K = 16777217; }` with `u32(S.K)` read 16777216 and reads 16777217.
+  - `const K = 7; x * (K / 3)` with `x: f64` carried the `f32` quotient 2.3333332538604736 and
+    carries the double of 7 / 3. `const M = K / 3;` beside an `f64` does the same.
+  - `const C = 0.1;` beside an `f64` carried the `f32` value 0.10000000149011612 and carries the
+    double 0.1, as the written `x * 0.1` does.
+  - On the CPU oracle in `'f64'` precision (`compile().eval`), the rule is: a read of a module
+    constant by its name carried the double the author wrote before this change, and a value
+    the front end folded from the constant at compile time carried its `f32` rounding. So the
+    rows above read the same value there, and a value moves exactly where the front end folded
+    such a read: `const C = 0.1; const D: f64 = C;` read 0.10000000149011612 and reads 0.1, and
+    `const K = 4294967295; u32(K)` read 4294967040 and reads 4294967295.
+  - Arithmetic other than `/` over a value that comes from a constant that another line reads as
+    an integer has the written number's value, where it was integer arithmetic before
+    (Amendment A2, "규칙대로 두고 기록"): with `function h(a: u32): u32`,
+    `const k = 7; h(k); f32(k - 8)` was 4294967295 and is -1, and `f32(k * 1000000000)` was
+    2705032704 and is 7000000000. The same holds through a function result:
+    `function g() { const k = 7; h(k); return k; }` with `f32(g() - 8)` was 4294967295 and is -1.
+
+  **Newly refused** (`TS8003`): a `/` or `/=` whose operands have no declared type, one of which
+  carries the origin of a constant of no fixed type that some read makes an integer, in this
+  file or in a file that imports it (Amendment A3, "보수적 추적 규칙"). A value carries that
+  origin through every expression and binding (an operator, a builtin, `as`, `!`, a
+  conditional, a member, a derived constant, a `let` or a pattern binding, a variable that a
+  closure captures, a generic function's parameter, the start of a loop counter, and the result
+  of a function, a method, a getter or a closure that writes no result type) and loses it only
+  at a declared type, a typed constructor (`vec3u(k, 1, 2)`) included (Amendment A4). A float-written literal or constant in either operand makes a
+  float division, which is accepted (`6.283185307179586 / N`, `(N * 0.5) / 2`). A counter
+  whose start carries such a constant keeps the type it had: the `f32` of a module constant,
+  and the `u32` that `h(k)` gives a function-local `k` for `for (let j = k + 1; …)`. With
+  `function h(a: u32): u32`, `const k = 7; h(k); return f32(k / 2);` emitted `3.0`,
+  `const k = 7; const r = h(k); return r + k / 2;` emitted `r + 3u`, and
+  `const k = 7; h(k); return xs[k / 2];` emitted `xs[3u]`. `vi / k` with a declared `u32` `vi`
+  stays an integer division, and `x / N` with a declared `f32` `x` a float one. A conversion to
+  `i32` or `u32` is such a read too: `const K = 7; return f32(u32(K)) + f32(K / 2);` is refused.
+  So is a `/` over a call of `function g() { const k = 7; h(k); return k; }`: `f32(g() / 2)` was
+  3 and is refused, as is the same through a method, a getter, a closure and a `let`. With
+  `function id<T>(a: T): T`, `f32(id(k) / 2)` was 3 and is refused (Amendment A4), and so are
+  `const [a, b] = [k, 1]; f32(a / 2)` and `let w = 3; f32((k + w) / 2)` (refused on `main` as
+  a mismatch). With `const K = 8;`, `let j: u32 = K / 2; let i: u32 = K / 2;` refuses both:
+  each quotient is the other's other read (Amendment A4; the owner's decision of 2026-11-11, "A4대로
+  거부 유지"). The sentence names an edit the compiler has checked: where none compiles, the
+  program holds another mistake, and a mismatch around the `/` stays only where that edit leaves
+  it, so the mistake is one diagnostic (Rule 12.4). Uses that are no division are refused where
+  the written number is refused: with `const k = 7; h(k);`, `f32(~k)`, `f32((k | 1) >> 1)` and
+  `f32((k % 4) >> 1)` compiled (`k` was a `u32`) and are refused, as `~7` and `(7 | 1) >> 1`
+  are; `f32(~(k << 1))` was 4294967281 and is -15, the written number's `i32` value.
+  **Migration:** to keep an `f32` constant, write its type (`const K: f32 = 16777217`). For a
+  refused `/`, make the edit the sentence names: the constant's type where an integer position
+  reads the quotient (`const k: u32 = 7`), or the constant converted elsewhere (`f32(k) / 2`). One more program
+  changes: `f64(K)` on `const K = 1e38` is the written `f64(1e38)`, so `f64(K) * 4.` folds to a
+  double the emulation cannot hold and is refused as the written form is; write
+  `const K: f32 = 1e38` to keep the run-time product.
+
 - **An imported struct keeps its name beside an entry's type alias of that name** (#1194, pull
   request #1200). The linker names a type alias last, since it emits nothing. A program whose
   entry writes `type Light = f32;` and imports a file that declares `interface Light` emitted the

@@ -7,7 +7,15 @@ import type { ShaderType } from '../../core/ir/types.js';
 import { f64T, isF64 } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
+import { noteDemand } from './use-inference.js';
 import { TS_CODES } from './codes.js';
+import {
+  abstractLiteralOf,
+  abstractTreeOf,
+  isIntegerWrittenRead,
+  noteIntegerContext,
+  noteIntegerRead,
+} from './abstract-const.js';
 import { foldIntLit, intElemOf, wrapInt } from '../../core/passes/opt/expr-utils.js';
 
 export function isIntegerLiteralNode(node: ts.Expression): boolean {
@@ -15,7 +23,9 @@ export function isIntegerLiteralNode(node: ts.Expression): boolean {
   if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) {
     return isIntegerLiteralNode(node.operand);
   }
-  return ts.isNumericLiteral(node) && isIntegerWritten(node);
+  // A read of a constant of no fixed type stands where its written number could (item 2 of
+  // change 0134).
+  return (ts.isNumericLiteral(node) && isIntegerWritten(node)) || isIntegerWrittenRead(node);
 }
 
 /** Whether a numeric literal is written as an integer (Rule 5.1): `1`, `0x9e3779b9`, `0b1011`,
@@ -120,6 +130,35 @@ export function foldNumericLit(expr: Expr): Expr {
 }
 
 export function retargetIntLit(expr: Expr, node: ts.Expression, peer: ShaderType): Expr {
+  // A value whose type its uses decide takes this peer's type, as a written number does: the
+  // use is recorded, and the next pass lowers the value with it (`use-inference.ts`).
+  noteDemand(expr, peer);
+  // A read of a constant of no fixed type, or arithmetic over such reads and written numbers,
+  // takes an integer peer's type as the written number would (Rule 5.1, change 0134 item 2).
+  // Beside anything else it is left as lowered, so an `f32` read keeps the constant's name.
+  // An integer position asks an integer of a `/` inside what it reads (`xs[k / 2]`,
+  // `r + y / 2`), whether or not a literal is kept: the refusal of that `/` names the integer edit.
+  if (isIntScalar(peer)) noteIntegerContext(node, typeKey(peer) === 'u32' ? 'u32' : 'i32');
+  const abstract = abstractLiteralOf(expr);
+  if (abstract !== undefined && abstract.op === 'lit' && typeof abstract.value === 'number') {
+    if (!isIntScalar(peer)) return expr;
+    const kind = typeKey(peer) === 'u32' ? 'u32' : 'i32';
+    const tree = abstractTreeOf(node);
+    if (
+      tree === undefined ||
+      !tree.integerWritten ||
+      !Number.isInteger(abstract.value) ||
+      !fitsTarget(abstract.value, peer)
+    )
+      return expr;
+    // The literal is kept, so this is a read of the constant as an integer.
+    noteIntegerRead(node, kind);
+    return { op: 'lit', type: peer, value: abstract.value };
+  }
+  return retargetWrittenIntLit(expr, node, peer);
+}
+
+function retargetWrittenIntLit(expr: Expr, node: ts.Expression, peer: ShaderType): Expr {
   const folded = foldNumericLit(expr);
   if (folded.op !== 'lit' || typeof folded.value !== 'number') return folded;
   if (!isIntScalar(peer)) return folded;
@@ -141,7 +180,8 @@ function stripParens(node: ts.Expression): ts.Expression {
  *  keeps whatever mismatch it had. */
 function retargetF64DeclaredLit(expr: Expr, node: ts.Expression): Expr {
   if (ts.isCallExpression(stripParens(node))) return expr;
-  const folded = foldNumericLit(expr);
+  // A constant of no fixed type read in a declared `f64` position carries the full double.
+  const folded = foldNumericLit(abstractLiteralOf(expr) ?? expr);
   if (folded.op !== 'lit' || typeof folded.value !== 'number') return expr;
   if (typeKey(folded.type) !== 'f32') return expr;
   return { op: 'lit', type: f64T, value: folded.value };
@@ -170,6 +210,10 @@ function retargetF64DeclaredLit(expr: Expr, node: ts.Expression): Expr {
  *  A conditional is retargeted through its arms, so `c ? 1 : 2` in a u32 position is a
  *  `select` of two u32 literals rather than a select of two f32 ones. */
 export function retargetIntLitCtx(expr: Expr, node: ts.Expression, target: ShaderType): Expr {
+  noteDemand(expr, target);
+  // An integer position asks an integer of a `/` inside what it reads (`let j: u32 = k / 2`,
+  // `h((k % 4) / 2)`): the refusal of that `/` names the integer edit (change 0134).
+  if (isIntScalar(target)) noteIntegerContext(node, typeKey(target) === 'u32' ? 'u32' : 'i32');
   // A DECLARED f64 is the one non-integer context that retypes a literal, and for the same
   // reason the integer contexts do: the type is stated, so the written number means a value
   // of it. `const k: f64 = 0.1` lowered `0.1` to an f32 and then reported "cannot let/const k
@@ -247,7 +291,7 @@ export function outOfRangeIntLit(
     );
   }
   if (!isIntegerLiteralTree(inner)) return undefined;
-  const folded = foldNumericLit(expr);
+  const folded = foldNumericLit(abstractLiteralOf(expr) ?? expr);
   if (folded.op !== 'lit' || typeof folded.value !== 'number') return undefined;
   if (!Number.isInteger(folded.value) || fitsTarget(folded.value, target)) return undefined;
   return { value: folded.value, node: inner };

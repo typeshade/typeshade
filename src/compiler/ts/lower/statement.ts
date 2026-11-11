@@ -2,6 +2,30 @@
 //
 // Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
 
+import {
+  carriedOf,
+  decidedType,
+  inferenceConflict,
+  noteIntegerUse,
+  noteStoredType,
+  useInferenceActive,
+  type InferredValue,
+} from '../use-inference.js';
+import {
+  abstractConstFor,
+  abstractLiteralOf,
+  abstractTreeOf,
+  carriedBy,
+  hasNoWrittenResult,
+  markCarriedRead,
+  noteAbstractDivision,
+  noteCarriedReturn,
+  originOf,
+  withReadTypes,
+  noteIntegerRead,
+  type Carried,
+  type AbstractConst,
+} from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import { foldIndexConst } from '../index-bound.js';
 import ts from 'typescript';
@@ -21,6 +45,7 @@ import {
   writableRemedy,
   writeRules,
   type Binding,
+  writtenText,
 } from '../context.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { parseSwizzle } from '../swizzle.js';
@@ -77,6 +102,8 @@ import {
   retargetLit,
 } from '../numeric.js';
 import {
+  fitsTarget,
+  intLiteralRangeMessage,
   retargetDeclaredIntLit,
   retargetIntLitCtx,
   reportIntLitRange,
@@ -89,18 +116,55 @@ import {
   lowerInferredBindingArray,
   refuseListSpread,
 } from './expression-array.js';
-import { lowerFor, lowerForOf, lowerSwitch, lowerUpdate, lowerWhile } from './control.js';
+import {
+  lowerFor,
+  lowerForOf,
+  lowerSwitch,
+  lowerUpdate,
+  lowerWhile,
+  mainReadTypes,
+} from './control.js';
 import { refusedBySemantics } from '../semantic.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
 import { localNumericInference } from '../local-numeric-inference.js';
-import { foldNumericLit } from '../lit-coerce.js';
+import { foldNumericLit, isIntegerLiteralTree } from '../lit-coerce.js';
 import { constShiftAmountOutOfRange, foldConstComponents, foldConstValue } from '../loop-bound.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
 import { unknownNameSentence } from '../unknown-names.js';
 import { publicFieldNames } from './expression-prop.js';
 import { recordOf } from '../key-types.js';
+
+/** The value an assignment to `left` writes, when its uses have not decided its type yet. */
+function undecidedTarget(left: ts.Expression, scope: LoweringScope): InferredValue | undefined {
+  const inner = ts.isParenthesizedExpression(left) ? left.expression : left;
+  if (!ts.isIdentifier(inner)) return undefined;
+  const value = scope.resolve(inner.text)?.inferred;
+  return value !== undefined && value.type === undefined ? value : undefined;
+}
+
+/** Whether `node` is integer-written numbers, constants of no fixed type that are, and `+ - *`,
+ *  `/` and a unary minus over them: the initializer of a `let` its uses type (change 0134). */
+function writtenIntegerTree(node: ts.Expression, scope: LoweringScope): boolean {
+  if (ts.isParenthesizedExpression(node)) return writtenIntegerTree(node.expression, scope);
+  if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) {
+    return writtenIntegerTree(node.operand, scope);
+  }
+  if (ts.isIdentifier(node)) return scope.resolve(node.text)?.abstract?.integerWritten === true;
+  if (ts.isBinaryExpression(node)) {
+    const k = node.operatorToken.kind;
+    return (
+      (k === ts.SyntaxKind.PlusToken ||
+        k === ts.SyntaxKind.MinusToken ||
+        k === ts.SyntaxKind.AsteriskToken ||
+        k === ts.SyntaxKind.SlashToken) &&
+      writtenIntegerTree(node.left, scope) &&
+      writtenIntegerTree(node.right, scope)
+    );
+  }
+  return isIntegerLiteralTree(node);
+}
 
 const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusEqualsToken]: '+',
@@ -249,7 +313,29 @@ function lowerStatementKind(
     const contextual =
       scope.returnType() ?? entryResultStruct(node.expression, sourceFile, scope, diagnostics);
     if (contextual === null) return undefined;
-    const expr = lowerExpression(node.expression, sourceFile, scope, diagnostics, contextual);
+    let expr = lowerExpression(node.expression, sourceFile, scope, diagnostics, contextual);
+    // A function that writes no result type and returns a value over a function-local constant
+    // returns the type that value had on `main`, where the constant took an integer type from
+    // its declared uses (changes 0036 and 0037): `function g() { const k = 7; h(k); return k; }`
+    // returns a `u32`, as it did, so `xs[g()]` and `vi + g()` compile. The return is lowered
+    // again with each such constant read at that type, as a counter's start is (Amendment A4
+    // of change 0134, "`main`과 같이 u32 유지").
+    if (expr && scope.inferredReturn() !== undefined && contextual === undefined) {
+      const builtin = (callee: string): boolean =>
+        scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined;
+      const origin = originOf(node.expression, builtin);
+      const onMain =
+        origin !== undefined && origin.reaches.length > 0
+          ? mainReadTypes(origin.reaches, sourceFile)
+          : undefined;
+      if (onMain !== undefined) {
+        const scratch: TsCompilerDiagnostic[] = [];
+        const again = withReadTypes(onMain, () =>
+          lowerExpression(node.expression!, sourceFile, scope, scratch),
+        );
+        if (again !== undefined && scratch.length === 0) expr = again;
+      }
+    }
     if (!expr) {
       // A refused optional return already has a diagnostic. Preserve its control-flow exit
       // during recovery so it does not also become a missing-return error. No erroneous
@@ -259,6 +345,25 @@ function lowerStatementKind(
       return inner === undefined
         ? undefined
         : { s: 'return', expr: absentOf(ret!, inner, (n) => scope.structByName(n)) };
+    }
+    // A function that writes no result type and returns a value that comes from a constant of
+    // no fixed type hands that origin to each call of it (Amendment A3 of change 0134).
+    // The language service writes the inferred `: f32` into the text it analyses; that
+    // annotation is not the author's (`hasNoWrittenResult`).
+    const owner = scope.owner();
+    const ownerNode = scope.ownerNode();
+    if (
+      owner !== undefined &&
+      ownerNode !== undefined &&
+      (scope.inferredReturn() !== undefined || hasNoWrittenResult(ownerNode, sourceFile))
+    ) {
+      noteCarriedReturn(
+        sourceFile,
+        owner.name,
+        node.expression,
+        (callee) =>
+          scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined,
+      );
     }
     // `return g()` where `g` returns nothing calls it and returns nothing, as TypeScript does;
     // neither target has a value for it to hand back.
@@ -577,11 +682,44 @@ function lowerDeclarationKind(
     return undefined;
   }
   let annotated: ShaderType | undefined;
-  if (decl.type === undefined) {
+  // A `const` of written numbers is a constant of no fixed type (change 0134 item 2): each read
+  // takes its own type, so the declared uses give the declaration none.
+  const writtenConst =
+    isConst &&
+    decl.type === undefined &&
+    decl.initializer !== undefined &&
+    abstractTreeOf(decl.initializer) !== undefined;
+  // A `let` of an integer-written literal, or of a constant of no fixed type that is one, takes
+  // its type from its uses (Rule 5.1, change 0134 item 1): from its declared uses (changes 0036
+  // and 0037), or from the decision an earlier pass of this compile settled
+  // (`use-inference.ts`). Undecided, it is the `f32` the compiler chooses, and each read records
+  // what its use asks.
+  let inferredValue: InferredValue | undefined;
+  if (decl.type === undefined && !writtenConst) {
     const inferred = localNumericInference(decl, sourceFile);
     annotated = inferred?.type;
     if (inferred?.conflict !== undefined) {
       pushDiag(diagnostics, sourceFile, decl.name, inferred.conflict, TS_CODES.TYPE_MISMATCH);
+    }
+    const candidate =
+      !isConst &&
+      decl.initializer !== undefined &&
+      writtenIntegerTree(decl.initializer, scope) &&
+      useInferenceActive(sourceFile);
+    if (candidate && inferred?.conflict === undefined) {
+      if (annotated === undefined) {
+        const conflict = inferenceConflict(sourceFile, decl);
+        if (conflict !== undefined) {
+          pushDiag(diagnostics, sourceFile, decl.name, conflict, TS_CODES.TYPE_MISMATCH);
+        }
+        annotated = decidedType(sourceFile, decl);
+      }
+      inferredValue = {
+        decl,
+        name,
+        written: writtenText(decl.initializer!).replace(/\s+/g, ' '),
+        ...(annotated !== undefined ? { type: annotated } : {}),
+      };
     }
   }
   if (decl.type) {
@@ -775,8 +913,14 @@ function lowerDeclarationKind(
       diagnostics,
       sourceFile,
       decl,
-      numericMismatch(`let/const ${name}`, annotated, init.type) +
-        scope.inheritanceNote(annotated, init.type),
+      // The uses gave the type, so the sentence says so: the author wrote no integer here.
+      decl.type === undefined && inferredValue !== undefined
+        ? `"${name}" is ${typeKey(annotated) === 'i32' ? 'an' : 'a'} ${typeKey(annotated)} by its ` +
+            `uses, and its value "${inferredValue.written ?? ''}" is not one. Write the type, ` +
+            `"let ${name}: ${authorTypeText(init.type)} = ${inferredValue.written ?? '...'}", ` +
+            `and convert the uses that need ${typeKey(annotated)}.`
+        : numericMismatch(`let/const ${name}`, annotated, init.type) +
+            scope.inheritanceNote(annotated, init.type),
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -805,6 +949,21 @@ function lowerDeclarationKind(
     aliasOf,
     decl.name,
     isConst ? foldIndexConst(init, scope) : undefined,
+    isConst && decl.type === undefined
+      ? abstractConstFor(name, decl.name, decl.initializer)
+      : undefined,
+    // `let y = k` has no declared type either: a `/` over `y` reaches `k` (Amendment A2).
+    decl.type === undefined
+      ? carriedBy(
+          isConst ? 'const' : 'let',
+          name,
+          decl.initializer,
+          bindingType,
+          (callee) =>
+            scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined,
+        )
+      : undefined,
+    inferredValue,
   );
   if (!bound) return undefined;
   // The statement carries the IR name, `p_1` for a `p` that shadows or follows another `p` in
@@ -1207,6 +1366,24 @@ function lowerPatternInto(
       )
     )
       return false;
+    // A name a pattern binds carries the origin of what it reads, as a `let` does (Amendment
+    // A3, "every binding"): the element of a written array, or else the whole source.
+    const written = unwrapParens(decl.initializer!) as ts.Expression;
+    const from =
+      array && ts.isArrayLiteralExpression(written) && pattern === decl.name
+        ? written.elements[index]
+        : written;
+    const carries =
+      decl.type === undefined && from !== undefined && !ts.isSpreadElement(from)
+        ? carriedBy(
+            isConst ? 'const' : 'let',
+            element.name.text,
+            from,
+            read.type,
+            (callee) =>
+              scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined,
+          )
+        : undefined;
     const bound = defineLocal(
       element.name.text,
       read.type,
@@ -1218,6 +1395,9 @@ function lowerPatternInto(
       diagnostics,
       undefined,
       element.name,
+      undefined,
+      undefined,
+      carries,
     );
     if (!bound) return false;
     const ir = irNameOf(bound);
@@ -1305,6 +1485,9 @@ function defineLocal(
   aliasOf?: string,
   nameNode: ts.Node = decl.name,
   indexConstValue?: number,
+  abstract?: AbstractConst,
+  carries?: Carried,
+  inferred?: InferredValue,
 ): Binding | undefined {
   let bound: Binding;
   try {
@@ -1316,6 +1499,9 @@ function defineLocal(
       constValue,
       indexConstValue,
       ...(aliasOf !== undefined ? { aliasOf } : {}),
+      ...(abstract !== undefined ? { abstract } : {}),
+      ...(carries !== undefined ? { carries } : {}),
+      ...(inferred !== undefined ? { inferred } : {}),
     });
   } catch (e) {
     pushDiag(
@@ -1641,6 +1827,8 @@ function lowerAssign(
   // did through lowerAssignOp.
   value = retargetIntLitCtx(value, right, want);
   value = reportIntLitRange(value, right, want, sourceFile, diagnostics) ?? value;
+  // `k = vi` gives a value its uses decide the type of what it stores (change 0134 item 1).
+  noteStoredType(undecidedTarget(left, scope), value, value.type);
   if (typeKey(want) !== typeKey(value.type)) {
     pushDiag(
       diagnostics,
@@ -1705,6 +1893,8 @@ function lowerBitwiseAssignOpTo(
   }
   const k = typeKey(target.type);
   if (k !== 'i32' && k !== 'u32') {
+    // `f |= 4` makes a value its uses decide an integer (change 0134 item 1).
+    noteIntegerUse(undecidedTarget(left, scope));
     pushDiag(
       diagnostics,
       sourceFile,
@@ -1728,8 +1918,13 @@ function lowerBitwiseAssignOpTo(
   // Folded first, so a leading minus is part of the number: `y |= -2` reaches here as a unop
   // over a literal, which the `op === 'lit'` retype below never matched, and the author was
   // told their i32 target could not take an f32.
-  const folded = foldNumericLit(value);
+  // A constant of no fixed type is read as its written number (change 0134 item 2).
+  const folded = foldNumericLit(
+    abstractTreeOf(right)?.integerWritten === true ? (abstractLiteralOf(value) ?? value) : value,
+  );
   if (folded.op === 'lit' && typeof folded.value === 'number' && Number.isInteger(folded.value)) {
+    // `n |= K` reads a constant of no fixed type as the target's integer.
+    if (folded !== value) noteIntegerRead(right, typeKey(want) === 'u32' ? 'u32' : 'i32');
     if (folded.value < 0 && (isShift || typeKey(want) === 'u32')) {
       pushDiag(
         diagnostics,
@@ -1738,6 +1933,19 @@ function lowerBitwiseAssignOpTo(
         isShift
           ? shiftAmountMessage(folded.value)
           : `Bitwise "${bop}=" on a u32 target needs a non-negative value, got ${String(folded.value)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
+    // A constant of no fixed type that the target's integer cannot hold is refused with §13's
+    // sentence, as a written number in a declared position is; it never reaches the writer as an
+    // out-of-range literal (`n ^= K` with `K = 4294967295` on an `i32`).
+    if (folded !== value && !isShift && !fitsTarget(folded.value, want)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        right,
+        intLiteralRangeMessage(folded.value, want),
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
@@ -1817,6 +2025,20 @@ function lowerAssignOpTo(
   // `s += h.k` with an optional nothing narrowed: the test to write (Rule 7.10, change 0093).
   if (!isOptional(target.type) && refuseOptionalUse(value, right, sourceFile, diagnostics))
     return undefined;
+  // `y /= 2` on a variable that carries a constant of no fixed type is a `/` over it
+  // (Amendment A2 of change 0134): recorded, and refused once the module's reads are known.
+  if (bop === '/' && ts.isBinaryExpression(left.parent)) {
+    const inner = ts.isParenthesizedExpression(left) ? left.expression : left;
+    if (ts.isIdentifier(inner)) {
+      const bound = scope.resolve(inner.text);
+      markCarriedRead(target, inner, carriedOf(bound?.carries, bound?.inferred));
+    }
+    noteAbstractDivision(
+      left.parent,
+      sourceFile,
+      (callee) => scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined,
+    );
+  }
   // The same refusal `a / b` gets in lowerBinary (#68): a divisor proven zero is undefined on
   // every invocation, and `x /= 0.` is the same program as `x = x / 0.`.
   if ((bop === '/' || bop === '%') && foldConstComponents(value, scope)?.some((v) => v === 0)) {
@@ -1829,7 +2051,15 @@ function lowerAssignOpTo(
     );
     return undefined;
   }
-  if (value.op === 'lit' && typeof value.value === 'number' && isNumericScalar(target.type)) {
+  if (abstractLiteralOf(value) !== undefined && isNumericScalar(target.type)) {
+    // `n += K` with a constant of no fixed type: the read takes the target's integer type, as
+    // the written number does, and keeps the constant's name beside an `f32` (change 0134).
+    value = retargetLit(value, right, target.type);
+  } else if (
+    value.op === 'lit' &&
+    typeof value.value === 'number' &&
+    isNumericScalar(target.type)
+  ) {
     value = { op: 'lit', type: target.type, value: value.value };
   } else if (isVec(target.type) || isVec64(target.type) || isF64(target.type)) {
     // `v *= 2` with an integer vector target types the literal as the element kind; a
@@ -1837,6 +2067,8 @@ function lowerAssignOpTo(
     // vec64 or f64 target makes the literal an f64 so the full double reaches the fp64 pass.
     value = retargetLit(value, right, target.type);
   }
+  // `n += vi` gives a value its uses decide the type of what it adds (change 0134 item 1).
+  noteStoredType(undecidedTarget(left, scope), value, value.type);
   if (typeKey(target.type) !== typeKey(value.type)) {
     // `v += s` with a vector target and a scalar of its element kind follows the same
     // broadcast rule as `v + s`; the result must still be the target's own type.

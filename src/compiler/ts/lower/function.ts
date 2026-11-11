@@ -2,6 +2,7 @@
 //
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
+import { hasNoWrittenResult, moduleAbstractConst, noteCarriedReturn } from '../abstract-const.js';
 import { attributeDecoratorsOf, isTypeDecorator } from '../attribute-types.js';
 import { variableRefused } from '../refused-names.js';
 import { moduleVarSourceName } from '../module-var-names.js';
@@ -732,7 +733,7 @@ export function lowerSourceFunctions(
     });
   };
   for (const r of ready) {
-    if (r.node.type !== undefined || r.stub.stage !== undefined) continue;
+    if (!hasNoWrittenResult(r.node, sourceFile) || r.stub.stage !== undefined) continue;
     // Lowered outside any instance of a generic function, wherever the call that asks is.
     pendingFill.set(r.stub, () => {
       withTypeArguments(undefined, () => fillReady(r, true));
@@ -1810,8 +1811,13 @@ export function lowerSourceFunctions(
   for (const r of ready) {
     if (pendingFill.has(r.stub)) runPending(r.stub);
     // An entry that writes no return type returns what its body does (Rule 8.19, change 0136).
-    else if (r.node.type !== undefined || r.stub.stage !== undefined)
-      fillReady(r, r.node.type === undefined);
+    else if (!hasNoWrittenResult(r.node, sourceFile) || r.stub.stage !== undefined)
+      fillReady(
+        r,
+        r.stub.stage === undefined
+          ? hasNoWrittenResult(r.node, sourceFile)
+          : r.node.type === undefined,
+      );
   }
   fillLifted(lifted, sourceFile, diagnostics);
   // Once every body is lowered, the instances and the functions written as arguments among
@@ -2852,7 +2858,15 @@ export function parseSignature(
   if (!params) return undefined;
   // A function that writes no return type says it in its body (Rule 8.19); an entry's is its
   // output, which its signature declares.
-  const ret = parseReturnType(node.type, sourceFile, diagnostics, structs, stageInfo.stage);
+  // A result type the editor's projection wrote is not the author's (change 0134): the
+  // function infers it, as `compile()` reads the same text.
+  const ret = parseReturnType(
+    stageInfo.stage === undefined && hasNoWrittenResult(node, sourceFile) ? undefined : node.type,
+    sourceFile,
+    diagnostics,
+    structs,
+    stageInfo.stage,
+  );
   if (!ret) return undefined;
   // A stage output of an emulated double is a varying or a render-target write (#151 F64-09).
   if (
@@ -3171,6 +3185,9 @@ export function functionScope(
       // a division by zero to the constant folder (#68). The initializer rides along instead.
       constValue: c.type.kind === 'scalar' ? c.cpuValue : undefined,
       indexConstValue: moduleIndexConst(c, scope),
+      ...(moduleAbstractConst(sourceFile, c.name) !== undefined
+        ? { abstract: moduleAbstractConst(sourceFile, c.name) }
+        : {}),
       ...(c.type.kind !== 'scalar' && c.valueExpr !== undefined ? { valueExpr: c.valueExpr } : {}),
     });
   }
@@ -3595,6 +3612,16 @@ export function fillFunctionBody(
           : lowerArrowValue(node.body, stub, sourceFile, scope, diagnostics)
         : lowerStatements((node.body as ts.Block).statements, sourceFile, scope, diagnostics);
   if (inferRet === true) recordName();
+  // An expression body is the function's one `return`: a value that comes from a constant of no
+  // fixed type hands its origin to each call (Amendment A3 of change 0134), as a `return` does.
+  if (ts.isArrowFunction(node) && !ts.isBlock(node.body) && hasNoWrittenResult(node, sourceFile)) {
+    noteCarriedReturn(
+      sourceFile,
+      stub.name,
+      node.body,
+      (callee) => scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined,
+    );
+  }
   // A path that ends a function with an optional result without a `return` is the absent
   // value, as TypeScript reads the end of the body (Rule 7.10, change 0099): the return is
   // appended here, with the same value `return undefined;` lowers to. A plain function's
