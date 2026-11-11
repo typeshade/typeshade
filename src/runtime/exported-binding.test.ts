@@ -15,7 +15,7 @@ import { hostFace } from '../compiler/ts/host-face.js';
 import { compile } from '../compiler/ts/compile.js';
 import { createTypeshadeLanguageService } from '../language-service/service.js';
 import { tscDiagnostics } from '../core/testing/tsc-diagnostics.js';
-import { createDevice, texture } from '../runtime.js';
+import { createDevice, texture, uniform, zeros } from '../runtime.js';
 import { defaultDevice } from './default-device.js';
 import { dirtyRange, markClean, type Buffer, type Uniform } from './resource.js';
 import type { f32, vec3 } from './host-types.js';
@@ -37,6 +37,14 @@ export class Camera {
 export class Particle {
   pos: vec3 = vec3(0.);
   life: f32 = 0.;
+}
+
+/** Named like the accessor's own members, and no exported binding's class (TS8079). */
+export class Loose {
+  set: f32 = 0.;
+}
+export class Owned {
+  needsUpdate: f32 = 0.;
 }
 
 /** What every frame's shaders read. */
@@ -87,17 +95,159 @@ describe('an exported binding is read by both halves (Rule 6.1)', () => {
 
   it('the view declares a uniform and a sized storage array of a class as resources', () => {
     const f = face();
-    expect(f.view).toContain('export declare const camera: Uniform<Camera>;');
-    expect(f.view).toContain('export declare const ps: Buffer<Particle>;');
+    expect(f.view).toContain(
+      "export declare const camera: Omit<Uniform<Camera>, 'dispose' | keyof Disposable>;",
+    );
+    expect(f.view).toContain(
+      "export declare const ps: Omit<Buffer<Particle>, 'dispose' | keyof Disposable>;",
+    );
     // A storage array with no size is a resource whose length the host sets (Amendment A3,
     // `unsized-storage.test.ts`). No class to lay out by: a scalar stays a binding with its reason.
-    expect(f.view).toContain('export declare const all: Buffer<Particle>;');
+    expect(f.view).toContain(
+      "export declare const all: Omit<Buffer<Particle>, 'dispose' | keyof Disposable>;",
+    );
     expect(f.view).toContain(
       'it is a resource binding, and only a uniform of a class and a storage array of a class are host resources at milestone 1 of change 0138, so it is no host resource yet',
     );
     expect(f.view).toContain('export declare const scale: never;');
     // The calls do not change at milestone 1: the entry takes the binding's value as before.
     expect(f.view).toContain('readonly camera: Camera;');
+  });
+
+  it('HostFace.exports reports each resource as the view declares it (Amendment A5, D6)', () => {
+    const f = face();
+    const of = (name: string) => f.exports.find((e) => e.name === name);
+    expect(of('camera')).toEqual({ kind: 'resource', name: 'camera', cls: 'Camera' });
+    expect(of('ps')).toEqual({ kind: 'resource', name: 'ps', cls: 'Particle', length: 4 });
+    expect(of('all')).toEqual({ kind: 'resource', name: 'all', cls: 'Particle', length: null });
+    expect(of('scale')).toMatchObject({ kind: 'never' });
+  });
+});
+
+const RESERVED = `"use typeshade";
+
+export class Inner {
+  set: f32 = 0.;
+}
+
+export class Base {
+  needsUpdate: f32 = 0.;
+}
+
+export class Camera extends Base {
+  pos: vec3 = vec3(0.);
+  dispose: u32 = 0;
+  inner: Inner = new Inner();
+}
+
+export class Particle {
+  set: f32 = 0.;
+  dispose: f32 = 0.;
+}
+
+export declare const camera: uniform<Camera>;
+declare const ps: storage<array<Particle>, "read_write">;
+export { ps as particles };
+declare const quiet: uniform<Camera>;
+
+@compute([1])
+export function step(id: builtin<"global_invocation_id">) {
+  ps[0].dispose = camera.pos.x + quiet.pos.x;
+}
+`;
+
+/** TS8079's text for field `field` of the binding `binding`, a `host` in the host. */
+const reserved = (field: string, kind: string, binding: string, host: string): string =>
+  `"${field}" is named like the host accessor's own ${kind} "${field.split('.')[1]!}": "${binding}" is a binding the module exports, a ${host} in the host, whose fields are properties of that accessor. Rename the field (Rule 6.1).`;
+
+/** The 1-based line of the first line of `source` that starts with `text` after `after`. */
+const lineOf = (source: string, after: string, text: string): number => {
+  const lines = source.split('\n');
+  const from = lines.findIndex((l) => l.startsWith(after));
+  return lines.findIndex((l, i) => i > from && l.trim().startsWith(text)) + 1;
+};
+
+// Verifies: Rule 6.1
+describe('a field named like a member of the host accessor (TS8079, Amendment A5, D3)', () => {
+  // In the order of the fields' declarations, where each refusal stands.
+  const expected = [
+    reserved('Inner.set', 'method', 'camera', 'Uniform<Camera>'),
+    // An inherited field is named in the class that declares it, where the author renames it.
+    reserved('Base.needsUpdate', 'property', 'camera', 'Uniform<Camera>'),
+    reserved('Camera.dispose', 'method', 'camera', 'Uniform<Camera>'),
+    // A binding exported under another name is named as the host imports it.
+    reserved('Particle.set', 'method', 'particles', 'Buffer<Particle>'),
+  ].map((m) => ['TS8079', m]);
+  const lines = [
+    lineOf(RESERVED, 'export class Inner', 'set:'),
+    lineOf(RESERVED, 'export class Base', 'needsUpdate:'),
+    lineOf(RESERVED, 'export class Camera', 'dispose:'),
+    lineOf(RESERVED, 'export class Particle', 'set:'),
+  ];
+
+  it('is refused on the field, with the same code, text and place in both halves', () => {
+    const r = compile(RESERVED, { fileName: 'scene.shade.ts' });
+    // A binding the module does not export (`quiet`) and a storage element's `dispose` are no
+    // host accessor's members, so neither is refused; a field two bindings reach, once.
+    expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual(expected);
+    expect(r.diagnostics.map((d) => d.line)).toEqual(lines);
+    const ls = createTypeshadeLanguageService();
+    ls.openDocument('scene.shade.ts', RESERVED);
+    const found = ls.getDiagnostics('scene.shade.ts');
+    expect(found.map((d) => [d.code, d.message])).toEqual(expected);
+    expect(found.map((d) => d.range.start.line + 1)).toEqual(lines);
+  });
+
+  it.each([
+    [
+      'a class the module does not export',
+      'class Cam',
+      'its type Cam is no class the module exports',
+    ],
+    ['an abstract class', 'export abstract class Cam', 'its class Cam is abstract'],
+  ])('is not refused on a binding of %s, which is no host resource', (_, head, why) => {
+    const source = `"use typeshade";
+
+${head} {
+  pos: vec3 = vec3(0.);
+  dispose: f32 = 0.;
+  set: f32 = 0.;
+}
+
+export declare const camera: uniform<Cam>;
+`;
+    expect(compile(source, { fileName: 'scene.shade.ts' }).diagnostics).toEqual([]);
+    const ls = createTypeshadeLanguageService();
+    ls.openDocument('scene.shade.ts', source);
+    expect(ls.getDiagnostics('scene.shade.ts')).toEqual([]);
+    // The host face reads the binding with the same predicate: it is no resource.
+    const f = hostFace(source, { fileName: '/app/scene.shade.ts', runtime: RUNTIME });
+    expect(f.exports?.find((e) => e.name === 'camera')).toMatchObject({ kind: 'never' });
+    expect(f.view).toContain(why);
+  });
+
+  it('is accepted with the fields renamed, and on a class no exported binding holds', () => {
+    const renamed = RESERVED.replace(/\bset: f32/g, 'value: f32')
+      .replace('needsUpdate: f32', 'stale: f32')
+      .replace('dispose: u32', 'freed: u32');
+    expect(compile(renamed, { fileName: 'scene.shade.ts' }).diagnostics).toEqual([]);
+    const ls = createTypeshadeLanguageService();
+    ls.openDocument('scene.shade.ts', renamed);
+    expect(ls.getDiagnostics('scene.shade.ts')).toEqual([]);
+    // SOURCE's `Loose` and `Owned` hold the names, and no exported binding holds either class.
+    const ls2 = createTypeshadeLanguageService();
+    ls2.openDocument('scene.shade.ts', SOURCE);
+    expect(ls2.getDiagnostics('scene.shade.ts')).toEqual([]);
+  });
+
+  it('the runtime keeps its TypeError for a class the host passes', async () => {
+    const m = await load();
+    const make = uniform as (cls: unknown) => unknown;
+    const many = zeros as (cls: unknown, n: number) => { readonly length: number };
+    expect(() => make(m.Loose)).toThrow(TypeError);
+    expect(() => make(m.Owned)).toThrow(TypeError);
+    expect(() => many(m.Loose, 1)).toThrow(TypeError);
+    expect(many(m.Owned, 1).length).toBe(1);
   });
 });
 
@@ -174,22 +324,38 @@ describe('a host program over the view types the exported bindings', () => {
     dirs.push(dir);
     writeFileSync(join(dir, 'scene.shade.ts'), SOURCE);
     writeFileSync(join(dir, 'scene.shade.typeshade.ts'), f.view);
-    const head = `import { createDevice, texture, type Buffer, type Uniform } from ${JSON.stringify(PUBLIC.replace(/\.ts$/, '.js'))};\nimport { camera, ps, scale, Camera, Particle } from './scene.shade.ts';\n`;
+    const head = `import { array, createDevice, texture, uniform, zeros, type Buffer, type Uniform } from ${JSON.stringify(PUBLIC.replace(/\.ts$/, '.js'))};\nimport { camera, ps, scale, Camera, Particle, Loose, Owned } from './scene.shade.ts';\n`;
     const lines = [
       'camera.pos.set(0, 2, 5);',
       'camera.set({ time: 1 });',
       'camera.time.set("x");',
-      'const c: Uniform<Camera> = camera;',
-      'const p: Buffer<Particle> = ps;',
+      'const c: Omit<Uniform<Camera>, "dispose" | keyof Disposable> = camera;',
+      'const p: Omit<Buffer<Particle>, "dispose" | keyof Disposable> = ps;',
       'ps.at(0).life.set(1);',
       'camera = c;',
+      // An exported binding lives as long as its module (Amendment A5, D7); a uniform the host
+      // makes is disposable, by `dispose()` and by `using` (D4).
+      'const u: Uniform<Camera> = camera;',
+      'camera.dispose();',
+      '{ using own = uniform(Camera); own.time.set(1); }',
+      '{ using own = camera; }',
+      // A class whose field is named like a member of the accessor (D3).
+      'uniform(Loose);',
+      'uniform(Owned);',
+      'zeros(Loose, 1);',
+      'zeros(Owned, 1);',
+      'array(Loose, []);',
+      // A generic wrapper must pass the class as the parameter's own type: for a `T` the checker has
+      // not resolved, the refusal of D3 stays unresolved, and the call is TS2345.
+      'const wrap = <T extends object>(c: abstract new (...args: never) => T) => uniform(c);',
+      'const wrapped = <T extends object>(c: Parameters<typeof uniform<T>>[0]) => uniform(c);',
       'scale.length;',
       'const device = await createDevice();',
       '{ using _ = device.use(); texture({ size: [1, 1], format: "rgba8unorm" }); }',
       'device.use().dispose();',
     ];
     const app = join(dir, 'app.ts');
-    writeFileSync(app, `${head}${lines.join('\n')}\nexport { c, p };\n`);
+    writeFileSync(app, `${head}${lines.join('\n')}\nexport { c, p, u, wrap, wrapped };\n`);
     const found = await tscDiagnostics([app], {
       strict: true,
       noEmit: true,
@@ -216,10 +382,21 @@ describe('a host program over the view types the exported bindings', () => {
       'camera.pos.set(0, 2, 5);: ',
       'camera.set({ time: 1 });: ',
       'camera.time.set("x");: TS2345',
-      'const c: Uniform<Camera> = camera;: ',
-      'const p: Buffer<Particle> = ps;: ',
+      'const c: Omit<Uniform<Camera>, "dispose" | keyof Disposable> = camera;: ',
+      'const p: Omit<Buffer<Particle>, "dispose" | keyof Disposable> = ps;: ',
       'ps.at(0).life.set(1);: ',
       'camera = c;: TS2632',
+      'const u: Uniform<Camera> = camera;: TS2322',
+      'camera.dispose();: TS2339',
+      '{ using own = uniform(Camera); own.time.set(1); }: ',
+      '{ using own = camera; }: TS2850',
+      'uniform(Loose);: TS2345',
+      'uniform(Owned);: TS2345',
+      'zeros(Loose, 1);: TS2345',
+      'zeros(Owned, 1);: ',
+      'array(Loose, []);: TS2769',
+      'const wrap = <T extends object>(c: abstract new (...args: never) => T) => uniform(c);: TS2345',
+      'const wrapped = <T extends object>(c: Parameters<typeof uniform<T>>[0]) => uniform(c);: ',
       'scale.length;: TS2339',
       'const device = await createDevice();: ',
       '{ using _ = device.use(); texture({ size: [1, 1], format: "rgba8unorm" }); }: ',

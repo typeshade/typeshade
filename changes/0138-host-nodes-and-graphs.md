@@ -803,6 +803,26 @@ sits under it.
   `exports`.
 - Status: `status: accepted` does not change.
 
+### A6. The deviations of milestone 3's first pull request (2026-11-11)
+
+- [fact] Pull request [#1231](https://github.com/typeshade/typeshade/pull/1231) carries out D1 to
+  D7 of Amendment A5. Its independent review found three differences from A5's words.
+- [decision, owner, 2026-11-11] D3 on the host side. A5 says the editor reports `TS8079` on a
+  host's `uniform(Class, …)` or `zeros(Class, n)`. A host file is TypeScript, so the editor
+  reports TypeScript's `TS2345` (`TS2769` for `array`), and the second line of its text names
+  `TS8079` and the field. Asked which holds, the owner chose "TS2345 안의 TS8079 문구로 수용".
+  The alternatives were a plugin that reports `TS8079` itself, or a runtime error only. Cost
+  recorded: a generic wrapper that passes any class to `uniform` no longer type-checks.
+- [decision, owner, 2026-11-11] D3's reach and place. #1231 refuses the names on `array(…)` too,
+  and refuses `set` at any depth of a struct, as the runtime does. It placed the diagnostic on the
+  binding. Asked which holds, the owner chose "범위는 수용, 위치는 필드로 옮김": the wider reach
+  stands, and `TS8079` stands on the field's declaration. The alternatives were to keep both, or
+  to narrow the reach to A5's words.
+- [fact] The text of Rules 6.1 and 8.21 for D3 and for calls on resources goes in its own pull
+  request. Its Doorstop items are reviewed by a person after the owner reads the text.
+- Affects: D3. No front-matter entry changes.
+- Status: `status: accepted` does not change.
+
 ## What it owes downstream
 
 - **typeshade.github.io** (`typeshade/web`, `apps/typeshade`). Every host page and Playground

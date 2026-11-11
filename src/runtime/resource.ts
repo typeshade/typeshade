@@ -9,15 +9,18 @@
 // Each uniform and storage resource is a byte range of the one region of `runtime/region.ts`.
 // A field is reached through its accessor: `camera.pos.set(0, 2, 5)`, `ps.at(i).vel.set(v)`,
 // `camera.set({ view, proj })`. `set` checks each number, compares it with what the view holds,
-// writes only a changed one, and then raises the resource's dirty flag and widens its dirty byte
-// range (R8). It allocates nothing. `get` returns the field's typed view, `Readonly`; a host that
-// writes through it sets `needsUpdate = true`. Each accessor makes its typed view once, and again
-// only when the region's generation moved (a compaction or a replaced buffer, Amendment A1).
+// writes only a changed one, and then marks its bytes dirty: a uniform widens its one dirty range
+// (R8), and a storage array keeps a dirty range for each element written, joined into one past
+// `DIRTY_RANGE_LIMIT` (R9; Amendment A5, D2). It allocates nothing. `get` returns a scalar field's
+// number (an `f64` its joined number), and the typed view of a vector, a matrix or an array field,
+// `Readonly` (R8; Amendment A5, D1); a host that writes through a view sets `needsUpdate = true`.
+// Each accessor makes its typed view once, and again only when the region's generation moved (a
+// compaction or a replaced buffer, Amendment A1).
 //
 // The layout is the compiler's: the generated module puts each exported class's layouts on the
 // class under `Symbol.for('typeshade.layout')` (`classModule` in `compiler/ts/host-face.ts`), so
-// the runtime computes no layout itself. At milestone 1 no call takes a resource yet: the upload
-// of a dirty range at submission is milestone 3 (R2), which reads `dirtyRange` below.
+// the runtime computes no layout itself. No call takes a resource yet: the upload of the dirty
+// ranges at submission is a later part of milestone 3 (R2), which reads `dirtyRanges` below.
 //
 // Like the rest of `typeshade/runtime` it imports no compiler.
 
@@ -83,7 +86,16 @@ interface Slot {
   range: Range;
 }
 
-/** What every accessor of one resource shares: its range, its dirty range and its name. */
+/**
+ * How many dirty ranges a storage array keeps before it joins them into one (change 0138,
+ * Amendment A5, D2). Each range is one upload call at a submission (`writeBuffer` on WebGPU,
+ * `bufferSubData` on WebGL2), and each call costs about as much as the bytes of a few elements.
+ * Past 16 calls, a host that wrote scattered elements uploads one range from the first written
+ * byte to the last instead: fewer calls for more bytes. Not API: a test reads it.
+ */
+export const DIRTY_RANGE_LIMIT = 16;
+
+/** What every accessor of one resource shares: its range, its dirty ranges and its name. */
 class Core {
   readonly region: Region;
   readonly slot: Slot;
@@ -91,25 +103,61 @@ class Core {
   readonly name: string;
   /** How to make it again, for an error after `dispose()`. */
   readonly remedy: string;
-  dirty = true;
-  lo = 0;
-  hi: number;
+  /** The bytes of one element of a storage array, whose dirty ranges are kept for each element
+   *  written (R9); 0 for a uniform, whose one dirty range is widened (R8). */
+  readonly stride: number;
+  /** The dirty byte ranges, relative to the resource's start: `[from, to)` pairs, sorted, with no
+   *  two that overlap or touch. Made once, so that `set` allocates nothing (R7). */
+  readonly #r: Float64Array;
+  /** How many pairs of {@link #r} are dirty ranges. */
+  #n = 0;
   /** The bytes the resource's value takes of its range, which is rounded up. */
   bytes: number;
 
-  constructor(region: Region, bytes: number, name: string, remedy: string) {
+  constructor(region: Region, bytes: number, name: string, remedy: string, stride = 0) {
     this.region = region;
     this.slot = { region, range: region.allocate(bytes) };
     this.name = name;
     this.remedy = remedy;
     this.bytes = bytes;
+    this.stride = stride;
+    this.#r = new Float64Array(stride > 0 ? 2 * (DIRTY_RANGE_LIMIT + 1) : 2);
     // A new resource has never been uploaded: all of it is dirty.
-    this.hi = this.range.size;
+    this.markAll();
   }
 
   /** The resource's range now. A resize gives the resource another one (Amendment A3). */
   get range(): Range {
     return this.slot.range;
+  }
+
+  /** Whether the resource holds a change not yet uploaded. */
+  get dirty(): boolean {
+    return this.#n > 0;
+  }
+
+  /** The dirty ranges, as `[from, to)` pairs relative to the resource's start. */
+  ranges(): (readonly [number, number])[] {
+    const out: (readonly [number, number])[] = [];
+    for (let i = 0; i < this.#n; i++) out.push([this.#r[2 * i]!, this.#r[2 * i + 1]!]);
+    return out;
+  }
+
+  /** The bytes from the first dirty byte to the last, or undefined when it is clean. */
+  span(): { readonly from: number; readonly to: number } | undefined {
+    return this.#n === 0 ? undefined : { from: this.#r[0]!, to: this.#r[2 * this.#n - 1]! };
+  }
+
+  /** Mark the whole range dirty, as one range. */
+  markAll(): void {
+    this.#r[0] = 0;
+    this.#r[1] = this.range.size;
+    this.#n = 1;
+  }
+
+  /** Mark the resource clean, after its dirty ranges were uploaded. */
+  clean(): void {
+    this.#n = 0;
   }
 
   /** Give the resource a zeroed range of `bytes` that keeps the first `keep` bytes of the one it
@@ -125,9 +173,7 @@ class Core {
     this.region.free(old);
     this.slot.range = next;
     this.bytes = bytes;
-    this.dirty = true;
-    this.lo = 0;
-    this.hi = next.size;
+    this.markAll();
   }
 
   /** Throw when the resource was freed: a freed range may be another resource's now. */
@@ -138,16 +184,53 @@ class Core {
       );
   }
 
-  /** Raise the dirty flag and widen the dirty range to `[from, to)` bytes of the resource. */
+  /** Mark bytes `[from, to)` of the resource dirty. A uniform widens its one range (R8). A storage
+   *  array marks each element the bytes reach, and joins ranges that overlap or touch; when it
+   *  holds more than {@link DIRTY_RANGE_LIMIT}, it joins them all into one (R9, D2). */
   mark(from: number, to: number): void {
-    if (!this.dirty) {
-      this.dirty = true;
-      this.lo = from;
-      this.hi = to;
+    const r = this.#r;
+    const st = this.stride;
+    if (st > 0) {
+      from = Math.floor(from / st) * st;
+      to = Math.ceil(to / st) * st;
+    }
+    let n = this.#n;
+    if (n === 0) {
+      r[0] = from;
+      r[1] = to;
+      this.#n = 1;
       return;
     }
-    if (from < this.lo) this.lo = from;
-    if (to > this.hi) this.hi = to;
+    if (st === 0) {
+      if (from < r[0]!) r[0] = from;
+      if (to > r[1]!) r[1] = to;
+      return;
+    }
+    // The first range that ends at or after `from`: every range before it lies wholly before.
+    let i = 0;
+    while (i < n && r[2 * i + 1]! < from) i++;
+    if (i === n || r[2 * i]! > to) {
+      // No range overlaps or touches `[from, to)`: insert it at `i`.
+      r.copyWithin(2 * i + 2, 2 * i, 2 * n);
+      r[2 * i] = from;
+      r[2 * i + 1] = to;
+      n++;
+    } else {
+      // Join range `i` and every later one that `[from, to)` reaches.
+      let j = i;
+      while (j + 1 < n && r[2 * (j + 1)]! <= to) j++;
+      if (from < r[2 * i]!) r[2 * i] = from;
+      r[2 * i + 1] = Math.max(r[2 * j + 1]!, to);
+      if (j > i) {
+        r.copyWithin(2 * i + 2, 2 * j + 2, 2 * n);
+        n -= j - i;
+      }
+    }
+    if (n > DIRTY_RANGE_LIMIT) {
+      r[1] = r[2 * n - 1]!;
+      n = 1;
+    }
+    this.#n = n;
   }
 }
 
@@ -171,8 +254,8 @@ function dispose(core: Core): void {
   registry?.unregister(core);
 }
 
-/** The dirty byte range of a resource, relative to its own start and as an offset into the
- *  region's buffer, or undefined when it is clean. Not API: the upload of milestone 3 reads it.
+/** The bytes of a resource from its first dirty byte to its last, relative to its own start, and
+ *  the resource's offset into the region's buffer, or undefined when it is clean. Not API.
  *  @throws `TypeError` for a value that is no resource, and for a disposed one. */
 export function dirtyRange(
   resource: object,
@@ -180,13 +263,25 @@ export function dirtyRange(
   const core = cores.get(resource);
   if (core === undefined) throw new TypeError('dirtyRange(): takes a Uniform or a Buffer.');
   core.live();
-  return core.dirty ? { from: core.lo, to: core.hi, offset: core.range.offset } : undefined;
+  const span = core.span();
+  return span === undefined ? undefined : { ...span, offset: core.range.offset };
 }
 
-/** Mark a resource clean, after its dirty range was uploaded. Not API. */
-export function markClean(resource: object): void {
+/** The dirty byte ranges of a resource, each `[from, to)` relative to its own start, sorted and
+ *  apart (D2): one for a uniform, and for a storage array one for each run of elements written,
+ *  joined into one past {@link DIRTY_RANGE_LIMIT}. Empty when it is clean. Not API: the upload of
+ *  milestone 3 reads it.
+ *  @throws `TypeError` for a value that is no resource, and for a disposed one. */
+export function dirtyRanges(resource: object): (readonly [number, number])[] {
   const core = cores.get(resource);
-  if (core !== undefined) core.dirty = false;
+  if (core === undefined) throw new TypeError('dirtyRanges(): takes a Uniform or a Buffer.');
+  core.live();
+  return core.ranges();
+}
+
+/** Mark a resource clean, after its dirty ranges were uploaded. Not API. */
+export function markClean(resource: object): void {
+  cores.get(resource)?.clean();
 }
 
 /** The region a resource is a range of, and its range. Not API. */
@@ -579,6 +674,52 @@ type DataKeys<T> = { [K in keyof T]-?: T[K] extends AnyFunction ? never : K }[ke
 /** The value `set` takes for a struct: some of its fields. */
 type Some<T> = { readonly [K in DataKeys<T>]?: T[K] };
 
+/** `Path` and field `K`, as a host reads them: `inner.set`. */
+type Join<Path extends string, K> = Path extends '' ? K & string : `${Path}.${K & string}`;
+
+/** A field of `T`, through nested structs, named one of `Own` on `T` itself or `set` on a struct
+ *  it holds, as `"set"` or `"inner.set"`; `never` when it has none (change 0138, Amendment A5,
+ *  D3). `D` counts the structs walked: a struct nests at most {@link ReservedDepth} deep here,
+ *  which keeps the type finite for a `T` the checker has not resolved yet. The host's editor
+ *  shows `TS8079` with it, from {@link Refuse}. */
+type Reserved<
+  T,
+  Own extends string,
+  Path extends string = '',
+  D extends 0[] = [],
+> = D['length'] extends ReservedDepth
+  ? never
+  : {
+      [K in DataKeys<T>]-?: K extends Own
+        ? Join<Path, K>
+        : ReservedWithin<T[K], Join<Path, K>, [...D, 0]>;
+    }[DataKeys<T>];
+
+/** How deep {@link Reserved} reads nested structs. The runtime refuses a deeper one all the same. */
+type ReservedDepth = 4;
+
+/** {@link Reserved} of a field's type: a struct's `set`, also through an array of structs. */
+type ReservedWithin<F, Path extends string, D extends 0[]> = F extends number | boolean
+  ? never
+  : F extends readonly (infer E)[]
+    ? ReservedWithin<E, Path, D>
+    : F extends object
+      ? Reserved<F, 'set', Path, D>
+      : never;
+
+/** Nothing where `Name` is `never`; else a property no class has, so a call that passes the class
+ *  is refused by the host's editor with the code and the field (change 0138, Amendment A5, D3).
+ *  The runtime refuses the same class with a `TypeError`. */
+type Refuse<Name> = [Name] extends [never]
+  ? unknown
+  : {
+      readonly TS8079: `the field "${Name & string}" has the name of a member of the host accessor, so a host cannot reach it; rename the field in the shader`;
+    };
+
+/** The class a host resource takes: a class of a shader module, whose fields are not named like
+ *  the accessor's own members (`set`, and on a uniform's struct `needsUpdate` and `dispose`). */
+type ResourceClass<T, Own extends string> = ShaderClass<T> & Refuse<Reserved<T, Own>>;
+
 /** The typed array a lane of `E` is viewed through. */
 type ViewOf<E> = [E] extends [f32]
   ? Float32Array
@@ -594,7 +735,8 @@ type ViewOf<E> = [E] extends [f32]
 interface ScalarField<T> {
   /** Write `value` if it differs from what the field holds. Allocates nothing. */
   set(value: T): void;
-  /** The number the field holds. */
+  /** The number the field holds: a number, not a view (R8; Amendment A5, D1). An `f64` field's
+   *  two `f32` halves are joined into one number. */
   get(): T;
 }
 
@@ -653,32 +795,37 @@ type StructOf<T> = { readonly [K in DataKeys<T>]: FieldOf<T[K]> } & {
  * fields; `camera.pos.get()` is the field's typed view. Each `set` writes only what changed and
  * widens the dirty range. Made by {@link uniform}; freed by `dispose()` or when the garbage
  * collector reclaims it. Where the runtime has `Symbol.dispose`, it has `[Symbol.dispose]()` too,
- * which `using` calls; the type does not declare it yet, since the library's `lib` has none.
+ * which `using` calls; the type declares it as `Disposable` where the host's `lib` declares
+ * `Symbol.dispose` (Amendment A5, D4). The view types an exported binding without `dispose()` and
+ * `[Symbol.dispose]()`, since it lives as long as its module (D7).
  *
  * Exported from `typeshade/runtime`.
  */
-export type Uniform<T> = StructOf<T> & {
-  /** Whether the uniform holds a change not yet uploaded. Set it to `true` after writing through
-   *  a view that `get` returned, as in three.js. A new uniform is dirty. */
-  needsUpdate: boolean;
-  /** Free the uniform's range. A use of an accessor after it throws a `TypeError`. */
-  dispose(): void;
-};
+export type Uniform<T> = StructOf<T> &
+  Disposable & {
+    /** Whether the uniform holds a change not yet uploaded. Set it to `true` after writing through
+     *  a view that `get` returned, as in three.js. A new uniform is dirty. */
+    needsUpdate: boolean;
+    /** Free the uniform's range. A use of an accessor after it throws a `TypeError`. */
+    dispose(): void;
+  };
 
 /**
  * A storage array of `length` structs `T` (change 0138, R9): one range of the region laid out as
  * a storage array with no size (Rule 6.8). `ps.at(i).pos.set(x, y, z)` writes one field of element
  * `i`; `await ps.read()` gives every element, each an instance of the class. Made by
  * {@link zeros} or {@link array}; freed by `dispose()` or when the garbage collector reclaims
- * it, and by `[Symbol.dispose]()` as a uniform is. The host sets its length again with
+ * it, and by `[Symbol.dispose]()` as a uniform is, which the type declares as `Disposable` where
+ * the host's `lib` declares `Symbol.dispose` (Amendment A5, D4). The host sets its length again with
  * `resize(n)` or `set(data)`. A binding a shader module exports is one too (Rule 6.1): a
  * `storage<array<T, N>>` keeps its `N` elements, and a `storage<array<T>>`, which states no
  * size, has no length until the host calls `resize` or `set`; until then `length` is 0, and
- * `at` and `read` throw a `TypeError` that names the binding.
+ * `at` and `read` throw a `TypeError` that names the binding. The view types an exported binding
+ * without `dispose()` and `[Symbol.dispose]()` (D7).
  *
  * Exported from `typeshade/runtime`.
  */
-export interface Buffer<T> {
+export interface Buffer<T> extends Disposable {
   /** How many elements it holds. An exported storage array with no size holds 0 until the host
    *  sets its length with `resize` or `set`. */
   readonly length: number;
@@ -726,8 +873,8 @@ class UniformRoot extends StructField {
   set needsUpdate(v: boolean) {
     const core = cores.get(this)!;
     core.live();
-    if (v) core.mark(0, core.range.size);
-    else core.dirty = false;
+    if (v) core.markAll();
+    else core.clean();
   }
   dispose(): void {
     dispose(cores.get(this)!);
@@ -873,9 +1020,7 @@ class BufferRoot {
       throw e;
     }
     core.region.free(old);
-    core.dirty = true;
-    core.lo = 0;
-    core.hi = next.size;
+    core.markAll();
     this.#length = length;
     this.#unset = undefined;
   }
@@ -886,12 +1031,19 @@ class BufferRoot {
   }
   set needsUpdate(v: boolean) {
     this.#core.live();
-    if (v) this.#core.mark(0, this.#core.range.size);
-    else this.#core.dirty = false;
+    if (v) this.#core.markAll();
+    else this.#core.clean();
   }
   dispose(): void {
     dispose(this.#core);
   }
+}
+
+declare global {
+  /** The `lib`'s `Disposable` (`[Symbol.dispose](): void`) where it declares one, and nothing
+   *  where it does not, as `runtime/device.ts` declares it (change 0138, Amendment A5, D4). */
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  interface Disposable {}
 }
 
 const disposeKey = (Symbol as { readonly dispose?: symbol }).dispose;
@@ -924,9 +1076,7 @@ export function makeUniform(
   const root = new Root(core, 0, l.u, name);
   adopt(root, core);
   if (init !== undefined) root.set(init);
-  core.dirty = true;
-  core.lo = 0;
-  core.hi = core.range.size;
+  core.markAll();
   return root;
 }
 
@@ -951,7 +1101,7 @@ export function makeBuffer(
       `${at}: takes a length that is a whole number from 0 to 4294967295, got ${describe(length)}.`,
     );
   const name = label ?? `Buffer<${l.name}>`;
-  const core = new Core(region, length * l.s.st, name, `zeros(${l.name}, ${length})`);
+  const core = new Core(region, length * l.s.st, name, `zeros(${l.name}, ${length})`, l.s.st);
   const buffer = new BufferRoot(
     core,
     l.s,
@@ -963,9 +1113,7 @@ export function makeBuffer(
     const xs = data as ArrayLike<unknown>;
     for (let i = 0; i < length; i++) buffer.at(i).set(xs[i]);
   }
-  core.dirty = true;
-  core.lo = 0;
-  core.hi = core.range.size;
+  core.markAll();
   return buffer;
 }
 
@@ -981,9 +1129,13 @@ export function makeBuffer(
  * @returns the uniform, whose fields are set with `set` and read with `get`.
  * @throws `TypeError` for a value that is no class of a shader module, for an abstract class,
  *   for a struct with no uniform layout (a `bool`, a two-row matrix), for a field whose name is
- *   the accessor's own (`set`, `needsUpdate`, `dispose`), and for an `init` that does not fit.
+ *   the accessor's own (`set`, `needsUpdate`, `dispose`), and for an `init` that does not fit. The
+ *   host's editor refuses a class with such a field already, with `TS8079` (Amendment A5, D3).
  */
-export function uniform<T extends object>(cls: ShaderClass<T>, init?: Some<T>): Uniform<T> {
+export function uniform<T extends object>(
+  cls: ResourceClass<T, 'set' | 'needsUpdate' | 'dispose'>,
+  init?: Some<T>,
+): Uniform<T> {
   return makeUniform(globalRegion(), cls, init) as Uniform<T>;
 }
 
@@ -997,9 +1149,10 @@ export function uniform<T extends object>(cls: ShaderClass<T>, init?: Some<T>): 
  * @param length - how many elements, a whole number.
  * @returns the array, whose element `i` is set as `ps.at(i).pos.set(…)`.
  * @throws `TypeError` for a value that is no class of a shader module, for an abstract class, for
- *   a struct with no storage layout, and for a length that is not a whole number.
+ *   a struct with no storage layout, for a field named `set`, which the host's editor refuses
+ *   already with `TS8079` (Amendment A5, D3), and for a length that is not a whole number.
  */
-export function zeros<T extends object>(cls: ShaderClass<T>, length: number): Buffer<T> {
+export function zeros<T extends object>(cls: ResourceClass<T, 'set'>, length: number): Buffer<T> {
   return makeBuffer(globalRegion(), cls, length, undefined, 'zeros()') as Buffer<T>;
 }
 
@@ -1016,7 +1169,10 @@ export function zeros<T extends object>(cls: ShaderClass<T>, length: number): Bu
  * @throws `TypeError` as {@link zeros} does, for `data` that is no array, and as `resident()`
  *   throws for its forms.
  */
-export function array<T extends object>(cls: ShaderClass<T>, data: readonly Some<T>[]): Buffer<T>;
+export function array<T extends object>(
+  cls: ResourceClass<T, 'set'>,
+  data: readonly Some<T>[],
+): Buffer<T>;
 export function array<T>(value: T): Resident<T>;
 export function array<E extends ZeroedElement>(
   length: number,
