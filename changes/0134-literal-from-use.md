@@ -1141,7 +1141,7 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
     ("The language service and the compiler must name one vocabulary") and from the `getHover`
     row of `docs/language-service-api.md` (line 485: "the COMPILER's type for every name the
     front end declared in this document"). Item 4 is its own part. Closed by part 5
-    (pull request #PRNUM).
+    (pull request #1260).
   - Closed by Amendment A2 ("하나만, 수정안으로 기록"): the refusal sentence names one edit,
     where "Proposed" says that it names the two fixes. It names the one that compiles where
     the quotient stands.
@@ -1210,7 +1210,7 @@ division it is. Write "f32(j) / 2" for the float division.` A declared counter,
   `~f` records no integer demand; `let b = a` with `a` undecided is not a candidate; a chain of
   decisions is capped at `MAX_INFERENCE_PASSES` (16) passes, each a full lowering of the module.
 
-**Part 5, item 4, the hover (first part).** Pull request #PRNUM.
+**Part 5, item 4, the hover (first part).** Pull request #1260.
 
 - Delivered: the hover of a constant of no fixed type (Rule 12.7, decision Q3). At the
   declaration and at an import that names it: `const K = 3 (i32, u32, f32 or f64 where it is
