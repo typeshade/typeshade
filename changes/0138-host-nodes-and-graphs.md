@@ -96,13 +96,13 @@ examples: []
 names: []
 downstream:
   - repo: typeshade.github.io
-    what: Every page and Playground starter that shows host code (an entry called as fs(canvas, bindings) or entry(bindings, workgroups), createRuntime, rt.load, frame().pass) is written again in the host forms of this proposal, in English and in Korean, when the compiler pin reaches each milestone; the fuse pages, Resident and kernels that write an array change with milestone 4 (Amendment A10); compiler-changes.md records 0138.
+    what: Every page and Playground starter that shows host code (an entry called as fs(canvas, bindings) or entry(bindings, workgroups), createRuntime, rt.load, frame().pass) is written again in the host forms of this proposal, in English and in Korean, when the compiler pin reaches each milestone; the fuse pages, Resident and kernels that write an array change with milestone 4 (Amendment A10); a Resident's write and destroy become a Buffer's set and dispose, and a resident of a non-array value becomes uniform(Class, …) or a plain value (Amendment A11); compiler-changes.md records 0138.
   - repo: vscode-typeshade
-    what: The skill's references for host calls, fuse and the runtime name the host forms of this proposal (fuse(fn) nodes, Buffer in place of Resident, @inout on a kernel that writes an array; Amendment A10); a snippet that calls an entry with a bindings object changes; compiler-changes.md records 0138 when the pin moves.
+    what: The skill's references for host calls, fuse and the runtime name the host forms of this proposal (fuse(fn) nodes, Buffer in place of Resident, @inout on a kernel that writes an array; Amendment A10; set and dispose in place of write and destroy, uniform(Class, …) for a non-array value; Amendment A11); a snippet that calls an entry with a bindings object changes; compiler-changes.md records 0138 when the pin moves.
   - repo: radiance
-    what: The path tracer's host code (packages/radiance/src/renderers/PathTracer.ts) moves to the host forms of this proposal before the release that removes the old forms; any Resident moves to Buffer and any kernel that writes an array parameter adds @inout or @out (Amendment A10; radiance not yet searched for either); compiler-changes.md records 0138.
+    what: The path tracer's host code (packages/radiance/src/renderers/PathTracer.ts) moves to the host forms of this proposal before the release that removes the old forms; any Resident moves to Buffer and any kernel that writes an array parameter adds @inout or @out (Amendment A10; radiance not yet searched for either); write and destroy become set and dispose, and a non-array Resident becomes uniform(Class, …) or a plain value (Amendment A11); compiler-changes.md records 0138.
   - repo: typenn
-    what: Kernel calls that await each result move to calls that return resources and one read at the end; fuse scopes (device.fuse with scratch and chunk) move to fuse(fn) nodes; Resident and resident() move to Buffer; kernels that write an array parameter add @inout or @out, or return it (Amendment A10); compiler-changes.md records 0138 when the pin moves.
+    what: Kernel calls that await each result move to calls that return resources and one read at the end; fuse scopes (device.fuse with scratch and chunk) move to fuse(fn) nodes; Resident and resident() move to Buffer, write and destroy to set and dispose, and a non-array value to uniform(Class, …) or a plain value (Amendment A11); kernels that write an array parameter add @inout or @out, or return it (Amendment A10); compiler-changes.md records 0138 when the pin moves.
   - repo: typecv
     what: The same migration as typenn; compiler-changes.md records 0138 when the pin moves.
   - repo: typeaudio
@@ -2092,6 +2092,391 @@ its example before and after (`CLAUDE.md`, Merging).
   superseded in part); A9 Q16; A5's open item for milestone 4 (closed for `read()`); A7's deferred
   questions 1, 3 and 4 (closed); the held length of change 0094; D-g, D-h and D-i (their next
   actions).
+- Status: `status: accepted` does not change.
+
+### A11. Slice 1: the owner's answers to Q1 to Q7 on one `Buffer` (2026-11-11)
+
+- [fact] Why. Slice 1 of A10's slice table is draft pull request #1257. Its first commit, `86b5de3d`,
+  marks slice 1 `in progress`. It changes no code.
+- [fact] A10 decides the name `Buffer` and the removal of `Resident` and `resident()` (Q-I). A10 does
+  not decide seven points of slice 1 that change what an author writes. #1257 asks them as Q1 to Q7,
+  with options and costs.
+- [fact] The owner answered Q1 to Q7 on 2026-11-11, in the conversation. This amendment records each
+  question, its options as #1257 gives them, the owner's chosen label and what it means.
+- [fact] Each chosen label is quoted in Korean, as the owner chose it, with an English translation.
+- [fact] Baseline: `main` at `937147b8` (the merge of #1251, Amendment A10).
+- [fact] This amendment changes the front matter (`downstream` only, below). It amends R2's third
+  sentence (Q7). It changes no rule text of `docs/language-design.md` and no code. Slice 1 changes
+  its rule and surface text in #1257.
+
+**Q1. The members of a scalar `Buffer`.**
+
+- [fact] At `937147b8`, a `Resident` has `read()`, `write(v)` and `destroy()`
+  (`src/core/resident.ts`). A `Buffer<T>` has `length`, `read()`, `set(data)`, `resize(n)`, `at(i)`,
+  `needsUpdate`, `dispose()` and `[Symbol.dispose]` (`src/runtime/resource.ts`).
+- The options, as #1257 gives them:
+
+| Option              | What it is                                                                                            | Costs                                                                                                                                                                                                                            |
+| ------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (a) one member set  | A scalar `Buffer` has the members of `Buffer<T>`. `write` becomes `set`, `destroy` becomes `dispose`. | About 50 `write(` and 82 `destroy()` call sites in the tree migrate, and downstream. `at(i)` needs the region of R17 for a scalar array, or a `TypeError` while the device holds newer values, as a struct `Buffer` gives today. |
+| (b) two member sets | A scalar `Buffer` keeps `read`, `write` and `destroy`.                                                | Against "one set of rules" (Q-I, meaning 2).                                                                                                                                                                                     |
+
+- [decision, owner, 2026-11-11] The owner chose:
+
+  "하나의 멤버 집합 (추천)"
+
+  (English translation: one member set; recommended.)
+
+- What the decision means, as option (a) describes it:
+  1. Every `Buffer`, of scalars, vectors or structs, has the members of `Buffer<T>`.
+  2. `write(v)` becomes `set(data)`. `destroy()` becomes `dispose()`.
+  3. While the device holds newer values than the region, `at(i)` throws a `TypeError`. A struct
+     `Buffer` throws the same way today for `get`, `set`, `set(data)`, `resize` and `needsUpdate`
+     (the owner's decision of 2026-11-11, "그 구간의 set()을 거부", recorded at
+     `src/runtime/resource.ts:28-33`).
+- [fact] The count of call sites is the estimate of #1257. This amendment did not count them again.
+- [inference, agent] `set`, `at(i)` and `needsUpdate` write the host's copy, so a scalar `Buffer` that
+  the host writes takes a range of the region of R17. R17's last sentence says that today's
+  `Resident` with no host read takes no range. Slice 1 decides when the range is made.
+- [proposal, agent] `Device.release(array)` takes a `Buffer` in place of a `Resident`. `Device` is in
+  `exports` already (A10).
+- Costs recorded:
+  1. The `write(` and `destroy()` call sites migrate: the tests, the journeys, the scripts, the
+     examples, the site and the downstream repositories.
+  2. A scalar `Buffer` gains `at(i)`, `resize(n)` and `needsUpdate`, which slice 1 implements for a
+     scalar element.
+
+**Q2. What `read()` of a `Buffer<f32>` gives.**
+
+- [fact] A10 Example 3 leaves this to slice 1. At `937147b8`, `read()` of a `Resident<Float32Array>`
+  gives a `Float32Array`, and `read()` of a `Buffer<T>` of structs gives `T[]` (R9).
+- The options, as #1257 gives them: a `Float32Array` (proposed: today's `Resident`, no copy into
+  numbers, `const [s] = …` works), or a `number[]`.
+- [decision, owner, 2026-11-11] The owner chose:
+
+  "Float32Array (추천)"
+
+  (English translation: `Float32Array`; recommended.)
+
+- What the decision means:
+  1. `read()` of a scalar `Buffer` gives the typed array of its element: a `Float32Array` for
+     `Buffer<f32>`, an `Int32Array` for `Buffer<i32>`, a `Uint32Array` for `Buffer<u32>`.
+  2. `read()` of a `Buffer` of structs gives `T[]`, as R9 says.
+- [inference, agent] Meaning 1 extends the owner's `f32` answer to `i32` and `u32` by the same
+  reason, "as a `Resident` gives today". Each of the three is what `Resident.read()` gives at
+  `937147b8`.
+- [inference, agent] A10 Q-C meaning 2 says a scalar result's `read()` gives "a one-element array".
+  A one-element `Float32Array` is one. The two agree.
+
+**Q3. A `Resident` of a value that is not an array.**
+
+- [fact] At `937147b8`, `resident({ viewProj, time })` is a program-runtime uniform binding written
+  with `write()` (`journeys/engine/engine.mjs:57-58`). A `Uniform` needs an exported class
+  (`uniform(cls, init?)`, `src/runtime/resource.ts`).
+- The options, as #1257 gives them:
+  - (a) `array()` takes only an array. The author writes `uniform(Class, …)`, or passes the plain
+    value at each draw.
+  - (b) A `Buffer` of length 1 of the object.
+  - Either option changes what an author writes.
+- [decision, owner, 2026-11-11] The owner chose:
+
+  "array()는 배열만, uniform()으로 (추천)"
+
+  (English translation: `array()` takes arrays only; use `uniform()`; recommended.)
+
+- What the decision means, as option (a) describes it:
+  1. `array(value)` and `device.array(value)` take an array: a typed array, or an array of objects of
+     Q4. A value that is not an array is a `TypeError` at the call.
+  2. A uniform value that the host keeps is `uniform(Class, init)`.
+  3. A value that the host does not keep is passed as plain data at each draw or call. The program
+     runtime takes a plain host value as a binding at `937147b8` (`src/runtime/program.ts:56`).
+- [fact] The run-time refusal is a `TypeError` with no `TS` code, as the other refusals of slice 1 are
+  (#1257, "New diagnostic codes: none expected"). In the editor, TypeScript's own type error refuses
+  the call, since `array()` has no overload for a non-array value.
+- [inference, agent] `journeys/engine/` loads programs from manifests and imports no class of a shader
+  module. So `camera` and `light` there become plain values at each draw, or `uniform()` of a class
+  that the journey declares. Slice 1 checks which one the program runtime binds.
+- Cost recorded: code that keeps a non-array `Resident` migrates (`journeys/engine`, the tests of
+  `src/runtime/runtime.test.ts` and `src/compiler/ts/typed-bindings.test.ts`, change 0025's record
+  is history and stays).
+
+**Q4. An array of plain objects of a struct that is not a class.**
+
+- [fact] At `937147b8`, `array([{ … }])` of a struct that is not a class gives a `Resident<S[]>`. Its
+  host type is `readonly S[] | Resident<S[]>` (Rule 8.21).
+- The options, as #1257 gives them:
+  - (a) `Buffer<S>`, with `at(i)` refused until a call gives it a layout.
+  - (b) Only `array(Class, data)` makes a `Buffer` of structs. A plain object array is passed as
+    plain data.
+- [decision, owner, 2026-11-11] The owner chose:
+
+  "array(Class, data)만 구조체 Buffer (추천)"
+
+  (English translation: only `array(Class, data)` makes a struct `Buffer`; recommended.)
+
+- What the decision means, as option (b) describes it:
+  1. A `Buffer` of structs comes from `array(Class, data)` or `zeros(Class, n)` (R9).
+  2. An array of plain objects is passed to a call as plain data. The call is a plain-data call (R2).
+  3. A kernel parameter of a struct that is not a class takes `readonly S[]` only.
+- [proposal, agent] `array([{ … }])` with no class is a `TypeError` at the call. Its message says to
+  write `array(Class, data)` or to pass the array itself. In the editor, TypeScript's own type error
+  refuses it.
+- Cost recorded: code that passes `array([{ … }])` or `resident([{ … }])` of a non-class struct
+  migrates to a class or to plain data.
+
+**Q5. A vector element.**
+
+- [fact] `array(Float32Array)` gives a `Buffer<f32>` (A10 Q-I). A struct result's `vec3` field gives a
+  `Buffer<vec3<f32>>` (A10 Q-C, meaning 3). At `937147b8`, a `'vec4f'` scratch array is a
+  `Resident<Float32Array>` that a call takes where it takes an `array<vec4f>` (Rule 11.13).
+- [fact] #1257 proposes one option: a kernel parameter `array<vec3<f32>>` takes both, so today's code
+  keeps compiling.
+- [decision, owner, 2026-11-11] The owner chose:
+
+  "Buffer<f32>와 Buffer<vec3<f32>> 둘 다 (추천)"
+
+  (English translation: both `Buffer<f32>` and `Buffer<vec3<f32>>`; recommended.)
+
+- What the decision means:
+  1. A kernel parameter `array<vecN<T>>` takes a `Buffer<T>` and a `Buffer<vecN<T>>`.
+  2. The host view gives both in the parameter's type.
+- [inference, agent] The meaning extends `vec3<f32>` to every vector element by the same reason. Slice
+  1 states the extension in Rule 8.21 and shows it to the owner.
+- Open, not a conflict: how many scalars a `Buffer<f32>` holds for `n` elements of `vec3<f32>`. Rule
+  6.8 gives `array<vec3<f32>>` a 16-byte stride. Slice 1 states the length rule and its refusal.
+
+**Q6. A struct result's field that is a struct or a sized array.**
+
+- [fact] R1 says "a returned struct gives one output for each field". A10 Q-C meaning 3 says "A struct
+  result gives one `Buffer` for each field (R1)".
+- The options, as #1257 gives them:
+  - (proposed) A sized-array field gives a `Buffer` of its length. A nested struct field is refused
+    with a `TypeError` at the call (no `TS` code) until a later slice.
+  - (chosen) A sized-array field gives a `Buffer` of its length. A nested struct field is also
+    flattened, recursively.
+- [decision, owner, 2026-11-11] The owner chose:
+
+  "중첩도 재귀적으로 펼침"
+
+  (English translation: flatten nested structs too, recursively.)
+
+- [fact] This is not the option that #1257 recommended.
+- What the decision means:
+  1. A sized-array field `array<T, N>` of a struct result gives a `Buffer<T>` of length `N`.
+  2. A nested struct field is flattened recursively. Each leaf field gives one `Buffer`.
+  3. No nested struct field is refused.
+- Open under Q6, not decided:
+  - The name of each nested output. One reading keeps the nesting (`r.box.min`, an object of
+    `Buffer`s). Another flattens the path into one level. The owner has not chosen.
+  - A sized array of structs as a field (`array<S, N>`): one `Buffer<S>`, or one `Buffer` for each of
+    its leaf fields.
+- Costs recorded:
+  1. A larger implementation in slice 1 than the recommended option.
+  2. One read back for each leaf field, unless the runtime joins them (A10 Q-C's cost, now for each
+     leaf).
+  3. The conflict with R1's wording, under "Open, owner must settle" below.
+
+**Q7. The result of a call that waits.**
+
+- [fact] A10 confirmation item 4: a call that writes a plain array beside `Buffer` inputs is allowed.
+  It returns a promise and fills the plain array when it is done, as Q-J's plain-data call does. A10
+  does not say what the promise gives for a value-returning call.
+- The options, as #1257 gives them: the promise gives plain data (a number for a scalar, as Q-J), or a
+  `Buffer` of length 1. #1257 proposes plain data, since the call waits.
+- [decision, owner, 2026-11-11] The owner chose:
+
+  "평범한 데이터 (추천)"
+
+  (English translation: plain data; recommended.)
+
+- What the decision means:
+  1. A value-returning call with `Buffer` inputs that also writes a plain array waits.
+  2. Its promise gives the result as plain data: a number for a scalar, an object of plain fields for
+     a struct.
+- [inference, agent] A10 Q-C meaning 2 gives a `Buffer` of length 1 for a call on a resource. Q7 is the
+  one call on a resource that waits, and A10 item 4 already makes it a call "as Q-J's plain-data call
+  does". The two agree: a call that does not wait gives a `Buffer`, and a call that waits gives plain
+  data.
+
+**R2, amended (Q7).**
+
+- Before (R2's third sentence, from A10):
+  > A call that takes a resource and writes a plain array is awaited; it returns a promise and fills
+  > the plain array when it is done (Amendment A10, A7's deferred question 4).
+- After:
+  > A call that takes a resource and writes a plain array is awaited; it returns a promise, fills the
+  > plain array when it is done, and gives its result as plain data (Amendment A10, A7's deferred
+  > question 4; Amendment A11, Q7).
+- [fact] The other sentences of R2 stay as they are.
+
+**The front matter, changed by this amendment.**
+
+- [fact] `downstream`: the entries of `typeshade.github.io`, `vscode-typeshade`, `radiance` and `typenn`
+  add `set` and `dispose` in place of `write` and `destroy` (Q1), and `uniform(Class, …)` or a plain
+  value in place of a non-array `Resident` (Q3). `typecv` and `typeaudio` follow `typenn`.
+- [fact] `rules`, `surface`, `exports` and `exports-removed` do not change:
+  1. Q1 reshapes `Buffer`, `Device` and the 44 exports, which A10 lists in `exports`. `write` and
+     `destroy` are members of `Resident`, which A10 lists in `exports-removed`.
+  2. Q3 and Q4 reshape `array` and `uniform`, which `exports` lists.
+  3. The rules and sections that Q1 to Q7 touch are in slice 1's list (A10's slice table): Rules 8.21,
+     8.22, 8.23, 8.24, 8.29, 11.8, 11.11 and 11.13, and surface §26, §64, §65, §67, §69, §71 and §72.
+     Each of them is in the front matter.
+- [fact] At `937147b8`, the rules of `docs/language-design.md` that name `Resident` or `resident(` are
+  8.21, 8.23, 8.24, 8.29, 11.8, 11.11 and 11.13. The surface sections that name `Resident`,
+  `resident(`, `.write(` or `.destroy()` are §26, §64, §65, §67, §69, §71 and §72. Each is in the front
+  matter.
+
+**Author examples, before and after.**
+
+1. Q1: the members of a scalar `Buffer`.
+
+   Before (`main` `937147b8`):
+
+   ```ts
+   const xs = array(new Float32Array(n)); // Resident<Float32Array>
+   xs.write(values);
+   xs.destroy();
+   ```
+
+   After:
+
+   ```ts
+   const xs = array(new Float32Array(n)); // Buffer<f32>
+   xs.set(values);
+   xs.at(0); // the element's accessor; a TypeError while the device holds newer values (Q1)
+   xs.dispose();
+   ```
+
+2. Q2: `read()` of a `Buffer<f32>`. What an author writes does not change.
+
+   ```ts
+   const v = await xs.read(); // Before: Float32Array (Resident). After: Float32Array (Buffer<f32>)
+   ```
+
+3. Q3: a value that is not an array.
+
+   Before (`journeys/engine/engine.mjs:57`):
+
+   ```ts
+   const camera = resident({ viewProj: CAMERA, time: 0 });
+   camera.write({ viewProj: CAMERA, time: t });
+   ```
+
+   After, a uniform the host keeps:
+
+   ```ts
+   const camera = uniform(Camera, { viewProj: CAMERA, time: 0 }); // Camera: a class (R11)
+   camera.time.set(t);
+   ```
+
+   After, a plain value at each draw:
+
+   ```ts
+   const camera = { viewProj: CAMERA, time: t }; // passed as the draw's binding
+   ```
+
+4. Q4: an array of plain objects of a struct that is not a class.
+
+   Before (`main` `937147b8`):
+
+   ```ts
+   const ps = array([{ pos: [0, 0, 0], vel: [1, 0, 0] }]); // Resident<S[]>
+   step(ps, 1 / 60);
+   ```
+
+   After, with a class:
+
+   ```ts
+   const ps = array(Particle, [{ pos: [0, 0, 0], vel: [1, 0, 0] }]); // Buffer<Particle>
+   step(ps, 1 / 60);
+   ```
+
+   After, as plain data:
+
+   ```ts
+   const ps = [{ pos: [0, 0, 0], vel: [1, 0, 0] }];
+   await step(ps, 1 / 60); // a plain-data call (R2)
+   ```
+
+5. Q5: a vector element. What an author writes does not change.
+
+   ```ts
+   // shade: export function spread(vs: array<vec3<f32>>): f32 { … }
+   spread(array(new Float32Array(data))); // Buffer<f32>: accepted before and after
+   spread(bounds(ps).min); // bounds returns a struct with a vec3<f32> field min: a Buffer<vec3<f32>>, accepted after
+   ```
+
+6. Q6: a struct result with a sized array and a nested struct.
+
+   Before (`main` `937147b8`):
+
+   ```ts
+   // shade: struct Box { min: vec3<f32>, max: vec3<f32> }
+   //        struct Stats { box: Box, hist: array<u32, 8>, count: u32 }
+   //        export function stats(ps: array<Particle>): Stats { … }
+   const s = stats(ps); // TypeError (src/core/host-kernel.ts:738); TS2345 in the editor (D-i)
+   ```
+
+   After (the names of the nested outputs are open, Q6):
+
+   ```ts
+   const s = stats(ps);
+   s.hist; // Buffer<u32> of length 8
+   s.count; // Buffer<u32> of length 1
+   s.box.min; // Buffer<vec3<f32>> of length 1, if the nesting is kept (open)
+   ```
+
+7. Q7: a call that waits. What an author writes does not change.
+
+   ```ts
+   // shade: export function mark(xs: array<f32>, @inout flags: array<u32>): u32 { … }
+   const flags = new Uint32Array(n); // a plain array
+   const count = await mark(array(data), flags); // Before and after: a number; flags is filled
+   ```
+
+   [fact] Before, `array(data)` is a `Resident`, and the call is a plain-data call (A10, the slices
+   of milestone 4). After, the call waits (A10 item 4) and gives a number (Q7). `@inout` is the form
+   of slice 2. Before slice 2, the kernel writes `flags` without it.
+
+**The slices of milestone 4, status.**
+
+- [fact] This statement updates A10's slice table. A10's text stays as it is.
+
+| Slice  | Status                                                                                                                                      |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0      | done: #1251, merged as `937147b8`.                                                                                                          |
+| 1      | in progress: #1257 (draft), head `86b5de3d`. Blocked on this amendment. After its merge, #1257 implements Q1 to Q7, except the open points. |
+| 2 to 6 | not started.                                                                                                                                |
+
+**Open, owner must settle.**
+
+- **Q6 against R1 and A10 Q-C, meaning 3.** R1 says "a returned struct gives one output for each
+  field". A10 Q-C says "one `Buffer` for each field". Q6 gives one `Buffer` for each leaf field. For a
+  nested struct field, the two texts do not give the same outputs.
+  - Option (a): amend R1 and Q-C to "one output for each leaf field".
+  - Option (b): keep R1. A nested struct field gives one output that is an object of `Buffer`s, one
+    for each of its leaf fields.
+  - [inference, agent] The choice is the same choice as the names of the nested outputs (open under
+    Q6). This amendment does not resolve it.
+- [fact] No answer of Q1 to Q7 conflicts with an entry of `docs/owner-decisions.md` (OD-1 to OD-8).
+
+**Open items for the owner (not conflicts).**
+
+| Item                                                                              | Source | Next action                                             |
+| --------------------------------------------------------------------------------- | ------ | ------------------------------------------------------- |
+| The names of nested struct outputs, and a sized array of structs as a field.      | Q6     | Ask the owner before #1257 implements Q6.               |
+| The length rule of a `Buffer<f32>` passed as `array<vec3<f32>>` (16-byte stride). | Q5     | #1257 states it in Rule 8.21 and shows it to the owner. |
+| When a scalar `Buffer` takes a range of the region (R17's last sentence).         | Q1     | #1257 states it and shows it to the owner.              |
+
+**Independent review record of A11.**
+
+- [fact] No independent review has read A11. `changes/README.md` (Independent review) requires one
+  before the owner decides on it.
+
+- Affects: the front matter (`downstream`); R2 (its third sentence); R1 (open, above); R9 (a scalar
+  `Buffer` beside the struct one); R17 (its last sentence, by Q1); A10 Q-C meaning 3 (open, above);
+  A10 Example 3 (Q2 settles its open point); A10's slice table (the status statement above); Rules
+  8.21, 8.22, 8.29 and 11.8 and surface §64, §65, §67 and §69 (by slice 1).
 - Status: `status: accepted` does not change.
 
 ## What it owes downstream
