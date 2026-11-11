@@ -2149,6 +2149,30 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **An integer conversion that starts a `for` counter declares the counter's type** (Rule 7.5).
+  A header name with no annotation is an `i32` (or a `u32` beside a `u32` bound) only when its
+  value is written as an integer, and any other value gives it the value's type. `u32(x)`
+  counted in `u32`, but `u32(3)` counted in `i32`: the fold made it a literal of its type
+  (#1217), and the header read the literal as a written integer. A start `u32(…)` or `i32(…)`
+  now gives the counter the conversion's type. An `f32(…)` start still counts in `i32`, as
+  before: an `f32` counter needs `TS8007` to catch a step that rounds away (issue #1242; the
+  owner's decision of 2026-11-11, "이 PR은 i32/u32만"). With `function h(a: u32): u32` and
+  `function hi(a: i32): i32`:
+  **Newly accepted:** a `u32(n)` counter where a `u32` is asked (`h(j)`, `j < vi` with a `u32`
+  `vi`, `j < u32(8)`): `for (let j = u32(3); j < 8; j++) { a += f32(h(j)); }` was refused and
+  gives 25.
+  **Newly refused:** every place where the counter was used as an `i32`, each an `i32` loop
+  before, is refused as it is for `u32(x)`: a unary minus of a `u32` (`a += f32(-j)` with a
+  `u32(3)` start was -25), arithmetic or a comparison with an `i32` (`j < ii`, an index
+  `xs[tv + j]`), a negative written number beside it (`j * -1`), a bitwise operator with an
+  `i32` (`j & tv`), an `i32` argument (`hi(j)`) and an assignment to an `i32` (`let q: i32 = j`). A `u32(n)` counter that counts down to `j >= 0`
+  leaves the range of `u32` (`TS8006`).
+  **Values that change:** unsigned arithmetic that goes below zero now wraps:
+  `for (let j = u32(2); j < 6; j++) { a += f32(j - 3); }` was 2 and is 4294967296 (the `f32` sum
+  of 4294967295, 0, 1 and 2). `~j` is the `u32` complement:
+  `for (let j = u32(3); j < 8; j++) { a += f32(~j); }` was -30 and is 21474836480.
+  Write `i32(…)`, or no conversion, for an `i32` counter.
+
 - **A struct that holds itself is refused instead of overflowing the stack** (Rules 12.4, 12.6
   and 12.7, #1204). A struct that holds itself, directly, through other structs, through an
   array with a size or without, or through an optional `T | undefined`, made `compile()`, the
