@@ -8295,11 +8295,16 @@ Each uniform and storage array is a byte range of one memory region (R17 of chan
 `ArrayBuffer` that is resizable where the runtime has one. Each field has one accessor with a
 typed view of the region, made once and made again only after the region moved its ranges. `set`
 checks each number as a call checks it (Rule 8.21), compares it with what the view holds, writes
-only a changed one and widens the resource's dirty byte range; it allocates nothing. `get` returns
-a scalar's number, or the typed view of a vector, a matrix or an array of scalars, each element at
-its stride (a matrix column of three rows has a fourth, unused lane). An `f64` field is two `f32`
-halves in the region, so its `get` returns the joined number or a new `Float64Array`. A host that
-writes through a view sets `needsUpdate = true`. A new resource is dirty over its whole range.
+only a changed one and marks its bytes dirty; it allocates nothing. A uniform widens its one dirty
+byte range. A buffer keeps a dirty range for each element written, and joins two ranges that
+touch, so `ps.at(2)` and `ps.at(3)` are one range and `ps.at(9)` another. When a buffer holds more
+than 16 ranges, it joins them into one, from the first dirty byte to the last: each range is one
+upload call, and past 16 calls fewer, larger uploads cost less (change 0138, Amendment A5, D2).
+`get` returns a scalar's number, or the typed view of a vector, a matrix or an array of scalars,
+each element at its stride (a matrix column of three rows has a fourth, unused lane). An `f64`
+field is two `f32` halves in the region, so its `get` returns the joined number or a new
+`Float64Array`. A host that writes through a view sets `needsUpdate = true`, which marks the whole
+resource dirty. A new resource is dirty over its whole range.
 
 A buffer's length is the host's to set (change 0138, Amendment A3). `ps.resize(n)` gives it `n`
 elements: the ones that fit keep their values, and a new one is zero. `ps.set(data)` gives it the
@@ -8312,16 +8317,20 @@ accessor again with at().`
 
 A resource is freed by `dispose()` or when the garbage collector reclaims it. Where the runtime
 has `Symbol.dispose`, a resource has `[Symbol.dispose]()` as well, which `using` calls at the end
-of a block; the types do not declare it yet. An accessor of a freed resource throws a `TypeError` that names it:
+of a block: `using ps = zeros(Particle, 64);`. The types of `Uniform` and `Buffer` declare it where
+the host's `lib` declares `Symbol.dispose` (change 0138, Amendment A5, D4). An accessor of a freed resource throws a `TypeError` that names it:
 `Uniform<Camera> was disposed; its fields cannot be read or set. Make a new one with
 uniform(Camera).` A class with a field that has no layout (a `bool`, a two-row matrix in a
 uniform) is refused with the reason, and so is a field named like the accessor's own member
-(`set`, and on a uniform `needsUpdate` and `dispose`). A texture lives on its device only and
-takes no range of the region.
+(`set`, and on a uniform `needsUpdate` and `dispose`): the runtime throws a `TypeError`, and the
+host's editor reports `TS8079` on the call, `uniform(Loose)`, from the types of `uniform`, `zeros`
+and `array` (Amendment A5, D3). `texture({ size, format })` returns a `Texture`, the type
+`typeshade/runtime` exports for a program runtime's texture (D5). A texture lives on its device
+only and takes no range of the region.
 
-At milestone 1 no call takes a resource yet: a kernel function, an entry and a draw take plain data
-and a `Resident` as before. The upload of each dirty range when a call reads the resource is
-milestone 3 of change 0138.
+No call takes a resource yet: a kernel function, an entry and a draw take plain data and a
+`Resident` as before. The upload of each dirty range when a call reads the resource is a later
+part of milestone 3 of change 0138.
 
 **Exported bindings** (change 0138, R10; Rule 6.1). A binding the shader module exports is a host
 resource. `export declare const camera: uniform<Camera>` is a `Uniform<Camera>` in the host, and
@@ -8369,7 +8378,31 @@ a length: `read()` then gives an empty array. A storage array that states its si
 `ps.resize(8)` on the 64 elements above throws a `TypeError`, and so does a `set(data)` of
 another length.
 
-The binding lives as long as its module, so its `dispose()` throws a `TypeError`. A scalar, a
+The binding lives as long as its module. Its type has no `dispose()` and no `[Symbol.dispose]()`,
+`Omit<Uniform<Camera>, 'dispose' | keyof Disposable>` in the view, so `camera.dispose()` and
+`using c = camera` are type errors; at run time its `dispose()` throws a `TypeError` (Amendment
+A5, D7). `HostFace.exports` reports the binding as a `resource`, with its class and its length
+(D6). A field of the binding's class named like the accessor's own member is refused on the
+field's declaration, in the compiler and in the editor:
+
+```ts
+// scene.shade.ts
+export class Camera {
+  pos: vec3 = vec3(0.);
+  dispose: f32 = 0.; // TS8079: the accessor's own method
+}
+export declare const camera: uniform<Camera>;
+```
+
+`"Camera.dispose" is named like the host accessor's own method "dispose": "camera" is a binding the
+module exports, a Uniform<Camera> in the host, whose fields are properties of that accessor.
+Rename the field (Rule 6.1).` (`TS8079`). The names are `set` on the binding's class and on every
+struct it holds, and `needsUpdate` and `dispose` on the class of a `uniform<T>` itself; a storage
+array's element may have a field `dispose`. An inherited field is named in the class that
+declares it, and a binding exported under another name (`export { camera as cam }`) by that name.
+Only a binding that is a host resource is read: a class that no exported binding holds, and the
+class of a binding that is no resource (a class the module does not export, an abstract class),
+may have such a field. A scalar, a
 vector, a struct no exported class declares, an array of scalars or vectors, one `storage<T>`, a
 texture and a sampler have no resource of their own yet: the view declares each `never`, with the
 reason. An entry call still takes the binding's value in its bindings

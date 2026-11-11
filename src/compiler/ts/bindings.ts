@@ -15,6 +15,12 @@ import { refuseOptionalAt, type StructLookup } from './optional.js';
 import { isOverrideType } from './overrides.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
+import {
+  classDeclarationIn,
+  classInFile,
+  exportedByList,
+  hostResourceOf,
+} from './host-resource.js';
 import { twoRowStd140Reason } from '../../core/std140.js';
 
 /** The two access modes a storage BUFFER may take, WGSL's own words for
@@ -62,12 +68,17 @@ export function collectBindings(
   // 7.10, change 0093), read by `fromType` and `fromCall` below.
   structsHere = (n) => byName.get(n);
   let next = firstBinding;
+  // The names the file exports by a list, `export { camera as cam }`, and each exported binding
+  // with the name the host imports it by (change 0138, Amendment A5, D3).
+  const listed = exportedByList(sourceFile);
+  const exported = new Map<BindingDecl, string>();
   for (const stmt of sourceFile.statements) {
     if (!ts.isVariableStatement(stmt)) continue;
     const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0;
     const isLet = (stmt.declarationList.flags & ts.NodeFlags.Let) !== 0;
     if (!isConst && !isLet) continue;
     const declared = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword) ?? false;
+    const isExported = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
     for (const decl of stmt.declarationList.declarations) {
       if (!ts.isIdentifier(decl.name)) continue;
       if (decl.initializer && isResourceCall(decl.initializer)) {
@@ -82,6 +93,8 @@ export function collectBindings(
         if (b) {
           checkHostShareable(b, byName, sourceFile, decl, diagnostics);
           out.push(b);
+          const as = isExported ? b.name : listed.get(b.name);
+          if (as !== undefined) exported.set(b, as);
           recordDeclaration(symbols, sourceFile, decl.name, {
             name: b.name,
             kind: 'binding',
@@ -112,6 +125,8 @@ export function collectBindings(
         if (b) {
           checkHostShareable(b, byName, sourceFile, decl.type, diagnostics);
           out.push(b);
+          const as = isExported ? b.name : listed.get(b.name);
+          if (as !== undefined) exported.set(b, as);
           recordDeclaration(symbols, sourceFile, decl.name, {
             name: b.name,
             kind: 'binding',
@@ -164,7 +179,98 @@ export function collectBindings(
       );
     } else seen.set(key, b.name);
   }
+  refuseReservedFields(
+    out.filter((b) => exported.has(b)).map((b) => [b, exported.get(b)!] as const),
+    byName,
+    sourceFile,
+    diagnostics,
+  );
   return out;
+}
+
+/** The names a host accessor holds of its own (change 0138, R7 and R8; `STRUCT_OWN` and
+ *  `ROOT_OWN` in `src/runtime/resource.ts`): `set` on every struct, and `needsUpdate` and
+ *  `dispose` on the struct of a uniform itself. */
+const ACCESSOR_OWN = ['set'];
+const UNIFORM_OWN = ['set', 'needsUpdate', 'dispose'];
+
+/** The class of `struct`, or the class above it, that declares field `field` in this file, with
+ *  the field's declaration: the place the author renames it. */
+function fieldDeclaration(
+  sourceFile: ts.SourceFile,
+  struct: string,
+  field: string,
+): { readonly cls: string; readonly node: ts.Node } | undefined {
+  const seen = new Set<string>();
+  for (let name: string | undefined = struct; name !== undefined && !seen.has(name);) {
+    seen.add(name);
+    const decl = classDeclarationIn(sourceFile, name);
+    if (decl === undefined) return undefined;
+    const m = decl.members.find(
+      (x): x is ts.PropertyDeclaration =>
+        ts.isPropertyDeclaration(x) && x.name.getText(sourceFile) === field,
+    );
+    if (m !== undefined) return { cls: name, node: m.name };
+    const base = decl.heritageClauses?.find((h) => h.token === ts.SyntaxKind.ExtendsKeyword)
+      ?.types[0]?.expression;
+    name = base !== undefined && ts.isIdentifier(base) ? base.text : undefined;
+  }
+  return undefined;
+}
+
+/** Refuse a field of an exported binding's class that has the name of a member of its host
+ *  accessor (`TS8079`, Rule 6.1, change 0138, Amendment A5, D3). The host reaches a field as a
+ *  property of the accessor (`camera.pos.set(…)`), so a field named `set`, or `needsUpdate` or
+ *  `dispose` on a uniform's class, has no accessor; the runtime refuses the class with a
+ *  `TypeError` when it makes the resource, and this says so where the author writes the field.
+ *  Only a binding that is a host resource is read, by the predicate `resourceFaces` uses
+ *  (`hostResourceOf` in `host-resource.ts`): an exported class, not abstract, with the layout.
+ *  The refusal stands on the field's declaration, in the class that declares it (a class above
+ *  for an inherited field), once for each field, and names the first binding that reaches it, by
+ *  the name the module exports it as; on the file's first line when the file does not declare
+ *  the field. */
+function refuseReservedFields(
+  exported: readonly (readonly [BindingDecl, string])[],
+  structs: ReadonlyMap<string, StructDecl>,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  if (exported.length === 0) return;
+  const classOf = classInFile(sourceFile, structs);
+  const reported = new Set<string>();
+  for (const [binding, as] of exported) {
+    const r = hostResourceOf(binding, classOf);
+    if (r.kind !== 'resource') continue;
+    const host = `${r.resource}<${r.cls}>`;
+    const seen = new Set<string>();
+    const walk = (s: ShaderType, own: readonly string[]): void => {
+      if (s.kind === 'array') return walk(s.elem, ACCESSOR_OWN);
+      if (s.kind !== 'struct' || seen.has(s.name)) return;
+      seen.add(s.name);
+      const decl = structs.get(s.name);
+      if (decl === undefined) return;
+      for (const f of decl.fields) {
+        if (!own.includes(f.name)) {
+          walk(f.type, ACCESSOR_OWN);
+          continue;
+        }
+        const at = fieldDeclaration(sourceFile, s.name, f.name);
+        const shown = at?.cls ?? authorTypeText(s);
+        const key = `${shown}.${f.name}`;
+        if (reported.has(key)) continue;
+        reported.add(key);
+        diagnostics.push(
+          makeDiagnostic(
+            sourceFile,
+            at?.node,
+            `"${key}" is named like the host accessor's own ${f.name === 'needsUpdate' ? 'property' : 'method'} "${f.name}": "${as}" is a binding the module exports, a ${host} in the host, whose fields are properties of that accessor. Rename the field (Rule 6.1).`,
+            TS_CODES.HOST_RESERVED_FIELD,
+          ),
+        );
+      }
+    };
+    walk(r.struct, r.resource === 'Uniform' ? UNIFORM_OWN : ACCESSOR_OWN);
+  }
 }
 
 /** The structs of the file being collected, set by {@link collectBindings}. */
