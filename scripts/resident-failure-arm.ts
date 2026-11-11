@@ -304,6 +304,39 @@ async function runInPage(input: {
     void m.fill!(independent, 4, 9);
     add('independent work', false, equal(await independent.read(), [9, 9, 9, 9]));
 
+    // A failure after the call bound the Buffer it writes (the review of #1257, S3): on WebGPU the
+    // device copy is the newer. No API command fails at that point on demand, so the control puts
+    // the failed call's state on a Buffer that a real call wrote, before its read(). set(data) and
+    // resize() must recover it (A7, decision b), and the host's accessors read the host copy.
+    const stuck = async () => {
+      const r = floats(1);
+      void m.fill!(r, 4, 5);
+      await d.array(new Float32Array(1)).read();
+      const state = residentState(r)!;
+      const bound = input.tier !== 'webgpu' || state.fresh === 'device';
+      state.error = new TypeError('a failure after binding');
+      state.ahead = false;
+      return { r, bound };
+    };
+    const first = await stuck();
+    const viewed = await attempt(() => first.r.at(0).get());
+    const setError = await attempt(() => first.r.set(new Float32Array(4).fill(6)));
+    const second = await stuck();
+    const resizeError = await attempt(() => second.r.resize(2));
+    add(
+      'scalar recovery after binding',
+      false,
+      first.bound &&
+        second.bound &&
+        viewed === undefined &&
+        setError === undefined &&
+        resizeError === undefined &&
+        equal(await first.r.read(), [6, 6, 6, 6]) &&
+        // The values not yet read back are lost on WebGPU; the host tiers wrote the host copy.
+        equal(await second.r.read(), input.tier === 'webgpu' ? [1, 1] : [5, 5]),
+    );
+    await drain();
+
     // A Buffer a failed call wrote is refused at the call, which changes no Buffer (A7, b).
     const ce = await poison(xs);
     const beforeCompute = commands;

@@ -5043,7 +5043,7 @@ describe('a Buffer of a class on WebGPU, on a recording device (Rule 11.8, chang
     expect(back[0]!.tick()).toBe(0.875);
     // An array of plain objects is plain data, and no Buffer (Amendment A11, Q4).
     expect(() => array([{ phase: 0, step: 0.125 }] as never)).toThrow(
-      /^array\(\): takes a Float32Array/,
+      /^array\(\): takes an array of numbers, a Float32Array/,
     );
   });
 });

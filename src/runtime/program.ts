@@ -1865,6 +1865,12 @@ export class ProgramImpl implements Program {
             `${where} has no host value${b.noLayout !== undefined ? `: ${b.noLayout}` : ''}.`,
           );
         const layout = s.layout;
+        // Only a storage array with no size takes a `Buffer` of scalars (deviation D-l of change
+        // 0138); a uniform and a sized binding take the plain value each frame (Amendment A11, Q3).
+        if (b.resource.resourceKind !== 'storage-buffer' || layout.k !== 'a' || layout.n !== null)
+          throw new TypeError(
+            `${where} takes no Buffer: a Buffer is bound only to a storage array with no size; pass the plain value each frame (change 0138, Amendment A11, Q3).`,
+          );
         const writes = entry.bindings?.find((x) => x.name === b.name)?.writes ?? false;
         try {
           return {

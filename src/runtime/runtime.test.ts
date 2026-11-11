@@ -280,6 +280,32 @@ declare const tint: uniform<vec4>;
 @fragment export function fs(v: VsOut): Color { return { c: tint }; }
 `;
 
+/** A draw whose colour is a storage array with no size, the one binding that takes a `Buffer`
+ *  (deviation D-l of change 0138), beside a sized one and a uniform, which take none (Amendment
+ *  A11, Q3). */
+const DRAW_STORE = `"use typeshade";
+interface VsIn { pos: location<0, vec2>; }
+interface VsOut { p: builtin<"position">; }
+interface Color { c: location<0, vec4>; }
+declare const tint: storage<array<f32>>;
+declare const four: storage<array<f32, 4>>;
+declare const gain: uniform<vec4>;
+@vertex export function vs(v: VsIn): VsOut { return { p: vec4(v.pos, 0., 1.) }; }
+@fragment export function fs(v: VsOut): Color {
+  return { c: vec4(tint[0], tint[1], tint[2], tint[3]) * gain + vec4(four[0]) };
+}
+`;
+
+/** A draw that reads a storage array of words, which a `Buffer<u32>` of indices can also be. */
+const DRAW_WORDS = `"use typeshade";
+interface VsIn { pos: location<0, vec2>; }
+interface VsOut { p: builtin<"position">; }
+interface Color { c: location<0, vec4>; }
+declare const words: storage<array<u32>>;
+@vertex export function vs(v: VsIn): VsOut { return { p: vec4(v.pos, 0., 1.) }; }
+@fragment export function fs(v: VsOut): Color { return { c: vec4(f32(words[0])) }; }
+`;
+
 /** A multisampled colour texture and its depth, loaded texel by texel, beside a texture a
  *  filtering sampler samples. */
 const MSAA = `"use typeshade";
@@ -1247,13 +1273,14 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
   it('binds a Buffer of scalars as one buffer, uploaded once and again after set()', async () => {
     const fake = fakeDevice();
     const rt = await createRuntime({ device: fake.device });
-    const pipeline = await rt.load(manifest(DRAW)).render();
+    const pipeline = await rt.load(manifest(DRAW_STORE)).render();
     const tint = array(Float32Array.of(1, 0, 0, 1));
+    const plain = { four: [0, 0, 0, 0], gain: [1, 1, 1, 1] };
     const target = rt.texture({ size: [4, 4], format: 'rgba8unorm' });
     const frame = async () => {
       const f = rt.frame();
       f.pass({ color: [target] }, (p) =>
-        p.draw(pipeline, { tint } as never, { vertices: new Float32Array(6), count: 3 }),
+        p.draw(pipeline, { tint, ...plain } as never, { vertices: new Float32Array(6), count: 3 }),
       );
       await f.submit();
     };
@@ -1261,12 +1288,13 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
     const buffers = fake.made.buffer;
     const writes = fake.made.writeBuffer;
     await frame();
-    // The Buffer's buffer is made once; the second frame writes only the vertices.
+    // The Buffer's buffer is made once; the second frame writes only the vertices and the two
+    // plain values.
     expect(fake.made.buffer).toBe(buffers);
-    expect(fake.made.writeBuffer! - writes!).toBe(1);
+    expect(fake.made.writeBuffer! - writes!).toBe(3);
     tint.set([0, 1, 0, 1]);
     await frame();
-    expect(fake.made.writeBuffer! - writes!).toBe(3);
+    expect(fake.made.writeBuffer! - writes!).toBe(7);
     expect([...(await tint.read())]).toEqual([0, 1, 0, 1]);
     tint.dispose();
     await expect(frame()).rejects.toThrow('This Buffer was disposed');
@@ -1356,13 +1384,13 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
   it('binds one device buffer for a Buffer that is both the indices and a binding', async () => {
     const fake = fakeDevice();
     const rt = await createRuntime({ device: fake.device });
-    const pipeline = await rt.load(manifest(DRAW)).render();
+    const pipeline = await rt.load(manifest(DRAW_WORDS)).render();
     const target = rt.texture({ size: [4, 4], format: 'rgba8unorm' });
-    const made = async (tint: object, indices: object): Promise<number> => {
+    const made = async (words: object, indices: object): Promise<number> => {
       const before = fake.made.buffer ?? 0;
       const f = rt.frame();
       f.pass({ color: [target] }, (p) =>
-        p.draw(pipeline, { tint } as never, {
+        p.draw(pipeline, { words } as never, {
           vertices: new Float32Array(6),
           indices: indices as Uint32Array,
           count: 3,
@@ -1372,7 +1400,7 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
       return (fake.made.buffer ?? 0) - before;
     };
     // A first draw fills the runtime's pool, so the counts below are the Buffers' alone.
-    await made([1, 0, 0, 1], new Uint32Array([0, 1, 2]));
+    await made(Uint32Array.of(1, 0, 0, 1), new Uint32Array([0, 1, 2]));
     const one = array(new Uint32Array([0, 1, 2, 0]));
     const shared = await made(one, one);
     const two = await made(
@@ -1380,6 +1408,30 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
       array(new Uint32Array([0, 1, 2, 0])),
     );
     expect(two - shared).toBe(1);
+  });
+
+  it('refuses a Buffer for a uniform or a sized storage binding (change 0138, Amendment A11, Q3)', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(manifest(DRAW_STORE)).render();
+    const target = rt.texture({ size: [4, 4], format: 'rgba8unorm' });
+    const draw = async (bindings: object) => {
+      const f = rt.frame();
+      f.pass({ color: [target] }, (p) =>
+        p.draw(pipeline, bindings as never, { vertices: new Float32Array(6), count: 3 }),
+      );
+      await f.submit();
+    };
+    const tint = array(Float32Array.of(1, 0, 0, 1));
+    const NONE =
+      'takes no Buffer: a Buffer is bound only to a storage array with no size; pass the plain value each frame (change 0138, Amendment A11, Q3).';
+    await expect(
+      draw({ tint, four: array(new Float32Array(4)), gain: [1, 1, 1, 1] }),
+    ).rejects.toThrow(`binding "four" (array<f32,4>) ${NONE}`);
+    await expect(
+      draw({ tint, four: [0, 0, 0, 0], gain: array(Float32Array.of(1, 1, 1, 1)) }),
+    ).rejects.toThrow(`binding "gain" (vec4<f32>) ${NONE}`);
+    await draw({ tint, four: [0, 0, 0, 0], gain: [1, 1, 1, 1] });
   });
 
   it("refuses a Buffer the geometry's field does not take, naming the field", async () => {
@@ -1512,14 +1564,14 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
     await expect(r.read()).rejects.toThrow(/disposed/);
   });
 
-  it('takes a typed array only, and refuses what no Buffer of scalars holds (change 0138, Amendment A11, Q3 and Q4)', () => {
+  it('takes a typed array or an array of numbers, and refuses what no Buffer of scalars holds (change 0138, Amendment A11, Q3 and Q4)', () => {
     expect(() => array({ viewProj: new Array(16).fill(0), time: 0 } as never)).toThrow(
       /^array\(\): takes an array; got an object\./,
     );
     expect(() => array(3 as never)).toThrow(/^array\(\): takes an array; got a number\./);
     expect(() => array(undefined as never)).toThrow(/^array\(\): takes an array; got undefined\./);
     expect(() => array(new Uint8Array(4) as never)).toThrow(
-      /^array\(\): takes a Float32Array, an Int32Array, a Uint32Array or a Float64Array; got a Uint8Array\./,
+      /^array\(\): takes an array of numbers, a Float32Array, an Int32Array, a Uint32Array or a Float64Array; got a Uint8Array\./,
     );
     expect(() => array(Float32Array.of(1)).set(null as never)).toThrow(
       'set(): takes a typed array or an array of numbers; got null.',

@@ -20,7 +20,8 @@ import { hostFace } from '../compiler/ts/host-face.js';
 import { compile } from '../compiler/ts/compile.js';
 import { createTypeshadeLanguageService } from '../language-service/service.js';
 import { tscDiagnostics } from '../core/testing/tsc-diagnostics.js';
-import { array, configure } from '../runtime.js';
+import { array, configure, createDevice } from '../runtime.js';
+import { residentState } from '../core/resident.js';
 import type { Buffer } from './resource.js';
 import type { f32, u32, vec3 } from './host-types.js';
 
@@ -98,6 +99,20 @@ export function stats(xs: array<f32>): Stats {
   return { hist: h, count: n };
 }
 
+/** Whether the sum of xs is positive: a bool, which no Buffer holds yet. */
+export function positive(xs: array<f32>): bool {
+  let s = 0.;
+  for (const x of xs) {
+    s += x;
+  }
+  return s > 0.;
+}
+
+/** A matrix of the first element of xs, which no Buffer holds yet. */
+export function basis(xs: array<f32>): mat2x2 {
+  return mat2x2(xs[0], 0., 0., xs[0]);
+}
+
 /** Copies xs into out, and gives the sum. */
 export function copySum(xs: array<f32>, out: array<f32>): f32 {
   let s = 0.;
@@ -116,6 +131,7 @@ interface Module {
   motion: (xs: unknown) => unknown;
   stats: (xs: unknown) => unknown;
   copySum: (xs: unknown, out: unknown) => unknown;
+  positive: (xs: unknown) => unknown;
 }
 
 function face() {
@@ -185,6 +201,14 @@ describe('a Buffer of scalars has the members of every Buffer (Amendment A11, Q1
     xs.resize(4);
     expect([...(await xs.read())]).toEqual([7, 8, 0, 0]);
     expect(() => xs.at(4)).toThrow(RangeError);
+    // An element view of an element that a resize took away throws.
+    const last = xs.at(3);
+    xs.resize(2);
+    expect(() => last.get()).toThrow(
+      'at(3).get(): element 3 is gone; the Buffer holds 2 elements since resize() or set().',
+    );
+    expect(() => last.set(1)).toThrow('at(3).set(): element 3 is gone');
+    xs.resize(4);
     expect(() => array(new Uint32Array(1)).at(0).set(-1)).toThrow(
       'at(0).set(): got -1, which is not a whole number in the u32 range.',
     );
@@ -222,6 +246,118 @@ describe('a Buffer of scalars has the members of every Buffer (Amendment A11, Q1
     m.scale(xs, 1, b);
     expect([...(await a.read())]).toEqual([1, 2]);
     expect([...(await b.read())]).toEqual([30, 20]);
+  });
+
+  it("takes an array of numbers as a Buffer<f32> (the owner's decision of 2026-11-11)", async () => {
+    const xs = array([1, 2, 3]);
+    expect(xs.length).toBe(3);
+    const values = await xs.read();
+    expect(values).toBeInstanceOf(Float32Array);
+    expect([...values]).toEqual([1, 2, 3]);
+    expect([...(await array([]).read())]).toEqual([]);
+    const m = await load();
+    const out = array(new Float32Array(3));
+    m.scale(xs, 2, out);
+    expect([...(await out.read())]).toEqual([2, 4, 6]);
+    const d = await createDevice({ prefer: ['cpu'] });
+    try {
+      const ys = d.array([0.5, 1.5]);
+      expect(await ys.read()).toBeInstanceOf(Float32Array);
+      expect([...(await ys.read())]).toEqual([0.5, 1.5]);
+      // Released, it is pooled as its Float32Array is.
+      d.release(ys);
+      expect([...(await d.array(new Float32Array([7, 8])).read())]).toEqual([7, 8]);
+      expect(d.statistics.reuses).toBe(1);
+    } finally {
+      await d.dispose();
+    }
+    expect(() => array([1, 'a'] as never)).toThrow("array(): element 1 is 'a', not a number.");
+  });
+
+  it('refuses what is no array of numbers, and names the amendment that refuses it', () => {
+    expect(() => array(5 as never)).toThrow(
+      'array(): takes an array; got a number. A value the host keeps on the device is uniform(Class, init); pass any other value to the call as it is (change 0138, Amendment A11, Q3).',
+    );
+    expect(() => array([{ x: 1 }] as never)).toThrow(
+      'array(): takes an array of numbers, a Float32Array, an Int32Array, a Uint32Array or a Float64Array; got an array. Write array(Class, data) for an array of structs of an exported class, or pass the array to the call as it is (change 0138, Amendment A11, Q4).',
+    );
+  });
+
+  it('a Buffer bound to a number gives the call the value it holds at the call (A5, default 3)', async () => {
+    const m = await load();
+    const xs = array(new Float32Array([1, 2]));
+    const k = array(new Float32Array([2]));
+    const out = array(new Float32Array(2));
+    m.scale(xs, k, out);
+    k.set([3]);
+    expect([...(await out.read())]).toEqual([2, 4]);
+    // A set before the call and one after it, while calls made before still wait: the call sees
+    // the first.
+    const a = array(new Float32Array(2));
+    const b = array(new Float32Array(2));
+    m.scale(xs, 1, a);
+    k.set([5]);
+    m.scale(xs, k, b);
+    k.at(0).set(7);
+    expect([...(await b.read())]).toEqual([5, 10]);
+    expect([...(await k.read())]).toEqual([7]);
+  });
+
+  it('a call reads a Buffer bound to a number though the host disposes it after the call', async () => {
+    const m = await load();
+    const xs = array(new Float32Array([1, 2]));
+    const k = array(new Float32Array([2]));
+    const out = array(new Float32Array(2));
+    m.scale(xs, k, out);
+    k.dispose();
+    expect([...(await out.read())]).toEqual([2, 4]);
+    // Disposed before the call, it is refused at the call.
+    expect(() => m.scale(xs, k, out)).toThrow(
+      'This Buffer was disposed; make a new one with array().',
+    );
+  });
+
+  it("a pooled Buffer that device.array() gives again is out of the released one's window", async () => {
+    const m = await load();
+    const d = await createDevice({ prefer: ['cpu'] });
+    try {
+      const xs = d.array(new Float32Array([1, 2]));
+      const out = d.array(new Float32Array(2));
+      m.scale(xs, 2, out);
+      d.release(out);
+      const again = d.array(new Float32Array([5, 6]));
+      expect(d.statistics.reuses).toBe(1);
+      expect(again.at(0).get()).toBe(5);
+      expect([...(await again.read())]).toEqual([5, 6]);
+      m.scale(xs, 3, again);
+      d.release(again);
+      const zeroed = d.array(2, 'f32');
+      expect(zeroed.at(1).get()).toBe(0);
+      expect([...(await zeroed.read())]).toEqual([0, 0]);
+    } finally {
+      await d.dispose();
+    }
+  });
+
+  it('set() and resize() recover a Buffer a failed call left newer on the device (A7, decision b)', async () => {
+    // A failure on WebGPU after the call bound the Buffer it writes: the device copy is the newer,
+    // and the call's error is kept.
+    const failed = () => {
+      const xs = array(new Float32Array([1, 2]));
+      const state = residentState(xs)!;
+      state.fresh = 'device';
+      state.error = new TypeError('the call failed');
+      return xs;
+    };
+    const a = failed();
+    expect(a.at(0).get()).toBe(1);
+    await expect(a.read()).rejects.toThrow('the call failed');
+    a.set([3, 4]);
+    expect(a.at(0).get()).toBe(3);
+    expect([...(await a.read())]).toEqual([3, 4]);
+    const b = failed();
+    b.resize(3);
+    expect([...(await b.read())]).toEqual([1, 2, 0]);
   });
 });
 
@@ -302,7 +438,7 @@ describe('a host program over the view (tsc)', () => {
     dirs.push(dir);
     writeFileSync(join(dir, 'm.shade.ts'), SOURCE);
     writeFileSync(join(dir, 'm.shade.typeshade.ts'), f.view);
-    const head = `import { array, type Buffer, type f32, type u32, type vec3 } from ${JSON.stringify(PUBLIC.replace(/\.ts$/, '.js'))};\nimport { sum, scale, centre, motion, stats, copySum } from './m.shade.ts';\nconst xs = array(new Float32Array(4));\n`;
+    const head = `import { array, type Buffer, type f32, type u32, type vec3 } from ${JSON.stringify(PUBLIC.replace(/\.ts$/, '.js'))};\nimport { sum, scale, centre, motion, stats, copySum, positive, basis } from './m.shade.ts';\nconst xs = array(new Float32Array(4));\n`;
     const lines = [
       'const s: Buffer<f32> = sum(xs);',
       'const [first] = await s.read();',
@@ -315,9 +451,20 @@ describe('a host program over the view (tsc)', () => {
       'const bad: number = sum(xs);',
       'xs.at(0).set(1);',
       'const v: Float32Array = await xs.read();',
+      'const n: Buffer<f32> = array([1, 2, 3]);',
+      'array(5);',
+      'array({ x: 1 });',
+      'array([{ x: 1 }]);',
+      "array([1, 'a']);",
+      'positive(xs);',
+      'basis(xs);',
+      'const q: boolean = await positive(new Float32Array(4));',
     ];
     const app = join(dir, 'app.ts');
-    writeFileSync(app, `${head}${lines.join('\n')}\nexport { first, c, e, h, w, p, bad, v };\n`);
+    writeFileSync(
+      app,
+      `${head}${lines.join('\n')}\nexport { first, c, e, h, w, p, bad, v, n, q };\n`,
+    );
     const found = await tscDiagnostics([app], {
       strict: true,
       noEmit: true,
@@ -352,6 +499,14 @@ describe('a host program over the view (tsc)', () => {
       'const bad: number = sum(xs);: TS2322',
       'xs.at(0).set(1);: ',
       'const v: Float32Array = await xs.read();: ',
+      'const n: Buffer<f32> = array([1, 2, 3]);: ',
+      'array(5);: TS2769',
+      'array({ x: 1 });: TS2769',
+      'array([{ x: 1 }]);: TS2769',
+      "array([1, 'a']);: TS2769",
+      'positive(xs);: TS2345',
+      'basis(xs);: TS2345',
+      'const q: boolean = await positive(new Float32Array(4));: ',
     ]);
   });
 });

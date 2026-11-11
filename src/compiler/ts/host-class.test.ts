@@ -917,7 +917,9 @@ describe('a Buffer of a class reads back as instances (Rule 11.8, Amendment 1, D
     const grow = m.grow as (slots: unknown) => Promise<void>;
     const weights = [0.5, 1.5];
     const slots = weights.map((w) => ({ cell: new Cell(), w }));
-    expect(() => array(slots as never)).toThrow(/array\(\): takes a Float32Array/);
+    expect(() => array(slots as never)).toThrow(
+      /array\(\): takes an array of numbers, a Float32Array/,
+    );
     // A call with plain data writes the caller's objects in place.
     await grow(slots);
     slots.forEach((s, i) => expect(s.cell.n).toBe(8 + weights[i]!));

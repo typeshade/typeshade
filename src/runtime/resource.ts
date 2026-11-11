@@ -1431,7 +1431,7 @@ export function zeros<T extends object>(cls: ResourceClass<T, 'set'>, length: nu
  * A storage array of the structs of `cls` that `data` holds (change 0138, R9), a `Buffer`; or,
  * with a typed array, a `Buffer` of its scalars that keeps it on the device across calls
  * (Amendment A1: `array(xs)` replaces `resident(xs)`; Amendment A10, Q-I): a `Buffer<f32>` for a
- * `Float32Array`, and so on; or, with a length and an element, a zeroed `Buffer` of scalars. What
+ * `Float32Array` or a `number[]`, and so on; or, with a length and an element, a zeroed `Buffer` of scalars. What
  * it makes belongs to the device in use (`using _ = device.use()`), or to the default owner when
  * none is in use (R3): a `Buffer` of scalars is the one `device.array()` makes.
  *
@@ -1442,13 +1442,15 @@ export function zeros<T extends object>(cls: ResourceClass<T, 'set'>, length: nu
  * @returns a `Buffer<T>`.
  * @throws `TypeError` as {@link zeros} does, for `data` that is no array, for a value that is not
  *   an array (Amendment A11, Q3: write `uniform(Class, init)`, or pass the value to the call), and
- *   for an array that is no typed array (A11, Q4: write `array(Class, data)` for structs).
+ *   for an array that holds anything but numbers (A11, Q4: write `array(Class, data)` for
+ *   structs).
  */
 export function array<T extends object>(
   cls: ResourceClass<T, 'set'>,
   data: readonly Some<T>[],
 ): Buffer<T>;
 export function array<T extends ScalarArray>(value: T): Buffer<ElementOfTyped<T>>;
+export function array(value: readonly number[]): Buffer<f32>;
 export function array<E extends ZeroedElement>(
   length: number,
   element: E,

@@ -9173,12 +9173,14 @@ ID, user agent, storage or automatic sending is added. The host controls inspect
 **A `Buffer` of scalars** (change 0138, Amendments A10 and A11). `array(xs)`, from
 `typeshade/runtime`, makes a `Buffer` of the scalars of a typed array: a `Buffer<f32>` of a
 `Float32Array`, a `Buffer<i32>` of an `Int32Array`, a `Buffer<u32>` of a `Uint32Array` and a
-`Buffer<f64>` of a `Float64Array`. It holds its own copy. Inside a block of `device.use()` it makes
-that device's `Buffer`, as `device.array(xs)` does (§64, the default device). `array()` takes an
-array and nothing else: a value the host keeps on the device is `uniform(Class, init)`, and any
-other value is passed to the call as it is. An array of structs is a `Buffer` only of an exported
-class, `array(Class, data)` or `zeros(Class, n)` (§64); an array of plain objects is passed as
-plain data. Each refusal is a `TypeError` that says what to write instead.
+`Buffer<f64>` of a `Float64Array`. An array of numbers, a `number[]`, makes a `Buffer<f32>`, its
+numbers held as a `Float32Array` holds them (the owner's decision of 2026-11-11). It holds its own
+copy. Inside a block of `device.use()` it makes that device's `Buffer`, as `device.array(xs)` does
+(§64, the default device). `array()` takes an array and nothing else: a value the host keeps on
+the device is `uniform(Class, init)`, and any other value is passed to the call as it is. An array
+of structs is a `Buffer` only of an exported class, `array(Class, data)` or `zeros(Class, n)`
+(§64); an array of plain objects is passed as plain data. Each refusal is a `TypeError` that says
+what to write instead.
 
 Every `Buffer` has the same members, a `Buffer` of scalars as a `Buffer` of structs (§64):
 `length`, which counts elements, a vector being one; `read()`, which gives a new typed array of the
@@ -9194,8 +9196,9 @@ after bind the same buffer and read nothing back, and `await b.read()` waits for
 before it. From a call that writes a `Buffer` until `read()` brings its values back, `set`,
 `resize`, `needsUpdate` and the element view's `get` and `set` throw a `TypeError` that says to
 await `read()` first. The `Buffer` is a buffer of the program runtime too, for a storage array
-with no size and a geometry's vertices and indices (§69), and `configure({ runtime })` puts the
-calls on that runtime's device, so one `Buffer` serves both:
+with no size and a geometry's vertices and indices (§69); a uniform and a sized binding take no
+`Buffer`, which is a `TypeError`, and take the plain value each frame (Amendment A11, Q3). And
+`configure({ runtime })` puts the calls on that runtime's device, so one `Buffer` serves both:
 
 ```ts
 import { array } from 'typeshade/runtime';
@@ -9211,8 +9214,11 @@ A kernel function that returns a value, called on a `Buffer`, returns its result
 `Buffer` of `N` elements for an `array<T, N>` of them, and for a struct an object of them with the
 struct's own fields, a nested struct an object of its own (Amendment A11, Q6). Another call takes
 each as an argument: a number or a vector parameter takes a `Buffer` of one element, which the
-call reads when it runs. A call on a `Buffer` that writes a plain array waits, fills the array,
-and gives its result as plain data (Amendment A11, Q7). On the CPU tier a `Buffer` of scalars is a
+call reads when it runs, with the values it holds at the call. This version fills a result from
+the value the call gives on the host, so each result costs one read back in the order of calls,
+and a later call on WebGPU uploads it; a device counts it among its allocations. A call on a
+`Buffer` that writes a plain array waits, fills the array, and gives its result as plain data
+(Amendment A11, Q7). On the CPU tier a `Buffer` of scalars is a
 typed array it holds, and costs nothing. A `Buffer<u32>` can also hold the workgroup count of an
 entry call, which a kernel or an entry wrote (§67, change 0075).
 
@@ -11042,7 +11048,7 @@ allocations. This is an illustrative count, not a memory-usage or performance me
 | Refused                                                  | Wording                                                                                                                                                                                                                                                                                                                           |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `read()`                                                 | `read(): this is a scratch array, which the host never reads. Make it with array() to read it after the scope.`                                                                                                                                                                                                                |
-| `write()`                                                | `write(): this is a scratch array, which the host never writes. Make it with array() to write it.`                                                                                                                                                                                                                             |
+| `set()`, `resize()`, `at()`, `needsUpdate`               | `set(): this is a scratch array, which the host never reads or writes. Make it with array() to use it after the scope.` The same wording names `resize()`, `at()` and `needsUpdate`.                                                                                                                                           |
 | a call outside the body that made it                     | `add(): parameter "t" is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.`                                                                                                                                                                                                        |
 | a call after the plan has run                            | `add(): parameter "t" is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.`                                                                                                                                                                                                |
 | an entry call or a draw (§67) that takes it              | `blur(): binding "t" is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.` A draw has its own name there. A draw made before the plan has run gets `fs(): binding "t" is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.` |

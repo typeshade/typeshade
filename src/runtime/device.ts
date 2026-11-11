@@ -11,7 +11,7 @@
 // of `prefer` did not open, the `Buffer`s it made and a pool of the released ones, the
 // device's limits and its lost signal, `fuse()` over its own device, a completion fence, and a
 // `dispose()` that frees what it made and never what the host handed in. Two devices in one
-// context are independent. The process-global `configure()`, `resident()` and `fuse()` stay, and
+// context are independent. The process-global `configure()`, `array()` and `fuse()` stay, and
 // describe the default owner (`core/owner.ts`).
 //
 // `device.fuse()` includes its synchronous recorder (change 0085). The plan reserves its queue
@@ -40,6 +40,7 @@ import {
 } from '../core/host-entry.js';
 import type { CallOwner } from '../core/owner.js';
 import type { Fp64Flavor } from '../core/passes/fp64-lower.js';
+import type { f32 } from './host-types.js';
 import { probeSubgroups, type SubgroupObservation } from '../core/subgroup-probe.js';
 import {
   checkFp64Flavor,
@@ -47,7 +48,9 @@ import {
   handleOf,
   kernelQueue,
   makeResident,
+  plainNumbers,
   refill,
+  renew,
   residentState,
   ZEROED_ELEMENTS,
   ZeroedState,
@@ -188,8 +191,12 @@ export interface Device {
   /** A `Buffer` of scalars that holds a copy of the typed array `value`, as `array(value)` makes
    *  one (Rule 11.8; change 0138, Amendment A10, Q-I), owned by this device: taken from the pool
    *  when a released array of the same element and length is there, and made new otherwise.
-   *  @throws `TypeError` for a value that is no typed array (Amendment A11, Q3 and Q4). */
+   *  @throws `TypeError` for a value that is no array, and for an array that holds anything but
+   *    numbers (Amendment A11, Q3 and Q4). */
   array<T extends ScalarArray>(value: T): Buffer<ElementOfTyped<T>>;
+  /** A `Buffer<f32>` of the numbers of `value`, as `array(value)` makes one: a `number[]` is held
+   *  as a `Float32Array` (change 0138; the owner's decision of 2026-11-11). */
+  array(value: readonly number[]): Buffer<f32>;
   /** A zeroed `Buffer` of `length` numbers of `element`, as `array(length, element)` makes one
    *  (change 0065), owned by this device: taken from the pool and zeroed on the device when a
    *  released array of the same element and length is there, and made new otherwise. */
@@ -426,6 +433,7 @@ class DeviceImpl implements Device {
   }
 
   array<T extends ScalarArray>(value: T): Buffer<ElementOfTyped<T>>;
+  array(value: readonly number[]): Buffer<f32>;
   array<E extends ZeroedElement>(length: number, element: E): Buffer<ZeroedBufferElement<E>>;
   array(...args: unknown[]): Buffer<never> {
     return this.arrayAs(`${this.label}.array()`, args) as never;
@@ -436,7 +444,9 @@ class DeviceImpl implements Device {
   arrayAs(at: string, args: readonly unknown[]): Resident<unknown> {
     this.#usable('array()');
     const zeroed = args.length >= 2;
-    const [value, element] = args as [unknown, unknown];
+    const [given, element] = args as [unknown, unknown];
+    // A `number[]` is a `Buffer<f32>`, pooled as its `Float32Array` is.
+    const value = zeroed ? given : (plainNumbers(given, at) ?? given);
     // The refusals of `array()` come first, so a wrong value makes no slot.
     const probe = makeResident(at, zeroed ? [value, element] : [value]);
     const probeState = residentState(probe)!;
@@ -765,7 +775,14 @@ class DeviceImpl implements Device {
    *  the calls queued before, which may still read it. */
   #rezero(slot: Slot, element: ZeroedElement, length: number): void {
     const state = slot.state;
+    // The new handle's accessors see zeros at once, out of the released handle's window; the
+    // calls of the released handle made before still run on its old contents.
+    renew(state);
+    const ahead = ZEROED_ELEMENTS[element](length);
+    state.next = ahead;
     kernelQueue.whenIdle(() => {
+      if (state.next === ahead) state.next = undefined;
+      state.error = undefined;
       const zeros = ZEROED_ELEMENTS[element](length);
       const d = this.#gpu;
       if (state.gpu !== undefined && d !== null && state.gpu.d === d) {
@@ -866,7 +883,7 @@ ownerInUse.of = () => {
  * on a `GPUDevice` the host already has, or on the device of a program runtime. The device's
  * `array()` makes the `Buffer`s its calls take, `fuse()` runs a body's calls as one plan
  * on it, and `dispose()` frees what it made. Two devices in one context are independent, and the
- * process-global `configure()`, `resident()` and `fuse()` describe the default owner as before.
+ * process-global `configure()`, `array()` and `fuse()` describe the default owner as before.
  *
  * Exported from `typeshade` and `typeshade/runtime`.
  *

@@ -1032,7 +1032,7 @@ describe('the pool', () => {
     expect(dev.statistics.uploadBytes).toBe(24);
     await a.read();
     expect(dev.statistics.readBytes).toBe(12);
-    // A value that is no typed array is refused before a slot is made (Amendment A11, Q3).
+    // A value that is no array is refused before a slot is made (Amendment A11, Q3).
     expect(() => dev.array(2.5 as never)).toThrow(/takes an array; got a number/);
     expect(dev.statistics.uploadBytes).toBe(24);
     expect(dev.statistics.live).toBe(1);

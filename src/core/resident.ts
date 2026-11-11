@@ -596,18 +596,36 @@ export function makeResident(at: string, args: readonly unknown[]): Resident<unk
   return handleOf(zeroedState(args[0], args[1], at));
 }
 
-/** The state of an `array(xs)` handle: a typed array, copied (Amendment A11, Q3 and Q4).
- *  @throws `TypeError` for a value that is not an array, and for an array that is no typed array:
- *    an array of structs is `array(Class, data)`, and any other value is passed to the call. */
+/** The state of an `array(xs)` handle: a typed array, copied, or a `number[]` as a `Float32Array`
+ *  (Amendment A11, Q3 and Q4; the owner's decision of 2026-11-11 on the review of #1257, S5).
+ *  @throws `TypeError` for a value that is not an array, and for an array that holds anything but
+ *    numbers: an array of structs is `array(Class, data)`, and any other value is passed to the
+ *    call. */
 function hostState(value: unknown, at = 'array()'): ResidentArrayState {
   if (isTyped(value)) return new ResidentArrayState(value.slice());
+  const numbers = plainNumbers(value, at);
+  if (numbers !== undefined) return new ResidentArrayState(numbers);
   if (Array.isArray(value) || ArrayBuffer.isView(value))
     throw new TypeError(
-      `${at}: takes a Float32Array, an Int32Array, a Uint32Array or a Float64Array; got ${argumentKind(value)}. Write array(Class, data) for an array of structs of an exported class, array(new Float32Array(xs)) for numbers, or pass the array to the call as it is (change 0138, Amendment A11, Q4).`,
+      `${at}: takes an array of numbers, a Float32Array, an Int32Array, a Uint32Array or a Float64Array; got ${argumentKind(value)}. Write array(Class, data) for an array of structs of an exported class, or pass the array to the call as it is (change 0138, Amendment A11, Q4).`,
     );
   throw new TypeError(
     `${at}: takes an array; got ${argumentKind(value)}. A value the host keeps on the device is uniform(Class, init); pass any other value to the call as it is (change 0138, Amendment A11, Q3).`,
   );
+}
+
+/** A `number[]` as the `Float32Array` of its `Buffer<f32>` (the owner's decision of 2026-11-11 on
+ *  the review of #1257, S5), or undefined for any other value, an array of objects among them.
+ *  Not API: `device.array()` pools by it.
+ *  @throws `TypeError` for an array of numbers that holds anything else too. */
+export function plainNumbers(value: unknown, at = 'array()'): Float32Array | undefined {
+  if (!Array.isArray(value)) return undefined;
+  if (value.length > 0 && typeof value[0] !== 'number') return undefined;
+  value.forEach((n: unknown, i) => {
+    if (typeof n !== 'number')
+      throw new TypeError(`${at}: element ${i} is ${argumentKind(n)}, not a number.`);
+  });
+  return new Float32Array(value as number[]);
 }
 
 /** How a refused argument of `array()` reads in its message. */
@@ -731,14 +749,25 @@ function hostValues(state: ResidentArrayState): ArrayLike<number> & { [i: number
   return state.host as never;
 }
 
-/** Give `state` the host values `v` once the calls made before have run (A5, default 3). */
-function setLater(state: ResidentArrayState, v: ArrayBufferView): void {
+/** Give `state` the host values `v` once the calls made before have run (A5, default 3). Each
+ *  `set` takes its place in the order: a call made between two of them sees the first one's
+ *  values, so the first is assigned though a later one waits. */
+function setLater(state: ResidentArrayState, v: ArrayBufferView, after?: () => void): void {
   state.next = v;
   kernelQueue.whenIdle(() => {
-    if (state.next !== v) return;
-    state.next = undefined;
+    if (state.next === v) state.next = undefined;
+    after?.();
     state.assign(v);
   });
+}
+
+/** Whether the device copy of `s` holds values the host's accessors do not have: a program entry
+ *  that wrote the handle leaves it so, with no window of its own. Values that a `set` gave, a
+ *  clear that waits (the host copy holds the zeros) and a failed call (whose device copy holds
+ *  nothing to read back, A7 decision b) leave the host's values the ones to use (the review of
+ *  #1257, S3). */
+function deviceNewer(s: ResidentArrayState): boolean {
+  return s.fresh === 'device' && s.next === undefined && s.error === undefined && !s.clearPending;
 }
 
 /** The handle of `state`: the members of a `Buffer` (Amendment A11, Q1), over the state's queue and
@@ -752,7 +781,7 @@ export function handleOf(state: ResidentArrayState, hooks: HandleHooks = {}): Re
   // stale until `read()` (Amendment A11, Q1). A call that failed leaves the window (A7, decision b).
   const current = (at: string): void => {
     live();
-    if (state.ahead || state.fresh === 'device')
+    if (state.ahead || deviceNewer(state))
       throw new TypeError(
         `${at}: a call wrote this Buffer, and its values are on the device until \`await read()\` brings them back; await it first.`,
       );
@@ -839,9 +868,17 @@ export function handleOf(state: ResidentArrayState, hooks: HandleHooks = {}): Re
           throw new TypeError(`${at}: got ${x}, which is not a whole number in the ${kind} range.`);
         return x;
       };
+      // A `resize` that shrinks the `Buffer` takes the element away (Rule 8.21).
+      const there = (at: string): void => {
+        current(at);
+        if (index >= lengthOf(state))
+          throw new TypeError(
+            `${at}: element ${index} is gone; the Buffer holds ${lengthOf(state)} elements since resize() or set().`,
+          );
+      };
       return {
         get(): unknown {
-          current(`at(${index}).get()`);
+          there(`at(${index}).get()`);
           if (state.next === undefined && state.host === undefined && state instanceof ZeroedState)
             return c === 1 ? 0 : new (typedKind(state))(c);
           const values = hostValues(state) as unknown as Float32Array;
@@ -850,7 +887,7 @@ export function handleOf(state: ResidentArrayState, hooks: HandleHooks = {}): Re
         set(...value: unknown[]): void {
           fuseSlot.active?.refuse('set()', 'a set of a Buffer');
           const at = `at(${index}).set()`;
-          current(at);
+          there(at);
           const xs =
             c > 1 && value.length === 1 && typeof value[0] === 'object' && value[0] !== null
               ? Array.from(value[0] as ArrayLike<unknown>)
@@ -912,8 +949,23 @@ export function disposeState(state: ResidentArrayState): void {
  *  refills a pooled handle with it (change 0071). Not API. */
 export function refill(state: ResidentArrayState, v: unknown): void {
   const copy = isTyped(v) ? v.slice() : v;
+  renew(state);
+  if (!ArrayBuffer.isView(copy)) {
+    kernelQueue.whenIdle(() => state.assign(copy));
+    return;
+  }
+  // The new handle's accessors see the new values at once; a call of the released handle made
+  // before still runs on the old ones, and its failure is not the new handle's.
+  setLater(state, copy, () => {
+    state.error = undefined;
+  });
+}
+
+/** A pooled state given to a new handle: no call of the new handle wrote it, so it is out of the
+ *  window of the released one (the review of #1257, S1). Not API. */
+export function renew(state: ResidentArrayState): void {
   state.error = undefined;
-  kernelQueue.whenIdle(() => state.assign(copy));
+  state.ahead = false;
 }
 
 // ─── the order of calls ──────────────────────────────────────────────────────────────────────

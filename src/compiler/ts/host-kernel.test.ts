@@ -634,7 +634,7 @@ export function copy4(out: array<vec4f>, a: array<vec4f>): void {
     );
   });
 
-  it('refuses a zeroed Buffer with the three refusals of Rule 11.8, a value that is not an array, and an array that is no typed array (Amendment A11, Q3 and Q4)', async () => {
+  it('refuses a zeroed Buffer with the three refusals of Rule 11.8, a value that is not an array, and an array that holds anything but numbers (Amendment A11, Q3 and Q4)', async () => {
     const rt = await api();
     const R1 = (got: string) =>
       new TypeError(
@@ -655,7 +655,7 @@ export function copy4(out: array<vec4f>, a: array<vec4f>): void {
         'array(): with an element, the first argument is the length, a whole number; got an array.',
       ),
     );
-    // A value that is not an array (Q3), and an array that is no typed array (Q4).
+    // A value that is not an array (Q3), and an array that holds anything but numbers (Q4).
     expect(() => rt.array(5 as never)).toThrow(
       new TypeError(
         'array(): takes an array; got a number. A value the host keeps on the device is uniform(Class, init); pass any other value to the call as it is (change 0138, Amendment A11, Q3).',
@@ -666,7 +666,7 @@ export function copy4(out: array<vec4f>, a: array<vec4f>): void {
     );
     expect(() => rt.array([{ x: 1 }] as never)).toThrow(
       new TypeError(
-        'array(): takes a Float32Array, an Int32Array, a Uint32Array or a Float64Array; got an array. Write array(Class, data) for an array of structs of an exported class, array(new Float32Array(xs)) for numbers, or pass the array to the call as it is (change 0138, Amendment A11, Q4).',
+        'array(): takes an array of numbers, a Float32Array, an Int32Array, a Uint32Array or a Float64Array; got an array. Write array(Class, data) for an array of structs of an exported class, or pass the array to the call as it is (change 0138, Amendment A11, Q4).',
       ),
     );
   });

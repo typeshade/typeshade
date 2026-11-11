@@ -883,16 +883,15 @@ function placeholderOf(at: string, t: HostType, state: ResidentArrayState): unkn
 }
 
 /** The value a parameter bound from `state` takes when the call runs: the one element the
- *  `Buffer` holds after the calls made before (change 0138, Amendment A10, Q-C). */
+ *  `Buffer` holds after the calls made before (change 0138, Amendment A10, Q-C). It reads the host
+ *  copy, which holds the values of the call: a `set()` made after the call waits in `state.next`
+ *  until this call has run (Amendment A5, default 3). A `dispose()` made after the call releases
+ *  the device buffer only after it, so the call reads the values still. */
 async function boundValue(k: KernelFace, i: number, state: ResidentArrayState): Promise<unknown> {
-  if (state.destroyed)
-    throw new TypeError(
-      `${k.name}(): parameter "${k.params[i]!.name}": this Buffer was disposed; make a new one with array().`,
-    );
   if (state.error !== undefined) throw state.error;
   await state.fenced();
   await state.sync(true);
-  const values = (state.next ?? state.host) as ArrayLike<number>;
+  const values = state.host as ArrayLike<number>;
   const p = k.params[i]!;
   return p.k === 'value' && p.type.k === 'vec' ? Array.from(values) : values[0];
 }

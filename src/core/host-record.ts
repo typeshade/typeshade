@@ -209,7 +209,8 @@ export function joinRecorded<T>(
       const made = failedAt(e, call, site);
       for (const s of written) {
         s.error = made;
-        // The values it holds are no newer on the device: the host's accessors throw the error.
+        // The failed call leaves the window (A7, decision b): the host's accessors read the host
+        // copy again, what it held before the writing calls, and `read()` throws the error.
         s.ahead = false;
         // A `Buffer`'s device copy holds nothing to read back: it leaves the window.
         (s as { failed?(): void }).failed?.();
