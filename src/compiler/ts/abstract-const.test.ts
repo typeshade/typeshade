@@ -1363,6 +1363,27 @@ ${H3}export function t(vi: u32, x: f32, xs: array<f32, 8>): f32 {
     }
   });
 
+  it('each named edit compiles alone (the fifth review, finding 1)', () => {
+    // `const k: u32 = 7` would make `x * (k / 3)` multiply an f32 by a u32: the first `/` names
+    // the conversion, as checking each edit alone does.
+    const source = t('const k = 7; h(k); return f32(vi + k / 2) + x * (k / 3);');
+    expect(compile(source).diagnostics.map((d) => d.message)).toEqual([
+      expect.stringContaining('Write "u32(k) / 2" for the integer division.'),
+      expect.stringContaining('Write "f32(k) / 3" for the float division.'),
+    ]);
+    expect(editor(source).map((l) => l.replace(/^TS\d+: /, ''))).toEqual(
+      compile(source).diagnostics.map((d) => d.message),
+    );
+    for (const edited of [
+      source.replace('vi + k / 2', 'vi + u32(k) / 2'),
+      source.replace('x * (k / 3)', 'x * (f32(k) / 3)'),
+    ]) {
+      const lines = compile(edited).diagnostics.map((d) => d.message);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain('does not say which division it is');
+    }
+  });
+
   it('an f32 edit leaves an index and a shift amount integers (the fourth review, finding 3)', () => {
     for (const [body, edit] of [
       ['const k = 1; h(k); return f32(vec2(k, 5)[k] / 2);', 'vec2(f32(k), 5)[k] / 2'],

@@ -909,6 +909,7 @@ export function reportAbstractDivisions(
       ),
       edits: divisionEdits(info, read, division, sourceFile),
       region: regionOf(node, sourceFile),
+      binds: declaresName(node),
       tries: [],
     };
   });
@@ -952,6 +953,8 @@ interface PendingRefusal {
   readonly edits: readonly DivisionEdit[];
   /** `[start, end)` of the statement that holds the `/`: an error there is this edit's. */
   readonly region: readonly [number, number];
+  /** Whether that statement declares a name, which other statements may read. */
+  readonly binds: boolean;
   /** Each edit checked, in order; the last one with no extra error ends the checks. */
   readonly tries: CheckedEdit[];
 }
@@ -962,6 +965,17 @@ interface CheckedEdit {
   readonly edit: DivisionEdit;
   readonly extra: number;
   readonly after: ReadonlySet<string>;
+}
+
+/** Whether the statement or member that holds `node` declares a name. */
+function declaresName(node: ts.Node): boolean {
+  for (let n: ts.Node | undefined = node; n !== undefined && !ts.isSourceFile(n); n = n.parent) {
+    if (ts.isVariableStatement(n) || ts.isPropertyDeclaration(n) || ts.isFunctionLike(n)) {
+      return ts.isVariableStatement(n) || ts.isPropertyDeclaration(n);
+    }
+    if (ts.isStatement(n) && !ts.isBlock(n)) return false;
+  }
+  return false;
 }
 
 /** The statement, member or declaration that holds `node`. */
@@ -992,16 +1006,20 @@ function checkDivisionEdits(
   pending: readonly PendingRefusal[],
   check: DivisionEditCheck,
 ): void {
-  const caused = new Set(pending.flatMap((p) => p.overlapping.map(lineOf)));
   const original = new Set(diagnostics.filter((d) => d.category === 'error').map(lineOf));
-  const allowed = new Set(
-    diagnostics
-      .filter((d) => d.category === 'error')
-      .map(lineOf)
-      .filter((l) => !caused.has(l)),
-  );
   const open = pending.filter((p) => p.edits.length > 0 && p.edits[0]!.change !== undefined);
   const next = new Map(open.map((p) => [p, 0]));
+  // Each change compiled alone, once: refusals of one constant share a declaration edit.
+  const aloneCache = new Map<string, { line: string; at: number | undefined }[]>();
+  const alone = (c: { start: number; end: number; text: string }) => {
+    const key = `${c.start}:${c.end}:${c.text}`;
+    let seen = aloneCache.get(key);
+    if (seen === undefined) {
+      seen = compileEditedAll(sourceFile, [c], check).map((r) => ({ line: lineOf(r), at: r.at }));
+      aloneCache.set(key, seen);
+    }
+    return seen;
+  };
   for (let round = 0; round < 16; round++) {
     const asked = open.filter((p) => {
       const i = next.get(p)!;
@@ -1009,44 +1027,60 @@ function checkDivisionEdits(
       return i < p.edits.length && p.edits[i]!.change !== undefined && (last?.extra ?? 1) > 0;
     });
     if (asked.length === 0) return;
-    // One change at a place: an edit that would overlap another of this round waits.
-    const changes: { start: number; end: number; text: string }[] = [];
-    const taken: PendingRefusal[] = [];
+    // An edit is checked alone, as the sentence names it alone, where another edit could change
+    // what it sees: a declaration edit (it changes every read of the constant) and an edit in a
+    // declaration, whose name other statements read. The other edits share compiles, one edit
+    // of each statement in a compile.
+    const solo: PendingRefusal[] = [];
+    const lanes: PendingRefusal[][] = [];
+    const lane = new Map<string, number>();
     for (const p of asked) {
       const c = p.edits[next.get(p)!]!.change!;
-      const same = changes.find((o) => o.start === c.start && o.end === c.end && o.text === c.text);
-      const clash = changes.some((o) => o !== same && c.start < o.end && o.start < c.end);
-      if (clash || (c.start === c.end && changes.some((o) => o !== same && o.start === c.start)))
+      if (c.start < p.region[0] || c.start >= p.region[1] || p.binds) {
+        solo.push(p);
         continue;
-      if (same === undefined) changes.push({ ...c });
-      taken.push(p);
+      }
+      const key = String(p.region);
+      const i = lane.get(key) ?? 0;
+      lane.set(key, i + 1);
+      (lanes[i] ??= []).push(p);
     }
-    const result = compileEditedAll(sourceFile, changes, check);
-    const errors = result.map((r) => ({ line: lineOf(r), at: r.at }));
-    const added = (line: string): boolean => !allowed.has(line) && !line.includes(ANOTHER_READ);
-    // An added error outside every statement of a refused `/` can be any edit's doing: a
-    // quotient bound to a name is read elsewhere (`const HALF = N / 2` and a loop bound). Then
-    // each edit of the round is compiled alone, and every error it adds is its own.
-    const remote = errors.some((e) => added(e.line) && !errorsInAnyRegion(e.at, pending));
-    for (const p of taken) {
+    const shared = new Map<PendingRefusal, { line: string; at: number | undefined }[]>();
+    for (const group of lanes) {
+      const errors = compileEditedAll(
+        sourceFile,
+        group.map((p) => ({ ...p.edits[next.get(p)!]!.change! })),
+        check,
+      ).map((r) => ({ line: lineOf(r), at: r.at }));
+      // An added error outside every statement of a refused `/` can be any edit's doing: each
+      // edit of the compile is then checked alone.
+      const remote = errors.some(
+        (e) =>
+          !original.has(e.line) &&
+          !e.line.includes(ANOTHER_READ) &&
+          !errorsInAnyRegion(e.at, pending),
+      );
+      for (const p of group) {
+        if (remote) solo.push(p);
+        else
+          shared.set(
+            p,
+            errors.filter((e) => e.at !== undefined && e.at >= p.region[0] && e.at < p.region[1]),
+          );
+      }
+    }
+    for (const p of asked) {
       const edit = p.edits[next.get(p)!]!;
       const inRegion = (at: number | undefined): boolean =>
         at !== undefined && at >= p.region[0] && at < p.region[1];
-      const seen = remote
-        ? compileEditedAll(sourceFile, [edit.change!], check).map((r) => ({
-            line: lineOf(r),
-            at: r.at,
-          }))
-        : errors.filter((e) => inRegion(e.at));
-      // Compiled alone, the other refusals' mismatches are still there, as in the file.
+      const seen = shared.get(p) ?? alone(edit.change!);
+      // As the edit alone leaves the file: the other refusals' mismatches are still there.
       const own = new Set(p.overlapping.map(lineOf));
-      const addedAlone = (line: string): boolean =>
-        !(original.has(line) && !own.has(line)) && !line.includes(ANOTHER_READ);
       let extra = 0;
       const after = new Set<string>();
       for (const e of seen) {
         if (inRegion(e.at)) after.add(e.line);
-        if (remote ? addedAlone(e.line) : added(e.line)) extra++;
+        if (!(original.has(e.line) && !own.has(e.line)) && !e.line.includes(ANOTHER_READ)) extra++;
       }
       p.tries.push({ edit, extra, after });
       next.set(p, next.get(p)! + 1);

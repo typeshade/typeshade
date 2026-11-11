@@ -300,6 +300,12 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   the written number is refused: with `const k = 7; h(k);`, `f32(~k)`, `f32((k | 1) >> 1)` and
   `f32((k % 4) >> 1)` compiled (`k` was a `u32`) and are refused, as `~7` and `(7 | 1) >> 1`
   are; `f32(~(k << 1))` was 4294967281 and is -15, the written number's `i32` value.
+  Until pull request #1235 (a conversion that starts a counter declares its type) is merged,
+  which it is before this change, a counter started by `u32(…)` of such a constant, or of
+  arithmetic over one, is refused where it is used as a `u32`: `const KM = 3;` with
+  `for (let j = u32(KM); j < 8; j++) { a += f32(h(j)); }` gave 25, and so did the same with a
+  function-local `const k = 3` that nothing else reads; `u32(k + 1)` after `h(k)`, `u32(k)`
+  with `j < vi`, and `a += f32(j + vi)` compiled too.
   **Migration:** to keep an `f32` constant, write its type (`const K: f32 = 16777217`). For a
   refused `/`, make the edit the sentence names: the constant's type where an integer position
   reads the quotient (`const k: u32 = 7`), or the constant converted elsewhere (`f32(k) / 2`). One more program

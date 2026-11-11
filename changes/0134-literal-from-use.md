@@ -1080,17 +1080,33 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
     `345d3ae8`. Rule 5.1's last sentence and surface §13 say so.
   - [decision, owner, 2026-11-11] Finding 2, the third review's F6: "별도 버그 수정 PR로
     분리". Part 3 does not change how a conversion starts a counter; the bug fix is pull request
-    #1235 from `main`, which needs nothing of part 3. Until it is merged, part 3 refuses
-    `for (let j = u32(k); …) h(j)` with `const k = 3; h(k);`, which `main` accepted (25): the
-    conversion of the constant folds to a literal, which the header makes an `i32`, as `main`
-    does for the written `u32(3)`.
+    #1235 from `main`, which needs nothing of part 3. Until it is merged, part 3 refuses every
+    counter started by `u32(…)` of a constant of no fixed type, or of arithmetic over one, where
+    the counter is used as a `u32`. Each compiled on `main`, where such a constant or local was
+    a typed value: a module constant (`const KM = 3;` with `for (let j = u32(KM); j < 8; j++)
+{ a += f32(h(j)); }`, 25), a function-local constant with no declared use (25), `u32(k + 1)`
+    after `h(k)`, `u32(k)` with `j < vi`, and `a += f32(j + vi)`. The conversion of the constant
+    folds to a literal, and the header makes it an `i32`, as `main` does for the written
+    `u32(3)`. #1235 merges before part 3 and closes this; on part 3 with #1235's change each
+    of these compiles again.
   - [decision, owner, 2026-11-11] Finding 7, two quotients each the other's other read: "A4대로
     거부 유지". With `const K = 8;`, `let j: u32 = K / 2; let i: u32 = K / 2;` refuses both. It
     is a row of "Newly refused" in `CHANGELOG.md`.
   - Finding 3: an `f32` edit leaves an index and a shift amount integers
     (`vec2(k, 5)[k] / 2` names `vec2(f32(k), 5)[k] / 2`).
-  - Finding 4: the edits of all refusals are checked in rounds, one compile a round, and an
-    error the program adds is the edit's whose statement holds it.
+  - Finding 4: the edits are checked in rounds. In a round, an edit in an expression statement
+    shares a compile with one edit of each other statement, and an error there is the edit's
+    whose statement holds it. An edit is compiled alone, as the sentence names it alone, where
+    another edit could change what it sees: a declaration edit (it changes every read of the
+    constant, and one compile serves every refusal that names it), an edit in a statement that
+    declares a name, and an edit of a shared compile that adds an error outside every refused
+    statement. The fifth review (at `66f33372`) found that an earlier version charged a
+    declaration edit only with the errors outside every refused statement, so it named edits
+    that do not compile alone (`f32(vi + k / 2) + x * (k / 3)` named `const k: u32 = 7`).
+    [fact, measured 2026-11-11] On the review's 1,890 programs of many `/` (`M.json`), each
+    named edit equals the one of checking each edit alone (`b53fb228`); 486 programs report one
+    diagnostic fewer, the mismatches of decision 1. At N = 100 refused lines, `compile()` takes
+    211 ms and the editor 266 ms (`main`: 124 and 199 ms).
   - Finding 5: the uses that are no division and are refused where the written number is
     (`f32(~k)`, `f32((k | 1) >> 1)`, `f32((k % 4) >> 1)`), and the value move of
     `f32(~(k << 1))` (4294967281 to -15), are rows of `CHANGELOG.md`.
