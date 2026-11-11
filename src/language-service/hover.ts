@@ -9,6 +9,7 @@ import { linkedCompileOf, type CompileTsSourceResult } from '../compiler/ts/sour
 import {
   abstractConstTableOf,
   copyCallAt,
+  copyCallParamsAt,
   hasResultCopies,
   resultCopiesAt,
   type DeclaredSymbol,
@@ -1092,9 +1093,23 @@ function resultCopiesLine(
       decl !== undefined && ts.isVariableDeclaration(decl) && decl.initializer !== undefined
         ? decl.initializer
         : decl;
+    // A generic function's instance shows the call's type arguments and the instance's
+    // parameter types, `m<f32>(a: f32)`, as TypeScript names an instance.
+    const instance = generic ? copyCallParamsAt(table, node.getStart(sourceFile)) : undefined;
+    const written = fnNode !== undefined && ts.isFunctionLike(fnNode) ? fnNode.parameters : [];
     const params =
-      fnNode !== undefined && ts.isFunctionLike(fnNode)
-        ? fnNode.parameters.map((p) => p.getText(sourceFile).replace(/\s+/g, ' ')).join(', ')
+      instance !== undefined
+        ? written
+            .map((p, i) => {
+              const t = instance[instance.length - written.length + i];
+              return `${p.name.getText(sourceFile)}: ${t === undefined ? '?' : spellShaderType(t, struct)}`;
+            })
+            .join(', ')
+        : written.map((p) => p.getText(sourceFile).replace(/\s+/g, ' ')).join(', ');
+    const callNode = node.parent;
+    const typeArgs =
+      generic && ts.isCallExpression(callNode) && callNode.typeArguments !== undefined
+        ? `<${callNode.typeArguments.map((a) => a.getText(sourceFile)).join(', ')}>`
         : '';
     const owner =
       decl !== undefined && ts.isClassElement(decl) && ts.isClassLike(decl.parent)
@@ -1118,7 +1133,7 @@ function resultCopiesLine(
             !ts.isSourceFile(decl.parent) &&
             !ts.isModuleBlock(decl.parent)
           ? `(local function) ${node.text}(${params})`
-          : `function ${node.text}(${params})`;
+          : `function ${node.text}${typeArgs}(${params})`;
     return result !== undefined ? `${head}: ${result}` : `${head} (${words})`;
   }
   const local = analysis.symbols.filter((s) => s.start === at && s.kind === 'local');

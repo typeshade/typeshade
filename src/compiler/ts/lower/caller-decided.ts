@@ -23,7 +23,13 @@ export function userCallExpr(
   const target = site?.target ?? decl;
   if (site !== undefined) {
     const named = calleeNameOf(node);
-    if (named !== undefined) recordCopyCall(sourceFile, named, target.ret);
+    if (named !== undefined)
+      recordCopyCall(
+        sourceFile,
+        named,
+        target.ret,
+        target.params.map((p) => p.type),
+      );
   }
   return markInferredRead(
     markCarriedRead(

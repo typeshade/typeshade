@@ -1403,6 +1403,31 @@ type of "inc".` The program stays refused, as on `main`, with one diagnostic.
   - Finding 6: a refused `/` over a getter's read named `C.m()`; it names the read as written,
     `c.m`. The note of the pass cap is matched to the calls of the switched-off functions, not to
     a name.
+- The third independent review of pull request #1264 at `574b1dc1` (2026-11-11) found no change
+  against `main` in its corpus and in the host face of 219 files, and confirmed five findings, each
+  fixed with a test that reads both halves (`use-inference-module.test.ts`, and
+  `host-face.test.ts` for the host's half):
+  - Finding 1: an exported function with copies had no host face (`export declare const g:
+never`), since the copy recorded a symbol at the function's name. A copy records none
+    (`recordName`), so the host face binds the function itself, with the `f32` the host reads:
+    `export declare function g(): f32` for `export { g }`, `export { g as h }` and
+    `export function g`, called from the host and type-checked there. An exported arrow function
+    (`export const g = () => 3`) has no host face on `main` either, with or without copies, since
+    the front end records no symbol at its name; that is not part of this change, and it stays.
+  - Finding 2: the hover at a call of a generic function's instance shows the call's type
+    arguments and the instance's parameter types (`function m<f32>(a: f32): u32`).
+  - Finding 3: the cap switched off a function whose calls asked only `f32`, which then took a
+    type its call did not ask. A function whose calls asked only `f32` is decided, and is not
+    switched off; the chain's one diagnostic stays.
+  - Finding 4: the cap counts the lowerings of the module, which every chain and every other
+    inferred value share, not the links of one chain. Counting it per chain would need a fixed
+    point for each chain; Rule 8.19 and surface §14 say what the cap counts instead. [fact,
+    measured 2026-11-11] The review's program (a 16-link chain beside `let a = 3; let b: u32 = a +
+vi;`) compiles now, since a call asks for its copy in the lowering that settles its body.
+  - Finding 5: a call inside a body whose result another call fixed (`function q() { return m(); }`
+    with `x * q()`) read the result `m` had, and recorded no use, so `m` got no `f32` copy and
+    `q` was refused. Such a call records its use until a use decides it (`open`), and `m` keeps
+    the `f32` beside its copy `m_u32`, in both directions.
 - Deviations, open:
   - A generic class's field shares one decision across its instances, as issue #1256 records
     for a generic function's body (deferred by the owner).

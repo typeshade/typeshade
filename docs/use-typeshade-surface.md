@@ -1952,7 +1952,10 @@ export function b(x: f32): f32 { return x * g(); } // calls g, whose k is an f32
 ```
 
 Where no call decides (a function only the host calls, a call in a cast, `u32(g())`), the result
-is an `f32`, the compiler's choice. A `/` over a call of a function that some call makes an
+is an `f32`, the compiler's choice. The compiler lowers the module at most 16 times, settling one
+more link of every chain of such functions each time, so a chain of 16 functions is followed and
+one of 17 is not; there, the functions no call decided keep the `f32` of their first `return`,
+and the mismatch says which result type to write. A `/` over a call of a function that some call makes an
 integer is refused as a `/` over an integer by inference is (§13), whichever copy that call
 takes: `f32(vi + g()) + f32(g() / 2) + x * g()` is refused, though the `/` would read the `f32`
 copy. The hover shows `function g(): u32` for one type; for copies,

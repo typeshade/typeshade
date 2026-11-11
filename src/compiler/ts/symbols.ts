@@ -299,13 +299,17 @@ const resultCopies = new WeakMap<
   {
     readonly decls: Map<number, { readonly name: string; readonly types: readonly ShaderType[] }>;
     readonly calls: Map<number, ShaderType | null>;
+    /** The parameter types of the function each such call calls, for an instance's hover. */
+    readonly params: Map<number, readonly ShaderType[]>;
   }
 >();
 
 function resultCopiesOf(sourceFile: ts.SourceFile) {
   let table = resultCopies.get(sourceFile);
-  if (table === undefined)
-    resultCopies.set(sourceFile, (table = { decls: new Map(), calls: new Map() }));
+  if (table === undefined) {
+    table = { decls: new Map(), calls: new Map(), params: new Map() };
+    resultCopies.set(sourceFile, table);
+  }
   return table;
 }
 
@@ -320,9 +324,15 @@ export function recordResultCopies(
 }
 
 /** Record that the call whose callee name is `callee` calls the copy that returns `type`. */
-export function recordCopyCall(sourceFile: ts.SourceFile, callee: ts.Node, type: ShaderType): void {
-  const { calls } = resultCopiesOf(sourceFile);
+export function recordCopyCall(
+  sourceFile: ts.SourceFile,
+  callee: ts.Node,
+  type: ShaderType,
+  params: readonly ShaderType[] = [],
+): void {
+  const { calls, params: paramsAt } = resultCopiesOf(sourceFile);
   const at = callee.getStart(sourceFile);
+  paramsAt.set(at, params);
   const seen = calls.get(at);
   // A call in a body lowered twice (a copy of the function around it) can take two copies.
   if (seen === undefined) calls.set(at, type);
@@ -332,6 +342,14 @@ export function recordCopyCall(sourceFile: ts.SourceFile, callee: ts.Node, type:
 /** Forgets what an earlier pass of the use inference recorded (`use-inference.ts`). */
 export function resetResultCopies(sourceFile: ts.SourceFile): void {
   resultCopies.delete(sourceFile);
+}
+
+/** The parameter types of the function the call whose callee name starts at `offset` calls. */
+export function copyCallParamsAt(
+  sourceFile: ts.SourceFile,
+  offset: number,
+): readonly ShaderType[] | undefined {
+  return resultCopies.get(sourceFile)?.params.get(offset);
 }
 
 /** Whether some function of `sourceFile` has copies whose words the hover shows. */

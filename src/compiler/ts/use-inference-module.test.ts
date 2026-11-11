@@ -453,8 +453,8 @@ export function t(vi: u32): u32 { ${body} }`);
     const generic = src(`function g<T>(a: T) { return 3; }
 export function t(vi: u32, x: f32): f32 { return f32(vi + g<f32>(x)) + x * g<f32>(x); }`);
     accepted(generic);
-    expect(hover(generic, 'vi + g', 5)).toBe('function g(a: T): u32');
-    expect(hover(generic, 'x * g', 4)).toBe('function g(a: T): f32');
+    expect(hover(generic, 'vi + g', 5)).toBe('function g<f32>(a: f32): u32');
+    expect(hover(generic, 'x * g', 4)).toBe('function g<f32>(a: f32): f32');
   });
 
   it('a captured variable that the copies cannot type apart is named, with the fix (5)', () => {
@@ -479,5 +479,64 @@ export function t(vi: u32, x: f32): f32 { return f32(vi + g<f32>(x)) + x * g<f32
 export function t(vi: u32): f32 { const c = new C(); return f32(vi + c.m) + c.m / 2; }`),
       [division('c.m', 'c.m / 2', 'f32(c.m) / 2')],
     );
+  });
+});
+
+describe('the third review of #1264 (574b1dc1)', () => {
+  const links = (n: number): string =>
+    Array.from({ length: n }, (_, i) =>
+      i === n - 1 ? `function g${i}() { return 3; }` : `function g${i}() { return g${i + 1}(); }`,
+    ).join('\n');
+
+  it("a generic instance's call shows its type arguments and parameter types (2)", () => {
+    const two = src(`function m<T>(a: T) { return 3; }
+export function t(vi: u32, x: f32): f32 { return f32(vi + m<f32>(x)) + x * m<f32>(x); }`);
+    accepted(two);
+    expect(hover(two, 'vi + m', 5)).toBe('function m<f32>(a: f32): u32');
+    expect(hover(two, 'x * m', 4)).toBe('function m<f32>(a: f32): f32');
+    const one = src(`function m<T>(a: T) { return 3; }
+export function t(vi: u32, x: f32): u32 { return vi + m(x); }`);
+    accepted(one);
+    expect(hover(one, 'vi + m', 5)).toBe('function m(a: f32): u32');
+  });
+
+  it('the cap does not switch off a function whose calls asked only f32 (3)', () => {
+    refused(
+      src(`${links(17)}
+function m() { return 3; }
+function q() { return m(); }
+export function t(vi: u32, x: f32): f32 { return f32(vi + g0()) + x * q() + f32(vi + m()); }`),
+      [
+        'Function "g15" returns u32 where its calls use it and f32 at a "return"; a function ' +
+          'returns one type (Rule 8.19): make them agree, or write the return type. "g16" ' +
+          'returns the f32 the compiler chose: its result passes through more functions whose ' +
+          'calls decide it than the compiler follows. Write its result type, for example ' +
+          '"function g16(): u32".',
+      ],
+    );
+  });
+
+  it('the passes are shared: a 16-link chain beside another inferred value compiles (4)', () => {
+    const result = accepted(
+      src(`${links(16)}
+export function t(vi: u32): u32 { let a = 3; let b: u32 = a + vi; return vi + g0() + b; }`),
+    );
+    expect(result.eval('t', [1])).toBe(8);
+  });
+
+  it('a call inside a body another call fixed asks for its own copy (5)', () => {
+    const one = src(`function m() { return 3; }
+function q() { return m(); }
+export function t(vi: u32, x: f32): f32 { return x * q() + f32(vi + m()); }`);
+    const a = accepted(one);
+    expect(a.wgsl).toContain('fn q() -> f32 {\n  return m();');
+    expect(a.wgsl).toContain('return ((x * q()) + f32((vi + m_u32())));');
+    expect(a.eval('t', [1, 2])).toBe(10);
+    const other = src(`function m() { return 3; }
+function q() { return m(); }
+export function t(vi: u32, x: f32): f32 { return f32(vi + q()) + x * m(); }`);
+    const b = accepted(other);
+    expect(b.wgsl).toContain('fn q() -> u32 {\n  return m_u32();');
+    expect(b.eval('t', [1, 2])).toBe(10);
   });
 });

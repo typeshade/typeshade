@@ -2606,3 +2606,32 @@ export function helper(x: f32): f32 { return x * 2.; }
     expect(f.code).not.toContain('"fs": function');
   });
 });
+
+// Amendment A5 of change 0134, "export는 f32 유지": a function whose calls decide its result keeps
+// the `f32` the host reads under its own name, and its copies (`g_u32`) have no face. Verifies the
+// host half of Rule 8.19 (docs/language-design.md; traced in reqs/).
+describe('a function its calls decide, which the host imports (change 0134)', () => {
+  const forms: [string, string, string][] = [
+    ['an export clause', 'function g() { return 3; }', 'export { g };'],
+    ['an export clause with another name', 'function g() { return 3; }', 'export { g as h };'],
+    ['an export modifier', 'export function g() { return 3; }', ''],
+  ];
+  for (const [what, decl, clause] of forms) {
+    it(`keeps the f32 under ${what}`, async () => {
+      const source = `"use typeshade";\n${decl}\nexport function t(vi: u32): u32 { return vi + g(); }\n${clause}\n`;
+      const name = clause.includes(' as h') ? 'h' : 'g';
+      const f = face(source);
+      expect(f.view).toContain(`export declare function ${name}(): f32;`);
+      expect(f.view).not.toContain('g_u32');
+      const m = await load(source);
+      expect((m[name] as () => number)()).toBe(3);
+      expect((m.t as (vi: number) => number)(2)).toBe(5);
+      expect(
+        await hostErrors(
+          source,
+          `import { ${name}, t } from './terrain.shade.ts';\nconst a: number = ${name}();\nconst b: number = t(2);\nexport { a, b };\n`,
+        ),
+      ).toEqual([]);
+    });
+  }
+});

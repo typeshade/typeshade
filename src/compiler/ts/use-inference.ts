@@ -57,6 +57,10 @@ export interface InferredValue {
   /** For such a read: the key of the function it calls (`calleeKeyOf`), so that a decision of
    *  the call reaches the function in the next pass. */
   readonly callee?: object;
+  /** For such a read: no use of this call has decided it yet. It reads the result the function
+   *  has (`type`), and its use is still recorded, so that a call in a body whose result another
+   *  call fixed asks for its own copy. */
+  readonly open?: true;
   /** The name as the author wrote it. */
   readonly name: string;
   /** The initializer as the author wrote it, for a remedy line. */
@@ -311,15 +315,16 @@ export function isCallerDecided(sourceFile: ts.SourceFile, decl: ts.Node): boole
 }
 
 /** Switches off, for the last pass of a compile whose passes ran out, each function whose calls
- *  decide its result and that no call has given a type other than `f32` yet: it takes its first
+ *  decide its result and that no call has given a type yet: it takes its first
  *  `return`'s type, as before change 0134, and a function its calls did decide keeps that type. */
 export function switchCallersOff(sourceFile: ts.SourceFile): void {
   const state = states.get(sourceFile);
   if (state === undefined) return;
   state.callersOff = true;
   const decided = new Set<ts.Node>();
-  for (const key of state.askedNow.keys()) {
-    if (askedTypes(state.askedNow, key).size > 0) decided.add((key as { node: ts.Node }).node);
+  // A function whose calls asked only `f32` is decided too: it keeps the `f32` it has.
+  for (const [key, types] of state.askedNow) {
+    if (types.size > 0) decided.add((key as { node: ts.Node }).node);
   }
   for (const node of state.callerDecided) if (!decided.has(node)) state.off.add(node);
 }
@@ -418,6 +423,7 @@ export function callerDecidedCall(
       callee: info.key,
       written: `${info.name}()`,
       ...(type !== undefined ? { type } : {}),
+      ...(type !== undefined && asked === undefined ? { open: true as const } : {}),
       ...(integer !== undefined ? { integerResult: integer } : {}),
     },
   };
@@ -464,8 +470,10 @@ function undecidedIn(expr: Expr): InferredValue[] {
   const walk = (e: Expr): boolean => {
     const read = readByExpr.get(e);
     if (read !== undefined) {
-      if (read.type === undefined) out.push(read);
-      return read.type === undefined;
+      // A call that no use decided yet reads its function's result, and its use still asks.
+      const open = read.type === undefined || read.open === true;
+      if (open) out.push(read);
+      return open;
     }
     if (e.op === 'lit') return typeof e.value === 'number';
     if (e.op === 'unop') return walk(e.a);
@@ -509,7 +517,7 @@ export function quietDemands<T>(run: () => T): T {
 }
 
 function record(value: InferredValue, asked: Demand): void {
-  if (current === undefined || quiet || value.type !== undefined) return;
+  if (current === undefined || quiet || (value.type !== undefined && value.open !== true)) return;
   // An `f32` peer asks nothing: an undecided value is an `f32` already, and a written number
   // beside it is typed `f32` only by having no type (`j + 1`). An integer use beside an `f32`
   // use is refused where the `f32` use stands, once the value is the integer. A call of a

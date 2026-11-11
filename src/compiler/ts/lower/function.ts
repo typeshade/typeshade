@@ -17,6 +17,7 @@ import { hostExportedDeclarations } from '../host-exports.js';
 import {
   askedOf,
   calleeKeyOf,
+  currentCopy,
   inCopy,
   isCallerDecided,
   noteCallerDecided,
@@ -3865,6 +3866,9 @@ function fillFunctionBodyNow(
   // none has only once its body is lowered.
   const recordName = (): void => {
     if (node.name === undefined || !ts.isIdentifier(node.name)) return;
+    // A copy of a function its calls decide (change 0134) is not what its name declares: the
+    // function itself is, with the `f32` the host reads (Amendment A5, "export는 f32 유지").
+    if (currentCopy() === stub.name) return;
     recordDeclaration(symbols, sourceFile, node.name, {
       name: shown ?? stub.name,
       kind: 'function',
