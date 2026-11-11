@@ -3236,18 +3236,21 @@ this amendment.
      array with no size of `f64` numbers or vectors (`array<f64>`, `array<vec3<f64>>`), an `f64`
      number or vector parameter, and an entry's or the program runtime's storage binding of them.
      The checks, Q10, D2 and D5 of A12 apply to it as to every other place.
-  2. [fact] A matrix parameter and an `array<matCxR>` parameter fix `f32` (A12 decision 3). A matrix
-     of `f64` has no host value and stays refused (A12 decision 4). Decision 1 changes neither.
-  3. A12's Q8 meaning and A12's editor list, item 4, become: `read()` of a `Buffer<number>` is typed
+  2. [fact] A matrix parameter and an `array<matCxR>` parameter of `f32` fix `f32` (A12 decision 3 and
+     Q3). A matrix of `f64` as a result of a call on a resource stays refused (A12 decision 4). Rule
+     8.21 gives a matrix of `f64` a host value as plain data (`docs/language-design.md:1009`).
+  3. [fact] No record says what a `Buffer<number>` does at a parameter of a matrix of `f64`. A12 Q3
+     covers a matrix of `f32` only. This is open question Q12 (below).
+  4. A12's Q8 meaning and A12's editor list, item 4, become: `read()` of a `Buffer<number>` is typed
      `Float32Array | Int32Array | Uint32Array | Float64Array`.
-  4. [fact] A12's answer to Q9 says that the runtime keeps the numbers as given until a call fixes the
+  5. [fact] A12's answer to Q9 says that the runtime keeps the numbers as given until a call fixes the
      element. So an `f64` use gets the numbers the author wrote.
-  5. [fact] Cost: a `read()` before the `f64` use gives the numbers rounded to `f32` (Q9). A `read()`
+  6. [fact] Cost: a `read()` before the `f64` use gives the numbers rounded to `f32` (Q9). A `read()`
      after it gives the full numbers. For example, `0.1` reads as `0.10000000149011612` before and
      as `0.1` after.
-  6. [fact] On a GPU tier, an `f64` storage binding holds each number as two `f32` values, `hi` and
+  7. [fact] On a GPU tier, an `f64` storage binding holds each number as two `f32` values, `hi` and
      `lo` (Rule 8.21). The runtime splits the kept numbers there.
-  7. Rule 12.7: #1257 must test the `f64` place on both halves on the same source.
+  8. Rule 12.7: #1257 must test the `f64` place on both halves on the same source.
 
 **Decision 2. A `Record` field in the struct of an `array<S, N>` result stays refused (D-p, open).**
 
@@ -3271,23 +3274,23 @@ this amendment.
   the host view does not write the union there either (`indirect: Buffer<u32>`,
   `src/compiler/ts/host-face.ts:2856`; `src/runtime/program.ts:350`).
 - [observed result] On 2026-11-11, at `29f62fe7`, with `tsc` 5.6.3 on a file that imports
-  `src/runtime/resource.ts`: a `Buffer<number>` passes where a `Buffer<f32>` is taken. A `Buffer<i32>`
-  is refused there (TS2345). A `Buffer<i32>` passes where `Buffer<f32> | Buffer<number>` is taken. The
-  implementing agent of #1257 and the reviewer of A13 each ran it.
+  `src/runtime/resource.ts`, run by the reviewer of A13: a `Buffer<number>` passes where a `Buffer<f32>` is taken. A `Buffer<i32>`
+  is refused there (TS2345). A `Buffer<i32>` passes where `Buffer<f32> | Buffer<number>` is taken.
 - What it means:
   1. A12's editor list, item 2, becomes: a `Buffer<number>` passes in each of those places, and the
      host view does not write the union.
   2. [inference, agent] The owner's answer covers item 3 too: the same type relation holds there, and
      a `Buffer<number>` passes where a `Buffer<u32>` is taken.
-  3. Deviation D-q: made part of the approved text by this amendment (A13).
+  3. Deviation D-q: item 2 is made part of the approved text by this amendment (A13). Item 3 rests on
+     item 2 of this list, an inference. The owner settles it as Q13 (below).
 
 **Deviations.**
 
-| ID  | Approved text                                                                                             | Delivered (#1257 at `da043f1d`)                               | Disposition                                                                                  |
-| --- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| D-p | A12 decision 4, item 2: an `array<S, N>` result whose `S` holds a `Record` is held in `Buffer`s.          | Refused at the call on both halves.                           | open: a later slice closes it.                                                               |
-| D-q | A12's editor list, items 2 and 3: the host view writes the union with `Buffer<number>`.                   | Not written; TypeScript accepts a `Buffer<number>` there.     | made part of the approved text by this amendment (A13).                                      |
-| D-r | `changes/README.md`, Independent review: a proposal needs an independent review before the owner decides. | The owner answered the three points before a review read A13. | closed: the review at `c607c4fc` read A13 and approved with should-fix; its record is below. |
+| ID  | Approved text                                                                                             | Delivered (#1257 at `da043f1d`)                               | Disposition                                                                                                                                        |
+| --- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-p | A12 decision 4, item 2: an `array<S, N>` result whose `S` holds a `Record` is held in `Buffer`s.          | Refused at the call on both halves.                           | open: a later slice closes it.                                                                                                                     |
+| D-q | A12's editor list, items 2 and 3: the host view writes the union with `Buffer<number>`.                   | Not written; TypeScript accepts a `Buffer<number>` there.     | item 2: made part of the approved text by this amendment (A13). Item 3: open, by inference only (decision 3, item 2); the owner settles it as Q13. |
+| D-r | `changes/README.md`, Independent review: a proposal needs an independent review before the owner decides. | The owner answered the three points before a review read A13. | closed: the review at `c607c4fc` read A13 and approved with should-fix; its record is below.                                                       |
 
 **Open items.**
 
@@ -3302,15 +3305,18 @@ this amendment.
 
 - [fact] This statement updates A12's status table. A12's text stays as it is.
 
-| Slice  | Status                                                                                                                                                                                      |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0      | done: #1251, merged as `937147b8`.                                                                                                                                                          |
-| 1      | in progress: #1257 (draft), head `da043f1d`. A12 decisions 3 and 4 are implemented (`e2059d12` to `04262eaf`) and its rule text is `da043f1d`. Decision 1 of this amendment is in progress. |
-| 2 to 6 | not started.                                                                                                                                                                                |
+| Slice  | Status                                                                                                                                                                                                            |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0      | done: #1251, merged as `937147b8`.                                                                                                                                                                                |
+| 1      | in progress: #1257 (draft), head `da043f1d` when this was written. A12 decisions 3 and 4 are implemented (`e2059d12` to `04262eaf`) and its rule text is `da043f1d`. Decision 1 of this amendment is in progress. |
+| 2 to 6 | not started.                                                                                                                                                                                                      |
 
 **Open, owner must settle.**
 
-- [fact] Nothing for A13's own decisions.
+- [fact] Q12. What a `Buffer<number>` does at a parameter of a matrix of `f64` (decision 1, item 3).
+- [fact] Q13. Whether the owner's answer to decision 3 covers A12's editor list, item 3 (decision 3,
+  item 2; D-q).
+- [fact] The agent asks both in the conversation and records the answers in this amendment.
 - [inference, agent] No decision of this amendment conflicts with an entry of
   `docs/owner-decisions.md` (OD-1 to OD-8). Decision 1 follows OD-7.
 
@@ -3330,11 +3336,21 @@ this amendment.
 | 6. D-q's disposition form.                      | Fixed: "made part of the approved text by this amendment (A13)".                          |
 | 7. No translations and no option text.          | Fixed: "The owner's answers".                                                             |
 | 8. The measurement is an observed result.       | Fixed: labelled, with the commit, the `tsc` version and the file.                         |
-| 9. Decision 1, item 3 is in A12.                | Fixed: item 4 cites A12's answer to Q9; item 5 states the cost.                           |
+| 9. Decision 1, item 3 is in A12.                | Fixed: item 5 cites A12's answer to Q9; item 6 states the cost.                           |
 | 10. Status accounting.                          | Fixed: an open item for #1257's body and the status table.                                |
-| Notes: GPU tiers, writing, the D-p actor, OD-4. | Fixed: item 6; sentences split; D-p names the actor. OD-4: the owner has already decided. |
+| Notes: GPU tiers, writing, the D-p actor, OD-4. | Fixed: item 7; sentences split; D-p names the actor. OD-4: the owner has already decided. |
 
-- [fact] No review has read the revision that answers this review.
+- [fact] A delta review read A13 at `b57b165e` on 2026-11-11, by the same reviewer. Verdict: request
+  changes. It found 1 blocking finding, 2 should-fix findings and 3 notes.
+
+| Finding                                                     | Answer                                                                   |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------ |
+| B1. A false fact on a matrix of `f64`; an undecided case.   | Fixed: decision 1, items 2 and 3; Q12.                                   |
+| S2. D-q's item 3 rests on an inference.                     | Fixed: the D-q row and decision 3, item 3 split items 2 and 3; Q13.      |
+| S3. A run with no configuration.                            | Fixed: the observed result names only the reviewer's run.                |
+| Notes: the moving head, "Open, owner must settle", the row. | Fixed: "when this was written"; the section names Q12 and Q13; this row. |
+
+- [fact] No review has read the revision that answers the delta review.
 
 - Affects: A12 decision 3 (the places that fix the element); A12's Q8 meaning and A12's editor list,
   items 2 to 4; A12 decision 4, item 2, and A12's open item on the kinds that stay refused (D-p);
