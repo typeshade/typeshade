@@ -26,18 +26,22 @@ export async function scatterExtremes(): Promise<Record<string, number[]>> {
         ['unsignedMax', unsignedMax, 17],
       ] as const) {
         const best = dev.array(new Uint32Array(32).fill(initial));
-        await fn(best, keys, values);
-        expectVariant(name);
+        // A call on a Buffer is recorded and does not block (change 0138, R2): read() waits for it,
+        // and the variant is counted once it has run.
+        fn(best, keys, values);
         result[`scatter_${name}_${subgroups}`] = [...(await best.read())];
+        expectVariant(name);
       }
       for (const [name, fn, initial] of [
         ['signedMin', signedMin, 2147483600],
         ['signedMax', signedMax, -2147483600],
       ] as const) {
         const best = dev.array(new Int32Array(32).fill(initial));
-        await fn(best, keys, signed);
-        expectVariant(name);
+        // A call on a Buffer is recorded and does not block (change 0138, R2): read() waits for it,
+        // and the variant is counted once it has run.
+        fn(best, keys, signed);
         result[`scatter_${name}_${subgroups}`] = [...(await best.read())];
+        expectVariant(name);
       }
     } finally {
       dev.dispose();

@@ -63,8 +63,15 @@ import { fuseSlot } from './fuse-scope.js';
 import { checkIncoming, type IncomingReads } from './host-failure.js';
 import { defaultOwner, inferOwner, ownerOf, resourceOwner, type CallOwner } from './owner.js';
 import { TIERS, type Tier } from './tiers.js';
-import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
-import { throwFailure } from './submission.js';
+import {
+  decide,
+  kernelQueue,
+  layoutKind,
+  residentState,
+  tentatively,
+  type ResidentArrayState,
+} from './resident.js';
+import { callSite, throwFailure } from './submission.js';
 import type { RhiDevice, RhiTexture } from '../rhi/rhi.js';
 import { CPU_PROGRAM, type CpuCode, type CpuIoField, type CpuProgram } from '../rhi/cpu-program.js';
 import { GL_IMAGE, type GlImage } from './gl-image.js';
@@ -122,7 +129,7 @@ interface Frame extends Checked {
   readonly residents: Map<string, ResidentArrayState>;
 }
 
-function frameOf(e: FragmentEntry, v: unknown): Frame {
+function frameOf(e: FragmentEntry, v: unknown, site?: string): Frame {
   // A `Resident` stands for the array it holds.
   const residents = new Map<string, ResidentArrayState>();
   let view = v;
@@ -132,16 +139,18 @@ function frameOf(e: FragmentEntry, v: unknown): Frame {
       const s = residentState(o[b.name]);
       if (s === undefined) continue;
       if (s.destroyed)
-        throw new TypeError('This Resident was destroyed; make a new one with array().');
+        throw new TypeError('This Buffer was disposed; make a new one with array().');
       if (!isBuffer(b) || b.space !== 'storage' || b.layout.k !== 'a' || b.layout.n !== null)
         throw new TypeError(
-          `${e.name}(): binding "${b.name}" (${b.s}) takes no Resident: only a storage array with no size does.`,
+          `${e.name}(): binding "${b.name}" (${b.s}) takes no Buffer: only a storage array with no size does.`,
         );
       // A scratch array of a `fuse` scope is for the kernel calls in the body of that scope
       // (change 0058). It holds no host array, so the check of the value below would name
       // "undefined": the handle says what it is.
       const refusal = s.outside?.(`${e.name}(): binding "${b.name}"`);
       if (refusal !== undefined) throw refusal;
+      // The binding fixes an open element as its scalar (change 0138, Amendment A12, decision 3).
+      decide(s, layoutKind(b.layout), `${e.name}(): binding "${b.name}"`, site);
       residents.set(b.name, s);
       o[b.name] = s.view();
     }
@@ -253,7 +262,11 @@ export function callDraw(
       throw new TypeError(
         `${e.name}(): "target" is an HTMLCanvasElement or an OffscreenCanvas; got ${describe(target)}.`,
       );
-    const frame = frameOf(e, empty && bindings === undefined ? {} : bindings);
+    // A draw the check refuses fixes no open element (Amendment A12, D2).
+    const site = callSite(callDraw);
+    const frame = tentatively(() =>
+      frameOf(e, empty && bindings === undefined ? {} : bindings, site),
+    );
     let state = canvases.get(target);
     if (state === undefined) canvases.set(target, (state = { chain: Promise.resolve() }));
     const s = state;

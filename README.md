@@ -113,7 +113,7 @@ For a complete compute-entry host, see
 [shader](examples/hosts/host-compute/host-compute.shade.ts). The example covers default calls,
 `entry(bindings, groups, { constants })`, and workgroup selection inside `device.fuse()`.
 Its output is checked on WebGPU, WebGL2 and the CPU tier; the host calculates the group count
-for the selected width and reads its Resident output after the plan.
+for the selected width and reads its `Buffer` output after the plan.
 
 ## Checking shaders from the command line
 
@@ -263,7 +263,7 @@ The site is [typeshade/typeshade.github.io](https://github.com/typeshade/typesha
 
 [`examples/`](./examples) holds runnable shaders and compiler output tests. The `*.shade.ts` files are `"use typeshade"` programs. The registry examples build their IR with the builder of `typeshade/core/ir` ([`docs/ir-builder.md`](./docs/ir-builder.md)), as IR-equality and golden-test machinery, and a twin holds each such example to its `"use typeshade"` file where one exists.
 
-[`examples/hosts/`](./examples/hosts) holds the host examples: each is a `"use typeshade"` module and the `host.ts` that runs it, written as an application writes it. The host imports the module through the Vite plugin and runs it through `typeshade/runtime`: `host-draw` draws a fragment entry into a canvas, `host-compute` dispatches a compute entry, `host-kernel` calls a kernel function, `host-resident` chains kernel calls over `resident()` arrays, `host-helper` calls a helper on the CPU and draws with it on the GPU, `host-program` loads the manifest with `runtime()` and `rt.load()`, `loop-fuse` runs a chain of kernel calls as one dispatch with `fuse()` from `typeshade/fuse`, and `host-set-unique` collects into the host's own `Set` and `Map` from kernel functions (change 0080). Each `run()` resolves to what the host read back. The unit suite holds it to a plain JavaScript reference on the CPU tier, and `bun run gate:journeys` holds it to the same reference on WebGPU and on WebGL2. `typeshade/examples` lists them, with the text of both files, as `hostExamples`, and each one's `tiers`: the tiers its `run()` passed on.
+[`examples/hosts/`](./examples/hosts) holds the host examples: each is a `"use typeshade"` module and the `host.ts` that runs it, written as an application writes it. The host imports the module through the Vite plugin and runs it through `typeshade/runtime`: `host-draw` draws a fragment entry into a canvas, `host-compute` dispatches a compute entry, `host-kernel` calls a kernel function, `host-resident` chains kernel calls over `array()` Buffers, `host-helper` calls a helper on the CPU and draws with it on the GPU, `host-program` loads the manifest with `runtime()` and `rt.load()`, `loop-fuse` runs a chain of kernel calls as one dispatch with `fuse()` from `typeshade/fuse`, and `host-set-unique` collects into the host's own `Set` and `Map` from kernel functions (change 0080). Each `run()` resolves to what the host read back. The unit suite holds it to a plain JavaScript reference on the CPU tier, and `bun run gate:journeys` holds it to the same reference on WebGPU and on WebGL2. `typeshade/examples` lists them, with the text of both files, as `hostExamples`, and each one's `tiers`: the tiers its `run()` passed on.
 
 `createDevice()` from `typeshade/runtime` includes the recorder for `device.fuse()` (change 0085).
 No `import 'typeshade/fuse'` is required for that method. The body runs synchronously;

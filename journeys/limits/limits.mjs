@@ -8,7 +8,7 @@
 // asks the adapter for the nine storage buffers the entry needs, so it runs only where the adapter
 // allows them.
 
-import { createRuntime, resident } from 'typeshade/runtime';
+import { createRuntime, array } from 'typeshade/runtime';
 
 /** The runtime's refusal of `program`'s entry `main` on `device`, or `null` when it runs. */
 export async function refused({ device, program }) {
@@ -30,7 +30,7 @@ export async function requested({ program, size }) {
   for (let k = 0; k < 8; k++) {
     inputs[`a${k}`] = Float32Array.from({ length: size }, (_, i) => i + k);
   }
-  const out = resident(new Float32Array(size));
+  const out = array(new Float32Array(size));
   const f = rt.frame();
   f.dispatch(pipeline, { ...inputs, out }, [size / 64, 1, 1]);
   await f.submit();

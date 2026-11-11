@@ -163,7 +163,7 @@ The change stays within the accepted rules and surface section.
   The site's existing explicit layout fixtures and written particle arrays cannot measure
   this private input projection. Add ordinary read-only object-array calls in a new workload cohort.
   Under proposal 0085, default fusion facts and explicit `fuse: true` both permit ordinary projection.
-  Resident and fused calls retain full layouts. Compare the delivered compiler with a fixed baseline
+  Calls on a `Buffer` and fused calls retain full layouts. Compare the delivered compiler with a fixed baseline
   and retain historical report provenance.
 - Multi-column SoA selection, written fields and broader element types remain outside this first delivery.
 - Proposal 0081 deviation D1 remains open.

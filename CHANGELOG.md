@@ -284,6 +284,59 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **One `Buffer`, and a kernel on a resource returns resources** (change 0138, Amendments A10,
+  A11 and A12, slice 1; Rules 8.21, 8.22, 8.23, 8.24, 8.29, 11.8, 11.11 and 11.13; surface §26,
+  §64, §65, §67, §69, §71 and §72). Breaking.
+  - `array(xs)` of a `Float32Array`, an `Int32Array`, a `Uint32Array` or a `Float64Array`, and
+    `array(length, element)`, make a `Buffer<f32>`, `Buffer<i32>`, `Buffer<u32>` or `Buffer<f64>`.
+    `Resident` and the deprecated `resident()` are gone. Every `Buffer` has the same members: `length`, `read()`, `set(data)`,
+    `resize(n)`, `at(i)` with `get` and `set`, `needsUpdate`, `dispose()` and
+    `[Symbol.dispose]()`. `write` is `set`, and `destroy` is `dispose`. `read()` of a scalar
+    `Buffer` gives its typed array. A `Buffer<vecN>` reads its components one after another.
+  - `array(xs)` of a `number[]` makes a `Buffer<number>` whose element its first use fixes
+    (Amendment A12, decision 3; OD-7): `scan(array([1, 2, 3]))` into an `array<u32>` makes it a
+    `Buffer<u32>`. A held length, an indirect count, a geometry's indices and vertices and a
+    program runtime's buffer binding fix it too. An `f64` place fixes `f64`, from the numbers as
+    given (the owner's decision of 2026-11-11, recorded in Amendment A13). Where nothing decides,
+    it is `f32`. A read before
+    the first use gives `f32` values, and `set`, `resize` and `at(i).set` keep it open. A refused
+    use fixes nothing, and a later use of another element is a `TypeError` that names the line of
+    the first use. A `Buffer` that the pool of `device.array()` hands out again is open again.
+  - `array()` takes arrays only. A value that is no array is a `TypeError`: keep it with
+    `uniform(Class, init)`, or pass it as plain data. An array of plain objects is a `TypeError`:
+    a `Buffer` of structs is `array(Class, data)`.
+  - A kernel function called on a resource that returns a value returns `Buffer`s at once: one
+    element for a number or a vector, `N` for an `array<T, N>`, and an object of them by field for
+    a struct. A number or vector parameter takes a `Buffer` of one element, so a result is another
+    call's argument.
+    A `bool`, a key, a matrix of `f32`, a `Record`, an `array<S, N>` of structs and a struct of
+    them are held too (Amendment A12, decision 4): a `Buffer<bool>` reads a `boolean[]`, a
+    `Buffer<K>` its member strings, a matrix `Buffer` a `Float32Array` with no padding, a `Record`
+    is an object of `Buffer`s, and an `array<S, N>` is one `Buffer<S>` that reads an `S[]` and is
+    an argument of an `array<S>`. A matrix parameter takes a `Buffer` of the matrix or a
+    `Buffer<f32>` of its components, an `array<matCxR>` takes either and the call pads it, and an
+    `array<K>` takes a `Buffer<K>`. `sum(array(xs))` of `typeshade/algorithms` gives a `Buffer<f32>`:
+    `const [s] = await sum(xs).read()`.
+  - A call on a `Buffer` is a call on a resource: checked at the call, recorded, and not blocking.
+    A `Buffer` that a failed call wrote throws that error at each later call and at its `read()`,
+    until `set(data)` or `resize()`. A call on a resource that writes a plain array waits and
+    gives plain data. A held length's `length` is a `Buffer<u32>`.
+  - The host view types three overloads of a kernel function and of a `@compute` entry: plain
+    data, a call on a resource, and a call on a resource that writes a plain array.
+  - A geometry's `vertices` take a `Buffer<f32>`, `Buffer<i32>` or `Buffer<u32>`, and its
+    `indices` a `Buffer<u32>`. Today's `fuse()` records a call on a scalar `Buffer`, and
+    `scope.scratch()` returns a `Buffer`.
+  - A call with plain data that is given a `Buffer` or a `Uniform` where a parameter takes plain
+    data only names what it got and says to pass plain data (Rule 12.5). For a matrix of `f64` it
+    cites the owner's answer to Q12 (Amendment A13). It said `at [0], got undefined undefined`
+    before.
+  - The caps of `scripts/bundle-budget.json` take the measured gzip bytes: `typeshade/runtime`
+    171,140 (+3,963 over `5711b9ac`), `typeshade/fuse` 115,509 (+1,611), `typeshade/algorithms`
+    70,608 (+5,730) and `typeshade/random` 52,173 (+5,973), for the result `Buffer`s of every kind,
+    the element a first use fixes, the checks of a call on a resource that the generated modules
+    carry (Amendment A12, decision 2; Amendment A13, decision 4), the refusal above, and a
+    refused dispatch or draw of the program runtime that leaves an element open (A12, D2).
+
 - **The editor's hover names a constant of no fixed type in the language's words, and each read
   at the type it takes there** (change 0134 item 4; Rules 5.1 and 12.7; decision Q3). At the
   declaration, `const K = 3` hovers as `const K = 3 (i32, u32, f32 or f64 where it is read)` and

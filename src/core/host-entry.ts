@@ -44,10 +44,24 @@ export type LayoutNumber = 'f32' | 'i32' | 'u32' | 'f64';
 /** The byte layout of a binding's type, computed at build time from `reflect()`'s rules (std430
  *  for storage, the uniform rules for uniform), so the runtime computes no layout itself. */
 export type Layout =
-  | { readonly k: 's'; readonly t: LayoutNumber }
+  /** `b` marks a `bool` and `m` a key with its members, each one `u32` word: the host-only layout
+   *  of a result `Buffer<S>` whose `S` holds one (change 0138, Amendment A12, Q4 and Q7). The
+   *  words are what the layer packs; only the host's accessors and `read()` decode them. */
+  | {
+      readonly k: 's';
+      readonly t: LayoutNumber;
+      readonly b?: 1;
+      readonly m?: readonly string[];
+    }
   /** An `f64` vector is two planes of `f32` lanes, `hi` at 0 and `lo` at `lo` bytes, as the
    *  WGSL's `DF64VecN` struct lays it out. */
-  | { readonly k: 'v'; readonly n: number; readonly t: LayoutNumber; readonly lo?: number }
+  | {
+      readonly k: 'v';
+      readonly n: number;
+      readonly t: LayoutNumber;
+      readonly lo?: number;
+      readonly b?: 1;
+    }
   /** `cs` is the column stride in bytes; a matrix is f32. */
   | { readonly k: 'm'; readonly c: number; readonly r: number; readonly cs: number }
   /** `n` is null for a runtime-sized array; `st` is the element stride in bytes. */
@@ -262,6 +276,14 @@ export function flatWidth(e: Layout): { n: number; t: LayoutNumber } | undefined
   return undefined;
 }
 
+/** The lanes of one matrix element `e` of an array with no size that the `Float32Array` `v`
+ *  holds, its components one after another, column-major with no padding: what a `Buffer<f32>`
+ *  or a `Buffer<matCxR>` gives an `array<matCxR>` (change 0138, Amendment A12, B2-1 and B2-2). A
+ *  call pads each column to the column stride. Undefined for any other element or value. */
+export function matrixFlat(e: Layout, v: unknown): { n: number; t: LayoutNumber } | undefined {
+  return e.k === 'm' && v instanceof Float32Array ? { n: e.c * e.r, t: 'f32' } : undefined;
+}
+
 /** Whether this host stores a number least significant byte first, as WebGPU's buffers do. */
 const LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
 
@@ -282,7 +304,7 @@ export function bulkOf(l: Layout, v: unknown): ArrayBufferView | undefined {
 
 /** How many elements a runtime-sized array's host value holds. */
 export function runtimeCount(l: Layout & { k: 'a' }, v: unknown, path: string): number {
-  const flat = flatWidth(l.e);
+  const flat = flatWidth(l.e) ?? matrixFlat(l.e, v);
   if (flat !== undefined) {
     const Want = TYPED[flat.t];
     if (!(v instanceof Want)) throw new Misfit(path, `got ${describe(v)}, not a ${Want.name}`);
@@ -345,6 +367,11 @@ function readNumber(dv: DataView, at: number, t: LayoutNumber): number {
 /** Write lane `j` of a scalar or vector `l` at `at`: an `f64` vector's `hi` and `lo` planes are
  *  apart, a scalar's are side by side. */
 function writeLane(dv: DataView, at: number, l: Layout, j: number, x: number): void {
+  // A matrix's lane `j` is row `j % r` of column `j / r`, each column at its stride.
+  if (l.k === 'm') {
+    dv.setFloat32(at + Math.floor(j / l.r) * l.cs + 4 * (j % l.r), x, true);
+    return;
+  }
   if (l.k === 'v' && l.t === 'f64') {
     const hi = Math.fround(x);
     dv.setFloat32(at + 4 * j, hi, true);
@@ -353,6 +380,7 @@ function writeLane(dv: DataView, at: number, l: Layout, j: number, x: number): v
 }
 
 function readLane(dv: DataView, at: number, l: Layout, j: number): number {
+  if (l.k === 'm') return dv.getFloat32(at + Math.floor(j / l.r) * l.cs + 4 * (j % l.r), true);
   if (l.k === 'v' && l.t === 'f64')
     return dv.getFloat32(at + 4 * j, true) + dv.getFloat32(at + (l.lo ?? 0) + 4 * j, true);
   return readNumber(dv, at + 4 * j, (l as { t: LayoutNumber }).t);
@@ -397,7 +425,7 @@ export function pack(
         );
         return;
       }
-      const flat = l.n === null ? flatWidth(l.e) : undefined;
+      const flat = l.n === null ? (flatWidth(l.e) ?? matrixFlat(l.e, v)) : undefined;
       if (flat !== undefined) {
         const xs = v as ArrayLike<number>;
         const count = xs.length / flat.n;
@@ -458,7 +486,7 @@ export function readInto(dv: DataView, at: number, l: Layout, target: unknown): 
         );
         return target;
       }
-      const flat = l.n === null ? flatWidth(l.e) : undefined;
+      const flat = l.n === null ? (flatWidth(l.e) ?? matrixFlat(l.e, target)) : undefined;
       if (flat !== undefined) {
         const xs = target as { length: number; [i: number]: number };
         const count = xs.length / flat.n;
@@ -574,7 +602,7 @@ export function toCpu(l: Layout, v: unknown, box: boolean): CpuValue {
       return (l.k === 'm' || l.t === 'f32' ? xs.map(Math.fround) : xs) as CpuValue;
     }
     case 'a': {
-      const flat = l.n === null ? flatWidth(l.e) : undefined;
+      const flat = l.n === null ? (flatWidth(l.e) ?? matrixFlat(l.e, v)) : undefined;
       if (flat !== undefined) {
         const xs = v as ArrayLike<number>;
         const count = xs.length / flat.n;
@@ -616,7 +644,7 @@ export function fromCpu(l: Layout, c: CpuValue, target: unknown, box: boolean): 
       return out;
     }
     case 'a': {
-      const flat = l.n === null ? flatWidth(l.e) : undefined;
+      const flat = l.n === null ? (flatWidth(l.e) ?? matrixFlat(l.e, target)) : undefined;
       const els = c as unknown as CpuValue[];
       if (flat !== undefined) {
         const xs = target as { length: number; [i: number]: number };

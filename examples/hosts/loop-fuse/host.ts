@@ -7,7 +7,7 @@
 // promise resolves to a report of what ran. The module must be built with
 // `typeshade({ fuse: true })` in `vite.config.ts`; without it, every call runs on its own, and
 // the report says why.
-import { resident } from 'typeshade/runtime';
+import { array } from 'typeshade/runtime';
 import { fuse, type FuseReport } from 'typeshade/fuse';
 import { add, mul, pairsum, relu, total } from './loop-fuse.shade.ts';
 
@@ -33,9 +33,9 @@ export async function run(
   c: Float32Array,
 ): Promise<{ chain: Fused; split: Fused; reduce: Summed }> {
   const n = a.length;
-  // The calls in a scope take `Resident`s: the inputs, and `out`, which the host reads.
-  const [ra, rb, rc] = [a, b, c].map((xs) => resident(xs));
-  const out = resident(new Float32Array(n));
+  // The calls in a scope take `Buffer`s: the inputs, and `out`, which the host reads.
+  const [ra, rb, rc] = [a, b, c].map((xs) => array(xs));
+  const out = array(new Float32Array(n));
 
   // add, mul and relu: one dispatch on WebGPU. `t` and `u` are scratch arrays the host never
   // reads, so the fused entry holds them as locals, and no buffer is made for them.
@@ -60,18 +60,20 @@ export async function run(
   const split = { values: await out.read(), report: splitReport };
 
   // add, mul and total: the reduction ends the group, and add and mul run as a prologue of each
-  // of its iterations, so `t` and `u` are locals again. The call returns a promise, which
-  // resolves to the sum once the scope has run; the body cannot wait for it.
+  // of its iterations, so `t` and `u` are locals again. Inside today's fuse() the call returns a
+  // promise, which resolves to the sum once the scope has run; the body cannot wait for it. The
+  // host view types the call outside fuse(), where it returns a Buffer (change 0138, Amendment
+  // A10, slice 1); slice 5 switches fuse() to the same form.
   let sum!: Promise<number>;
   const reduceReport = await fuse((scope) => {
     const t = scope.scratch(n);
     const u = scope.scratch(n);
     add(t, ra, rb);
     mul(u, t, rc);
-    sum = total(u);
+    sum = total(u) as unknown as Promise<number>;
   });
   const reduce = { sum: await sum, report: reduceReport };
 
-  for (const r of [ra, rb, rc, out]) r.destroy();
+  for (const r of [ra, rb, rc, out]) r.dispose();
   return { chain, split, reduce };
 }

@@ -10,7 +10,7 @@ export async function entryOverrides(): Promise<number[]> {
   const out: number[] = [];
   configure({ prefer: ['webgpu'] });
   try {
-    // Direct calls cover tails and changing a default without a Resident or a plan.
+    // Direct calls cover tails and changing a default without a Buffer or a plan.
     for (const width of [32, 64, 128]) {
       await overrideCopy({ src, dst }, Math.ceil(src.length / width), {
         constants: { WIDTH: width, GAIN: 3 },

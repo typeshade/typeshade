@@ -23,7 +23,7 @@ import { compileModule } from '../../core/oracle.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { tscDiagnostics } from '../../core/testing/tsc-diagnostics.js';
 import type { KernelFace } from '../../core/host-kernel.js';
-import { residentState } from '../../core/resident.js';
+import { array } from '../../runtime.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const dirs: string[] = [];
@@ -186,11 +186,12 @@ describe('the class in the view (Rule 8.20)', () => {
     expect(v).toContain('export declare function pair(k: f32): array<OnePole, 2>;');
     expect(v).toContain('export declare function level(p: OnePole): f32;');
     expect(v).toContain(
-      'export declare function run(out: array<f32>, xs: array<f32>, filters: array<OnePole>, block: u32): Promise<void>;',
+      'export declare function run(out: Float32Array, xs: Float32Array, filters: readonly OnePole[], block: u32): Promise<void>;',
     );
-    // The call that only queues takes a Buffer of the class too (change 0138, R2).
+    // A call on a resource takes a Buffer of the class (change 0138, R2), and a scalar Buffer
+    // for an array of scalars and a scalar (Amendment A10, Q-I and Q-C).
     expect(v).toContain(
-      "export declare function run(out: Resident<Float32Array>, xs: array<f32>, filters: Resident<OnePole[]> | Omit<Buffer<OnePole>, 'dispose' | keyof Disposable>, block: u32): void;",
+      "export declare function run(out: Buffer<f32>, xs: Float32Array | Buffer<f32>, filters: Omit<Buffer<OnePole>, 'dispose' | keyof Disposable>, block: u32 | Buffer<u32>): void;",
     );
     expect(v).toContain('import type { f32, u32, array } from');
     // `exports` reports the class as the struct it is: `hostFace` keeps the shape of its result.
@@ -754,7 +755,7 @@ describe('a host program type-checked against the view (Rule 8.20)', () => {
 });
 
 /** A bank of voices (Amendment 1): a class a kernel function runs over, an array of its instances
- *  in a `Resident`, and a struct whose field holds an instance of another class. */
+ *  in a `Buffer`, and a struct whose field holds an instance of another class. */
 const VOICES = `"use typeshade";
 
 /** One oscillator's phase, which moves by its step each frame. */
@@ -812,16 +813,11 @@ const tickVoice = (v: { phase: number; step: number }): number => {
   return (v.phase = f(x - Math.floor(x)));
 };
 
-/** The generated module of `VOICES`, and the runtime it imports, whose `resident` is the one the
- *  module's calls read. */
+/** The generated module of `VOICES`. */
 async function voices() {
   const m = await load(VOICES);
-  const rt = (await import(
-    /* @vite-ignore */ pathToFileURL(RUNTIME).href
-  )) as typeof import('../../core/host-runtime.js');
   return {
     m,
-    rt,
     Voice: m.Voice as new (step: number) => Osc,
     render: m.render as (out: unknown, voices: unknown, frames: number) => Promise<void>,
   };
@@ -841,34 +837,28 @@ async function runHost(source: string, program: string): Promise<Record<string, 
   return (await import(/* @vite-ignore */ pathToFileURL(file).href)) as Record<string, unknown>;
 }
 
-describe('a Resident of instances reads back as instances (Rule 11.8, Amendment 1, D5)', () => {
+describe('a Buffer of a class reads back as instances (Rule 11.8, Amendment 1, D5; change 0138, Amendment A11, Q4)', () => {
   it('reads back what a kernel call wrote on the CPU tier, each element an instance of its class', async () => {
-    const { rt, Voice, render } = await voices();
+    const { Voice, render } = await voices();
     const steps = [0.25, 0.5, 0.375];
     const given = steps.map((s) => new Voice(s));
-    const bank = rt.resident(given);
-    // The host copy the CPU tier runs on holds instances, and the call writes their fields.
-    const held = [...(residentState(bank)!.host as object[])];
-    for (const o of held) expect(o).toBeInstanceOf(Voice);
+    const bank = array(Voice, given);
     const frames = 3;
     const out = new Float32Array(steps.length * frames);
+    // A call on a Buffer that writes a plain array waits and fills it (Amendment A11, Q7).
     await render(out, bank, frames);
     const want = steps.map((step) => ({ phase: 0, step }));
     expect([...out]).toEqual(
       want.flatMap((v) => Array.from({ length: frames }, () => tickVoice(v))),
     );
-    (residentState(bank)!.host as object[]).forEach((o, i) => expect(o).toBe(held[i]));
     const back = await bank.read();
     expect(back).toHaveLength(steps.length);
     back.forEach((v, i) => {
       expect(v).toBeInstanceOf(Voice);
-      expect(Object.keys(v)).toEqual(['phase', 'step']);
       expect({ ...v }).toEqual(want[i]);
-      // A new copy: neither the host copy's object nor the caller's.
-      expect(v).not.toBe(held[i]);
       expect(v).not.toBe(given[i]);
     });
-    // The caller's instances hold what they held: the Resident holds its own copy.
+    // The caller's instances hold what they held: the Buffer holds its own copy.
     expect(given.map((v) => ({ ...v }))).toEqual(steps.map((step) => ({ phase: 0, step })));
     // A method runs on what read() returned, on the CPU tier, and changes that copy alone.
     const next = { ...want[1]! };
@@ -877,11 +867,11 @@ describe('a Resident of instances reads back as instances (Rule 11.8, Amendment 
     expect({ ...(await bank.read())[1]! }).toEqual(want[1]);
   });
 
-  it('keeps the class of each instance write() gives it, before a call and after one', async () => {
-    const { rt, Voice, render } = await voices();
-    const bank = rt.resident([new Voice(0.25)]);
+  it('keeps the class of each instance set() gives it, before a call and after one', async () => {
+    const { Voice, render } = await voices();
+    const bank = array(Voice, [new Voice(0.25)]);
     const given = [new Voice(0.5), new Voice(0.125)];
-    bank.write(given);
+    bank.set(given);
     const written = await bank.read();
     written.forEach((v, i) => {
       expect(v).toBeInstanceOf(Voice);
@@ -900,12 +890,13 @@ describe('a Resident of instances reads back as instances (Rule 11.8, Amendment 
     expect(back[0]!.tick()).toBe(tickVoice({ ...want[0]! }));
   });
 
-  it('keeps the classes in a Resident that a device makes with array(), as resident() does', async () => {
+  it('keeps the classes in a Buffer that a device in use holds', async () => {
     const { createDevice } = await import('../../runtime/device.js');
     const { Voice, render } = await voices();
     const dev = await createDevice({ prefer: ['cpu'] });
+    const use = dev.use();
     try {
-      const bank = dev.array([new Voice(0.25), new Voice(0.375)]);
+      const bank = array(Voice, [new Voice(0.25), new Voice(0.375)]);
       await render(new Float32Array(2), bank, 1);
       const back = await bank.read();
       for (const v of back) expect(v).toBeInstanceOf(Voice);
@@ -915,53 +906,38 @@ describe('a Resident of instances reads back as instances (Rule 11.8, Amendment 
       ]);
       expect(back[1]!.tick()).toBe(0.75);
     } finally {
+      use.dispose();
       await dev.dispose();
     }
   });
 
-  it('reads back a plain object as a plain object, and an instance that a field holds as that instance', async () => {
-    const { m, rt, Voice, render } = await voices();
+  it('takes an array of plain objects as plain data, and refuses it in array() (Amendment A11, Q4)', async () => {
+    const { m, render } = await voices();
     const Cell = m.Cell as new () => { n: number; twice(): number };
     const grow = m.grow as (slots: unknown) => Promise<void>;
     const weights = [0.5, 1.5];
-    const slots = rt.resident(weights.map((w) => ({ cell: new Cell(), w })));
+    const slots = weights.map((w) => ({ cell: new Cell(), w }));
+    expect(() => array(slots as never)).toThrow(
+      /array\(\): takes an array of numbers, a Float32Array/,
+    );
+    // A call with plain data writes the caller's objects in place.
     await grow(slots);
-    const back = await slots.read();
-    back.forEach((s, i) => {
-      expect(Object.getPrototypeOf(s)).toBe(Object.prototype);
-      expect(s.cell).toBeInstanceOf(Cell);
-      // `new Cell()` makes n 8. read() runs no constructor, so the cell holds what the call left.
-      expect(s.cell.n).toBe(8 + weights[i]!);
-      expect(s.cell.twice()).toBe(2 * (8 + weights[i]!));
-    });
-    // A Resident of plain objects reads back as plain objects, as before.
-    const plain = rt.resident([{ phase: 0, step: 0.25 }]);
+    slots.forEach((s, i) => expect(s.cell.n).toBe(8 + weights[i]!));
+    const plain = [{ phase: 0, step: 0.25 }];
     await render(new Float32Array(2), plain, 2);
-    const p = await plain.read();
-    expect(Object.getPrototypeOf(p[0])).toBe(Object.prototype);
-    expect(p).toEqual([{ phase: 0.5, step: 0.25 }]);
-    // One Resident may hold both: each object reads back as it was given.
-    const mixed = rt.resident<object[]>([new Voice(0.25), { phase: 0, step: 0.5 }]);
-    await render(new Float32Array(2), mixed, 1);
-    const [a, b] = await mixed.read();
-    expect(a).toBeInstanceOf(Voice);
-    expect(Object.getPrototypeOf(b)).toBe(Object.prototype);
-    expect([{ ...a }, b]).toEqual([
-      { phase: 0.25, step: 0.25 },
-      { phase: 0.5, step: 0.5 },
-    ]);
+    expect(plain).toEqual([{ phase: 0.5, step: 0.25 }]);
   });
 
   it('types await bank.read() as Voice[] in a host program, and tick() runs on what it returns (Rule 12.7)', async () => {
     const head = [
       "import { Voice, render } from './filters.shade.ts';",
-      `import { resident, type Resident } from ${JSON.stringify(RUNTIME)};`,
+      `import { array, type Buffer } from ${JSON.stringify(resolve(__dirname, '../../runtime.ts'))};`,
       '',
     ].join('\n');
     const lines = [
-      'const bank: Resident<Voice[]> = resident([new Voice(0.25), new Voice(0.5)]);',
+      'const bank: Buffer<Voice> = array(Voice, [new Voice(0.25), new Voice(0.5)]);',
       'await render(new Float32Array(4), bank, 2);',
-      'bank.write([...(await bank.read()), new Voice(0.375)]);',
+      'bank.set([...(await bank.read()), new Voice(0.375)]);',
       'const voices: Voice[] = await bank.read();',
       'export const kept: boolean = voices.every((v) => v instanceof Voice);',
       'export const ticked: number[] = voices.map((v) => v.tick());',

@@ -61,7 +61,7 @@ function view(): string {
 
 const PRELUDE = `import mesh from './mesh.shade.ts';
 import type { BindingsOf, Frame, Pack, RenderPass, Runtime, Texture, Sampler } from ${JSON.stringify(RUNTIME)};
-import { resident } from ${JSON.stringify(RUNTIME)};
+import { array } from ${JSON.stringify(RUNTIME)};
 declare const rt: Runtime;
 declare const pass: RenderPass;
 declare const frame: Frame;
@@ -75,14 +75,17 @@ const BINDINGS = `{ view: { viewProj, time: 1 }, tint: [1, 1, 1, 1], cells: new 
 const BODIES = {
   accepted: `${RENDER}
   pass.draw(draw, ${BINDINGS}, { count: 3 });
-  pass.draw(draw, { view: resident({ viewProj, time: 1 }), tint: new Float32Array(4), cells: resident(new Float32Array(6)), albedo: tex, samp: smp }, { count: 3 });
+  pass.draw(draw, { view: { viewProj, time: 1 }, tint: new Float32Array(4), cells: array(new Float32Array(6)), albedo: tex, samp: smp }, { count: 3 });
   const grow = await rt.load(mesh).compute('grow');
   frame.dispatch(grow, { heights: new Float32Array(64) }, 1);
-  grow.dispatch(frame.encoder, { heights: resident(new Float32Array(64)) }, 1);
+  grow.dispatch(frame.encoder, { heights: array(new Float32Array(64)) }, 1);
   const depth = await rt.load(mesh).render({ vertex: 'vs', fragment: null });
   pass.draw(depth, { view: { viewProj, time: 1 }, cells: new Float32Array(6) }, { count: 3 });
   const named: BindingsOf<typeof mesh, 'grow'> = { heights: new Float32Array(1) };
   void named;`,
+  // A uniform binding takes its plain value, and no Buffer (change 0138, Amendment A11, Q3).
+  buffer: `${RENDER}
+  pass.draw(draw, { view: { viewProj, time: 1 }, tint: array(new Float32Array(4)), cells: new Float32Array(6), albedo: tex, samp: smp }, { count: 3 });`,
   misspelled: `${RENDER}
   pass.draw(draw, { veiw: { viewProj, time: 1 }, tint: [1, 1, 1, 1], cells: new Float32Array(6), albedo: tex, samp: smp }, { count: 3 });`,
   missingBinding: `${RENDER}
@@ -149,6 +152,12 @@ function errorsOf(name: Case): string[] {
 describe('a draw and a dispatch are typed by the bindings each entry reaches (change 0030)', () => {
   it('compiles a draw and a dispatch that pass every binding, in each form a binding takes', () => {
     expect(errorsOf('accepted')).toEqual([]);
+  });
+
+  it('refuses a Buffer for a uniform binding, which takes its plain value (change 0138, Amendment A11, Q3)', () => {
+    const errs = errorsOf('buffer');
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).toMatch(/^2: .*Buffer<f32>/);
   });
 
   it('refuses a misspelled binding at the argument', () => {

@@ -2,6 +2,12 @@
 // Verifies: Rule 11.13 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 12.7 (docs/language-design.md; traced in reqs/).
 // Generated calls propagate failed content inputs (0129), while independent work and writers recover.
+//
+// A call on a Buffer is checked at the call (change 0138, R2), so the failures here come from a
+// call that fails when it runs: its count is a Buffer<u32> read when the call runs (Amendment A10,
+// Q-C). The 0129 rules hold for the calls made before the failure is known. A Buffer a failed call
+// wrote throws its error at each later call that takes it, until set(data) or resize() (A7,
+// decision b), as every Buffer does (Amendment A10, Q-I).
 import { afterAll, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,7 +16,9 @@ import { pathToFileURL } from 'node:url';
 import { hostFace } from './host-face.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { createDevice } from '../../runtime/device.js';
-import { residentState } from '../../core/resident.js';
+import { kernelQueue, residentState } from '../../core/resident.js';
+import { throwFailure } from '../../core/submission.js';
+import { array } from '../../runtime.js';
 
 const dirs: string[] = [];
 afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
@@ -91,29 +99,59 @@ export function combine(out: array<f32>, first: array<f32>, second: array<f32>) 
   for (let i: u32 = 0; i < out.length; i++) out[i] = first[i] + second[i];
 }
 `;
-async function failed(m: Record<string, Call>, a: unknown): Promise<unknown> {
-  const e = await capture(m.fill!(a, 5, 9));
-  expect(e).toBeInstanceOf(TypeError);
-  expect(residentState(a)?.error).toBe(e);
-  return e;
+/** Record a call of `fn` that writes `count` elements of `a` when it runs: the count is a
+ *  Buffer<u32> of `owner`, which the check at the call does not read. */
+function fail(
+  m: Record<string, Call>,
+  owner: { array(v: Uint32Array): unknown },
+  a: unknown,
+  fn = 'fill',
+  count = 5,
+): void {
+  const n = owner.array(Uint32Array.of(count));
+  if (fn === 'fill') void m.fill!(a, n, 9);
+  else void m[fn]!(a, n);
 }
+/** Let the recorded calls run, and take the pending copy of a failure, thrown once (A5, default
+ *  7), so that it reaches no later call of the test. */
+async function settle(): Promise<void> {
+  await new Promise((r) => setImmediate(r));
+  await kernelQueue.idle();
+  try {
+    throwFailure();
+  } catch {
+    // The pending copy: each Buffer the call wrote keeps the error too.
+  }
+}
+/** The error a Buffer keeps. */
+const errorOf = (b: unknown): unknown => residentState(b)?.error;
+/** What a call throws at the call. */
+const thrown = (f: () => unknown): unknown => {
+  try {
+    f();
+  } catch (e) {
+    return e;
+  }
+  return undefined;
+};
 
 describe('generated calls admit healthy content dependencies (0129)', () => {
   for (const fuse of [true, false]) {
-    it(`propagates the queued producer error through two consumers; fuse facts ${fuse}`, async () => {
+    it(`propagates the producer error through two consumers made before it failed; fuse facts ${fuse}`, async () => {
       const m = await load(SOURCE, fuse);
       const d = await createDevice({ prefer: ['cpu'] });
       try {
         const a = d.array(new Float32Array(4).fill(9));
         const b = d.array(new Float32Array(4).fill(77));
         const c = d.array(new Float32Array(4));
-        const producer = capture(m.fill!(a, 5, 1));
-        const consumer = capture(m.twice!(b, a));
-        const last = capture(m.twice!(c, b));
-        const e = await producer;
+        fail(m, d, a);
+        void m.twice!(b, a);
+        void m.twice!(c, b);
+        await settle();
+        const e = errorOf(a);
         expect(e).toBeInstanceOf(TypeError);
-        expect(await consumer).toBe(e);
-        expect(await last).toBe(e);
+        expect(errorOf(b)).toBe(e);
+        expect(errorOf(c)).toBe(e);
         expect(await capture(c.read())).toBe(e);
         expect(residentState(b)?.host).toEqual(new Float32Array(4).fill(77));
       } finally {
@@ -122,13 +160,23 @@ describe('generated calls admit healthy content dependencies (0129)', () => {
     });
   }
   for (const n of [0, 1, 4]) {
-    it(`preserves recovery after a successful write-only call of ${n} elements`, async () => {
+    it(`recovers a write-only call of ${n} elements made before the failure was known, and refuses one made after until set(data)`, async () => {
       const m = await load(SOURCE);
       const d = await createDevice({ prefer: ['cpu'] });
       try {
         const a = d.array(new Float32Array(4).fill(3));
-        await failed(m, a);
-        await m.fill!(a, n, 7);
+        fail(m, d, a);
+        void m.fill!(a, n, 7);
+        await settle();
+        expect(errorOf(a)).toBeUndefined();
+        expect([...(await a.read())]).toEqual(Array.from({ length: 4 }, (_, i) => (i < n ? 7 : 3)));
+        // A Buffer a failed call left is refused at the call (A7, decision b).
+        fail(m, d, a);
+        await settle();
+        const e = errorOf(a);
+        expect(thrown(() => m.fill!(a, n, 7))).toBe(e);
+        a.set(new Float32Array(4).fill(3));
+        void m.fill!(a, n, 7);
         expect([...(await a.read())]).toEqual(Array.from({ length: 4 }, (_, i) => (i < n ? 7 : 3)));
       } finally {
         await d.dispose();
@@ -142,8 +190,11 @@ describe('generated calls admit healthy content dependencies (0129)', () => {
       try {
         const a = d.array(new Float32Array(4));
         const b = d.array(new Float32Array(4).fill(17));
-        const e = await failed(m, a);
-        expect(await capture(m[name]!(b, a))).toBe(e);
+        fail(m, d, a);
+        void m[name]!(b, a);
+        await settle();
+        const e = errorOf(a);
+        expect(e).toBeInstanceOf(TypeError);
         expect(await capture(b.read())).toBe(e);
         expect(residentState(b)?.host).toEqual(new Float32Array(4).fill(17));
       } finally {
@@ -151,16 +202,21 @@ describe('generated calls admit healthy content dependencies (0129)', () => {
       }
     });
   }
-  it('refuses read/write recovery and keeps whole host writes from clearing errors', async () => {
+  it('refuses a read/write call on a failed Buffer, and a whole set(data) recovers it (A7, decision b)', async () => {
     const m = await load(SOURCE);
     const d = await createDevice({ prefer: ['cpu'] });
     try {
       const a = d.array(new Float32Array(4));
-      const e = await failed(m, a);
-      a.write(new Float32Array(4).fill(2));
+      fail(m, d, a);
+      void m.update!(a);
+      await settle();
+      const e = errorOf(a);
+      expect(e).toBeInstanceOf(TypeError);
       expect(await capture(a.read())).toBe(e);
-      expect(await capture(m.update!(a))).toBe(e);
-      expect(await capture(a.read())).toBe(e);
+      expect(thrown(() => m.update!(a))).toBe(e);
+      a.set(new Float32Array(4).fill(2));
+      void m.update!(a);
+      expect([...(await a.read())]).toEqual([3, 3, 3, 3]);
     } finally {
       await d.dispose();
     }
@@ -175,46 +231,56 @@ describe('generated calls admit healthy content dependencies (0129)', () => {
       try {
         const a = d.array(new Float32Array(4));
         const b = d.array(new Float32Array(4));
-        const e = await failed(m, a);
-        await m[name]!(b, a);
+        fail(m, d, a);
+        void m[name]!(b, a);
+        await settle();
+        expect(errorOf(b)).toBeUndefined();
         expect([...(await b.read())]).toEqual(new Array(4).fill(value));
-        expect(await capture(a.read())).toBe(e);
+        expect(await capture(a.read())).toBe(errorOf(a));
       } finally {
         await d.dispose();
       }
     });
   }
-  it('selects failures in parameter order after ordinary validation', async () => {
+  it('selects failures in parameter order, and refuses an alias and a shape at the call', async () => {
     const m = await load(SOURCE);
     const d = await createDevice({ prefer: ['cpu'] });
     try {
       const a = d.array(new Float32Array(4));
       const b = d.array(new Float32Array(4));
       const out = d.array(new Float32Array(4));
-      const first = await failed(m, a);
-      const second = await failed(m, b);
+      fail(m, d, a);
+      fail(m, d, b);
+      void m.combine!(out, b, a);
+      await settle();
+      const first = errorOf(a);
+      const second = errorOf(b);
+      expect(first).toBeInstanceOf(TypeError);
       expect(first).not.toBe(second);
-      expect(await capture(m.combine!(out, b, a))).toBe(second);
-      const alias = await capture(m.combine!(out, a, a));
-      expect(alias).toBeInstanceOf(TypeError);
-      expect(alias).not.toBe(first);
-      expect(String(alias)).toContain('same resident array');
-      const shape = await capture(m.twice!(out, d.array(new Float32Array(2))));
-      expect(shape).toBeInstanceOf(TypeError);
-      expect(shape).not.toBe(second);
+      expect(errorOf(out)).toBe(second);
+      const healthy = d.array(new Float32Array(4));
+      const fresh = d.array(new Float32Array(4));
+      expect(String(thrown(() => m.combine!(fresh, healthy, healthy)))).toContain('same Buffer');
+      expect(thrown(() => m.twice!(fresh, d.array(new Float32Array(2))))).toBeInstanceOf(TypeError);
     } finally {
       await d.dispose();
     }
   });
   it('loads a legacy artifact but treats missing facts as content reads', async () => {
-    const m = await load(SOURCE, true, true);
-    const d = await createDevice({ prefer: ['cpu'] });
-    try {
-      const a = d.array(new Float32Array(4));
-      const e = await failed(m, a);
-      expect(await capture(m.fill!(a, 4, 7))).toBe(e);
-    } finally {
-      await d.dispose();
+    for (const legacy of [false, true]) {
+      const m = await load(SOURCE, true, legacy);
+      const d = await createDevice({ prefer: ['cpu'] });
+      try {
+        const a = d.array(new Float32Array(4));
+        fail(m, d, a);
+        void m.fill!(a, 4, 7);
+        await settle();
+        // With the facts, the write-only call recovers the Buffer; without them, it reads it.
+        if (legacy) expect(errorOf(a)).toBeInstanceOf(TypeError);
+        else expect(errorOf(a)).toBeUndefined();
+      } finally {
+        await d.dispose();
+      }
     }
   });
   it('keeps independent work on the same and another owner runnable', async () => {
@@ -225,9 +291,11 @@ describe('generated calls admit healthy content dependencies (0129)', () => {
       const a = d.array(new Float32Array(4));
       const b = d.array(new Float32Array(4));
       const c = other.array(new Float32Array(4));
-      const failure = capture(m.fill!(a, 5, 1));
-      await Promise.all([m.fill!(b, 4, 2), m.fill!(c, 4, 3)]);
-      expect(await failure).toBeInstanceOf(TypeError);
+      fail(m, d, a);
+      void m.fill!(b, 4, 2);
+      void m.fill!(c, 4, 3);
+      await settle();
+      expect(errorOf(a)).toBeInstanceOf(TypeError);
       expect([...(await b.read())]).toEqual([2, 2, 2, 2]);
       expect([...(await c.read())]).toEqual([3, 3, 3, 3]);
     } finally {
@@ -243,7 +311,9 @@ describe('generated calls admit healthy content dependencies (0129)', () => {
       try {
         const a = d.array(new Float32Array(4));
         const b = d.array(new Float32Array(4));
-        const e = await failed(m, a);
+        fail(m, d, a);
+        await settle();
+        const e = errorOf(a);
         const calls: Promise<unknown>[] = [];
         let inner: Promise<unknown> | undefined;
         const plan = d.fuse(() => {
@@ -253,7 +323,7 @@ describe('generated calls admit healthy content dependencies (0129)', () => {
           };
           if (nested) inner = d.fuse(consume);
           else consume();
-          expect(residentState(a)?.error).toBe(e);
+          expect(errorOf(a)).toBe(e);
         });
         const report = await plan;
         if (nested) expect(await inner).toBe(report);
@@ -273,7 +343,9 @@ describe('generated calls admit healthy content dependencies (0129)', () => {
         const a = d.array(new Float32Array(4));
         const b = d.array(new Float32Array(4).fill(11));
         const c = d.array(new Float32Array(4).fill(13));
-        const e = await failed(m, a);
+        fail(m, d, a);
+        await settle();
+        const e = errorOf(a);
         const calls: Promise<unknown>[] = [];
         let inner: Promise<unknown> | undefined;
         const plan = d.fuse(() => {
@@ -336,14 +408,25 @@ describe('generated compute and draw dependencies (0129)', () => {
     try {
       const xs = d.array(new Float32Array(4).fill(3));
       const dst = d.array(new Float32Array(4));
-      const e = await failed(m, xs);
-      expect(await capture(m.copy!({ dst, xs }, 4, { constants: { GAIN: 3 } }))).toBe(e);
+      fail(m, d, xs);
+      void m.copy!({ dst, xs }, 4, { constants: { GAIN: 3 } });
+      void m.mutate!({ dst }, 4);
+      await settle();
+      const e = errorOf(xs);
+      expect(e).toBeInstanceOf(TypeError);
+      expect(errorOf(dst)).toBe(e);
       expect(await capture(dst.read())).toBe(e);
-      expect(await capture(m.mutate!({ dst }, 4))).toBe(e);
-      await m.reset!({ dst }, 4);
-      expect([...(await dst.read())]).toEqual([7, 7, 7, 7]);
-      await m.capacity!({ xs, dst }, 4);
-      expect([...(await dst.read())]).toEqual([4, 4, 4, 4]);
+      // A write-only entry made before the failure was known recovers dst, and a capacity read
+      // of xs is no content read.
+      const out = d.array(new Float32Array(4));
+      const ys = d.array(new Float32Array(4).fill(3));
+      fail(m, d, ys);
+      void m.copy!({ dst: out, xs: ys }, 4, { constants: { GAIN: 3 } });
+      void m.reset!({ dst: out }, 4);
+      void m.capacity!({ xs: d.array(new Float32Array(4)), dst: out }, 4);
+      await settle();
+      expect(errorOf(out)).toBeUndefined();
+      expect([...(await out.read())]).toEqual([4, 4, 4, 4]);
     } finally {
       await d.dispose();
     }
@@ -355,14 +438,39 @@ describe('generated compute and draw dependencies (0129)', () => {
       const xs = d.array(new Float32Array(4));
       const other = d.array(new Float32Array(4));
       const dst = d.array(new Float32Array(4));
+      const last = d.array(new Float32Array(4));
       const counts = d.array(Uint32Array.of(4, 1, 1));
-      const first = await failed(m, xs);
-      await failed(m, other);
-      const indirect = await capture(m.words!(counts, 4));
-      expect(indirect).toBeInstanceOf(TypeError);
-      expect(await capture(m.sum!({ other, dst, xs }, { indirect: counts }))).toBe(first);
-      expect(await capture(m.reset!({ dst }, { indirect: counts }))).toBe(indirect);
-      expect(await capture(dst.read())).toBe(indirect);
+      fail(m, d, xs);
+      fail(m, d, other);
+      fail(m, d, counts, 'words', 4);
+      void m.sum!({ other, dst, xs }, { indirect: counts });
+      void m.reset!({ dst: last }, { indirect: counts });
+      await settle();
+      expect(errorOf(dst)).toBe(errorOf(xs));
+      expect(errorOf(counts)).toBeInstanceOf(TypeError);
+      expect(errorOf(last)).toBe(errorOf(counts));
+      expect(await capture(last.read())).toBe(errorOf(counts));
+    } finally {
+      await d.dispose();
+    }
+  });
+  it('refuses an indirect count a failed call wrote at the call, and takes it again after set(data) (A7, decision b)', async () => {
+    const m = await load(ENTRIES);
+    const d = await createDevice({ prefer: ['cpu'] });
+    try {
+      const counts = d.array(Uint32Array.of(4, 1, 1));
+      const dst = d.array(new Float32Array(4).fill(1));
+      fail(m, d, counts, 'words', 4);
+      await settle();
+      const e = errorOf(counts);
+      expect(e).toBeInstanceOf(TypeError);
+      // Refused before anything is taken: dst changes not and keeps no error.
+      expect(thrown(() => m.reset!({ dst }, { indirect: counts }))).toBe(e);
+      expect(errorOf(dst)).toBeUndefined();
+      expect([...(await dst.read())]).toEqual([1, 1, 1, 1]);
+      counts.set(Uint32Array.of(4, 1, 1));
+      void m.reset!({ dst }, { indirect: counts });
+      expect([...(await dst.read())]).toEqual([7, 7, 7, 7]);
     } finally {
       await d.dispose();
     }
@@ -373,7 +481,9 @@ describe('generated compute and draw dependencies (0129)', () => {
     try {
       const xs = d.array(new Float32Array(4));
       const dst = d.array(new Float32Array(4));
-      await failed(m, xs);
+      fail(m, d, xs);
+      await settle();
+      expect(errorOf(xs)).toBeInstanceOf(TypeError);
       await d.fuse(() => {
         void m.reset!({ dst: xs }, 4);
         void m.copy!({ dst, xs }, 4, { constants: { GAIN: 3 } });
@@ -383,7 +493,7 @@ describe('generated compute and draw dependencies (0129)', () => {
       await d.dispose();
     }
   });
-  it('rejects a draw before creating a context or changing a previous image', async () => {
+  it('rejects a draw before creating a context or changing a previous image, until set(data)', async () => {
     const m = await load(ENTRIES);
     const d = await createDevice({ prefer: ['cpu'] });
     class Canvas {
@@ -409,8 +519,10 @@ describe('generated compute and draw dependencies (0129)', () => {
       const canvas = new Canvas();
       await m.color!(canvas, { xs });
       expect([...canvas.pixels]).toEqual([128, 0, 0, 255]);
-      const e = await failed(m, xs);
-      await xs.write(new Float32Array(4).fill(0.25));
+      fail(m, d, xs);
+      await settle();
+      const e = errorOf(xs);
+      expect(e).toBeInstanceOf(TypeError);
       const contexts = canvas.contexts;
       expect(await capture(m.color!(canvas, { xs }))).toBe(e);
       expect([...canvas.pixels]).toEqual([128, 0, 0, 255]);
@@ -420,6 +532,10 @@ describe('generated compute and draw dependencies (0129)', () => {
       expect(fresh.contexts).toBe(0);
       await m.sizeColor!(canvas, { xs });
       expect([...canvas.pixels]).toEqual([255, 0, 0, 255]);
+      // A whole set(data) recovers it (A7, decision b).
+      xs.set(new Float32Array(4).fill(0.25));
+      await m.color!(canvas, { xs });
+      expect([...canvas.pixels]).toEqual([64, 0, 0, 255]);
     } finally {
       if (old === undefined) Reflect.deleteProperty(globalThis, 'OffscreenCanvas');
       else Object.defineProperty(globalThis, 'OffscreenCanvas', old);
@@ -451,12 +567,13 @@ describe('held data dependencies (0129)', () => {
     try {
       const out = d.array(new Uint32Array(4));
       const length = d.array(Uint32Array.of(0));
-      const e = await capture(m.words!(out, 5));
-      expect(e).toBeInstanceOf(TypeError);
-      expect(await capture(m.append!({ array: out, length }, 2))).toBe(e);
+      fail(m, d, out, 'words');
+      void m.append!({ array: out, length }, 2);
       // The failed call also marked its held word. A separate writer recovers that word first.
-      await m.words!(length, 1);
-      await m.appendOnly!({ array: out, length }, 2);
+      void m.words!(length, 1);
+      void m.appendOnly!({ array: out, length }, 2);
+      await settle();
+      expect(errorOf(out)).toBeUndefined();
       expect([...(await out.read())]).toEqual([0, 0, 1, 0]);
     } finally {
       await d.dispose();
@@ -469,9 +586,11 @@ describe('held data dependencies (0129)', () => {
     try {
       const out = d.array(new Uint32Array(4));
       const length = d.array(Uint32Array.of(0));
-      const e = await capture(m.words!(length, 2));
+      fail(m, d, length, 'words', 2);
+      void m.append!({ array: out, length }, 2);
+      await settle();
+      const e = errorOf(length);
       expect(e).toBeInstanceOf(TypeError);
-      expect(await capture(m.append!({ array: out, length }, 2))).toBe(e);
       expect(await capture(out.read())).toBe(e);
       expect(await capture(length.read())).toBe(e);
     } finally {
@@ -484,9 +603,11 @@ describe('held data dependencies (0129)', () => {
     try {
       const out = d.array(new Uint32Array(4));
       const n = d.array(Uint32Array.of(3));
-      const e = await capture(m.words!(n, 2));
+      fail(m, d, n, 'words', 2);
+      void m.bounds!(out, n);
+      await settle();
+      const e = errorOf(n);
       expect(e).toBeInstanceOf(TypeError);
-      expect(await capture(m.bounds!(out, n))).toBe(e);
       expect(await capture(out.read())).toBe(e);
     } finally {
       await d.dispose();
@@ -513,10 +634,16 @@ export function incrementAll(out: array<f32>) {
   const d = await createDevice({ prefer: ['cpu'] });
   try {
     const a = d.array(new Float32Array(4));
-    const e = await failed(m, a);
-    expect(await capture(m.incrementAll!(a))).toBe(e);
-    await m.setAll!(a);
-    expect([...(await a.read())]).toEqual([7, 7, 7, 7]);
+    fail(m, d, a);
+    void m.incrementAll!(a);
+    await settle();
+    expect(errorOf(a)).toBeInstanceOf(TypeError);
+    const b = d.array(new Float32Array(4));
+    fail(m, d, b);
+    void m.setAll!(b);
+    await settle();
+    expect(errorOf(b)).toBeUndefined();
+    expect([...(await b.read())]).toEqual([7, 7, 7, 7]);
   } finally {
     await d.dispose();
   }
@@ -539,8 +666,11 @@ for (const [name, body] of [
     try {
       const xs = d.array(new Float32Array(4));
       const out = d.array(new Float32Array(4).fill(9));
-      const e = await failed(m, xs);
-      expect(await capture(m.run!(out, xs))).toBe(e);
+      fail(m, d, xs);
+      void m.run!(out, xs);
+      await settle();
+      const e = errorOf(xs);
+      expect(e).toBeInstanceOf(TypeError);
       expect(await capture(out.read())).toBe(e);
       expect(residentState(out)?.host).toEqual(new Float32Array(4).fill(9));
     } finally {
@@ -551,7 +681,7 @@ for (const [name, body] of [
 
 it('checks a by-value aggregate helper argument and an atomic read/write, but permits atomic stores', async () => {
   const source = `"use typeshade";
-class Cell { value: f32; }
+export class Cell { value: f32 = 0.; }
 function constant(cell: Cell): f32 { return 7.; }
 export function copy(out: array<f32>, xs: array<Cell>) {
   for (let i: u32 = 0; i < out.length; i++) out[i] = constant(xs[i]);
@@ -572,19 +702,32 @@ export function words(out: array<u32>, n: u32) {
 `;
   const m = await load(source);
   const d = await createDevice({ prefer: ['cpu'] });
+  const use = d.use();
   try {
-    const xs = d.array(Array.from({ length: 4 }, () => ({ value: 2 })));
+    // An array of structs is a Buffer of its class (Amendment A11, Q4).
+    const Cell = m.Cell as unknown as abstract new () => { value: number };
+    const xs = array(
+      Cell,
+      Array.from({ length: 4 }, () => ({ value: 2 })),
+    );
     const out = d.array(new Float32Array(4));
-    const e = await capture(m.cells!(xs, 5));
-    expect(e).toBeInstanceOf(TypeError);
-    expect(await capture(m.copy!(out, xs))).toBe(e);
+    void m.cells!(xs, d.array(Uint32Array.of(5)));
+    void m.copy!(out, xs);
+    await settle();
+    expect(errorOf(out)).toBeInstanceOf(TypeError);
     const dst = d.array(new Uint32Array(4));
-    const atomicError = await capture(m.words!(dst, 5));
-    expect(atomicError).toBeInstanceOf(TypeError);
-    expect(await capture(m.increment!({ dst }, 4))).toBe(atomicError);
-    await m.clear!({ dst }, 4);
-    expect([...(await dst.read())]).toEqual([7, 7, 7, 7]);
+    fail(m, d, dst, 'words');
+    void m.increment!({ dst }, 4);
+    await settle();
+    expect(errorOf(dst)).toBeInstanceOf(TypeError);
+    const fresh = d.array(new Uint32Array(4));
+    fail(m, d, fresh, 'words');
+    void m.clear!({ dst: fresh }, 4);
+    await settle();
+    expect(errorOf(fresh)).toBeUndefined();
+    expect([...(await fresh.read())]).toEqual([7, 7, 7, 7]);
   } finally {
+    use.dispose();
     await d.dispose();
   }
 });

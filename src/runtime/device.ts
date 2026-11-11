@@ -8,10 +8,10 @@
 // overwrote the other's. `createDevice()` is that owner, once, here.
 //
 // A `Device` holds what the two libraries each held: the tier it opened and why the earlier tiers
-// of `prefer` did not open, the `Resident` arrays it made and a pool of the released ones, the
+// of `prefer` did not open, the `Buffer`s it made and a pool of the released ones, the
 // device's limits and its lost signal, `fuse()` over its own device, a completion fence, and a
 // `dispose()` that frees what it made and never what the host handed in. Two devices in one
-// context are independent. The process-global `configure()`, `resident()` and `fuse()` stay, and
+// context are independent. The process-global `configure()`, `array()` and `fuse()` stay, and
 // describe the default owner (`core/owner.ts`).
 //
 // `device.fuse()` includes its synchronous recorder (change 0085). The plan reserves its queue
@@ -42,24 +42,33 @@ import type { CallOwner } from '../core/owner.js';
 import type { Fp64Flavor } from '../core/passes/fp64-lower.js';
 import { probeSubgroups, type SubgroupObservation } from '../core/subgroup-probe.js';
 import {
-  adopt,
   checkFp64Flavor,
+  disposeState,
+  handleOf,
   kernelQueue,
-  handleOf as residentHandle,
   makeResident,
+  plainNumbers,
+  refill,
+  renew,
   residentState,
   ZEROED_ELEMENTS,
   ZeroedState,
   type Resident,
   type ResidentArrayState,
-  type ZeroedArray,
   type ZeroedElement,
 } from '../core/resident.js';
 import { CpuTexture, cpuFormatGap } from '../core/cpu-texture.js';
 import { ownerInUse, textureOwners } from '../core/owner.js';
 import { TIERS, tierNames, type Tier } from '../core/tiers.js';
 import { TextureImpl, type Texture } from './resources.js';
-import { forgetOwner } from './resource.js';
+import {
+  forgetOwner,
+  type AnyBuffer,
+  type Buffer,
+  type ElementOfTyped,
+  type ScalarArray,
+  type ZeroedBufferElement,
+} from './resource.js';
 import { webgpuDevice } from '../rhi/webgpu.js';
 import { fitChunk, learnRate, type ChunkRate } from './chunk.js';
 import { defaultDevice, endUse, pushUse } from './default-device.js';
@@ -152,7 +161,7 @@ interface SkippedTier {
 }
 
 /**
- * The owner of a host's kernel calls (change 0071): the tier they run on, the `Resident` arrays
+ * The owner of a host's kernel calls (change 0071): the tier they run on, the `Buffer`s
  * they take and the pool those arrays return to, the device's limits and lost signal, the plans
  * of `fuse()`, and `dispose()`. Made by {@link createDevice}. Two devices in one context are
  * independent: each has its tier, its arrays, its pool and its plans.
@@ -178,14 +187,19 @@ export interface Device {
   readonly limits: Readonly<Record<string, number>>;
   /** Resolves when the browser invalidates the WebGPU device. On another tier it never resolves. */
   readonly lost: Promise<{ readonly reason: string; readonly message: string }>;
-  /** A `Resident` that holds a copy of `value`, as `resident(value)` makes one (Rule 11.8), owned
-   *  by this device: taken from the pool when a released array of the same element and length is
-   *  there, and made new otherwise. */
-  array<T>(value: T): Resident<T>;
-  /** A zeroed `Resident` of `length` numbers of `element`, as `resident(length, element)` makes
-   *  one (change 0065), owned by this device: taken from the pool and zeroed on the device when a
+  /** A `Buffer` of scalars that holds a copy of the typed array `value`, as `array(value)` makes
+   *  one (Rule 11.8; change 0138, Amendment A10, Q-I), owned by this device: taken from the pool
+   *  when a released array of the same element and length is there, and made new otherwise.
+   *  @throws `TypeError` for a value that is no array, and for an array that holds anything but
+   *    numbers (Amendment A11, Q3 and Q4). */
+  array<T extends ScalarArray>(value: T): Buffer<ElementOfTyped<T>>;
+  /** A `Buffer<f32>` of the numbers of `value`, as `array(value)` makes one: a `number[]` is held
+   *  as a `Float32Array` (change 0138; the owner's decision of 2026-11-11). */
+  array(value: readonly number[]): Buffer<number>;
+  /** A zeroed `Buffer` of `length` numbers of `element`, as `array(length, element)` makes one
+   *  (change 0065), owned by this device: taken from the pool and zeroed on the device when a
    *  released array of the same element and length is there, and made new otherwise. */
-  array<E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>;
+  array<E extends ZeroedElement>(length: number, element: E): Buffer<ZeroedBufferElement<E>>;
   /** A 2D texture of `size` and `format`, owned by this device (change 0077): a sampled texture,
    *  a copy source and destination and a render target, as a program runtime's texture is, and a
    *  storage texture a kernel function writes when `storage` is true. A call takes it as a
@@ -202,14 +216,14 @@ export interface Device {
   /** Give an array back. The device keeps it for a later `array()` of the same element and
    *  length while the pool has room, and frees it otherwise. The handle is not used after.
    *  @throws `TypeError` for an array another owner made. */
-  release(array: Resident<unknown>): void;
+  release(array: AnyBuffer): void;
   /** What the device counts of its arrays. */
   readonly statistics: DeviceStatistics;
   /** Record the kernel calls and entry calls `body` makes and run them as one plan on this device
-   *  (Rule 11.13). A call inside the body that takes a `Resident` of another owner is refused with
+   *  (Rule 11.13). A call inside the body that takes a `Buffer` of another owner is refused with
    *  a `TypeError` naming both owners. No registration import is needed (change 0085).
    *  The body runs synchronously; the queued plan automatically loads its local executor.
-   *  Deploy every emitted chunk. A loading failure reaches each recorded call and written Resident.
+   *  Deploy every emitted chunk. A loading failure reaches each recorded call and written Buffer.
    *  A failed content dependency rejects the whole plan with the same error (0129).
    *  An earlier write-only call in the plan can recover a handle before a later call reads it.
    *
@@ -282,14 +296,12 @@ declare global {
   interface Disposable {}
 }
 
-/** A pooled element: the zeroed ones, and `f64`, which `resident(Float64Array)` holds. */
+/** A pooled element: the zeroed ones, and `f64`, which `array(Float64Array)` holds. */
 type PooledElement = ZeroedElement | 'f64';
 
 /** What the device keeps of each array it made. */
 interface Slot {
   readonly state: ResidentArrayState;
-  /** The handle `resident()` made, whose methods the device's handle delegates to. */
-  readonly inner: Resident<unknown>;
   /** The pool key, `element:length`, for a typed array; undefined for a value the pool does not
    *  keep (a number, a tuple, an array of structs). */
   readonly key: string | undefined;
@@ -401,6 +413,8 @@ class DeviceImpl implements Device {
       scratchBuffer: (state: ZeroedState, device: GpuDevice, layout: Layout) =>
         this.#scratchBuffer(state, device, layout),
       releaseScratch: (state: ZeroedState) => this.#releaseScratch(state),
+      // A kernel's result on a resource is one of the device's arrays (Amendment A10, Q-C).
+      result: (state: ResidentArrayState) => this.#result(state),
     });
   }
 
@@ -417,22 +431,31 @@ class DeviceImpl implements Device {
     });
   }
 
-  array<T>(value: T): Resident<T>;
-  array<E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>;
-  array(...args: unknown[]): Resident<unknown> {
-    return this.arrayAs('resident()', args);
+  array<T extends ScalarArray>(value: T): Buffer<ElementOfTyped<T>>;
+  array(value: readonly number[]): Buffer<number>;
+  array<E extends ZeroedElement>(length: number, element: E): Buffer<ZeroedBufferElement<E>>;
+  array(...args: unknown[]): unknown {
+    return this.arrayAs(`${this.label}.array()`, args);
   }
 
   /** `array()` with the refusals worded for `at`: `array()` of `typeshade/runtime` makes a device's
-   *  `Resident` with this when the device is in use (change 0138, R3). Not API. */
+   *  `Buffer` with this when the device is in use (change 0138, R3). Not API. */
   arrayAs(at: string, args: readonly unknown[]): Resident<unknown> {
     this.#usable('array()');
     const zeroed = args.length >= 2;
-    const [value, element] = args as [unknown, unknown];
-    // The refusals of `resident()` come first, so a wrong value makes no slot.
+    const [given, element] = args as [unknown, unknown];
+    // A `number[]` makes a `Buffer` whose element its first use fixes (Amendment A12, decision 3),
+    // pooled by its 4-byte words as a `Float32Array` is; a pooled one starts open again (D5).
+    const numbers = zeroed ? undefined : plainNumbers(given, at);
+    const value = zeroed ? given : (numbers ?? given);
+    // The refusals of `array()` come first, so a wrong value makes no slot.
     const probe = makeResident(at, zeroed ? [value, element] : [value]);
     const probeState = residentState(probe)!;
-    const el: PooledElement | undefined = zeroed ? (element as ZeroedElement) : elementOf(value);
+    const el: PooledElement | undefined = zeroed
+      ? (element as ZeroedElement)
+      : numbers !== undefined
+        ? 'f32'
+        : elementOf(value);
     const length = zeroed
       ? (value as number)
       : el !== undefined
@@ -443,16 +466,15 @@ class DeviceImpl implements Device {
     if (!zeroed && el !== undefined) this.#uploadBytes += bytes;
     const pooled = key === undefined ? undefined : this.#take(key);
     if (pooled !== undefined) {
-      // The probe's handle is dropped: it made no buffer and queued nothing.
-      probe.destroy();
+      // The probe's state is dropped: it made no buffer and queued nothing.
+      disposeState(probeState);
       this.#reuses++;
       if (zeroed) this.#rezero(pooled, el as ZeroedElement, length);
-      else pooled.inner.write(value);
+      else refill(pooled.state, value);
       return this.#handleOf(pooled);
     }
     const slot: Slot = {
       state: probeState,
-      inner: probe,
       key,
       element: el,
       length,
@@ -504,7 +526,7 @@ class DeviceImpl implements Device {
     return texture;
   }
 
-  release(array: Resident<unknown>): void {
+  release(array: AnyBuffer): void {
     this.#usable('release()');
     const slot = this.#slotOf(array, 'release()');
     this.#release(slot);
@@ -625,7 +647,7 @@ class DeviceImpl implements Device {
       // it, and drops this device's copy (change 0138, R3).
       await forgetOwner(this.owner);
       // The pooled arrays are in `live` too, so each is destroyed once.
-      for (const slot of this.#live.values()) slot.inner.destroy();
+      for (const slot of this.#live.values()) disposeState(slot.state);
       this.#live.clear();
       this.#free.clear();
       this.#order.clear();
@@ -643,29 +665,43 @@ class DeviceImpl implements Device {
     return this.#disposing;
   }
 
-  /** The handle the host gets: the inner handle's methods, with the reads counted and a destroy
-   *  that leaves the device's books. */
+  /** The handle the host gets: a `Buffer`'s members over the slot's state, with the reads and
+   *  the sets counted and a dispose that leaves the device's books. */
   #handleOf(slot: Slot): Resident<unknown> {
-    const handle = {
-      read: (): Promise<unknown> =>
-        slot.inner.read().then((v) => {
-          if (ArrayBuffer.isView(v)) this.#readBytes += v.byteLength;
-          return v;
-        }),
-      write: (v: unknown): void => {
-        slot.inner.write(v);
-        const el = elementOf(v);
-        if (el !== undefined) this.#uploadBytes += (v as ArrayBufferView).byteLength;
+    return handleOf(slot.state, {
+      read: (v) => {
+        if (ArrayBuffer.isView(v)) this.#readBytes += v.byteLength;
       },
-      destroy: (): void => {
-        // A handle the host destroys itself leaves the pool and the books; `dispose()` then has
-        // nothing of it to destroy.
+      set: (v) => {
+        this.#uploadBytes += v.byteLength;
+      },
+      // A handle the host disposes itself leaves the pool and the books; `dispose()` then has
+      // nothing of it to dispose.
+      dispose: () => {
         if (this.#live.has(slot.state)) this.#forget(slot);
-        slot.inner.destroy();
       },
-    } as unknown as Resident<unknown>;
-    adopt(handle, slot.state);
-    return handle;
+    });
+  }
+
+  /** The handle of a kernel's result on a resource (Amendment A10, Q-C): one of the device's
+   *  arrays, in its books as `array()` puts one. */
+  #result(state: ResidentArrayState): Resident<unknown> {
+    // A `Buffer` of `bool`, of a key or of a matrix is not pooled: no `array()` makes one again.
+    const el = state.elem === undefined ? elementOf(state.host) : undefined;
+    const length = el !== undefined ? (state.host as ArrayLike<number>).length : 0;
+    const slot: Slot = {
+      state,
+      key: el === undefined ? undefined : `${el}:${length}`,
+      element: el,
+      length,
+      bytes: el === undefined ? 0 : length * BYTES[el],
+      pooled: false,
+    };
+    state.ownedBy = this.owner;
+    this.#live.set(state, slot);
+    this.#liveBytes += slot.bytes;
+    this.#allocations++;
+    return this.#handleOf(slot);
   }
 
   /** A released array of `key`, taken from the pool, or undefined. */
@@ -697,7 +733,6 @@ class DeviceImpl implements Device {
       held.ownedBy = this.owner;
       slot = {
         state: held,
-        inner: residentHandle(held),
         key,
         element: state.element,
         length: state.length,
@@ -746,7 +781,14 @@ class DeviceImpl implements Device {
    *  the calls queued before, which may still read it. */
   #rezero(slot: Slot, element: ZeroedElement, length: number): void {
     const state = slot.state;
+    // The new handle's accessors see zeros at once, out of the released handle's window; the
+    // calls of the released handle made before still run on its old contents.
+    renew(state);
+    const ahead = ZEROED_ELEMENTS[element](length);
+    state.next = ahead;
     kernelQueue.whenIdle(() => {
+      if (state.next === ahead) state.next = undefined;
+      state.error = undefined;
       const zeros = ZEROED_ELEMENTS[element](length);
       const d = this.#gpu;
       if (state.gpu !== undefined && d !== null && state.gpu.d === d) {
@@ -763,7 +805,7 @@ class DeviceImpl implements Device {
   /** Free an array now: out of the pool and the books, its buffer destroyed. */
   #drop(slot: Slot): void {
     this.#forget(slot);
-    slot.inner.destroy();
+    disposeState(slot.state);
   }
 
   #forget(slot: Slot): void {
@@ -785,13 +827,13 @@ class DeviceImpl implements Device {
   #slotOf(array: unknown, at: string): Slot {
     const state = residentState(array);
     if (state === undefined)
-      throw new TypeError(`${this.label}.${at}: takes a Resident this device made with array().`);
+      throw new TypeError(`${this.label}.${at}: takes a Buffer this device made with array().`);
     const slot = this.#live.get(state);
     if (slot === undefined)
       throw new TypeError(
         state.ownedBy === this.owner
-          ? `${this.label}.${at}: this Resident was destroyed.`
-          : `${this.label}.${at}: this Resident belongs to ${state.ownedBy?.label ?? 'the default owner (array())'}, not to ${this.label}.`,
+          ? `${this.label}.${at}: this Buffer was disposed.`
+          : `${this.label}.${at}: this Buffer belongs to ${state.ownedBy?.label ?? 'the default owner (array())'}, not to ${this.label}.`,
       );
     return slot;
   }
@@ -845,9 +887,9 @@ ownerInUse.of = () => {
 /**
  * Open the owner of a host's kernel calls (change 0071): on the first tier of `prefer` that opens,
  * on a `GPUDevice` the host already has, or on the device of a program runtime. The device's
- * `array()` makes the `Resident` arrays its calls take, `fuse()` runs a body's calls as one plan
+ * `array()` makes the `Buffer`s its calls take, `fuse()` runs a body's calls as one plan
  * on it, and `dispose()` frees what it made. Two devices in one context are independent, and the
- * process-global `configure()`, `resident()` and `fuse()` describe the default owner as before.
+ * process-global `configure()`, `array()` and `fuse()` describe the default owner as before.
  *
  * Exported from `typeshade` and `typeshade/runtime`.
  *

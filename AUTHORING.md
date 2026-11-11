@@ -1835,7 +1835,7 @@ together: in one submission, and, when each call reads what the one before it wr
 index, as one dispatch. `device.fuse()` needs no registration import; the named `fuse` remains available.
 The Vite plugin and `hostFace()` write eligible kernels' fusion facts by default.
 `fuse: false` omits them to reduce generated size; `fuse: true` keeps the default.
-An ordinary call can still use private input projection with those facts present. Resident and fused calls retain the full layout.
+An ordinary call can still use private input projection with those facts present. Calls on a `Buffer` and fused calls retain the full layout.
 These three kernel functions are one dispatch:
 
 ```ts
@@ -1861,11 +1861,11 @@ export function relu(out: array<f32>, x: array<f32>): void {
 ```
 
 ```ts
-import { resident } from 'typeshade/runtime'
+import { array } from 'typeshade/runtime'
 import { fuse } from 'typeshade/fuse'
 import { add, mul, relu } from './ops.shade.ts'
 
-const out = resident(n, 'f32') // zeros, with no upload; a, b and c are resident arrays too
+const out = array(n, 'f32') // zeros, with no upload; a, b and c are Buffers too
 const report = await fuse((scope) => {
   const t = scope.scratch(n)
   const u = scope.scratch(n)
@@ -1884,14 +1884,14 @@ Deploy all emitted chunks. The named `fuse` import remains supported for default
 Three habits make a chain fuse. Write each function with one loop, and index every array with the
 loop's counter alone, `out[i] = a[i] + b[i]`: a call joins the one before it when it reads what
 that call wrote at the same index. Keep an intermediate in a scratch array, `scope.scratch(n)`,
-and not in a `resident` the host reads: a fused group holds a scratch array in a variable of its
+and not in a `Buffer` the host reads: a fused group holds a scratch array in a variable of its
 own, so no buffer is made for `t` and `u` above, and `read()` of one is an error. End a chain with
 a reduction when you want its sum: `total(u)` as the last call of the scope takes the calls before
 it into its own loop, and nothing joins a group after a reduction.
 
 An entry call (a compute entry) in the body is recorded too. It runs as a dispatch of its own, in the
 order the body made it: no kernel call joins it, and it joins none. Its storage arrays with no
-size are `resident(...)` values, and a host array in its place is a `TypeError`.
+size are `array(...)` values, and a host array in its place is a `TypeError`.
 
 A call stands apart from the one before it, and runs as a dispatch of its own, when it reads a
 neighbour (`t[i - 1]`, `t[i ^ 1]`), writes at another index (`out[2 * i]`), writes what the call

@@ -64,7 +64,7 @@ const modules = {
 
 /** Runs INSIDE the page. `opts` is the sample count and the warm-up batches. */
 async function measure(opts) {
-  const { createRuntime, configure, resident } = await import('typeshade/runtime');
+  const { createRuntime, configure, array } = await import('typeshade/runtime');
   const { fuse } = await import('typeshade/fuse');
   const plain = await import('/batch.shade.ts');
   const fusing = await import('/batch.fused.shade.ts');
@@ -89,13 +89,13 @@ async function measure(opts) {
   const start = Float32Array.from({ length: INPUTS * CLASSES }, () =>
     Math.fround((next() - 0.5) * 0.02),
   );
-  const shared = { pixels: resident(pixels), labels: resident(labels) };
+  const shared = { pixels: array(pixels), labels: array(labels) };
   /** The arrays one way of training owns: its weights start as `start`. */
   const own = () => ({
-    weights: resident(start.slice()),
-    logits: resident(new Float32Array(ROWS * CLASSES)),
-    delta: resident(new Float32Array(ROWS * CLASSES)),
-    grad: resident(new Float32Array(INPUTS * CLASSES)),
+    weights: array(start.slice()),
+    logits: array(new Float32Array(ROWS * CLASSES)),
+    delta: array(new Float32Array(ROWS * CLASSES)),
+    grad: array(new Float32Array(INPUTS * CLASSES)),
   });
   const calls = (m, s) => [
     () => m.forward(s.logits, shared.pixels, s.weights),

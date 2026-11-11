@@ -20,12 +20,12 @@ fuseSlot.open = (body, owner) => runScope(body as (scope: FuseScope) => void, ow
  * Run a chain of kernel-function calls as one plan, and resolve to a report of what the plan did.
  *
  * The runtime runs `body` once, synchronously. A kernel call the body makes whose written arrays
- * are all `Resident`s is recorded and not yet run. When `body` returns, the calls run as one unit
+ * are all scalar `Buffer`s is recorded and not yet run. When `body` returns, the calls run as one unit
  * at the place `fuse` was called, in the order of Rule 11.8: a call or a `read()` made after
  * `fuse` returns sees what they wrote. On WebGPU the dispatches of all the calls are encoded into
  * one command encoder and reach the queue in one submission. On WebGL2 each loop draws as it does
  * outside a scope, and on the CPU tier the calls run one after another. Nothing is read back
- * while the plan runs, since every array it writes is resident. A reduction is in that submission
+ * while the plan runs, since every array it writes is a `Buffer`. A reduction is in that submission
  * too. Its loop and the dispatches that fold its partials share one device buffer of partials.
  * The same submission copies the folded values, and the result of the call is made from them once
  * the plan has run. A call that runs on WebGL2 or the CPU tier is the exception: it reads its
@@ -46,7 +46,7 @@ fuseSlot.open = (body, owner) => runScope(body as (scope: FuseScope) => void, ow
  * run apart. WebGL2 runs the calls apart, and the CPU tier never fuses. A call outside a scope is
  * not changed.
  *
- * Failed incoming Resident contents reject the whole plan before execution (change 0129).
+ * Failed incoming `Buffer` contents reject the whole plan before execution (change 0129).
  * An earlier approved write-only call can recover a handle for a later call in the same plan.
  * Every recorded promise and planned output retains a rejection; independent calls outside continue.
  *
@@ -54,15 +54,15 @@ fuseSlot.open = (body, owner) => runScope(body as (scope: FuseScope) => void, ow
  * every call that takes it, and each reaches it at exactly the loop's counter and never by its
  * length, the fused entry holds it as a local, and no device buffer and no host array is made for
  * it. Otherwise it is a zeroed array that exists for the plan and is freed when the plan has run.
- * `read()` and `write()` of a scratch array, and a call that takes it outside the scope that made
- * it, are a `TypeError`. A `Resident` from `resident()` keeps its buffer and its write.
+ * `read()` and `set()` of a scratch array, and a call that takes it outside the scope that made
+ * it, are a `TypeError`. A `Buffer` from `array()` keeps its buffer and its write.
  *
  * A kernel call or an entry call inside the body is recorded and runs in the plan, in the order
  * the body made it. An entry call forms a group of its own, so no kernel call joins it; its
- * storage arrays with no size must be `Resident`s, and it writes no host value. A call inside the
+ * storage arrays with no size must be `Buffer`s, and it writes no host value. A call inside the
  * body that cannot be recorded is a `TypeError` naming the call: a draw, a kernel call that writes
  * a host array, which would have to be read back, and an entry call that takes a host array or
- * writes a host value. So are `read()`, `write()` and `destroy()` of a `Resident` and every other
+ * writes a host value. So are `read()`, `set()` and `dispose()` of a `Buffer` and every other
  * use of the kernel queue, since they would run before the calls the body recorded earlier. Close
  * the scope around it. A `fuse` call inside the body joins the
  * scope, and returns that scope's report. The body is synchronous: an `async` function is a
@@ -70,7 +70,7 @@ fuseSlot.open = (body, owner) => runScope(body as (scope: FuseScope) => void, ow
  * throws leaves nothing to run.
  *
  * The promise rejects with the first error of the plan. The plan is one unit: the error also
- * stays on every `Resident` any of its calls writes, for `read()` to throw, as it does outside a
+ * stays on every `Buffer` any of its calls writes, for `read()` to throw, as it does outside a
  * scope. Every call is checked before any runs, so a call that fails a check fails the plan
  * before any call of it ran.
  *
@@ -78,11 +78,11 @@ fuseSlot.open = (body, owner) => runScope(body as (scope: FuseScope) => void, ow
  *
  * @example
  * ```ts
- * import { resident } from 'typeshade/runtime';
+ * import { array } from 'typeshade/runtime';
  * import { fuse } from 'typeshade/fuse';
  * import { add, mul, relu } from './ops.shade.ts';
  *
- * const out = resident(new Float32Array(n));
+ * const out = array(new Float32Array(n));
  * const report = await fuse((scope) => {
  *   const t = scope.scratch(n);
  *   const u = scope.scratch(n);

@@ -1,9 +1,9 @@
 // Browser-safe MNIST experiment session. All numerical model operations are the
 // TypeShade compute entries compiled from softmax.shade.ts; no JS ML fallback.
 // Reusable by the web site and the compiler's browser integration gates.
-import { createRuntime, resident } from '../../src/runtime.ts';
+import { array, createRuntime, type Buffer } from '../../src/runtime.ts';
 import type { Pack } from '../../src/core/manifest-types.ts';
-import type { Resident } from '../../src/core/resident.ts';
+import type { f32, u32 } from '../../src/runtime/host-types.ts';
 import { INPUTS, CLASSES, initialize, buffers } from './model.mjs';
 
 export type MnistTier = 'webgpu' | 'webgl2';
@@ -60,16 +60,16 @@ export async function openMnistSession(
     initialize(seed),
     batchSize,
   ) as Record<string, Values>;
-  const data: Record<string, Resident<Values>> = {};
+  const data: Record<string, Buffer<f32 | u32>> = {};
   const pipelines: Partial<
     Record<Entry, Awaited<ReturnType<ReturnType<typeof rt.load>['compute']>>>
   > = {};
   try {
     const program = rt.load(pack);
-    for (const [name, value] of Object.entries(host)) data[name] = resident(value);
+    for (const [name, value] of Object.entries(host)) data[name] = array(value);
     for (const entry of ENTRIES) pipelines[entry] = await program.compute(entry);
   } catch (error) {
-    for (const handle of Object.values(data)) handle.destroy();
+    for (const handle of Object.values(data)) handle.dispose();
     rt.destroy();
     throw error;
   }
@@ -106,8 +106,8 @@ export async function openMnistSession(
     host.pixels.set(pixels);
     host.labels.fill(0);
     host.labels.set(labels);
-    data.pixels.write(host.pixels);
-    data.labels.write(host.labels);
+    data.pixels.set(host.pixels);
+    data.labels.set(host.labels);
   }
   async function dispatch(entry: Entry, count: number, rate: number): Promise<void> {
     const workgroups =
@@ -181,7 +181,7 @@ export async function openMnistSession(
       if (closed) return;
       closed = true;
       await tail;
-      for (const handle of Object.values(data)) handle.destroy();
+      for (const handle of Object.values(data)) handle.dispose();
       rt.destroy();
     },
   };

@@ -41,7 +41,7 @@ export function report(gid: builtin<"global_invocation_id">) {
   console.log("x", gid.x, xs[gid.x]);
 }
 
-// `planGroups` writes the workgroup count of the next call into a Resident, and `markGroups`
+// `planGroups` writes the workgroup count of the next call into a Buffer, and `markGroups`
 // runs over that count (change 0075).
 declare const groups: uniform<u32>;
 declare const counts: storage<array<u32>, "read_write">;

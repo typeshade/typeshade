@@ -217,7 +217,7 @@ describe('a resource belongs to the device in use when it is made (R3)', () => {
     const dev = await cpuDevice();
     using _ = dev.use();
     const make = array as (...a: unknown[]) => unknown;
-    expect(() => make(0, 'f32')).toThrow(/^array\(\): a zeroed Resident takes a length/);
+    expect(() => make(0, 'f32')).toThrow(/^array\(\): a zeroed Buffer takes a length/);
     expect(() => make(Symbol('x'))).toThrow(/^array\(\): /);
   });
 

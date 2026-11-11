@@ -190,9 +190,13 @@ export type HostExport =
       readonly name: string;
       readonly entry: Omit<ComputeEntry, 'wgsl' | 'log'>;
       readonly bindingsType: string;
-      /** The bindings object of the call that only queues, when every binding the entry
-       *  writes is a storage array with no size, which a `Resident` may stand for. */
+      /** The bindings object of a call on a resource, which does not block, when every binding
+       *  the entry writes is a storage array with no size, which a `Buffer` may stand for (change
+       *  0138, R2; Amendment A10, Q-I). */
       readonly queuedType?: string;
+      /** The bindings object of a call on a resource that writes a plain array, which waits
+       *  (Amendment A11, Q7); present with {@link queuedType}. */
+      readonly waitingType?: string;
     }
   | {
       /** A full-screen `@fragment` entry a host can draw into a canvas (Rule 8.24): everything
@@ -514,6 +518,18 @@ function argType(t: HostType, named: ReadonlyMap<string, string>): string {
   }
 }
 
+/** The `Buffer`s a value parameter of type `t`, spelled `spelled`, takes on a call on a resource
+ *  (change 0138, Amendment A10, Q-C; Amendment A12, decision 4): a `Buffer` of one element for a
+ *  number, a vector, a `bool` or a key; for a matrix a `Buffer` of it or of `f32` (Q3). A
+ *  `Buffer<number>` (Q8) passes where a `Buffer` of `f32`, `i32` or `u32` does (`scalarBuffers`).
+ *  Undefined for any other type. */
+function bufferArgument(t: HostType, spelled: string): string | undefined {
+  if (t.k === 'num' || t.k === 'vec' || t.k === 'bool' || t.k === 'key')
+    return `Buffer<${spelled}>`;
+  if (t.k === 'mat' && t.e === 'f32') return `Buffer<${spelled}> | Buffer<f32>`;
+  return undefined;
+}
+
 /** No struct name: the spelling of a struct by its fields. */
 const NO_NAMES: ReadonlyMap<string, string> = new Map();
 
@@ -727,9 +743,10 @@ function bindingTsType(
   }
 }
 
-/** The type of an array with no size that a kernel function or an entry takes (Rules 8.21 and
- *  11.8): `array<T>`, the host type family's name for its host value with its `Resident`
- *  (change 0116, decision D3), a struct `T` by its name (D7). `t` is the array's type. */
+/** The type of an array with no size that a full-screen draw takes (Rules 8.21 and 11.8):
+ *  `array<T>`, the host type family's name for its host value with a `Buffer` of it (change 0116,
+ *  decision D3; change 0138, Amendment A10, Q-I), a struct `T` by its name (D7). `t` is the
+ *  array's type. */
 const unsizedType = (
   l: Layout & { k: 'a' },
   writes: boolean,
@@ -738,14 +755,102 @@ const unsizedType = (
 ): string =>
   `array<${bindingTsType(l.e, writes, false, t?.kind === 'array' ? t.elem : undefined, naming)}>`;
 
-/** What a `Resident` of an array with no size holds, for the call that only queues: the typed
- *  array of its scalar, or an array of its elements. */
-const residentOf = (
-  l: Layout & { k: 'a' },
-  writes: boolean,
-  t?: ShaderType,
-  naming?: Naming,
-): string => `Resident<${bindingTsType(l, writes, true, t, naming)}>`;
+/** The plain host value of an array with no size, which a call with plain data takes (Rule 8.21):
+ *  the typed array of its scalar, or a `readonly T[]` of its elements. */
+const plainArray = (l: Layout & { k: 'a' }, t?: ShaderType, naming?: Naming): string =>
+  bindingTsType(l, false, true, t, naming);
+
+/** The `Buffer`s an array with no size of scalars, vectors or matrices takes on a call on a
+ *  resource (change 0138, Amendments A10, Q-I, and A11, Q5): a `Buffer` of the element, and for a
+ *  vector also a `Buffer` of its scalar, and for a matrix a `Buffer<f32>` (Amendment A12, B2-1);
+ *  undefined for an array of structs (`resourceTypes`, and a result's `Buffer<S>`, A12 Q6). A
+ *  `Buffer<number>`, whose element the call fixes (A12, Q8), is a `Buffer<f32>`, a `Buffer<i32>`
+ *  and a `Buffer<u32>` to TypeScript already: `number` is each of them, so it is not spelled, and
+ *  spelling it would let a `Buffer<i32>` pass where a `Buffer<f32>` is taken. */
+const scalarBuffers = (l: Layout & { k: 'a' }): string | undefined => {
+  // A matrix takes a `Buffer` of it and of `f32` (Amendment A12, B2-1).
+  if (l.e.k === 's') return `Buffer<${l.e.t}>`;
+  if (l.e.k === 'v') return `Buffer<${vecName(l.e.n, l.e.t)}> | Buffer<${l.e.t}>`;
+  if (l.e.k === 'm') return `Buffer<${matName(l.e.c, l.e.r, 'f32')}> | Buffer<f32>`;
+  return undefined;
+};
+
+/** The `Buffer`s a kernel function called on a resource returns for its result (change 0138,
+ *  Amendment A10, Q-C): a `Buffer` of one element for a number, a vector, a `bool`, a key or a
+ *  matrix of `f32` (Amendment A12, Q1, Q2 and Q4), a `Buffer` of `N` elements for an `array<T, N>`
+ *  of them or of structs (A12, Q6), and for a struct or a `Record` an object of them with its own
+ *  fields or members (Amendment A11, Q6; A12, Q5). Undefined for a result no `Buffer` holds: a
+ *  matrix of `f64`, an `array<Record<K, T>, N>`, a nested sized array, a struct of a `Record`
+ *  field as an array's element, and a struct that holds one (A12, decision 4). */
+function bufferResult(t: HostType, named: ReadonlyMap<string, string>): string | undefined {
+  const element = (e: HostType): string | undefined => {
+    if (e.k === 'mat' && e.e === 'f64') return undefined;
+    if (e.k === 'struct') return structElement(e) ? `Buffer<${argType(e, named)}>` : undefined;
+    return e.k === 'num' || e.k === 'bool' || e.k === 'key' || e.k === 'vec' || e.k === 'mat'
+      ? `Buffer<${argType(e, named)}>`
+      : undefined;
+  };
+  switch (t.k) {
+    case 'arr':
+      return element(t.e);
+    case 'struct':
+    case 'rec': {
+      const fields: string[] = [];
+      const of: readonly (readonly [string, HostType])[] =
+        t.k === 'struct' ? t.f : t.m.map((m) => [m, t.e] as const);
+      for (const [n, ft] of of) {
+        const b = bufferResult(ft, named);
+        if (b === undefined) return undefined;
+        fields.push(`readonly ${t.k === 'rec' ? JSON.stringify(n) : n}: ${b}`);
+      }
+      return `{ ${fields.join('; ')} }`;
+    }
+    case 'void':
+      return undefined;
+    default:
+      return element(t);
+  }
+}
+
+/** The `Buffer<S>` a result of an `array<S, N>` gives, spelled as a result spells `S`, for an
+ *  `array<S>` parameter `type` whose `S` holds a key (Amendment A12, Q4 and Q6): the plain array
+ *  holds the key's id, and the result's `S` its member. Undefined for any other parameter. */
+function keyedResult(
+  type: ShaderType | undefined,
+  naming: Naming,
+  named: ReadonlyMap<string, string>,
+): string | undefined {
+  if (type?.kind !== 'array') return undefined;
+  const h = hostTypeOf(type.elem, naming.structs);
+  if ('none' in h || !holdsKey(h)) return undefined;
+  return `Buffer<${argType(h, named)}>`;
+}
+
+/** Whether a result of type `t` holds an `array<S, N>` of structs, whose `Buffer<S>` reads
+ *  instances of an exported class (Amendment A12, Q6). */
+function holdsStructs(t: HostType): boolean {
+  if (t.k === 'arr') return t.e.k === 'struct';
+  if (t.k === 'struct') return t.f.some(([, ft]) => holdsStructs(ft));
+  if (t.k === 'rec') return holdsStructs(t.e);
+  return false;
+}
+
+/** Whether a struct can be the element of a result `Buffer<S>` (Amendment A12, Q6): no field of
+ *  it, at any depth, is a `Record` or a matrix of `f64`. */
+function structElement(t: HostType): boolean {
+  switch (t.k) {
+    case 'rec':
+      return false;
+    case 'mat':
+      return t.e === 'f32';
+    case 'arr':
+      return structElement(t.e);
+    case 'struct':
+      return t.f.every(([, ft]) => structElement(ft));
+    default:
+      return true;
+  }
+}
 
 /** The first barrier `fn` reaches, as `workgroupBarrier() at file:line`, if any. */
 function barrierIn(
@@ -1073,9 +1178,12 @@ function entryBindings(
   | {
       bindings: DrawBinding[];
       types: string[];
-      /** A compute entry's bindings as the call that only queues takes them: each written
-       *  storage array with no size a `Resident` alone. */
+      /** A full-screen draw's bindings, which take a `Buffer` of a storage array too. */
+      draw: string[];
+      /** A compute entry's bindings as a call on a resource takes them (`bindingsTypes`). */
       queued: string[];
+      /** And as a call on a resource that waits takes them (Amendment A11, Q7). */
+      waiting: string[];
       closure: ReadonlySet<string>;
     }
   | { none: string } {
@@ -1134,45 +1242,53 @@ function entryBindings(
 const typeOfBinding = (bindings: readonly BindingDecl[], name: string): ShaderType | undefined =>
   bindings.find((b) => b.name === name)?.type;
 
-/** The fields of the bindings object of an entry (Rule 8.24): each binding with its host value,
- *  `typeOf` giving each binding's type, and with a struct by the name `naming` gives it (change
- *  0116, decision D7); and the same fields for the call that only queues, where each written
- *  storage array with no size is a `Resident` alone. The `_fp64` guard is the runtime's to bind
- *  and is left out. */
+/** The fields of the bindings object of an entry (Rule 8.24), `typeOf` giving each binding's
+ *  type, and with a struct by the name `naming` gives it (change 0116, decision D7). `types` are
+ *  the call with plain data: each storage array with no size its plain host value. `draw` are a
+ *  full-screen draw's, which also takes a `Buffer` of it. `queued` are the call on a resource
+ *  (change 0138, R2): each written storage array with no size a `Buffer` alone (Amendment A10,
+ *  Q-I), each read one also its plain value. `waiting` are the call on a resource that waits,
+ *  where a written one may be its plain value too (Amendment A11, Q7). A `Buffer` or a `Uniform`
+ *  of a class is added by `classResources`. The `_fp64` guard is the runtime's to bind and is
+ *  left out. */
 function bindingsTypes(
   bindings: readonly DrawBinding[],
   typeOf: (name: string) => ShaderType | undefined,
   naming?: Naming,
-): { types: string[]; queued: string[] } {
+): { types: string[]; draw: string[]; queued: string[]; waiting: string[] } {
   const types: string[] = [];
+  const draw: string[] = [];
   const queued: string[] = [];
+  const waiting: string[] = [];
+  const all = (field: string): void => {
+    types.push(field);
+    draw.push(field);
+    queued.push(field);
+    waiting.push(field);
+  };
   for (const b of bindings) {
     if ('guard' in b) continue;
     if (b.space === 'texture') {
-      types.push(`readonly ${b.name}: ${IMAGE_SOURCE}`);
-      queued.push(types.at(-1)!);
+      all(`readonly ${b.name}: ${IMAGE_SOURCE}`);
       continue;
     }
     if (b.space === 'sampler') {
-      types.push(`readonly ${b.name}?: ${SAMPLING}`);
-      queued.push(types.at(-1)!);
+      all(`readonly ${b.name}?: ${SAMPLING}`);
       continue;
     }
     if (!isBufferBinding(b)) continue;
     const t = typeOf(b.name);
-    // An entry's storage array with no size may be a `Resident` of it (Rule 11.8).
     if (b.space === 'storage' && b.layout.k === 'a' && b.layout.n === null) {
-      const array = unsizedType(b.layout, b.writes, t, naming);
-      types.push(`readonly ${b.name}: ${array}`);
-      queued.push(
-        `readonly ${b.name}: ${b.writes ? residentOf(b.layout, b.writes, t, naming) : array}`,
-      );
-    } else {
-      types.push(`readonly ${b.name}: ${bindingTsType(b.layout, b.writes, true, t, naming)}`);
-      queued.push(types.at(-1)!);
-    }
+      const plain = plainArray(b.layout, t, naming);
+      const buffers = scalarBuffers(b.layout);
+      const either = buffers === undefined ? plain : `${plain} | ${buffers}`;
+      types.push(`readonly ${b.name}: ${plain}`);
+      draw.push(`readonly ${b.name}: ${unsizedType(b.layout, b.writes, t, naming)}`);
+      queued.push(`readonly ${b.name}: ${b.writes ? (buffers ?? 'never') : either}`);
+      waiting.push(`readonly ${b.name}: ${either}`);
+    } else all(`readonly ${b.name}: ${bindingTsType(b.layout, b.writes, true, t, naming)}`);
   }
-  return { types, queued };
+  return { types, draw, queued, waiting };
 }
 
 /** An entry export whose bindings object writes a struct by the name `naming` gives it (change
@@ -1183,12 +1299,14 @@ function namedBindings(
   typeOf: (name: string) => ShaderType | undefined,
   naming: Naming,
 ): HostExport {
-  const { types, queued } = bindingsTypes(e.entry.bindings, typeOf, naming);
-  if (e.kind === 'fragment') return { ...e, bindingsType: objectType(types) };
+  const { types, draw, queued, waiting } = bindingsTypes(e.entry.bindings, typeOf, naming);
+  if (e.kind === 'fragment') return { ...e, bindingsType: objectType(draw) };
   return {
     ...e,
     bindingsType: objectType(types),
-    ...(e.queuedType !== undefined ? { queuedType: objectType(queued) } : {}),
+    ...(e.queuedType !== undefined
+      ? { queuedType: objectType(queued), waitingType: objectType(waiting) }
+      : {}),
   };
 }
 
@@ -1236,7 +1354,7 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       return never(name, `parameter "${p.name}" is not a builtin the call can fill in`);
   const reached = entryBindings(f, c);
   if ('none' in reached) return never(name, reached.none);
-  const { bindings, types, queued, closure } = reached;
+  const { bindings, types, queued, waiting, closure } = reached;
   if (x.guard !== undefined) bindings.push(guardBinding(x.guard));
   const barrier = barrierIn(closure, c.byName, x.declared);
   const noCpu = noCpuTier(closure, bindings, c);
@@ -1283,12 +1401,13 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ...gl,
     },
     bindingsType: objectType(types),
-    // With every written binding a `Resident`, nothing waits: the call only queues.
+    // With every written binding a storage array with no size, a call may take it as a `Buffer`
+    // and not block (change 0138, R2), or as its plain value and wait (Amendment A11, Q7).
     ...(bindings.some((b) => isBufferBinding(b) && b.writes) &&
     bindings.every(
       (b) => !isBufferBinding(b) || !b.writes || (b.layout.k === 'a' && b.layout.n === null),
     )
-      ? { queuedType: objectType(queued) }
+      ? { queuedType: objectType(queued), waitingType: objectType(waiting) }
       : {}),
   };
 }
@@ -1326,7 +1445,7 @@ function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   if (out === undefined) return never(name, REASON.fragmentOutput);
   const reached = entryBindings(f, c);
   if ('none' in reached) return never(name, reached.none);
-  const { bindings, types, closure } = reached;
+  const { bindings, draw: drawTypes, closure } = reached;
   if (x.guard !== undefined) bindings.push(guardBinding(x.guard));
   const draw = glDrawOf(x.module, f, bindings, closure, c.byName, x.declared);
   const gl =
@@ -1346,7 +1465,7 @@ function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ...(noCpu !== undefined ? { noCpu } : {}),
       ...gl,
     },
-    bindingsType: objectType(types),
+    bindingsType: objectType(drawTypes),
   };
 }
 
@@ -1437,6 +1556,8 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     if (p.type.kind === 'array' && p.type.size === undefined) {
       const layout = layoutOf(p.type, 'std430', c.structs, authorTypeText);
       if ('none' in layout) return never(name, `parameter "${p.name}": ${layout.none}`);
+      // An `array<K>` takes a `Buffer<K>` of the same key (change 0138, Amendment A12, B2-2).
+      const keys = p.type.elem.kind === 'scalar' ? keysOf(p.type.elem) : undefined;
       params.push({
         name: p.name,
         k: 'array',
@@ -1444,6 +1565,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
         writes: written.has(p.name),
         s: spell(p.type),
         ...(pushedArrays.has(p.name) ? { pushed: true as const } : {}),
+        ...(keys !== undefined ? { keys } : {}),
       });
       continue;
     }
@@ -2603,26 +2725,24 @@ function packHostType(l: PackLayout, t?: ShaderType, naming?: Naming): string {
   }
 }
 
-/** A binding's array with no size as a draw or a dispatch passes it: `array<T>`, its host value
- *  with its `Resident` (change 0116, decision D3), with each element as the runtime's `pack`
- *  takes it. `t` is the array's type. */
+/** A binding's array with no size as a draw or a dispatch passes it as plain data: the typed array
+ *  of its scalar, or a `readonly T[]` with each element as the runtime's `pack` takes it (change
+ *  0116, decision D3). `t` is the array's type. */
 function packUnsizedType(
   l: PackLayout & { kind: 'array' },
   t?: ShaderType,
   naming?: Naming,
 ): string {
   const e = l.element;
-  return `array<${e.kind === 'scalar' || e.kind === 'vector' ? packElementName(e) : packHostType(e, t?.kind === 'array' ? t.elem : undefined, naming)}>`;
+  return e.kind === 'scalar' || e.kind === 'vector'
+    ? TYPED_NAME[e.type]
+    : `readonly (${packHostType(e, t?.kind === 'array' ? t.elem : undefined, naming)})[]`;
 }
 
-/** The family's name of a scalar or a vector element of an array with no size, whose host value
- *  is the typed array of its scalar. */
-const packElementName = (e: PackLayout & { kind: 'scalar' | 'vector' }): string =>
-  e.kind === 'scalar' ? e.type : vecName(e.size, e.type);
-
 /** The type argument of the view's `Pack`: for each entry, the bindings it reaches, each with
- *  the values a draw or a dispatch may pass for it (change 0030). A buffer takes its host value,
- *  a `Resident` of it or the host's own buffer; a texture or a sampler takes the runtime's or the
+ *  the values a draw or a dispatch may pass for it (change 0030). A buffer takes its host value
+ *  or the host's own buffer, and a storage array with no size also a `Buffer` of its scalars,
+ *  which holds its values on the device (change 0025; change 0138, Amendment A10, Q-I); a texture or a sampler takes the runtime's or the
  *  host's own object. A binding the emit adds is the runtime's to bind and is left out. */
 function programType(pack: Pack, types?: ViewTypes): string {
   const byName = new Map(pack.bindings.map((b) => [b.name, b]));
@@ -2635,13 +2755,22 @@ function programType(pack: Pack, types?: ViewTypes): string {
         return [`readonly ${name}: object`];
       if (b.layout === undefined) return [`readonly ${name}: ${GPU_BUFFER}`];
       const type = types?.binding(name);
-      // An array with no size is `array<T>`, which holds its `Resident` (change 0116).
-      if (b.layout.kind === 'array' && b.layout.length === null)
+      // An array with no size is its plain host value or a `Buffer` of its scalars (change 0116;
+      // Amendment A10, Q-I).
+      if (b.layout.kind === 'array' && b.layout.length === null) {
+        const e = b.layout.element;
+        const buffers =
+          e.kind === 'scalar'
+            ? ` | Buffer<${e.type}>`
+            : e.kind === 'vector'
+              ? ` | Buffer<${vecName(e.size, e.type)}> | Buffer<${e.type}>`
+              : '';
         return [
-          `readonly ${name}: ${packUnsizedType(b.layout, type, types?.naming)} | ${GPU_BUFFER}`,
+          `readonly ${name}: ${packUnsizedType(b.layout, type, types?.naming)}${buffers} | ${GPU_BUFFER}`,
         ];
+      }
       const t = packHostType(b.layout, type, types?.naming);
-      return [`readonly ${name}: ${t} | Resident<${t}> | ${GPU_BUFFER}`];
+      return [`readonly ${name}: ${t} | ${GPU_BUFFER}`];
     });
     return `readonly ${e.name}: { ${fields.join('; ')} }`;
   });
@@ -2649,25 +2778,20 @@ function programType(pack: Pack, types?: ViewTypes): string {
 }
 
 /** The workgroup count of an entry call in the host view (Rule 8.24): `n`, `[x, y?, z?]`, or the
- *  three counts at element `offset` of a `Resident<Uint32Array>` (change 0075). */
+ *  three counts at element `offset` of a `Buffer<u32>` (change 0075; change 0138, Amendment A10,
+ *  Q-I), which a `Buffer<number>` is too: the call fixes it as `u32` (Amendment A12, D3). */
 const WORKGROUPS =
-  'number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }';
+  'number | readonly [number, number?, number?] | { readonly indirect: Buffer<u32>; readonly offset?: number }';
 
 /** The sentence of the view for what a host cannot call (Rule 8.20): an export, and a member or the
  *  constructor of an exported class declared `never` (change 0109). */
 const notCallable = (reason: string): string =>
   `Not callable from host code (Rule 8.20): ${reason}.`;
 
-/** What a call made without `await` is, which the sentence of a kernel function and of a `@compute`
- *  entry say where the developer reads (change 0108; Rule 11.8). `written` names what the call
- *  writes. */
-const queuedCall = (written: 'arrays' | 'bindings'): string =>
-  `A call whose written ${written} are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.`;
-
-/** What a call on a resource is, which the sentence of a kernel function and of a `@compute`
- *  entry say where a resource is an argument (change 0138, R2). */
-const resourceCall =
-  ' A call that takes a resource (a Buffer, a Uniform, or a binding the module exports) does not block: it returns nothing, the runtime submits it when the current microtask checkpoint ends or at the next read() or call, each call sees the values of its own call, and its error is thrown at the next read() or call with the line of the call (change 0138, R2).';
+/** How a call is made, which the sentence of a kernel function and of a `@compute` entry say where
+ *  the developer reads (change 0108; change 0138, R2, Amendments A10 and A11). */
+const callForms =
+  ' Called with plain data, the call is awaited and writes back each array it writes (Rule 8.21). Called on a resource (a Buffer, a Uniform, or a binding the module exports), it does not block: the runtime submits it when the current microtask checkpoint ends or at the next read() or call, each call sees the values of its own call, and its error is thrown at the next read() or call with the line of the call (change 0138, R2). A call on a resource that writes a plain array waits, fills it, and gives its result as plain data (Amendment A11, Q7).';
 
 /** The resource types a call on a resource takes in place of a value of the exported class
  *  `cls` (change 0138, R2): a `Uniform` of it where it has a uniform layout, a `Buffer` of it
@@ -2700,40 +2824,38 @@ interface ViewTypes {
   readonly param: (fn: string, name: string) => ShaderType | undefined;
 }
 
-/** The bindings object of a `@compute` entry's call that only queues (Rule 8.24): its
- *  `queuedType`, with a `Uniform` of the class where a uniform binding holds one, and a `Buffer`
- *  of it where a storage array with no size holds them, for a call on a resource (change 0138,
- *  R2). */
-function queuedBindings(
+/** The bindings object `fields` of a `@compute` entry's call on a resource (Rule 8.24; change
+ *  0138, R2), with a `Uniform` of the class where a uniform binding holds one, and a `Buffer` of
+ *  it where a storage array with no size holds them. */
+function classResources(
   e: HostExport & { kind: 'compute' },
+  fields: readonly string[],
   types: ViewTypes,
   resource: (cls: string, kind: 'uniform' | 'buffer') => string | undefined,
 ): string {
-  const { queued } = bindingsTypes(e.entry.bindings, types.binding, types.naming);
-  let changed = false;
-  const fields = queued.map((field) => {
-    const b = e.entry.bindings.find((x) => field.startsWith(`readonly ${x.name}: `));
-    if (b === undefined || !isBufferBinding(b)) return field;
-    const t = types.binding(b.name);
-    let extra: string | undefined;
-    if (b.space === 'uniform')
-      extra = resource(bindingTsType(b.layout, false, true, t, types.naming), 'uniform');
-    else if (b.layout.k === 'a' && b.layout.n === null && b.layout.e.k === 'o')
-      extra = resource(
-        bindingTsType(
-          b.layout.e,
-          b.writes,
-          false,
-          t?.kind === 'array' ? t.elem : undefined,
-          types.naming,
-        ),
-        'buffer',
-      );
-    if (extra === undefined) return field;
-    changed = true;
-    return `${field} | ${extra}`;
-  });
-  return changed ? objectType(fields) : e.queuedType!;
+  return objectType(
+    fields.map((field) => {
+      const b = e.entry.bindings.find((x) => field.startsWith(`readonly ${x.name}: `));
+      if (b === undefined || !isBufferBinding(b)) return field;
+      const t = types.binding(b.name);
+      let extra: string | undefined;
+      if (b.space === 'uniform')
+        extra = resource(bindingTsType(b.layout, false, true, t, types.naming), 'uniform');
+      else if (b.layout.k === 'a' && b.layout.n === null && b.layout.e.k === 'o')
+        extra = resource(
+          bindingTsType(
+            b.layout.e,
+            b.writes,
+            false,
+            t?.kind === 'array' ? t.elem : undefined,
+            types.naming,
+          ),
+          'buffer',
+        );
+      if (extra === undefined) return field;
+      return field.endsWith(': never') ? field.replace(/never$/, extra) : `${field} | ${extra}`;
+    }),
+  );
 }
 
 function viewText(
@@ -2803,31 +2925,46 @@ function viewText(
         break;
       case 'compute': {
         const [x, y, z] = e.entry.wg;
+        const constants =
+          'options?: { readonly constants?: Readonly<Record<string, number | boolean>> }';
         out.push(
           ...above(
-            `An \`@compute([${x}, ${y}, ${z}])\` entry: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Resident a call wrote (change 0075); each binding the entry writes is read back into your value in place, or stays on the device in a Resident. The shape shown is its default; options.constants selects declared overrides without changing workgroups (Rules 8.24 and 11.8). ${queuedCall('bindings')}${e.queuedType !== undefined && queuedBindings(e, types, resource) !== e.queuedType ? resourceCall : ''}`,
+            `An \`@compute([${x}, ${y}, ${z}])\` entry: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Buffer<u32> a call wrote (change 0075). The shape shown is its default; options.constants selects declared overrides without changing workgroups (Rules 8.24 and 11.8).${callForms}`,
           ),
-          ...(e.queuedType !== undefined
-            ? [
-                `export declare function ${e.name}(bindings: ${queuedBindings(e, types, resource)}, workgroups: ${WORKGROUPS}, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): void;`,
-              ]
-            : []),
-          `export declare function ${e.name}(bindings: ${e.bindingsType}, workgroups: ${WORKGROUPS}, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): Promise<void>;`,
+          // A call with plain data, awaited (Rule 8.21).
+          `export declare function ${e.name}(bindings: ${e.bindingsType}, workgroups: ${WORKGROUPS}, ${constants}): Promise<void>;`,
         );
+        if (e.queuedType !== undefined) {
+          // A call on a resource does not block (change 0138, R2); one that writes a plain array
+          // waits (Amendment A11, Q7).
+          const { queued, waiting } = bindingsTypes(e.entry.bindings, types.binding, types.naming);
+          const onResource = classResources(e, queued, types, resource);
+          // A written array of structs of no class takes no `Buffer` (Amendment A11, Q4).
+          if (!/: never(;| })/.test(onResource))
+            out.push(
+              `export declare function ${e.name}(bindings: ${onResource}, workgroups: ${WORKGROUPS}, ${constants}): void;`,
+            );
+          out.push(
+            `export declare function ${e.name}(bindings: ${classResources(e, waiting, types, resource)}, workgroups: ${WORKGROUPS}, ${constants}): Promise<void>;`,
+          );
+        }
         break;
       }
       case 'kernel': {
         const f = e.face;
-        // Each array as the host array or a `Resident` of it; `queued` types a written one as
-        // a `Resident` alone, the call that only queues.
-        const params = (queued: boolean): string =>
+        // The parameters of a call with plain data (`plain`), of a call on a resource that does not
+        // block (`resource`), and of one that waits (`waits`, Amendment A11, Q7).
+        const params = (mode: 'plain' | 'resource' | 'waits'): string =>
           f.params
             .map((p) => {
               if (p.k === 'value') {
                 const t = argType(p.type, args);
-                // A call that only queues takes a uniform of the class (change 0138, R2).
-                const u = queued ? resource(t, 'uniform') : undefined;
-                return `${p.name}: ${u === undefined ? t : `${t} | ${u}`}`;
+                if (mode === 'plain') return `${p.name}: ${t}`;
+                // A uniform of the class (change 0138, R2), and for a number or a vector a
+                // `Buffer` of one element, another call's result (Amendment A10, Q-C).
+                const u = resource(t, 'uniform');
+                const one = bufferArgument(p.type, t);
+                return `${p.name}: ${[t, u, one].filter((x) => x !== undefined).join(' | ')}`;
               }
               // A storage texture is a device's texture; a sampled one any image (change 0077).
               if (p.k === 'texture')
@@ -2837,32 +2974,42 @@ function viewText(
                 return p.value === undefined
                   ? `${p.name}: Set<${p.keys === undefined ? p.key : keyTypeText(p.keys)}>`
                   : `${p.name}: Map<${p.keys === undefined ? p.key : keyTypeText(p.keys)}, ${argType(p.value, args)}>`;
-              // `array<T>` holds its `Resident` (change 0116, decision D3); a written array of
-              // the call that only queues is a `Resident` alone.
               const type = types.param(f.fn, p.name);
-              const plain =
-                queued && p.writes
-                  ? residentOf(p.layout, p.writes, type, types.naming)
-                  : unsizedType(p.layout, p.writes, type, types.naming);
-              // A call that only queues takes a storage array of the class (change 0138, R2).
-              const buffer =
-                queued && p.layout.e.k === 'o'
-                  ? resource(
-                      bindingTsType(
-                        p.layout.e,
-                        p.writes,
-                        false,
-                        type?.kind === 'array' ? type.elem : undefined,
-                        types.naming,
-                      ),
-                      'buffer',
+              const plain = plainArray(p.layout, type, types.naming);
+              // A `Buffer` of the scalars (Amendment A10, Q-I), or of the class (R2).
+              const element =
+                p.layout.e.k === 'o'
+                  ? bindingTsType(
+                      p.layout.e,
+                      p.writes,
+                      false,
+                      type?.kind === 'array' ? type.elem : undefined,
+                      types.naming,
                     )
                   : undefined;
-              const array = buffer === undefined ? plain : `${plain} | ${buffer}`;
-              // An array a loop pushes onto may come with its length, which a Resident holds
-              // (change 0094, decision D5: on such an array only).
-              return p.pushed === true
-                ? `${p.name}: ${array} | { readonly array: ${array}; readonly length: Resident<Uint32Array>; readonly offset?: number }`
+              const buffers = [
+                scalarBuffers(p.layout),
+                // A `Buffer<K>` of the same key (Amendment A12, B2-2).
+                p.keys !== undefined ? `Buffer<${keyTypeText(p.keys)}>` : undefined,
+                // A `Buffer` of the class (R2), and a result's `Buffer<S>` (Amendment A12, Q6).
+                element !== undefined
+                  ? (resource(element, 'buffer') ?? `Buffer<${element}>`)
+                  : undefined,
+                // A result's `Buffer<S>` of an `S` that holds a key is spelled with its members,
+                // where the plain array holds ids (Rule 8.21; A12, Q4 and Q6).
+                element !== undefined ? keyedResult(type, types.naming, args) : undefined,
+              ].filter((x) => x !== undefined);
+              const either = buffers.length === 0 ? plain : `${plain} | ${buffers.join(' | ')}`;
+              const array =
+                mode === 'plain'
+                  ? plain
+                  : mode === 'resource' && p.writes
+                    ? buffers.join(' | ') || 'never'
+                    : either;
+              // An array a loop pushes onto may come with its length, a `Buffer<u32>` (change
+              // 0094, decision D5; Amendment A10, confirmation item 3), on a call on a resource.
+              return p.pushed === true && mode !== 'plain'
+                ? `${p.name}: ${array} | { readonly array: ${array}; readonly length: Buffer<u32>; readonly offset?: number }`
                 : `${p.name}: ${array}`;
             })
             .join(', ');
@@ -2875,25 +3022,43 @@ function viewText(
               : 'Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise';
         // A held length (change 0094), on the arrays a loop pushes onto.
         const pushes = f.params.some((p) => p.k === 'array' && p.pushed === true)
-          ? ' An array it pushes onto may come as { array, length, offset? }: its pushes start at the length the Resident length holds at offset, and the call leaves the new length there (Rule 8.23).'
+          ? ' An array it pushes onto may come as { array, length, offset? }: its pushes start at the length the Buffer<u32> length holds at offset, and the call leaves the new length there (Rule 8.23).'
           : '';
         // A range the device holds (change 0094, part 1).
         const counted =
           f.gpu?.loops.some((l) => l.device !== undefined) === true
             ? " A loop whose trip count it reads from an array runs from a count the GPU computes, with nothing read back, and its writes past an array's end are dropped (Rule 8.21)."
             : '';
-        const queues = f.result.k === 'void' && f.params.some((p) => p.k === 'array' && p.writes);
+        // What a call on a resource returns (Amendment A10, Q-C): nothing, or its `Buffer`s.
+        const buffers = f.result.k === 'void' ? 'void' : bufferResult(f.result, named);
+        const returns =
+          f.result.k === 'void'
+            ? ''
+            : buffers === undefined
+              ? ` Its result is ${f.result.s}, which no Buffer holds, so a call on a resource that does not wait is refused.`
+              : ' Called on a resource, it returns its result at once as Buffers: one element for a number, a vector, a bool, a key or a matrix, N for an array<T, N>, and for a struct or a Record an object of them by field; another call takes each as an argument, and read() gives its values (Amendment A10, Q-C; Amendment A12, decision 4).';
         out.push(
           ...above(
-            `A kernel function (Rule 8.22). ${where}. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8).${counted}${pushes} ${queuedCall('arrays')}${queues && params(true) !== params(true).replace(/ \| Omit<(Uniform|Buffer)<[^>]*>, 'dispose' \| keyof Disposable>/g, '') ? resourceCall : ''}`,
+            `A kernel function (Rule 8.22). ${where}.${counted}${pushes}${callForms}${returns}`,
           ),
+          `export declare function ${e.name}(${params('plain')}): Promise<${resultType(f.result, named)}>;`,
         );
-        // With every written array a `Resident` and no result, nothing waits: the call queues.
-        // So does a call that takes a resource (change 0138, R2).
-        if (queues) out.push(`export declare function ${e.name}(${params(true)}): void;`);
-        out.push(
-          `export declare function ${e.name}(${params(false)}): Promise<${resultType(f.result, named)}>;`,
+        // A call on a resource (change 0138, R2): one that does not block, and one that writes a
+        // plain array and waits (Amendment A11, Q7).
+        // An array of structs of no class takes no `Buffer` (Amendment A11, Q4): a call that writes
+        // one on a resource waits.
+        const noBuffer = f.params.some(
+          (p) => p.k === 'array' && p.writes && params('resource').includes(`${p.name}: never`),
         );
+        if (buffers !== undefined && !noBuffer && params('resource') !== params('plain'))
+          out.push(`export declare function ${e.name}(${params('resource')}): ${buffers};`);
+        if (
+          f.params.some((p) => p.k === 'array' && p.writes) &&
+          params('waits') !== params('plain')
+        )
+          out.push(
+            `export declare function ${e.name}(${params('waits')}): Promise<${resultType(f.result, named)}>;`,
+          );
         break;
       }
       case 'fragment':
@@ -2911,7 +3076,7 @@ function viewText(
         const type = `Omit<${e.length === undefined ? 'Uniform' : 'Buffer'}<${e.cls}>, 'dispose' | keyof Disposable>`;
         out.push(
           ...above(
-            `A binding of the module, a host resource (Rule 6.1, change 0138): set its fields with \`set\` and read them with \`get\`; each \`set\` writes only what changed and marks its bytes dirty. It lives as long as the module, so it has no \`dispose()\`.${e.length === null ? ' The shader states no size for this storage array, so the host sets its length: call \`resize(n)\` or \`set(data)\` before \`at\` or \`read\`, which throw a \`TypeError\` until then.' : ''}${typeof e.length === 'number' ? ' A kernel function that returns nothing takes it as an argument, and such a call does not block; an entry call refuses it with a TypeError and takes a plain array of its elements, as before (Rules 8.21 and 8.24).' : ' An entry call takes it in its bindings object, and a kernel function that returns nothing as an argument; such a call does not block (Rules 8.21 and 8.24).'}`,
+            `A binding of the module, a host resource (Rule 6.1, change 0138): set its fields with \`set\` and read them with \`get\`; each \`set\` writes only what changed and marks its bytes dirty. It lives as long as the module, so it has no \`dispose()\`.${e.length === null ? ' The shader states no size for this storage array, so the host sets its length: call \`resize(n)\` or \`set(data)\` before \`at\` or \`read\`, which throw a \`TypeError\` until then.' : ''}${typeof e.length === 'number' ? ' A kernel function takes it as an argument, and such a call does not block; an entry call refuses it with a TypeError and takes a plain array of its elements, as before (Rules 8.21 and 8.24).' : ' An entry call takes it in its bindings object, and a kernel function as an argument; such a call does not block (Rules 8.21 and 8.24).'}`,
           ),
           `export declare const ${e.name}: ${type};`,
         );
@@ -2942,7 +3107,7 @@ const FAMILY_NAMES: readonly string[] = [
 ];
 
 /** The import lines of a view whose declarations are `body`: each name of the host type family
- *  the declarations write as a type (change 0116), `Resident` and `Texture` where they write
+ *  the declarations write as a type (change 0116), `Buffer` and `Texture` where they write
  *  them, and `Pack`, which the default export always writes. A name is imported only where a
  *  declaration writes it, so a host project that refuses an unused import (`noUnusedLocals`)
  *  takes the view; the names are read off the declarations as TypeScript parses them, so a
@@ -2959,10 +3124,6 @@ function viewImports(body: string, runtime: string): string[] {
   const family = FAMILY_NAMES.filter((n) => used.has(n));
   return [
     ...(family.length > 0 ? [`import type { ${family.join(', ')} } from ${from};`] : []),
-    // A kernel function's array and an entry's storage array with no size are `array<T>`, which
-    // holds its `Resident`; the call that only queues, a held length and a `@compute` entry's
-    // workgroup count write `Resident` itself (Rule 11.8, change 0075).
-    ...(used.has('Resident') ? [`import type { Resident } from ${from};`] : []),
     `import type { Pack } from ${from};`,
     // A texture binding also takes a program runtime's Texture, bound as it is (change 0025).
     ...(used.has('Texture') ? [`import type { Texture } from ${from};`] : []),
@@ -3279,8 +3440,14 @@ function moduleText(
         const id = `__ts_e${t++}`;
         const reads = `__ts_reads${t}`;
         const ps = e.face.params.map((_, i) => `__ts_p${i}`);
+        // A result `Buffer<S>` reads instances of `S`'s exported class (change 0138, Amendment
+        // A12, Q6): the face is handed the classes' prototypes.
+        const face =
+          classes.length > 0 && holdsStructs(e.face.result)
+            ? `{ ...${JSON.stringify(e.face)}, P: () => __ts_P }`
+            : JSON.stringify(e.face);
         out.push(
-          `const ${id} = ${JSON.stringify(e.face)};`,
+          `const ${id} = ${face};`,
           `const ${reads} = ${JSON.stringify([...contentReads.get(e.face.fn)!.params])};`,
           ...callable(e.name, ps, [
             `return ${RT}.callKernel(${MOD}, ${id}, arguments.length, [${ps.join(', ')}], ${reads});`,

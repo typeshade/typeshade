@@ -13,10 +13,10 @@
 //      lights, into a half-float texture, the ground reading the shadow map by comparison;
 //   3. the tonemap pass: that texture, sampled and mapped into [0, 1), into the output.
 //
-// The camera is one `Resident` both materials bind; its clock moves every frame, and the fill
-// light pulses with it.
+// The camera is one plain value both materials bind, passed at each frame (change 0138,
+// Amendment A11, Q3); its clock moves every frame, and the fill light pulses with it.
 
-import { createRuntime, resident } from 'typeshade/runtime';
+import { createRuntime } from 'typeshade/runtime';
 
 /** Two triangles over [x0, x1] by [y0, y1] at height z: six positions, three floats each. */
 const quad = (x0, y0, x1, y1, z) =>
@@ -54,9 +54,8 @@ export async function setup({ device, programs, size }) {
     rt.load(programs.tonemap).render({ targets: ['rgba8unorm'] }),
   ]);
 
-  const camera = resident({ viewProj: CAMERA, time: 0 });
-  const light = resident({ viewProj: LIGHT });
-  const lights = resident(LIGHTS);
+  const light = { viewProj: LIGHT };
+  const lights = LIGHTS;
   const shadowMap = rt.texture({ size: [size, size], format: 'depth32float' });
   const hdr = rt.texture({ size: [size, size], format: 'rgba16float' });
   const depth = rt.texture({ size: [size, size], format: 'depth24plus' });
@@ -69,7 +68,7 @@ export async function setup({ device, programs, size }) {
   return {
     /** Draw one frame at `time` seconds, and resolve once the GPU has run it. */
     async frame(time) {
-      camera.write({ viewProj: CAMERA, time });
+      const camera = { viewProj: CAMERA, time };
       const f = rt.frame();
       f.pass({ depth: { target: shadowMap, clear: 1 } }, (p) =>
         p.draw(shadow, { light }, wallMesh),

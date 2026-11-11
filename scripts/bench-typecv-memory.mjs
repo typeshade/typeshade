@@ -151,7 +151,7 @@ for (const [variant, checkout] of [
 }
 
 async function measure({ fixture, samples, warmup, workload, batch }) {
-  const { createRuntime, configure, resident } = await import('typeshade/runtime');
+  const { createRuntime, configure, array } = await import('typeshade/runtime');
   const { fuse } = await import('typeshade/fuse');
   const adapter = await navigator.gpu.requestAdapter();
   if (
@@ -199,7 +199,7 @@ async function measure({ fixture, samples, warmup, workload, batch }) {
       const bindings = { control };
       for (const key of keys) {
         // A small deterministic nonzero step exercises both pose-update branches.
-        const array =
+        const host =
           key === 'index'
             ? Uint32Array.from(data[key])
             : key === 'vectors'
@@ -207,11 +207,11 @@ async function measure({ fixture, samples, warmup, workload, batch }) {
               : Float64Array.from(data[key]);
         // A zero-step candidate has the captured current geometry. Explicitly
         // activate validity; the capture precedes candidate construction.
-        if (metrics && key === 'trial') array.set(data.scene.slice(0, 12 * C + 3 * P));
-        if (metrics && key === 'state') array[15] = 1;
-        if (metrics && key === 'focal') array[6 * C + 4] = array[6 * C + 3];
-        if (point && key === 'state') array[19] = 1;
-        bindings[key] = resident(array);
+        if (metrics && key === 'trial') host.set(data.scene.slice(0, 12 * C + 3 * P));
+        if (metrics && key === 'state') host[15] = 1;
+        if (metrics && key === 'focal') host[6 * C + 4] = host[6 * C + 3];
+        if (point && key === 'state') host[19] = 1;
+        bindings[key] = array(host);
         all.push(bindings[key]);
       }
       const dispatch = () =>
@@ -314,7 +314,7 @@ async function measure({ fixture, samples, warmup, workload, batch }) {
       validationErrors: errors,
     };
   } finally {
-    for (const r of all) r.destroy();
+    for (const r of all) r.dispose();
     device.destroy();
   }
 }

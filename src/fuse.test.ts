@@ -31,8 +31,10 @@ import * as root from './index.js';
 import * as runtime from './runtime.js';
 import { fuse, type FuseReport, type FuseScope } from './fuse.js';
 import { buildPlan, ScratchState } from './core/fuse-plan.js';
-import { configure, kernelQueue, resident, residentState } from './core/resident.js';
+import { configure, kernelQueue, residentState } from './core/resident.js';
 import type { Resident } from './core/resident.js';
+import type { Buffer } from './runtime/resource.js';
+import type { f32, i32, vec4f } from './runtime/host-types.js';
 import {
   bindCacheStats,
   DispatchBatch,
@@ -43,6 +45,7 @@ import {
   type GpuDevice,
 } from './core/host-entry.js';
 import type { KernelFace } from './core/host-kernel.js';
+import { array } from './runtime.js';
 
 // The WebGL2 context of the call layer is the one thing a test cannot make in Node. A test that
 // reads the WebGL2 tier of a report sets `webgl.context` to a stand-in for its length; every other
@@ -251,8 +254,17 @@ function faceOf(name: string): KernelFace {
 }
 
 const floats = (...xs: number[]): Float32Array => Float32Array.of(...xs);
-const live = (...xs: number[]): Resident<Float32Array> => resident(floats(...xs));
-const zeros = (n: number): Resident<Float32Array> => resident(new Float32Array(n));
+const live = (...xs: number[]): Buffer<f32> => array(floats(...xs));
+const zeros = (n: number): Buffer<f32> => array(new Float32Array(n));
+/** A call on a Buffer is checked at the call (change 0138, R2; Amendment A10, Q-I): a refusal
+ *  throws there. `attempt` gives it as a rejection, as a call with plain data gives it. */
+const attempt = (f: () => unknown): Promise<unknown> => (async () => f())();
+/** Wait for a call and for every call recorded before it: a call on a Buffer returns at once, and
+ *  runs when it is submitted (change 0138, R2). */
+const done = async (call: unknown): Promise<void> => {
+  await call;
+  await kernelQueue.idle();
+};
 
 describe('the plan record', () => {
   it('names each call, its loops and the residents it reads and writes, and what depends on what', () => {
@@ -394,11 +406,11 @@ describe('a fuse scope on the CPU tier (Node has no WebGPU)', () => {
   });
 
   it.each([
-    ['read()', 'a read of a Resident', (x: Resident<Float32Array>) => void x.read()],
-    ['write()', 'a write to a Resident', (x: Resident<Float32Array>) => x.write(floats(9, 9))],
-    ['destroy()', 'the destroy of a Resident', (x: Resident<Float32Array>) => x.destroy()],
+    ['read()', 'a read of a Buffer', (x: Buffer<f32>) => void x.read()],
+    ['set()', 'a set of a Buffer', (x: Buffer<f32>) => x.set(floats(9, 9))],
+    ['dispose()', 'the dispose of a Buffer', (x: Buffer<f32>) => x.dispose()],
   ])(
-    'refuses %s of a Resident inside the body, which would run before the calls recorded earlier',
+    'refuses %s of a Buffer inside the body, which would run before the calls recorded earlier',
     async (call, what, use) => {
       const m = await load();
       const x = live(1, 2);
@@ -416,7 +428,7 @@ describe('a fuse scope on the CPU tier (Node has no WebGPU)', () => {
       expect(kernelQueue.pending).toBe(0);
       expect(await x.read()).toEqual(floats(1, 2));
       // Outside a scope the same use is what it was.
-      x.write(floats(3, 4));
+      x.set(floats(3, 4));
       expect(await x.read()).toEqual(floats(3, 4));
     },
   );
@@ -578,7 +590,7 @@ describe('a fuse scope on the CPU tier (Node has no WebGPU)', () => {
       }),
     ).rejects.toThrow(
       new TypeError(
-        'twice(): parameter "xs" is a Float32Array, and a call inside fuse() writes only a Resident. fuse() reads nothing back. Pass resident(...), or call twice() outside fuse().',
+        'twice(): parameter "xs" is a Float32Array, and a call inside fuse() writes only a Buffer. fuse() reads nothing back. Pass array(...), or call twice() outside fuse().',
       ),
     );
     // The call recorded before it did not run.
@@ -665,8 +677,11 @@ describe('a fuse scope on the CPU tier (Node has no WebGPU)', () => {
     expect(residentState(out)!.host).toEqual(new Float32Array(4));
     await expect(out.read()).rejects.toThrow(refusal);
     await expect(short.read()).rejects.toThrow(refusal);
-    // A call that succeeds clears what it writes.
-    await m.relu(out, a);
+    // A call that takes it is refused until set(data) gives it new values (A7, decision b; one
+    // set of rules, change 0138, Amendment A10, Q-I).
+    expect(() => m.relu(out, a)).toThrow(refusal);
+    out.set(new Float32Array(4));
+    void m.relu(out, a);
     expect(await out.read()).toEqual(floats(1, 2, 3, 4));
   });
 
@@ -679,9 +694,7 @@ describe('a fuse scope on the CPU tier (Node has no WebGPU)', () => {
         void m.add(out, x, x);
         void m.add(x, x, out);
       }),
-    ).rejects.toThrow(
-      new TypeError('add(): parameter "b" is the same resident array as parameter "a".'),
-    );
+    ).rejects.toThrow(new TypeError('add(): parameter "b" is the same Buffer as parameter "a".'));
     expect(residentState(x)!.error).toBeDefined();
   });
 
@@ -1246,7 +1259,7 @@ describe('device-owned scratch returns to the bounded array pool (#992)', () => 
       expect(buffers[0]!.writes).toEqual([]);
       expect(dev.statistics).toMatchObject({ allocations: 1, reuses: 0, pooledBytes: 16 });
       await expect(first!.read()).rejects.toThrow('scratch array');
-      expect(() => first!.write(floats(9, 9, 9, 9))).toThrow('scratch array');
+      expect(() => first!.set(floats(9, 9, 9, 9))).toThrow('scratch array');
       await expect(
         dev.fuse(() => {
           void m.bump(first);
@@ -1830,8 +1843,10 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
     const m = await load();
     const [t, out] = [zeros(4), zeros(4)];
     const [a, b] = [live(1, 2, 3, 4), live(1, 1, 1, 1)];
-    await m.add(t, a, b);
-    await m.relu(out, t);
+    // Calls on Buffers are recorded (change 0138, R2), and each runs as a submission of its own.
+    void m.add(t, a, b);
+    void m.relu(out, t);
+    await kernelQueue.idle();
     expect(gpu.flow).toEqual([dispatch, 'submit', dispatch, 'submit']);
   });
 
@@ -1925,9 +1940,10 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
   it('names one call as a call outside a scope does', async () => {
     fakeGpu({ validation: 'boom' });
     const m = await load();
-    await expect(m.bump(live(1))).rejects.toThrow(
-      new Error('bump(): WebGPU refused the call: boom'),
-    );
+    // A call on a Buffer is recorded: its failure is thrown at the next read() (change 0138, R2).
+    const x = live(1);
+    void m.bump(x);
+    await expect(x.read()).rejects.toThrow('bump(): WebGPU refused the call: boom');
   });
 
   describe('destroys every buffer a failed batch made (issue 603)', () => {
@@ -1951,14 +1967,18 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
     it('after a call outside a scope the device refuses', async () => {
       const gpu = fakeGpu({ validation: 'boom' });
       const m = await load();
-      await expect(m.bump(live(1))).rejects.toThrow('WebGPU refused the call: boom');
+      const x = live(1);
+      void m.bump(x);
+      await expect(x.read()).rejects.toThrow('WebGPU refused the call: boom');
       expect(batchMade(gpu).filter((b) => !b.destroyed)).toEqual([]);
     });
 
     it('after a throw while the batch encodes', async () => {
       const gpu = fakeGpu({ bindGroup: 'no bind group' });
       const m = await load();
-      await expect(m.bump(live(1))).rejects.toThrow('no bind group');
+      const x = live(1);
+      void m.bump(x);
+      await expect(x.read()).rejects.toThrow('no bind group');
       expect(batchMade(gpu).filter((b) => !b.destroyed)).toEqual([]);
     });
   });
@@ -1992,7 +2012,9 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
     expect(gpu.commands.filter((c) => c === 'push' || c === 'pop')).toEqual(['push', 'pop']);
     expect(gpu.submits).toBe(0);
     // A call outside a scope closes its scope the same way.
-    await expect(m.bump(live(1, 2))).rejects.toThrow('no bind group');
+    const z = live(1, 2);
+    void m.bump(z);
+    await expect(z.read()).rejects.toThrow('no bind group');
     expect(gpu.commands.filter((c) => c === 'push' || c === 'pop')).toEqual([
       'push',
       'pop',
@@ -2005,15 +2027,16 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
     const gpu = fakeGpu();
     const m = await load();
     const [x, y] = [live(1, 2), zeros(2)];
-    await m.bump(x);
+    void m.bump(x);
+    await x.read();
     const submitted = gpu.submits;
-    y.destroy();
+    y.dispose();
     await expect(
       fuse(() => {
         void m.bump(x);
         void m.relu(y, x);
       }),
-    ).rejects.toThrow('This Resident was destroyed; make a new one with array().');
+    ).rejects.toThrow('This Buffer was disposed; make a new one with array().');
     expect(gpu.submits).toBe(submitted);
   });
 
@@ -2566,13 +2589,13 @@ ${local}  for (let i: u32 = 0; i < out.length; i++) {
     const m = await loadFused();
     const [t, out] = [zeros(4), zeros(4)];
     const [a, b] = [live(1, 2, 3, 4), live(1, 1, 1, 1)];
-    out.destroy();
+    out.dispose();
     await expect(
       fuse(() => {
         void m.add(t, a, b);
         void m.relu(out, t);
       }),
-    ).rejects.toThrow('This Resident was destroyed; make a new one with array().');
+    ).rejects.toThrow('This Buffer was disposed; make a new one with array().');
     expect(gpu.submits).toBe(0);
   });
 
@@ -2660,7 +2683,7 @@ ${local}  for (let i: u32 = 0; i < out.length; i++) {
 describe('a fuse scope that fuses a reduction, on a recording device', () => {
   const dispatch = 'dispatch 1 1 1';
   /** Resident arrays of `n` ones. */
-  const ones = (n: number): Resident<Float32Array> => resident(new Float32Array(n).fill(1));
+  const ones = (n: number): Buffer<f32> => array(new Float32Array(n).fill(1));
   /** The dispatches, the copies and the submissions of a run, in order. */
   const steps = (gpu: { commands: string[] }): string[] =>
     gpu.commands.filter((c) => /^(dispatch|copy|submit)/.test(c));
@@ -2913,8 +2936,10 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     const gpu = fakeGpu();
     const m = await loadFused();
     const n = 70000;
-    // The reduction alone, outside a scope: the loop and two fold levels, one submission.
-    await m.total(ones(n));
+    // The reduction alone, outside a scope: the loop and two fold levels, one submission. On a
+    // Buffer it is recorded and gives a Buffer (change 0138, Amendment A10, Q-C).
+    void m.total(ones(n));
+    await kernelQueue.idle();
     const apart = [...gpu.flow];
     expect(apart).toEqual(['dispatch 274 1 1', 'dispatch 2 1 1', dispatch, 'submit']);
     // The same reduction as the last call of a fused group: the same dispatches.
@@ -2928,8 +2953,9 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     const m = await loadFused();
     const n = 70000;
     const out = zeros(n);
-    await m.add(out, ones(n), ones(n));
-    await m.total(out);
+    void m.add(out, ones(n), ones(n));
+    void m.total(out);
+    await kernelQueue.idle();
     // `add` is 1,094 workgroups of 64. The reduction after it is its loop, two levels and the
     // copy of its folded slot in a submission, as it is inside a scope.
     expect(gpu.flow).toEqual([
@@ -3240,7 +3266,7 @@ describe('the uniforms and bind groups a device keeps across scopes, on a record
     const m = await loadFused();
     const [t, u, out] = [zeros(4), zeros(4), zeros(4)];
     const [a, a2, b, c] = [live(1, 2, 3, 4), live(1, 2, 3, 4), live(1, 1, 1, 1), live(2, 2, 2, 2)];
-    const run = (x: Resident<Float32Array>) =>
+    const run = (x: Buffer<f32>) =>
       fuse(() => {
         void m.add(t, x, b);
         void m.mul(u, t, c);
@@ -3262,7 +3288,7 @@ describe('the uniforms and bind groups a device keeps across scopes, on a record
     const m = await loadFused();
     const [t, u, out] = [zeros(4), zeros(4), zeros(4)];
     const [a, b, c] = [live(1, 2, 3, 4), live(1, 1, 1, 1), live(2, 2, 2, 2)];
-    const run = (x: Resident<Float32Array>) =>
+    const run = (x: Buffer<f32>) =>
       fuse(() => {
         void m.add(t, x, b);
         void m.mul(u, t, c);
@@ -3270,12 +3296,12 @@ describe('the uniforms and bind groups a device keeps across scopes, on a record
       });
     await run(a);
     const destroyed = gpu.made.filter((x) => x.usage === RESIDENT_BUFFER && x.destroyed).length;
-    a.destroy();
+    a.dispose();
     // The Resident's device buffer is destroyed with it, and nothing of it is bound again.
     expect(gpu.made.filter((x) => x.usage === RESIDENT_BUFFER && x.destroyed).length).toBe(
       destroyed + 1,
     );
-    await expect(run(a)).rejects.toThrow(/destroyed/);
+    await expect(run(a)).rejects.toThrow(/disposed/);
     const same = live(1, 2, 3, 4);
     const binds = gpu.binds.length;
     await run(same);
@@ -3327,7 +3353,7 @@ describe('the uniforms and bind groups a device keeps across scopes, on a record
     const gpu = fakeGpu();
     const m = await loadFused();
     const [a, b, c, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), live(2, 2, 2, 2), zeros(4)];
-    const z = resident(4, 'f32');
+    const z = array(4, 'f32');
     const run = () =>
       fuse((scope) => {
         const t = scope.scratch(4);
@@ -3342,10 +3368,13 @@ describe('the uniforms and bind groups a device keeps across scopes, on a record
     const second = bindCacheStats(gpu.device);
     expect(second.misses).toBe(first.misses);
     expect(second.hits).toBeGreaterThan(first.hits);
-    // A write that changes the length is another buffer: the group over the first is dropped and
-    // the next scope makes one over the second.
-    z.write(floats(1, 2, 3, 4, 5, 6));
-    out.write(floats(1, 2, 3, 4, 5, 6));
+    // A set that changes the length is another buffer: the group over the first is dropped and
+    // the next scope makes one over the second. The plan wrote both: a read brings them back first
+    // (Amendment A11, Q1).
+    await z.read();
+    await out.read();
+    z.set(floats(1, 2, 3, 4, 5, 6));
+    out.set(floats(1, 2, 3, 4, 5, 6));
     const before = bindCacheStats(gpu.device);
     await fuse(() => {
       void m.relu(out, z);
@@ -3353,7 +3382,7 @@ describe('the uniforms and bind groups a device keeps across scopes, on a record
     const after = bindCacheStats(gpu.device);
     expect(after.misses - before.misses).toBe(1);
     expect(after.groups).toBeLessThan(second.groups + 1);
-    z.destroy();
+    z.dispose();
     await kernelQueue.whenIdle(() => undefined);
     expect(bindCacheStats(gpu.device).groups).toBeLessThan(after.groups);
   });
@@ -3393,7 +3422,7 @@ describe('the uniforms and bind groups a device keeps across scopes, on a record
       });
     await run();
     // Replacing a Resident's contents with the same length uploads them into the same buffer.
-    a.write(floats(4, 3, 2, 1));
+    a.set(floats(4, 3, 2, 1));
     const made = gpu.made.length;
     await run();
     expect(gpu.made.length - made).toBe(0);
@@ -3497,14 +3526,14 @@ describe('a fuse scope that could fuse, with no WebGPU', () => {
 
 // ─── scratch arrays ────────────────────────────────────────────────────────────────────────────
 
-const ints = (...xs: number[]): Resident<Int32Array> => resident(Int32Array.of(...xs));
+const ints = (...xs: number[]): Buffer<i32> => array(Int32Array.of(...xs));
 
 describe('a scratch array on the CPU tier', () => {
   it('runs a chain over scratch arrays and gives the values of the same chain over residents', async () => {
     const m = await load();
     const [a, b, c, out] = [live(1, -2, 3, -4), live(1, 1, 1, 1), live(2, 2, 2, 2), zeros(4)];
-    let t: Resident<Float32Array> | undefined;
-    let u: Resident<Float32Array> | undefined;
+    let t: Buffer<f32> | undefined;
+    let u: Buffer<f32> | undefined;
     const report = await fuse((scope) => {
       t = scope.scratch(4);
       u = scope.scratch(4);
@@ -3566,8 +3595,8 @@ describe('a scratch array on the CPU tier', () => {
   it('takes i32 and u32 scratch arrays through arrays of their type', async () => {
     const m = await load();
     const [ia, ib, iout] = [ints(1, -2, 3), ints(10, 10, 10), ints(0, 0, 0)];
-    const [ua, ub] = [resident(Uint32Array.of(1, 2, 3)), resident(Uint32Array.of(4, 5, 6))];
-    const uout = resident(new Uint32Array(3));
+    const [ua, ub] = [array(Uint32Array.of(1, 2, 3)), array(Uint32Array.of(4, 5, 6))];
+    const uout = array(new Uint32Array(3));
     await fuse((scope) => {
       const t = scope.scratch(3, 'i32');
       void m.iadd(t, ia, ib);
@@ -3630,12 +3659,12 @@ describe('what a scratch array refuses', () => {
   const noRead =
     'read(): this is a scratch array, which the host never reads. Make it with array() to read it after the scope.';
   const noWrite =
-    'write(): this is a scratch array, which the host never writes. Make it with array() to write it.';
+    'set(): this is a scratch array, which the host never reads or writes. Make it with array() to use it after the scope.';
 
   it('rejects read() at any time, inside the body, after it and after the plan', async () => {
     const m = await load();
     const out = zeros(2);
-    let t: Resident<Float32Array> | undefined;
+    let t: Buffer<f32> | undefined;
     let inside: Promise<unknown> | undefined;
     const done = fuse((scope) => {
       t = scope.scratch(2);
@@ -3651,34 +3680,34 @@ describe('what a scratch array refuses', () => {
     expect(await out.read()).toEqual(floats(1, 1));
   });
 
-  it('throws on write(), and does nothing on destroy()', async () => {
+  it('throws on set(), and does nothing on dispose()', async () => {
     const m = await load();
-    let t: Resident<Float32Array> | undefined;
+    let t: Buffer<f32> | undefined;
     await fuse((scope) => {
       t = scope.scratch(2);
-      expect(() => t!.write(floats(1, 2))).toThrow(new TypeError(noWrite));
+      expect(() => t!.set(floats(1, 2))).toThrow(new TypeError(noWrite));
       // The plan owns the array: destroying the handle is allowed, and changes nothing.
-      expect(() => t!.destroy()).not.toThrow();
+      expect(() => t!.dispose()).not.toThrow();
       void m.bump(t);
     });
-    expect(() => t!.write(floats(1, 2))).toThrow(new TypeError(noWrite));
-    expect(() => t!.destroy()).not.toThrow();
+    expect(() => t!.set(floats(1, 2))).toThrow(new TypeError(noWrite));
+    expect(() => t!.dispose()).not.toThrow();
     expect(kernelQueue.pending).toBe(0);
   });
 
   it('refuses a call that takes it after the plan has run', async () => {
     const m = await load();
     const out = zeros(2);
-    let t: Resident<Float32Array> | undefined;
+    let t: Buffer<f32> | undefined;
     await fuse((scope) => {
       t = scope.scratch(2);
       void m.bump(t);
     });
     const after =
       'relu(): parameter "x" is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.';
-    // Outside a scope: the call is rejected, and keeps its error on what it writes.
-    await expect(m.relu(out, t!)).rejects.toThrow(new TypeError(after));
-    await expect(out.read()).rejects.toThrow(after);
+    // Outside a scope: the call is refused at the call, and leaves what it writes as it was.
+    expect(() => m.relu(out, t!)).toThrow(new TypeError(after));
+    expect(await out.read()).toEqual(floats(0, 0));
     // Inside another scope the call is refused as it is made.
     await expect(
       fuse(() => {
@@ -3686,7 +3715,7 @@ describe('what a scratch array refuses', () => {
       }),
     ).rejects.toThrow(new TypeError(after));
     // Writing it is refused the same way.
-    await expect(m.bump(t!)).rejects.toThrow(
+    await expect(attempt(() => m.bump(t!))).rejects.toThrow(
       'bump(): parameter "xs" is a scratch array of a fuse() scope whose plan has run.',
     );
   });
@@ -3694,7 +3723,7 @@ describe('what a scratch array refuses', () => {
   it('refuses a call that takes it outside the scope that made it', async () => {
     const m = await load();
     const [out, other] = [zeros(2), zeros(2)];
-    let t: Resident<Float32Array> | undefined;
+    let t: Buffer<f32> | undefined;
     // A second scope's body runs while the first scope's plan has not: the array is still its own.
     const first = fuse((scope) => {
       t = scope.scratch(2);
@@ -3710,8 +3739,8 @@ describe('what a scratch array refuses', () => {
       ),
     );
     await first;
-    // And a call outside any scope, before the plan ran, queues after it, and finds it done.
-    await expect(m.relu(out, t!)).rejects.toThrow(/whose plan has run/);
+    // And a call outside any scope after the plan ran finds it done.
+    await expect(attempt(() => m.relu(out, t!))).rejects.toThrow(/whose plan has run/);
   });
 
   it('refuses a scope view used after the body returned', async () => {
@@ -3772,7 +3801,7 @@ describe('what a scratch array refuses', () => {
         'relu(): parameter "x" (array<f32>): got an empty array, which WebGPU cannot bind.',
       ),
     );
-    await expect(m.relu(out, resident(new Float32Array(0)))).rejects.toThrow(
+    await expect(attempt(() => m.relu(out, array(new Float32Array(0))))).rejects.toThrow(
       new TypeError(
         'relu(): parameter "x" (array<f32>): got an empty array, which WebGPU cannot bind.',
       ),
@@ -3799,7 +3828,7 @@ describe('what a scratch array refuses', () => {
 
   it('leaves the arrays of a body that threw freed, and refuses them after', async () => {
     const m = await load();
-    let t: Resident<Float32Array> | undefined;
+    let t: Buffer<f32> | undefined;
     await expect(
       fuse((scope) => {
         t = scope.scratch(2);
@@ -3807,7 +3836,7 @@ describe('what a scratch array refuses', () => {
       }),
     ).rejects.toThrow('the body failed');
     expect((residentState(t!) as ScratchState).phase).toBe('done');
-    await expect(m.bump(t!)).rejects.toThrow(/whose plan has run/);
+    await expect(attempt(() => m.bump(t!))).rejects.toThrow(/whose plan has run/);
   });
 
   it('refuses one scratch array as two parameters of one call, as it refuses a resident', async () => {
@@ -3817,9 +3846,7 @@ describe('what a scratch array refuses', () => {
         const t = scope.scratch(2);
         void m.add(zeros(2), t, t);
       }),
-    ).rejects.toThrow(
-      new TypeError('add(): parameter "b" is the same resident array as parameter "a".'),
-    );
+    ).rejects.toThrow(new TypeError('add(): parameter "b" is the same Buffer as parameter "a".'));
   });
 
   it('refuses an entry call in the body that takes a scratch array: only a kernel call may take one', async () => {
@@ -3838,7 +3865,7 @@ describe('what a scratch array refuses', () => {
   it('gives an entry call in the body that takes a scratch array of a finished scope the words of that scope', async () => {
     const m = await load();
     // The array of a scope that has run, taken in the body of another: the words of a finished plan.
-    let t: Resident<Float32Array> | undefined;
+    let t: Buffer<f32> | undefined;
     await fuse((scope) => {
       t = scope.scratch(2);
       void m.bump(t);
@@ -3856,7 +3883,7 @@ describe('what a scratch array refuses', () => {
 
   it('refuses an entry call that takes it after the plan has run, with the words of a kernel call', async () => {
     const m = await load();
-    let t: Resident<Float32Array> | undefined;
+    let t: Buffer<f32> | undefined;
     await fuse((scope) => {
       t = scope.scratch(2);
       void m.bump(t);
@@ -3864,27 +3891,29 @@ describe('what a scratch array refuses', () => {
     const after =
       ' is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.';
     // The words after the name of what takes the array are one sentence for both calls.
-    await expect(m.bump(t!)).rejects.toThrow(new TypeError(`bump(): parameter "xs"${after}`));
-    await expect(m.fill({ sink: t! }, 1)).rejects.toThrow(
+    await expect(attempt(() => m.bump(t!))).rejects.toThrow(
+      new TypeError(`bump(): parameter "xs"${after}`),
+    );
+    await expect(attempt(() => m.fill({ sink: t! }, 1))).rejects.toThrow(
       new TypeError(`fill(): binding "sink"${after}`),
     );
-    // The refused call leaves the entry callable: a `resident()` binding still runs.
+    // The refused call leaves the entry callable: a `array()` binding still runs.
     const sink = zeros(2);
     await m.fill({ sink }, 1);
     expect(await sink.read()).toEqual(floats(1, 1));
   });
 
-  it('refuses an entry call made outside any scope before the plan ran, which queues after the plan', async () => {
+  it('refuses an entry call made outside any scope before the plan ran, at the call', async () => {
     const m = await load();
-    let t: Resident<Float32Array> | undefined;
+    let t: Buffer<f32> | undefined;
     const first = fuse((scope) => {
       t = scope.scratch(2);
       void m.bump(t);
     });
-    // The body returned and the plan has not run. The call waits for it, and finds the array done.
-    await expect(m.fill({ sink: t! }, 1)).rejects.toThrow(
+    // The body returned and the plan has not run. A call on a Buffer is checked at the call.
+    expect(() => m.fill({ sink: t! }, 1)).toThrow(
       new TypeError(
-        'fill(): binding "sink" is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.',
+        'fill(): binding "sink" is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.',
       ),
     );
     await first;
@@ -3893,20 +3922,22 @@ describe('what a scratch array refuses', () => {
   it('refuses an entry call that takes it before the device is asked for anything', async () => {
     const gpu = fakeGpu();
     const m = await load();
-    let t: Resident<Float32Array> | undefined;
+    let t: Buffer<f32> | undefined;
     await fuse((scope) => {
       t = scope.scratch(2);
       void m.bump(t);
     });
     const [made, commands] = [gpu.made.length, gpu.commands.length];
-    await expect(m.fill({ sink: t! }, 1)).rejects.toThrow(
+    await expect(attempt(() => m.fill({ sink: t! }, 1))).rejects.toThrow(
       new TypeError(
         'fill(): binding "sink" is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.',
       ),
     );
     expect([gpu.made.length, gpu.commands.length]).toEqual([made, commands]);
     // A call that is not refused reaches the device, so the counts above show the refusal first.
-    await m.fill({ sink: zeros(2) }, 1);
+    const sink = zeros(2);
+    void m.fill({ sink }, 1);
+    await sink.read();
     expect(gpu.commands.length).toBeGreaterThan(commands);
   });
 
@@ -3921,7 +3952,7 @@ describe('what a scratch array refuses', () => {
         }),
       ).rejects.toThrow(new TypeError(inBody));
       // The array of a scope that has run, taken in the body of another: the same refusal.
-      let t: Resident<Float32Array> | undefined;
+      let t: Buffer<f32> | undefined;
       await fuse((scope) => {
         t = scope.scratch(4);
         void m.bump(t);
@@ -3936,7 +3967,7 @@ describe('what a scratch array refuses', () => {
 
   it('refuses a draw that takes it after the plan has run, with the words of a kernel call', async () => {
     const m = await load();
-    let t: Resident<Float32Array> | undefined;
+    let t: Buffer<f32> | undefined;
     await fuse((scope) => {
       t = scope.scratch(4);
       void m.bump(t);
@@ -3946,11 +3977,11 @@ describe('what a scratch array refuses', () => {
     await withCanvas(async () => {
       const canvas = new FakeCanvas(4, 1);
       // The words after the name of what takes the array are the kernel call's, as the entry's are.
-      await expect(m.bump(t!)).rejects.toThrow(new TypeError(`bump(): parameter "xs"${after}`));
+      expect(() => m.bump(t!)).toThrow(new TypeError(`bump(): parameter "xs"${after}`));
       await expect(m.show(canvas, { data: t! })).rejects.toThrow(
         new TypeError(`show(): binding "data"${after}`),
       );
-      // The refused draw painted nothing, and a draw is still a draw: a `resident()` paints.
+      // The refused draw painted nothing, and a draw is still a draw: a `array()` paints.
       expect(canvas.pixels).toBeUndefined();
       await m.show(canvas, { data: live(0.25, 0.5, 0.75, 1) });
       expect(reds(canvas)).toEqual([64, 128, 191, 255]);
@@ -3959,7 +3990,7 @@ describe('what a scratch array refuses', () => {
 
   it('refuses a draw made before the plan ran, which checks its bindings as it is called', async () => {
     const m = await load();
-    let t: Resident<Float32Array> | undefined;
+    let t: Buffer<f32> | undefined;
     const first = fuse((scope) => {
       t = scope.scratch(4);
       void m.bump(t);
@@ -3984,8 +4015,8 @@ describe('a scratch array on a recording device', () => {
   const read = `pairsum reads \`t[i ^ 1]\` (line ${pairsumLine})`;
 
   it('holds two scratch arrays as locals: one dispatch, no binding, no buffer and no host array', async () => {
-    let t: Resident<Float32Array> | undefined;
-    let u: Resident<Float32Array> | undefined;
+    let t: Buffer<f32> | undefined;
+    let u: Buffer<f32> | undefined;
     /** What each scratch array held when the dispatch was submitted. */
     let held: { host: unknown; gpu: unknown }[] = [];
     const gpu = fakeGpu({
@@ -4069,7 +4100,7 @@ describe('a scratch array on a recording device', () => {
   });
 
   it('keeps a scratch array a later group uses a buffer: a zeroed buffer, destroyed after the plan', async () => {
-    let t: Resident<Float32Array> | undefined;
+    let t: Buffer<f32> | undefined;
     /** What the buffers looked like at the one submission. */
     let atSubmit: boolean[] = [];
     const gpu = fakeGpu();
@@ -4261,7 +4292,7 @@ describe('a scratch array on a recording device', () => {
     const gpu = fakeGpu({ validation: 'boom' });
     const m = await loadFused();
     const [a, b, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
-    let t: Resident<Float32Array> | undefined;
+    let t: Buffer<f32> | undefined;
     await expect(
       fuse((scope) => {
         t = scope.scratch(4);
@@ -4281,7 +4312,7 @@ describe('a scratch array on a recording device', () => {
     const gpu = fakeGpu();
     const m = await loadFused();
     const [a, b, short] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(2)];
-    let t: Resident<Float32Array> | undefined;
+    let t: Buffer<f32> | undefined;
     await expect(
       fuse((scope) => {
         t = scope.scratch(4);
@@ -4314,7 +4345,7 @@ describe('a scratch array on a recording device', () => {
     const gpu = fakeGpu();
     const m = await loadFused();
     const [a, b, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
-    let t: Resident<Float32Array> | undefined;
+    let t: Buffer<f32> | undefined;
     const report = await fuse((scope) => {
       t = scope.scratch(4);
       void m.add(t, a, b);
@@ -4349,7 +4380,7 @@ describe('a scratch array on a recording device', () => {
     expect(gpu.zeroed.every((x) => x.destroyed)).toBe(true);
   });
 
-  it('keeps a Resident from resident() a buffer with its write, whatever the group', async () => {
+  it('keeps a Resident from array() a buffer with its write, whatever the group', async () => {
     const gpu = fakeGpu();
     const m = await loadFused();
     const [a, b, t, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4), zeros(4)];
@@ -4547,7 +4578,10 @@ describe('the tier of each group, and why a group ran on a later tier than its p
   /** The reason the call layer gives `tier` in the `Error` of a call that no tier can run: the
    *  words after `tier: ` (Rule 11.8). */
   const reasonIn = (error: unknown, tier: string): string => {
-    const m = new RegExp(`\\(${tier}: (.*)\\)\\.$`).exec(String((error as Error).message));
+    // A recorded call's error names the line of the call, and keeps the call's own as its cause.
+    const cause = (error as Error).cause;
+    const own = cause instanceof Error ? cause : (error as Error);
+    const m = new RegExp(`\\(${tier}: (.*)\\)\\.$`).exec(String(own.message));
     if (m === null) throw new Error(`the error names no reason of ${tier}: ${String(error)}`);
     return m[1]!;
   };
@@ -4564,7 +4598,9 @@ describe('the tier of each group, and why a group ran on a later tier than its p
       });
       // The same call outside a scope, on WebGL2 alone: the Error names the reason of WebGL2.
       configure({ prefer: ['webgl2'] });
-      const reason = reasonIn(await m.total(t).catch((e: unknown) => e), 'webgl2');
+      // A call on a Buffer is recorded: its failure is thrown at the next read() (change 0138, R2).
+      const sum = m.total(t) as unknown as { read(): Promise<unknown> };
+      const reason = reasonIn(await sum.read().catch((e: unknown) => e), 'webgl2');
       expect(reason).toBe(
         'it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for',
       );
@@ -4687,7 +4723,8 @@ describe('the tier of each group, and why a group ran on a later tier than its p
         void m.mul(u, t, a);
       });
       configure({ prefer: ['webgl2'] });
-      const reason = reasonIn(await m.mul(u, t, a).catch((e: unknown) => e), 'webgl2');
+      void m.mul(u, t, a);
+      const reason = reasonIn(await u.read().catch((e: unknown) => e), 'webgl2');
       expect(reason).toBe('WebGL2 refused the program: the driver refuses it');
       expect(report).toEqual({
         webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
@@ -4825,10 +4862,10 @@ describe('a zeroed Resident on WebGPU, on a recording device (Rule 11.8, surface
   it('makes no buffer and no host copy at creation, and a call writes no byte to a zeroed array', async () => {
     const gpu = fakeGpu();
     const m = await load();
-    const out = resident(1_000_000, 'f32');
+    const out = array(1_000_000, 'f32');
     expect(gpu.made).toEqual([]);
     expect(residentState(out)!.host).toBeUndefined();
-    void m.add(out, resident(1_000_000, 'f32'), resident(1_000_000, 'f32'));
+    void m.add(out, array(1_000_000, 'f32'), array(1_000_000, 'f32'));
     // read() waits for the call; the call wrote no byte, and the device copy is read back once.
     expect((await out.read()).every((v) => v === 0)).toBe(true);
     expect(gpu.made.filter((b) => (b.usage & STORAGE) !== 0 && b.written)).toEqual([]);
@@ -4837,13 +4874,13 @@ describe('a zeroed Resident on WebGPU, on a recording device (Rule 11.8, surface
   it('reads zeros, with no device copy, when no call has written it; a call after the read writes no byte', async () => {
     const gpu = fakeGpu();
     const m = await load();
-    const z = resident(8, 'i32');
+    const z = array(8, 'i32');
     expect(await z.read()).toEqual(new Int32Array(8));
     expect(gpu.made).toEqual([]);
     expect(residentState(z)!.host).toBeUndefined();
-    const [out, a] = [resident(4, 'f32'), resident(4, 'f32')];
+    const [out, a] = [array(4, 'f32'), array(4, 'f32')];
     await a.read();
-    void m.add(out, a, resident(4, 'f32'));
+    void m.add(out, a, array(4, 'f32'));
     expect(await out.read()).toEqual(floats(0, 0, 0, 0));
     expect(gpu.made.filter((b) => (b.usage & STORAGE) !== 0 && b.written)).toEqual([]);
   });
@@ -4851,10 +4888,10 @@ describe('a zeroed Resident on WebGPU, on a recording device (Rule 11.8, surface
   it('uploads what a write put in it, once a call takes it', async () => {
     const gpu = fakeGpu();
     const m = await load();
-    const x = resident(4, 'f32');
-    x.write(floats(1, 2, 3, 4));
-    const out = resident(4, 'f32');
-    void m.add(out, x, resident(4, 'f32'));
+    const x = array(4, 'f32');
+    x.set(floats(1, 2, 3, 4));
+    const out = array(4, 'f32');
+    void m.add(out, x, array(4, 'f32'));
     await out.read();
     // The kernel's own uniform is written too; the array is the storage buffer of 16 bytes.
     const uploaded = gpu.made.filter((b) => (b.usage & STORAGE) !== 0 && b.written);
@@ -4865,26 +4902,26 @@ describe('a zeroed Resident on WebGPU, on a recording device (Rule 11.8, surface
   it('replaces the zeroed buffer when write() changes the length, and frees it on destroy()', async () => {
     const gpu = fakeGpu();
     const m = await load();
-    const [out, a, b] = [resident(4, 'f32'), resident(4, 'f32'), resident(4, 'f32')];
+    const [out, a, b] = [array(4, 'f32'), array(4, 'f32'), array(4, 'f32')];
     void m.add(out, a, b);
     await out.read();
     const first = gpu.made.filter((x) => (x.usage & STORAGE) !== 0 && x.size === 16);
     expect(first.length).toBeGreaterThan(0);
     // A write of 8 numbers: the next call checks the new host copy, and binds a buffer of 32 bytes.
-    out.write(floats(1, 2, 3, 4, 5, 6, 7, 8));
-    a.write(floats(1, 2, 3, 4, 5, 6, 7, 8));
-    b.write(floats(1, 2, 3, 4, 5, 6, 7, 8));
+    out.set(floats(1, 2, 3, 4, 5, 6, 7, 8));
+    a.set(floats(1, 2, 3, 4, 5, 6, 7, 8));
+    b.set(floats(1, 2, 3, 4, 5, 6, 7, 8));
     void m.add(out, a, b);
     expect((await out.read()).length).toBe(8);
     expect(first.some((x) => x.destroyed)).toBe(true);
     // A use after destroy() is a TypeError, and the device buffer is freed.
     const freed = () => gpu.made.filter((x) => (x.usage & STORAGE) !== 0 && x.destroyed).length;
     const before = freed();
-    out.destroy();
+    out.dispose();
     await kernelQueue.idle();
     expect(freed()).toBe(before + 1);
-    await expect(out.read()).rejects.toThrow('This Resident was destroyed');
-    expect(() => out.write(floats(1))).toThrow('This Resident was destroyed');
+    await expect(out.read()).rejects.toThrow('This Buffer was disposed');
+    expect(() => out.set(floats(1))).toThrow('This Buffer was disposed');
   });
 
   it('makes the zeroed buffer the size of the layout, as the buffer of the same typed array is', async () => {
@@ -4902,7 +4939,7 @@ export function lift3(out: array<vec3>) {
     expect(g.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     const m = (await loadCode(g.code!, 'vec')) as unknown as Record<'lift3', Call>;
     // Two vec3 elements: 6 numbers, and 32 bytes with each element padded to 16.
-    const z = resident(6, 'f32');
+    const z = array(6, 'f32');
     void m.lift3(z);
     await z.read();
     const sizes = gpu.made
@@ -4954,58 +4991,60 @@ const deviceHolding = (bytes: Float32Array) =>
     mapped: (size) => (size === bytes.byteLength ? bytes.slice().buffer : new ArrayBuffer(size)),
   });
 
-describe('a Resident of instances on WebGPU, on a recording device (Rule 11.8, change 0109 Amendment 1)', () => {
-  it('reads the device buffer into the host copy in place, and read() returns instances of the class', async () => {
+describe('a Buffer of a class on WebGPU, on a recording device (Rule 11.8, change 0109 Amendment 1; change 0138, Amendment A11, Q4)', () => {
+  it('runs on the device, uploads the fields, and read() returns instances of the class', async () => {
     // What the device holds once the call has run: each voice one frame on, its phase and step.
     const gpu = deviceHolding(Float32Array.of(0.25, 0.25, 0.5, 0.5));
     const { Voice, render } = await loadVoices();
-    const bank = resident([new Voice(0.25), new Voice(0.5)]);
-    const held = [...(residentState(bank)!.host as object[])];
-    void render(resident(new Float32Array(2)), bank);
+    const bank = array(Voice as unknown as abstract new () => Osc, [
+      new Voice(0.25),
+      new Voice(0.5),
+    ]);
+    void render(array(new Float32Array(2)), bank);
     const back = await bank.read();
     // The call ran on the device, and the bank's buffer holds the fields: no class is in it.
     expect(gpu.flow).toContain('dispatch 1 1 1');
-    const uploaded = gpu.made.find((b) => b.usage === RESIDENT_BUFFER && b.size === 16);
-    expect(new Float32Array(uploaded!.contents!)).toEqual(Float32Array.of(0, 0.25, 0, 0.5));
-    // The read wrote the device's bytes into the host copy's own objects, which stay instances.
-    const host = residentState(bank)!.host as Osc[];
-    host.forEach((o, i) => {
-      expect(o).toBe(held[i]);
-      expect(o).toBeInstanceOf(Voice);
-    });
-    expect(host.map((o) => ({ ...o }))).toEqual([
+    expect(
+      gpu.made.some(
+        (b) =>
+          b.size === 16 &&
+          b.contents !== undefined &&
+          new Float32Array(b.contents).join() === '0,0.25,0,0.5',
+      ),
+    ).toBe(true);
+    // read() returns a new copy, each element an instance with the device's fields, and a method
+    // runs on it on the CPU tier.
+    for (const v of back) expect(v).toBeInstanceOf(Voice);
+    expect(back.map((v) => ({ ...v }))).toEqual([
       { phase: 0.25, step: 0.25 },
       { phase: 0.5, step: 0.5 },
     ]);
-    // read() returns a new copy, each element an instance with the device's fields, and a method
-    // runs on it on the CPU tier.
-    back.forEach((v, i) => {
-      expect(v).toBeInstanceOf(Voice);
-      expect(v).not.toBe(held[i]);
-    });
-    expect(back.map((v) => ({ ...v }))).toEqual(host.map((o) => ({ ...o })));
     expect(back[0]!.tick()).toBe(0.5);
     expect(back[1]!.tick()).toBe(0);
   });
 
-  it('uploads what write() gave it as its fields, and a Resident of plain objects reads back as given', async () => {
+  it('uploads what set() gave it as its fields, and refuses an array of plain objects in array()', async () => {
     const gpu = deviceHolding(Float32Array.of(0.75, 0.125));
     const { Voice, render } = await loadVoices();
-    const bank = resident([new Voice(0.25)]);
-    bank.write([new Voice(0.125)]);
-    void render(resident(new Float32Array(1)), bank);
+    const bank = array(Voice as unknown as abstract new () => Osc, [new Voice(0.25)]);
+    bank.set([new Voice(0.125)]);
+    void render(array(new Float32Array(1)), bank);
     const back = await bank.read();
-    const uploaded = gpu.made.find((b) => b.usage === RESIDENT_BUFFER && b.size === 8);
-    expect(new Float32Array(uploaded!.contents!)).toEqual(Float32Array.of(0, 0.125));
+    expect(
+      gpu.made.some(
+        (b) =>
+          b.size === 8 &&
+          b.contents !== undefined &&
+          new Float32Array(b.contents).join() === '0,0.125',
+      ),
+    ).toBe(true);
     expect(back[0]).toBeInstanceOf(Voice);
     expect({ ...back[0]! }).toEqual({ phase: 0.75, step: 0.125 });
     expect(back[0]!.tick()).toBe(0.875);
-    // A Resident of plain objects reads back as plain objects, as before.
-    const plain = resident([{ phase: 0, step: 0.125 }]);
-    void render(resident(new Float32Array(1)), plain);
-    const p = await plain.read();
-    expect(Object.getPrototypeOf(p[0])).toBe(Object.prototype);
-    expect(p).toEqual([{ phase: 0.75, step: 0.125 }]);
+    // An array of plain objects is plain data, and no Buffer (Amendment A11, Q4).
+    expect(() => array([{ phase: 0, step: 0.125 }] as never)).toThrow(
+      /^array\(\): takes an array of numbers, a Float32Array/,
+    );
   });
 });
 
@@ -5154,7 +5193,7 @@ describe('a fuse report gives gpuTime to each WebGPU group, when the device meas
     const m = await loadFused();
     // 70,000 elements are 274 workgroups, then 2, then 1: the loop and two fold levels.
     const n = 70_000;
-    const [a, b, c] = [1, 2, 3].map(() => resident(new Float32Array(n).fill(1)));
+    const [a, b, c] = [1, 2, 3].map(() => array(new Float32Array(n).fill(1)));
     const report = await fuse((scope) => {
       const [t, u] = [scope.scratch(n), scope.scratch(n)];
       void m.add(t, a!, b!);
@@ -5272,7 +5311,7 @@ describe('an entry call in a fuse scope (proposal 0069)', () => {
       }),
     ).rejects.toThrow(
       new TypeError(
-        'fill(): binding "sink" is a Float32Array, and a call inside fuse() takes a storage array with no size only as a Resident. Pass resident(...), or call fill() outside fuse().',
+        'fill(): binding "sink" is a Float32Array, and a call inside fuse() takes a storage array with no size only as a Buffer. Pass array(...), or call fill() outside fuse().',
       ),
     );
   });
@@ -5287,7 +5326,11 @@ describe('an entry call in a fuse scope (proposal 0069)', () => {
         void t.tiled(bindings(), [1, 1]);
       }),
     ).rejects.toThrow(/tiled\(\) needs WebGPU: it reaches .*a barrier has no CPU tier\./);
-    await expect(t.tiled(bindings(), [1, 1])).rejects.toThrow(
+    // Outside a scope a call on a Buffer is recorded, and its failure is thrown at the next read()
+    // (change 0138, R2).
+    const outside = bindings();
+    void t.tiled(outside, [1, 1]);
+    await expect(outside.c.read()).rejects.toThrow(
       /tiled\(\) needs WebGPU: it reaches .*a barrier has no CPU tier\./,
     );
   });
@@ -5693,11 +5736,11 @@ describe('a vec4f scratch array (proposal 0068)', () => {
 
   it('takes the element vec4f and holds 4 × length numbers, zeroed, on the CPU tier', async () => {
     const m = await loadVec4(generatedVec4.code!);
-    const out = resident(new Float32Array(8));
-    let t: Resident<Float32Array> | undefined;
+    const out = array(new Float32Array(8));
+    let t: Buffer<vec4f> | undefined;
     const report = await fuse((scope) => {
       t = scope.scratch(2, 'vec4f');
-      void m.vadd(t, resident(A), resident(B));
+      void m.vadd(t, array(A), array(B));
       void m.vdouble(out, t);
     });
     expect(Array.from((await out.read()) as Float32Array)).toEqual(Array.from(DOUBLED));
@@ -5718,7 +5761,7 @@ describe('a vec4f scratch array (proposal 0068)', () => {
 
   it('holds zeros of 4 × length numbers when the plan starts', async () => {
     const m = await loadVec4(generatedVec4.code!);
-    const out = resident(new Float32Array(8));
+    const out = array(new Float32Array(8));
     await fuse((scope) => {
       const t = scope.scratch(2, 'vec4f');
       void m.vdouble(out, t);
@@ -5728,7 +5771,7 @@ describe('a vec4f scratch array (proposal 0068)', () => {
 
   it('refuses an element of the other vector widths, and a vec4f array for an f32 parameter', async () => {
     const m = await loadVec4(generatedVec4.code!);
-    const out = resident(new Float32Array(8));
+    const out = array(new Float32Array(8));
     await expect(
       fuse((scope) => {
         scope.scratch(2, 'vec2f' as 'f32');
@@ -5752,7 +5795,7 @@ describe('a vec4f scratch array (proposal 0068)', () => {
 
   it('fuses the two maps and holds the vec4f scratch array as a local of vec4<f32>', async () => {
     const dispatch = 'dispatch 1 1 1';
-    let t: Resident<Float32Array> | undefined;
+    let t: Buffer<vec4f> | undefined;
     let held: unknown[] = [];
     const gpu = fakeGpu({
       onSubmit: () => {
@@ -5761,8 +5804,8 @@ describe('a vec4f scratch array (proposal 0068)', () => {
       },
     });
     const m = await loadVec4(generatedVec4Fused.code!);
-    const [a, b] = [resident(A), resident(B)];
-    const out = resident(new Float32Array(8));
+    const [a, b] = [array(A), array(B)];
+    const out = array(new Float32Array(8));
     const report = await fuse((scope) => {
       t = scope.scratch(2, 'vec4f');
       void m.vadd(t, a, b);
@@ -5798,10 +5841,10 @@ describe('a vec4f scratch array (proposal 0068)', () => {
   it('keeps a vec4f scratch array a buffer of 16 bytes an element when a call names its length', async () => {
     const gpu = fakeGpu();
     const m = await loadVec4(generatedVec4Fused.code!);
-    const out = resident(new Float32Array(8));
+    const out = array(new Float32Array(8));
     const report = await fuse((scope) => {
       const t = scope.scratch(2, 'vec4f');
-      void m.vadd(t, resident(A), resident(B));
+      void m.vadd(t, array(A), array(B));
       void m.vcount(out, t);
     });
     expect(report.tier).toBe('webgpu');
@@ -5821,13 +5864,13 @@ describe('a vec4f scratch array (proposal 0068)', () => {
 
   it('runs a vec4f chain on the CPU tier when WebGL2 is first: a loop over vec4f is not a WebGL2 loop', async () => {
     const m = await loadVec4(generatedVec4.code!);
-    const out = resident(new Float32Array(8));
+    const out = array(new Float32Array(8));
     webgl.context = stubGl();
     configure({ prefer: ['webgl2', 'cpu'] });
     try {
       const report = await fuse((scope) => {
         const t = scope.scratch(2, 'vec4f');
-        void m.vadd(t, resident(A), resident(B));
+        void m.vadd(t, array(A), array(B));
         void m.vdouble(out, t);
       });
       expect(report.tier).toBe('cpu');
@@ -5840,8 +5883,8 @@ describe('a vec4f scratch array (proposal 0068)', () => {
 
   it('refuses a vec4f scratch array for a parameter of another vector element or width', async () => {
     const m = await loadVec4(generatedVec4.code!);
-    const ints = resident(new Int32Array(12));
-    const floats3 = resident(new Float32Array(9));
+    const ints = array(new Int32Array(12));
+    const floats3 = array(new Float32Array(9));
     for (const [call, out] of [
       [m.ivec, ints],
       [m.v3, floats3],
@@ -5856,10 +5899,10 @@ describe('a vec4f scratch array (proposal 0068)', () => {
 
   it('counts vectors for .length of a vec4f scratch array on the CPU tier (Rule 8.23)', async () => {
     const m = await loadVec4(generatedVec4.code!);
-    const out = resident(new Float32Array(8));
+    const out = array(new Float32Array(8));
     const report = await fuse((scope) => {
       const t = scope.scratch(2, 'vec4f');
-      void m.vadd(t, resident(A), resident(B));
+      void m.vadd(t, array(A), array(B));
       void m.vcount(out, t);
     });
     expect(report.tier).toBe('cpu');
@@ -5873,7 +5916,7 @@ describe('a vec4f scratch array (proposal 0068)', () => {
     let sum: Promise<number> | undefined;
     const report = await fuse((scope) => {
       const t = scope.scratch(2, 'vec4f');
-      void m.vadd(t, resident(A), resident(B));
+      void m.vadd(t, array(A), array(B));
       sum = m.vsum(t);
     });
     expect(report.groups).toEqual([
@@ -5900,7 +5943,7 @@ describe('a vec4f scratch array (proposal 0068)', () => {
     let sum: Promise<number> | undefined;
     await fuse((scope) => {
       const t = scope.scratch(2, 'vec4f');
-      void m.vadd(t, resident(A), resident(B));
+      void m.vadd(t, array(A), array(B));
       sum = m.vsum(t);
     });
     // (1 + 2 + ... + 8) + (4 × 1 + 4 × 2) = 36 + 12.
@@ -5910,11 +5953,11 @@ describe('a vec4f scratch array (proposal 0068)', () => {
   it('holds two vec4f scratch arrays as two locals of one group', async () => {
     const gpu = fakeGpu();
     const m = await loadVec4(generatedVec4Fused.code!);
-    const out = resident(new Float32Array(8));
+    const out = array(new Float32Array(8));
     const report = await fuse((scope) => {
       const t = scope.scratch(2, 'vec4f');
       const u = scope.scratch(2, 'vec4f');
-      void m.vadd(t, resident(A), resident(B));
+      void m.vadd(t, array(A), array(B));
       void m.vdouble(u, t);
       void m.vadd(out, u, t);
     });
@@ -5936,10 +5979,10 @@ describe('a vec4f scratch array (proposal 0068)', () => {
   it('keeps a vec4f scratch array a buffer when an entry call stands between its two calls', async () => {
     const gpu = fakeGpu();
     const m = await loadVec4(generatedVec4Fused.code!);
-    const [out, sink] = [resident(new Float32Array(8)), resident(new Float32Array(8))];
+    const [out, sink] = [array(new Float32Array(8)), array(new Float32Array(8))];
     const report = await fuse((scope) => {
       const t = scope.scratch(2, 'vec4f');
-      void m.vadd(t, resident(A), resident(B));
+      void m.vadd(t, array(A), array(B));
       void m.fill({ sink }, 1);
       void m.vdouble(out, t);
     });
@@ -5985,10 +6028,10 @@ describe('an indirect workgroup count, on a recording device (change 0075)', () 
   it('counts an encoded zero-grid indirect command once without reading it (change 0121)', async () => {
     const gpu = fakeGpu();
     const c = await loadCounted();
-    const counts = resident(words(1, 0, 1));
+    const counts = array(words(1, 0, 1));
     const report = await fuse(() => {
       void c.mark(
-        { marks: resident(new Uint32Array(4)), words: resident(words(0)) },
+        { marks: array(new Uint32Array(4)), words: array(words(0)) },
         { indirect: counts },
       );
     });
@@ -6000,9 +6043,9 @@ describe('an indirect workgroup count, on a recording device (change 0075)', () 
   it('records dispatchWorkgroupsIndirect with the array’s buffer at 4 × offset, and no dispatchWorkgroups', async () => {
     const gpu = fakeGpu();
     const c = await loadCounted();
-    const counts = resident(words(9, 9, 9, 2, 1, 1));
-    const marks = resident(new Uint32Array(8));
-    await c.mark({ marks, words: words(5) }, { indirect: counts, offset: 3 });
+    const counts = array(words(9, 9, 9, 2, 1, 1));
+    const marks = array(new Uint32Array(8));
+    await done(c.mark({ marks, words: words(5) }, { indirect: counts, offset: 3 }));
     const buffer = bufferOf(counts);
     expect(gpu.flow).toEqual(['dispatchIndirect at 12', 'submit']);
     expect(gpu.indirect).toEqual([{ record: buffer, offset: 12 }]);
@@ -6014,9 +6057,9 @@ describe('an indirect workgroup count, on a recording device (change 0075)', () 
   it('gives every Resident buffer the usage INDIRECT, 0x0100, a zeroed one among them (D3)', async () => {
     const gpu = fakeGpu();
     const c = await loadCounted();
-    const counts = resident(3, 'u32');
-    const marks = resident(new Uint32Array(8));
-    await c.mark({ marks, words: words(5) }, { indirect: counts });
+    const counts = array(3, 'u32');
+    const marks = array(new Uint32Array(8));
+    await done(c.mark({ marks, words: words(5) }, { indirect: counts }));
     expect(bufferOf(counts).usage & 0x0100).toBe(0x0100);
     expect(bufferOf(counts).usage).toBe(RESIDENT_BUFFER);
     expect(bufferOf(marks).usage).toBe(RESIDENT_BUFFER);
@@ -6028,14 +6071,14 @@ describe('an indirect workgroup count, on a recording device (change 0075)', () 
   it('uploads a newer host copy of the counts, and keeps a device copy as it is', async () => {
     fakeGpu();
     const c = await loadCounted();
-    const counts = resident(words(1, 1, 1));
-    const marks = resident(new Uint32Array(8));
+    const counts = array(words(1, 1, 1));
+    const marks = array(new Uint32Array(8));
     const call = () => c.mark({ marks, words: words(0) }, { indirect: counts });
-    await call();
-    await call();
+    await done(call());
+    await done(call());
     expect(bufferOf(counts).writes).toHaveLength(1);
-    counts.write(words(2, 1, 1));
-    await call();
+    counts.set(words(2, 1, 1));
+    await done(call());
     expect(bufferOf(counts).writes).toHaveLength(2);
     expect(new Uint32Array(bufferOf(counts).contents!)).toEqual(words(2, 1, 1));
   });
@@ -6043,10 +6086,10 @@ describe('an indirect workgroup count, on a recording device (change 0075)', () 
   it('runs an indirect call in a scope as a group of its own, after the call that writes its counts, in one submission', async () => {
     const gpu = fakeGpu();
     const [m, c] = [await load(), await loadCounted()];
-    const counts = resident(new Uint32Array(3));
-    const [marks, ws] = [resident(new Uint32Array(8)), resident(words(0))];
+    const counts = array(new Uint32Array(3));
+    const [marks, ws] = [array(new Uint32Array(8)), array(words(0))];
     const report = await fuse(() => {
-      void m.uadd(counts, resident(words(1, 1, 1)), resident(words(1, 0, 0)));
+      void m.uadd(counts, array(words(1, 1, 1)), array(words(1, 0, 0)));
       void c.mark({ marks, words: ws }, { indirect: counts });
     });
     expect(report).toEqual({
@@ -6080,15 +6123,15 @@ describe('an indirect workgroup count, on a recording device (change 0075)', () 
   it('clears a pooled array of counts before the pass that reads them, in the plan’s submission', async () => {
     const gpu = fakeGpu();
     const c = await loadCounted();
-    const counts = resident(3, 'u32');
-    const marks = resident(new Uint32Array(8));
-    await c.mark({ marks, words: words(0) }, { indirect: counts });
+    const counts = array(3, 'u32');
+    const marks = array(new Uint32Array(8));
+    await done(c.mark({ marks, words: words(0) }, { indirect: counts }));
     // What a `Device` does when it gives the array out again as zeros (change 0071).
     const state = residentState(counts)!;
     state.clearPending = true;
     pendingClears.set(state.gpu!.buffer, state);
     gpu.commands.length = 0;
-    await c.mark({ marks, words: words(0) }, { indirect: counts });
+    await done(c.mark({ marks, words: words(0) }, { indirect: counts }));
     // The recording encoder has no clearBuffer: the batch writes zeros to the buffer instead.
     expect(bufferOf(counts).writes.map((w) => new Uint32Array(w.bytes))).toEqual([words(0, 0, 0)]);
     expect(state.clearPending).toBe(false);
@@ -6099,10 +6142,10 @@ describe('an indirect workgroup count, on a recording device (change 0075)', () 
 describe('an indirect workgroup count on the CPU tier (change 0075)', () => {
   it('reads the counts that an earlier call of the same plan wrote, and runs that grid', async () => {
     const [m, c] = [await load(), await loadCounted()];
-    const counts = resident(new Uint32Array(3));
-    const [marks, ws] = [resident(new Uint32Array(8)), resident(words(10))];
+    const counts = array(new Uint32Array(3));
+    const [marks, ws] = [array(new Uint32Array(8)), array(words(10))];
     const report = await fuse(() => {
-      void m.uadd(counts, resident(words(1, 1, 1)), resident(words(1, 0, 0)));
+      void m.uadd(counts, array(words(1, 1, 1)), array(words(1, 0, 0)));
       void c.mark({ marks, words: ws }, { indirect: counts });
     });
     // Two workgroups of two invocations: four elements, each holding 2 + 10.
@@ -6115,10 +6158,10 @@ describe('an indirect workgroup count on the CPU tier (change 0075)', () => {
 
   it('runs nothing for a count with a 0 in it, and does not throw', async () => {
     const [m, c] = [await load(), await loadCounted()];
-    const counts = resident(new Uint32Array(3));
-    const [marks, ws] = [resident(new Uint32Array(4)), resident(words(10))];
+    const counts = array(new Uint32Array(3));
+    const [marks, ws] = [array(new Uint32Array(4)), array(words(10))];
     await fuse(() => {
-      void m.uadd(counts, resident(words(0, 1, 1)), resident(words(0, 0, 0)));
+      void m.uadd(counts, array(words(0, 1, 1)), array(words(0, 0, 0)));
       void c.mark({ marks, words: ws }, { indirect: counts });
     });
     expect(await marks.read()).toEqual(words(0, 0, 0, 0));
@@ -6129,12 +6172,12 @@ describe('an indirect workgroup count on the CPU tier (change 0075)', () => {
     configure({ runtime: { device: { limits: { maxComputeWorkgroupsPerDimension: 2 } } } });
     configure({ prefer: ['cpu'] });
     try {
-      const counts = resident(words(3, 1, 1));
-      const marks = resident(new Uint32Array(8));
-      await c.mark({ marks, words: words(0) }, { indirect: counts });
+      const counts = array(words(3, 1, 1));
+      const marks = array(new Uint32Array(8));
+      await done(c.mark({ marks, words: words(0) }, { indirect: counts }));
       expect(await marks.read()).toEqual(new Uint32Array(8));
-      counts.write(words(2, 1, 1));
-      await c.mark({ marks, words: words(0) }, { indirect: counts });
+      counts.set(words(2, 1, 1));
+      await done(c.mark({ marks, words: words(0) }, { indirect: counts }));
       expect(await marks.read()).toEqual(words(2, 2, 2, 2, 0, 0, 0, 0));
     } finally {
       configure({});
@@ -6143,9 +6186,9 @@ describe('an indirect workgroup count on the CPU tier (change 0075)', () => {
 
   it('takes a counts array that the entry only reads as a binding', async () => {
     const c = await loadCounted();
-    const counts = resident(words(1, 1, 1));
-    const marks = resident(new Uint32Array(4));
-    await c.mark({ marks, words: counts }, { indirect: counts });
+    const counts = array(words(1, 1, 1));
+    const marks = array(new Uint32Array(4));
+    await done(c.mark({ marks, words: counts }, { indirect: counts }));
     expect(await marks.read()).toEqual(words(2, 2, 0, 0));
   });
 });
@@ -6161,10 +6204,10 @@ describe('an indirect workgroup count on WebGL2 (change 0075, D4)', () => {
     };
     configure({ prefer: ['webgl2', 'cpu'] });
     try {
-      const counts = resident(words(1, 0, 1));
+      const counts = array(words(1, 0, 1));
       const report = await fuse(() => {
         void c.mark(
-          { marks: resident(new Uint32Array(4)), words: resident(words(0)) },
+          { marks: array(new Uint32Array(4)), words: array(words(0)) },
           { indirect: counts },
         );
       });
@@ -6187,14 +6230,14 @@ describe('an indirect workgroup count on WebGL2 (change 0075, D4)', () => {
     };
     configure({ prefer: ['webgl2', 'cpu'] });
     try {
-      const counts = resident(words(7, 3, 2, 1, 0, 1));
-      const marks = resident(new Uint32Array(4));
+      const counts = array(words(7, 3, 2, 1, 0, 1));
+      const marks = array(new Uint32Array(4));
       const report = await fuse(() => {
-        void c.mark({ marks, words: resident(words(0)) }, { indirect: counts });
+        void c.mark({ marks, words: array(words(0)) }, { indirect: counts });
       });
       expect(report).toMatchObject({ tier: 'webgl2', dispatches: 1, submissions: 0 });
       expect(report.groups[0]!.indirect).toBe(true);
-      await c.mark({ marks, words: words(0) }, { indirect: counts, offset: 3 });
+      await done(c.mark({ marks, words: words(0) }, { indirect: counts, offset: 3 }));
       // The second grid has a 0 in it, so the pass program never ran for it.
       expect(grids).toEqual([[7, 3, 2]]);
     } finally {
@@ -6206,29 +6249,25 @@ describe('an indirect workgroup count on WebGL2 (change 0075, D4)', () => {
 });
 
 describe('what an indirect workgroup count refuses (change 0075, item 9)', () => {
-  const marks = () => resident(new Uint32Array(4));
+  const marks = () => array(new Uint32Array(4));
 
-  it('refuses an array that is not a Resident<Uint32Array>, naming workgroups.indirect', async () => {
+  it('refuses an array that is not a Buffer<u32>, naming workgroups.indirect', async () => {
     const c = await loadCounted();
     const at = 'mark(): "workgroups.indirect"';
     await expect(
-      c.mark({ marks: marks(), words: words(0) }, { indirect: new Uint32Array(3) }),
+      attempt(() => c.mark({ marks: marks(), words: words(0) }, { indirect: new Uint32Array(3) })),
     ).rejects.toThrow(
-      new TypeError(
-        `${at} is a Resident<Uint32Array> that holds the workgroup counts; got a Uint32Array.`,
-      ),
+      new TypeError(`${at} is a Buffer<u32> that holds the workgroup counts; got a Uint32Array.`),
     );
     await expect(
-      c.mark({ marks: marks(), words: words(0) }, { indirect: resident(new Float32Array(3)) }),
-    ).rejects.toThrow(
-      new TypeError(`${at} is a Resident<Uint32Array>; got a Resident of a Float32Array.`),
-    );
+      attempt(() =>
+        c.mark({ marks: marks(), words: words(0) }, { indirect: array(new Float32Array(3)) }),
+      ),
+    ).rejects.toThrow(new TypeError(`${at} is a Buffer<u32>; got a Buffer of a Float32Array.`));
     // A zeroed array of another element is refused by the zeros it would hold.
     await expect(
-      c.mark({ marks: marks(), words: words(0) }, { indirect: resident(3, 'i32') }),
-    ).rejects.toThrow(
-      new TypeError(`${at} is a Resident<Uint32Array>; got a Resident of a Int32Array.`),
-    );
+      attempt(() => c.mark({ marks: marks(), words: words(0) }, { indirect: array(3, 'i32') })),
+    ).rejects.toThrow(new TypeError(`${at} is a Buffer<u32>; got a Buffer of a Int32Array.`));
   });
 
   it('refuses an offset that is not a whole number from 0, and three counts past the array, with both numbers', async () => {
@@ -6238,12 +6277,12 @@ describe('what an indirect workgroup count refuses (change 0075, item 9)', () =>
         { marks: marks(), words: words(0) },
         offset === undefined ? { indirect } : { indirect, offset },
       );
-    await expect(call(resident(words(1, 1)))).rejects.toThrow(
+    await expect(attempt(() => call(array(words(1, 1))))).rejects.toThrow(
       new TypeError(
         'mark(): "workgroups.offset" is 0, and the three counts from it need 3 elements; the array holds 2.',
       ),
     );
-    await expect(call(resident(words(1, 1, 1)), 1)).rejects.toThrow(
+    await expect(attempt(() => call(array(words(1, 1, 1)), 1))).rejects.toThrow(
       new TypeError(
         'mark(): "workgroups.offset" is 1, and the three counts from it need 4 elements; the array holds 3.',
       ),
@@ -6253,7 +6292,7 @@ describe('what an indirect workgroup count refuses (change 0075, item 9)', () =>
       [-1, 'number -1'],
       ['3', 'the string "3"'],
     ] as const)
-      await expect(call(resident(words(1, 1, 1, 1)), offset)).rejects.toThrow(
+      await expect(attempt(() => call(array(words(1, 1, 1, 1)), offset))).rejects.toThrow(
         new TypeError(
           `mark(): "workgroups.offset" counts elements of the indirect array, so it is a whole number from 0; got ${got}.`,
         ),
@@ -6265,40 +6304,48 @@ describe('what an indirect workgroup count refuses (change 0075, item 9)', () =>
     const wrong = new TypeError(
       'mark(): "workgroups" is a number, [x, y?, z?] of workgroups, or { indirect, offset? }; got an object.',
     );
-    const counts = resident(words(1, 1, 1));
+    const counts = array(words(1, 1, 1));
     await expect(
-      c.mark({ marks: marks(), words: words(0) }, { indirect: counts, count: 1 }),
+      attempt(() => c.mark({ marks: marks(), words: words(0) }, { indirect: counts, count: 1 })),
     ).rejects.toThrow(wrong);
-    await expect(c.mark({ marks: marks(), words: words(0) }, { offset: 0 })).rejects.toThrow(wrong);
+    await expect(
+      attempt(() => c.mark({ marks: marks(), words: words(0) }, { offset: 0 })),
+    ).rejects.toThrow(wrong);
   });
 
   it('refuses a counts array that the entry also writes, or binds read_write, and takes one it only reads', async () => {
     const c = await loadCounted();
-    const counts = resident(words(1, 1, 1, 0));
-    await expect(c.mark({ marks: counts, words: words(0) }, { indirect: counts })).rejects.toThrow(
+    const counts = array(words(1, 1, 1, 0));
+    await expect(
+      attempt(() => c.mark({ marks: counts, words: words(0) }, { indirect: counts })),
+    ).rejects.toThrow(
       new TypeError(
-        'mark(): "workgroups.indirect" is also binding "marks", which the entry writes. WebGPU cannot read the counts from a buffer that the same dispatch writes, so pass another Resident.',
+        'mark(): "workgroups.indirect" is also binding "marks", which the entry writes. WebGPU cannot read the counts from a buffer that the same dispatch writes, so pass another Buffer.',
       ),
     );
-    await expect(c.peek({ marks: marks(), table: counts }, { indirect: counts })).rejects.toThrow(
+    await expect(
+      attempt(() => c.peek({ marks: marks(), table: counts }, { indirect: counts })),
+    ).rejects.toThrow(
       new TypeError(
-        'peek(): "workgroups.indirect" is also binding "table", which the entry binds read_write. WebGPU cannot read the counts from a buffer that the same dispatch writes, so pass another Resident.',
+        'peek(): "workgroups.indirect" is also binding "table", which the entry binds read_write. WebGPU cannot read the counts from a buffer that the same dispatch writes, so pass another Buffer.',
       ),
     );
     const out = marks();
-    // The refused writer left counts failed. Use a fresh handle for the independent valid case.
-    const healthy = resident(words(1, 1, 1, 0));
+    // A refused call leaves counts as it was; a fresh one is the independent valid case.
+    const healthy = array(words(1, 1, 1, 0));
     await c.mark({ marks: out, words: healthy }, { indirect: healthy });
     expect(await out.read()).toEqual(words(2, 2, 0, 0));
   });
 
-  it('refuses a destroyed Resident, with the words of a destroyed one', async () => {
+  it('refuses a disposed Buffer, with the words of a disposed one', async () => {
     const c = await loadCounted();
-    const counts = resident(words(1, 1, 1));
-    counts.destroy();
-    await expect(c.mark({ marks: marks(), words: words(0) }, { indirect: counts })).rejects.toThrow(
+    const counts = array(words(1, 1, 1));
+    counts.dispose();
+    await expect(
+      attempt(() => c.mark({ marks: marks(), words: words(0) }, { indirect: counts })),
+    ).rejects.toThrow(
       new TypeError(
-        'mark(): "workgroups.indirect": this Resident was destroyed; make a new one with array().',
+        'mark(): "workgroups.indirect": this Buffer was disposed; make a new one with array().',
       ),
     );
   });
@@ -6308,7 +6355,7 @@ describe('what an indirect workgroup count refuses (change 0075, item 9)', () =>
     await expect(
       fuse((scope) => {
         void c.mark(
-          { marks: marks(), words: resident(words(0)) },
+          { marks: marks(), words: array(words(0)) },
           { indirect: scope.scratch(3, 'u32') },
         );
       }),
@@ -6325,10 +6372,7 @@ describe('what an indirect workgroup count refuses (change 0075, item 9)', () =>
     await expect(
       fuse(() => {
         void m.bump(x);
-        void c.mark(
-          { marks: marks(), words: resident(words(0)) },
-          { indirect: resident(words(1)) },
-        );
+        void c.mark({ marks: marks(), words: array(words(0)) }, { indirect: array(words(1)) });
       }),
     ).rejects.toThrow(
       'mark(): "workgroups.offset" is 0, and the three counts from it need 3 elements; the array holds 1.',
@@ -6345,9 +6389,9 @@ describe('the plan record of an indirect entry call (change 0075)', () => {
     const by = (name: string): EntryBinding =>
       e.bindings.find((b) => b.name === name) as EntryBinding;
     const [counts, marksR, ws] = [
-      resident(new Uint32Array(3)),
-      resident(new Uint32Array(4)),
-      resident(words(0)),
+      array(new Uint32Array(3)),
+      array(new Uint32Array(4)),
+      array(words(0)),
     ];
     const plan = buildPlan([
       { k: faceOf('uadd'), args: [counts, words(1, 1, 1), words(0, 0, 0)] },
@@ -6470,8 +6514,8 @@ describe('stores after the loops in a fuse scope (change 0094, Rule 11.13)', () 
   it('runs a function with no loop as one dispatch of one invocation (decision D7)', async () => {
     const gpu = fakeGpu();
     const m = await loadStores();
-    const count = resident(new Uint32Array([130]));
-    const wg = resident(new Uint32Array(1));
+    const count = array(new Uint32Array([130]));
+    const wg = array(new Uint32Array(1));
     const report = await fuse(() => void m.plan!(count, wg));
     expect(gpu.flow).toEqual(['dispatch 1 1 1', 'submit']);
     expect(report).toEqual({
@@ -6489,7 +6533,8 @@ describe('stores after the loops in a fuse scope (change 0094, Rule 11.13)', () 
     const gpu = fakeGpu();
     const m = await loadStores();
     const [xs, sums] = [live(1, 2, 3, 4), zeros(1)];
-    await m.sumInto!(xs, sums);
+    void m.sumInto!(xs, sums);
+    await kernelQueue.idle();
     // The loop is a submission of its own outside a scope, as it always was; then the stores.
     expect(gpu.flow).toEqual(['dispatch 1 1 1', 'submit', 'dispatch 1 1 1', 'submit']);
     expect(copies(gpu)).toEqual([]);
@@ -6528,7 +6573,8 @@ describe('stores after the loops in a fuse scope (change 0094, Rule 11.13)', () 
     expect([...((await sums.read()) as Float32Array)]).toEqual([10]);
     configure({ prefer: ['webgpu'] });
     try {
-      await expect(m.sumInto!(xs, sums)).rejects.toThrow(
+      void m.sumInto!(xs, sums);
+      await expect(sums.read()).rejects.toThrow(
         'sumInto(): no tier it may use can run it (webgpu: its stores after the loops bind 3 storage buffers, and the device allows 2).',
       );
     } finally {
@@ -6577,8 +6623,8 @@ describe('stores after the loops in a fuse scope (change 0094, Rule 11.13)', () 
     const report = await fuse(() => void m.sumInto!(xs, sums));
     expect(report.tier).toBe('cpu');
     expect([...((await sums.read()) as Float32Array)]).toEqual([10]);
-    const count = resident(new Uint32Array([130]));
-    const wg = resident(new Uint32Array(1));
+    const count = array(new Uint32Array([130]));
+    const wg = array(new Uint32Array(1));
     await fuse(() => void m.plan!(count, wg));
     expect([...((await wg.read()) as Uint32Array)]).toEqual([3]);
   });
@@ -6653,9 +6699,9 @@ describe('a push after a held length in a fuse scope (change 0094, Rule 11.13)',
     const m = await loadHeld();
     const xs = live(...Array.from({ length: 300 }, (_, i) => i % 3));
     const ys = zeros(300);
-    const list = resident(new Uint32Array(400));
-    const count = resident(words(5));
-    const out = resident(new Uint32Array(300));
+    const list = array(new Uint32Array(400));
+    const count = array(words(5));
+    const out = array(new Uint32Array(300));
     const report = await fuse(() => {
       void m.scale!(ys, xs);
       void m.keepAbove!(ys, 0.5, { array: list, length: count });
@@ -6691,9 +6737,9 @@ describe('a push after a held length in a fuse scope (change 0094, Rule 11.13)',
   it('records the held length as a read and a write of the call (decisions D3 and D4)', () => {
     const [ys, list, count, out] = [
       zeros(3),
-      resident(new Uint32Array(4)),
-      resident(words(0)),
-      resident(new Uint32Array(3)),
+      array(new Uint32Array(4)),
+      array(words(0)),
+      array(new Uint32Array(3)),
     ];
     const plan = buildPlan([
       { k: heldFace('keepAbove'), args: [ys, 0.5, { array: list, length: count }] },
@@ -6710,8 +6756,8 @@ describe('a push after a held length in a fuse scope (change 0094, Rule 11.13)',
     const gpu = fakeGpu();
     const m = await loadHeld();
     const xs = live(1, 2, 3, 4);
-    const list = resident(new Uint32Array(4));
-    const count = resident(words(2));
+    const list = array(new Uint32Array(4));
+    const count = array(words(2));
     await fuse(() => {
       void m.keepFirst!(xs, 4, { array: list, length: count });
       void m.keepFirst!(xs, 0, { array: list, length: count });
@@ -6732,8 +6778,8 @@ describe('a push after a held length in a fuse scope (change 0094, Rule 11.13)',
   it('runs two loops that push onto one array from one word, a zeroed word of the call when it holds none', async () => {
     const gpu = fakeGpu();
     const m = await loadHeld();
-    const xs = resident(words(7, 8, 9));
-    const out = resident(new Uint32Array(8));
+    const xs = array(words(7, 8, 9));
+    const out = array(new Uint32Array(8));
     await fuse(() => void m.both!(xs, out));
     expect(gpu.flow).toEqual([
       'dispatch 1 1 1',
@@ -6754,9 +6800,9 @@ describe('a push after a held length in a fuse scope (change 0094, Rule 11.13)',
     const m = await loadHeld();
     const [xs, list, count, done] = [
       live(1, 0, 3),
-      resident(new Uint32Array(4)),
-      resident(words(1)),
-      resident(new Uint32Array(1)),
+      array(new Uint32Array(4)),
+      array(words(1)),
+      array(new Uint32Array(1)),
     ];
     await fuse(() => void m.keepMark!(xs, { array: list, length: count }, done));
     // The count, scan and store of the push, then the entry that stores, in one submission.
@@ -6832,8 +6878,8 @@ describe('a trip count the device holds, on a recording device (change 0094, Rul
     const gpu = fakeGpu();
     const m = await loadRange();
     const xs = live(...Array.from({ length: 300 }, (_, i) => i % 3));
-    const list = resident(new Uint32Array(400));
-    const count = resident(words(0));
+    const list = array(new Uint32Array(400));
+    const count = array(words(0));
     const out = zeros(400);
     const report = await fuse(() => {
       void m.keepAbove!(xs, 0.5, { array: list, length: count });
@@ -6869,11 +6915,11 @@ describe('a trip count the device holds, on a recording device (change 0094, Rul
   it('keeps such a call a group of its own, with its reason (F1)', async () => {
     fakeGpu();
     const m = await loadRange();
-    const count = resident(words(3));
+    const count = array(words(3));
     const [a, b, c] = [
-      resident(new Uint32Array(4)),
-      resident(new Uint32Array(4)),
-      resident(new Uint32Array(4)),
+      array(new Uint32Array(4)),
+      array(new Uint32Array(4)),
+      array(new Uint32Array(4)),
     ];
     const report = await fuse(() => {
       void m.twice!(count, a, b);
@@ -6889,8 +6935,8 @@ describe('a trip count the device holds, on a recording device (change 0094, Rul
   it('runs the range entry of a second loop after the first loop, each from its own counts', async () => {
     const gpu = fakeGpu();
     const m = await loadRange();
-    const count = resident(words(3));
-    const [out, more] = [resident(new Uint32Array(4)), resident(new Uint32Array(8))];
+    const count = array(words(3));
+    const [out, more] = [array(new Uint32Array(4)), array(new Uint32Array(8))];
     await fuse(() => void m.twice!(count, out, more));
     expect(gpu.flow).toEqual([
       'dispatch 1 1 1',
@@ -6955,11 +7001,11 @@ describe('a trip count the device holds, on a recording device (change 0094, Rul
     webgl.context = stubGl();
     configure({ prefer: ['webgl2', 'cpu'] });
     try {
-      const [list, xs, out] = [resident(words(1, 0, 1)), live(5, 6), zeros(2)];
+      const [list, xs, out] = [array(words(1, 0, 1)), live(5, 6), zeros(2)];
       // A trip count of 0 draws nothing; one of 3 over an array of 2 draws its first 2.
-      const none = await fuse(() => void m.gather!(resident(words(0)), list, xs, out));
+      const none = await fuse(() => void m.gather!(array(words(0)), list, xs, out));
       expect(none).toMatchObject({ tier: 'webgl2', dispatches: 0 });
-      const three = await fuse(() => void m.gather!(resident(words(3)), list, xs, out));
+      const three = await fuse(() => void m.gather!(array(words(3)), list, xs, out));
       expect(three).toMatchObject({ tier: 'webgl2', dispatches: 1 });
       expect(rangeFace('gather').gl).toBeDefined();
     } finally {
@@ -7015,17 +7061,17 @@ describe('a call that takes a resource in the body of fuse() (Rule 11.13, change
       readonly mark: (bindings: unknown, workgroups: unknown) => void;
     };
     const kernelRefusal = new TypeError(
-      `age(): parameter "xs" is a resource, which the body of today's fuse() does not record; call the function outside it, or pass array(xs).`,
+      `age(): parameter "xs" is a Buffer of structs or a Uniform, which the body of today's fuse() does not record; call the function outside it, or pass a Buffer of scalars made with array(xs).`,
     );
     const entryRefusal = new TypeError(
-      `mark(): binding "cam" is a resource, which the body of today's fuse() does not record; call the entry outside it, or pass array(xs).`,
+      `mark(): binding "cam" is a Buffer of structs or a Uniform, which the body of today's fuse() does not record; call the entry outside it, or pass a Buffer of scalars made with array(xs).`,
     );
     configure({ prefer: ['cpu'] });
     try {
       const ps = runtime.zeros(m.Particle as never, 2);
       const bindings = () => ({
         cam: runtime.uniform(m.Params as never, { dt: 1 }),
-        lives: resident(new Float32Array(4)),
+        lives: array(new Float32Array(4)),
       });
       // Each call throws at once, so the body can catch it and the scope still completes.
       await fuse(() => {

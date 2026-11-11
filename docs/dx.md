@@ -45,13 +45,13 @@ the programmer's head.
 "The GPU as a separate world" is five things a TypeScript developer has to learn today before a
 GPU does anything for them:
 
-| #   | What the developer has to learn today                                                                              | How TypeShade removes it                                                                                                                       | Where it stands                                                                                                                                                                                                                                                                                                                         |
-| --- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | A second language, WGSL or GLSL                                                                                    | The source is TypeScript, and the compiler emits both targets from it                                                                          | **Holds on `main`**: `"use typeshade"`, surface document                                                                                                                                                                                                                                                                                |
-| 2   | A second memory: buffers, uploads, readbacks                                                                       | Where data lives is a compiler decision. The developer passes plain values and plain arrays                                                    | **Partly on `main`**: a host passes plain values and arrays at the call, and the call layer makes the buffers, the uploads and the readbacks (items 15 and 16, surface §65 and §67); one word, `resident`, keeps an array on the device. Inferring where data lives is after 1.0 (#97), and the uniforms argument stays explicit (#198) |
-| 3   | A second execution model: dispatches, workgroups, pipelines                                                        | An ordinary loop becomes a kernel when the compiler proves its iterations independent                                                          | **Holds for proven loops on `main`** (change 0013; Rule 8.22); not arbitrary loop parallelization                                                                                                                                                                                                                                       |
-| 4   | A second failure mode: silently wrong pixels, results that differ by driver, validation errors far from the source | Errors are reported at compile time on the line that causes them. The oracle is the reference. Operations that may differ by driver are listed | **Partly on `main`**: every front-end diagnostic names its source line, and the determinism report lists driver-dependent operations (item 22). A GPU result that differs from the oracle at run time is not reported yet (item 19)                                                                                                     |
-| 5   | A second debugging world, with no breakpoints and no `console.log`                                                 | GPU code steps on the CPU with the same numbers                                                                                                | **Holds on `main`**: `typeshade/debug` steps a shader function, and `console.log` in a shader reaches the host when the function runs on the CPU, and from WebGPU when the compile asks for it (`console: 'gpu'`, surface §66)                                                                                                          |
+| #   | What the developer has to learn today                                                                              | How TypeShade removes it                                                                                                                       | Where it stands                                                                                                                                                                                                                                                                                                                      |
+| --- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | A second language, WGSL or GLSL                                                                                    | The source is TypeScript, and the compiler emits both targets from it                                                                          | **Holds on `main`**: `"use typeshade"`, surface document                                                                                                                                                                                                                                                                             |
+| 2   | A second memory: buffers, uploads, readbacks                                                                       | Where data lives is a compiler decision. The developer passes plain values and plain arrays                                                    | **Partly on `main`**: a host passes plain values and arrays at the call, and the call layer makes the buffers, the uploads and the readbacks (items 15 and 16, surface §65 and §67); one word, `array`, keeps an array on the device. Inferring where data lives is after 1.0 (#97), and the uniforms argument stays explicit (#198) |
+| 3   | A second execution model: dispatches, workgroups, pipelines                                                        | An ordinary loop becomes a kernel when the compiler proves its iterations independent                                                          | **Holds for proven loops on `main`** (change 0013; Rule 8.22); not arbitrary loop parallelization                                                                                                                                                                                                                                    |
+| 4   | A second failure mode: silently wrong pixels, results that differ by driver, validation errors far from the source | Errors are reported at compile time on the line that causes them. The oracle is the reference. Operations that may differ by driver are listed | **Partly on `main`**: every front-end diagnostic names its source line, and the determinism report lists driver-dependent operations (item 22). A GPU result that differs from the oracle at run time is not reported yet (item 19)                                                                                                  |
+| 5   | A second debugging world, with no breakpoints and no `console.log`                                                 | GPU code steps on the CPU with the same numbers                                                                                                | **Holds on `main`**: `typeshade/debug` steps a shader function, and `console.log` in a shader reaches the host when the function runs on the CPU, and from WebGPU when the compile asks for it (`console: 'gpu'`, surface §66)                                                                                                       |
 
 Rows 4 and 5 are where TypeShade can go further than Python or PyTorch. A program can be shown
 correct before it runs. And a debugger can stop inside a GPU function, which PyTorch cannot do
@@ -131,8 +131,9 @@ Each principle comes with the question a reviewer asks of a new public API.
    (a class, a uniform, a storage array, a texture), laid out by the compiler, set and read
    through typed views. Plain data is accepted and uploaded. (Change 0138, Amendment A1: the
    owner's text of 2026-11-09. `uniform()`, `zeros()` and `array()` of `typeshade/runtime` make
-   the resources, and a kernel function that returns nothing or a `@compute` entry takes them in a
-   call that does not block, Rule 8.21; a call takes plain data as before.)
+   the resources, and a kernel function or a `@compute` entry takes them in a call that does not
+   block, a kernel function's result being `Buffer`s, Rule 8.21; a call takes plain data as
+   before.)
    Where a value lives is inferred by default. Where inference cannot keep a value on the device
    from one call to the next, `explain` says so and what it costs. One word then keeps the value
    there. That word is the only device vocabulary a compute program may need, and it is the same
@@ -240,10 +241,11 @@ target image.
 <!-- doc-snippets: skip — the import of a .shade.ts, residency, the parallel loop and grad on a function are items 16, B1 to B3, 15 and 18, which the compiler does not take yet -->
 
 ```ts
-import { grad, resident } from 'typeshade'
+import { grad } from 'typeshade'
+import { array } from 'typeshade/runtime'
 import { render, loss, descend } from './scene.shade.ts'
 
-const params = resident(new Float32Array([0.5, 0.5, 0.5, 1.0])) // stays on the GPU
+const params = array(new Float32Array([0.5, 0.5, 0.5, 1.0])) // stays on the GPU
 const dLoss = grad(loss, 'params') // a function, differentiated and checked by the compiler
 for (let step = 0; step < 200; step++) {
   descend(params, dLoss(params, target), 0.05) // queued; the host does not wait
@@ -251,7 +253,7 @@ for (let step = 0; step < 200; step++) {
 await render(params, canvas) // the one place the host waits
 ```
 
-`resident` stands for the one residency word; the name is not decided. If the compiler can prove
+`array` stands for the one residency word (change 0138 named it). If the compiler can prove
 that `params` never needs to leave the GPU, the word goes too. Awaiting the gradient on every
 step and updating the parameters on the CPU would compute the same numbers. It would also be the
 `.item()`-every-step pattern that PyTorch users learn to avoid: two round trips per step, for a
@@ -282,7 +284,7 @@ it, and it can be stepped through line by line.
   `grad(module, 'f', 'k')` (#194) is its engine and its escape hatch.
 - **The CPU/GPU boundary (#97) is about residency, not uniforms.** The developer thinks
   "the shader reads my variable", not "this is a uniform or a storage buffer". For an array, the
-  call and `resident` meet that today. A scalar stays a declared uniform passed at the call,
+  call and `array()` meet that today. A scalar stays a declared uniform passed at the call,
   since #198 kept the two-file form.
 - **Packages come before domain features.** A package that ships TypeShade code, imported by
   name, is what lets each domain grow its own libraries. The compiler does not have to grow one

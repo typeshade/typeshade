@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Host: keep data on the GPU",
-  "blurb": "Three kernel functions and a host that chains them over `resident()` arrays. Each `decay` and `accumulate` call only queues: the array stays in its buffer on the device, and the next call binds the same buffer. The host waits once, for `sum`, and reads the array back once, with `read()` (Rule 11.8).",
+  "blurb": "Three kernel functions and a host that chains them over `Buffer`s that `array()` makes. Each `decay` and `accumulate` call does not block: the array stays in its buffer on the device, and the next call binds the same buffer. `sum` gives a `Buffer` of one element, and the host reads it, and the array, once each, with `read()` (Rule 11.8; change 0138).",
   "renderable": false,
   "reason": "no entry point"
 }

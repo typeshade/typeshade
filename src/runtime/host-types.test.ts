@@ -26,7 +26,7 @@ import type { ShaderType } from '../core/ir/types.js';
 import { tscDiagnostics } from '../core/testing/tsc-diagnostics.js';
 
 const FAMILY_FILE = resolve(__dirname, 'host-types.ts');
-const RESIDENT_FILE = resolve(__dirname, '../core/resident.ts');
+const BUFFER_FILE = resolve(__dirname, './resource.ts');
 const FAMILY = readFileSync(FAMILY_FILE, 'utf8');
 
 const dirs: string[] = [];
@@ -134,7 +134,7 @@ function shapeLines(name: string, t: ShaderType): string[] {
       return [
         `ok<Mutual<${name}, ${components}>>();`,
         `ok<Equal<${name}['length'], ${t.cols * t.rows}>>();`,
-        `ok<Equal<array<${name}>, readonly ${name}[] | Resident<${name}[]>>>();`,
+        `ok<Equal<array<${name}>, readonly ${name}[]>>();`,
       ];
     }
     default:
@@ -152,7 +152,7 @@ function familyProgram(): string {
     .flatMap((n) => shapeLines(n, lookupTypeName(n)!));
   return [
     `import type { ${names.join(', ')} } from ${JSON.stringify(FAMILY_FILE)};`,
-    `import type { Resident } from ${JSON.stringify(RESIDENT_FILE)};`,
+    `import type { Buffer } from ${JSON.stringify(BUFFER_FILE)};`,
     'type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;',
     'type Mutual<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;',
     'declare function ok<T extends true>(): T;',
@@ -176,15 +176,17 @@ function familyProgram(): string {
     'ok<Equal<IsU32<f32>, false>>();',
     '',
     '// array<T> is what a kernel function takes for an array with no size (Rule 8.21).',
-    'ok<Equal<array<f32>, Float32Array | Resident<Float32Array>>>();',
-    'ok<Equal<array<f64>, Float64Array | Resident<Float64Array>>>();',
-    'ok<Equal<array<i32>, Int32Array | Resident<Int32Array>>>();',
-    'ok<Equal<array<u32>, Uint32Array | Resident<Uint32Array>>>();',
-    'ok<Equal<array<vec3>, Float32Array | Resident<Float32Array>>>();',
-    'ok<Equal<array<vec4u>, Uint32Array | Resident<Uint32Array>>>();',
-    'ok<Equal<array<vec2f64>, Float64Array | Resident<Float64Array>>>();',
+    '// It is also a Buffer of it, and of a vector a Buffer of its scalar (change 0138, A10 Q-I, A11 Q5).',
+    'ok<Equal<array<f32>, Float32Array | Buffer<f32>>>();',
+    'ok<Equal<array<f64>, Float64Array | Buffer<f64>>>();',
+    'ok<Equal<array<i32>, Int32Array | Buffer<i32>>>();',
+    'ok<Equal<array<u32>, Uint32Array | Buffer<u32>>>();',
+    'ok<Equal<array<vec3>, Float32Array | Buffer<vec3> | Buffer<f32>>>();',
+    'ok<Equal<array<vec4u>, Uint32Array | Buffer<vec4u> | Buffer<u32>>>();',
+    'ok<Equal<array<vec2f64>, Float64Array | Buffer<vec2f64> | Buffer<f64>>>();',
     'type Pole = { z: f32; k: f32 };',
-    'ok<Equal<array<Pole>, readonly Pole[] | Resident<Pole[]>>>();',
+    '// An array of structs is a Buffer only of a class (Amendment A11, Q4).',
+    'ok<Equal<array<Pole>, readonly Pole[]>>();',
     'ok<Equal<array<f32, 4>, readonly f32[]>>();',
     'ok<Equal<array<Pole, 2>, readonly Pole[]>>();',
     '',
@@ -200,13 +202,13 @@ function familyProgram(): string {
     'const m32: mat3x2 = [1, 2, 3, 4, 5, 6] as mat2x3;',
     '',
     '// Each type is assignable from the value the structural spelling named, and to it.',
-    'const old = { n: 5, v: [1, 2, 3] as readonly [number, number, number], a: new Float32Array(2) as Float32Array | Resident<Float32Array> };',
+    'const old = { n: 5, v: [1, 2, 3] as readonly [number, number, number], a: new Float32Array(2) as Float32Array | Buffer<f32> };',
     'const toN: f32 = old.n;',
     'const toV: vec3 = old.v;',
     'const toA: array<f32> = old.a;',
     'const backN: number = toN;',
     'const backV: readonly [number, number, number] = toV;',
-    'const backA: Float32Array | Resident<Float32Array> = toA;',
+    'const backA: Float32Array | Buffer<f32> = toA;',
     'const poles: array<Pole> = [{ z: 0, k: 0.1 }];',
     '',
     'export { md, x, y, us, v2, kk, m32, backN, backV, backA, poles };',

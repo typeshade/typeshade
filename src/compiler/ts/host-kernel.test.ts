@@ -30,6 +30,8 @@ import type { CpuValue } from '../../core/cpu-runtime.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
+// `array()` of `typeshade/runtime`, which makes a `Buffer` (change 0138, Amendment A10, Q-I).
+const RUNTIME_API = resolve(__dirname, '../../runtime.ts');
 const dirs: string[] = [];
 afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true });
@@ -88,25 +90,36 @@ export function prefix(out: array<f32>) {
 describe('the host view of a kernel function (Rule 8.21)', () => {
   const f = face(TERRAIN);
 
-  it('is asynchronous, and types each array as the typed array or objects it takes', () => {
-    // Each array is `array<T>`, which holds the typed array or the objects with their `Resident`
-    // (change 0116, decision D3).
+  it('is asynchronous with plain data, and types each array as the typed array or objects it takes', () => {
+    // A call with plain data takes each array as its typed array or its objects (Rule 8.21).
     expect(f.view).toContain(
-      'export declare function render(k: vec4, size: u32, out: array<f32>): Promise<void>;',
+      'export declare function render(k: vec4, size: u32, out: Float32Array): Promise<void>;',
     );
-    expect(f.view).toContain('export declare function total(xs: array<f32>): Promise<f32>;');
+    expect(f.view).toContain('export declare function total(xs: Float32Array): Promise<f32>;');
     expect(f.view).toContain(
-      'export declare function drift(ps: array<{ pos: vec4; vel: vec4 }>, dt: f32): Promise<void>;',
+      'export declare function drift(ps: readonly { readonly pos: vec4; readonly vel: vec4 }[], dt: f32): Promise<void>;',
     );
   });
 
-  it('gives a call whose written arrays are all resident, and that returns nothing, a void signature', () => {
-    expect(f.view).toContain(`import type { Resident } from ${JSON.stringify(RUNTIME)};`);
+  it('gives a call on a Buffer its own signature: nothing back, or a Buffer for each value (change 0138, Amendment A10)', () => {
+    expect(f.view).toContain(`import type { Buffer } from ${JSON.stringify(RUNTIME)};`);
+    // A call on a resource does not block (R2): a written array is a `Buffer` alone.
     expect(f.view).toContain(
-      'export declare function render(k: vec4, size: u32, out: Resident<Float32Array>): void;',
+      'export declare function render(k: vec4 | Buffer<vec4>, size: u32 | Buffer<u32>, out: Buffer<f32>): void;',
     );
-    // A function with a result always waits.
-    expect(f.view).not.toMatch(/function total\([^)]*\): void/);
+    // A function with a result gives a `Buffer` of one element (Q-C, D-i closed).
+    expect(f.view).toContain(
+      'export declare function total(xs: Float32Array | Buffer<f32>): Buffer<f32>;',
+    );
+    // A call on a resource that writes a plain array waits (Amendment A11, Q7).
+    expect(f.view).toContain(
+      'export declare function render(k: vec4 | Buffer<vec4>, size: u32 | Buffer<u32>, out: Float32Array | Buffer<f32>): Promise<void>;',
+    );
+    // A host makes no Buffer of structs of no class (Amendment A11, Q4), but a result's
+    // Buffer<S> is an argument of an array<S> (Amendment A12, Q6).
+    expect(f.view).toContain(
+      'export declare function drift(ps: Buffer<{ pos: vec4; vel: vec4 }>, dt: f32 | Buffer<f32>): void;',
+    );
     // A helper stays synchronous (0009).
     expect(f.view).toContain('export declare function height(p: vec2, k: vec4): f32;');
   });
@@ -130,7 +143,7 @@ describe('the host view of a kernel function (Rule 8.21)', () => {
     // Separate modules share one library check, while diagnostics stay with their own case.
     const apps = {
       accepted: `import { render, total } from './m.shade.ts';\nconst img = new Float32Array(16);\nawait render([1, 0.5, 2, 0.25], 4, img);\nexport const s: number = await total(img);\n`,
-      resident: `import { render, total } from './m.shade.ts';\nimport { resident } from ${JSON.stringify(RUNTIME)};\nconst dev = resident(new Float32Array(16));\nconst queued: void = render([1, 0.5, 2, 0.25], 4, dev);\nexport const s: number = await total(dev);\nexport const img: Float32Array = await dev.read();\nvoid queued;\n`,
+      buffer: `import { render, total } from './m.shade.ts';\nimport { array, type Buffer, type f32 } from ${JSON.stringify(RUNTIME_API)};\nconst dev = array(new Float32Array(16));\nconst queued: void = render([1, 0.5, 2, 0.25], 4, dev);\nconst sum: Buffer<f32> = total(dev);\nexport const [s] = await sum.read();\nexport const n: number = s!;\nexport const img: Float32Array = await dev.read();\nvoid queued;\n`,
       wrongArray: `import { render } from './m.shade.ts';\nawait render([1, 0.5, 2, 0.25], 4, [1, 2]);\nexport {};\n`,
     };
     for (const [name, app] of Object.entries(apps)) writeFileSync(join(dir, `${name}.ts`), app);
@@ -154,7 +167,7 @@ describe('the host view of a kernel function (Rule 8.21)', () => {
         .filter((d) => d.fileName !== undefined && resolve(d.fileName) === join(dir, `${name}.ts`))
         .map((d) => `TS${d.code}`);
     expect(errors('accepted')).toEqual([]);
-    expect(errors('resident')).toEqual([]);
+    expect(errors('buffer')).toEqual([]);
     expect(errors('wrongArray')).toEqual(['TS2769']);
   });
 });
@@ -375,7 +388,7 @@ export function scale(xs: array<f64>, k: f64) {
   it('takes a Float64Array and a number, and computes each as a double on the CPU tier', async () => {
     const f = face(SCALE64);
     expect(f.view).toContain(
-      'export declare function scale(xs: array<f64>, k: f64): Promise<void>;',
+      'export declare function scale(xs: Float64Array, k: f64): Promise<void>;',
     );
     const m = await load(SCALE64);
     const xs = Float64Array.of(1 + 1e-12, 2, 3);
@@ -432,43 +445,42 @@ export function stats(xs: array<f64>, k: f64): vec2f64 {
   });
 });
 
-describe('a resident array and the tiers (Rule 11.8)', () => {
+describe('a Buffer of scalars and the tiers (Rule 11.8; change 0138, Amendment A10, Q-I)', () => {
+  const api = async () =>
+    (await import(pathToFileURL(RUNTIME_API).href)) as typeof import('../../runtime.js');
+
   it('holds its own array across calls on the CPU tier, and read() waits for the calls before it', async () => {
     const m = await load(TERRAIN);
-    const rt = (await import(
-      pathToFileURL(RUNTIME).href
-    )) as typeof import('../../core/host-runtime.js');
+    const rt = await api();
     const src = new Float32Array(16);
-    const dev = rt.resident(src);
+    const dev = rt.array(src);
     const k = [1, 0.5, 2, 0.25];
-    // Queued, not awaited: read() waits for it.
-    void (m.render as (...a: unknown[]) => Promise<void>)(k, 4, dev);
+    // A call on a Buffer does not block and returns nothing (R2): read() waits for it.
+    expect((m.render as (...a: unknown[]) => unknown)(k, 4, dev)).toBeUndefined();
     const img = await dev.read();
     const oracle = compileModule(compile(TERRAIN).module, { precision: 'f32' });
     const want = new Array<number>(16).fill(0);
     oracle.fns.render!(k as never, 4 as never, want as never);
     expect([...img]).toEqual(want);
-    // The caller's array is not the handle's.
+    // The caller's array is not the Buffer's.
     expect([...src]).toEqual(new Array(16).fill(0));
-    // A reduction reads it where it takes an array.
-    await expect((m.total as (xs: unknown) => Promise<number>)(dev)).resolves.toBeCloseTo(
+    // A reduction reads it where it takes an array, and gives a Buffer of one element (Q-C).
+    const sum = (m.total as (xs: unknown) => { read(): Promise<Float32Array> })(dev);
+    const [total] = await sum.read();
+    expect(total).toBeCloseTo(
       want.reduce((a, b) => a + b, 0),
       4,
     );
   });
 
-  it('keeps the error of a queued call for read() to throw', async () => {
+  it('refuses a call that does not fit at the call, and leaves the Buffer as it was', async () => {
     const m = await load(TERRAIN);
-    const rt = (await import(
-      pathToFileURL(RUNTIME).href
-    )) as typeof import('../../core/host-runtime.js');
-    const short = rt.resident(new Float32Array(10));
-    void (m.render as (...a: unknown[]) => Promise<void>)([1, 0.5, 2, 0.25], 4, short).catch(
-      () => undefined,
-    );
-    await expect(short.read()).rejects.toThrow(
+    const rt = await api();
+    const short = rt.array(new Float32Array(10));
+    expect(() => (m.render as (...a: unknown[]) => unknown)([1, 0.5, 2, 0.25], 4, short)).toThrow(
       'render(): parameter "out" holds 10 elements, and loop 1 writes it at indices 0 to 15.',
     );
+    expect(await short.read()).toEqual(new Float32Array(10));
   });
 
   it('runs on the tiers configure names, and says why none could', async () => {
@@ -499,20 +511,20 @@ describe('a resident array and the tiers (Rule 11.8)', () => {
     }
   });
 
-  it('types the zeroed form resident(length, element), and refuses any other element under tsc', async () => {
+  it('types the zeroed form array(length, element), and refuses any other element under tsc', async () => {
     const f = face(TERRAIN);
     const dir = tempDir();
     writeFileSync(join(dir, 'm.shade.ts'), TERRAIN);
     writeFileSync(join(dir, 'm.shade.typeshade.ts'), f.view);
-    const head = `import { render } from './m.shade.ts';\nimport { resident, type Resident } from ${JSON.stringify(RUNTIME)};\n`;
+    const head = `import { render } from './m.shade.ts';\nimport { array, type Buffer, type f32, type i32, type u32 } from ${JSON.stringify(RUNTIME_API)};\n`;
     // One program holds every case, a file each: a program reads the library files once.
     const apps: Record<string, string> = {
-      accepted: `${head}const r: Resident<Float32Array> = resident(8, 'f32');\nconst q: Resident<Int32Array> = resident(8, 'i32');\nconst u: Resident<Uint32Array> = resident(8, 'u32');\nconst queued: void = render([1, 0.5, 2, 0.25], 4, r);\nvoid [q, u, queued];\n`,
+      accepted: `${head}const r: Buffer<f32> = array(8, 'f32');\nconst q: Buffer<i32> = array(8, 'i32');\nconst u: Buffer<u32> = array(8, 'u32');\nconst queued: void = render([1, 0.5, 2, 0.25], 4, r);\nvoid [q, u, queued];\n`,
       // An element that is not the array's element is refused before the run, as it is at the run.
-      wrongArray: `${head}render([1, 0.5, 2, 0.25], 4, resident(8, 'i32'));\n`,
-      wrongType: `${head}const r: Resident<Int32Array> = resident(8, 'f32');\nvoid r;\n`,
-      f64: `${head}resident(8, 'f64');\nexport {};\n`,
-      undef: `${head}resident(8, undefined);\nexport {};\n`,
+      wrongArray: `${head}render([1, 0.5, 2, 0.25], 4, array(8, 'i32'));\n`,
+      wrongType: `${head}const r: Buffer<i32> = array(8, 'f32');\nvoid r;\n`,
+      f64: `${head}array(8, 'f64');\nexport {};\n`,
+      undef: `${head}array(8, undefined);\nexport {};\n`,
     };
     for (const [name, text] of Object.entries(apps)) writeFileSync(join(dir, `${name}.ts`), text);
     const diagnostics = await tscDiagnostics(
@@ -537,21 +549,19 @@ describe('a resident array and the tiers (Rule 11.8)', () => {
     expect(errors['accepted']).toBeUndefined();
     expect(errors['wrongArray']).toHaveLength(1);
     expect(errors['wrongType']).toEqual(['TS2322']);
-    expect(errors['f64']).toEqual(['TS2345']);
-    expect(errors['undef']).toEqual(['TS2345']);
+    expect(errors['f64']).toHaveLength(1);
+    expect(errors['undef']).toHaveLength(1);
     expect(Object.keys(errors).sort()).toEqual(['f64', 'undef', 'wrongArray', 'wrongType']);
   }, 180_000);
 
-  it('makes a zeroed handle that holds zeros until a call writes it, and the CPU tier writes what the oracle does', async () => {
+  it('makes a zeroed Buffer that holds zeros until a call writes it, and the CPU tier writes what the oracle does', async () => {
     const m = await load(TERRAIN);
-    const rt = (await import(
-      pathToFileURL(RUNTIME).href
-    )) as typeof import('../../core/host-runtime.js');
-    const dev = rt.resident(16, 'f32');
+    const rt = await api();
+    const dev = rt.array(16, 'f32');
     // No call has written it: read() returns zeros, and keeps no host copy.
     expect(await dev.read()).toEqual(new Float32Array(16));
     const k = [1, 0.5, 2, 0.25];
-    void (m.render as (...a: unknown[]) => Promise<void>)(k, 4, dev);
+    (m.render as (...a: unknown[]) => unknown)(k, 4, dev);
     const img = await dev.read();
     const oracle = compileModule(compile(TERRAIN).module, { precision: 'f32' });
     const want = new Array<number>(16).fill(0);
@@ -559,7 +569,7 @@ describe('a resident array and the tiers (Rule 11.8)', () => {
     expect([...img]).toEqual(want);
   });
 
-  it('takes a zeroed Resident for an array of vectors as it takes the typed array of the same element', async () => {
+  it('takes a zeroed Buffer for an array of vectors as it takes the typed array of the same element', async () => {
     const m = await load(`"use typeshade";
 export function lift(out: array<vec4>) {
   for (let i: u32 = 0; i < out.length; i++) {
@@ -577,32 +587,28 @@ export function ints(out: array<i32>) {
   }
 }
 `);
-    const rt = (await import(
-      pathToFileURL(RUNTIME).href
-    )) as typeof import('../../core/host-runtime.js');
+    const rt = await api();
     const call = (name: string, ...a: unknown[]) => (m[name] as (...a: unknown[]) => unknown)(...a);
-    // The plain handle of a Float32Array is the oracle: the zeroed handle holds what it holds.
+    // The Buffer of a Float32Array is the oracle: the zeroed Buffer holds what it holds.
     for (const name of ['lift', 'lift3'] as const) {
-      const plain = rt.resident(new Float32Array(12));
-      const zero = rt.resident(12, 'f32');
-      void call(name, plain);
-      void call(name, zero);
+      const plain = rt.array(new Float32Array(12));
+      const zero = rt.array(12, 'f32');
+      call(name, plain);
+      call(name, zero);
       expect(await zero.read()).toEqual(await plain.read());
     }
-    // A length that is not a whole number of vectors is refused, as the typed array is.
-    const ragged = rt.resident(10, 'f32');
-    void call('lift', ragged);
-    await expect(ragged.read()).rejects.toThrow(/not a whole number of 4-component elements/);
+    // A length that is not a whole number of vectors is refused at the call (Amendment A11, Q5).
+    expect(() => call('lift', rt.array(10, 'f32'))).toThrow(
+      /not a whole number of 4-component elements/,
+    );
     // An element that is not the array's is refused, as the typed array is.
-    const wrong = rt.resident(4, 'f32');
-    void call('ints', wrong);
-    await expect(wrong.read()).rejects.toThrow(/only an array of f32/);
-    const right = rt.resident(4, 'i32');
-    void call('ints', right);
+    expect(() => call('ints', rt.array(4, 'f32'))).toThrow(/only an array of f32/);
+    const right = rt.array(4, 'i32');
+    call('ints', right);
     expect(await right.read()).toEqual(Int32Array.of(1, 1, 1, 1));
   });
 
-  it('takes a Resident of a Float32Array for an array<vec4f>, and refuses a length that is not a whole number of vectors (change 0068, probe results 3 and 5)', async () => {
+  it('takes a Buffer<f32> for an array<vec4f>, and refuses a length that is not a whole number of vectors (change 0068; Amendment A11, Q5)', async () => {
     const m = await load(`"use typeshade";
 export function copy4(out: array<vec4f>, a: array<vec4f>): void {
   for (let i: u32 = 0; i < out.length; i++) {
@@ -610,57 +616,64 @@ export function copy4(out: array<vec4f>, a: array<vec4f>): void {
   }
 }
 `);
-    const rt = (await import(
-      pathToFileURL(RUNTIME).href
-    )) as typeof import('../../core/host-runtime.js');
-    const copy4 = m.copy4 as (...a: unknown[]) => Promise<void>;
-    // Result 3: a Resident of the typed array takes the place of the typed array.
-    const src = rt.resident(new Float32Array([1, 2, 3, 4, 5, 6, 7, 8]));
-    const out = rt.resident(new Float32Array(8));
-    await copy4(out, src);
+    const rt = await api();
+    const copy4 = m.copy4 as (...a: unknown[]) => unknown;
+    // A Buffer of the typed array takes the place of the typed array.
+    const src = rt.array(new Float32Array([1, 2, 3, 4, 5, 6, 7, 8]));
+    const out = rt.array(new Float32Array(8));
+    copy4(out, src);
     expect(Array.from(await out.read())).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
-    // Result 5: a length that is not a multiple of 4 is a TypeError before any loop runs.
+    // A length that is not a multiple of 4 is a TypeError before any loop runs.
     await expect(copy4(new Float32Array(8), new Float32Array(6))).rejects.toThrow(
       new TypeError(
         'copy4(): parameter "a" (array<vec4>): got 6 numbers, which is not a whole number of 4-component elements.',
       ),
     );
-    await expect(copy4(new Float32Array(6), new Float32Array(8))).rejects.toThrow(
+    expect(() => copy4(out, rt.array(new Float32Array(6)))).toThrow(
       new TypeError(
-        'copy4(): parameter "out" (array<vec4>): got 6 numbers, which is not a whole number of 4-component elements.',
+        'copy4(): parameter "a" (array<vec4>): got 6 numbers, which is not a whole number of 4-component elements.',
       ),
     );
   });
 
-  it('refuses a zeroed Resident with the three refusals of Rule 11.8, and keeps resident(value) for one argument', async () => {
-    const rt = (await import(
-      pathToFileURL(RUNTIME).href
-    )) as typeof import('../../core/host-runtime.js');
+  it('refuses a zeroed Buffer with the three refusals of Rule 11.8, a value that is not an array, and an array that holds anything but numbers (Amendment A11, Q3 and Q4)', async () => {
+    const rt = await api();
     const R1 = (got: string) =>
       new TypeError(
-        `resident(): a zeroed Resident takes a length that is a whole number from 1 to 4294967295; got ${got}.`,
+        `array(): a zeroed Buffer takes a length that is a whole number from 1 to 4294967295; got ${got}.`,
       );
-    expect(() => rt.resident(0, 'f32')).toThrow(R1('0'));
-    expect(() => rt.resident(1.5, 'f32')).toThrow(R1('1.5'));
-    expect(() => rt.resident(4, 'f64' as never)).toThrow(
+    expect(() => rt.array(0, 'f32')).toThrow(R1('0'));
+    expect(() => rt.array(1.5, 'f32')).toThrow(R1('1.5'));
+    expect(() => rt.array(4, 'f64' as never)).toThrow(
+      new TypeError("array(): a zeroed Buffer takes the element 'f32', 'i32' or 'u32'; got 'f64'."),
+    );
+    expect(() => rt.array(8, undefined as never)).toThrow(
       new TypeError(
-        "resident(): a zeroed Resident takes the element 'f32', 'i32' or 'u32'; got 'f64'.",
+        "array(): a zeroed Buffer takes the element 'f32', 'i32' or 'u32'; got undefined.",
       ),
     );
-    expect(() => rt.resident(8, undefined as never)).toThrow(
+    expect(() => rt.array([1] as never, 'f32' as never)).toThrow(
       new TypeError(
-        "resident(): a zeroed Resident takes the element 'f32', 'i32' or 'u32'; got undefined.",
+        'array(): with an element, the first argument is the length, a whole number; got an array.',
       ),
     );
-    expect(() => rt.resident([1] as never, 'f32')).toThrow(
+    // A value that is not an array (Q3), and an array that holds anything but numbers (Q4).
+    expect(() => rt.array(5 as never)).toThrow(
       new TypeError(
-        'resident(): with an element, the first argument is the length, a whole number; got an array.',
+        'array(): takes an array; got a number. A value the host keeps on the device is uniform(Class, init); pass any other value to the call as it is (change 0138, Amendment A11, Q3).',
       ),
     );
-    expect(await rt.resident(5).read()).toBe(5);
+    expect(() => rt.array({ x: 1 } as never)).toThrow(
+      /^array\(\): takes an array; got an object\./,
+    );
+    expect(() => rt.array([{ x: 1 }] as never)).toThrow(
+      new TypeError(
+        'array(): takes an array of numbers, a Float32Array, an Int32Array, a Uint32Array or a Float64Array; got an array. Write array(Class, data) for an array of structs of an exported class, or pass the array to the call as it is (change 0138, Amendment A11, Q4).',
+      ),
+    );
   });
 
-  it('refuses one resident array passed as two parameters', async () => {
+  it('refuses one Buffer passed as two parameters, at the call', async () => {
     const m = await load(`"use typeshade";
 export function copy(src: array<f32>, dst: array<f32>) {
   for (let i: u32 = 0; i < src.length; i++) {
@@ -668,12 +681,10 @@ export function copy(src: array<f32>, dst: array<f32>) {
   }
 }
 `);
-    const rt = (await import(
-      pathToFileURL(RUNTIME).href
-    )) as typeof import('../../core/host-runtime.js');
-    const r = rt.resident(new Float32Array(4));
-    await expect((m.copy as (...a: unknown[]) => Promise<void>)(r, r)).rejects.toThrow(
-      new TypeError('copy(): parameter "dst" is the same resident array as parameter "src".'),
+    const rt = await api();
+    const r = rt.array(new Float32Array(4));
+    expect(() => (m.copy as (...a: unknown[]) => unknown)(r, r)).toThrow(
+      new TypeError('copy(): parameter "dst" is the same Buffer as parameter "src".'),
     );
   });
 });

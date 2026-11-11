@@ -1,5 +1,5 @@
 // The loop-fuse journey (change 0058): `add`, `mul` and `relu`, three kernel functions, called
-// over `Resident` arrays inside one `fuse` scope (`host.mjs`), the two intermediates scratch
+// over `Buffer`s inside one `fuse` scope (`host.mjs`), the two intermediates scratch
 // arrays of the scope. On WebGPU the three calls are one dispatch in one submission, and the
 // scratch arrays are locals of its entry, so no buffer is made for them: the harness checks both
 // against the device itself. On WebGL2 each loop draws, and on the CPU tier nothing is

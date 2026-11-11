@@ -234,13 +234,14 @@ declare const samp: sampler;
     const gpu = '{ readonly mapAsync: unknown; readonly getMappedRange: unknown }';
     const numbers = 'Float32Array | Int32Array | Uint32Array | Float64Array';
     // Each binding spelled with the host type family (change 0116): a runtime-sized storage
-    // array is `array<T>`, which holds its `Resident`, and a uniform struct is its fields.
+    // array is its plain host value or a Buffer of its scalars, and a uniform struct is its
+    // fields, with no Buffer (change 0138, Amendments A10, Q-I, and A11, Q3).
     const viewT = `{ readonly viewProj: mat4x4 | ${numbers}; readonly time: f32 }`;
     expect(f.view).toContain(
-      `declare const program: Pack<{ readonly vs: { readonly view: ${viewT} | Resident<${viewT}> | ${gpu}; readonly cells: array<vec2> | ${gpu} }; readonly fs: { readonly albedo: object; readonly samp: object } }>;`,
+      `declare const program: Pack<{ readonly vs: { readonly view: ${viewT} | ${gpu}; readonly cells: Float32Array | Buffer<vec2> | Buffer<f32> | ${gpu} }; readonly fs: { readonly albedo: object; readonly samp: object } }>;`,
     );
-    expect(f.view).toContain('import type { f32, vec2, mat4x4, array } from');
-    expect(f.view).toContain('import type { Resident }');
+    expect(f.view).toContain('import type { f32, vec2, mat4x4 } from');
+    expect(f.view).toContain('import type { Buffer }');
   });
 
   it('declares every row of the host value table', () => {
@@ -319,19 +320,19 @@ export function step(@builtin("global_invocation_id") gid: vec3u) {
     );
     // In an array with no size a struct that holds a key is its fields, with the key's id.
     expect(v).toContain(
-      'export declare function kern(xs: array<P>, ks: array<{ readonly c: u32; readonly w: f32 }>, out: array<f32>): Promise<void>;',
+      'export declare function kern(xs: readonly P[], ks: readonly { readonly c: u32; readonly w: f32 }[], out: Float32Array): Promise<void>;',
     );
     // An entry's bindings object takes the names too, and the manifest writes each struct
     // binding's name beside its packed forms (D8).
     expect(v).toContain(
-      'bindings: { readonly cam: Cam; readonly ps: array<P>; readonly hs: array<{ readonly a: f32 }> }',
+      'bindings: { readonly cam: Cam; readonly ps: readonly P[]; readonly hs: readonly { readonly a: f32 }[] }',
     );
     const numbers = 'Float32Array | Int32Array | Uint32Array | Float64Array';
     const gpu = '{ readonly mapAsync: unknown; readonly getMappedRange: unknown }';
     const packed = `{ readonly scale: vec2 | ${numbers}; readonly time: f32 }`;
-    expect(v).toContain(`readonly cam: Cam | ${packed} | Resident<Cam | ${packed}> | ${gpu};`);
+    expect(v).toContain(`readonly cam: Cam | ${packed} | ${gpu};`);
     expect(v).toContain(
-      `readonly ps: array<P | { readonly x: f32; readonly v: vec2 | ${numbers} }> | ${gpu};`,
+      `readonly ps: readonly (P | { readonly x: f32; readonly v: vec2 | ${numbers} })[] | ${gpu};`,
     );
     // Under tsc: a plain object where the interface goes, an instance where the class goes, and
     // a packed form where the manifest takes one. A plain object where a class with a method goes
@@ -456,7 +457,7 @@ function hover(
     ['/app/m.shade.typeshade.ts', view],
     [
       '/app/runtime.ts',
-      `export type Resident<T> = T;\nexport type Pack<T> = T;\nexport type * from ${JSON.stringify(FAMILY)};\n`,
+      `export interface Buffer<T> { readonly element?: T }\nexport type Pack<T> = T;\nexport type * from ${JSON.stringify(FAMILY)};\n`,
     ],
     ['/app/app.ts', host],
   ]);
@@ -506,16 +507,20 @@ function hover(
 describe("the host view carries the author's JSDoc (change 0108)", () => {
   // The sentences the view writes itself (the "Not callable" reason aside), as they stand.
   const KERNEL =
-    'A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8).';
+    'A kernel function (Rule 8.22). Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise.';
   const compute = (shape: string): string =>
-    `An \`@compute([${shape}])\` entry: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Resident a call wrote (change 0075); each binding the entry writes is read back into your value in place, or stays on the device in a Resident. The shape shown is its default; options.constants selects declared overrides without changing workgroups (Rules 8.24 and 11.8).`;
+    `An \`@compute([${shape}])\` entry: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Buffer<u32> a call wrote (change 0075). The shape shown is its default; options.constants selects declared overrides without changing workgroups (Rules 8.24 and 11.8).`;
+  // What a kernel function called on a resource returns for a value (change 0138, Amendment A10, Q-C).
+  const RETURNS =
+    'Called on a resource, it returns its result at once as Buffers: one element for a number, a vector, a bool, a key or a matrix, N for an array<T, N>, and for a struct or a Record an object of them by field; another call takes each as an argument, and read() gives its values (Amendment A10, Q-C; Amendment A12, decision 4).';
   const FRAGMENT =
     'A full-screen `@fragment` entry: draws one frame into `target`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24).';
   const GENERIC =
     'Not callable from host code (Rule 8.20): it is generic, and a generic function exists only as the instances the module uses; no proposal adds it yet.';
-  // Item 3: how a call made without `await` is queued and awaited.
-  const queued = (written: 'arrays' | 'bindings'): string =>
-    `A call whose written ${written} are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.`;
+  // Item 3, as change 0138 makes it (R2; Amendments A10 and A11): a call with plain data, a call on
+  // a resource, and a call on a resource that writes a plain array.
+  const queued = (_written: 'arrays' | 'bindings'): string =>
+    'Called with plain data, the call is awaited and writes back each array it writes (Rule 8.21). Called on a resource (a Buffer, a Uniform, or a binding the module exports), it does not block: the runtime submits it when the current microtask checkpoint ends or at the next read() or call, each call sees the values of its own call, and its error is thrown at the next read() or call with the line of the call (change 0138, R2). A call on a resource that writes a plain array waits, fills it, and gives its result as plain data (Amendment A11, Q7).';
 
   it('writes the JSDoc of a helper above it, verbatim, and no other comment', () => {
     const f = face(`"use typeshade";
@@ -1164,7 +1169,9 @@ export function ident<T>(x: T): T {
     // The sentences of a kernel function and of a @compute entry, each ending with the queue sentence.
     const one = (declaration: string): string[] => commentAbove(f.view, declaration);
     expect(one('export declare function scale(')).toEqual([`/** ${KERNEL} ${queued('arrays')} */`]);
-    expect(one('export declare function total(')).toEqual([`/** ${KERNEL} ${queued('arrays')} */`]);
+    expect(one('export declare function total(')).toEqual([
+      `/** ${KERNEL} ${queued('arrays')} ${RETURNS} */`,
+    ]);
     expect(one('export declare function fill(')).toEqual([
       `/** ${compute('64, 1, 1')} ${queued('bindings')} */`,
     ]);
