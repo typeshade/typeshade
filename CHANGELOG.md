@@ -2085,6 +2085,33 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A program's refusal of an imported declaration is shown in a file that reports it**
+  (Rules 3.9 and 12.7, #1186). A refusal that only a use makes, about a declaration an imported
+  file holds, was located in the imported file. That file's own program accepts the
+  declaration, so the editor showed the refusal in no document, and `tshc check` passed a
+  folder that `compile()` refused. An error now stands in the first file that reports it at
+  the same place when compiled on its own: the file that holds what it is about, then each file
+  that holds a use, then each file on the way of imports up to the file the compile starts
+  from, which reports what reaches it. It stands on that file's use: the entry's parameter or result for a field of an imported struct with no
+  location (`TS8010`) or of a type that cannot cross (`TS8003`, `TS8038`); the outermost call
+  for the body of an imported generic function or of a function that takes a function; the
+  first `Box<P>` for a method of an imported generic class; the type a binding writes for a
+  field of an imported struct that no binding of its own file holds. A file that holds no use the
+  front end records has it on its re-export of the entry, else on its import. The editor's diagnostic carries the place the
+  error is about as related information. A program of one file, a warning, and a mistake of an
+  imported file itself are reported where they were, once. When an imported file and the file
+  the compile starts from both make one refused instance of a generic function, it is reported
+  once, at the imported file's call, until that file is fixed. Not covered yet (#1212): a file
+  that holds a struct and the fragment entry that takes it, and no vertex entry, reports the
+  same sentence alone, so the error stays in that file.
+  An interface or a type alias that a file exports (with `export`, or in an export list) is now
+  checked in that file though nothing there uses it: two fields at one location, one
+  `blend_src` of a pair, `interpolate` on a `builtin<…>`, `invariant` off `position` and a
+  written location on a `bool` are reported at the declaration. Not checked this way: an
+  interface that extends another, a declaration with a field that is no shader type, and a
+  struct the file neither exports nor uses. The importing document no longer shows
+  TypeScript's `never` error for a write of an imported `builtin<N>` field that the compiler
+  refused.
 - **The hover of an imported symbol reads the compiler's type, as a local one does** (Rule
   12.7). A field, a function, a module constant, a module variable, an override and a binding
   that another `"use typeshade"` file declares showed TypeScript's quick info in the importing

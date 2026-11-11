@@ -37,7 +37,7 @@ import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { declaresEntry, stageCallOf } from './stage-call.js';
 import { TS_CODES } from './codes.js';
 import { newTargetOf } from './lower/new-target.js';
-import { makeDiagnostic } from './diagnostic.js';
+import { makeDiagnostic, noteUse } from './diagnostic.js';
 import {
   readIoAttributes,
   checkAttributeName,
@@ -389,9 +389,11 @@ export function collectStructs(
         // §32 collects a generic CLASS once per set of type arguments; the other two spellings
         // are not collected that way, so the sentence names the one that is.
         if (refusedGenerics.has(candidate.name)) {
-          diagnostics.push(
-            diag(sourceFile, candidate.nameNode, genericCandidateMessage(candidate)),
-          );
+          const refusal = diag(sourceFile, candidate.nameNode, genericCandidateMessage(candidate));
+          // The uses that reach it: a program that imports the declaration reports the refusal
+          // at the first of them its entry file writes (#1186).
+          noteTypeUses([refusal], stmt, candidate.name, sourceFile);
+          diagnostics.push(refusal);
         }
         continue;
       }
@@ -399,6 +401,12 @@ export function collectStructs(
         for (const member of candidate.members) {
           if (ts.isPropertySignature(member)) checkUncollectedIo(member, sourceFile, diagnostics);
         }
+        // A struct the file exports is checked where it is declared, though nothing in the file
+        // uses it (the owner's decision of 2026-11-10, #1186): what its entry-IO attributes say
+        // of the struct alone is the declaring file's mistake, and a program that imports the
+        // struct adds nothing to it (Rule 12.4).
+        if (exportsDeclaration(sourceFile, stmt, candidate.name))
+          checkUnusedExportedIo(candidate, sourceFile, diagnostics);
         continue;
       }
       const heritage = basesOf(candidate.name, candidate.heritage, sourceFile, diagnostics);
@@ -435,6 +443,11 @@ export function collectStructs(
         undefined,
         withheld,
       );
+      // What the struct's own fields say is true of the places that use the struct: a program
+      // that imports it reports a refusal its own file does not make (a field no binding of
+      // that file holds) at the first of them its entry file writes (#1186).
+      if (diagnostics.length > before)
+        noteTypeUses(diagnostics.slice(before), stmt, candidate.name, sourceFile);
       continue;
     }
     if (!ts.isClassDeclaration(stmt) || !stmt.name) continue;
@@ -2511,6 +2524,85 @@ function readFieldOptions(
   return { interpolate, blendSrc };
 }
 
+/** Records, on each of `said`, every type reference to `name` outside its declaration `stmt`
+ *  as a use, the first written last, so that it is read first (`noteUse`, #1186). */
+function noteTypeUses(
+  said: readonly TsCompilerDiagnostic[],
+  stmt: ts.Statement,
+  name: string,
+  sourceFile: ts.SourceFile,
+): void {
+  const uses: ts.Node[] = [];
+  const visit = (node: ts.Node): void => {
+    if (node === stmt) return;
+    if (
+      ts.isTypeReferenceNode(node) &&
+      ts.isIdentifier(node.typeName) &&
+      node.typeName.text === name
+    )
+      uses.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  for (const d of said) for (const use of [...uses].reverse()) noteUse(d, use, sourceFile);
+}
+
+/** Whether `sourceFile` exports the declaration `stmt` of `name`: with `export` on it, or by
+ *  its name in an export list of the file's own, `export { S }` and `export type { S as T }`. */
+function exportsDeclaration(sourceFile: ts.SourceFile, stmt: ts.Statement, name: string): boolean {
+  if (
+    (ts.getModifiers(stmt as ts.HasModifiers) ?? []).some(
+      (m) => m.kind === ts.SyntaxKind.ExportKeyword,
+    )
+  )
+    return true;
+  return sourceFile.statements.some(
+    (st) =>
+      ts.isExportDeclaration(st) &&
+      st.moduleSpecifier === undefined &&
+      st.exportClause !== undefined &&
+      ts.isNamedExports(st.exportClause) &&
+      st.exportClause.elements.some((el) => (el.propertyName ?? el.name).text === name),
+  );
+}
+
+/** How the two sentences about where an option belongs begin. */
+const INTERPOLATE_PLACE = 'The interpolate option belongs on a location<…> field:';
+const INVARIANT_PLACE = 'The invariant option belongs on builtin<"position">:';
+
+/**
+ * The entry-IO checks that read a struct alone, for an interface or a type alias the file
+ * exports and nothing in it uses: an option on a field it does not belong on, two fields at one
+ * location, one `blend_src` of a pair, and a written location on a type no value between stages
+ * has. A collected struct has them from `setEntryAttributes` and {@link checkLocationSlots}, at
+ * the same nodes with the same sentences, so a program that imports the struct and the declaring
+ * file's own program report one diagnostic (Rule 12.4).
+ *
+ * Nothing is collected: the struct stays out of the module. A field whose attribute is refused
+ * where it is written (`checkUncollectedIo`) has said so, and nothing is added. Two kinds of
+ * declaration say nothing here, as before: one whose fields are not all shader types (a host-shaped
+ * `export interface Config { seed: number }`), and an interface that extends another, whose
+ * fields are not its own alone.
+ */
+function checkUnusedExportedIo(
+  candidate: Candidate,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  if ((candidate.heritage?.length ?? 0) > 0) return;
+  const said: TsCompilerDiagnostic[] = [];
+  const fields = signatureFields(candidate.members, candidate.name, sourceFile, said);
+  if (
+    fields.length !== candidate.members.length ||
+    said.some(
+      (d) => !d.message.startsWith(INTERPOLATE_PLACE) && !d.message.startsWith(INVARIANT_PLACE),
+    )
+  )
+    return;
+  checkLocationSlots(said, sourceFile, candidate.nameNode, candidate.name, fields);
+  diagnostics.push(...said);
+}
+
 /** Reads the entry-IO attributes a field carries, written or stood for by its type (change
  *  0111), into `field`: `@builtin`, `@location`, `@interpolate`, `@invariant`, `@blend_src`. */
 function setEntryAttributes(
@@ -2556,7 +2648,7 @@ function setEntryAttributes(
       diag(
         sourceFile,
         member,
-        `The interpolate option belongs on a location<…> field: it says how a VARYING is ` +
+        `${INTERPOLATE_PLACE} it says how a VARYING is ` +
           `interpolated, and a builtin<…> carries its own rule.`,
       ),
     );
@@ -2566,7 +2658,7 @@ function setEntryAttributes(
       diag(
         sourceFile,
         member,
-        `The invariant option belongs on builtin<"position">: it is WGSL's promise that this ` +
+        `${INVARIANT_PLACE} it is WGSL's promise that this ` +
           `position is computed the same way in two pipelines, and no other output ` +
           `has that meaning.`,
       ),
