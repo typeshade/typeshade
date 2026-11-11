@@ -18,6 +18,7 @@
 // lowering's symbol table, and the IR is consulted for what each callable function reaches.
 
 import ts from 'typescript';
+import { hostExportsOf, topLevelDeclarations, type HostDeclared } from './host-exports.js';
 import type {
   BindingDecl,
   ConstDecl,
@@ -598,91 +599,17 @@ const hasModifier = (node: ts.Node, kind: ts.SyntaxKind): boolean =>
   (ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined)?.some((m) => m.kind === kind) ??
   false;
 
-/** A top-level declaration an export can name. */
-type Declared =
-  | ts.FunctionDeclaration
-  | ts.VariableDeclaration
-  | ts.EnumDeclaration
-  | ts.ClassDeclaration
-  | ts.InterfaceDeclaration
-  | ts.TypeAliasDeclaration
-  | ts.ModuleDeclaration;
-
-interface ExportRef {
-  /** The name a host imports. */
-  readonly name: string;
-  /** The declaration it names, when it names one of this file. */
-  readonly decl?: Declared;
-  /** Why it has no declaration to read, when it has none. */
-  readonly missing?: string;
-}
-
-function topLevelDeclarations(sf: ts.SourceFile): Map<string, Declared> {
-  const out = new Map<string, Declared>();
-  for (const s of sf.statements) {
-    if (ts.isVariableStatement(s)) {
-      for (const d of s.declarationList.declarations)
-        if (ts.isIdentifier(d.name)) out.set(d.name.text, d);
-    } else if (
-      (ts.isFunctionDeclaration(s) ||
-        ts.isEnumDeclaration(s) ||
-        ts.isClassDeclaration(s) ||
-        ts.isInterfaceDeclaration(s) ||
-        ts.isTypeAliasDeclaration(s) ||
-        ts.isModuleDeclaration(s)) &&
-      s.name !== undefined &&
-      ts.isIdentifier(s.name)
-    ) {
-      // An overload signature and its implementation share a name; the body wins.
-      if (!(ts.isFunctionDeclaration(s) && s.body === undefined)) out.set(s.name.text, s);
-    }
-  }
-  return out;
-}
-
 function exportsOf(sf: ts.SourceFile): ExportRef[] {
-  const local = topLevelDeclarations(sf);
-  const out: ExportRef[] = [];
-  const seen = new Set<string>();
-  const add = (r: ExportRef): void => {
-    if (seen.has(r.name)) return;
-    seen.add(r.name);
-    out.push(r);
-  };
-  for (const s of sf.statements) {
-    if (ts.isExportDeclaration(s)) {
-      if (s.moduleSpecifier !== undefined || s.exportClause === undefined) {
-        if (s.exportClause !== undefined && ts.isNamedExports(s.exportClause))
-          for (const e of s.exportClause.elements)
-            add({ name: e.name.text, missing: REASON.reexport });
-        continue;
-      }
-      if (ts.isNamedExports(s.exportClause))
-        for (const e of s.exportClause.elements) {
-          const localName = (e.propertyName ?? e.name).text;
-          const decl = local.get(localName);
-          add(decl ? { name: e.name.text, decl } : { name: e.name.text, missing: REASON.unknown });
-        }
-      continue;
-    }
-    // The default export of the host import is the module's manifest (Rule 11.10), so the
-    // author's own has no host face, as it never had.
-    if (ts.isExportAssignment(s)) continue;
-    if (!hasModifier(s, ts.SyntaxKind.ExportKeyword)) continue;
-    const isDefault = hasModifier(s, ts.SyntaxKind.DefaultKeyword);
-    if (ts.isVariableStatement(s)) {
-      for (const d of s.declarationList.declarations)
-        if (ts.isIdentifier(d.name)) add({ name: d.name.text, decl: d });
-      continue;
-    }
-    if (isDefault) continue;
-    const name = (s as { name?: ts.Node }).name;
-    if (name !== undefined && ts.isIdentifier(name)) {
-      const decl = local.get(name.text);
-      add(decl ? { name: name.text, decl } : { name: name.text, missing: REASON.unknown });
-    }
-  }
-  return out;
+  return hostExportsOf(sf).map((r) =>
+    r.missing === undefined ? r : { name: r.name, missing: REASON[r.missing] },
+  );
+}
+
+/** A name a host imports, with the reason it has no face when it has none. */
+interface ExportRef {
+  readonly name: string;
+  readonly decl?: HostDeclared;
+  readonly missing?: string;
 }
 
 // ─── what a function reaches ─────────────────────────────────────────────────────────────────

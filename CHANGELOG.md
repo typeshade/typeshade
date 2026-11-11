@@ -304,7 +304,7 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   result from their calls: `function g() { return 1; }` returns a `u32` where `vi + g()` is its
   only call. A call that asks another type takes a copy for that type (`g_u32`), with its own
   locals and local functions; the function keeps the `f32` result under its own name. A function
-  the host calls (an export, a member of an exported class) keeps the `f32` the host reads, and
+  the host calls (an export, an `export { … }` clause, a member of an exported class) keeps the `f32` the host reads, and
   its file's calls take the copies. A call in a conversion (`u32(g())`) decides nothing. The hover
   shows `let n: u32`, `(property) C.hits: u32`, `function g(): u32`, and for a function with
   copies `function g() (u32 or f32 where it is called)` (`(method) C.m() (…)`, `(getter) C.g (…)`,
@@ -322,9 +322,10 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   `f32(vi + g()) + f32(g() / 2) + x * g()` is refused, where the `/` would read the `f32` copy.
   Each such program was refused before for its integer use, so none computed a value. A result
   whose returns give two types where its calls fixed one is refused with
-  `Function "g" returns u32 where its calls use it and f32 at a "return"; …`. A chain of such
-  functions longer than the compiler follows keeps every result an `f32`, and the mismatch at a
-  call of one says to write its result type.
+  `Function "g" returns u32 where its calls use it and f32 at a "return"; …`, and where that
+  `return` reads a variable the function captures, the sentence names the variable. In a chain of
+  such functions longer than the compiler follows (17 links), each link no call decided yet keeps
+  the `f32` of its first `return`, and the one mismatch says which result type to write.
   **Values that change:** a module variable, a field or a function result of integer-written
   numbers whose use is an `f64` is an `f64`, as a function's `let` is since part 4a: `let n =
 16777217;` with `d * n` (`d: f64`) multiplies by 16777217 on a device, where it multiplied by the

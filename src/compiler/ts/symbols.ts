@@ -336,7 +336,8 @@ export function resetResultCopies(sourceFile: ts.SourceFile): void {
 
 /** Whether some function of `sourceFile` has copies whose words the hover shows. */
 export function hasResultCopies(sourceFile: ts.SourceFile): boolean {
-  return (resultCopies.get(sourceFile)?.decls.size ?? 0) > 0;
+  const table = resultCopies.get(sourceFile);
+  return (table?.decls.size ?? 0) > 0 || (table?.calls.size ?? 0) > 0;
 }
 
 /** The result types of the function whose name starts at `offset`, when it has copies. */

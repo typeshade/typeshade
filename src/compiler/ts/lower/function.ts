@@ -13,6 +13,7 @@ import { attributeDecoratorsOf, isTypeDecorator } from '../attribute-types.js';
 import { variableRefused } from '../refused-names.js';
 import { moduleVarSourceName } from '../module-var-names.js';
 import { inferredModuleVar } from '../module-vars.js';
+import { hostExportedDeclarations } from '../host-exports.js';
 import {
   askedOf,
   calleeKeyOf,
@@ -804,7 +805,9 @@ export function lowerSourceFunctions(
     // calls an exported function at the `f32` it keeps.
     const listed = new Map(asked);
     if (o.exported) listed.set('f32', f32T);
-    if (o.nameNode !== undefined && o.generic !== true && listed.size >= 2) {
+    // One type is recorded too: a method, a getter or a local or arrow function its calls fixed
+    // hovers as that type, as a function of the file does (Rule 12.7).
+    if (o.nameNode !== undefined && o.generic !== true) {
       recordResultCopies(
         sourceFile,
         o.nameNode,
@@ -817,6 +820,7 @@ export function lowerSourceFunctions(
   const copyOfResult = (
     o: {
       readonly stub: FuncDecl;
+      readonly node: ts.Node;
       readonly shown: string;
       readonly refill: (copy: FuncDecl) => void;
     },
@@ -827,8 +831,17 @@ export function lowerSourceFunctions(
     const had = byType.get(typeKey(t));
     if (had !== undefined) return had;
     const base = instanceName(o.stub.name, [t]);
+    // The copy's local functions are named after it (`g_u32_inc`), so a name is free only when
+    // no function of the module begins with it either, where the body declares any.
+    const body = (o.node as { body?: ts.Node }).body;
+    const hasLocals =
+      body !== undefined && ts.isBlock(body) && declarationsIn(body).some(declaresFunction);
+    const taken = (n: string): boolean =>
+      callees.has(n) ||
+      refused.has(n) ||
+      (hasLocals && [...callees.keys(), ...refused].some((c) => c.startsWith(`${n}_`)));
     let name = base;
-    for (let n = 1; callees.has(name) || refused.has(name); n++) name = `${base}_${String(n)}`;
+    for (let n = 1; taken(name); n++) name = `${base}_${String(n)}`;
     const copy: FuncDecl = {
       ...o.stub,
       name,
@@ -884,7 +897,7 @@ export function lowerSourceFunctions(
         r.prefix === ''
           ? (r.node.name?.text ?? r.stub.name)
           : `${r.prefix}.${r.node.name?.text ?? ''}`,
-      exported: isExported(r.node),
+      exported: hostExportedDeclarations(sourceFile).has(r.node),
       refill: (copy) => {
         const mine = localsOfCopy(r.node, copy, undefined, new Map(), new Map(), diagnostics);
         fillReady({ ...r, stub: copy }, false);
@@ -957,10 +970,7 @@ export function lowerSourceFunctions(
         node,
         nameNode: (node as { name?: ts.Node }).name,
         shown: cf.shown,
-        exported:
-          ts.isClassLike(node.parent) &&
-          (ts.getCombinedModifierFlags(node.parent as ts.Declaration) & ts.ModifierFlags.Export) !==
-            0,
+        exported: hostExportedDeclarations(sourceFile).has(node.parent),
         refill: (copy) =>
           withTypeArguments(undefined, () => {
             const mine = localsOfCopy(node, copy, classSelf(cf), new Map(), new Map(), saidFor(cf));
@@ -1080,18 +1090,13 @@ export function lowerSourceFunctions(
       // A local or arrow function its calls decide (Rule 8.19, change 0134); one at the top level
       // that the file exports is one the host calls.
       const named = (l.fn.decl as { name?: ts.Node }).name ?? l.fn.node.name;
-      const statement = l.fn.decl.parent?.parent;
       if (
         planResult({
           stub: l.fn.stub,
           node: l.fn.node,
           nameNode: named,
           shown: l.fn.localName,
-          exported:
-            (ts.isFunctionDeclaration(l.fn.decl) && isExported(l.fn.decl)) ||
-            (statement !== undefined &&
-              ts.isVariableStatement(statement) &&
-              (statement.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false)),
+          exported: hostExportedDeclarations(sourceFile).has(l.fn.decl),
           refill: (copy) =>
             withTypeArguments(typeArgs, () => {
               const mine = localsOfCopy(
@@ -4071,15 +4076,52 @@ function fillFunctionBodyNow(
                 `(Rule 8.19): make them agree, or write the return type.`
             : // A result its calls decided (change 0134) was not declared: say whose it is.
               ts.isFunctionLike(node) && hasNoWrittenResult(node, sourceFile)
-              ? `Function "${shown ?? stub.name}" returns ${authorTypeText(stub.ret)} where its ` +
-                `calls use it and ${authorTypeText(r.expr.type)} at a "return"; a function returns ` +
-                `one type (Rule 8.19): make them agree, or write the return type.`
+              ? decidedResultMismatch(node, shown, stub, r, captures, sourceFile)
               : `Function "${shown ?? stub.name}" return type mismatch: declared ${authorTypeText(stub.ret)}, got ${authorTypeText(r.expr.type)}.`,
           TS_CODES.TYPE_MISMATCH,
         ),
       );
     }
   }
+}
+
+/** The sentence of a `return` whose type differs from the result its calls fixed (Rule 8.19,
+ *  change 0134), naming the function as the author wrote it (Rule 12.5). Where the `return` reads
+ *  a variable the function captures, that is why: every copy reads the one variable, which has
+ *  one type. */
+function decidedResultMismatch(
+  node: FunctionNode,
+  shown: string | undefined,
+  stub: FuncDecl,
+  r: { readonly expr?: Expr; readonly span?: SourceSpan },
+  captures: readonly CaptureBinding[] | undefined,
+  sourceFile: ts.SourceFile,
+): string {
+  const written =
+    (node as { name?: ts.Node }).name ??
+    (ts.isVariableDeclaration(node.parent) ? node.parent.name : undefined);
+  const name =
+    shown ?? (written !== undefined && ts.isIdentifier(written) ? written.text : stub.name);
+  const got = authorTypeText(r.expr!.type);
+  const text =
+    r.span === undefined ? '' : sourceFile.text.slice(r.span.start, r.span.start + r.span.length);
+  const captured = (captures ?? [])
+    .filter((c) => c.byName)
+    .map((c) => c.binding.name)
+    .find((n) => new RegExp(`(^|[^\\w$])${n.replace(/\$/g, '\\$')}($|[^\\w$])`).test(text));
+  if (captured !== undefined) {
+    return (
+      `Function "${name}" returns ${authorTypeText(stub.ret)} where its calls use it and ${got} ` +
+      `at a "return" that reads "${captured}", a variable of the function around it: every copy ` +
+      `of "${name}" reads the one "${captured}", which has one type (Rule 8.19). Write the type ` +
+      `of "${captured}", or the return type of "${name}".`
+    );
+  }
+  return (
+    `Function "${name}" returns ${authorTypeText(stub.ret)} where its calls use it and ${got} at ` +
+    `a "return"; a function returns one type (Rule 8.19): make them agree, or write the return ` +
+    `type.`
+  );
 }
 
 /** A `@workgroup_size` on a function that is not an entry (proposal 0067): the decorator, and the

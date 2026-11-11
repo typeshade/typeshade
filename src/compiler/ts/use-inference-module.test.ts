@@ -281,32 +281,15 @@ export function t(vi: u32): u32 { return vi + g(true); }`),
     );
   });
 
-  it('a chain longer than the passes follow is switched off whole, with the remedy', () => {
+  it('a chain of sixteen links is followed, one pass a link', () => {
     const links = Array.from({ length: 16 }, (_, i) =>
       i === 15 ? `function f16() { return 3; }` : `function f${i + 1}() { return f${i + 2}(); }`,
     ).join('\n');
-    const refusedChain = src(`${links}
-export function t(vi: u32): u32 { return vi + f1(); }`);
-    const result = compile(refusedChain);
-    const message =
-      'Type mismatch: cannot + u32 and f32 — no implicit int/float conversion. Cast explicitly: ' +
-      'f32(intVal) or i32(floatVal) / u32(floatVal). "f1" returns the f32 the compiler chose: ' +
-      'its result passes through more functions whose calls decide it than the compiler ' +
-      'follows. Write its result type, for example "function f1(): u32".';
-    expect(result.diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
-      `TS8003: ${message}`,
-    ]);
-    expect(editor(refusedChain)).toEqual([`TS8003: ${message}`]);
-    // Ten links are followed.
-    const ten = Array.from({ length: 10 }, (_, i) =>
-      i === 9 ? `function f10() { return 3; }` : `function f${i + 1}() { return f${i + 2}(); }`,
-    ).join('\n');
-    expect(
-      accepted(
-        src(`${ten}
+    const result = accepted(
+      src(`${links}
 export function t(vi: u32): u32 { return vi + f1(); }`),
-      ).eval('t', [1]),
-    ).toBe(4);
+    );
+    expect(result.eval('t', [1])).toBe(4);
   });
 });
 
@@ -382,5 +365,119 @@ export function t(vi: u32, x: f32): f32 { return f32(vi + g()) + x * g(); }`);
     expect(result.wgsl).toContain('fn g_u32_inc(k: ptr<function, u32>) {');
     expect(result.wgsl).toContain('fn g_inc(k: ptr<function, f32>) {');
     expect(result.eval('t', [1, 2])).toBe(4);
+  });
+});
+
+describe('the second review of #1264 (fdf1364e)', () => {
+  const chain = (n: number, tail: string, use: string): string => {
+    const links = Array.from({ length: n }, (_, i) =>
+      i === n - 1
+        ? `function g${i}() { return ${tail}; }`
+        : `function g${i}() { return g${i + 1}(); }`,
+    ).join('\n');
+    return src(
+      `${links}\nfunction k() { return 7; }\nexport function t(vi: u32, x: f32): f32 { return ${use}; }`,
+    );
+  };
+
+  it('a chain that asks only f32 uses up no pass, and leaves another function decided (1)', () => {
+    for (const n of [10, 20]) {
+      const result = accepted(chain(n, '3', 'x * g0() + f32(vi + k())'));
+      expect(result.wgsl).toContain('fn k() -> u32 {');
+      expect(result.eval('t', [2, 0.5])).toBe(10.5);
+    }
+  });
+
+  it('the cap switches off only the links no call decided, and names the first of them (1, 6)', () => {
+    const links = Array.from({ length: 17 }, (_, i) =>
+      i === 16 ? `function g${i}() { return 3; }` : `function g${i}() { return g${i + 1}(); }`,
+    ).join('\n');
+    const source = src(`${links}
+function k() { return 7; }
+export function t(vi: u32): u32 { return vi + g0() + k(); }`);
+    const message =
+      'Function "g15" returns u32 where its calls use it and f32 at a "return"; a function ' +
+      'returns one type (Rule 8.19): make them agree, or write the return type. "g16" returns ' +
+      'the f32 the compiler chose: its result passes through more functions whose calls decide ' +
+      'it than the compiler follows. Write its result type, for example "function g16(): u32".';
+    refused(source, [message]);
+  });
+
+  it('an export clause keeps the f32 the host reads (2)', () => {
+    for (const clause of ['export { g };', 'export { g as h };']) {
+      const source = src(`function g() { return 3; }
+export function t(vi: u32): u32 { return vi + g(); }
+${clause}`);
+      const result = accepted(source);
+      expect(result.wgsl).toContain('fn g() -> f32 {');
+      expect(result.wgsl).toContain('return (vi + g_u32());');
+      expect(hover(source, 'function g', 9)).toBe('function g() (u32 or f32 where it is called)');
+    }
+  });
+
+  it("a copy's local functions take a name no function of the module has (3)", () => {
+    const source = src(`function g_u32_inc(a: u32): u32 { return a * 100; }
+function g() { let b = 1; function inc() { return b + 1; } return inc(); }
+export function t(vi: u32, x: f32): f32 { return f32(vi + g()) + x * g() + f32(g_u32_inc(vi)); }`);
+    const result = accepted(source);
+    expect(result.wgsl).toContain('fn g_u32_1() -> u32 {');
+    expect(result.wgsl).toContain('fn g_u32_1_inc(');
+    expect(result.eval('t', [2, 0.5])).toBe(205);
+  });
+
+  it('one call that decides a method, a getter, an arrow or a local hovers as that type (4)', () => {
+    const cases: [string, string, string, string][] = [
+      [
+        'class C { m() { return 3; } }',
+        'const c = new C(); return vi + c.m();',
+        'm()',
+        '(method) C.m(): u32',
+      ],
+      [
+        'class C { get m() { return 3; } }',
+        'const c = new C(); return vi + c.m;',
+        'm()',
+        '(getter) C.m: u32',
+      ],
+      ['const m = () => 3;', 'return vi + m();', 'm =', 'const m: () => u32'],
+      ['', 'function m() { return 3; } return vi + m();', 'm()', '(local function) m(): u32'],
+    ];
+    for (const [head, body, at, line] of cases) {
+      const source = src(`${head}
+export function t(vi: u32): u32 { ${body} }`);
+      const result = accepted(source);
+      expect(result.wgsl).toMatch(/-> u32 \{\n\s+return 3u;/);
+      expect(hover(source, at)).toBe(line);
+      expect(hover(source, 'vi + ', 5 + (body.includes('c.m') ? 2 : 0))).toBe(line);
+    }
+    const generic = src(`function g<T>(a: T) { return 3; }
+export function t(vi: u32, x: f32): f32 { return f32(vi + g<f32>(x)) + x * g<f32>(x); }`);
+    accepted(generic);
+    expect(hover(generic, 'vi + g', 5)).toBe('function g(a: T): u32');
+    expect(hover(generic, 'x * g', 4)).toBe('function g(a: T): f32');
+  });
+
+  it('a captured variable that the copies cannot type apart is named, with the fix (5)', () => {
+    for (const fn of ['function inc() { return base + 1; }', 'const inc = () => base + 1;']) {
+      refused(
+        src(
+          `export function t(vi: u32, x: f32): f32 { let base = 2; ${fn} return f32(vi + inc()) + x * inc(); }`,
+        ),
+        [
+          'Function "inc" returns f32 where its calls use it and u32 at a "return" that reads ' +
+            '"base", a variable of the function around it: every copy of "inc" reads the one ' +
+            '"base", which has one type (Rule 8.19). Write the type of "base", or the return ' +
+            'type of "inc".',
+        ],
+      );
+    }
+  });
+
+  it("a getter's refused / names the read as written (6)", () => {
+    refused(
+      src(`class C { get m() { return 7; } }
+export function t(vi: u32): f32 { const c = new C(); return f32(vi + c.m) + c.m / 2; }`),
+      [division('c.m', 'c.m / 2', 'f32(c.m) / 2')],
+    );
   });
 });

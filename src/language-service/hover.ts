@@ -1078,9 +1078,16 @@ function resultCopiesLine(
   const table = analysis.sourceFile;
   const at = def.textSpan.start;
   const fn = resultCopiesAt(table, at);
-  if (fn !== undefined) {
-    const named = nodeAt(sourceFile, at);
-    const decl = named?.parent;
+  // A call of a function its calls decide hovers as the copy it calls; a generic function's
+  // instance records no declaration line, only its calls.
+  const call = copyCallAt(table, node.getStart(sourceFile));
+  const named = nodeAt(sourceFile, at);
+  const decl = named?.parent;
+  const generic =
+    decl !== undefined &&
+    ts.isFunctionLike(decl) &&
+    ((decl as ts.SignatureDeclaration).typeParameters?.length ?? 0) > 0;
+  if (fn !== undefined || (call !== undefined && generic)) {
     const fnNode =
       decl !== undefined && ts.isVariableDeclaration(decl) && decl.initializer !== undefined
         ? decl.initializer
@@ -1093,9 +1100,10 @@ function resultCopiesLine(
       decl !== undefined && ts.isClassElement(decl) && ts.isClassLike(decl.parent)
         ? `${decl.parent.name?.text ?? ''}.`
         : '';
-    const call = copyCallAt(table, node.getStart(sourceFile));
-    const result = call !== undefined ? spellShaderType(call, struct) : undefined;
-    const words = `${typesInWords(fn.types, struct)} where it is called`;
+    const one = fn !== undefined && fn.types.length === 1 ? fn.types[0] : undefined;
+    const fixed = call ?? one;
+    const result = fixed !== undefined ? spellShaderType(fixed, struct) : undefined;
+    const words = `${typesInWords(fn?.types ?? [], struct)} where it is called`;
     if (decl !== undefined && ts.isGetAccessorDeclaration(decl)) {
       return `(getter) ${owner}${node.text}${result !== undefined ? `: ${result}` : ` (${words})`}`;
     }
@@ -1105,7 +1113,12 @@ function resultCopiesLine(
     const head =
       decl !== undefined && ts.isMethodDeclaration(decl)
         ? `(method) ${owner}${node.text}(${params})`
-        : `function ${node.text}(${params})`;
+        : decl !== undefined &&
+            ts.isFunctionDeclaration(decl) &&
+            !ts.isSourceFile(decl.parent) &&
+            !ts.isModuleBlock(decl.parent)
+          ? `(local function) ${node.text}(${params})`
+          : `function ${node.text}(${params})`;
     return result !== undefined ? `${head}: ${result}` : `${head} (${words})`;
   }
   const local = analysis.symbols.filter((s) => s.start === at && s.kind === 'local');

@@ -1939,7 +1939,8 @@ function's instance, that writes no return type and whose first `return` (or exp
 from its calls (Rule 8.19, change 0134): `function g() { return 1; }` returns a `u32` where
 `vi + g()` is its only call. A call that asks another type takes a copy of the function for that
 type, named as a generic instance is (`g_u32`), and the function itself keeps the `f32` result
-under its own name. A function the host calls (an export, a member of an exported class) keeps
+under its own name. A function the host calls (an export or an `export { … }` clause names it, or
+it is a member of an exported class) keeps
 the `f32` the host reads even where its calls ask one other type; those calls take the copy. A
 generic function's instance has copies of its own. Each copy infers its own locals, and a call in
 a copy decides its own callee's copy:

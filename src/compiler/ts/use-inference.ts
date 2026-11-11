@@ -92,6 +92,10 @@ interface State {
   askedNow: Map<object, Map<string, ShaderType>>;
   /** Set for the last pass of a compile whose passes ran out (`switchCallersOff`). */
   callersOff: boolean;
+  /** The functions `switchCallersOff` switched off: those no call had decided yet. */
+  readonly off: Set<ts.Node>;
+  /** Each call of one of them, with the function's name, for the sentence of a mismatch. */
+  readonly offCalls: Map<ts.Node, string>;
 }
 
 const states = new WeakMap<ts.SourceFile, State>();
@@ -114,6 +118,8 @@ export function beginUseInference(sourceFile: ts.SourceFile): void {
     askedBefore: new Map(),
     askedNow: new Map(),
     callersOff: false,
+    off: new Set(),
+    offCalls: new Map(),
   });
 }
 
@@ -158,7 +164,7 @@ export function settleUseInference(sourceFile: ts.SourceFile): boolean {
   }
   // A pass that found a function its callers decide did not yet read its calls as values, and
   // one whose calls asked other result types than the pass before made other copies.
-  let changed = state.newCallerDecided || !sameAsked(state.askedBefore, state.askedNow);
+  let changed = state.newCallerDecided;
   state.newCallerDecided = false;
   // A call's decision reaches the function it calls in the next pass at once, as if that pass
   // had lowered the call already: one pass a link of a chain of such functions.
@@ -194,27 +200,36 @@ export function settleUseInference(sourceFile: ts.SourceFile): boolean {
     // use is a decision, which picks the copy of the function it calls.
     if (one === undefined || one === 'int') continue;
     if (one === 'f32') {
-      if (perUse) {
-        decide(decl, f32T, callee);
-        changed = true;
-      }
+      // A call's own `f32` use picks the function's `f32`, which it has unless another call
+      // asks another type: it lowers nothing again by itself (the comparison below).
+      if (perUse) decide(decl, f32T, callee);
       continue;
     }
     decide(decl, TYPE_OF[one], callee);
     changed = true;
   }
-  return changed;
+  return changed || !sameAsked(state.askedBefore, state.askedNow);
+}
+
+/** The result types a function's calls asked, with a set of `f32` alone read as none: the
+ *  function has the `f32` already, so such a set changes nothing. */
+function askedTypes(
+  map: ReadonlyMap<object, ReadonlyMap<string, ShaderType>>,
+  key: object,
+): ReadonlySet<string> {
+  const types = map.get(key);
+  if (types === undefined || (types.size === 1 && types.has('f32'))) return new Set();
+  return new Set(types.keys());
 }
 
 function sameAsked(
   a: ReadonlyMap<object, ReadonlyMap<string, ShaderType>>,
   b: ReadonlyMap<object, ReadonlyMap<string, ShaderType>>,
 ): boolean {
-  if (a.size !== b.size) return false;
-  for (const [key, types] of a) {
-    const other = b.get(key);
-    if (other === undefined || other.size !== types.size) return false;
-    for (const k of types.keys()) if (!other.has(k)) return false;
+  for (const key of new Set([...a.keys(), ...b.keys()])) {
+    const x = askedTypes(a, key);
+    const y = askedTypes(b, key);
+    if (x.size !== y.size || [...x].some((k) => !y.has(k))) return false;
   }
   return true;
 }
@@ -292,27 +307,26 @@ export function noteCallerDecided(sourceFile: ts.SourceFile, decl: ts.Node): voi
  *  earlier one, and not switched off after the passes ran out (`MAX_INFERENCE_PASSES`). */
 export function isCallerDecided(sourceFile: ts.SourceFile, decl: ts.Node): boolean {
   const state = states.get(sourceFile);
-  return state !== undefined && !state.callersOff && state.callerDecided.has(decl);
+  return state !== undefined && !state.off.has(decl) && state.callerDecided.has(decl);
 }
 
-/** Switches the results that callers decide off for the last pass of a compile whose passes
- *  ran out: every such function takes its first `return`'s type, as before change 0134, so no
- *  chain is left half decided. The functions it switched off, for the sentence of a mismatch. */
+/** Switches off, for the last pass of a compile whose passes ran out, each function whose calls
+ *  decide its result and that no call has given a type other than `f32` yet: it takes its first
+ *  `return`'s type, as before change 0134, and a function its calls did decide keeps that type. */
 export function switchCallersOff(sourceFile: ts.SourceFile): void {
   const state = states.get(sourceFile);
-  if (state !== undefined) state.callersOff = true;
+  if (state === undefined) return;
+  state.callersOff = true;
+  const decided = new Set<ts.Node>();
+  for (const key of state.askedNow.keys()) {
+    if (askedTypes(state.askedNow, key).size > 0) decided.add((key as { node: ts.Node }).node);
+  }
+  for (const node of state.callerDecided) if (!decided.has(node)) state.off.add(node);
 }
 
-/** The names of the functions an earlier pass found its callers decide. */
-export function callerDecidedNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
-  const out = new Set<string>();
-  for (const node of states.get(sourceFile)?.callerDecided ?? []) {
-    const name =
-      (node as { name?: ts.Node }).name ??
-      (ts.isVariableDeclaration(node.parent) ? node.parent.name : undefined);
-    if (name !== undefined && ts.isIdentifier(name)) out.add(name.text);
-  }
-  return out;
+/** Each call of a function `switchCallersOff` switched off, with the function's name. */
+export function switchedOffCalls(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, string> {
+  return states.get(sourceFile)?.offCalls ?? new Map();
 }
 
 /** Whether `switchCallersOff` ran for this compile. */
@@ -368,7 +382,11 @@ export function callerDecidedCall(
 ): { readonly target: FuncDecl; readonly value: InferredValue } | undefined {
   const info = callerDecidedStubs.get(decl);
   const state = states.get(sourceFile);
-  if (info === undefined || state === undefined || state.callersOff) return undefined;
+  if (info === undefined || state === undefined) return undefined;
+  if (state.off.has(info.decl)) {
+    state.offCalls.set(call, info.name);
+    return undefined;
+  }
   if (!state.callerDecided.has(info.decl)) return undefined;
   const key = keyOf(call);
   const asked = state.decided.get(key);
@@ -603,7 +621,11 @@ export function inferredOrigin(value: InferredValue | undefined): Carried | unde
         : 'let';
   const nameNode = value.function ?? decl.name;
   const info: AbstractConst = {
-    name: value.function !== undefined ? `${value.name}()` : value.name,
+    // A call is named as the author wrote it: `g()`, `c.m()`, and `c.m` for a getter's read.
+    name:
+      value.function !== undefined
+        ? value.decl.getText(value.decl.getSourceFile()).replace(/\s+/g, ' ')
+        : value.name,
     value: Number.NaN,
     integerWritten: true,
     keyword,

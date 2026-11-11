@@ -6,11 +6,11 @@
 import {
   beginUseInference,
   beginUseInferencePass,
-  callerDecidedNames,
   callersSwitchedOff,
   endUseInferencePass,
   settleUseInference,
   switchCallersOff,
+  switchedOffCalls,
 } from './use-inference.js';
 import {
   markProjectedAnnotations,
@@ -293,22 +293,12 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
  *  result says why the result is an `f32`, and what to write: one diagnostic for the mistake,
  *  with the remedy in it (Rules 12.4 and 12.5). */
 function withCapNotes(compiled: ProgramCompile, sourceFile: ts.SourceFile): ProgramCompile {
-  const names = callerDecidedNames(sourceFile);
-  if (names.size === 0) return compiled;
-  const calls: { start: number; end: number; name: string }[] = [];
-  const walk = (n: ts.Node): void => {
-    if (ts.isCallExpression(n)) {
-      const c = n.expression;
-      const name = ts.isIdentifier(c)
-        ? c.text
-        : ts.isPropertyAccessExpression(c)
-          ? c.name.text
-          : '';
-      if (names.has(name)) calls.push({ start: n.getStart(sourceFile), end: n.getEnd(), name });
-    }
-    ts.forEachChild(n, walk);
-  };
-  walk(sourceFile);
+  const calls = [...switchedOffCalls(sourceFile)].map(([node, name]) => ({
+    start: node.getStart(sourceFile),
+    end: node.getEnd(),
+    name,
+  }));
+  if (calls.length === 0) return compiled;
   const diagnostics = compiled.result.diagnostics.map((d) => {
     if (d.category !== 'error' || d.fileName !== sourceFile.fileName) return d;
     const call = calls.find((c) => c.start >= d.start && c.end <= d.start + d.length);

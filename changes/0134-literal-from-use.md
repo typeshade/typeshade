@@ -1365,13 +1365,44 @@ request #1264.
     `Function "g" returns u32 where its calls use it and f32 at a "return"; …`. A chain longer
     than `MAX_INFERENCE_PASSES` follows no longer leaves some links decided and others not: the
     last pass switches every such result off (`switchCallersOff`), and the mismatch at a call of
-    one says to write its result type. [fact, measured 2026-11-11] A chain of 10 links compiles;
-    one of 16 is refused with that sentence (at `d2296760`, 8 links already failed).
+    one says to write its result type. [fact, measured 2026-11-11 at `fdf1364e`] A chain of 10
+    links compiled; one of 16 was refused (at `d2296760`, 8 links already failed). See the second
+    review below.
   - Finding 5 (information, not fixed here; the session's coordinator files an issue): compile
     time grows fast with the depth of an expression, on `main` too, and part 4b adds passes.
     [fact, measured 2026-11-11 on this branch with the review's `timing2.ts`] One 24-term
     expression over 8 functions with copies takes 30.6 s; over 6, 403 ms; with no copies, under
     100 ms.
+- The second independent review of pull request #1264 at `fdf1364e` (2026-11-11) compared its
+  corpus against `main` with no difference, and confirmed six findings, each fixed with a test that
+  reads both halves in `src/compiler/ts/use-inference-module.test.ts`:
+  - Finding 1: the pass cap switched off every function of the file, also one outside the chain
+    (`function k() { return 7; }` with `f32(vi + k())` beside a 16-link chain that asks only
+    `f32`). A call's `f32` alone now lowers nothing again, so such a chain uses up no pass, and the
+    cap switches off only the functions no call has given another type yet (`switchCallersOff`).
+    [fact, measured 2026-11-11] `k` is a `u32` beside chains of 10, 16 and 20 such links (eval
+    10.5); an integer chain of 16 links compiles, and one of 17 is refused with one diagnostic
+    that names `g16`, the first link switched off.
+  - Finding 2: `export { g }` did not keep the `f32` the host reads. The front end and the host
+    face now read one definition of what the host imports (`src/compiler/ts/host-exports.ts`):
+    an `export` modifier and an `export { … }` clause, `export { g as h }` included. The author's
+    default export has no host face (Rule 11.10), so it keeps none.
+  - Finding 3: the local functions of a copy could take the name of a function the author wrote
+    (`g_u32_inc`). A copy whose body declares local functions takes a name that no function of
+    the module begins with (`g_u32_1`, `g_u32_1_inc`).
+  - Finding 4: one call that decides a method, a getter, an arrow function or a local function
+    hovered as `number`, and so did a generic instance's call with copies. Every such decision is
+    recorded, and the hover shows `(method) C.m(): u32`, `(getter) C.m: u32`,
+    `const m: () => u32`, `(local function) m(): u32`, and at a generic instance's call the copy's
+    result.
+  - Finding 5: a `return` that reads a captured variable typed apart by the copies was refused under
+    the emitted name (`t_inc`). The sentence names the function as written and the variable:
+    `… at a "return" that reads "base", a variable of the function around it: every copy of "inc"
+reads the one "base", which has one type (Rule 8.19). Write the type of "base", or the return
+type of "inc".` The program stays refused, as on `main`, with one diagnostic.
+  - Finding 6: a refused `/` over a getter's read named `C.m()`; it names the read as written,
+    `c.m`. The note of the pass cap is matched to the calls of the switched-off functions, not to
+    a name.
 - Deviations, open:
   - A generic class's field shares one decision across its instances, as issue #1256 records
     for a generic function's body (deferred by the owner).
