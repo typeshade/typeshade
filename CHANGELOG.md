@@ -296,7 +296,9 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   - `array(xs)` of a `number[]` makes a `Buffer<number>` whose element its first use fixes
     (Amendment A12, decision 3; OD-7): `scan(array([1, 2, 3]))` into an `array<u32>` makes it a
     `Buffer<u32>`. A held length, an indirect count, a geometry's indices and vertices and a
-    program runtime's buffer binding fix it too. Where nothing decides, it is `f32`. A read before
+    program runtime's buffer binding fix it too. An `f64` place fixes `f64`, from the numbers as
+    given (the owner's decision of 2026-11-11, recorded in Amendment A13). Where nothing decides,
+    it is `f32`. A read before
     the first use gives `f32` values, and `set`, `resize` and `at(i).set` keep it open. A refused
     use fixes nothing, and a later use of another element is a `TypeError` that names the line of
     the first use. A `Buffer` that the pool of `device.array()` hands out again is open again.

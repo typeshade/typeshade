@@ -75,8 +75,9 @@ export type ElementKind =
   | { readonly k: 'key'; readonly m: readonly string[] }
   | { readonly k: 'mat'; readonly c: number; readonly r: number };
 
-/** The elements a use can fix for a `Buffer` whose element is open (Amendment A12, Q8). */
-export type OpenKind = 'f32' | 'i32' | 'u32';
+/** The elements a use can fix for a `Buffer` whose element is open (Amendment A12, Q8; `f64` by
+ *  the owner's decision of 2026-11-11, recorded in Amendment A13). */
+export type OpenKind = 'f32' | 'i32' | 'u32' | 'f64';
 
 /**
  * The handle of a `Buffer` of scalars or vectors (change 0138, Amendments A10 Q-I and A11): what
@@ -720,8 +721,10 @@ export function geometryKind(
  * `Buffer` (change 0138, Amendment A12, decision 3): each number is checked as a plain argument
  * of that type is, and the host copy holds them as `kind` from now on. Inside
  * {@link tentatively}, a refusal of the call undoes the fix (D2). A `Buffer` a use fixed before is
- * refused for another element `kind` (Q10). A `kind` that no `Buffer<number>` takes (`f64`, or none)
- * leaves it open, and the check of the call refuses it. Not API.
+ * refused for another element `kind` (Q10). An `f64` place fixes `f64`, from the numbers as given,
+ * which keep their full precision (the owner's decision of 2026-11-11, recorded in Amendment A13).
+ * A `kind` that no `Buffer<number>` takes (none) leaves it open, and the check of the call
+ * refuses it. Not API.
  * @throws `TypeError` that names the index of a number `kind` does not hold, and for a fixed
  *   element of another kind, naming that element and the line of its first use.
  */
@@ -732,7 +735,7 @@ export function decide(
   site?: string,
 ): void {
   if (state === undefined) return;
-  if (kind !== 'f32' && kind !== 'i32' && kind !== 'u32') return;
+  if (kind !== 'f32' && kind !== 'i32' && kind !== 'u32' && kind !== 'f64') return;
   const fixed = state.fixed;
   if (fixed !== undefined && fixed.kind !== kind)
     throw new TypeError(
@@ -741,12 +744,12 @@ export function decide(
   const numbers = state.open;
   if (numbers === undefined) return;
   numbers.forEach((n, i) => {
-    if (kind !== 'f32' && !fitsInteger(kind, n))
+    if ((kind === 'i32' || kind === 'u32') && !fitsInteger(kind, n))
       throw new TypeError(
         `${at} (${kind}): element ${i} is ${n}, which is not a whole number in the ${kind} range.`,
       );
   });
-  const typed = new ZEROED_CTOR[kind](numbers);
+  const typed = new OPEN_CTOR[kind](numbers);
   const box =
     state.nextBox !== undefined && state.next === state.nextBox.v ? state.nextBox : undefined;
   const was = { host: state.host, next: state.next, boxed: box?.v };
@@ -804,6 +807,9 @@ export function typedKind(state: ResidentArrayState): TypedCtor {
 }
 
 const ZEROED_CTOR = { f32: Float32Array, i32: Int32Array, u32: Uint32Array } as const;
+
+/** The typed array each element an open `Buffer` can take holds. */
+const OPEN_CTOR = { ...ZEROED_CTOR, f64: Float64Array } as const;
 
 /** The element of a typed array kind, as an error names it. */
 const KIND_NAME = new Map<TypedCtor, string>([

@@ -89,6 +89,20 @@ export function sumf(xs: array<f32>): f32 {
   return s;
 }
 
+/** The sum of xs, as f64. */
+export function sum64(xs: array<f64>): f64 {
+  let s = f64(0.);
+  for (const x of xs) {
+    s += x;
+  }
+  return s;
+}
+
+/** The first of xs, as f64. */
+export function first64(xs: array<f64>): f64 {
+  return xs[0];
+}
+
 /** The sum of the vectors. */
 export function cen(vs: array<vec3u>): vec3u {
   let c = vec3u(0);
@@ -440,6 +454,28 @@ describe('array(number[]): the first use fixes the element (Amendment A12, decis
     );
   });
 
+  it("an f64 place fixes f64, from the numbers as given (the owner's decision of 2026-11-11, A13)", async () => {
+    const m = await load();
+    const xs = array([0.1, 0.2]);
+    // Before the first use, read() gives f32 values (Q9).
+    expect(((await read(xs)) as Float32Array)[0]).toBe(Math.fround(0.1));
+    const first = m.first64!(xs);
+    expect(await values(first)).toEqual([0.1]);
+    expect(await values(m.sum64!(xs))).toEqual([0.1 + 0.2]);
+    const after = (await read(xs)) as Float64Array;
+    expect(after).toBeInstanceOf(Float64Array);
+    expect([...after]).toEqual([0.1, 0.2]);
+    // Fixed: a use of another element is refused (Q10), and changes nothing.
+    expect(() => m.sumf!(xs)).toThrow(
+      /^sumf\(\): parameter "xs" takes a Buffer of f32; this Buffer's element is f64, which its first use fixed at .*buffer-kinds\.test\.ts:\d+:\d+.* \(change 0138, Amendment A12, Q10\)\./,
+    );
+    expect(await values(xs)).toEqual([0.1, 0.2]);
+    // A Buffer an f32 use fixed is refused at an f64 place.
+    const ys = array([1, 2]);
+    m.sumf!(ys);
+    expect(() => m.sum64!(ys)).toThrow("this Buffer's element is f32, which its first use fixed");
+  });
+
   it("a Buffer that device.array()'s pool hands out again is open again (D5)", async () => {
     const m = await load();
     const d = await createDevice({ prefer: ['cpu'] });
@@ -639,7 +675,9 @@ describe('a host program over the view (tsc)', () => {
       // Decision 3: Buffer<number> (Q8).
       ['const n: Buffer<number> = array([1, 2]);', ''],
       ['const nd: Buffer<number> = (await createDevice()).array([1, 2]);', ''],
-      ['const r: Float32Array | Int32Array | Uint32Array = await o.read();', ''],
+      ['const r: Float32Array | Int32Array | Uint32Array | Float64Array = await o.read();', ''],
+      ['const r3: Float32Array | Int32Array | Uint32Array = await o.read();', 'TS2322'],
+      ['m.sum64(o); m.first64(o);', ''],
       ['const r2: Float32Array = await o.read();', 'TS2322'],
       ['m.scan(o); m.sumi(o); m.sumf(o); m.cen(o);', ''],
       ['m.times(o, o, o); m.trace(o, o, o); m.traces(o, o);', ''],
@@ -682,7 +720,7 @@ describe('a host program over the view (tsc)', () => {
     const app = join(dir, 'app.ts');
     writeFileSync(
       app,
-      `${head}${lines.map(([l]) => l).join('\n')}\nexport { geo, n, nd, r, r2, b, bs, b0, v, vs, p, pr, k, kr, g, pp, pm, bodies, on, mm, mo };\n`,
+      `${head}${lines.map(([l]) => l).join('\n')}\nexport { geo, n, nd, r, r2, r3, b, bs, b0, v, vs, p, pr, k, kr, g, pp, pm, bodies, on, mm, mo };\n`,
     );
     const found = await tscDiagnostics([app], {
       strict: true,

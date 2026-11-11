@@ -961,11 +961,12 @@ type IsOpen<T> = [T] extends [f32]
 
 /** What `read()` of a `Buffer<T>` gives: the typed array of the scalar for a scalar, a vector or a
  *  matrix `T`, the components one after another (Amendment A11, Q2 and Q5; Amendment A12, Q2);
- *  any of the three for an element no use has fixed (A12, Q8); a `boolean[]` for a `bool` or a
+ *  any of the four for an element no use has fixed (A12, Q8; `Float64Array` by the owner's
+ *  decision of 2026-11-11, recorded in Amendment A13); a `boolean[]` for a `bool` or a
  *  `vecN<bool>` (A12, Q1); the member strings for a key (A12, Q4); `T[]` for a struct (R9). */
 type BufferRead<T> =
   IsOpen<T> extends true
-    ? Float32Array | Int32Array | Uint32Array
+    ? Float32Array | Int32Array | Uint32Array | Float64Array
     : [T] extends [boolean]
       ? boolean[]
       : [T] extends [readonly boolean[]]
