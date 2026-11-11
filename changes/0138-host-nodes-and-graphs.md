@@ -846,6 +846,7 @@ sits under it.
 
 **Decision (a): the window between a writing call and its `read()`.**
 
+- The window: the time from a call that writes a `Buffer` to that `Buffer`'s `read()`.
 - [fact] B1 was observed on the CPU tier at `becee199`. A writing call ran, and then `set()` wrote
   one field. The element's other fields went back to their values from before the call.
 - [fact] The cause is A5 D2: a `Buffer` keeps one dirty range for each element. While the device
@@ -870,12 +871,16 @@ sits under it.
   site. This holds until `set(data)` or `resize()` gives the `Buffer` new values.
 - Alternative: only the next `read()` or call throws the error, which are A5 default 7's words
   alone. Cost of the alternative: a later call reads values that a failed call left unknown.
-- Cost recorded: to recover, the host gives the whole `Buffer` new values. The values from before
-  the failed call stay readable with `get()`, since the failed call leaves the window.
-- [fact] The pending copy of the error (A5, default 7) is still thrown once, at the next `read()`
-  or call of any resource. So a recovery runs in this order, as #1236 delivers it:
+- Cost recorded: to recover, the host gives the whole `Buffer` new values. The failed call leaves
+  the window, so `get()` reads the region again.
+- [fact] The region then holds what it held before the writing calls not yet read back. After two
+  writing calls with no `read()` between them, where the second fails, `get()` gives the values
+  from before the first.
+- [fact] The pending copy of the error (A5, default 7) is still thrown once. It is thrown at the
+  next `read()` or call, wherever it is, a call with plain data and a draw among them. So a
+  recovery runs in this order, as #1236 delivers it:
   1. A call that writes the `Buffer` fails when it is submitted.
-  2. The `Buffer` leaves the window, and `get()` gives the values from before the call.
+  2. The `Buffer` leaves the window, and `get()` gives the region's values, as the fact above says.
   3. `set(data)` or `resize()` gives the `Buffer` new values.
   4. The next `read()` or call throws the error once, unless one threw it since the failure.
   5. The call after it works.
@@ -883,15 +888,17 @@ sits under it.
 **The five deferred questions.**
 
 - [decision, owner, 2026-11-11] "다섯 모두 지금 동작 유지, 나중에 결정". Today's behavior stays for
-  each question, and each question stays open, except question 2 below.
+  each question, and each question stays open.
+- [inference, agent] Decision (a) refuses `get()` in the window too, so it agrees with question 2's
+  current behavior. The owner may close question 2; the owner has not closed it.
 
-| No. | Question                                                                                                                | Behavior at `76b66224`                                                                                        | Status                          |
-| --- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| 1   | What resource does a kernel function return when it returns a value and takes a resource? R2 says "returns a resource". | A `TypeError` at the call, and `TS2345` in the host's editor. Q2 is milestone 4.                              | open                            |
-| 2   | What does `get()` give between a call that writes a `Buffer` and its `read()`?                                          | It throws a `TypeError`.                                                                                      | closed: decision (a) settles it |
-| 3   | Is a call whose only resource is a `Resident` (`array(xs)`) a call on a resource under R2?                              | No. It stays today's queued or awaited call (Rule 11.8).                                                      | open                            |
-| 4   | A plain array, `Map` or `Set` that a call on a resource writes: refuse, or allow?                                       | A `TypeError` at the call, and `TS2769`. The host passes `array(xs)` or a `Buffer`.                           | open                            |
-| 5   | May an entry call take a `Buffer` of `N` elements for a sized storage binding (`storage<array<T, N>>`)?                 | No. The call refuses it with a `TypeError`, and the view's overload that only queues takes no `Buffer` there. | open                            |
+| No. | Question                                                                                                                | Behavior at `76b66224`                                                                                        | Status |
+| --- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------ |
+| 1   | What resource does a kernel function return when it returns a value and takes a resource? R2 says "returns a resource". | A `TypeError` at the call, and `TS2345` in the host's editor. Q2 is milestone 4.                              | open   |
+| 2   | What does `get()` give between a call that writes a `Buffer` and its `read()`?                                          | It throws a `TypeError`.                                                                                      | open   |
+| 3   | Is a call whose only resource is a `Resident` (`array(xs)`) a call on a resource under R2?                              | No. It stays today's queued or awaited call (Rule 11.8).                                                      | open   |
+| 4   | A plain array, `Map` or `Set` that a call on a resource writes: refuse, or allow?                                       | A `TypeError` at the call, and `TS2769`. The host passes `array(xs)` or a `Buffer`.                           | open   |
+| 5   | May an entry call take a `Buffer` of `N` elements for a sized storage binding (`storage<array<T, N>>`)?                 | No. The call refuses it with a `TypeError`, and the view's overload that only queues takes no `Buffer` there. | open   |
 
 - Next action for questions 1, 3, 4 and 5: ask the owner again before a slice that changes the
   behavior. No slice and no date are set.
@@ -902,7 +909,7 @@ Each is a difference between the accepted text (with A5 and A6) and `76b66224`.
 
 | ID  | Deviation                                                                                                                                                                                                                                 | Disposition | Next action                                                                                            |
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------ |
-| D-a | A recorded call runs in order from its submission, but on WebGPU each call makes its own queue submission. One `queue.submit` for each submission is not done.                                                                            | open        | One `queue.submit` for each submission. No slice is assigned yet.                                      |
+| D-a | A recorded call runs in order from its submission, but on WebGPU each call makes its own `GPUQueue.submit`. One `GPUQueue.submit` for each submission is not done.                                                                        | open        | One `GPUQueue.submit` for each submission. No slice is assigned yet.                                   |
 | D-b | A `Uniform` argument is passed as its value at the call and packed again at each call. R8's dirty-range economy does not reach a uniform yet.                                                                                             | open        | Upload a uniform's dirty range, as a `Buffer` does. No slice is assigned yet.                          |
 | D-c | WebGL2 (A5, default 6): an entry call's pass program reads back inside the call, so no flush and no fence is placed. A kernel function on a `Buffer` of structs has no WebGL2 tier (Rule 11.8).                                           | open        | Slice 2b.                                                                                              |
 | D-d | A recorded call runs on the default owner (`configure`), as a `Resident` of `array()` does. R3 is not carried out.                                                                                                                        | open        | Slice 2b.                                                                                              |
