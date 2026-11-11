@@ -28,8 +28,12 @@
 // written to the device copy: on WebGPU each range is one `writeBuffer`, and on the CPU tier each
 // element is read into the tier's value (Amendment A5, default 3: each call sees the values of its
 // own call). A call that writes the array leaves its values on the device until `read()`, which
-// lands them in the array's range of the region (R17). Until then `get` throws, and `set` writes
-// with no comparison, since the region does not hold what the device holds.
+// lands them in the array's range of the region (R17). Until then `get`, `set`, `set(data)`,
+// `resize` and `needsUpdate` throw, since the region does not hold what the device holds (the
+// owner's decision of 2026-11-11, "그 구간의 set()을 거부"). A call that writes the array and fails
+// leaves its error on the array: each later call that takes it, and its `read()`, throw that error
+// until `set(data)` or `resize()` gives the array new values (the same day, "set(data)나 resize()로
+// 복구").
 //
 // Like the rest of `typeshade/runtime` it imports no compiler.
 
@@ -196,11 +200,11 @@ class Core {
   }
 
   /** Throw when a call wrote the resource and the host has not read it back: `at` is what reads
-   *  it, `camera.pos.get()` (change 0138, R2). */
+   *  or writes it, `ps.at(0).pos.get()` (change 0138, R2; the owner's decision of 2026-11-11). */
   current(at: string): void {
     if (this.ahead)
       throw new TypeError(
-        `${at}: a call wrote ${this.name}, and its values are on the device until \`await ${this.name}.read()\` brings them back; get() reads the host's copy, which does not hold them yet.`,
+        `${at}: a call wrote ${this.name}, and its values are on the device until \`await ${this.name}.read()\` brings them back; await it first.`,
       );
   }
 
@@ -418,15 +422,13 @@ class Leaf {
       const lo = Math.fround(x - hi);
       const j = this.#l.k === 'v' ? i : 2 * i;
       const k = this.#l.k === 'v' ? ((this.#l as { lo?: number }).lo ?? 0) / 4 + i : j + 1;
-      if (!this.#core.ahead && Object.is(view[j], hi) && Object.is(view[k], lo)) return false;
+      if (Object.is(view[j], hi) && Object.is(view[k], lo)) return false;
       view[j] = hi;
       view[k] = lo;
       return true;
     }
     const j = this.#index(i);
-    // The region does not hold what a call wrote on the device, so a value equal to it may still
-    // differ from the device's: it is written and marked (change 0138, R2).
-    if (!this.#core.ahead && Object.is(view[j], x)) return false;
+    if (Object.is(view[j], x)) return false;
     view[j] = x;
     return true;
   }
@@ -443,6 +445,7 @@ class Leaf {
     // allocates nothing (R7).
     /* eslint-disable prefer-rest-params */
     const view = this.#lanes();
+    this.#core.current(`${this.#path}.set()`);
     const count = this.#count;
     const n = arguments.length;
     let changed = false;
@@ -521,6 +524,7 @@ class ArrayField {
   /** Set every element, from an array of their values. */
   set(values: unknown): void {
     this.#core.live();
+    this.#core.current(`${this.#path}.set()`);
     const xs = values as ArrayLike<unknown>;
     if (typeof values !== 'object' || values === null || xs.length !== this.length)
       throw new TypeError(
@@ -586,6 +590,7 @@ class StructField {
   /** Set the fields `value` names; the others keep what they hold. */
   set(value: unknown): void {
     this.#core.live();
+    this.#core.current(`${this.#path}.set()`);
     if (
       typeof value !== 'object' ||
       value === null ||
@@ -1008,6 +1013,8 @@ class BufferRoot {
       await kernelQueue.idle();
       throwFailure();
       if (state.error !== undefined) throw state.error;
+      // No call wrote the array since the last read: the region holds what the device holds.
+      if (!core.ahead) return this.#decode(core.region.buffer, core.range.offset);
       await state.sync(true);
       core.live();
       const st = this.#l.st;
@@ -1035,20 +1042,31 @@ class BufferRoot {
     return out;
   }
 
-  /** What a call takes for the array (change 0138, R2): the hidden handle of its device copy, the
-   *  values the call sees, copied now, and the element layout. `writes`: the call writes it. */
-  record(writes: boolean): RecordedBuffer {
+  /** What a call takes for the array (change 0138, R2): the hidden handle of its device copy and
+   *  the element layout, with no change to the array yet, so that a call refused by a later check
+   *  leaves it as it was. `commit` copies out the values the call sees, once every check passed;
+   *  `done` ends the check. `writes`: the call writes the array.
+   *  @throws the error of an earlier call that wrote the array and failed. */
+  prepare(writes: boolean): RecordedBuffer {
     const core = this.#core;
     this.#sized('a call');
-    const state = (core.state ??= new RegionState(this.#l, this.#proto));
+    const state = (core.state ??= new RegionState(this.#l, this.#proto, core));
     state.handle ??= handleOf(state);
-    const snapshot = captureOf(core, state, this.#length);
-    if (writes) core.ahead = true;
+    if (state.error !== undefined) throw state.error;
+    const length = this.#length;
+    state.checking = length;
     return {
       handle: state.handle,
       layout: this.#l,
       name: core.name,
-      upload: snapshot === undefined ? undefined : () => state.apply(snapshot),
+      done: () => {
+        state.checking = undefined;
+      },
+      commit: () => {
+        const snapshot = captureOf(core, state, length);
+        if (writes) core.ahead = true;
+        return snapshot === undefined ? undefined : () => state.apply(snapshot);
+      },
     };
   }
 
@@ -1056,6 +1074,7 @@ class BufferRoot {
   resize(length: unknown): void {
     const core = this.#core;
     core.live();
+    core.current(`${core.name}.resize()`);
     const name = core.name;
     if (
       typeof length !== 'number' ||
@@ -1070,12 +1089,23 @@ class BufferRoot {
     core.resize(length * this.#l.st, Math.min(length, this.#length) * this.#l.st);
     this.#length = length;
     this.#unset = undefined;
+    this.#rewritten();
+  }
+
+  /** The array holds new values in all its range: the next call writes all of them to the device
+   *  copy, and the failure of an earlier call is gone (the owner's decision of 2026-11-11). */
+  #rewritten(): void {
+    const state = this.#core.state;
+    if (state === undefined) return;
+    state.error = undefined;
+    state.captured = -1;
   }
 
   /** Give the array the length of `data` and its values. */
   set(data: unknown): void {
     const core = this.#core;
     core.live();
+    core.current(`${core.name}.set()`);
     const name = core.name;
     const xs = data as ArrayLike<unknown>;
     if (
@@ -1110,6 +1140,7 @@ class BufferRoot {
     core.markAll();
     this.#length = length;
     this.#unset = undefined;
+    this.#rewritten();
   }
 
   get needsUpdate(): boolean {
@@ -1118,6 +1149,7 @@ class BufferRoot {
   }
   set needsUpdate(v: boolean) {
     this.#core.live();
+    this.#core.current(`${this.#core.name}.needsUpdate`);
     if (v) this.#core.markAll();
     else this.#core.clean();
   }
@@ -1380,11 +1412,41 @@ class RegionState extends ResidentArrayState {
   captured = -1;
   /** The hidden `Resident` handle the call layer takes. */
   handle: ReturnType<typeof handleOf> | undefined;
+  /** The array's length while a call is checked at the call, before its values are copied out. */
+  checking: number | undefined;
+  readonly #core: Core;
 
-  constructor(layout: Layout & { readonly k: 'a' }, proto: object) {
+  constructor(layout: Layout & { readonly k: 'a' }, proto: object, core: Core) {
     super(undefined);
     this.layout = layout;
     this.proto = proto;
+    this.#core = core;
+  }
+
+  /** How many elements a call's check counts: the array's own while the call is checked at the
+   *  call, and the device copy's when the call runs. `recordArgument` checked the layout. */
+  override measure(): number {
+    return this.checking ?? this.length;
+  }
+
+  /** What an entry call's check reads: while the call is checked at the call, as many zeroed
+   *  elements as the array holds, whose shape is the array's, since its values are not copied
+   *  out yet; the CPU tier's elements when it runs. */
+  override view(): unknown {
+    if (this.checking === undefined) return this.host;
+    const zero = readValue(
+      new DataView(new ArrayBuffer(this.layout.st)),
+      0,
+      this.layout.e,
+      this.proto,
+    );
+    return new Array<unknown>(this.checking).fill(zero);
+  }
+
+  /** A call that wrote the array failed: the device copy holds nothing to read back, so the array
+   *  leaves the window; its error stays until `set(data)` or `resize()`. */
+  failed(): void {
+    this.#core.ahead = false;
   }
 
   /** Write the values a call sees into the device copy: each dirty range of the region, as it
@@ -1459,13 +1521,13 @@ export function resourceOf(
   v: unknown,
 ):
   | { readonly kind: 'uniform'; readonly name: string; value(): unknown }
-  | { readonly kind: 'buffer'; readonly name: string; record(writes: boolean): RecordedBuffer }
+  | { readonly kind: 'buffer'; readonly name: string; prepare(writes: boolean): RecordedBuffer }
   | undefined {
   if (typeof v !== 'object' || v === null) return undefined;
   const core = cores.get(v);
   if (core === undefined) return undefined;
   if (v instanceof BufferRoot)
-    return { kind: 'buffer', name: core.name, record: (w) => v.record(w) };
+    return { kind: 'buffer', name: core.name, prepare: (w) => v.prepare(w) };
   const layout = uniformLayouts.get(v);
   if (layout === undefined) return undefined;
   return {

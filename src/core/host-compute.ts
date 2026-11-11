@@ -51,7 +51,14 @@ import { fuseSlot } from './fuse-scope.js';
 import { checkIncoming, type IncomingReads } from './host-failure.js';
 import { defaultOwner, inferOwner, ownerOf, resourceOwner, type CallOwner } from './owner.js';
 import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
-import { callSite, isResource, joinRecorded, recordArgument } from './host-record.js';
+import {
+  callSite,
+  commitArguments,
+  isResource,
+  joinRecorded,
+  recordArgument,
+  type RecordedArgument,
+} from './host-record.js';
 import { throwFailure } from './submission.js';
 import { glContext } from './gl-context.js';
 import { runGlCompute, type GlComputeReport } from './gl-compute.js';
@@ -395,30 +402,41 @@ function recordCompute(
   // The generated module calls `callCompute` of `core/host-entry-program.ts`, which calls this.
   const site = callSite(callCompute, 1);
   throwFailure();
-  const uploads: (() => void)[] = [];
   const mapped: Record<string, unknown> = { ...bindings };
-  for (const b of e.bindings) {
-    if (!(b.name in bindings)) continue;
-    const at = `${e.name}(): binding "${b.name}"`;
-    const buffer = isBuffer(b);
-    const unsized = buffer && b.layout.k === 'a' && b.layout.n === null;
-    const r = recordArgument(
-      at,
-      bindings[b.name],
-      unsized ? (b.layout as { st: number; e: unknown }) : undefined,
-      buffer && b.writes,
-      buffer,
-    );
-    if (r.upload !== undefined) uploads.push(r.upload);
-    mapped[b.name] = r.value;
+  // Each binding is taken with nothing changed yet; a refusal ends the check of what was taken.
+  const taken: RecordedArgument[] = [];
+  try {
+    for (const b of e.bindings) {
+      if (!(b.name in bindings)) continue;
+      const at = `${e.name}(): binding "${b.name}"`;
+      const buffer = isBuffer(b);
+      const unsized = buffer && b.layout.k === 'a' && b.layout.n === null;
+      const r = recordArgument(
+        at,
+        bindings[b.name],
+        unsized ? (b.layout as { st: number; e: unknown }) : undefined,
+        buffer && b.writes,
+        buffer,
+      );
+      taken.push(r);
+      mapped[b.name] = r.value;
+    }
+  } catch (err) {
+    for (const t of taken) t.buffer?.done();
+    throw err;
   }
-  const owner = inferOwner(
-    `${e.name}()`,
-    e.bindings.map((b): [string, CallOwner | undefined] => [
-      `binding "${b.name}"`,
-      resourceOwner(mapped[b.name]),
-    ]),
-  );
+  // Every binding is checked at the call; only then are the values the call sees copied out (the
+  // review of #1236, B2 and S2).
+  const { checked: owner, uploads } = commitArguments(taken, () => {
+    checkEntryCall(e, argc, mapped, workgroups);
+    return inferOwner(
+      `${e.name}()`,
+      e.bindings.map((b): [string, CallOwner | undefined] => [
+        `binding "${b.name}"`,
+        resourceOwner(mapped[b.name]),
+      ]),
+    );
+  });
   const written = e.bindings.flatMap((b) => {
     const s = isBuffer(b) && b.writes ? residentState(mapped[b.name]) : undefined;
     return s === undefined ? [] : [s];

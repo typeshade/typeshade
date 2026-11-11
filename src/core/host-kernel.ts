@@ -54,7 +54,14 @@ import {
   type KernelGlLoop,
 } from './host-kernel-gl.js';
 import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
-import { callSite, isResource, joinRecorded, recordArgument } from './host-record.js';
+import {
+  callSite,
+  commitArguments,
+  isResource,
+  joinRecorded,
+  recordArgument,
+  type RecordedArgument,
+} from './host-record.js';
 import { throwFailure } from './submission.js';
 import { fromShader, toShader, type HostType } from './host-values.js';
 import type { Tier } from './tiers.js';
@@ -727,32 +734,46 @@ function recordKernel(
     throw new TypeError(
       `${k.name}(): takes a resource, and returns a value: a call on a resource that returns a value is not available yet (change 0138, milestone 3). Pass plain data and await the call, or return nothing and write a Buffer.`,
     );
-  const uploads: (() => void)[] = [];
-  const mapped = k.params.map((p, i) => {
-    const at = `${k.name}(): parameter "${p.name}"`;
-    if (
-      p.k === 'array' &&
-      heldArgument(args[i]) !== undefined &&
-      isResource(heldArgument(args[i])!.array)
-    )
-      throw new TypeError(`${at}: a held length takes no Buffer yet; pass array(xs).`);
-    const r = recordArgument(
-      at,
-      args[i],
-      p.k === 'array' ? p.layout : undefined,
-      (p.k === 'array' || p.k === 'collection') && p.writes,
-      p.k !== 'texture',
+  // Each argument is taken with nothing changed yet; a refusal ends the check of what was taken.
+  const taken: RecordedArgument[] = [];
+  try {
+    k.params.forEach((p, i) => {
+      const at = `${k.name}(): parameter "${p.name}"`;
+      const held = p.k === 'array' ? heldArgument(args[i]) : undefined;
+      if (held !== undefined) {
+        if (isResource(held.array))
+          throw new TypeError(`${at}: a held length takes no Buffer yet; pass array(xs).`);
+        // Its array and its length are `Resident`s, in the order of calls already.
+        taken.push({ value: args[i] });
+        return;
+      }
+      taken.push(
+        recordArgument(
+          at,
+          args[i],
+          p.k === 'array' ? p.layout : undefined,
+          (p.k === 'array' || p.k === 'collection') && p.writes,
+          p.k !== 'texture',
+        ),
+      );
+    });
+  } catch (e) {
+    for (const t of taken) t.buffer?.done();
+    throw e;
+  }
+  const mapped = taken.map((t) => t.value);
+  // Every argument is checked at the call, as a call with plain data checks it when it runs; only
+  // then are the values the call sees copied out (the review of #1236, B2 and S2).
+  const { checked: owner, uploads } = commitArguments(taken, () => {
+    checkCall(cpu, k, argc, mapped);
+    return inferOwner(
+      `${k.name}()`,
+      k.params.map((p, i): [string, CallOwner | undefined] => [
+        `parameter "${p.name}"`,
+        p.k === 'array' || p.k === 'texture' ? resourceOwner(mapped[i]) : undefined,
+      ]),
     );
-    if (r.upload !== undefined) uploads.push(r.upload);
-    return r.value;
   });
-  const owner = inferOwner(
-    `${k.name}()`,
-    k.params.map((p, i): [string, CallOwner | undefined] => [
-      `parameter "${p.name}"`,
-      p.k === 'array' || p.k === 'texture' ? resourceOwner(mapped[i]) : undefined,
-    ]),
-  );
   const written = k.params.flatMap((p, i) => {
     const s = p.k === 'array' && p.writes ? residentState(mapped[i]) : undefined;
     return s === undefined ? [] : [s];

@@ -21,18 +21,23 @@ repository is an official release yet: the `typeshade` package on npm holds only
 
 - **A call on a resource does not block** (change 0138, milestone 3, R2; Amendment A5). A kernel
   function that returns nothing, or a `@compute` entry, called with a `Buffer` or a `Uniform`
-  (an exported binding among them) is recorded and returns nothing: `age(ps, dt)` then
-  `await ps.read()`. The runtime submits the recorded calls when the current microtask checkpoint
-  ends, at a `read()`, and before a call with plain data only. Each call sees the values of its
-  own call: a `set` between two calls reaches the second only. On WebGPU each dirty range of a
-  `Buffer` is one `writeBuffer`. A recorded call that fails throws at the next `read()` or call,
-  with the line of the call. Between a call that writes a `Buffer` and its `read()`, `get`
-  throws, since the host's copy does not hold what the device holds. A call with plain data
-  keeps its meaning. Not yet: a kernel that returns a value on a resource, `using device.use()`
-  for calls (R3), `show` and its back-pressure (Q14). Measured bundle budgets move
-  (`scripts/bundle-budget.json`, gzip bytes): `typeshade/runtime` 165142 to 166347,
-  `typeshade/fuse` 113354 to 113593, `typeshade/algorithms` 62515 to 64538 and
-  `typeshade/random` 43790 to 45840, since the call layer each one carries records calls now.
+  (an exported binding among them) is checked at the call, recorded, and returns nothing:
+  `age(ps, dt)` then `await ps.read()`. A call refused at the call site leaves each `Buffer` as it
+  was. The runtime submits the recorded calls in the next task after the call (the end of the
+  microtask checkpoint, as near as JavaScript can see it), at a `read()`, and before a call or a
+  draw with plain data only. Each call sees the values of its own call. On WebGPU each dirty range
+  of a `Buffer` is one `writeBuffer`. Between a call that writes a `Buffer` and its `read()`, the
+  array's `get`, `set`, `set(data)`, `resize` and `needsUpdate` throw a `TypeError` that says to
+  await `read()` first. A recorded call that fails throws at the next `read()` or call, with the
+  line of the call; a `Buffer` it wrote throws the same error at each later call that takes it and
+  at its `read()`, until `set(data)` or `resize()` gives it new values. A call with plain data keeps
+  its meaning. Not yet: a kernel that returns a value on a resource, a written plain array, a
+  `Resident`-only call as a call on a resource, a sized storage binding, `using device.use()` for
+  calls (R3), `show` and its back-pressure (Q14). Measured bundle budgets move
+  (`scripts/bundle-budget.json`, gzip bytes): `typeshade/runtime` 165142 to 166484,
+  `typeshade/fuse` 113354 to 113593, `typeshade/algorithms` 62515 to 64698 and
+  `typeshade/random` 43790 to 45993: the call layer each one carries records calls now and copies
+  their plain arguments (`copyOf`, which tree shaking dropped from the last two before).
 
 - **An entry's I/O without what the compiler knows** (change 0135). A built-in value takes its
   type from WGSL: `vi: builtin<"vertex_index">` is a `u32`, and an option is the second

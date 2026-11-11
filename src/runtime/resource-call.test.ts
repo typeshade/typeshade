@@ -23,7 +23,7 @@ import { tscDiagnostics } from '../core/testing/tsc-diagnostics.js';
 import { array, configure, uniform, zeros } from '../runtime.js';
 import { kernelQueue } from '../core/resident.js';
 import { failurePending } from '../core/submission.js';
-import { dirtyRanges, type Buffer, type Uniform } from './resource.js';
+import type { Buffer, Uniform } from './resource.js';
 import type { f32, vec3 } from './host-types.js';
 
 const RUNTIME = resolve(__dirname, '../core/host-runtime.ts');
@@ -184,27 +184,29 @@ describe('a kernel call on a Buffer is recorded and does not block (R2)', () => 
 
   it('each call sees the values of its own call (A5, default 3)', async () => {
     const m = await load();
-    const ps = zeros(m.Particle, 3);
-    m.age(ps, 1);
-    // A set between two calls of one submission: the second call sees it, the first does not.
-    ps.at(2).life.set(10);
-    m.age(ps, 1);
-    expect(await lifeOf(ps)).toEqual([2, 2, 11]);
+    const xs = zeros(m.Particle, 3);
+    const one = array(new Float32Array(3));
+    const two = array(new Float32Array(3));
+    m.lives(xs, one);
+    // A set between two calls of one submission, of an array the calls only read: the second
+    // call sees it, the first does not.
+    xs.at(2).life.set(10);
+    m.lives(xs, two);
+    expect(kernelQueue.held.length).toBe(2);
+    expect([...(await one.read())]).toEqual([0, 0, 0]);
+    expect([...(await two.read())]).toEqual([0, 0, 10]);
   });
 
-  it('get throws between a call that wrote the array and read(); set still reaches the device', async () => {
+  it('get throws between a call that wrote the array and read()', async () => {
     const m = await load();
     const ps = zeros(m.Particle, 2);
     m.age(ps, 1);
     expect(() => ps.at(0).life.get()).toThrow(
       new TypeError(
-        "Buffer<Particle>[0].life.get(): a call wrote Buffer<Particle>, and its values are on the device until `await Buffer<Particle>.read()` brings them back; get() reads the host's copy, which does not hold them yet.",
+        'Buffer<Particle>[0].life.get(): a call wrote Buffer<Particle>, and its values are on the device until `await Buffer<Particle>.read()` brings them back; await it first.',
       ),
     );
-    // The region holds 0, the device 1 after the call: a set of 0 is still written.
-    ps.at(1).life.set(0);
-    expect(dirtyRanges(ps)).toEqual([[16, 32]]);
-    expect(await lifeOf(ps)).toEqual([1, 0]);
+    expect(await lifeOf(ps)).toEqual([1, 1]);
     expect(ps.at(0).life.get()).toBe(1);
   });
 
@@ -296,6 +298,94 @@ describe('a recorded call that fails (A5, default 7)', () => {
     expect(failurePending()).toBe(false);
     // The array the failed call wrote keeps its error for read().
     await expect(ps.read()).rejects.toThrow(/age\(\) was called at/);
+  });
+});
+
+// The review of becee199 found each of these; the owner decided (a) and (b) on 2026-11-11.
+describe('the window between a writing call and read(), and a refused or failed call', () => {
+  const WINDOW = (at: string): TypeError =>
+    new TypeError(
+      `${at}: a call wrote Buffer<Particle>, and its values are on the device until \`await Buffer<Particle>.read()\` brings them back; await it first.`,
+    );
+
+  it('refuses set() of a field the call did not write, which would put back its other fields (B1, owner decision a)', async () => {
+    const m = await load();
+    const ps = zeros(m.Particle, 2);
+    m.move(ps, uniform(m.Params, { dt: 1, drag: 2 }));
+    expect(() => ps.at(0).life.set(5)).toThrow(WINDOW('Buffer<Particle>[0].life.set()'));
+    expect(() => ps.at(0).set({ life: 5 })).toThrow(WINDOW('Buffer<Particle>[0].set()'));
+    expect(() => {
+      ps.needsUpdate = true;
+    }).toThrow(TypeError);
+    const out = await ps.read();
+    expect(out.map((x) => [x.pos[0], x.life])).toEqual([
+      [-2, 1],
+      [-2, 1],
+    ]);
+    // After read() the region holds what the device holds, and set() works again.
+    ps.at(0).life.set(5);
+    m.age(ps, 1);
+    expect((await ps.read()).map((x) => [x.pos[0], x.life])).toEqual([
+      [-2, 6],
+      [-2, 2],
+    ]);
+  });
+
+  it('refuses resize() and set(data) in the window, which would drop what the call wrote (S1)', async () => {
+    const m = await load();
+    const ps = zeros(m.Particle, 2);
+    m.age(ps, 1);
+    expect(() => ps.resize(3)).toThrow(WINDOW('Buffer<Particle>.resize()'));
+    expect(() => ps.set([{ life: 9 }])).toThrow(WINDOW('Buffer<Particle>.set()'));
+    expect(await lifeOf(ps)).toEqual([1, 1]);
+    ps.resize(3);
+    expect(await lifeOf(ps)).toEqual([1, 1, 0]);
+  });
+
+  it('a call refused at the call site leaves the Buffer as it was (B2)', async () => {
+    const m = await load();
+    const ps = zeros(m.Particle, 2);
+    ps.at(0).life.set(3);
+    expect(() => m.lives(ps, new Float32Array(2))).toThrow(TypeError);
+    expect(() => m.lives(ps, zeros(m.Other, 2))).toThrow(TypeError);
+    expect(() => m.move(ps, () => 1)).toThrow(TypeError);
+    expect(ps.at(0).life.get()).toBe(3);
+    m.age(ps, 1);
+    expect(await lifeOf(ps)).toEqual([4, 1]);
+  });
+
+  it('checks every argument at the call (S2)', async () => {
+    const m = await load();
+    const ps = zeros(m.Particle, 1);
+    expect(() => m.move(ps, () => 1)).toThrow(/move\(\): parameter "p"/);
+    expect(() => m.move(ps, uniform(m.Other, { a: 1 }))).toThrow(/move\(\): parameter "p"/);
+    expect(kernelQueue.held.length).toBe(0);
+  });
+
+  it('a failed writing call fails the calls and the read() of its Buffer, until set(data) or resize() (B3, owner decision b)', async () => {
+    const m = await load();
+    const ps = zeros(m.Particle, 2);
+    configure({ prefer: ['webgpu'] });
+    m.age(ps, 1);
+    await nextTask();
+    await kernelQueue.idle();
+    configure({ prefer: ['cpu'] });
+    let first: unknown;
+    try {
+      m.age(ps, 1);
+    } catch (e) {
+      first = e;
+    }
+    expect((first as Error).message).toMatch(/age\(\) was called at .*resource-call\.test\.ts/);
+    // The same error, with the line of the failed call, not one nested in another.
+    expect(() => m.age(ps, 1)).toThrow(first as Error);
+    await expect(ps.read()).rejects.toBe(first);
+    await expect(ps.read()).rejects.toBe(first);
+    // A whole rewrite clears the failure.
+    ps.set([{ life: 2 }, { life: 3 }]);
+    m.age(ps, 1);
+    expect(await lifeOf(ps)).toEqual([3, 4]);
+    expect(failurePending()).toBe(false);
   });
 });
 

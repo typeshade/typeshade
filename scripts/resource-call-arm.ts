@@ -44,6 +44,12 @@ export function move(xs: array<Particle>, p: Params): void {
   }
 }
 
+export function lives(xs: array<Particle>, out: array<f32>): void {
+  for (let i = 0; i < xs.length; i++) {
+    out[i] = xs[i].life;
+  }
+}
+
 @compute([64])
 export function step(id: builtin<"global_invocation_id">) {
   if (id.x < ps.length) {
@@ -103,8 +109,15 @@ interface Outcome {
   returned: string[];
   /** Whether a call ran before the end of the microtask checkpoint. */
   early: boolean;
-  /** The byte counts of the `writeBuffer` calls the second `age` made, WebGPU only. */
-  writes: number[];
+  /** The `offset:bytes` of each `writeBuffer` the call after the set of element 7 made. */
+  writes: string[];
+  /** Whether a set between a writing call and read() was refused (the owner's decision of
+   *  2026-11-11, which the review of #1236 asked for as B1). */
+  refused: boolean;
+  /** The elements of the first read that differ from the hand-computed values. */
+  wrong: number;
+  /** What the two calls on a read-only array saw at element 7: before and after a set. */
+  seen: number[];
   error?: string;
 }
 
@@ -128,8 +141,9 @@ async function runInPage(input: {
       age(xs: unknown, dt: number): unknown;
       move(xs: unknown, p: unknown): unknown;
       step(b: unknown, w: unknown): unknown;
+      lives(xs: unknown, out: unknown): unknown;
     };
-    array(cls: unknown, data: unknown[]): Buffer;
+    array(cls: unknown, data?: unknown[]): Buffer;
     configure(o: { prefer: string[] }): void;
     uniform(cls: unknown, init: unknown): { dt: { set(v: number): void } };
     kernelQueue: { held: unknown[] };
@@ -138,7 +152,15 @@ async function runInPage(input: {
   // A kernel function on a Buffer of structs has no WebGL2 tier (Rule 11.8): on WebGL2 it runs on
   // the CPU tier, and the entry runs its WebGL2 pass program.
   g.configure({ prefer: input.tier === 'webgl2' ? ['webgl2', 'cpu'] : [input.tier] });
-  const out: Outcome = { bits: [], returned: [], early: false, writes: [] };
+  const out: Outcome = {
+    bits: [],
+    returned: [],
+    early: false,
+    writes: [],
+    refused: false,
+    wrong: 0,
+    seen: [],
+  };
   const queue = (globalThis as { GPUQueue?: { prototype: { writeBuffer: unknown } } }).GPUQueue;
   const original = queue?.prototype.writeBuffer as
     ((this: unknown, b: unknown, o: number, d: ArrayBuffer | ArrayBufferView) => void) | undefined;
@@ -150,7 +172,7 @@ async function runInPage(input: {
       o: number,
       d: ArrayBuffer | ArrayBufferView,
     ) {
-      if (counting) out.writes.push(d.byteLength);
+      if (counting) out.writes.push(`${o}:${d.byteLength}`);
       return original.call(this, b, o, d);
     };
   try {
@@ -162,15 +184,38 @@ async function runInPage(input: {
     const xs = g.array(m.Particle, data);
     const p = g.uniform(m.Params, { dt: 1.5, drag: 0.75 });
     out.returned.push(String(m.age(xs, 0.5)));
-    // The first call wrote xs on the device; the set reaches only the second call (A5, default 3).
-    xs.at(7)!.life!.set(100);
-    counting = true;
-    out.returned.push(String(m.age(xs, 0.25)));
-    out.early = g.kernelQueue.held.length !== 2;
+    out.early = g.kernelQueue.held.length !== 1;
+    // move writes pos.x and life. A set of life, or of pos.y, which move does not write, would put
+    // back the element's other fields from before the calls: it is refused until read() (B1).
     out.returned.push(String(m.move(xs, p)));
+    try {
+      xs.at(7)!.pos!.set(0, 0, 0);
+    } catch (e) {
+      out.refused = e instanceof TypeError;
+    }
     p.dt.set(1000);
     const first = await xs.read();
+    // Each element against its hand-computed value, in f32: life = (i/8 + 1/2) * 3/2, pos.x =
+    // i/2 - 3/4, pos.y and pos.z as given.
+    const r = Math.fround;
+    first.forEach((e, i) => {
+      const want = [r(r(i * 0.5) - 0.75), r(i * 0.25), r(-i), r(r(r(i * 0.125) + 0.5) * 1.5)];
+      if ([...e.pos, e.life].some((x, k) => !Object.is(r(x), want[k]))) out.wrong++;
+    });
+    // After read() a set is allowed; the next call writes its one element range (R8).
+    xs.at(7)!.life!.set(100);
+    counting = true;
+    out.returned.push(String(m.age(xs, 0)));
+    const again = await xs.read();
     counting = false;
+    // A set between two calls on an array they only read reaches the second only (A5, default 3).
+    const ro = g.array(m.Particle, data);
+    const one = g.array(new Float32Array(n)) as unknown as { read(): Promise<Float32Array> };
+    const two = g.array(new Float32Array(n)) as unknown as { read(): Promise<Float32Array> };
+    out.returned.push(String(m.lives(ro, one)));
+    ro.at(7)!.life!.set(100);
+    out.returned.push(String(m.lives(ro, two)));
+    out.seen = [(await one.read())[7]!, (await two.read())[7]!];
     m.ps.set(data.slice(0, 130));
     m.camera.set({ dt: 2, drag: 0.5 });
     out.returned.push(String(m.step({ camera: m.camera, ps: m.ps }, [3])));
@@ -179,7 +224,7 @@ async function runInPage(input: {
     const second = await m.ps.read();
     const f = new Float32Array(1);
     const u = new Uint32Array(f.buffer);
-    for (const e of [...first, ...second])
+    for (const e of [...first, ...again, ...second])
       for (const x of [...e.pos, e.life]) {
         f[0] = x;
         out.bits.push(u[0]!);
@@ -221,22 +266,31 @@ export async function resourceCallArm(page: Page): Promise<number> {
     };
     const cpu = await run('cpu');
     check(cpu.error === undefined, `cpu runs${cpu.error ? `: ${cpu.error}` : ''}`);
-    for (const tier of ['webgpu', 'webgl2'] as const) {
-      const o = await run(tier);
-      check(o.error === undefined, `${tier} runs${o.error ? `: ${o.error}` : ''}`);
+    for (const tier of ['cpu', 'webgpu', 'webgl2'] as const) {
+      const o = tier === 'cpu' ? cpu : await run(tier);
+      if (tier !== 'cpu')
+        check(o.error === undefined, `${tier} runs${o.error ? `: ${o.error}` : ''}`);
       check(
-        o.returned.length === 5 && o.returned.every((r) => r === 'undefined'),
+        o.returned.length === 7 && o.returned.every((r) => r === 'undefined'),
         `${tier}: every call on a resource returns nothing`,
       );
+      check(o.refused, `${tier}: a set between a writing call and read() is refused (B1)`);
+      check(o.wrong === 0, `${tier}: every element is its hand-computed value (${o.wrong} differ)`);
+      check(
+        o.seen[0] === Math.fround(7 * 0.125) && o.seen[1] === 100,
+        `${tier}: a set between two calls reaches only the second (${o.seen.join(', ')})`,
+      );
       check(!o.early, `${tier}: the calls are held until the checkpoint ends`);
-      const same = o.bits.length === cpu.bits.length && o.bits.every((b, i) => b === cpu.bits[i]);
-      check(same, `${tier}: ${o.bits.length / 4} elements bit for bit against the CPU tier`);
-      // The set of element 7 after a call that wrote xs on the device is one range of one
-      // element (32 bytes), written before the second call.
+      if (tier !== 'cpu') {
+        const same = o.bits.length === cpu.bits.length && o.bits.every((b, i) => b === cpu.bits[i]);
+        check(same, `${tier}: ${o.bits.length / 4} elements bit for bit against the CPU tier`);
+      }
+      // The set of element 7 after read() is one range of one element (16 bytes at 7 * 16),
+      // written before the next call.
       if (tier === 'webgpu')
         check(
-          o.writes.includes(32),
-          `webgpu: the dirty element is one writeBuffer of its range (${o.writes.join(', ')} bytes)`,
+          o.writes.includes('112:16'),
+          `webgpu: the dirty element is one writeBuffer of its range, 16 bytes at 112 (${o.writes.join(', ')})`,
         );
     }
     return failures;

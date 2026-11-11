@@ -8,7 +8,12 @@
 // recorded calls apart until it submits them.
 //
 // A recorded call that fails has nobody waiting on it. Its error, with the line of the call
-// recorded when the call was made, is thrown at the next `read()` or call (A5, default 7).
+// recorded when the call was made, is thrown at the next `read()` or call (A5, default 7). A
+// `Buffer` the call wrote keeps it until `set(data)` or `resize()` (the owner's decision of
+// 2026-11-11).
+//
+// The end of a checkpoint cannot be seen from JavaScript: the submission comes in the next task,
+// so calls that tasks before it record join it. The order of calls is kept (deviation D-f).
 //
 // Like the rest of `typeshade/runtime` it imports no compiler.
 
@@ -73,17 +78,23 @@ export function callSite(entry: (...args: never) => unknown, between = 0): strin
  *  called at, of the same kind (`TypeError`, `RangeError`, `Error`), and the original as its
  *  cause. */
 export function failedAt(err: unknown, call: string, site: string | undefined): unknown {
-  if (!(err instanceof Error)) return err;
+  // The error of an earlier failed call, which a later call that took its `Buffer` threw again,
+  // stays as it is: it names the line of the call that failed.
+  if (!(err instanceof Error) || made.has(err)) return err;
   const Kind = (
     err instanceof TypeError ? TypeError : err instanceof RangeError ? RangeError : Error
   ) as ErrorConstructor;
   const where = site === undefined ? '' : ` at ${site}`;
-  const made = new Kind(
+  const error = new Kind(
     `${err.message}\n(${call} was called${where} and recorded; it failed when it was submitted, and this is the next read() or call: change 0138, R2.)`,
     { cause: err },
   );
-  return made;
+  made.add(error);
+  return error;
 }
+
+/** The errors {@link failedAt} made. */
+const made = new WeakSet<object>();
 
 /** Keep the error of a recorded call for the next `read()` or call. The first one waits; a later
  *  one is the cause of no thrown error, since the calls after a failed one ran apart from it. */
@@ -91,7 +102,10 @@ export function noteFailure(err: unknown): void {
   if (failed === undefined) failed = err;
 }
 
-/** Throw the error of a recorded call that failed, once: at the next `read()` or call. */
+/** Throw the error of a recorded call that failed at the next `read()` or call, wherever it is.
+ *  This pending copy is thrown once; a `Buffer` the call wrote keeps the error too, and throws it
+ *  at each later call that takes it and at its `read()` until `set(data)` or `resize()` (the
+ *  owner's decision of 2026-11-11). */
 export function throwFailure(): void {
   if (failed === undefined) return;
   const err = failed;

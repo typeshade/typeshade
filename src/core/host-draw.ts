@@ -64,6 +64,7 @@ import { checkIncoming, type IncomingReads } from './host-failure.js';
 import { defaultOwner, inferOwner, ownerOf, resourceOwner, type CallOwner } from './owner.js';
 import { TIERS, type Tier } from './tiers.js';
 import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
+import { throwFailure } from './submission.js';
 import type { RhiDevice, RhiTexture } from '../rhi/rhi.js';
 import { CPU_PROGRAM, type CpuCode, type CpuIoField, type CpuProgram } from '../rhi/cpu-program.js';
 import { GL_IMAGE, type GlImage } from './gl-image.js';
@@ -237,6 +238,10 @@ export function callDraw(
 ): Promise<void> {
   fuseSlot.active?.refuse(`${e.name}()`, 'a draw');
   try {
+    // A draw is a call: it first submits the calls recorded before it, and throws the error of
+    // one that failed (change 0138, Amendment A5, defaults 7 and 9).
+    kernelQueue.submit();
+    throwFailure();
     const empty = e.bindings.every(isGuard);
     if (argc !== 2 && !(empty && argc === 1))
       throw new TypeError(

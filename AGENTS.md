@@ -175,9 +175,10 @@ describes it.
 - The differential gate also runs `scripts/resource-call-arm.ts` (change 0138, milestone 3):
   kernel functions and a `@compute` entry called with `Buffer`s, a `Uniform` and exported
   bindings on WebGPU and on WebGL2 (where a kernel function on structs runs on the CPU tier).
-  Each call returns nothing and waits for the end of the microtask checkpoint. A `set` between
-  two calls reaches only the second. Every element read back is held bit for bit to the CPU
-  tier. On WebGPU, the one dirty element is one `writeBuffer` of its range.
+  Each call returns nothing and waits for the next task. A `set` between a writing call and
+  `read()` is refused. A `set` between two calls that only read an array reaches the second
+  only. Every element read back is held bit for bit to the CPU tier, and the first read also to
+  its hand-computed value. On WebGPU, the one dirty element is one `writeBuffer` of its range.
 - `bun run gate:render`: the class-based 3D SDF example is rendered on headless WebGPU and its 48x48 RGBA8 pixels are compared exactly with the committed image golden. Use `UPDATE_RT_GOLDEN=1 bun run gate:render` only for an intentional golden refresh.
 - `bun run gate:journeys` (after `build`): the packed tarball installed into a fresh project,
   and every program in `journeys/` checked the way a user meets it: `compile()`, the language
