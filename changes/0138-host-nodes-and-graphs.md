@@ -3240,7 +3240,7 @@ this amendment.
      Q3). A matrix of `f64` as a result of a call on a resource stays refused (A12 decision 4). Rule
      8.21 gives a matrix of `f64` a host value as plain data (`docs/language-design.md:1009`).
   3. [fact] No record says what a `Buffer<number>` does at a parameter of a matrix of `f64`. A12 Q3
-     covers a matrix of `f32` only. This is open question Q12 (below).
+     covers a matrix of `f32` only. The owner answered it as Q12 (below): such a parameter takes no `Buffer`.
   4. A12's Q8 meaning and A12's editor list, item 4, become: `read()` of a `Buffer<number>` is typed
      `Float32Array | Int32Array | Uint32Array | Float64Array`.
   5. [fact] A12's answer to Q9 says that the runtime keeps the numbers as given until a call fixes the
@@ -3282,15 +3282,15 @@ this amendment.
   2. [inference, agent] The owner's answer covers item 3 too: the same type relation holds there, and
      a `Buffer<number>` passes where a `Buffer<u32>` is taken.
   3. Deviation D-q: item 2 is made part of the approved text by this amendment (A13). Item 3 rests on
-     item 2 of this list, an inference. The owner settles it as Q13 (below).
+     item 2 of this list, an inference. The owner answered Q13 (below): item 3 is made part of the approved text too.
 
 **Deviations.**
 
-| ID  | Approved text                                                                                             | Delivered (#1257 at `da043f1d`)                               | Disposition                                                                                                                                        |
-| --- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D-p | A12 decision 4, item 2: an `array<S, N>` result whose `S` holds a `Record` is held in `Buffer`s.          | Refused at the call on both halves.                           | open: a later slice closes it.                                                                                                                     |
-| D-q | A12's editor list, items 2 and 3: the host view writes the union with `Buffer<number>`.                   | Not written; TypeScript accepts a `Buffer<number>` there.     | item 2: made part of the approved text by this amendment (A13). Item 3: open, by inference only (decision 3, item 2); the owner settles it as Q13. |
-| D-r | `changes/README.md`, Independent review: a proposal needs an independent review before the owner decides. | The owner answered the three points before a review read A13. | closed: the review at `c607c4fc` read A13 and approved with should-fix; its record is below.                                                       |
+| ID  | Approved text                                                                                             | Delivered (#1257 at `da043f1d`)                               | Disposition                                                                                                                                                   |
+| --- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-p | A12 decision 4, item 2: an `array<S, N>` result whose `S` holds a `Record` is held in `Buffer`s.          | Refused at the call on both halves.                           | open: a later slice closes it.                                                                                                                                |
+| D-q | A12's editor list, items 2 and 3: the host view writes the union with `Buffer<number>`.                   | Not written; TypeScript accepts a `Buffer<number>` there.     | item 2: made part of the approved text by this amendment (A13). Item 3: made part of the approved text by this amendment (A13), by the owner's answer to Q13. |
+| D-r | `changes/README.md`, Independent review: a proposal needs an independent review before the owner decides. | The owner answered the three points before a review read A13. | closed: the review at `c607c4fc` read A13 and approved with should-fix; its record is below.                                                                  |
 
 **Open items.**
 
@@ -3313,10 +3313,32 @@ this amendment.
 
 **Open, owner must settle.**
 
-- [fact] Q12. What a `Buffer<number>` does at a parameter of a matrix of `f64` (decision 1, item 3).
-- [fact] Q13. Whether the owner's answer to decision 3 covers A12's editor list, item 3 (decision 3,
-  item 2; D-q).
-- [fact] The agent asks both in the conversation and records the answers in this amendment.
+- [fact] Nothing. The owner answered Q12 and Q13 on 2026-11-11 (below).
+
+**The owner's answers to Q12 and Q13.**
+
+- [decision, owner, 2026-11-11] The owner picked the recommended option of each question in the
+  question UI. The record has no other words. The chosen labels and the option descriptions, in
+  Korean, with English translations:
+  - Q12: "Buffer 안 받음, 일반 데이터만 (추천)" (English translation: no `Buffer`, plain data only;
+    recommended). Description: "f64 행렬 결과를 거부하는 것과 대칭입니다. 두 절반 모두
+    거부합니다. 모든 자료형의 Buffer를 받지 않으므로 OD-7의 타입 추론과 충돌하지 않습니다. 비용: 작음. 작성자는 일반 데이터로 호출하고 await합니다." (English translation: it
+    matches the refusal of a matrix of `f64` as a result; both halves refuse; it takes no `Buffer` of any element, so it does not conflict with OD-7's inference; small cost: the author
+    calls with plain data and awaits.)
+  - Q13: "같이 적용: 적지 않음 (추천)" (English translation: the same answer applies: not written;
+    recommended). Description: "항목 2와 같은 이유입니다. 동작은 같고, 타입 검사도 엄격하게
+    남습니다. 비용: 항목 3도 승인 문구에 편입된다고 기록합니다." (English translation: the reason of
+    item 2; the behaviour is the same and the type check stays strict; cost: item 3 is recorded as
+    part of the approved text too.)
+- What the answers mean:
+  1. Q12: a parameter of a matrix of `f64` takes no `Buffer`, a `Buffer<number>` among them. The call
+     refuses it with a `TypeError` at the call, and the host view types no `Buffer` there. The
+     element of the `Buffer<number>` stays open (A12 D2). The author passes plain data.
+  2. [fact] At `9b78bae7`, #1257 already does so: `placeholderOf` in `src/core/host-kernel.ts`
+     refuses it, and the host view gives a `Buffer` type to a matrix parameter of `f32` only
+     (`src/compiler/ts/host-face.ts:528`). #1257 must test it on both halves (Rule 12.7).
+  3. Q13: A12's editor list, item 3, becomes as item 2 does: a `Buffer<number>` passes there, and the
+     host view does not write the union.
 - [inference, agent] No decision of this amendment conflicts with an entry of
   `docs/owner-decisions.md` (OD-1 to OD-8). Decision 1 follows OD-7.
 
