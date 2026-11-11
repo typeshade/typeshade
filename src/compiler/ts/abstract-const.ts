@@ -369,6 +369,25 @@ export function peekingReads<T>(lower: () => T): T {
   }
 }
 
+/** Runs `lower`, a lowering the program keeps even where a lookahead reached it (a function's
+ *  body, a generic instance cached at its first call), with its reads recorded. */
+export function unpeekedReads<T>(lower: () => T): T {
+  const outer = peeking;
+  peeking = 0;
+  try {
+    return lower();
+  } finally {
+    peeking = outer;
+  }
+}
+
+/** Records that the reads in `node` were folded to a value of `type` where they stand (a loop's
+ *  step folded to its counter's type, a `switch` label to its selector's), as the written number
+ *  would be. Only the hover reads it: the fold is no integer read for the division rule. */
+export function noteFoldedRead(node: ts.Expression, type: ShaderType): void {
+  for (const leaf of readLeaves(node)) settleRead(leaf, type);
+}
+
 /** Starts one lowering of the read `node`, at the type `type` it lowered to. */
 function lowerRead(node: ts.Node, type: ShaderType): void {
   if (peeking > 0) return;

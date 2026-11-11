@@ -220,3 +220,95 @@ export function t(x: f32): f32 {
     expect(hoverLine(service, files, A, 'let k', 4)).toBe('let k: u32');
   });
 });
+
+describe('a read the front end folds to the type where it stands (review of #1260)', () => {
+  it('names a loop step at the counter type it is folded to', () => {
+    const files = {
+      [A]: `"use typeshade";
+const K = 2;
+export function t(vi: u32, ii: i32): f32 {
+  let s = 0.0;
+  for (let i = 0; i < ii; i += K) { s += 1.0; }
+  for (let j = vi; j < 100; j += K) { s += 1.0; }
+  return s;
+}`,
+    };
+    const service = accepted(files);
+    const wgsl = compiled(files, A).wgsl!;
+    expect(wgsl).toContain('i += 2)');
+    expect(hoverLine(service, files, A, 'i += K', 5)).toBe('const K: i32');
+    expect(wgsl).toContain('j += 2u)');
+    expect(hoverLine(service, files, A, 'j += K', 5)).toBe('const K: u32');
+  });
+
+  it('names a switch label at the type of its selector', () => {
+    const files = {
+      [A]: `"use typeshade";
+const K = 3;
+export function t(vi: u32, ii: i32): f32 {
+  let x = 0.0;
+  switch (vi) { case K: { x = 1.0; break; } default: { break; } }
+  switch (ii) { case K: { x = 2.0; break; } default: { break; } }
+  return x;
+}`,
+    };
+    const service = accepted(files);
+    const wgsl = compiled(files, A).wgsl!;
+    expect(wgsl).toContain('case 3u:');
+    expect(hoverLine(service, files, A, 'case K', 5, 'switch (vi)')).toBe('const K: u32');
+    expect(wgsl).toMatch(/case 3:/);
+    expect(hoverLine(service, files, A, 'case K', 5, 'switch (ii)')).toBe('const K: i32');
+  });
+});
+
+describe('a generic instance a lookahead lowers first (review of #1260)', () => {
+  // The bound of a counted `for` is read ahead of its counter's type, and that read is where the
+  // program first calls `g` with a `u32`, so the `u32` instance is made and kept there.
+  const generic = (body: string): Files => ({
+    [A]: `"use typeshade";
+const K = 3;
+function g<T extends f32 | u32>(v: T): f32 { return f32(v * K); }
+export function t(vi: u32, x: f32): f32 {
+  ${body}
+}`,
+  });
+  for (const [order, body] of [
+    [
+      'the bound first',
+      'let s = 0.0;\n  for (let i = u32(0); i < u32(g(vi)); i++) { s += 1.0; }\n  return s + g(x);',
+    ],
+    [
+      'the f32 call first',
+      'let s = g(x);\n  for (let i = u32(0); i < u32(g(vi)); i++) { s += 1.0; }\n  return s;',
+    ],
+  ] as const) {
+    it(`names the declaration where the two instances read it apart (${order})`, () => {
+      const files = generic(body);
+      const service = accepted(files);
+      const wgsl = compiled(files, A).wgsl!;
+      expect(wgsl).toContain('(v * 3u)');
+      expect(wgsl).toContain('(v * K)');
+      expect(hoverLine(service, files, A, 'v * K', 4)).toBe(`const K = 3 (${INT})`);
+    });
+  }
+});
+
+describe('a name an import gives the constant (review of #1260)', () => {
+  it('marks the alias at the import, and names each read by the name the file writes', () => {
+    const files = {
+      [LIB]: `"use typeshade";
+export const K = 4;
+`,
+      [A]: `"use typeshade";
+import { K as Q } from "./lib.shade.ts";
+export function t(vi: u32): u32 {
+  return vi * Q;
+}`,
+    };
+    const service = accepted(files);
+    expect(compiled(files, A).wgsl).toContain('(vi * 4u)');
+    expect(hoverLine(service, files, A, 'as Q', 3)).toBe(`(alias) const Q = 4 (${INT})`);
+    expect(hoverLine(service, files, A, 'K as', 0)).toBe(`const K = 4 (${INT})`);
+    expect(hoverLine(service, files, A, 'vi * Q', 5)).toBe('const Q: u32');
+  });
+});

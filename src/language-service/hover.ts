@@ -1115,7 +1115,15 @@ function abstractConstLine(
     }
   }
   const types = decl.integerWritten ? 'i32, u32, f32 or f64' : 'f32 or f64';
-  return `${decl.keyword} ${name} = ${decl.written} (${types} where it is read)`;
+  // A name an import or an export gives the constant (`import { K as Q }`) is an alias of it,
+  // marked as TypeScript marks one, so the alias is not read as the constant's own name.
+  const parent = node.parent;
+  const alias =
+    (ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent)) &&
+    parent.propertyName !== undefined &&
+    parent.name === node &&
+    parent.propertyName.getText(sourceFile) !== name;
+  return `${alias ? '(alias) ' : ''}${decl.keyword} ${name} = ${decl.written} (${types} where it is read)`;
 }
 
 /**

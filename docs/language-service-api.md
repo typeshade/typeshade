@@ -547,10 +547,13 @@ gave that read: `const K: u32` in `vi * K`, `const K: f32` in `x * K`, `const K:
 type that file's program gives it. In the declaring file nothing an importer reads decides, as
 in `compile()` of that file. A function-local `const`, a member of a namespace
 (`const Tone.GAMMA: f32`) and a static field that no code writes (`static Z = 4 (…)` at the
-declaration, `(property) S.Z: u32` at a read) read the same way. The front end records each
-lowering of a read with the type a retarget gives it (`noteIntegerRead`, `noteF64Read`,
-`noteCastRead` in `src/compiler/ts/abstract-const.ts`), and a lookahead lowering records nothing
-(`peekingReads`). A read whose lowerings disagree keeps the words: a generic function's body
+declaration, `(property) S.Z: u32` at a read) read the same way. A name an import gives the
+constant is marked as an alias at the import: `(alias) const Q = 4 (…)` for
+`import { K as Q }`. The front end records each lowering of a read with the type a retarget or a
+fold gives it (`noteIntegerRead`, `noteF64Read`, `noteCastRead`, and `noteFoldedRead` for a loop
+step and a `switch` label, in `src/compiler/ts/abstract-const.ts`). A lookahead lowering records
+nothing (`peekingReads`), except in a function's body that it reaches, which is lowered once and
+kept (`unpeekedReads`). A read whose lowerings disagree keeps the words: a generic function's body
 lowered at two types, a loop counter's start lowered again at its type on `main`, and a read
 inside another such constant's initializer. A function's result that its callers decide, and its
 copies, are part 4b of change 0134, and the hover of a function keeps the compiler's one type

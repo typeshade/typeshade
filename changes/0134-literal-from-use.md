@@ -1245,9 +1245,28 @@ read)`, and `const C = 0.1 (f32 or f64 where it is read)` for a float-written co
     the compiler's type: a read in a generic function's body that two instances type apart, and
     the start of a loop counter that the front end lowers again at its type on `main`
     (Amendment A4, `withReadTypes`). The words are true for every lowering.
-  - The words of a static field (`static Z = 4 (…)`) and the qualified name at a read through a
-    namespace (`const Tone.GAMMA: f32`) are not spelled in item 4, which shows the `const` form
-    only. They follow the declaration as written, as `const K = 3` does.
+- [decision, owner, 2026-11-11] "이대로 수용". Item 4 shows the `const` form only. The owner
+  accepted the two spellings this part chose: a static field that no code writes reads
+  `static Z = 4 (i32, u32, f32 or f64 where it is read)` at its declaration and
+  `(property) S.Z: u32` at a read, and a member of a namespace reads `const Tone.GAMMA: f32` at
+  a read. This deviation is closed by the decision.
+- The independent review of pull request #1260 at `6838bcd6` (2026-11-11) found three hovers
+  that named one wrong type, and one alias shown as the constant's own name. Each is fixed in
+  this part with a test in `abstract-const-hover.test.ts` that holds the hover to the type in
+  the WGSL:
+  - A loop step folded to its counter's type (`j += K` with a `u32` counter emits `j += 2u`)
+    and a `switch` label folded to its selector's type (`case 3u:`) are recorded at that type
+    (`noteFoldedRead`). The fold is recorded for the hover only and is no integer read for the
+    division rule, as before.
+  - A generic instance that a lookahead lowering makes and keeps (the bound of a counted `for`
+    that calls `g(vi)`) records the reads of its body: a function's body is lowered with its
+    reads recorded wherever it is reached (`unpeekedReads` in `fillFunctionBody`), so a body
+    read at two types by two instances keeps the words.
+  - The name an import or an export gives the constant (`import { K as Q }`) reads
+    `(alias) const Q = 4 (…)` at the import, as TypeScript marks an alias.
+  - Not part of this change, filed by the session's coordinator: issue #1261 (`K | J` emits an
+    `f32` variable) and issue #1262 (a workgroup size given by a module constant is refused with
+    `TS8037`).
 
 Not delivered yet: the second part of items 1 and 3 (4b), the hover of a function its callers
 decide and of its copies (item 4, with 4b), the document part of item 5, item 5 for `journeys/`

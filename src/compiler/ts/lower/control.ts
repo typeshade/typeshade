@@ -11,6 +11,7 @@ import {
   originOf,
   withReadTypes,
   type AbstractConst,
+  noteFoldedRead,
   peekingReads,
 } from '../abstract-const.js';
 import { localNumericInference } from '../local-numeric-inference.js';
@@ -1107,6 +1108,10 @@ function caseValue(
     return undefined;
   }
   const value = foldConstNumber(expr, scope);
+  // A constant of no fixed type as a label is read at the selector's type, as the written
+  // number is (the hover, change 0134 item 4).
+  if (value !== undefined && scrutType.kind === 'scalar')
+    noteFoldedRead(clause.expression, scrutType);
   if (value === undefined || !Number.isInteger(value)) {
     pushDiag(
       diagnostics,
@@ -1354,7 +1359,12 @@ export function lowerUpdate(
           );
           return undefined;
         }
-        if (folded !== undefined) rhs = { op: 'lit', type: binding.type, value: folded };
+        if (folded !== undefined) {
+          rhs = { op: 'lit', type: binding.type, value: folded };
+          // A constant of no fixed type in the step is read at the counter's type, as the
+          // written number is (the hover, change 0134 item 4).
+          noteFoldedRead(step.by, binding.type);
+        }
       }
       // Use the same remaining-input fallback as `i++`; ordinary value parameters already
       // have writable locals. Captured variables keep their own rules (Rule 8.17).
