@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 280 exports
+## `.` — 279 exports
 
 ```
 accuracyOf
@@ -214,7 +214,6 @@ Reflection
 ReflectOptions
 RegistryEntry
 renameVarrefsInFunc
-resident
 Resource
 ResourceKind
 rewriteExprsInFunc
@@ -424,7 +423,7 @@ TypeshadeViteOptions
 TypeshadeVitePlugin
 ```
 
-## `./runtime` — 95 exports
+## `./runtime` — 94 exports
 
 ```
 array
@@ -484,7 +483,6 @@ recommendFp64Flavor
 RenderPass
 RenderPipeline
 RenderState
-resident
 runtime
 Runtime
 RuntimeOptions
@@ -929,7 +927,7 @@ uniform
 xorshift32
 ```
 
-## Shapes — 746 definitions
+## Shapes — 745 definitions
 
 ```
 src/algorithms/index.ts#abs  const  { (out: Float32Array, x: Float32Array): Promise<void>; (out: Buffer<f32>, x: Float32Array | Buffer<f32>): void; (out: Float32Array | Buffer<f32>, x: Float32Array | Buffer<f32>): Promise<void>; }
@@ -1483,7 +1481,6 @@ src/core/registry.ts#BuiltRegistry  interface  { ids: readonly string[]; source:
 src/core/registry.ts#RegistryEntry  interface  { exportName: string; id: string; importPath: string }
 src/core/registry.ts#buildRegistry  function  (entries: readonly RegistryEntry[], opts?: BuildRegistryOptions) => BuiltRegistry
 src/core/resident.ts#configure  function  (options: { readonly prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; readonly runtime?: { readonly device: object; }; readonly limits?: Readonly<Record<string, number>>; readonly features?: readonly string[]; readonly fp64Flavor?: Fp64Flavor | "auto"; }) => void
-src/core/resident.ts#resident  function  (...args: unknown[]) => Resident<unknown>
 src/core/semantic-diff.ts#ClassifiedSemanticDiff  interface  { constants: readonly string[]; controlFlow: readonly string[]; explained: readonly ExplainedDiffEntry[]; interface: readonly string[]; resources: readonly string[] }
 src/core/semantic-diff.ts#ExplainedDiffEntry  interface  { bucket: keyof SemanticDiff; line: string; transform: string }
 src/core/semantic-diff.ts#SemanticAspect  type  "declOrder" | "names"

@@ -89,7 +89,7 @@ export type {
 // memory region, and a texture of the device `device.use()` makes the default (Amendment A2).
 // `array` is a function and the host type family's `array<T>` at once.
 export { array, texture, uniform, zeros, type Buffer, type Uniform } from './runtime/resource.js';
-export { resident, configure } from './core/resident.js';
+export { configure } from './core/resident.js';
 export {
   createDevice,
   type ChunkRate,

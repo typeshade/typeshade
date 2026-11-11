@@ -3154,14 +3154,14 @@ declared without an initializer is today.
 and its functions. What holds for a struct holds for the class's fields, and what holds for a
 function holds for its constructor, its methods, its accessors and its static functions. That is
 true in every place a struct or a function can be: a binding, a local, a workgroup variable, a
-kernel function's array, a `Resident`, the host face, the CPU tier, the oracle, the host view,
+kernel function's array, a `Buffer`, the host face, the CPU tier, the oracle, the host view,
 reflection and a package. `new Ray(a, b)` is a call of `Ray_new` wherever you write it. A method
 that changes its object writes the object you call it on, as an `@inout` argument writes its
 place (§70), so `voices[v].tick()` in a kernel function's loop writes `voices` at `v` (§65).
 Where a host may call a function (§64), the same conditions decide for a method, and a method
 that fails one has the reason a function would have. The rule claims no more than that: a method
 that reaches a binding, a workgroup variable or a builtin only a GPU computes has no host call, a
-host call of a method runs on the CPU tier and never dispatches, and a read of a `Resident` is
+host call of a method runs on the CPU tier and never dispatches, and a read of a `Buffer` is
 asynchronous. The class arm of `bun run gate:differential` holds the rule. For each exported class
 of the examples and of `journeys/class-twins/` it writes a twin module that builds the class with
 `new` and calls each member a host could call, in an entry and in a kernel function's loop, and it
@@ -8216,7 +8216,7 @@ matrix is a `readonly` tuple of its components, column-major, with its name as a
 name, so an array of `mat2x2` is an array of matrices and not the typed array an array of `vec4`
 is. `array<T, N>` is a `readonly T[]`. `array<T>`, an array with no size, is what a kernel
 function and an entry's binding take: the typed array of the scalar of `T`, or an array of
-structs, each with its `Resident` (§65). Two names are two types: an `f32` is not a `u32`, and a
+structs, and for a scalar or a vector `T` a `Buffer` of it (§65; change 0138, Amendment A10, Q-I). Two names are two types: an `f32` is not a `u32`, and a
 `vec3` is not a `vec2`. A result is `readonly`, as an argument is (decision D1), so copy a result
 before you write into it.
 
@@ -8261,11 +8261,12 @@ carries the comment of each member it takes from its base. An overload signature
 copied, because the view is written from the implementation. A static field is a constant of the
 module (§26) and not a member of the host class, so its comment has no line in the view.
 
-The sentence of a kernel function and of a `@compute` entry also says how a call is queued (Rule 11.8,
-§65, §67). A call whose written arrays or bindings are all `Resident`s, and that returns nothing, may
-be made without `await`. The signature that returns `void` is that call. It also takes a `Buffer`
-or a `Uniform` of an exported class, an exported binding among them, and then the sentence says
-what a call on a resource does (below).
+The sentence of a kernel function and of a `@compute` entry also says how a call is made (Rule 11.8,
+§65, §67). The view has three signatures of each (change 0138, Amendments A10 and A11): a call with
+plain data, which returns a promise; a call on a resource, which takes a `Buffer` or a `Uniform`,
+an exported binding among them, and returns nothing, or for a kernel function's result its
+`Buffer`s; and a call on a resource that writes a plain array, which returns a promise of plain
+data. The sentence says what a call on a resource does (below).
 
 The plugin rewrites a view when its module changes, in `vite dev` and in `vite build`. On a clean
 checkout `tsc` often runs before Vite (create-vite's `build` script is `tsc && vite build`), so
@@ -8533,19 +8534,46 @@ added them (change 0138, Amendment A7).
 Beside the checks of a call with plain data, a call on a resource refuses these, with a `TypeError`
 at the call, and then changes no `Buffer`:
 
-- a function that returns a value: `` total(): takes a resource, and returns a value: a call on a
-  resource that returns a value is not available yet (change 0138, milestone 3). Pass plain data
-  and await the call, or return nothing and write a Buffer. ``
-- an array, a `Map`, a `Set` or a binding the call writes that is no `Buffer` and no `Resident`:
-  `lives(): parameter "out" is written by the call, which takes a resource, so it does not block
-  and nothing waits to read it back: pass a Buffer, or array(xs), and await its read() (change
-  0138, R2).`
-- a held length `{ array, length }`. The host view still types it beside a `Buffer` (deviation D-g
-  of change 0138, open).
-- a `Buffer` of another class.
+- a result no `Buffer` holds yet (a `bool`, a key, a matrix, a `Record`, an array of structs, and a
+  struct that holds one): `` f(): takes a resource, and returns bool, which no Buffer holds yet. A
+  call on a resource gives a Buffer for a number, a vector, an array<T, N> of them, and a struct of
+  those (change 0138, Amendments A10 Q-C and A11 Q6); pass plain data and await the call. ``
+- a `Map`, a `Set` or a sized binding the call writes that is no `Buffer`: `living(): parameter
+  "seen" is written by the call, which takes a resource, so it does not block and nothing waits to
+  read it back: pass a Buffer, or array(xs), and await its read() (change 0138, R2).`
+- a `Buffer` of another class, or a `Buffer` of scalars of another element, or one whose length is
+  no whole number of the vector's components.
 - a `Buffer` where no array with no size is taken, a storage binding of a stated size among them:
   `move(): parameter "p" takes no storage array, and got Buffer<Particle>. A Buffer is an argument
   where the function or the entry takes an array with no size of its class.`
+- a `Buffer` for a parameter that is no number and no vector, or a `Buffer` of more than one
+  element for one that is.
+
+A call on a resource that writes a plain array with no size waits (change 0138, Amendments A10
+and A11, Q7): it returns a promise, fills the array in place when it has run, and gives its result
+as plain data, as a call with plain data does. A held length `{ array, length, offset? }` takes a
+`Buffer<u32>` as its `length` (Amendment A10, confirmation item 3), and a call with one is a call
+on a resource.
+
+A kernel function that returns a value, called on a resource, returns its result at once as
+`Buffer`s made on the call's device (change 0138, Amendment A10, Q-C; Amendment A11, Q6): a `Buffer`
+of one element for a number or a vector, a `Buffer` of `N` elements for an `array<T, N>` of them,
+and for a struct an object of them with the struct's own fields. A nested struct is an object of
+its own:
+
+```ts
+// shade: interface Box { min: vec3<f32>; max: vec3<f32> }
+//        interface Stats { box: Box; hist: array<u32, 8>; count: u32 }
+//        export function stats(ps: array<Particle>): Stats { … }
+const s = stats(ps); // at once
+s.hist; // Buffer<u32> of length 8
+s.count; // Buffer<u32> of length 1
+s.box.min; // Buffer<vec3<f32>> of length 1
+const [n] = await s.count.read(); // a Uint32Array of one element
+```
+
+A number or a vector parameter takes a `Buffer` of one element of its scalar, which the call reads
+when it runs, so a result is another call's argument: `damp(ps, energy(ps))`.
 
 A call that takes no `Buffer` and no `Uniform` is the call of §65 and §67, as before.
 
@@ -8660,11 +8688,10 @@ Data decides the device of a call (change 0138, R3):
 
 - `zeros()`, `array()` and `uniform()` make what they make on the device in use, or on the default
   owner when no device is in use. What they make stays that device's after the block.
-- In a block, `array(xs)` and `array(length, element)` make that device's `Resident`, as
-  `device.array()` does. The deprecated `resident()` stays the default owner's.
-- A kernel call or an entry call runs on the device of its owned resources (its `Buffer`s, its
-  `Resident`s and the textures a device made), else on the device in use, else on the default
-  owner.
+- In a block, `array(xs)` and `array(length, element)` make that device's `Buffer`, as
+  `device.array()` does.
+- A kernel call or an entry call runs on the device of its owned resources (its `Buffer`s and
+  the textures a device made), else on the device in use, else on the default owner.
 - A `Uniform` takes no part in that choice (Amendment A8). A call copies its value, so it joins a
   call on any device (deviation D-b of change 0138).
 - A call that takes owned resources of two devices is a `TypeError` at the call that names both.
@@ -8802,10 +8829,10 @@ loops and known helpers. A whole-object escape or an unsupported use keeps full 
 Zero live fields and fully live objects also keep the original layout. Every declared host
 field is still checked, including one the upload omits.
 
-This optimization applies to ordinary calls with non-resident inputs. Packing still reads
+This optimization applies to ordinary calls with plain-data inputs. Packing still reads
 and checks every logical field in its original order, including accessor and inherited fields.
 Ambiguous aliases and written object arrays retain full AoS. Fusion facts remain available on an ordinary projected call.
-Resident and fused calls use the original variant, and the planner reads its full-layout facts (change 0085). Entry bindings,
+Calls on a `Buffer` and fused calls use the original variant, and the planner reads its full-layout facts (change 0085). Entry bindings,
 reflection, manifests and raw bytes keep their exposed layouts. No multi-column SoA policy
 is selected. A smaller upload is a memory result; complete-call speed requires measurement.
 
@@ -8876,7 +8903,7 @@ returns nothing and does not block, and a `Buffer` it writes keeps the values un
 | `array<f32>`, `array<i32>`, `array<u32>` | `Float32Array`, `Int32Array`, `Uint32Array`                                  |
 | `array<vecN>` of those              | the scalar's typed array, `N` numbers per element; the call pads a `vec3` element. `.length` counts vectors (change 0068). |
 | `array<S>`, a struct                | an array of objects                                                               |
-| any of the above | a `Resident` of it (below) |
+| `array<f32>`, `array<i32>`, `array<u32>`, `array<vecN>` of those | also a `Buffer` of the scalar, and for a vector a `Buffer<vecN>` (below; change 0138, Amendments A10 and A11) |
 | `array<S>`, or a struct `S`, of an exported class | also a `Buffer<S>`, or a `Uniform<S>` (§64) |
 | an array a loop pushes onto | any of the above, or `{ array, length, offset? }`: the array with its held length (below, change 0094) |
 
@@ -8958,7 +8985,7 @@ assume no infinity. The function's `return` then runs on the CPU tier with what 
 reduced variable, run the whole function on the CPU. A store after the loop, `sums[0] = s` in
 `sumInto` above, puts the folded value into an array instead (change 0094). On WebGPU an entry of
 one invocation runs the stores after the loop and its folds, in the same submission in a `fuse`
-scope (§71), so a store into a `Resident` stays on the device, and a function that stores its
+scope (§71), so a store into a `Buffer` stays on the device, and a function that stores its
 result and returns nothing reads nothing back. The stored value has the bits the `return` would
 have: the variable is combined with what the tree folded, as the tail on the CPU tier combines it.
 
@@ -9072,7 +9099,8 @@ loops may read `out.length` too, `count[0] = list.length`, and on WebGPU the ent
 reads it from the word.
 
 **A push after a held length.** A host may pass an array a loop pushes onto together with its
-length, which a `Resident<Uint32Array>` holds: `{ array, length, offset? }` (change 0094).
+length, which a `Buffer<u32>` holds: `{ array, length, offset? }` (change 0094; change 0138,
+Amendment A10, confirmation item 3). A call with a held length is a call on a resource (§64).
 `array` is what the parameter takes otherwise. Element `offset` of `length`, 0 when you leave
 `offset` out, is the array's length when the call runs. The pushes append after it, as
 ECMAScript's `push` appends after an array's `length`, and the call leaves the new length in the
@@ -9096,23 +9124,23 @@ The call writes the elements from the held length up to the capacity and leaves 
 element as it was. A length past the capacity is still counted, and the result of
 `return out.length` is the new length. On WebGPU the call runs a second WGSL text, in which the scan
 starts at the word and writes the new length into it; the word stays on the device, and a call
-that returns nothing reads nothing back. The CPU tier reads the length from the `Resident`'s host
+that returns nothing reads nothing back. The CPU tier reads the length from the `Buffer`'s host
 copy and writes the new length there. In a `fuse` scope such a call is a group of its own, and a
 later call that reads the word sees the new length (§71). The host view types the object on an
-array a loop pushes onto, and nowhere else. These are the refusals, each a `TypeError` before
-anything runs:
+array a loop pushes onto, and nowhere else. These are the refusals, each a `TypeError` at the
+call:
 
 | Refused                                         | Wording                                                                                                                 |
 | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | the object on an array no loop pushes onto      | `keepAbove(): parameter "xs" is an array no loop pushes onto, so it takes no { array, length, offset? }. Pass the array itself.` |
-| a `length` that is no `Resident`                | `keepAbove(): "list.length" is a Resident<Uint32Array> that holds the length of "list"; got a Uint32Array.`              |
-| a `Resident` of another array                   | `keepAbove(): "list.length" is a Resident<Uint32Array>; got a Resident of a Float32Array.`                              |
+| a `length` that is no `Buffer<u32>`             | `keepAbove(): "list.length" is a Buffer<u32> that holds the length of "list"; got a Uint32Array.`                       |
+| a `Buffer` of another element                   | `keepAbove(): "list.length" is a Buffer<u32>; got a Buffer of a Float32Array.`                                         |
 | an `offset` that is no whole number from 0      | `keepAbove(): "list.offset" counts elements of "list.length", so it is a whole number from 0; got -1.`                  |
 | an `offset` past the array                      | `keepAbove(): "list.offset" is 2, and the length at it needs 3 elements; "list.length" holds 2.`                       |
-| a `length` that is another argument             | `keepStore(): "list.length" is the same resident array as parameter "count".`                                          |
-| a destroyed `Resident`                          | `keepAbove(): "list.length": this Resident was destroyed; make a new one with array().`                             |
+| a `length` that is another argument             | `keepStore(): "list.length" is the same Buffer as parameter "count".`                                                  |
+| a disposed `Buffer`                             | `keepAbove(): "list.length": this Buffer was disposed; make a new one with array().`                                |
 | a scratch array of a `fuse` scope               | `keepAbove(): "list.length" is a scratch array of fuse(), which the host never reads. Make the length with array() or device.array().` |
-| a `Resident` of another owner                   | the owner refusal of §65 (`A device's arrays`), with `"list.length"` as the name                                         |
+| a `Buffer` of another owner                     | the owner refusal of §65 (`A device's arrays`), with `"list.length"` as the name                                         |
 
 An object with another key is no held length: the call refuses it as a wrong array.
 
@@ -9142,70 +9170,83 @@ opened tier, not the effective tier of each call. `FuseReport.tier` keeps its ag
 (§71). Reading information performs no browser operation. No native handles, persistent device
 ID, user agent, storage or automatic sending is added. The host controls inspection and consent.
 
-**Resident arrays.** `array(value)`, from `typeshade/runtime`, wraps a host value once (change
-0138, Amendment A1: it replaces `resident(value)`, which still works, warns once and is removed
-after a deprecation release; `array(length, element)` replaces `resident(length, element)` the same
-way): a typed array, an array of objects, or any other host value (Rule 8.21), such as a
-struct a frame's draws share. Inside a block of `device.use()` it makes that device's `Resident`,
-as `device.array(value)` does (§64, the default device). A kernel function takes the handle
-wherever it takes the array (Rule 11.8). The first call on WebGPU uploads it; the calls after bind the same buffer and read
-nothing back, and `await dev.read()` returns a new copy of what it holds. `dev.write(value)`
-replaces what it holds with a copy of `value` and `dev.destroy()` releases its buffer, each after
-the calls made before it. A copy keeps the class of each object in the value: a plain object
-reads back as a plain object, and an instance as an instance of its class, built without its
-constructor as a struct that a result holds is (change 0109, Amendment 1). So a `Resident` made
-from instances of an exported class (§64) reads back as instances after the calls that write it:
-`instanceof` holds on each element that `read()` returns, and a method runs on it. The handle is
-a buffer of the program runtime too (§69), and `configure({ runtime })` puts the calls on that
-runtime's device, so one `Resident` serves both:
+**A `Buffer` of scalars** (change 0138, Amendments A10 and A11). `array(xs)`, from
+`typeshade/runtime`, makes a `Buffer` of the scalars of a typed array: a `Buffer<f32>` of a
+`Float32Array`, a `Buffer<i32>` of an `Int32Array`, a `Buffer<u32>` of a `Uint32Array` and a
+`Buffer<f64>` of a `Float64Array`. It holds its own copy. Inside a block of `device.use()` it makes
+that device's `Buffer`, as `device.array(xs)` does (§64, the default device). `array()` takes an
+array and nothing else: a value the host keeps on the device is `uniform(Class, init)`, and any
+other value is passed to the call as it is. An array of structs is a `Buffer` only of an exported
+class, `array(Class, data)` or `zeros(Class, n)` (§64); an array of plain objects is passed as
+plain data. Each refusal is a `TypeError` that says what to write instead.
+
+Every `Buffer` has the same members, a `Buffer` of scalars as a `Buffer` of structs (§64):
+`length`, which counts elements, a vector being one; `read()`, which gives a new typed array of the
+scalar, a vector's components one after another; `set(data)`, which replaces what it holds with
+the numbers of `data`, a typed array or an array of numbers, and gives it their length;
+`resize(n)`; `at(i)`, element `i`'s view, whose `get()` gives the number, or a vector's
+components, and whose `set(v)` writes it; `needsUpdate`; and `dispose()`, also through `using`.
+A kernel function takes a `Buffer` wherever it takes the array, an `array<vec3>` taking a
+`Buffer<vec3>` and a `Buffer<f32>` whose length is a whole number of vectors (Rule 11.8). A call
+that takes a `Buffer` is a call on a resource (§64): it is checked at the call, does not block,
+and runs in the order calls were made. The first call on WebGPU uploads the `Buffer`; the calls
+after bind the same buffer and read nothing back, and `await b.read()` waits for the calls made
+before it. From a call that writes a `Buffer` until `read()` brings its values back, `set`,
+`resize`, `needsUpdate` and the element view's `get` and `set` throw a `TypeError` that says to
+await `read()` first. The `Buffer` is a buffer of the program runtime too, for a storage array
+with no size and a geometry's vertices and indices (§69), and `configure({ runtime })` puts the
+calls on that runtime's device, so one `Buffer` serves both:
 
 ```ts
 import { array } from 'typeshade/runtime';
 
 const dev = array(new Float32Array(512 * 512));
-render(k, 512, dev); // queued: every array it writes is resident, and it returns nothing
-const sum = await total(dev); // reads the same buffer
-const img = await dev.read(); // the one read of the chain
+render(k, 512, dev); // does not block, and returns nothing
+const [sum] = await total(dev).read(); // a Buffer of one element, from the same buffer
+const img = await dev.read(); // the one read of the chain's array
 ```
 
-A call whose written arrays are all resident and that returns nothing is typed `void`: nothing
-waits on it. Calls run in the order they were made, and `read()` waits for the ones before it; a
-queued call that fails leaves its error for `read()` to throw. On the CPU tier the handle is an
-array it holds, and costs nothing. A `Uint32Array` resident can also hold the workgroup count of
-an entry call, which a kernel or an entry wrote (§67, change 0075).
+A kernel function that returns a value, called on a `Buffer`, returns its result at once as
+`Buffer`s (change 0138, Amendment A10, Q-C): a `Buffer` of one element for a number or a vector, a
+`Buffer` of `N` elements for an `array<T, N>` of them, and for a struct an object of them with the
+struct's own fields, a nested struct an object of its own (Amendment A11, Q6). Another call takes
+each as an argument: a number or a vector parameter takes a `Buffer` of one element, which the
+call reads when it runs. A call on a `Buffer` that writes a plain array waits, fills the array,
+and gives its result as plain data (Amendment A11, Q7). On the CPU tier a `Buffer` of scalars is a
+typed array it holds, and costs nothing. A `Buffer<u32>` can also hold the workgroup count of an
+entry call, which a kernel or an entry wrote (§67, change 0075).
 
 **Failed inputs** (change 0129). A generated kernel, compute or fragment call checks incoming contents after earlier queued calls settle and its arguments validate.
 If an input it reads has failed, the call rejects with that same error before execution or uploads.
-Every Resident it would write retains that error, so the last output's `read()` reports the producer failure.
+Every `Buffer` it would write retains that error, so the last output's `read()` reports the producer failure.
 Independent calls continue. Fixed-capacity `.length` queries and unused parameters do not depend on contents.
 Held lengths, device-held bounds and indirect counts do depend on contents.
 
 A successful call proved to be write-only clears its destination errors, including a call that writes only part of an array or runs no iterations.
-A read/write update cannot recover a failed input. `write(value)` replaces the bytes but keeps the previous error.
+A read/write update cannot recover a failed input. A call on a `Buffer` is checked when it is made, so these rules hold for the calls made before the failure is known; a call made after it is refused at the call, until `set(data)` or `resize()` gives the `Buffer` new values and clears the error (change 0138, Amendment A10, Q-I; A7, decision b).
 Unproved access remains a content dependency; inspecting a pushed array's logical count currently also treats that array as an input.
-Older generated modules without sufficient access facts conservatively treat every Resident as an input.
+Older generated modules without sufficient access facts conservatively treat every `Buffer` as an input.
 This policy covers generated host calls and their fuse plans. Sharing a handle with manually encoded runtime programs does not extend it to `Frame` submissions.
 
-`resident(length, element)` makes a zeroed `Resident` of `length` numbers, `element` being `'f32'`,
+`array(length, element)` makes a zeroed `Buffer` of `length` numbers, `element` being `'f32'`,
 `'i32'` or `'u32'`, with no element default. It holds no host copy and writes no byte to any queue
 when it is made. On WebGPU a call that uses it makes a zeroed storage buffer, as WebGPU makes every
 new buffer, and writes no byte; a call that writes it leaves the device copy the newer. `await
-z.read()` returns a new array of zeros, with no host copy kept, when no call has written the handle
-and `write()` has not run; otherwise it downloads the device buffer once. The length is a whole
-number from 1 to 4294967295. Three refusals are `TypeError`s: a length that is not such a number,
-an element that is not `'f32'`, `'i32'` or `'u32'`, and a first argument that is not a number when
-there is an element. The one-argument form does not change, and `resident(8, undefined)` is refused
-as an element. On WebGL2 the first call that uploads the handle uploads its zeroed host copy as any
-`Resident` does.
+z.read()` returns a new array of zeros, with no host copy kept, when no call has written it and
+`set()` has not run; otherwise it downloads the device buffer once. The length is a whole number
+from 1 to 4294967295. Three refusals are `TypeError`s: a length that is not such a number, an
+element that is not `'f32'`, `'i32'` or `'u32'`, and a first argument that is not a number when
+there is an element. On WebGL2 the first call that uploads it uploads its zeroed host copy as any
+`Buffer` of scalars does.
 
 **A device's arrays.** `createDevice()`, from `typeshade/runtime` (§69), opens an owner of your
-calls, and `dev.array(value)` and `dev.array(length, element)` make the handles above, owned by
-it. `dev.release(r)` gives one back, and the next `array()` of the same element and length takes
+calls, and `dev.array(xs)` and `dev.array(length, element)` make the `Buffer`s above, owned by
+it. `dev.release(b)` gives one back, and the next `array()` of the same element and length takes
 it from the pool instead of making a new one, zeroed on the device for `array(length, element)`.
 `poolBytes` bounds the pool, 64 MiB by default, and the oldest released array leaves first. A
-call outside a scope selects the unique owner of its resident arrays and device-created textures
+call outside a scope selects the unique owner of its `Buffer`s and device-created textures
 (change 0085). Plain host values select no owner; a call without an owned resource uses the default
-owner. Mixing owners, including a `resident()` handle with a device's handle, is a `TypeError`
+owner. Mixing owners, including a default owner's `Buffer` with a device's, is a `TypeError`
 naming both before execution. Inside `dev.fuse()` (§71), the scope fixes the owner to `dev`.
 `dev.statistics` counts the arrays, their bytes, the allocations, the reuses, the uploads
 and the reads:
@@ -9223,12 +9264,12 @@ await dev.dispose();
 ```
 
 ```ts
-const out = resident(1_000_000, 'f32'); // no host copy, no upload
+const out = array(1_000_000, 'f32'); // no host copy, no upload
 fill(out); // the call makes a zeroed device buffer and writes no byte
 const y = await out.read(); // one download, the first copy of the array
 ```
 
-**The facts a chain is fused from.** A chain of calls over `Resident` arrays can run as one dispatch (§71), and the compiler records what that needs. By default, `typeshade()` and `hostFace()` generate the facts (§71). The generated module carries, for each loop of a kernel function that lowers and for each array the loop reaches by an element, whether the loop reads it, writes it or does both, and whether every access is at exactly `i`, as in `out[i]` and not in `out[i + 1]` or `t[i ^ 1]`. For the first access that is not, it carries your own words and its line, as `TS8070` gives them: `` `t[i - 1]` (line 9) ``. It also carries the arrays whose length the loop reads (`t.length`), whether the loop reduces, scatters or has a `continue` of its own, and the lowered module as portable IR. These are facts and refuse nothing: the proof accepts and refuses the loops it always did, and `TS8070` is as it was. `fuse: true` keeps this default; `fuse: false` omits the facts and portable IR. Ordinary-call input projection remains independent.
+**The facts a chain is fused from.** A chain of calls over `Buffer`s can run as one dispatch (§71), and the compiler records what that needs. By default, `typeshade()` and `hostFace()` generate the facts (§71). The generated module carries, for each loop of a kernel function that lowers and for each array the loop reaches by an element, whether the loop reads it, writes it or does both, and whether every access is at exactly `i`, as in `out[i]` and not in `out[i + 1]` or `t[i ^ 1]`. For the first access that is not, it carries your own words and its line, as `TS8070` gives them: `` `t[i - 1]` (line 9) ``. It also carries the arrays whose length the loop reads (`t.length`), whether the loop reduces, scatters or has a `continue` of its own, and the lowered module as portable IR. These are facts and refuse nothing: the proof accepts and refuses the loops it always did, and `TS8070` is as it was. `fuse: true` keeps this default; `fuse: false` omits the facts and portable IR. Ordinary-call input projection remains independent.
 
 **The tiers.** A call runs on the first of WebGPU, WebGL2 and the CPU tier that can run it.
 WebGL2 has no compute stage, so it takes a function whose every loop writes one array of `f32`,
@@ -9285,7 +9326,7 @@ An interface that extended the previous `DeviceOptions` interface must migrate t
 **A long kernel in chunks.** A GPU watchdog resets a device whose one submission runs too long:
 Windows after about two seconds, iOS Safari with no reason. A kernel that iterates inside one
 dispatch (solver sweeps, RANSAC trials) can run that long. Cut its loop yourself: the kernel runs
-the number of iterations it is given, and keeps its state in a `Resident` between calls. The
+the number of iterations it is given, and keeps its state in a `Buffer` between calls. The
 device then sizes each chunk under its time budget (Rule 11.8, change 0074):
 
 - `createDevice({ timeBudgetMs })` sets the time one chunk may take, beside `poolBytes` and
@@ -9377,13 +9418,13 @@ call no other tier runs.
 A host file calls a module's compute entry through the same import (§64), and the entry runs
 on the GPU. `entry(bindings, workgroups)` dispatches it as written over `workgroups` workgroups
 on WebGPU, and reads every storage binding it writes back into the caller's value, or leaves it
-on the device in a `Resident` (Rules 8.24 and 11.8).
+on the device in a `Buffer` (Rules 8.24 and 11.8).
 A full-screen fragment entry draws into a canvas the same way, as `entry(target, bindings)`
 (below). When it reaches no host-supplied binding, `entry(target)` is sufficient.
 
 Inside the body of a `fuse` scope (§71) an entry call is recorded and runs in the scope's plan. It
 forms a group of its own: no kernel call joins it, and it joins none. Its storage arrays with no
-size are `Resident`s, and it writes no host value, and it runs in the order of the plan. An entry that reaches a `workgroupBarrier()` needs a GPU tier in a scope too, as it does
+size are `Buffer`s of scalars, and it writes no host value, and it runs in the order of the plan. An entry that reaches a `workgroupBarrier()` needs a GPU tier in a scope too, as it does
 outside one: on a host with no WebGPU device and no WebGL2 context, the plan is refused with a
 `TypeError` that names the barrier.
 
@@ -9491,29 +9532,30 @@ binding and its type (`scale(): binding "xs" (array<f32>): got an array of lengt
 Float32Array.`). When the promise resolves, every storage binding the entry wrote holds what the
 GPU left in it: a typed array element by element, an array of structs object by object.
 
-**Resident bindings** (Rule 11.8, §65). A `storage<array<T>>` with no size may be a `Resident` of
-its host value instead, the handle a kernel function takes. On WebGPU it is bound as the buffer it
-already has on the device, and nothing is read back until `await r.read()`. So the output of one
-call can be the input of the next without leaving the GPU. When every binding the entry writes
-is a `Resident`, the view's first signature returns `void`, and the call only queues:
+**`Buffer` bindings** (Rule 11.8, §65). A `storage<array<T>>` with no size of scalars or vectors
+may be a `Buffer` of the scalars, as a kernel function takes it (change 0138, Amendment A10, Q-I).
+On WebGPU it is bound as the buffer it already has on the device, and nothing is read back until
+`await b.read()`. So the output of one call can be the input of the next without leaving the GPU.
+A call that takes one is a call on a resource (§64): it does not block, and returns nothing; one
+that writes a plain array waits (Amendment A11, Q7):
 
 ```ts
-import { resident } from 'typeshade';
+import { array } from 'typeshade/runtime';
 import { scale, blockSum } from './kernels.shade.ts';
 
 const xs = Float32Array.from({ length: 256 }, (_, i) => Math.sin(i));
-const ys = resident(new Float32Array(256));
-const sums = resident(new Float32Array(4));
-scale({ k: 2.5, xs, ys }, 4); // queued
-blockSum({ xs: ys, sums, scratch: resident(new Float32Array(256)) }, 4); // reads scale's output
+const ys = array(new Float32Array(256));
+const sums = array(new Float32Array(4));
+scale({ k: 2.5, xs, ys }, 4); // does not block
+blockSum({ xs: ys, sums, scratch: array(new Float32Array(256)) }, 4); // reads scale's output
 const out = await sums.read(); // the one wait
 ```
 
-A `Resident` where the binding has a size, or is not a storage array, is a `TypeError`, and so
-is one `Resident` passed as two bindings of one call. Entry calls and kernel calls run one after
-another in the order they were made, so an entry and a kernel function can share a `Resident`.
+A `Buffer` of scalars where the binding has a size, or is not a storage array, is a `TypeError`,
+and so is one `Buffer` passed as two bindings of one call. Entry calls and kernel calls run one
+after another in the order they were made, so an entry and a kernel function can share a `Buffer`.
 The failed-input policy of §65 applies before the entry executes, including after override specialization.
-Its content-reading bindings are checked in declaration order, followed by a Resident indirect count; write-only bindings can recover.
+Its content-reading bindings are checked in declaration order, followed by an indirect count; write-only bindings can recover.
 
 **Resources as bindings** (change 0138, R2; Rules 8.21 and 8.24). A `uniform<T>` of a class the
 module exports may be a `Uniform<T>`, and a `storage<array<T>>` of one a `Buffer<T>`, an exported
@@ -9541,7 +9583,7 @@ the shape when supplied. The host divides by that shape, and the entry
 checks its own bound, as WGSL runs it. Nothing is added to the WGSL the author wrote.
 
 **A count a call wrote** (change 0075). The count may also be `{ indirect, offset? }`: the three
-counts x, y and z at element `offset` of a `Resident<Uint32Array>`. The offset is a whole number
+counts x, y and z at element `offset` of a `Buffer<u32>`. The offset is a whole number
 of elements, 0 when left out. An earlier call writes the counts, and the call reads them when it
 runs, so the host submits the next call with no read between:
 
@@ -9571,33 +9613,33 @@ export function markGroups(
 ```
 
 ```ts
-import { resident } from 'typeshade/runtime';
+import { array } from 'typeshade/runtime';
 import { planGroups, markGroups } from './kernels.shade.ts';
 
-const counts = resident(new Uint32Array(6)); // planGroups writes [x, y, z] at element 3
-const marks = resident(new Uint32Array(64));
-planGroups({ groups: 5, counts }, 1); // queued
+const counts = array(new Uint32Array(6)); // planGroups writes [x, y, z] at element 3
+const marks = array(new Uint32Array(64));
+planGroups({ groups: 5, counts }, 1); // does not block
 markGroups({ marks }, { indirect: counts, offset: 3 }); // five workgroups, read by the GPU
 const out = await marks.read(); // the one read
 ```
 
 On WebGPU the call records `dispatchWorkgroupsIndirect` with the array's device buffer at four
-times the offset, and reads nothing back. Every `Resident` buffer has the usage `INDIRECT` for
-this. The CPU tier and WebGL2 read the three counts from the host copy, brought up to date, when
+times the offset, and reads nothing back. Every buffer of a `Buffer` of scalars has the usage
+`INDIRECT` for this. The CPU tier and WebGL2 read the three counts from the host copy, brought up to date, when
 the call runs, and run that grid. A count with a 0 in it runs no workgroup. A count greater than
 the device's `maxComputeWorkgroupsPerDimension` (65535 when there is no device) runs nothing on
 every tier, as WebGPU's queue runs nothing for it, and no tier throws for it.
 
 The view types the argument as `number | readonly [number, number?, number?] | { readonly
-indirect: Resident<Uint32Array>; readonly offset?: number }`. The call refuses an indirect count
-before anything runs, with a `TypeError` that names `workgroups.indirect` or `workgroups.offset`:
+indirect: Buffer<u32>; readonly offset?: number }`. The call refuses an indirect count before
+anything runs, with a `TypeError` that names `workgroups.indirect` or `workgroups.offset`:
 
-- `indirect` is not a `Resident`, or its host value is not a `Uint32Array`;
+- `indirect` is not a `Buffer<u32>`;
 - `offset` is not a whole number from 0, or the three counts from it run past the array (the
   message gives both numbers);
-- the `Resident` conflicts with another binding's owner or the scope's owner (§65), is a scratch array of a `fuse` scope (§71), or
-  destroyed;
-- the `Resident` is also a binding that the entry writes or binds `read_write`. WebGPU refuses a
+- the `Buffer` conflicts with another binding's owner or the scope's owner (§65), is a scratch array of a `fuse` scope (§71), or
+  disposed;
+- the `Buffer` is also a binding that the entry writes or binds `read_write`. WebGPU refuses a
   buffer that one dispatch reads its counts from and writes. A binding that the entry only reads
   may be the same array.
 
@@ -9611,7 +9653,7 @@ and features (change 0051). Every later call and the default program runtime sha
 context, it runs on WebGL2 (change 0054): WebGL2 has no compute stage, so the entry runs as a pass
 program, its storage and workgroup memory as textures of 32-bit words, a pass at a time, with its
 barriers and atomic operations giving the results WGSL defines (§23, §25). Its storage bindings
-are uploaded and the written ones read back, as on WebGPU; a `Resident` is the array it holds, as
+are uploaded and the written ones read back, as on WebGPU; a `Buffer` is the array it holds, as
 on the CPU tier. Where there is neither, as in Node or a test runner, it runs on the CPU tier: the
 generated code (§64), every invocation of every workgroup in turn, `z`, then `y`, then `x`, with
 the workgroup memory zeroed per workgroup, as the interpreter's own dispatch runs it.
@@ -9654,12 +9696,12 @@ requestAnimationFrame(frame);
   argument optional. Explicit objects retain validation; null, arrays, primitives and unknown
   keys remain errors, even where TypeScript's existing `{}` type accepts a value. Compute's
   leading bindings argument remains required, including `entry({}, workgroups)`.
-- **The owner** is the unique owner of the bindings' resident arrays and device-created textures
+- **The owner** is the unique owner of the bindings' `Buffer`s and device-created textures
   (§65). A call with no owned resource uses the default owner. Mixing owners is refused before drawing.
 - **The result** is a promise that resolves when the frame is submitted, not when the GPU has
   drawn it. A frame loop may drop it. Draws made before the device exists run in order once it
   does, each with the values it was called with.
-- **A `Resident`** (Rule 11.8) may stand for a storage array with no size, as it does for a
+- **A `Buffer` of scalars** (Rule 11.8) may stand for a storage array with no size, as it does for a
   compute entry. A draw that reads one runs among the kernel and entry calls, in the order they
   were made: it draws what the calls before it wrote, and a call made after it writes after the
   draw. On WebGPU the handle is bound as the buffer it already has, and nothing is read back; the
@@ -10079,8 +10121,8 @@ await frame.submit(); // console lines print here
   manifest carries (`gl.computes`), which the runtime reads and never builds, so it still ships no
   compiler. A dispatch is recorded into `rt.frame()` and runs at `submit()`, after every call and
   frame submitted before it. A plain value is packed when the dispatch is recorded and read back
-  into nothing, as on WebGPU; a `Resident` is the array it holds, and a dispatch that writes it
-  writes back into it, which `read()` returns. Overrides are pinned in the pass program, one for
+  into nothing, as on WebGPU; a `Buffer` of scalars is the array it holds, and a dispatch that
+  writes it writes back into it, which `read()` returns. Overrides are pinned in the pass program, one for
   each set of values. A 2D texture the entry reads is a runtime texture or a `WebGLTexture`, read
   with the sampler its calls pass it, as a draw reads one. A 2D array, 3D or cube texture is a
   `WebGLTexture` made for `TEXTURE_2D_ARRAY`, `TEXTURE_3D` or `TEXTURE_CUBE_MAP`, since a runtime
@@ -10108,7 +10150,7 @@ await frame.submit(); // console lines print here
   `load: 'load'` starts from what the screen shows. A uniform binding is a block, a read-only
   storage array the data texture its binding names (`dataTexture`), a texture a runtime texture or
   a `WebGLTexture`, read with the sampler its calls pass it, and vertices and indices a typed
-  array, a `Resident`, uploaded again only when its host copy changes, or a `WebGLBuffer`. A
+  array, a `Buffer`, uploaded again only when its host copy changes, or a `WebGLBuffer`. A
   `TypeError` names what WebGL2 has no form of. Before creating a GL program, it refuses two
   selected stages that sample one texture binding with different samplers. A load-only stage
   adds no sampler requirement and keeps the other stage's sampler. For different sampler
@@ -10136,7 +10178,7 @@ await frame.submit(); // console lines print here
   ```ts
   const rt = await createRuntime({ prefer: ['webgl2'] }); // or { device: canvas.getContext('webgl2') }
   rt.tier; // 'webgl2'
-  const sums = resident(new Float32Array(256));
+  const sums = array(new Float32Array(256));
   const frame = rt.frame();
   frame.dispatch(await rt.load(reduce).compute('main'), { values, sums }, 4);
   await frame.submit();
@@ -10263,22 +10305,24 @@ await frame.submit(); // console lines print here
   frame.pass({ color: [context] }, (pass) => pass.draw(effect, { level }, { count: 3 }));
   ```
 - **Bindings go by name.** A draw or a dispatch takes `{ name: value }`: a plain host value
-  (Rule 8.21), packed by the binding's layout into buffers the runtime reuses; a `Resident`
-  (§65), uploaded on its first use and bound as it is after, a zeroed one made on its first use
-  on WebGPU with no upload (§65); a `Texture` or a `Sampler` from
+  (Rule 8.21), packed by the binding's layout into buffers the runtime reuses; for a storage
+  array with no size, a `Buffer` of the scalars (§65), uploaded on its first use and bound as it
+  is after, a zeroed one made on its first use on WebGPU with no upload (§65); a `Texture` or a `Sampler` from
   `rt.texture()` and `rt.sampler()`; or the host's own `GPUBuffer`, `GPUTexture` or
   `GPUSampler`. An unknown name, a missing binding and a value of the wrong shape are a
   `TypeError` naming the entry, its line and the binding. A plain value is packed into a buffer
   of its own at each draw and each dispatch, so draws of one pass that bind different values of
-  one binding each read their own (a camera per layer, say); a `Resident` is one buffer every
-  draw shares. A frame that repeats its shapes creates no GPU object.
+  one binding each read their own (a camera per layer, say); a `Buffer` is one buffer every
+  draw shares. A value that is no array is passed as plain data at each draw (change 0138,
+  Amendment A11, Q3). A frame that repeats its shapes creates no GPU object.
 - **Bindings are typed from the manifest** (change 0030). A module's default export carries the
   bindings each entry reaches (§64), and the runtime carries them through: `rt.load(program)` is
   a `Program` of them, `compute(entry)` a pipeline of that entry's bindings, `render(state)` one
   of the bindings its vertex and fragment entries reach, and `draw` and `dispatch` take those.
   `tsc` then refuses a misspelled binding, a missing binding or field, a value of the wrong shape
   (a `vec3` for a `vec4`) and an entry name the program does not have, at the argument. A buffer
-  takes its host value (Rule 8.21), a `Resident` of it or the host's own buffer; a texture or a
+  takes its host value (Rule 8.21), for a storage array with no size a `Buffer` of the scalars,
+  or the host's own buffer; a texture or a
   sampler takes the runtime's or the host's own object. `BindingsOf<typeof program, 'vs'>` names
   one entry's bindings. A manifest read from JSON or packed at run time is `Pack` with no
   argument, which takes any bindings, and the runtime's refusals above stay for it and for what a
@@ -10470,10 +10514,10 @@ await frame.submit(); // console lines print here
   depth range is 0 to 1 and its blend constant is `[0, 0, 0, 0]`, unless its calls set them. A stencil test is `'always'` and
   `'keep'` with full masks, a depth bias is 0, and a sample mask is all ones. A stencil reference is
   0 at each pass start. A draw's `indices` are a typed array, uploaded at the draw; a
-  `Resident` of a `Uint32Array` (§65), uploaded on its first use and bound as it is after; or the
-  host's buffer with its format. Its `vertices` are a typed array, a `Resident` of a
-  `Float32Array`, `Int32Array` or `Uint32Array`, or the host's buffer, by the same rule (change
-  0053). A `Resident` of any other value there is a `TypeError` naming the field:
+  `Buffer<u32>` (§65), uploaded on its first use and bound as it is after; or the host's buffer
+  with its format. Its `vertices` are a typed array, a `Buffer<f32>`, `Buffer<i32>` or
+  `Buffer<u32>`, or the host's buffer, by the same rule (change 0053; change 0138, Amendment A11,
+  Q3). A `Buffer` of any other element there is a `TypeError` naming the field:
 
   ```ts
   const depth = rt.texture({ size: [width, height], format: 'depth24plus' });
@@ -10516,7 +10560,7 @@ await frame.submit(); // console lines print here
 
 **One device for both layers.** `configure({ runtime: rt })` puts the calls of §64, §65 and §67
 on `rt`'s device, and `runtime()`, the default runtime, is on the device the calls use, so a
-`Resident` or a `Texture` made on either layer is used on the other; a call that takes an image
+`Buffer` or a `Texture` made on either layer is used on the other; a call that takes an image
 takes a runtime's `Texture` as it is, and a draw that falls to WebGL2 refuses one.
 
 **Runtime information.** `rt.info` uses the same frozen `DeviceInfo` snapshot as a device
@@ -10539,7 +10583,7 @@ rt.destroy(); // information still describes the device that opened
 `dev.tier` and each earlier tier's reason in `dev.skipped`, and the tiers after it stay the
 fallback of a call it cannot run. `createDevice({ device })` takes a `GPUDevice` you have.
 `createDevice({ runtime: rt })` takes a runtime of `createRuntime()`, whose device the owner uses,
-so a `Resident` the owner made is a buffer of `rt`'s draws and dispatches too. The three are
+so a `Buffer` the owner made is a buffer of `rt`'s draws and dispatches too. The three are
 exclusive. `dev.limits` is the device's limits, as `rt.limits` is, and empty on a tier with none.
 `dev.lost` resolves with `{ reason, message }` when the browser invalidates the WebGPU device.
 `dev.wait()` resolves when the device has completed every plan submitted so far
@@ -10551,9 +10595,9 @@ plans in flight. It lands what a call of the device wrote into each exported sto
 drops the device's copy of it (§64). Then it destroys every array the device holds, each once, and
 the WebGPU device it requested; a `GPUDevice` or a runtime you handed in is left as it is, and a
 use after `dispose()` is a `TypeError`. Two devices in one context are independent: each has its tier, its arrays, its pool
-and its plans, so two libraries built on the call layer share a page. `configure()`, `resident()`
-and `fuse()` describe the default owner. An ordinary kernel, compute-entry or draw call selects
-the unique owner of its resident arrays and device-created textures, including an indirect
+and its plans, so two libraries built on the call layer share a page. `configure()` and `fuse()`
+describe the default owner. An ordinary kernel, compute-entry or draw call selects the unique
+owner of its `Buffer`s and device-created textures, including an indirect
 workgroup count (§67). A kernel call or an entry call also selects the owner of its `Buffer`s.
 Without an owned resource, a kernel call or an entry call uses the device in use, or the default
 owner when no device is in use (§64, the default device). A draw, and a call of `fuse()`, use the
@@ -10796,12 +10840,12 @@ export function relu(out: array<f32>, x: array<f32>): void {
 Use `device.fuse()` for a device owner (§69), with no registration import. The named `fuse` API remains available for default-owner arrays:
 
 ```ts
-import { resident } from 'typeshade/runtime';
+import { array } from 'typeshade/runtime';
 import { fuse } from 'typeshade/fuse';
 import { add, mul, relu } from './ops.shade.ts';
 
-const [a, b, c] = [xs, ys, zs].map((v) => resident(v)); // three Float32Array of n elements
-const out = resident(new Float32Array(n));
+const [a, b, c] = [xs, ys, zs].map((v) => array(v)); // three Buffer<f32> of n elements
+const out = array(new Float32Array(n));
 const report = await fuse((scope) => {
   const t = scope.scratch(n);
   const u = scope.scratch(n);
@@ -10831,7 +10875,7 @@ This also covers older generated modules without facts.
 The IR is the module before the fp64 pass. A fused entry is emitted under its owner's fp64 flavor (§65):
 the `_fp64` guard is bound under `'float'` and absent under `'integer'`.
 
-**The body.** `fuse(body)` runs `body` once, and the body is synchronous. A kernel call in the body is recorded, and not run, when every array it writes is a `Resident` (§65). It returns the promise it returns outside a scope, which resolves once the plan has run. Keep a promise you need, and await it after `fuse` resolves: `sum = total(u)` in the body, and `await sum` after it. Or store the result into an array after the loop (§65, change 0094): `sumInto(u, sums)` leaves the sum in `sums[0]`, which stays on the device when `sums` is a `Resident`, and the plan reads nothing back for it. A recorded call reads its arguments when the plan runs, and not when it is recorded. It may read a host array and take values. `scope.recorded` counts the calls recorded so far.
+**The body.** `fuse(body)` runs `body` once, and the body is synchronous. A kernel call in the body is recorded, and not run, when every array it writes is a `Buffer` of scalars (§65; change 0138, Amendment A10, slice 1). It returns the promise it returns outside a scope, which resolves once the plan has run. Keep a promise you need, and await it after `fuse` resolves: `sum = total(u)` in the body, and `await sum` after it. Or store the result into an array after the loop (§65, change 0094): `sumInto(u, sums)` leaves the sum in `sums[0]`, which stays on the device when `sums` is a `Buffer`, and the plan reads nothing back for it. A recorded call reads its arguments when the plan runs, and not when it is recorded. It may read a host array and take values. `scope.recorded` counts the calls recorded so far.
 
 A call that cannot be recorded throws a `TypeError` that names it, since it would run before the calls recorded earlier. An entry call (§67) is recorded too, and it forms a group of its own in the plan (fact F8): no kernel call joins it and it joins none. An entry call with an indirect count, `{ indirect, offset? }` (§67, change 0075), is recorded the same way. The plan reads its counts array as a read of the call, so the call runs after the last call before it that wrote the array, and its counts can be what an earlier call of the same plan wrote. A kernel call that passes a held length, `{ array, length, offset? }` (§65, change 0094), is recorded too, and the plan reads its held length as a read and a write of the call: it runs after the last call before it that wrote the word, and a later call that reads the word sees the new length. A kernel call whose loop reads its trip count from an array (§65, change 0094) runs after the last call before it that wrote that array, as for any array it reads, so `gather(count, list, xs, out)` after a push that leaves the new length in `count` dispatches from that length, on the device, with nothing read back between the calls. A `fuse` called in the body joins the scope that is open and returns the report of that scope. A body that throws leaves nothing to run, and `fuse` rejects with its error. These are the wordings, with the names of your own call in place of `add`, `out` and `blur`:
 
@@ -10839,18 +10883,18 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | a body that is not a function             | `fuse(): takes the body of the scope as a function; got the string "add".`                                                                                                   |
 | an `async` body                           | `fuse(): the body is synchronous, and this one is not. A call made after an await runs outside the scope. Remove async, and await the promise that fuse() returns.`          |
-| a kernel call that writes a host array    | `add(): parameter "out" is a Float32Array, and a call inside fuse() writes only a Resident. fuse() reads nothing back. Pass resident(...), or call add() outside fuse().`    |
+| a kernel call that writes a host array    | `add(): parameter "out" is a Float32Array, and a call inside fuse() writes only a Buffer. fuse() reads nothing back. Pass array(...), or call add() outside fuse().`          |
 | a call with the wrong number of arguments | `add() takes 3 arguments; got 2.`                                                                                                                                            |
-| an entry call that takes a host array (§67) | `blur(): binding "t" is a Float32Array, and a call inside fuse() takes a storage array with no size only as a Resident. Pass resident(...), or call blur() outside fuse().` |
-| an entry call that writes a host value (§67) | `blur(): binding "sink" is a Float32Array, and a call inside fuse() writes only a Resident. fuse() reads nothing back. Pass resident(...), or call blur() outside fuse().` |
+| an entry call that takes a host array (§67) | `blur(): binding "t" is a Float32Array, and a call inside fuse() takes a storage array with no size only as a Buffer. Pass array(...), or call blur() outside fuse().`      |
+| an entry call that writes a host value (§67) | `blur(): binding "sink" is a Float32Array, and a call inside fuse() writes only a Buffer. fuse() reads nothing back. Pass array(...), or call blur() outside fuse().`      |
 | a draw (§67)                              | `fs(): a draw cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`                                                                            |
-| `read()` of a `Resident`                  | `read(): a read of a Resident cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`                                                            |
-| `write()` of a `Resident`                 | `write(): a write to a Resident cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`                                                          |
-| `destroy()` of a `Resident`               | `destroy(): the destroy of a Resident cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`                                                    |
+| `read()` of a `Buffer`                    | `read(): a read of a Buffer cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`                                                              |
+| `set()` of a `Buffer`                     | `set(): a set of a Buffer cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`                                                                |
+| `dispose()` of a `Buffer`                 | `dispose(): the dispose of a Buffer cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`                                                      |
 | any other use of the kernel queue         | `the kernel queue: a call that joins it cannot run inside fuse(), which records kernel calls only. Call it outside fuse().` Or `a call that waits on it`, in the same words. |
 | the device changes while the scope runs   | `fuse(): the device changed while the scope ran.` An `Error`, which rejects `fuse`.                                                                                          |
 
-**When the plan runs.** When the body returns, the plan runs as one item of the kernel queue, at the place `fuse` was called (Rule 11.8). The calls made before it have run. A call or a `read()` made after `fuse` was called sees what the plan wrote, whether or not the promise of `fuse` has resolved. The promise resolves to the report when the plan has run, and rejects with the first error. Every recorded call is checked before the first one runs, as a call outside a scope is (a value that does not fit, an array shorter than a loop writes, one `Resident` as two parameters), so a call that fails its check fails the plan before any call has run. The error rejects the promise of each recorded call, and stays on each `Resident` they write, for `read()` to throw, as the error of a failed call outside a scope does.
+**When the plan runs.** When the body returns, the plan runs as one item of the kernel queue, at the place `fuse` was called (Rule 11.8). The calls made before it have run. A call or a `read()` made after `fuse` was called sees what the plan wrote, whether or not the promise of `fuse` has resolved. The promise resolves to the report when the plan has run, and rejects with the first error. Every recorded call is checked before the first one runs, as a call outside a scope is (a value that does not fit, an array shorter than a loop writes, one `Buffer` as two parameters), so a call that fails its check fails the plan before any call has run. The error rejects the promise of each recorded call, and stays on each `Buffer` they write, for `read()` to throw, as the error of a failed call outside a scope does.
 
 After all arguments validate, the plan checks content dependencies in recorded-call order before any group runs (change 0129).
 An earlier approved write-only call can recover a failed handle for a later reader in the same plan.
@@ -10942,7 +10986,7 @@ interface FuseReport {
 }
 ```
 
-`tier` is the best tier that any call of the plan ran on, which is the best `tier` of its groups: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, including each reduction fold after a fused loop. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Resident` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, the `tier` its calls ran on (change 0118), and its `why`. Every group has `tier`: a fused group ran on WebGPU, and any other group is one call, on the tier that call ran on. `workgroupShapes` lists, in dispatch order, the triple `[x, y, z]` of each dispatch the group made on WebGPU. A compute-entry group has one triple, the resolved shape of its call (§67), which may have more than one non-unit dimension. Kernel-loop dispatches have the form `[n, 1, 1]`. The entry that stores after a function's loops (§65, change 0094) adds no triple, so a function with no loop has none. A fused group or a single-loop call has one entry: the size its calls declare (F7), 64 when none does, or 256 for a group that reduces. A lone call of a function with more than one loop has one entry for each loop, so a map loop then a reducing loop gives `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the size of their reducing loop. The field is absent exactly when the group does not run on WebGPU. `indirect` is `true` for the group of an entry call with an indirect count (change 0075), and absent otherwise. On WebGPU `dispatches` counts its dispatch once, whatever the counts hold, since the plan does not read them. On the CPU tier and WebGL2 the call reads the counts from the host copy when it runs, and a read of the device that this needs is a submission. The host example reports these three scopes on WebGPU for 1,000 elements:
+`tier` is the best tier that any call of the plan ran on, which is the best `tier` of its groups: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, including each reduction fold after a fused loop. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Buffer` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, the `tier` its calls ran on (change 0118), and its `why`. Every group has `tier`: a fused group ran on WebGPU, and any other group is one call, on the tier that call ran on. `workgroupShapes` lists, in dispatch order, the triple `[x, y, z]` of each dispatch the group made on WebGPU. A compute-entry group has one triple, the resolved shape of its call (§67), which may have more than one non-unit dimension. Kernel-loop dispatches have the form `[n, 1, 1]`. The entry that stores after a function's loops (§65, change 0094) adds no triple, so a function with no loop has none. A fused group or a single-loop call has one entry: the size its calls declare (F7), 64 when none does, or 256 for a group that reduces. A lone call of a function with more than one loop has one entry for each loop, so a map loop then a reducing loop gives `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the size of their reducing loop. The field is absent exactly when the group does not run on WebGPU. `indirect` is `true` for the group of an entry call with an indirect count (change 0075), and absent otherwise. On WebGPU `dispatches` counts its dispatch once, whatever the counts hold, since the plan does not read them. On the CPU tier and WebGL2 the call reads the counts from the host copy when it runs, and a read of the device that this needs is a submission. The host example reports these three scopes on WebGPU for 1,000 elements:
 
 ```json
 {"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true,"tier":"webgpu","workgroupShapes":[[64,1,1]],"dispatches":1}],"webgpuScratch":{"allocations":0,"allocatedBytes":0,"reuses":0,"reusedBytes":0}}
@@ -10960,7 +11004,7 @@ Its four counters describe the plan's actual scratch buffer acquisitions:
 | `reuses`         | Existing storage buffers borrowed from the owner's pool for scratch arrays. |
 | `reusedBytes`    | The sum of those borrowed buffers' descriptor sizes.                        |
 
-A compatible ordinary `Resident` buffer can supply a reuse. A pooled slot with no GPU buffer
+A compatible ordinary `Buffer` of scalars can supply a reuse. A pooled slot with no GPU buffer
 supplies none; creating its buffer counts as an allocation. Incompatible size, type or device
 prevents reuse. Rebinding, clearing, uploading and returning a buffer add no acquisition.
 A replacement buffer adds an allocation. Bytes include layout padding, not driver heap usage.
@@ -10992,8 +11036,8 @@ allocations. This is an illustrative count, not a memory-usage or performance me
 - A fused group holds it as a local variable of its entry, and no device buffer and no host array of `length` elements is made, when every call of the plan that names it is in that group, exactly one call of the group writes it, every access of it is at exactly `i`, and no call reads its length (`t.length`).
 - Otherwise the plan makes it a zeroed array for the scope, a device buffer when a call on WebGPU binds it and a host array when a call on the host needs it, and frees it when the plan has run, whether the plan succeeded or failed. In the host example, `mul` writes `u` in the first group and `pairsum` reads it in the second, so it stays a buffer, and `t` and `v` are locals of one group each.
 - A scratch array that no call writes is a buffer of zeros.
-- `read()` rejects with a `TypeError`, and `write()` throws one. `destroy()` does nothing, since the plan frees the array. A kernel call that takes it outside the body that made it, or after the plan has run, is a `TypeError`. So is an entry call (§67) that takes it, and a draw (§67) that takes it. An entry call in the body that takes a scratch array is refused, since only a kernel call may take one: the words are those of a kernel call, `blur(): binding "t" is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.`
-- A `Resident` from `resident()` keeps its buffer and its write inside a fused group, so the host can read it after the scope.
+- A scratch array is a `Buffer`, a `Buffer<vec4f>` for `'vec4f'` (change 0138, Amendment A10, slice 1). `read()` rejects with a `TypeError`, and `set()`, `resize()`, `at()` and `needsUpdate` throw one. `dispose()` does nothing, since the plan frees the array. A kernel call that takes it outside the body that made it, or after the plan has run, is a `TypeError`. So is an entry call (§67) that takes it, and a draw (§67) that takes it. An entry call in the body that takes a scratch array is refused, since only a kernel call may take one: the words are those of a kernel call, `blur(): binding "t" is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.`
+- A `Buffer` from `array()` keeps its buffer and its write inside a fused group, so the host can read it after the scope.
 
 | Refused                                                  | Wording                                                                                                                                                                                                                                                                                                                           |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -11020,7 +11064,7 @@ allocations. This is an illustrative count, not a memory-usage or performance me
 
 **The example.** `loop-fuse` is a host example, `examples/hosts/loop-fuse/`. Its module has five kernel functions, `add`, `mul`, `relu`, `pairsum` and `total`, and its host has three scopes. In the first, `add`, `mul` and `relu` are one dispatch. In the second, `pairsum` sits between them and reads `t[i ^ 1]`, so there are two dispatches and a `why` that names its line. In the third, `add`, `mul` and `total` are a fused group that ends in a reduction. `bun run gate:journeys` holds the three reports above on WebGPU and each result to a reference in plain JavaScript. The unit suite holds the values on the CPU tier. The journey `journeys/loop-fuse` runs a module of the same five functions and holds each report to the dispatches and submissions that the device counts, and each group to the tier it ran on.
 
-**A device's scope.** `dev.fuse(body)` of a device owner (§69) records the calls of `body` and runs them as one plan on that device, with everything above, and with that device's tiers. A call in the body that takes a `Resident` of another owner, `resident()`'s among them, is a `TypeError` naming both owners; a `fuse` call inside the body joins the device's scope. Its recorder is built in (change 0085). The body runs once synchronously and reserves the plan's queue position before loading the executor from a fixed package-owned path. Later calls and reads wait behind it. A loading failure rejects each recorded call and each written resident's `read()`, and releases scratch arrays. Deploy the executor and shared chunks with the entry; single-file bundles may inline them.
+**A device's scope.** `dev.fuse(body)` of a device owner (§69) records the calls of `body` and runs them as one plan on that device, with everything above, and with that device's tiers. A call in the body that takes a `Buffer` of another owner, the default owner's among them, is a `TypeError` naming both owners; a `fuse` call inside the body joins the device's scope. Its recorder is built in (change 0085). The body runs once synchronously and reserves the plan's queue position before loading the executor from a fixed package-owned path. Later calls and reads wait behind it. A loading failure rejects each recorded call and each written resident's `read()`, and releases scratch arrays. Deploy the executor and shared chunks with the entry; single-file bundles may inline them.
 
 **A chunk of a long kernel.** `dev.fuse(body, { chunk: { key, units } })` runs one chunk of a
 kernel loop that you cut (§65, change 0074). `key` names the loop, and `units` is the work the
@@ -11056,7 +11100,7 @@ fuses with its neighbours in a `fuse` scope (§71) as far as the facts allow. A 
 inherits the gates that hold that, instead of writing them.
 
 **The host face.** Host code imports the subpath as it imports any package and calls each function
-over `Resident` arrays (§65), alone or inside a `fuse` body:
+over `Buffer`s (§65), alone or inside a `fuse` body:
 
 ```ts
 import { fuse } from "typeshade/fuse";

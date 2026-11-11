@@ -1,3 +1,6 @@
+// Verifies: Rule 8.21 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 8.22 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 11.8 (docs/language-design.md; traced in reqs/).
 // One `Buffer` (change 0138, Amendment A10, Q-I and Q-C; Amendment A11, Q1 to Q7). `array(xs)` of a
 // typed array is a `Buffer` of its scalars with the members of every `Buffer`: `length`, `read()`,
 // `set(data)`, `resize(n)`, `at(i)` with `get` and `set`, `needsUpdate` and `dispose()`. A kernel

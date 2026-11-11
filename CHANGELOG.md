@@ -289,7 +289,7 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   §67, §69, §71 and §72). Breaking.
   - `array(xs)` of a `Float32Array`, an `Int32Array`, a `Uint32Array` or a `Float64Array`, and
     `array(length, element)`, make a `Buffer<f32>`, `Buffer<i32>`, `Buffer<u32>` or `Buffer<f64>`.
-    `Resident` is gone. Every `Buffer` has the same members: `length`, `read()`, `set(data)`,
+    `Resident` and the deprecated `resident()` are gone. Every `Buffer` has the same members: `length`, `read()`, `set(data)`,
     `resize(n)`, `at(i)` with `get` and `set`, `needsUpdate`, `dispose()` and
     `[Symbol.dispose]()`. `write` is `set`, and `destroy` is `dispose`. `read()` of a scalar
     `Buffer` gives its typed array. A `Buffer<vecN>` reads its components one after another.

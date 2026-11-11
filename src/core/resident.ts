@@ -165,7 +165,7 @@ export class ResidentArrayState {
     this.#clearBound = false;
   }
   /** The device that made the handle (`device.array()`, change 0071), which a call of another
-   *  owner may not take; undefined for a handle of the default owner (`resident()`). */
+   *  owner may not take; undefined for a handle of the default owner (`array()`). */
   ownedBy: CallOwner | undefined;
 
   constructor(host: unknown) {
@@ -413,7 +413,7 @@ export function residentState(v: unknown): ResidentArrayState | undefined {
   return typeof v === 'object' && v !== null ? states.get(v) : undefined;
 }
 
-/** Make `handle` stand for `state`, as {@link resident} does for the handle it returns. The other
+/** Make `handle` stand for `state`, as `array()` does for the handle it returns. The other
  *  handles are the scratch arrays of a `fuse` scope (change 0058), which `typeshade/fuse` makes. */
 export function adopt(handle: object, state: ResidentArrayState): void {
   states.set(handle, state);
@@ -585,20 +585,6 @@ type TypedCtor = (typeof TYPED)[number];
 /** Whether `v` is one of the typed arrays a `Buffer` of scalars holds. */
 function isTyped(v: unknown): v is Float32Array | Int32Array | Uint32Array | Float64Array {
   return TYPED.some((C) => v instanceof C);
-}
-
-/**
- * A `Buffer` of scalars, as `array(value)` or `array(length, element)` makes one.
- *
- * Exported from `typeshade` and `typeshade/runtime`.
- *
- * @deprecated Write `array(value)` or `array(length, element)` from `typeshade/runtime` (change
- *   0138, Amendment A1). Change 0138 removes it with slice 1 of milestone 4 (Amendment A10, Q-I).
- *   The first call prints one warning.
- */
-export function resident(...args: unknown[]): Resident<unknown> {
-  warnDeprecated('array()', 'Write array(value) or array(length, element) instead.');
-  return makeResident('array()', args);
 }
 
 /** What `array()` and `device.array()` make from their arguments, with `at` naming the function in

@@ -21,7 +21,7 @@ links:
 - RULE-0818: WSJEXSLWucW9-ovejXz9e-mLa7u8vqZrdwezeNyrr7M=
 - RULE-0819: pJUFX4A2OPnBtNTJ7r9DlF-4oAMi1uUQ_QD4POumUOM=
 - RULE-0828: V8ipeRbiwYGOQTgzqHmfFLsSBod7WJW41jqlpKUUxJE=
-- RULE-0829: pysoZHVxrK5D3QMbZxBkydUrmq3UG9z1Gr1K-eoPyCo=
+- RULE-0829: tF_L25dz-6sKiPR1A39zKgVAONNOca7w1HAtVfqxrK0=
 - RULE-1207: 9rMtxEddbmpSASoNze2VpBYnh5Nh0NkHg5_e2tIdNh8=
 normative: true
 ref: ''
