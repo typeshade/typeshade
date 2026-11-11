@@ -325,9 +325,10 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
     `indices` a `Buffer<u32>`. Today's `fuse()` records a call on a scalar `Buffer`, and
     `scope.scratch()` returns a `Buffer`.
   - The caps of `scripts/bundle-budget.json` take the measured gzip bytes: `typeshade/runtime`
-    168,413 (+1,236), `typeshade/fuse` 114,063 (+165), `typeshade/algorithms` 68,217 (+3,339) and
-    `typeshade/random` 49,724 (+3,524), for the result `Buffer`s and the checks of a call on a
-    resource that the generated modules carry.
+    170,598 (+3,421 over `5711b9ac`), `typeshade/fuse` 115,253 (+1,355), `typeshade/algorithms`
+    70,293 (+5,415) and `typeshade/random` 51,877 (+5,677), for the result `Buffer`s of every kind,
+    the element a first use fixes and the checks of a call on a resource that the generated modules
+    carry (Amendment A12, decision 2).
 
 - **The editor's hover names a constant of no fixed type in the language's words, and each read
   at the type it takes there** (change 0134 item 4; Rules 5.1 and 12.7; decision Q3). At the
