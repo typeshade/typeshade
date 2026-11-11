@@ -29,7 +29,10 @@ repository is an official release yet: the `typeshade` package on npm holds only
   with the line of the call. Between a call that writes a `Buffer` and its `read()`, `get`
   throws, since the host's copy does not hold what the device holds. A call with plain data
   keeps its meaning. Not yet: a kernel that returns a value on a resource, `using device.use()`
-  for calls (R3), `show` and its back-pressure (Q14).
+  for calls (R3), `show` and its back-pressure (Q14). Measured bundle budgets move
+  (`scripts/bundle-budget.json`, gzip bytes): `typeshade/runtime` 165142 to 166347,
+  `typeshade/fuse` 113354 to 113593, `typeshade/algorithms` 62515 to 64538 and
+  `typeshade/random` 43790 to 45840, since the call layer each one carries records calls now.
 
 - **An entry's I/O without what the compiler knows** (change 0135). A built-in value takes its
   type from WGSL: `vi: builtin<"vertex_index">` is a `u32`, and an option is the second

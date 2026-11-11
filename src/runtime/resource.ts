@@ -49,6 +49,7 @@ import type { Texture } from './resources.js';
 import { globalRegion, type Range, type Region } from './region.js';
 import { defaultDevice } from './default-device.js';
 import { throwFailure } from '../core/submission.js';
+import { resources, type RecordedBuffer as Recorded } from '../core/host-record.js';
 
 // ─── the layouts a generated class carries ───────────────────────────────────────────────────
 
@@ -1358,14 +1359,9 @@ type Snapshot =
   | { readonly full: ArrayBuffer; readonly length: number }
   | { readonly ranges: readonly (readonly [number, Uint8Array])[] };
 
-/** What a call takes for a storage array: the hidden handle of its device copy, which the call
- *  layer runs as it runs a `Resident`, and the write of the values the call sees, run when the call
- *  runs. Not API. */
-export interface RecordedBuffer {
-  readonly handle: object;
+/** What a call takes for a storage array, with its layout (`core/host-record.ts`). Not API. */
+export interface RecordedBuffer extends Recorded {
   readonly layout: Layout & { readonly k: 'a' };
-  readonly name: string;
-  readonly upload: (() => void) | undefined;
 }
 
 /**
@@ -1484,3 +1480,6 @@ export function resourceOf(
 
 /** The struct layout of each uniform, which a call reads its value by. */
 const uniformLayouts = new WeakMap<object, Layout & { k: 'o' }>();
+
+// The call layer reads resources through this, and imports no resource itself.
+resources.of = resourceOf;

@@ -13,9 +13,32 @@
 //
 // Like the rest of `typeshade/runtime` it imports no compiler.
 
-import { resourceOf, type RecordedBuffer } from '../runtime/resource.js';
 import { copyOf, kernelQueue, residentState, type ResidentArrayState } from './resident.js';
 import { callSite, failedAt, noteFailure } from './submission.js';
+
+/** What a call takes for a storage array: the hidden handle of its device copy, which the call
+ *  layer runs as it runs a `Resident`, and the write of the values the call sees. */
+export interface RecordedBuffer {
+  readonly handle: object;
+  readonly layout: { readonly st: number; readonly e: unknown };
+  readonly name: string;
+  readonly upload: (() => void) | undefined;
+}
+
+/** What a resource gives a call: a uniform's value now, or a storage array recorded for it. */
+export type ResourceOf = (
+  v: unknown,
+) =>
+  | { readonly kind: 'uniform'; readonly name: string; value(): unknown }
+  | { readonly kind: 'buffer'; readonly name: string; record(writes: boolean): RecordedBuffer }
+  | undefined;
+
+/** The reader of resources, which `runtime/resource.ts` installs when it loads. The call layer
+ *  imports no resource, so `typeshade/fuse`, which borrows it, reaches no program runtime (Rule
+ *  11.11); where no resource module is loaded, no value is a resource. */
+export const resources: { of: ResourceOf } = { of: () => undefined };
+
+const resourceOf = (v: unknown): ReturnType<ResourceOf> => resources.of(v);
 
 /** Whether `v` is a resource a call on a resource takes (change 0138, R2). */
 export function isResource(v: unknown): boolean {
