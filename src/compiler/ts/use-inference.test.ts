@@ -307,3 +307,55 @@ describe('the counter of a for (Amendment A1 of change 0134)', () => {
     expect(result.wgsl).toContain('var j: f32 = 0.0;');
   });
 });
+
+describe('the uses #1184\'s deviation 10 lists (Amendment A3, "4a와 이어서 머지")', () => {
+  // With #1184 alone, `let y = k` took `f32`, so each of these was refused; each compiled on
+  // `main`, where `k` was a `u32` by its declared use `h(k)`, and gives that value here.
+  const XS = [1, 2, 3, 4, 5, 6, 7, 8];
+  const program = (body: string, pre = ''): string => `"use typeshade";
+function h(a: u32): u32 { return a; }
+${pre}
+export function t(vi: u32, xs: array<f32, 8>): f32 {
+  ${body}
+}`;
+  it.each([
+    ['const k = 7; h(k); let y = k; return f32(vi + y);', '', 10],
+    ['const k = 7; h(k); let y = k; return xs[y];', '', 8],
+    ['const k = 7; h(k); let y = k; return f32(h(y));', '', 7],
+    [
+      'const k = 7; h(k); let y = k; let a = 0.; switch (y) { case 7: a = 1.; break; default: a = 2.; } return a;',
+      '',
+      1,
+    ],
+    ['return xs[g()];', 'function g() { const k = 7; h(k); return k; }', 8],
+    ['return f32(vi + g());', 'function g() { const k = 7; h(k); return k; }', 10],
+    [
+      'const k = 3; h(k); let y = k; let a = 0.; for (let j = y; j < 8; j++) { a += f32(h(j)); } return a;',
+      '',
+      25,
+    ],
+    [
+      'const k = 3; h(k); let y = k + 1; let a = 0.; for (let j = y; j < 8; j++) { a += f32(h(j)); } return a;',
+      '',
+      22,
+    ],
+    [
+      'let a = 0.; for (let j = g(); j < 8; j++) { a += f32(h(j)); } return a;',
+      'function g() { const k = 3; h(k); return k; }',
+      25,
+    ],
+  ])('%s', (body, pre, value) => {
+    const source = program(body, pre);
+    const result = compile(source);
+    expect(result.diagnostics).toEqual([]);
+    expect(editor(source)).toEqual([]);
+    expect(result.eval('t', [3, XS])).toBe(value);
+  });
+
+  it('a / over such a let stays refused, as #1184 refuses it', () => {
+    const source = program('const k = 7; h(k); let y = k; return f32(y / 2);');
+    const lines = compile(source).diagnostics.map((d) => `${d.code}: ${d.message}`);
+    expect(lines).toEqual([expect.stringContaining('does not say which division it is')]);
+    expect(editor(source)).toEqual(lines);
+  });
+});

@@ -1157,7 +1157,41 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
   - Closed by pull request #1191 (#1186) and the note below: F9 of the third review (the editor
     showed nothing where `compile()` of the importing file refused in the library file).
 
-Not delivered yet: items 1 and 3, item 4, the document part of item 5, item 5 for `journeys/`
+**Part 4, the first part of items 1 and 3 (4a).** Pull request #1250, which merges right after
+#1184 (Amendment A3, "4a와 이어서 머지").
+
+- Delivered: a function-local `let` of integer-written numbers, of a constant of no fixed type
+  that is one, or of `+ - * /` over those, takes its type from its uses
+  (`src/compiler/ts/use-inference.ts`: each pass records what each use asks, and the module is
+  lowered again with the decisions until none is new); where no use decides, it is an `f32`.
+  The counter of a `for` that is not counted is such a `let` (Amendment A1); a counter that
+  starts at an undecided `let` takes its type from the counter's own uses. A `/` or `/=` whose
+  operands are all integers by inference is refused through part 3's rule, with the one checked
+  edit (`inferredOrigin`). A function that writes no result type and returns a value over a
+  function-local constant returns the type that value had before part 3, as A4 keeps a
+  counter's. Rule 5.1 and surface §13 say so; module variables, class fields and a function's
+  result that its callers decide remain `f32` until part 4b.
+- Part 3's deviation 10 (M3) is disposed of: `let y = k;` with `vi + y`, `xs[y]`, `h(y)`,
+  `switch (y)`, `xs[g()]` with `g` returning `k`, and a counter started through a `let` or
+  `g()`, give the values they had before part 3, in both halves (`use-inference.test.ts`).
+- [fact, measured 2026-11-11] The reviews' matrices A, B and M (the fourth review's scratch),
+  against `main` and against part 3 at `774870a7`: every program that changes against part 3 is
+  one of these classes. Newly accepted, refused on `main` and on part 3: a `let` its uses type
+  beside a declared value (`let y = k; y / vi`, 273). Newly refused, accepted by part 3 and
+  refused on `main` for another reason: a `/` over a local that the declared uses of changes
+  0036 and 0037 make an integer (`k / n` with `let n = 2; h(n)`, 133). Accepted on `main` and
+  on part 3 and refused now: the same with both operands integers by inference
+  (`h(k); let n = 2; h(n); k / n`, 18; decisions Q6 and Q11). Back to `main`'s value from part
+  3: `g() / vi` (29) and `g() - 8` (4). A value that changes against both: `let j = K; d * j`
+  with `d: f64` (16), now the exact double. No division sentence differs between the halves.
+- [question, open, 2026-11-11] Amendment A1 makes the counter of an open `for` a value of item
+  1, an `f32` where its uses decide nothing. A `/` over it then divides floats with no
+  diagnostic: `for (let j = 0; ; j++) { a += f32(j / 2); if (j > 5) { break; } }` gave 9 on
+  `main` (an `i32` counter) and gives 10.5. Amendment A2 says that no program changes its value
+  through a division without a diagnostic. The two point different ways for this program; the
+  owner decides which holds.
+
+Not delivered yet: the second part of items 1 and 3 (4b), item 4, the document part of item 5, item 5 for `journeys/`
 and the helper sources of `examples/` (Amendment A1), and the audit.
 
 ## What it owes downstream

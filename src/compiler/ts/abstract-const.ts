@@ -875,12 +875,18 @@ export function reportAbstractDivisions(
   const refused: { division: Division; info: AbstractConst; read: IntegerRead }[] = [];
   for (const division of divisionsOf.get(sourceFile)?.values() ?? []) {
     let found: { info: AbstractConst; read: IntegerRead } | undefined;
+    // The sentence names the value a read outside the `/` makes an integer, where one does: in
+    // `k / n` with `n` an integer by its uses, `k` is an integer only beside `n`.
+    let inside: { info: AbstractConst; read: IntegerRead } | undefined;
     for (const reached of division.reads) {
       for (const info of withSources(reached)) {
         const read = info.integerReads.find((r) => !holds(r.node, division.node));
-        if (read !== undefined) found ??= { info, read };
+        if (read === undefined) continue;
+        if (holds(division.node, read.node)) inside ??= { info, read };
+        else found ??= { info, read };
       }
     }
+    found ??= inside;
     if (found !== undefined) refused.push({ division, ...found });
   }
   // `(k / 2) / 3` is one mistake, said on the outer `/` (Rule 12.4).
