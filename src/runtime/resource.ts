@@ -972,11 +972,15 @@ type BufferRead<T> =
         ? boolean[]
         : [T] extends [string]
           ? T[]
-          : [T] extends [number]
-            ? ViewOf<T>
-            : [T] extends [readonly number[]]
-              ? ViewOf<T[number]>
-              : T[];
+          : NumberRead<T>;
+
+/** {@link BufferRead} of a number, a vector, a matrix or a struct, one member of a union at a
+ *  time: a `Buffer<f32 | u32>` reads a `Float32Array | Uint32Array`. */
+type NumberRead<T> = T extends number
+  ? ViewOf<T>
+  : T extends readonly number[]
+    ? ViewOf<T[number]>
+    : T[];
 
 /** What `set(data)` of a `Buffer<T>` takes: numbers for a scalar, a vector or a matrix `T`, the
  *  components one after another; booleans for a `bool`, member strings for a key (Amendment A12,
@@ -987,7 +991,7 @@ type BufferData<T> = [T] extends [boolean]
     ? readonly boolean[]
     : [T] extends [string]
       ? readonly T[]
-      : [T] extends [number | readonly number[]]
+      : T extends number | readonly number[]
         ? ScalarArray | readonly number[]
         : readonly Some<T>[];
 
@@ -1010,11 +1014,15 @@ type BufferElement<T> = [T] extends [boolean]
     ? BoolTupleField<T & readonly boolean[]>
     : [T] extends [string]
       ? ScalarField<T>
-      : [T] extends [number]
-        ? ScalarField<T>
-        : [T] extends [readonly number[]]
-          ? TupleField<T & readonly number[]>
-          : StructOf<T>;
+      : NumberElement<T>;
+
+/** {@link BufferElement} of a number, a vector, a matrix or a struct, one member of a union at a
+ *  time. */
+type NumberElement<T> = T extends number
+  ? ScalarField<T>
+  : T extends readonly number[]
+    ? TupleField<T>
+    : StructOf<T>;
 
 /**
  * An array on the device of `length` elements `T` (change 0138, R9; Amendments A10, Q-I, and A11):
