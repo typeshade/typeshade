@@ -3186,66 +3186,127 @@ this amendment.
   kind, a union read type and `set` on an open element); A11's slice status table.
 - Status: `status: accepted` does not change.
 
-### A13. Slice 1: an `f64` place, a `Record` in an `array<S, N>` result, and Q8 item 2 (2026-11-11)
+### A13. Slice 1: an `f64` place, a `Record` in an `array<S, N>` result, and the host view of `Buffer<number>` (2026-11-11)
 
-- [fact] Why. #1257 implements A12 at head `da043f1d`. Its implementation found three points that
-  A12 does not decide. The owner answered each on 2026-11-11, in the conversation. This amendment
-  records the answers and the deviations they make.
+- [fact] Why. #1257 implements A12. Its head was `da043f1d` when this amendment was written. The
+  implementation found three points that A12 does not decide.
+- [fact] The owner answered each point on 2026-11-11, in the conversation. This amendment records
+  the answers and the deviations they make.
 - [fact] Baseline: `main` at `29f62fe7` (#1265, Amendment A12).
 - [fact] This amendment changes no front matter, no rule text of `docs/language-design.md` and no
   code. #1257 changes its rule and surface text in its own commits.
+- [fact] Names used below. "A12's editor list" is the list under "Rule 12.7, the editor half of
+  decision 3 (Q8 and D3)" in A12. "A12's Q8 meaning" is item 1 of "What the answers mean" under
+  "The owner's answers to Q8 to Q11".
+
+**The owner's answers.**
+
+- [decision, owner, 2026-11-11] The owner picked the recommended option of each question in the
+  question UI. The record has no other words. The chosen labels and the option descriptions the UI
+  showed, in Korean, with English translations:
+  - Decision 1: "f64 자리가 f64로 고정 (추천)" (English translation: an `f64` place fixes `f64`;
+    recommended). Description: "OD-7과 맞습니다. 두 절반이 일치합니다. 비용: read() 타입에
+    Float64Array 추가, 런타임 코드와 테스트 추가, A12 결정 3 목록을 넓히는 기록(A13 또는 편차)."
+    (English translation: it follows OD-7; the two halves agree; cost: `Float64Array` added to the
+    `read()` type, runtime code and tests added, a record that widens A12 decision 3's list.)
+  - Decision 2: "거부 유지, 편차로 기록 (추천)" (English translation: keep the refusal, record a
+    deviation; recommended). Description: "비용: 작음. 이 결과는 일반 데이터로 호출해야 받습니다.
+    편차를 PR과 0138 기록에 남기고 나중 slice에서 닫습니다." (English translation: small cost; the
+    author gets this result by a call with plain data; the deviation is recorded on the pull request
+    and in 0138, and a later slice closes it.)
+  - Decision 3: "적지 않음, 편차로 기록 (추천)" (English translation: do not write it, record a
+    deviation; recommended). Description: "동작은 A12와 같습니다. 타입 검사가 더 엄격하게
+    남습니다. 비용: 승인 문구와 다름을 편차(닫힘)로 기록합니다." (English translation: the behaviour is
+    A12's; the type check stays stricter; cost: the difference from the approved text is recorded as
+    a deviation, closed.)
 
 **Decision 1. An `f64` place fixes the element of a `Buffer<number>` to `f64`.**
 
 - [fact] At `da043f1d`, a `Buffer<number>` whose first use is an `f64` place is refused at that call
-  with a `TypeError`, and the element stays open (Rule 8.21 in #1257: "an `f64` place fixes nothing
-  and refuses it"). The editor accepts the call, because `number` fits `f64`. Example:
-  `sum64(array([1]))`, where `sum64` takes an `array<f64>`.
-- [fact] A12 decision 3 lists the places that fix the element. The list has no `f64` place. A12 Q8
-  types `read()` of a `Buffer<number>` as `Float32Array | Int32Array | Uint32Array`.
+  with a `TypeError`. The element stays open (`docs/language-design.md:1022` in #1257).
+- [fact] The editor accepts the same call, because `number` fits `f64`
+  (`src/runtime/host-types.ts:46` in #1257). Example: `sum64(array([1]))`, where `sum64` takes an
+  `array<f64>`.
+- [fact] A12 decision 3 lists the places that fix the element, and in each the scalar decides. The
+  list names no `f64` place. A12's Q8 meaning and A12's editor list, item 4, type `read()` of a
+  `Buffer<number>` as `Float32Array | Int32Array | Uint32Array`.
 - [fact] OD-7 says that a number's type is inferred from its uses.
-- [decision, owner, 2026-11-11] The owner picked the recommended option in the question UI: "f64
-  자리가 f64로 고정 (추천)". The record has no other words.
 - What it means:
-  1. An `f64` place fixes the element to `f64`: an `array<f64>` parameter, and an `f64` number or
-     vector parameter. The checks, Q10, D2 and D5 of A12 apply to it as to every other place.
-  2. A12 Q8 item 4 becomes: `read()` of a `Buffer<number>` is typed
+  1. [inference, agent] An `f64` place is each place of A12 decision 3 whose scalar is `f64`: an
+     array with no size of `f64` numbers or vectors (`array<f64>`, `array<vec3<f64>>`), an `f64`
+     number or vector parameter, and an entry's or the program runtime's storage binding of them.
+     The checks, Q10, D2 and D5 of A12 apply to it as to every other place.
+  2. [fact] A matrix parameter and an `array<matCxR>` parameter fix `f32` (A12 decision 3). A matrix
+     of `f64` has no host value and stays refused (A12 decision 4). Decision 1 changes neither.
+  3. A12's Q8 meaning and A12's editor list, item 4, become: `read()` of a `Buffer<number>` is typed
      `Float32Array | Int32Array | Uint32Array | Float64Array`.
-  3. [inference, agent] Q9 says what `read()` gives before the first use. It does not say that the
-     numbers are kept rounded. An `f64` use gets the numbers the author wrote, not ones rounded to
-     `f32`. #1257 states how it keeps them.
-  4. Rule 12.7: #1257 tests the `f64` place on both halves on the same source.
+  4. [fact] A12's answer to Q9 says that the runtime keeps the numbers as given until a call fixes the
+     element. So an `f64` use gets the numbers the author wrote.
+  5. [fact] Cost: a `read()` before the `f64` use gives the numbers rounded to `f32` (Q9). A `read()`
+     after it gives the full numbers. For example, `0.1` reads as `0.10000000149011612` before and
+     as `0.1` after.
+  6. [fact] On a GPU tier, an `f64` storage binding holds each number as two `f32` values, `hi` and
+     `lo` (Rule 8.21). The runtime splits the kept numbers there.
+  7. Rule 12.7: #1257 must test the `f64` place on both halves on the same source.
 
 **Decision 2. A `Record` field in the struct of an `array<S, N>` result stays refused (D-p, open).**
 
-- [fact] At `da043f1d`, a call on a resource whose result is an `array<S, N>` and whose `S` holds a
-  `Record` field is refused at the call with a `TypeError`, on both halves. A12's list of kinds that
-  stay refused does not name it.
-- [decision, owner, 2026-11-11] The owner picked the recommended option in the question UI: "거부
-  유지, 편차로 기록 (추천)". The record has no other words.
-- [fact] Deviation D-p: open. The author calls such a function with plain data and awaits it. No
-  slice is assigned to close it.
+- [fact] At `da043f1d`, a call on a resource is refused at the call with a `TypeError` when its result
+  is an `array<S, N>` and `S` holds a `Record` field.
+- [fact] The refusal is on both halves: `bufferResult` (`src/compiler/ts/host-face.ts:856`) and
+  `resultPlan` (`src/core/host-kernel.ts:1062`) in #1257.
+- [fact] The approved text is A12 decision 4, item 2: slice 1 holds an `array<S, N>` result and a
+  struct that holds a `Record` in `Buffer`s. A12's list of kinds that stay refused does not name this
+  case either.
+- [fact] Deviation D-p: open. The author calls such a function with plain data and awaits it. A later
+  slice closes it. No slice is assigned yet.
 
-**Decision 3. A12 Q8 item 2 is not spelled in the host view (D-q, closed by this amendment).**
+**Decision 3. The host view does not write `| Buffer<number>` (D-q).**
 
-- [fact] A12 Q8 item 2 says that `Buffer<number>` joins each parameter type that takes a
+- [fact] A12's editor list, item 2, says that `Buffer<number>` joins each parameter type that takes a
   `Buffer<f32>`, `Buffer<i32>` or `Buffer<u32>`. At `da043f1d`, the host view does not write
-  `| Buffer<number>`.
-- [fact] Measured by the agent that implemented #1257: TypeScript already accepts a `Buffer<number>`
-  in those places. Writing the union lets a `Buffer<i32>` pass where a `Buffer<f32>` is taken.
-- [decision, owner, 2026-11-11] The owner picked the recommended option in the question UI: "적지
-  않음, 편차로 기록 (추천)". The record has no other words.
-- What it means: A12 Q8 item 2 becomes: a `Buffer<number>` passes in each of those places, and the
-  host view does not write the union. Deviation D-q is closed: this amendment makes it part of the
-  approved text.
+  `| Buffer<number>` there.
+- [fact] A12's editor list, item 3, says the same for a held length's `length`, an indirect workgroup
+  count, a geometry's vertices and indices, and a program runtime's buffer binding. At `da043f1d`,
+  the host view does not write the union there either (`indirect: Buffer<u32>`,
+  `src/compiler/ts/host-face.ts:2856`; `src/runtime/program.ts:350`).
+- [observed result] On 2026-11-11, at `29f62fe7`, with `tsc` 5.6.3 on a file that imports
+  `src/runtime/resource.ts`: a `Buffer<number>` passes where a `Buffer<f32>` is taken. A `Buffer<i32>`
+  is refused there (TS2345). A `Buffer<i32>` passes where `Buffer<f32> | Buffer<number>` is taken. The
+  implementing agent of #1257 and the reviewer of A13 each ran it.
+- What it means:
+  1. A12's editor list, item 2, becomes: a `Buffer<number>` passes in each of those places, and the
+     host view does not write the union.
+  2. [inference, agent] The owner's answer covers item 3 too: the same type relation holds there, and
+     a `Buffer<number>` passes where a `Buffer<u32>` is taken.
+  3. Deviation D-q: made part of the approved text by this amendment (A13).
+
+**Deviations.**
+
+| ID  | Approved text                                                                                             | Delivered (#1257 at `da043f1d`)                               | Disposition                                                                                  |
+| --- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| D-p | A12 decision 4, item 2: an `array<S, N>` result whose `S` holds a `Record` is held in `Buffer`s.          | Refused at the call on both halves.                           | open: a later slice closes it.                                                               |
+| D-q | A12's editor list, items 2 and 3: the host view writes the union with `Buffer<number>`.                   | Not written; TypeScript accepts a `Buffer<number>` there.     | made part of the approved text by this amendment (A13).                                      |
+| D-r | `changes/README.md`, Independent review: a proposal needs an independent review before the owner decides. | The owner answered the three points before a review read A13. | closed: the review at `c607c4fc` read A13 and approved with should-fix; its record is below. |
 
 **Open items.**
 
-| Item                                                                | Source     | Next action                                                    |
-| ------------------------------------------------------------------- | ---------- | -------------------------------------------------------------- |
-| D-p: a `Record` field in the struct of an `array<S, N>` result.     | Decision 2 | Open. No slice is assigned. Ask the owner when one is planned. |
-| The `f64` place of decision 1 in #1257's code, tests and rule text. | Decision 1 | #1257 implements it before its merge.                          |
-| D-l, D-m and the other open items of A12.                           | A12        | Unchanged.                                                     |
+| Item                                                                | Source     | Next action                                                              |
+| ------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------ |
+| D-p                                                                 | Decision 2 | The agent that plans slices 2 to 6 asks the owner which slice closes it. |
+| The `f64` place of decision 1 in #1257's code, tests and rule text. | Decision 1 | #1257 implements it before its merge.                                    |
+| D-p and D-q in #1257's body.                                        | Deviations | #1257's body records both before its merge.                              |
+| D-l, D-m and the other open items of A12.                           | A12        | Unchanged.                                                               |
+
+**The slices of milestone 4, status.**
+
+- [fact] This statement updates A12's status table. A12's text stays as it is.
+
+| Slice  | Status                                                                                                                                                                                      |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0      | done: #1251, merged as `937147b8`.                                                                                                                                                          |
+| 1      | in progress: #1257 (draft), head `da043f1d`. A12 decisions 3 and 4 are implemented (`e2059d12` to `04262eaf`) and its rule text is `da043f1d`. Decision 1 of this amendment is in progress. |
+| 2 to 6 | not started.                                                                                                                                                                                |
 
 **Open, owner must settle.**
 
@@ -3253,8 +3314,31 @@ this amendment.
 - [inference, agent] No decision of this amendment conflicts with an entry of
   `docs/owner-decisions.md` (OD-1 to OD-8). Decision 1 follows OD-7.
 
-- Affects: A12 decision 3 (the places that fix the element) and Q8 items 2 and 4; A12's list of kinds
-  that stay refused (D-p).
+**Independent review record of A13.**
+
+- [fact] Reviewer: an AI agent (Claude Code) that did not write A13, on 2026-11-11. Revision reviewed:
+  `c607c4fc`. It found no blocking finding, 10 should-fix findings and 4 notes. Verdict: approve with
+  should-fix.
+
+| Finding                                         | Answer                                                                                    |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| 1. No review before the owner decided.          | Fixed: D-r.                                                                               |
+| 2. The scope of an `f64` place.                 | Fixed: decision 1, items 1 and 2, labelled [inference, agent] where A12 does not say it.  |
+| 3. A12's editor list, item 3.                   | Fixed: decision 3 states it; item 2 labels the coverage [inference, agent].               |
+| 4. "Q8 item 2" and "Q8 item 4" are ambiguous.   | Fixed: the lists are named; A12's Q8 meaning is amended too.                              |
+| 5. D-p names the wrong approved text.           | Fixed: A12 decision 4, item 2; added to `Affects`.                                        |
+| 6. D-q's disposition form.                      | Fixed: "made part of the approved text by this amendment (A13)".                          |
+| 7. No translations and no option text.          | Fixed: "The owner's answers".                                                             |
+| 8. The measurement is an observed result.       | Fixed: labelled, with the commit, the `tsc` version and the file.                         |
+| 9. Decision 1, item 3 is in A12.                | Fixed: item 4 cites A12's answer to Q9; item 5 states the cost.                           |
+| 10. Status accounting.                          | Fixed: an open item for #1257's body and the status table.                                |
+| Notes: GPU tiers, writing, the D-p actor, OD-4. | Fixed: item 6; sentences split; D-p names the actor. OD-4: the owner has already decided. |
+
+- [fact] No review has read the revision that answers this review.
+
+- Affects: A12 decision 3 (the places that fix the element); A12's Q8 meaning and A12's editor list,
+  items 2 to 4; A12 decision 4, item 2, and A12's open item on the kinds that stay refused (D-p);
+  A12's slice status table.
 - Status: `status: accepted` does not change.
 
 ## What it owes downstream
