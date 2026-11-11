@@ -984,10 +984,13 @@ A7's table. A7's text stays as it is.
     > runs on the default device. A call that mixes devices is a `TypeError`.
   - After:
     > A node runs on the device of its input resources. A `Uniform` takes no part in choosing
-    > that device, since its value is copied at each call. With plain JavaScript values alone, or
-    > with no resource but `Uniform`s, a node runs on the default device. A call that mixes
-    > devices among the resources that take part in the choice is a `TypeError`.
+    > that device, since its value is copied at each call. With plain JavaScript values alone it
+    > runs on the default device. A call that mixes devices among the resources that take part in
+    > the choice is a `TypeError`.
   - The other sentences of R3 stay as they are.
+  - [inference, agent: follows from R3's order and Q-a] A node with no resource but `Uniform`s
+    runs on the device in use, else on the default owner. The owner has not decided this clause
+    yet.
   - Cost recorded: when D-b is fixed and a `Uniform` is kept on the GPU, R3 is revisited. A
     `Uniform` then keeps one copy for each device.
   - [inference, agent] R3's "A resource belongs to one device" holds for a `Uniform` in name only:
@@ -995,8 +998,8 @@ A7's table. A7's text stays as it is.
     belongs to no one device, as an exported binding does.
 - [decision, owner, 2026-11-11] Asked Q-b and Q-c together, the owner chose one option:
   "Keep both as the PR does (Recommended)".
-  - [fact] The description of that option tied two fixes to it. S2 fixes the state that
-    `dispose()` left stuck (Q-b). S1 fixes the error text of `array()` (Q-c).
+  - The description of that option:
+    "Q-b keeps the refusal, and the stuck state on dispose is fixed as S2. Q-c is kept, and the error text is fixed as S1. Cost: none beyond those fixes."
   - Q-b. A call on one device writes an exported binding. Until that binding's `read()`, a call on
     another device that takes it is refused with a `TypeError`.
   - The alternative to Q-b was a hidden read back that blocks inside the call. R2 says a call does
