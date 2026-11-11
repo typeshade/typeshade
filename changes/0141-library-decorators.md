@@ -1,87 +1,90 @@
 ---
 id: '0141'
-title: A `"use typeshade"` file can carry a decorator that a library declares, and the compiler reports it to a tool
+title: A `"use typeshade"` file can carry a decorator that a host module defines as an ordinary function, and the decorator runs on the host
 status: draft
 rules:
   - '1.7'
   - '1.8'
   - '2.1'
-  - '3.6'
   - '3.9'
   - '6.7'
   - '8.16'
-  - '9.6'
+  - '8.20'
+  - '8.25'
   - '12.4'
 surface:
+  - 2
+  - 4
   - 7
-  - 14
   - 26
   - 49
   - 51
+  - 64
   - 70
   - 79
-exports:
-  - ModuleDecl
-  - Reflection
+exports: []
 exports-removed: []
 codes: []
 examples: []
-names:
-  - Attribute
+names: []
 downstream:
   - repo: radiance
     what: Design record 0108 marks a table and a system by the file's place and its exports. After the pin moves past this change, an amendment of that record gives the decorated form, and the reference games move to it.
   - repo: typeshade.github.io
-    what: The new surface section, the changed rows of sections 7, 14, 26, 49, 51 and 70, and the new texts of `TS8028`, `TS8020` and `TS8035` on their error-code pages. Record 0141 in compiler-changes.md.
+    what: The new surface section, the changed rows of sections 2, 4, 7, 26, 49, 51, 64 and 70, and the new texts of `TS8028`, `TS8035` and `TS8072` on their error-code pages. Record 0141 in compiler-changes.md.
   - repo: vscode-typeshade
-    what: The tests of the editor's filter for TypeScript's diagnostics on a decorator (TS1206, TS1238, TS1329) gain a library's decorator. Record 0141 in compiler-changes.md.
+    what: The tests of the editor's filter for TypeScript's diagnostics on a decorator gain a host module's decorator on a function and on a parameter, and the import that only a decorator uses. Record 0141 in compiler-changes.md.
 ---
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                   |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0141, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                |
-| Date and attribution          | Drafted 2026-11-11 (UTC) by an AI agent (Claude Code) in the session that designs the game engine of `typeshade/radiance`. Attribution is not approval.                                                                  |
-| Request source                | The owner (Seungup), in that session on 2026-11-11, in Korean. `docs/owner-decisions.md` OD-8 holds the words. Issue #1253 states the downstream need.                                                                   |
-| Applicability / effectivity   | Expected: `docs/language-design.md` Rules 2.1 and 6.7 and the table of §9.3, a new surface section, the front end's decorator reading, the language service and the module's reflection. No release version is assigned. |
-| Review baseline               | `typeshade/typeshade` `main` `93a1e6f`.                                                                                                                                                                                  |
-| Review and revision authority | The pull request that adds this file. Git records revisions, and the pull request's review and merge record decisions.                                                                                                   |
+| Field                         | Record                                                                                                                                                                                                                                                      |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0141, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                   |
+| Date and attribution          | Drafted 2026-11-11 (UTC) by an AI agent (Claude Code) in the session that designs the game engine of `typeshade/radiance`. This is the third revision, written the same day. Attribution is not approval.                                                   |
+| Request source                | The owner (Seungup), in that session on 2026-11-11, in Korean. `docs/owner-decisions.md` OD-8 holds the words of the decision. "The readings" below holds the words that chose this revision's design.                                                      |
+| Applicability / effectivity   | Expected: `docs/language-design.md` Rules 1.7, 1.8, 2.1, 3.9, 6.7, 8.16, 8.20, 8.25 and 12.4, nine surface sections, the front end's decorator reading, the linker's import rule, the host module and the language service. No release version is assigned. |
+| Review baseline               | `typeshade/typeshade` `main` `93a1e6f`.                                                                                                                                                                                                                     |
+| Review and revision authority | Pull request #1254. Git records revisions, and the pull request's review and merge record decisions.                                                                                                                                                        |
 
 ## What changes
 
 Today the compiler reads a fixed list of decorators (Rule 6.7). A decorator outside the list
-must be refused, and the compiler refuses it with `TS8028`.
+must be refused, and the compiler refuses it with `TS8028`. A `"use typeshade"` file imports
+only another such file (`TS8072`).
 
-After this change, a `"use typeshade"` module can declare a decorator, and another module can
-write it. The compiler checks the decorator and reports it. The compiler gives it no meaning.
-A tool that reads the report gives it one.
+After this change, a decorator is an ordinary function of a host module, defined as a
+TypeScript author defines one. A `"use typeshade"` file imports it and writes it on a
+declaration. The compiler emits the same GPU code as without it. The module that a host
+imports applies the decorator when it loads, on the host, to the host value of the
+declaration. The decorator records what it marks. It does not change it.
 
 ### One example, before and after
 
-Before, at commit `6d6a979` and at `fd359a8`:
+Before, at commit `6d6a979` and at `a658868`:
 
 ```ts
 "use typeshade";
 
-@entity(16)
+@entity({ slots: 16 })
 export class Orc {
   hp: u32 = 4;
 }
 // TS8028: Unknown attribute "@entity". Supported attributes: @vertex, @fragment, ...
 ```
 
-After, a library declares the decorators in a `"use typeshade"` module:
+After, a library defines the decorators in an ordinary TypeScript file:
 
 ```ts
-"use typeshade";
+// radiance/decorators.ts, a host module
+const tables: { cls: Function; slots: number }[] = [];
 
-/** Marks a class as a table of a game, with its number of rows. */
-export declare function entity(slots: u32): Attribute<"class">;
-/** Marks a function as a step of a tick. */
-export declare function system(): Attribute<"function">;
-/** Marks a field that a save holds. */
-export declare function save(): Attribute<"field">;
+/** Marks a class as a table of a game. */
+export function entity(options: { slots: number }) {
+  return (cls: Function) => {
+    tables.push({ cls, slots: options.slots });
+  };
+}
 ```
 
 and a game writes them:
@@ -90,7 +93,7 @@ and a game writes them:
 "use typeshade";
 import { entity, save, system } from "radiance";
 
-@entity(16)
+@entity({ slots: 16 })
 export class Orc {
   @save hp: u32 = 4;
 }
@@ -104,97 +107,95 @@ export function heal(orcs: array<Orc>) {
 ```
 
 The WGSL, the GLSL and the CPU tier's result of the game's file are the same as those of the
-same file with the three decorators removed and the import kept.
+same file with the three decorators and the import removed. When a host imports the game's
+file, `entity`, `save` and `system` each run once, and the library's own list then holds
+`Orc`, its field `hp` and `heal`.
 
 ### The proposed rules
 
-1. **A declaration.** A decorator is declared by an exported `declare function` of a
-   `"use typeshade"` module whose result type is `Attribute<Target>`. This is the one
-   `declare function` the language accepts. Any other one stays `TS8020`.
-   - `Target` is one of `"class"`, `"function"`, `"method"`, `"field"` and `"parameter"`, or a
-     union of them.
-   - Each parameter's type is `bool`, `i32`, `u32`, `f32`, or an array of one of these. This
-     draft takes no string, no object and no reference to a class or a function (open
-     question 5).
-   - The declaration has no body, no overload and no type parameter.
-   - A call of the name as an expression, and the name as a value, are refused.
-2. **A use.** A decorator is written `@name` when its declaration has no parameter, and
-   `@name(arguments)` when it has one or more. It is written on a declaration of a kind its
-   `Target` names.
-3. **Which declaration a name means.** The compiler resolves the name by the declaration it
-   refers to, through an import, an alias or a re-export. It does not resolve it by its
-   spelling. A decorator can be used in the module that declares it. `@r.entity`, through a
-   namespace import, stays refused as "not a name".
-4. **The compiler's names are taken.** A library cannot declare, and an import cannot alias,
-   a name of Rule 6.7's list or a WGSL attribute name that the compiler answers for (`size`,
-   `align`, `group`, `binding`, `id`, `must_use`, `diagnostic`, `subgroup_size`, `std140`).
-5. **The arguments.** Each argument is a constant the compiler can fold: a literal, a module
-   `const`, an enum member, or an expression of these. An `override` is not a constant here. A
-   literal takes its type from the parameter (OD-7). The compiler checks each argument's type.
-6. **Where it is written.** A decorator is written on:
-   - a class of a module or a namespace, and not a class expression or a local class,
-   - a function of a module or a namespace, and not a local function or an overload signature,
-   - a method of a class, and not a constructor, an accessor or an abstract member (a
-     function-valued field is a method, Rule 8.16),
-   - a field of a class that is not `static`,
-   - a parameter of a function of a module or a namespace, after `@inout` or `@out` when the
-     parameter has one.
-
-   It is not written on an entry's parameter, a field of an entry I/O struct or a binding
-   (open question 1).
-
-7. **No meaning.** A decorator changes nothing that the compiler emits or computes. A use of a
-   decorator is not a use of anything for lowering: it reaches no declaration, and an argument
-   does not make a constant used. A decorator's declaration adds nothing to the program. The
-   module that declares it is imported as any module is (Rule 3.9).
-8. **The report.** `Reflection` gains a list of the uses, in source order, for each source
-   module of the program. It lists a use on a declaration that no entry reaches. Each use has:
-   the decorator's name as declared, the module that declares it (its package, version and
-   path, so a re-export does not change it), the target's kind, the target's name as the
-   author wrote it with its namespace and its class, a parameter's index, each argument's
-   value with its type, and the file, line and column.
+1. **A decorator is a host function.** A decorator is an exported function of a host module:
+   a TypeScript file that is not a `"use typeshade"` file. Nothing in the language declares
+   it. It has no type of the language.
+2. **The import.** A `"use typeshade"` file imports a decorator with an ordinary import. An
+   import of a host module is accepted when the file uses each name it binds only as a
+   decorator. Any other use of such a name, and any other import of a host module, stays
+   `TS8072`. The import adds nothing to the program (Rule 3.9): no module, no declaration and
+   no binding.
+3. **A use.** A decorator is written `@name` or `@name(arguments)` before a declaration. `name`
+   is a name that an import of rule 2 binds. `@r.name`, through a namespace import, stays
+   refused as "not a name".
+4. **Where it is written.** On an exported class, a method or a field of a class that is not
+   `static`, an exported function of a module or a namespace, and a parameter of such a
+   function, after `@inout` or `@out` when the parameter has one. A library's decorator is
+   written after the compiler's own attribute on the same declaration (`@compute([64])
+@system`). Open question 2 covers the values of an entry.
+5. **The arguments.** Each argument is a literal (a number, `true` or `false`, a string, an
+   array or an object of these) or the name of an exported class, function, constant or enum
+   of the file that has a host value (Rule 8.20). The host module evaluates it. A number is a
+   host number: OD-7 does not apply, since no type of the language receives it.
+6. **No meaning for the GPU.** A decorator and its arguments change nothing that the compiler
+   emits or computes for an entry, a kernel function or the CPU oracle. A use of a decorator
+   is no use for lowering.
+7. **The host applies it.** The module a host imports (Rule 8.20) applies each decorator once,
+   when the module loads, in ECMAScript's order. The decorator gets the host value of the
+   declaration, in the shape of open question 1. A declaration with no host value gets
+   `undefined` in its place.
+8. **A decorator records, and does not replace.** A decorator returns nothing. A decorator
+   that returns a value makes the module throw a `TypeError` when it loads. The error names
+   the decorator and the declaration. A decorator must not change the class or the function it
+   gets: the compiler does not see such a change, so the GPU and the CPU tier would differ
+   (`docs/dx.md`).
 9. **The refusals.** Each one names the decorator, the fact and a remedy (Rule 12.5), once
    (Rule 12.4):
-   - `TS8028`: a decorator that nothing declares, as today. A decorator on a declaration that
-     its `Target` does not name. A decorator in a place of item 6 that takes none. An argument
-     of a wrong type or that is no constant. A declaration or an alias with one of the
-     compiler's names.
-   - `TS8020`: a `declare function` whose result is not `Attribute<…>`, as today, with the new
-     form named in its text.
-   - `TS8035`: no longer given for a declared decorator on a method.
-10. **Both halves.** The language service reports what `compile()` reports (Rule 12.7). On a
-    declared decorator it drops what TypeScript says of the form: TS1206 (a decorator is not
-    valid here), TS1238 and TS1329 (the decorator's signature), TS1239 and TS1249. Its hover on
-    a use shows the declaration and its comment. The ambient library declares `Attribute`.
+   - `TS8028`, as today: a decorator that no import binds and that is not the compiler's.
+   - `TS8028`: a decorator in a place of rule 4 that takes none, an argument that rule 5 does
+     not take, and an import that binds one of the compiler's names (Rule 6.7's list).
+   - `TS8072`, as today, with the new case named in its text: a name of a host module used as
+     anything but a decorator.
+   - `TS8035`: no longer given for an imported decorator on a method.
+10. **Both halves.** The language service reports what `compile()` reports (Rule 12.7). It
+    drops every diagnostic of TypeScript inside the span of an imported decorator where
+    TypeScript's grammar takes none (a function declaration and its parameter: TS1206 at the
+    baseline). It does not report the import as unused. It checks the arguments of such a
+    decorator against the function's signature itself, since TypeScript checks nothing there.
+    Its hover and its go-to-definition on a use show the host function.
 
 ### What does not change
 
 - The compiler's own attributes (Rule 6.7's list) keep their names, their places and their
-  meaning.
-- A decorator cannot change a class, a function or a value. It cannot run code.
+  meaning. An import cannot bind one of those names.
+- A `"use typeshade"` file still calls no host function and reads no host value.
 - The compiler learns no name of a library (`docs/dx.md`, principle 7).
-- An entry's I/O stays in the type (OD-5, Rule 1.8).
 
 ## Why
 
 Issue #1253 states the need. A tool that builds a program from a project of `"use typeshade"`
 files must know which class is a table, which function is a step, and which field or
 parameter has a special part. The game engine of `typeshade/radiance` is the first such tool.
-
 Its workaround is a file's place and its exports. That marks a file. It cannot mark one field
 or one parameter, and the mark is not beside the thing it marks.
 
-### The two readings shown to the owner
+### The readings
 
-| Reading | What the compiler does                                                  | Cost against OD-3                                                                                                                      |
-| ------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| 1       | Checks the decorator and reports it. The emitted code is unchanged.     | One construct, one type name and one declaration form. An author learns that a decorator is a mark that a tool reads.                  |
-| 2       | Runs the decorator at compile time, and the decorator changes the code. | A model of execution at compile time, in three backends and the CPU oracle. An author must learn what each decorator does to the code. |
+OD-8 says that the owner decides in this proposal what a decorator does. Three readings were
+shown to the owner, each with the same use: `@entity({ slots: 16 }) export class Orc`.
 
-This draft is reading 1. On 2026-11-11 the owner approved reading 1 as the draft's
-recommendation ("승인"). OD-8 says that the owner decides what a declared decorator does in
-this proposal. So the choice between the two readings stays open until the owner accepts the
-proposal.
+| Reading | Who defines the decorator, and what it does                                                                                         | Cost against OD-3                                                                                                                  |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| 1       | A `"use typeshade"` module declares it with a new form and a new type. The compiler checks it and lists each use in its reflection. | One construct, one type name, one declaration form. The first two revisions of this proposal took it.                              |
+| 2       | The compiler runs the decorator at compile time, and the decorator changes the code.                                                | A model of execution at compile time, in three backends and the CPU oracle. An author learns what each decorator does to the code. |
+| 3       | A host module defines it as an ordinary TypeScript function. The host module of the file runs it at load, and it only records.      | One construct. An author who knows TypeScript's decorators learns one rule: a decorator records and does not replace.              |
+
+This revision is reading 3. The owner said on 2026-11-11: "typeshade 언어 자체에서 데코레이터를
+만들고 지원하려면 어떻게 데코레이터를 정의하고 쓸 수 있는걸까요? 일반적인 ts코드 개발처럼 진행해도
+되지 않을까 싶은데". The agent showed reading 3 with its costs, and the owner answered: "네, 그
+방향으로 다시 써주세요". The owner's acceptance of this proposal is the decision that OD-8
+leaves to it. Until then the choice among the three readings is open question 0.
+
+Two independent reviews of reading 1 are in the review record. Three of their findings are
+costs of reading 1 that reading 3 does not have: the declaration form that the language
+refuses today, a report of declarations that no entry reaches, which the module's reflection
+does not hold, and argument types that need new type forms.
 
 ### Alternatives
 
@@ -202,13 +203,11 @@ proposal.
   host file. It needs no language change. The mark is not beside the thing it marks, a second
   file must name each class and each function, and it cannot mark a parameter. OD-8 chose the
   decorator.
-- **A comment that a tool reads.** The compiler does not check a comment, so a wrong name or
-  a wrong argument gives no error (Rule 12.5).
+- **A comment that a tool reads.** Nothing checks a comment, so a wrong name gives no error
+  (Rule 12.5).
 - **A base class as the mark** (`class Orc extends Entity`), with a `static` field for an
   option. It works at commit `6d6a979` for a class. It cannot mark a function, a field or a
   parameter.
-- **An exported constant beside the class** (`export const slots = 16`). It marks a file, and
-  two classes in one file cannot differ.
 
 The need is not about performance, so issue #1253 holds probes of the compiler and no
 measurement on a device.
@@ -217,155 +216,169 @@ measurement on a device.
 
 Each question shows one example and the cost of each answer (OD-4).
 
-1. **A library's mark on an entry's value.** Rule 1.8 and OD-5 say that what describes a value
-   that flows into or out of an entry is part of its type. OD-8 says that a file can carry a
-   library's decorator. The two point different ways for a field of an entry I/O struct, an
-   entry's parameter and a binding (`CLAUDE.md`, the conflict procedure).
-   - Choice A (this draft): no library decorator there. `@save pos: builtin<"position">` is
-     refused. Cost: a tool cannot mark such a value.
-   - Choice B: allowed there. Cost: an entry's field can again carry a decorator, which change
-     0111 D5 removed, and an author must learn which decorators are the language's.
-2. **The name of the type.** Rule 3.6 says that a type name TypeShade declares is capitalized,
-   so this draft writes `Attribute<Target>`. The lowercase `attribute` is a reserved word of
-   WGSL and of GLSL ES. Cost of the capital: it differs from `builtin<…>` and `location<…>`,
-   which are WGSL's names.
-3. **`@system` or `@system()`.** This draft takes `@system` only, as `@vertex` is (Rule 8.1).
-   Cost: TypeScript reads `@system` as "the function is the decorator" and reports TS1329, with
-   a quick fix that writes `@system()`. The language service drops TS1329, but an editor with
-   no TypeShade extension shows it. Taking `@system()` too gives two spellings (Rule 1.1).
-4. **A host file as the declarer.** This draft says no: a `"use typeshade"` module imports only
-   another such module (`TS8072`). Cost: a library ships one `"use typeshade"` module for its
-   decorators.
-5. **The types of an argument.** This draft takes `bool`, `i32`, `u32`, `f32` and arrays of
-   them: `@entity(16)`. Named options, `@entity({ slots: 16 })`, need an object type in a
-   parameter, which the language refuses today (`TS8002`). A string and a reference to a class
-   or a function (`@after(move)`) are not taken either. Cost of the draft: positional
-   arguments only. Cost of more: each one is a new type form in a declaration.
-6. **The report of a kernel function's parameters.** Issue #1253 asks for it as compiler work
-   with no language change. It can ship before or after this proposal.
+0. **The reading.** The table above. This draft takes reading 3.
+1. **The shape a decorator is called with.** TypeScript has two. A project that `tshc init`
+   configures has `experimentalDecorators: true`, and the language service uses it too, since
+   only that mode parses a decorator on a parameter (`@inout`).
+   - Choice A (this draft): TypeScript's shapes of that mode, which NestJS uses. A class
+     decorator gets `(cls)`. A field's gets `(prototype, name)`. A method's gets
+     `(prototype, name, descriptor)`. A parameter's gets `(owner, name, index)`. A function's,
+     which TypeScript does not have, gets `(fn, name)`. Cost: it is the older of TypeScript's
+     two models. Gain: `tsc` already checks a class's, a member's and a method parameter's
+     decorator in every TypeShade project with no new work.
+   - Choice B: the standard shapes of ECMAScript, `(value, context)`. Cost: that model has no
+     decorator on a parameter, and `tsc` reports each one under the mode that TypeShade's
+     projects use, so the editor must drop more.
+2. **A decorator on an entry's value.** Rule 1.8 and OD-5 say that what describes a value that
+   flows into or out of an entry is part of its type. OD-8 says that a file can carry a
+   library's decorator (`CLAUDE.md`, the conflict procedure).
+   - Choice A (this draft): rule 4 is the whole rule, by the place of the declaration alone. A
+     decorator can be on a field of any exported class and on a parameter of any exported
+     function, so `@save hp` on `Orc` is accepted when `heal(orcs: array<Orc>)` takes `Orc`
+     from the host. It is not on a parameter of an entry (`@vertex`, `@fragment`, `@compute`)
+     or on a field of a class that an entry's signature names. Cost: the second refusal looks
+     at a use of the class in the same file.
+   - Choice B: no exclusion at all. A decorator of a library marks and describes no flow, so
+     Rule 1.8 does not reach it. Cost: an entry's field can carry `@`, which change 0111 D5
+     began to remove, and an author must tell the two kinds of `@` apart.
+3. **`@system` and `@system()`.** With reading 3 both are TypeScript's own: `@system` when
+   `system` is the decorator, `@system()` when `system` returns one. The library chooses, as
+   in TypeScript. Cost: an author meets both spellings across libraries.
+4. **A decorator defined in a `"use typeshade"` file.** This draft says no: such a file holds
+   no host function. Cost: a library ships a host module beside its `"use typeshade"` modules.
+
+The report of a kernel function's parameters (issue #1253, item 3) is compiler work with no
+language change. It is not a question of this proposal.
 
 ## Owner's decisions
 
-- **OD-8** is the decision this proposal carries out: a `"use typeshade"` file can carry a
-  decorator that a library declares. OD-8 leaves to this proposal what a declared decorator
-  does.
-- **OD-1.** The form is the language's own. Whether `tsc` accepts `@save hp: u32` is no
-  criterion, and the language service drops what TypeScript says of it (rule 10 above).
-- **OD-2.** A stage stays `@vertex`, `@fragment` or `@compute`. A library cannot declare or
-  alias those names.
+- **OD-8** is the decision this proposal carries out. OD-8 leaves to this proposal what a
+  decorator does (open question 0).
+- **OD-1.** The form is the language's own. A decorator on a function declaration and on its
+  parameter is not TypeScript's grammar, and the language service drops what TypeScript says of
+  it (rule 10).
+- **OD-2.** A stage stays `@vertex`, `@fragment` or `@compute`. An import cannot bind those
+  names.
 - **OD-3.** The construct exists for what the author must state and the compiler cannot know:
-  what a tool is to do with a declaration. The change removes nothing, which is a cost under
-  this entry. Reading 2 is not taken for its larger cost.
+  what a tool is to do with a declaration. It adds no type and no declaration form. The change
+  removes nothing, which is a cost under this entry.
 - **OD-5.** `@inout` and `@out` stay the parameter qualifiers, and an entry's I/O stays in the
-  type. This draft writes no library decorator on an entry's value. Open question 1 asks the
-  owner.
-- **OD-7.** A literal argument takes its type from the decorator's parameter.
+  type. Open question 2 asks the owner about a library's mark on an entry's value.
 
-The draft reverses no entry. Choice B of open question 1 would strain OD-5, so it is a question
-for the owner and not the draft's text.
+The draft reverses no entry. Choice B of open question 2 would strain OD-5, so it is a
+question for the owner and not the draft's text.
 
 ## Why the compiler cannot do it
 
 The compiler cannot decide from a program which class a tool treats as a table, how many rows
 the table has, or which field a save holds. These are facts about the tool's use of the
-program. The author must state them.
+program. The author must state them. No optimization, lowering or report can supply them.
 
 Compiler work meets part of the need of issue #1253: the report of a kernel function's
 parameters and of the arrays it writes. That part needs no author-facing construct, and this
-proposal does not cover it. The marks of items 1, 2 and 4 of the issue are statements of the
-author, so no optimization, lowering or report can supply them.
+proposal does not cover it.
 
 ## What it touches
 
-- **Rule 1.7.** The list of kept forms whose grammar report the language service drops gains a
-  declared decorator.
+- **Rule 1.7.** The kept forms whose grammar report the language service drops gain a host
+  module's decorator on a function declaration and on its parameter.
 - **Rule 1.8.** An attribute `@name` on a declaration can also be a library's mark. The rule's
-  sentence on an entry's values does not change (open question 1).
-- **Rule 2.1.** A decorator that a library declares is the library's name, as a function that
-  a library exports is.
-- **Rule 3.6.** `Attribute` is a type name TypeShade declares, so it is capitalized.
-- **Rule 3.9.** A decorator's declaration adds nothing to the program, and a use of a decorator
-  is no use for lowering.
+  sentence on an entry's values does not change (open question 2).
+- **Rule 2.1.** A decorator that a host module defines is the library's name. It is not an
+  author-facing name of the language.
+- **Rule 3.9.** An import of a host module that binds only decorators is accepted, and it adds
+  nothing to the program.
 - **Rule 6.7.** "A decorator outside the list must be refused" becomes "a decorator that is not
-  in the list and that nothing declares must be refused". The rule gains the declaration, the
-  targets, the arguments and the taken names.
-- **Rule 8.16.** A declared decorator on a method, a function-valued field included, is no
+  in the list and that no import binds must be refused". The rule gains the places, the
+  arguments and the order after the compiler's own attribute.
+- **Rule 8.16.** An imported decorator on a method, a function-valued field included, is no
   longer `TS8035`.
-- **Rule 9.6.** The table of §9.3 gains the row `Attribute`, by Rules 9.7 and 13.6, with its
-  row in `TYPESHADE_EXTENSIONS` (`surface-names.test.ts`).
+- **Rule 8.20.** The module a host imports applies the decorators of the file when it loads.
+  The rule gains the order, the value each kind of declaration gives, and the `TypeError` of a
+  decorator that returns a value.
+- **Rule 8.25.** A library's decorator on a parameter is written after `@inout` or `@out`.
 - **Rule 12.4.** One mistake in a decorator gives one diagnostic, in both halves.
-- **Surface §7, §14, §26, §49, §51 and §70.** Their rows on an unknown attribute, on
-  `declare function`, on a method's decorator, on the editor's filters, on a field's
-  attributes and on a parameter's qualifiers each gain the declared decorator.
-- **Surface §79** (new). The declaration, the use, the report and each refusal.
-- **`ModuleDecl` and `Reflection`.** Both gain the list of uses. Each pass that rebuilds a
-  module keeps the list.
-- **`Attribute`.** A new type name in the table of §9.3.
+- **Surface §2, §4, §7, §26, §49, §51, §64 and §70.** Their sentences on a field's decorator,
+  on "every decorator on a declaration", on an unknown attribute, on a method's decorator, on
+  the editor's filters, on a field's attributes, on the host module and on a parameter's
+  qualifiers each gain the imported decorator.
+- **Surface §79** (new). The definition, the import, the use, what the host module does and
+  each refusal.
 
-No diagnostic code is added, removed or renumbered. The texts of `TS8028`, `TS8020` and `TS8035`
-change, in the surface sections above.
+No diagnostic code is added, removed or renumbered, and the language gains no name. The texts
+of `TS8028`, `TS8035` and `TS8072` change, in the surface sections above.
+
+Not known yet: whether a public export changes its shape. The host module's manifest (`Pack`)
+may carry the decorators of a file. The implementation plan names each such export before
+acceptance, and `exports` then lists it.
 
 Validation the implementation owes: each rule in both halves on the same source
 (`CLAUDE.md`, A test reads both halves), the emit of a decorated file equal to the emit of the
-file without decorators on WGSL, GLSL and the CPU oracle, an import that binds only decorators
-adding nothing to the program, and the report's content.
+file without decorators and without the import on WGSL, GLSL and the CPU oracle, each
+decorator called once at load with the value its kind gives, the `TypeError` of a decorator
+that returns a value, and the import journey with a decorated file on WebGPU.
 
 ### Draft impact estimate
 
-- Known: the name sets are in `src/compiler/ts/decorated-form.ts`. The refusal of an unknown
-  name is in `src/compiler/ts/builtin-check.ts` (`checkAttributeName`, `attributeRefusal`,
-  `unreadDecoratorSite`), by spelling. `TS8020` on an ambient function is in
-  `src/compiler/ts/lower/function.ts`. `TS8035` on a method comes from the class collector. The
-  editor's filters are in `src/language-service/diagnostics.ts`, and the ambient library is
-  `src/language-service/ambient.ts`.
-- Estimate, not measured: the work is in the front end (the declaration form, resolution by
-  declaration, the targets, the arguments), in the module's IR and reflection (a new list that
-  every pass keeps), in the language service and in the documents. No backend emits anything
-  new.
-- Unknown: the duration, and the effort in `vscode-typeshade` and `typeshade.github.io`.
-- Not searched: `typenn`, `typecv` and `typeaudio`. No decorator of a library compiled before
-  this change, so none can hold one. The review of the next revision confirms it.
-- To resolve before acceptance: the six open questions.
+- Known, read at the baseline: the name sets are in `src/compiler/ts/decorated-form.ts`. The
+  refusal of an unknown name is in `src/compiler/ts/builtin-check.ts`, by spelling. `TS8072` is
+  the linker's (`src/compiler/ts/link.ts`). `TS8035` on a method comes from the class
+  collector. The host module is made by `src/compiler/ts/host-face.ts`. The editor's filters
+  are in `src/language-service/diagnostics.ts`, and the language service runs TypeScript with
+  `experimentalDecorators: true` (`src/language-service/host.ts`).
+- Observed by the second reviewer at `a658868` (TypeScript 5.6.3, the language service's
+  options): TypeScript reports TS1206 on a decorator on a function declaration and on its
+  parameter, checks nothing inside it, and reads the import as unused.
+- Estimate, not measured: the work is in the front end (the import rule, the places, the
+  arguments), in the host module (the calls at load) and in the language service (the filter
+  by place, the unused import, the check of the arguments, hover). No pass and no backend
+  changes, since the IR holds no decorator.
+- Unknown: the duration, the public exports that change, and the effort in `vscode-typeshade`
+  and `typeshade.github.io`.
+- Not established: that the Vite plugin and each bundler path of a host import keep the
+  decorator calls and the import of the host module in the emitted module. A probe before
+  acceptance shows it.
+- To resolve before acceptance: open questions 0 to 4, and the two items above.
 
 ### Independent review record
 
-| Field    | Record                                                                                                |
-| -------- | ----------------------------------------------------------------------------------------------------- |
-| Reviewer | An AI agent (Claude, model `opus`) that did not write the proposal, run as a sub-agent of the session |
-| Date     | 2026-11-11 (UTC)                                                                                      |
-| Revision | `fd359a8`, the first draft                                                                            |
-| Verdict  | Not ready for the owner's decision until findings 1 to 10 are answered                                |
+Two reviews ran on 2026-11-11 (UTC). The reviewer of each was an AI agent (Claude, model
+`opus`) that did not write the proposal, run as a sub-agent of the session. Both reviewed
+reading 1. This revision, reading 3, has not been reviewed. A review of this revision comes
+before the owner decides.
 
-The reviewer ran two probes that changed no file: the draft's example through `compile()` and
-the language service, and through TypeScript alone.
+**Review 1**, of the first draft (`fd359a8`). Verdict: not ready. It found two blockers and
+eight major findings. The second revision (`a658868`) answered each, and review 2 checked the
+answers.
 
-| No. | Severity | Finding                                                                                                                                            | Answer                                                                                                                              |
-| --- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Blocker  | The language refuses the draft's own declaration: `declare function` is `TS8020`, and the inline object type of its parameter is `TS8002`.         | Fixed: rule 1 makes the declaration its own form with scalar and array parameters. Named options are open question 5.               |
-| 2   | Blocker  | The editor half is not specified. TypeScript reports TS1238, TS1329 and TS1206 on the example.                                                     | Fixed: rule 10 lists each TypeScript code the editor drops. Rules 1.7 and 12.4 are listed. Open question 3 shows the cost.          |
-| 3   | Major    | A decorator on an entry's field or parameter strains Rule 1.8 and OD-5.                                                                            | Fixed: rule 6 excludes those places. Open question 1 puts both choices to the owner, as the conflict procedure asks.                |
-| 4   | Major    | `surface` leaves out §7, §14, §26, §49, §51 and §70.                                                                                               | Fixed: listed.                                                                                                                      |
-| 5   | Major    | `rules` leaves out Rules 1.7, 1.8, 3.6, 3.9, 8.16 and the row of §9.3. A lowercase `attribute` is against Rule 3.6 and is a reserved word of WGSL. | Fixed: listed, and the type is `Attribute`. Open question 2 shows the cost.                                                         |
-| 6   | Major    | `exports: []` is wrong: the report changes `Reflection` and `ModuleDecl`. "No pass changes" is too strong.                                         | Fixed: both listed, and the estimate says that each pass keeps the list.                                                            |
-| 7   | Major    | The compiler finds a decorator by its spelling today. Aliases, re-exports, use in the declaring module and the taken names are open.               | Fixed: rules 3 and 4.                                                                                                               |
-| 8   | Major    | The claim of equal emit skips the import, which adds a module to the program.                                                                      | Fixed: the example keeps the import, and rule 7 says what a declaration and a use add.                                              |
-| 9   | Major    | The draft says the owner approved reading 1. OD-8 says the owner decides in the proposal.                                                          | Fixed: the text says the approval is of the recommendation, and the choice stays open until acceptance.                             |
-| 10  | Major    | The arguments, the targets and the report are underspecified.                                                                                      | Fixed: rules 5, 6 and 8. A reference to a class or a function as an argument is open question 5.                                    |
-| 11  | Minor    | The estimate names the wrong file for the refusal.                                                                                                 | Fixed: the pointers are corrected.                                                                                                  |
-| 12  | Minor    | `codes: [TS8028]` misuses the field, and the texts of `TS8020` and `TS8035` change too.                                                            | Fixed: `codes` is empty, and "What it touches" names the three texts.                                                               |
-| 13  | Minor    | `downstream` leaves out `typeshade.github.io` and `vscode-typeshade`.                                                                              | Fixed: both listed. `typenn`, `typecv` and `typeaudio` were not searched, and the estimate says why none can hold such a decorator. |
-| 14  | Minor    | The open questions give no costs and no examples.                                                                                                  | Fixed.                                                                                                                              |
-| 15  | Note     | A registration in the tool's host code is an alternative that needs no language change. Issue #1253 holds no measurement on a device.              | Fixed: the alternative is listed with its cost, and the text says the need is not about performance.                                |
-| 16  | Note     | "A base class gives no options" is not established: a `static` field can hold one.                                                                 | Fixed: the sentence is corrected.                                                                                                   |
-| 17  | Note     | The document control gives no pull request number.                                                                                                 | Fixed: #1254.                                                                                                                       |
+**Review 2**, of the second revision (`a658868`). Verdict: not ready. It confirmed 9 of the 17
+answers of review 1 in full, and found the following.
 
-This revision answers each finding. It has not been reviewed. A second review of this revision
-comes before the owner decides.
+| No. | Severity | Finding                                                                                                                                     | Answer in this revision                                                                                                                                   |
+| --- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Major    | The editor facts were wrong: TypeScript reports TS1206 on a function's decorator, checks nothing inside it, and reads the import as unused. | Carried: rule 10 defines the filter by place, keeps the import, and makes the language service check the arguments. The estimate records the observation. |
+| 2   | Major    | The exclusion of an entry's values depended on use and was unclear for a kernel function's parameter and a class a host supplies.           | Carried: open question 2 defines the exclusion by the declaration and says what the example gets.                                                         |
+| 3   | Major    | The choice of the reading was not among the open questions, and reading 2 had no example.                                                   | Fixed: open question 0, with one use for all three readings and the owner's words.                                                                        |
+| 4   | Major    | `surface` and `rules` left out §2, §4 and §64 and Rules 8.20 and 8.25.                                                                      | Fixed: listed. §14 is no longer touched, since no `declare function` is used.                                                                             |
+| 5   | Major    | The report did not fit how `Reflection` is built: it holds only what an entry reaches.                                                      | Removed with reading 1: the compiler reports nothing. The host module runs the decorators.                                                                |
+| 6   | Minor    | The refusals were incomplete, and `TS8028` covered argument type errors.                                                                    | Reduced: reading 3 has four refusals (rule 9). TypeScript reports an argument's type in the editor.                                                       |
+| 7   | Minor    | The parameter types of a declaration were underspecified.                                                                                   | Removed with reading 1: a decorator is a host function with TypeScript's types.                                                                           |
+| 8   | Minor    | `Attribute` had no family in §9.3.                                                                                                          | Removed with reading 1: no name is added.                                                                                                                 |
+| 9   | Minor    | Refusing `@r.entity` departs from Rule 3.9's namespace read.                                                                                | Kept: rule 3 says so, and Rule 3.9 is listed. A namespace of a host module is no module of the program.                                                   |
+| 10  | Minor    | The taken names: a later compiler attribute can collide with a library's name.                                                              | Kept, with the cost: rule 9 refuses an import that binds a compiler's name, so a library renames its import (`import { vertex as v }`).                   |
+| 11  | Minor    | "Change 0111 D5 removed" the decorated form, which is still accepted with a warning.                                                        | Fixed: open question 2 says "began to remove".                                                                                                            |
+| 12  | Minor    | A wrong rule number for "two spellings".                                                                                                    | Removed: open question 3 no longer cites it.                                                                                                              |
+| 13  | Minor    | Two open questions had no example, and one needed no decision.                                                                              | Fixed: the report of issue #1253 is no longer a question.                                                                                                 |
+| 14  | Minor    | The document control did not give the pull request.                                                                                         | Fixed: #1254.                                                                                                                                             |
+| 15  | Note     | An `interface` struct's field cannot carry a decorator, and a static method was treated unlike a static field.                              | Kept, with the cost: a decorator is on a class's member only (rule 4), and no `static` member takes one.                                                  |
+| 16  | Note     | A smaller alternative: no `Target` on the declared type.                                                                                    | Removed with reading 1.                                                                                                                                   |
+| 17  | Note     | The owner's "승인" was in no record.                                                                                                        | Fixed: "The readings" holds the owner's words that chose this revision.                                                                                   |
 
 ### Approval and plan record
 
 This record does not yet apply. Acceptance will require the owner's decision on the open
-questions, the independent review, and the merge of this proposal as `accepted`.
+questions, the independent review of this revision, and the merge of this proposal as
+`accepted`.
 
 ### Configuration and validation record
 
@@ -377,10 +390,13 @@ names.
 - **radiance.** Design record 0108 marks a table by a file's place and its exports, and a
   written array by a parameter's name. After the pin moves past this change, an amendment of
   that record gives the decorated form, and the two reference games move to it. Expected work,
-  not agreed: the engine's reader of a project takes the report in place of its own reading of
-  the source.
-- **typeshade.github.io.** The new surface section, the changed rows of the six sections above,
-  and the new texts of `TS8028`, `TS8020` and `TS8035` on their error-code pages. Expected work,
-  not agreed.
-- **vscode-typeshade.** The tests of the editor's filter for TypeScript's diagnostics on a
-  decorator gain a library's decorator. Expected work, not agreed.
+  not agreed: the engine defines its decorators in a host module, and its reader of a project
+  loads each file's host module and reads the engine's own list.
+- **typeshade.github.io.** The new surface section, the changed rows of the eight sections
+  above, and the new texts of `TS8028`, `TS8035` and `TS8072` on their error-code pages.
+  Expected work, not agreed.
+- **vscode-typeshade.** The tests of the editor's filter gain a host module's decorator on a
+  function and on a parameter, and the import that only a decorator uses. Expected work, not
+  agreed.
+- **typenn, typecv, typeaudio.** The second reviewer searched their `"use typeshade"` files at
+  `a658868`. None declares or uses a library's decorator, so none owes work.
