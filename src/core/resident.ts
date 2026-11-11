@@ -45,7 +45,8 @@ import type { CallOwner } from './owner.js';
 import { checkLimitValues } from './device-limits.js';
 import { automaticFp64Flavor } from './device-info.js';
 import { fuseSlot } from './fuse-scope.js';
-import { afterCheckpoint, throwFailure } from './submission.js';
+import { afterCheckpoint, flushSubmission, throwFailure } from './submission.js';
+import { readFence } from './gl-fence.js';
 import { warnDeprecated } from './deprecation.js';
 import { TIERS, tierNames, type Tier } from './tiers.js';
 import type { Fp64Flavor } from './passes/fp64-lower.js';
@@ -120,6 +121,17 @@ export class ResidentArrayState {
   gpu: { d: GpuDevice; buffer: GpuBuffer; size: number; layout: Layout } | undefined;
   /** The error of a queued call that wrote the handle, which `read()` throws. */
   error: unknown;
+  /** The WebGL2 context a call that wrote the handle ran on, whose fence its next `read()` waits
+   *  on (change 0138, Amendment A5, default 6); undefined otherwise. */
+  fence: WebGL2RenderingContext | undefined;
+  /** Wait on the fence of the WebGL2 context that last wrote the handle, once. A lost context ends
+   *  the wait: the WebGL2 tier read the values back inside the call (`readFence`). */
+  async fenced(): Promise<void> {
+    const gl = this.fence;
+    if (gl === undefined) return;
+    this.fence = undefined;
+    await readFence(gl);
+  }
   /** Set by `destroy()`: a use after it throws. */
   destroyed = false;
   /** Whether the device buffer holds stale contents that are zeros by contract, which the next
@@ -665,6 +677,8 @@ export function handleOf(state: ResidentArrayState): Resident<unknown> {
         // A recorded call that failed is thrown at the next read() (change 0138, R2).
         throwFailure();
         if (state.error !== undefined) throw state.error;
+        // On WebGL2 the read waits on a fence (Amendment A5, default 6).
+        await state.fenced();
         return state.snapshot();
       })();
     },
@@ -747,10 +761,12 @@ export const kernelQueue = {
       }
     });
   },
-  /** Submit every call recorded and not yet submitted, in order. */
+  /** Submit every call recorded and not yet submitted, in order. The end of the submission
+   *  flushes each WebGL2 context its calls used (Amendment A5, default 6). */
   submit(): void {
     if (this.held.length === 0) return;
     for (const join of this.held.splice(0)) join();
+    void this.enqueue(async () => flushSubmission());
   },
   /** Run `f` now when no call is queued, and after the calls queued before it otherwise. */
   whenIdle(f: () => void): void {
