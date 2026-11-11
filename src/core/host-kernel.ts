@@ -625,7 +625,8 @@ const WORDS = { k: 'a', n: null, st: 4, e: { k: 's', t: 'u32' } } as const;
  *
  * @throws `TypeError` naming the function and the parameter for a value that does not fit, and
  *   for an array shorter than the index range a loop writes; `Error` when no tier it may use can
- *   run it.
+ *   run it. Inside the body of `fuse()`, a `TypeError` at the call for a resource argument
+ *   (change 0138, R4).
  */
 export function callKernel(
   cpu: GeneratedCpu,
@@ -639,10 +640,8 @@ export function callKernel(
     // A graph that takes resources is milestone 4's `fuse(fn)` (change 0138, R4).
     const r = args.findIndex(isResource);
     if (r >= 0)
-      return Promise.reject(
-        new TypeError(
-          `${k.name}(): parameter "${k.params[r]?.name ?? r}" is a resource, which the body of today's fuse() does not record; call the function outside it, or pass array(xs).`,
-        ),
+      throw new TypeError(
+        `${k.name}(): parameter "${k.params[r]?.name ?? r}" is a resource, which the body of today's fuse() does not record; call the function outside it, or pass array(xs).`,
       );
     return scope.kernel(cpu, k, argc, args, reads);
   }

@@ -8399,8 +8399,8 @@ takes it, and its `read()`, throw it until `set(data)` or `resize()` gives the b
    failure. A call with plain data and a draw count as calls.
 5. The call after it works.
 
-In the body of today's `fuse` scope, a call that takes a resource returns a promise that rejects
-with a `TypeError` (milestone 4 of change 0138). A draw takes no resource yet. A recorded call runs
+In the body of today's `fuse` scope, a call that takes a resource throws a `TypeError` at the call
+(milestone 4 of change 0138). A draw takes no resource yet. A recorded call runs
 on the default owner's tiers, not on the device of its data (R3; deviation D-d of change 0138,
 open). On WebGL2 an entry call reads back inside the call, with no flush and no fence (Amendment A5,
 default 6; deviation D-c of change 0138, open).
