@@ -13,6 +13,7 @@ import {
   abstractLiteralOf,
   abstractTreeOf,
   isIntegerWrittenRead,
+  noteF64Read,
   noteIntegerContext,
   noteIntegerRead,
 } from './abstract-const.js';
@@ -184,6 +185,7 @@ function retargetF64DeclaredLit(expr: Expr, node: ts.Expression): Expr {
   const folded = foldNumericLit(abstractLiteralOf(expr) ?? expr);
   if (folded.op !== 'lit' || typeof folded.value !== 'number') return expr;
   if (typeKey(folded.type) !== 'f32') return expr;
+  noteF64Read(node, f64T);
   return { op: 'lit', type: f64T, value: folded.value };
 }
 

@@ -2649,6 +2649,543 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
   §64, §65, §67, §69, §71 and §72.
 - Status: `status: accepted` does not change.
 
+### A12. Slice 1: the owner's decisions during #1257, its deviations, and the result kinds that A11 left open (2026-11-11)
+
+- [fact] Why. Slice 1 of A10's slice table is draft pull request #1257. Its head was `51f5bf8c` when
+  this amendment was first written, and it is `b14f2373` now. While it was in progress, the owner
+  made four decisions on 2026-11-11, in the conversation. #1257's body also lists deviations from the
+  accepted text. This amendment records both in the proposal.
+- [fact] Baseline: `main` at `8923b2d0`. The last change to this file on `main` is `5711b9ac`
+  (#1258, Amendment A11).
+- [fact] This amendment changes no front matter, no rule text of `docs/language-design.md` and no
+  code. #1257 changes its rule and surface text in its own commits.
+- [fact] Decision 4 asks for a design that A10 and A11 do not give. This amendment proposes it and
+  lists the points with more than one reasonable answer as questions Q1 to Q7. The owner answered
+  each on 2026-11-11, in the conversation, with the recommended option ("The owner's answers to Q1
+  to Q7", below).
+- [fact] An independent review read A12 at `0ec970d3` after those answers. It found 2 blocking
+  findings, 8 should-fix findings and 5 notes ("Independent review record of A12", below). The owner
+  answered three points of it on 2026-11-11: decision 3 against OD-7, and B2-1 and B2-2. Decision 3's
+  answer opened questions Q8 to Q11, which the owner answered on 2026-11-11 (below).
+
+**Decision 1. The program runtime keeps a scalar `Buffer` for a storage array with no size (D-l).**
+
+- [fact] A11, "Q3, the program runtime": the program runtime's bindings take plain values each frame,
+  and slice 1 does not extend it to bind a `Buffer` (A11, meaning 3).
+- [fact] At `51f5bf8c`, the program runtime keeps a scalar `Buffer` for a binding of a storage array
+  with no size (`src/runtime/program.ts`). It is the only read-back path of a compute dispatch. Four
+  users need it: `journeys/mnist`, `journeys/_harness.mjs`, `journeys/limits` and
+  `scripts/compile-gate.ts`.
+- [fact] #1257's body at `51f5bf8c` says that a sized binding takes no `Buffer`. Finding S7 of the
+  review of #1257 shows that this is not so. At `b14f2373`, the program runtime binds a scalar
+  `Buffer` to any buffer binding: a uniform, a sized storage binding, and a storage array with no size
+  (`src/runtime/program.ts`; commit `d903a35c`). The reason: the journey harness reads sized compute
+  outputs back through a `Buffer`.
+- [decision, owner, 2026-11-11] The owner picked the recommended option in the question UI: an open
+  deviation, closed in milestone 5 when the read-back path is built. The record has no other words.
+  It is deviation D-l (below).
+- [decision, owner, 2026-11-11] The owner picked the recommended option in the question UI for S7: it
+  is part of D-l. It stays open and is closed in milestone 5.
+
+**Decision 2. The bundle budgets of slice 1.**
+
+- [fact] `scripts/bundle-budget.json` at `51f5bf8c` takes the measured gzip bytes. The growth over
+  `5711b9ac`:
+
+| Bundle                 | Before  | After   | Growth (gzip bytes) |
+| ---------------------- | ------- | ------- | ------------------- |
+| `typeshade/runtime`    | 167,177 | 168,413 | +1,236              |
+| `typeshade/fuse`       | 113,898 | 114,063 | +165                |
+| `typeshade/algorithms` | 64,878  | 68,217  | +3,339              |
+| `typeshade/random`     | 46,200  | 49,724  | +3,524              |
+
+- [decision, owner, 2026-11-11] The owner picked the recommended option in the question UI: the growth
+  is accepted. The record has no other words.
+- [fact] The bundle sizes are part of the configuration and validation record of each milestone.
+  Decision 4 adds code to slice 1, so the sizes move again before its merge. #1257 records the
+  sizes at its last head.
+
+**Decision 3. `array()` of a `number[]` makes a `Buffer` whose element its use decides (OD-7).**
+
+- [fact] A11 Q3, meaning 1: "`array(value)` takes an array." At `51f5bf8c`, #1257 reads "an array" as
+  a typed array for scalars. `array()` of a `number[]` is a `TypeError`. Its Rule 8.21 text refuses
+  "an array that is no typed array".
+- [decision, owner, 2026-11-11] The owner first picked the recommended option in the question UI:
+  `array(number[])` is accepted, and it makes a `Buffer<f32>`. The record has no other words. It
+  reads A11 Q3 literally: `array()` takes an array.
+- [fact] #1257 implements that first text in `268c4cd2` (head `b14f2373`).
+- [fact] The independent review of A12 (finding S2) found a conflict. OD-7 says: "An author writes a
+  number as a number. The compiler gives it the type its uses need." Decision 3 as first drafted fixes
+  `f32` whatever the use. Example: `scan(array([1, 2, 3]))` into an `array<u32>` parameter is refused,
+  while the same `number[]` passed as plain data takes `u32`.
+- [fact] The agent's recommendation of the first text did not check it against OD-7. The first text of
+  A12 checked OD-3 only.
+- [decision, owner, 2026-11-11] Asked which holds, the owner chose, in Korean:
+
+  "OD-7 적용: 첫 쓰임이 타입 결정"
+
+  (English translation: apply OD-7: the first use decides the type.)
+
+- What the decision means:
+  1. `array(xs)` of a `readonly number[]` gives a `Buffer` whose element type is not fixed when it is
+     made.
+  2. The call that takes it decides the element type. The first use fixes it.
+  3. Where nothing decides, the element type is `f32` (OD-7, its second bullet).
+  4. The first text, "makes a `Buffer<f32>`", is superseded. `268c4cd2` changes to follow OD-7 before
+     #1257's merge.
+- [inference, agent] A use that decides is a call that takes the `Buffer` where an array with no size
+  of scalars or vectors is taken (the scalar decides: `array<u32>` and `array<vec3<u32>>` give `u32`),
+  a number or vector parameter (A10 Q-C), a held length (`u32`), an indirect workgroup count (`u32`),
+  and a program runtime's vertex or index buffer (the attribute's scalar, or `u32` for indices).
+  [Added after the delta review, D1] Three more takers decide: a matrix parameter (`f32`, Q3), an
+  `array<matCxR>` parameter (`f32`, B2-1), and a program runtime's buffer binding that takes a scalar
+  `Buffer` (the binding's scalar, D-l). [inference, agent] The binding is an extension of D-l that the
+  owner's D3 answer does not name. Milestone 5 removes D-l, and with it this taker.
+- [inference, agent] At the use that fixes the type, each number is checked as a plain argument of that
+  type is checked (Rule 8.21): a number that does not fit (`1.5` or `-1` for a `u32`) is a `TypeError`
+  that names its index, and the call changes nothing.
+- [inference, agent] An array of plain objects stays a `TypeError` (A11 Q4). An element that is not a
+  number is a `TypeError` that names its index. `array([])` gives a `Buffer` of 0 elements whose
+  element is not fixed.
+- [inference, agent] Rule 12.7 needs the editor to agree. The type of `array` gains an overload for a
+  `readonly number[]`. What it returns is Q8.
+- The design points with more than one reasonable answer are Q8 to Q11 below. The owner answered
+  them on 2026-11-11 ("The owner's answers to Q8 to Q11", below). Each option is checked against
+  every entry of `docs/owner-decisions.md`. OD-1 (a
+  language of its own), OD-2 (stage attributes), OD-5 (parameter qualifiers), OD-6 (no release) and
+  OD-8 (library decorators) do not touch an element type. The column "OD check" names only OD-3,
+  OD-4 and OD-7. No option reverses an entry.
+
+**Q8. The editor's type of `array(number[])`.**
+
+| Option                                                         | What it is                                                                                                                                                                                                                                                                                                   | Costs                                                                                                                                                                                                               | OD check                                                                                                                                                          |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (a) `Buffer<number>`, an element not yet fixed (recommended)   | `array(xs: readonly number[])` returns `Buffer<number>`. Each parameter that takes a `Buffer<f32>`, `Buffer<i32>` or `Buffer<u32>` also takes a `Buffer<number>`. `read()` is typed `Float32Array \| Int32Array \| Uint32Array`. The type does not change after the first use: `tsc` cannot see a later use. | The read type is a union; the host narrows it. `number` is ECMAScript's name, not a new one. The host view's parameter types grow by one member.                                                                    | OD-7: agrees; the type is not fixed by the author. OD-3: no new name. OD-4: shown here.                                                                           |
+| (b) inferred where the call is an argument, else `Buffer<f32>` | `array<E extends f32 \| i32 \| u32 = f32>(xs: readonly number[]): Buffer<E>`. `scan(array([1, 2]))` infers `Buffer<u32>` from the parameter. `const xs = array([1, 2])` is `Buffer<f32>`.                                                                                                                    | The editor refuses `const xs = array([1, 2]); scan(xs)` into `array<u32>`, which the runtime accepts: the two halves disagree (Rule 12.7). The author can write `array<u32>([1, 2])`, a type the use already gives. | OD-7: in tension: for a variable, the author states a type the use decides. It does not reverse OD-7, since the runtime still follows the use. OD-3: no new name. |
+| (c) `Buffer<f32>` in the editor, the use decides at run time   | The type says `f32`. The host view lets a parameter of `i32` or `u32` take a `Buffer<f32>` made by `array(number[])`.                                                                                                                                                                                        | After a `u32` use, `read()` is typed `Float32Array` and gives a `Uint32Array`. The editor's type is false (Rule 12.7).                                                                                              | OD-7: the runtime agrees; the editor shows a default that OD-7 says the author does not learn.                                                                    |
+
+**Q9. What `read()` and `at(i)` give before a use fixes the type.**
+
+| Option                                                       | What it is                                                                                                                                                                                                          | Costs                                                                                                                                                                                | OD check                                                                                                              |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| (a) the `f32` values, with the type still open (recommended) | `read()` gives a `Float32Array` of the numbers rounded to `f32`, and `at(i).get()` one of them. Neither fixes the type: a read decides nothing. The runtime keeps the numbers as given until a call fixes the type. | The runtime holds the given numbers beside the `f32` view until the first use. A value read before a `u32` use and after it can differ (`1.5` reads `1.5`, then the use refuses it). | OD-7: agrees: where nothing decides, `f32`; a later use still decides. OD-3: no new form.                             |
+| (b) a read fixes `f32`                                       | `read()` and `at(i)` are a use where nothing decides. They fix `f32`.                                                                                                                                               | The order matters: a read before `scan(xs)` into `array<u32>` makes the call refuse (Q10). A debug read changes behaviour.                                                           | OD-7: agrees with its second bullet; a read decides `f32`. OD-3: no new form.                                         |
+| (c) refused until a use                                      | `read()` and `at(i)` throw a `TypeError` that says to pass the `Buffer` to a call first.                                                                                                                            | A `Buffer` that no call takes cannot be read.                                                                                                                                        | OD-7: in tension with its second bullet (nothing decides, yet no `f32`). It does not reverse OD-7: no type is chosen. |
+
+**Q10. A second use that needs another element type.**
+
+| Option                                                 | What it is                                                                                                                                                                   | Costs                                                                                                                     | OD check                                                                                                                                                |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (a) a `TypeError` at the call (recommended)            | `xs` fixed as `u32` by `scan(xs)`; then `blur(xs)` into `array<f32>` throws a `TypeError` that names the fixed type and the line of the first use. The call changes nothing. | The author makes two `Buffer`s, or passes a typed array to `array()` to state the type.                                   | OD-7: agrees with its third bullet's direction: a use that conflicts is refused, not converted in silence. OD-3: no new form.                           |
+| (b) convert at the call                                | The call converts the words to its element type, in a copy, and the `Buffer` keeps its type.                                                                                 | A silent conversion (`f32` to `u32` truncates). The second call does not see the first call's writes as the same numbers. | OD-7: in tension with its third bullet (a value is refused, not silently changed). It does not reverse it: the bullet is about `/` on an integer value. |
+| (c) the type stays open until the first call that runs | The type is fixed when the first call runs, not when it is made. A later recorded call of another type is refused when it runs.                                              | The refusal comes at the next `read()` or call (A5 default 7), not at the line that made it.                              | OD-7: agrees. OD-3: no new form.                                                                                                                        |
+
+**Q11. `set()`, `resize()` and `at(i).set()` before the type is fixed.**
+
+| Option                                                                | What it is                                                                                                                                                                                                     | Costs                                                                                             | OD check                                                        |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| (a) they keep the type open (recommended)                             | `set(data)` of numbers replaces the numbers. `resize(n)` keeps them and adds zeros. `at(i).set(x)` writes one number. None fixes the type. After the type is fixed, each checks against it, as today (A11 Q1). | The runtime keeps the given numbers until a use, as Q9 (a).                                       | OD-7: agrees: only a use decides. OD-3: no new form.            |
+| (b) they fix `f32`                                                    | A write is a use where nothing decides.                                                                                                                                                                        | `xs.set([1, 2]); scan(xs)` into `array<u32>` is refused. The order of a write and a call matters. | OD-7: agrees with its second bullet. OD-3: no new form.         |
+| (c) `set(data)` of a typed array fixes its type, numbers keep it open | `set(new Uint32Array(…))` fixes `u32`; `set([…])` keeps the type open.                                                                                                                                         | Two meanings of `set` by its argument.                                                            | OD-7: agrees: a typed array states the type. OD-3: no new form. |
+
+- Cost recorded under each option: OD-7 asks the runtime to keep a `Buffer` whose element is open. A
+  `Buffer<f32>`, `Buffer<i32>` or `Buffer<u32>` made from a typed array is fixed when it is made, as
+  today.
+
+**The owner's answers to Q8 to Q11.**
+
+- [decision, owner, 2026-11-11] The owner picked the recommended option (a) of each question in the
+  question UI. The chosen labels, in Korean, with English translations:
+  - Q8: "Buffer<number> (추천)" (English translation: `Buffer<number>`; recommended).
+  - Q9: "f32로 반올림한 값, 타입은 열린 채 (추천)" (English translation: the values rounded to `f32`,
+    with the type still open; recommended).
+  - Q10: "그 호출에서 TypeError (추천)" (English translation: a `TypeError` at that call;
+    recommended).
+  - Q11: "타입을 열어 둠 (추천)" (English translation: keep the type open; recommended).
+- What the answers mean:
+  1. Q8: `array(xs: readonly number[])` returns `Buffer<number>`. Each parameter that takes a
+     `Buffer<f32>`, `Buffer<i32>` or `Buffer<u32>` also takes a `Buffer<number>`. `read()` is typed
+     `Float32Array | Int32Array | Uint32Array`. The type does not change after the first use.
+  2. Q9: before a use fixes the type, `read()` gives a `Float32Array` of the numbers rounded to `f32`,
+     and `at(i).get()` one of them. Neither fixes the type. The runtime keeps the numbers as given
+     until a call fixes it.
+  3. Q10: a call that needs another element type than the fixed one throws a `TypeError` at that call.
+     It names the fixed type and the line of the first use, and changes nothing.
+  4. Q11: before the type is fixed, `set(data)` of numbers, `resize(n)` and `at(i).set(x)` keep it
+     open. After it is fixed, each checks against it (A11 Q1).
+- [fact] No answer reverses an entry of `docs/owner-decisions.md`. The OD check of each chosen option
+  is in its table above.
+
+**After the delta review: D2, D3 and D5.**
+
+- [fact] The delta review of A12 at `ee976421` asked three more points. The owner picked the
+  recommended option of each in the question UI on 2026-11-11.
+- D2. A refused first use.
+  - [decision, owner, 2026-11-11] The owner chose, in Korean:
+
+    "고정하지 않음 (추천)"
+
+    (English translation: it does not fix it; recommended.)
+
+  - What it means: a first use that the call refuses (for example `1.5` into a `u32`) does not fix the
+    element type. The element stays open. [inference, agent] A call that the check at the call
+    refuses is not recorded (R2), so it changes nothing.
+- D3. The places that are not parameters.
+  - [decision, owner, 2026-11-11] The owner chose, in Korean:
+
+    "받음, 그 자리가 타입을 고정 (추천)"
+
+    (English translation: accept it, and that place fixes the type; recommended.)
+
+  - What it means: a held length's `length`, an indirect workgroup count, and a geometry's vertices
+    and indices also take a `Buffer<number>`. That place fixes the type: `u32` for a held length, an
+    indirect count and indices, and for vertices the element type that the geometry needs.
+- D5. A `Buffer` that the pool hands out again.
+  - [decision, owner, 2026-11-11] The owner chose, in Korean:
+
+    "재사용하면 다시 열린 타입 (추천)"
+
+    (English translation: when reused, the type is open again; recommended.)
+
+  - What it means: a `Buffer` that `device.array()`'s pool hands out again starts with an open element
+    type, as a new one does.
+- [fact] Rule 12.7, the editor half of decision 3 (Q8 and D3). The host view and the runtime types
+  change so:
+  1. `array(xs: readonly number[]): Buffer<number>`, and the same overload of `device.array()`.
+  2. `Buffer<number>` joins each parameter type that takes a `Buffer<f32>`, `Buffer<i32>` or
+     `Buffer<u32>`: an array with no size of scalars or vectors, a number or vector parameter, a matrix
+     parameter and an `array<matCxR>` parameter.
+  3. `Buffer<number>` joins the type of a held length's `length`, of an indirect workgroup count, of a
+     geometry's vertices and indices, and of a program runtime's buffer binding (the last one an
+     [inference, agent] extension of D-l, above).
+  4. `read()` of a `Buffer<number>` is typed `Float32Array | Int32Array | Uint32Array`.
+  5. Slice 1 tests each place on both halves on the same source: the runtime value and the `tsc` type.
+
+**Decision 4. The result kinds that A11 left open are implemented in slice 1.**
+
+- [fact] At `51f5bf8c`, a call on a resource refuses, with a `TypeError` at the call, a result that no
+  `Buffer` holds: a `bool`, a key, a matrix, a `Record`, an array of structs, and a struct that holds
+  one (`resultPlan` in `src/core/host-kernel.ts`). The host view omits the overload of a call on a
+  resource for such a result (`bufferResult` in `src/compiler/ts/host-face.ts`). A11's open items
+  list a sized array of structs as a field (Q6).
+- [decision, owner, 2026-11-11] The owner decided, in Korean:
+
+  "지금 구현"
+
+  (English translation: implement now.)
+
+- What the decision means:
+  1. Slice 1 holds these results in `Buffer`s. It does not refuse them.
+  2. The kinds: a sized array of structs `array<S, N>` as a result or as a struct's field (A11's open
+     item); a `bool`, a matrix, a key and a `Record` result; and a struct that holds any of them.
+- [inference, agent] A matrix of `f64` has no host value (Rule 8.21). A call with plain data refuses
+  it too. Decision 4 does not reach it, and it stays refused.
+- [inference, agent] Two more kinds stay refused in slice 1, with the `TypeError` at the call of
+  `51f5bf8c`. Decision 4 does not name them:
+  1. `array<Record<K, T>, N>`. Under frame item 2 it would be a `Buffer<Record<K, T>>`, which is Q5
+     option (c). The owner did not choose (c).
+  2. `array<array<T, M>, N>`, a nested sized array.
+- [fact] At `b14f2373`, `resultPlan` (`src/core/host-kernel.ts`) refuses both, and `array<K, N>` too.
+- [inference, agent] `array<K, N>`, `array<bool, N>` and `array<matCxR, N>` follow from frame item 2.
+  Slice 1 implements them, so they are no longer refused after slice 1.
+
+**Decision 4: the facts that the design rests on (`51f5bf8c`).**
+
+1. [fact] A kernel's result is computed on the host. The CPU tier's tail function gives it from the
+   array lengths and what the device folded, and `fromShader` makes it a host value
+   (`src/core/host-kernel.ts`). `makeResults` then writes that value into each result `Buffer`. So
+   the words of a result `Buffer` are made on the host. They reach a device only when another call
+   takes the `Buffer`.
+2. [fact] A result `Buffer` today is a `Buffer` of scalars: a typed array of its own and a count of
+   components for each element, with no range of the region (`ResidentArrayState` in
+   `src/core/resident.ts`). A `Buffer` of structs is a range of the region, laid out by the layouts
+   that the generated module puts on the class (`src/runtime/resource.ts`).
+3. [fact] The storage layouts (`layoutOf` in `src/core/manifest.ts`): a `bool` and a `vecN<bool>` are
+   "not host-shareable"; a matrix of `f32` has a layout with a column stride of 8 bytes for two rows
+   and 16 bytes for three or four rows; a key is a `u32` in the shader; a `Record` is a sized array
+   of its values in id order.
+4. [fact] Rule 8.21, for a plain value: a `bool` is a `boolean`, a matrix a flat column-major array
+   of its components, a key one of its members as a string, and a `Record` an object with one
+   property for each member. In a binding and in an array with no size, a key is its id, and a
+   `Record` the array of its values in id order.
+5. [fact] The type `Buffer<T>` (`src/runtime/resource.ts`): `read()` gives the typed array of the
+   scalar for a number or a tuple of numbers, and `T[]` for any other `T`. A matrix of the host type
+   family is a tuple of numbers, so `Buffer<mat4x4>` already reads a `Float32Array`. `at(i)` gives
+   the accessor of a struct for any `T` that is not a number or a tuple of numbers. That is wrong for
+   a `bool` and for a key.
+6. [fact] A number or vector parameter takes a `Buffer` of one element (A10 Q-C). No other parameter
+   takes one (`placeholderOf` in `src/core/host-kernel.ts`).
+
+**Decision 4: the frame of the design.**
+
+- [proposal, agent] Each kind follows the decided rules. Only what differs is asked below.
+  1. One `Buffer`, and no new name (A10 Q-I and Q-C).
+  2. A value gives a `Buffer` of one element. An `array<T, N>` gives a `Buffer` of `N` elements.
+  3. A struct gives an object of `Buffer`s with the struct's own field path (R1; A11 Q6). A nested
+     struct is an object of its own.
+  4. A result `Buffer` of one element is another call's argument where the parameter takes its element
+     (A10 Q-C). A result `Buffer` of `N` elements is an argument of an array with no size of its
+     element: `array<S>` (Q6), `array<K>` and `array<matCxR>` (B2-2, below). No `array<bool>`
+     parameter exists, since a `bool` has no storage layout (fact 3).
+  5. A struct that holds a new kind follows item 3. Its field gives what this design gives for the
+     kind.
+- [proposal, agent] The table gives the recommended option of each question. [decision, owner,
+  2026-11-11] The owner chose each of them (below).
+
+| Kind                    | `Buffer` (recommended)                    | `read()` gives                                                 | `at(i).get()` gives           | As another call's argument                                                              | Question |
+| ----------------------- | ----------------------------------------- | -------------------------------------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------- | -------- |
+| `bool`, `vecN<bool>`    | `Buffer<bool>`, `Buffer<vec3b>`           | a `boolean[]`, the components one after another                | a `boolean`, or a `boolean[]` | a `bool` or `vecN<bool>` parameter takes one element; no `array<bool>` parameter exists | Q1       |
+| `matCxR` (`f32`)        | `Buffer<mat4x4>`                          | a `Float32Array`, the components column-major, with no padding | a `Float32Array`              | a matrix parameter takes one element; `array<matCxR>` takes `N`; the call pads it       | Q2, Q3   |
+| key `K`                 | `Buffer<K>`                               | a `K[]`, the member strings                                    | a member string               | a parameter of `K` takes one element; `array<K>` takes `N`, the id words as they are    | Q4       |
+| `Record<K, T>`          | an object of `Buffer<T>`, one per member  | each member's `read()`, as `T` gives                           | as `T` gives                  | each member's `Buffer` where `T` is taken                                               | Q5       |
+| `array<S, N>`           | one `Buffer<S>` of `N` elements           | an `S[]`: instances of an exported class, or plain objects     | the struct accessor           | an `array<S>` parameter takes it                                                        | Q6, Q7   |
+| a struct that holds one | an object of `Buffer`s by field path (R1) | each leaf's `read()`                                           | each leaf's                   | each leaf where its element is taken                                                    | none     |
+
+**Q1. How a `bool` result is held.**
+
+| Option                                              | What it is                                                                                                                                                                       | Costs                                                                                                                                                                                                  |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| (a) `Buffer<bool>`, reads `boolean[]` (recommended) | One `u32` word for each component, 0 or 1. `read()` gives a `boolean[]`. `at(i).get()` gives a `boolean`, and `set` takes one. The type says `Buffer<bool>`, as the shader does. | `read()` gives an array, not a typed array: a second read kind beside A11 Q2. The types `BufferRead`, `BufferElement` and `BufferData` gain a `bool` branch. `placeholderOf` takes a `bool` parameter. |
+| (b) `Buffer<bool>`, reads `Uint32Array`             | The same words. `read()` gives a `Uint32Array` of 0 and 1, as A11 Q2 gives a typed array.                                                                                        | `const [b] = await r.read()` gives 0 or 1, not a `boolean`. `b === true` is false. The type says `bool`, and the value is a number.                                                                    |
+| (c) `Buffer<u32>`                                   | The result is typed and held as a `u32`.                                                                                                                                         | The host view says `u32` for a `bool` result. The type no longer follows the shader (Rule 12.7; `docs/dx.md`, principle 2). A `bool` parameter would take a `Buffer<u32>`.                             |
+
+- [inference, agent] Under each option, `array()` makes no `Buffer<bool>`, since no typed array holds
+  booleans. Only a result makes one.
+
+**Q2. What `read()` of a matrix result gives.**
+
+| Option                                | What it is                                                                                                                                                                                                                   | Costs                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (a) packed column-major (recommended) | `read()` gives a `Float32Array` of the `C * R` components of each matrix, column-major, with no padding, one matrix after another. `length` counts matrices. The call pads each column to the column stride when it uploads. | One copy at each upload of a matrix with three rows (12 floats become 16 for `mat4x3`, 9 become 12 for `mat3x3`). It agrees with Rule 8.21's plain value and with A11 Q5 for a vector. [Added after the review, S4] Two matrix shapes in one API: `get()` of a matrix field of a struct `Buffer` gives the padded columns. |
+| (b) the device words, padded          | `read()` gives the words as WGSL's storage layout holds them: each column at its stride.                                                                                                                                     | A `mat3x3` reads 12 numbers, where a call with plain data gives 9. Two shapes of one type in host code. It agrees with `get()` of a matrix field of a struct `Buffer`, whose view holds each column at its stride (`src/runtime/resource.ts`).                                                                             |
+
+**Q3. Whether a matrix parameter also takes a `Buffer<f32>`.**
+
+| Option                    | What it is                                                                                                                                     | Costs                                                                                                                  |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| (a) both (recommended)    | A matrix parameter takes a `Buffer<matCxR>` of one element and a `Buffer<f32>` of `C * R` elements, column-major, as A11 Q5 does for a vector. | `placeholderOf` and the host view's parameter type grow by one case. A host can make a matrix argument with `array()`. |
+| (b) only `Buffer<matCxR>` | A matrix parameter takes only a matrix result.                                                                                                 | A host has no way to make a matrix `Buffer` except as a result. It differs from A11 Q5's rule for vectors.             |
+
+**Q4. How a key result is held.**
+
+| Option                                       | What it is                                                                                                                                                                                                         | Costs                                                                                                                                                                                                                                                                                                                                                                |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (a) `Buffer<K>`, reads members (recommended) | One `u32` id for each element. `read()` gives a `K[]` of the member strings, as a call with plain data gives a member (Rule 8.21). `at(i).get()` gives the member, and `set` takes one and refuses another string. | `read()` gives an array, not a typed array (as Q1 (a)). The runtime maps each id to its member at `read()`. The result needs the member list, which the face has (`HostType` `key`). [Added after the review, S6] Two host spellings of one key array: `read()` and `set()` use member strings, while a plain `array<K>` argument and a binding use ids (Rule 8.21). |
+| (b) `Buffer<K>`, reads ids                   | The same words. `read()` gives a `Uint32Array` of ids, as a binding and an array with no size hold a key (Rule 8.21).                                                                                              | The host maps ids to members itself and must know the id order. The type says `K`, and the value is a number.                                                                                                                                                                                                                                                        |
+| (c) `Buffer<u32>`                            | The result is typed and held as a `u32` id.                                                                                                                                                                        | As Q1 (c): the host view no longer follows the shader. A parameter of `K` cannot tell an id from any `u32`.                                                                                                                                                                                                                                                          |
+
+**Q5. How a `Record` result is held.**
+
+| Option                                                   | What it is                                                                                                                                                                                                    | Costs                                                                                                                                                                         |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (a) an object of `Buffer`s, one per member (recommended) | `{ readonly red: Buffer<f32>; readonly green: Buffer<f32> }`: a `Record` is treated as a struct with one field for each member, as R1 and A11 Q6 treat a struct. It has the shape of Rule 8.21's plain value. | One `Buffer` and one read back for each member. A whole `Record` is not an argument of a `Record` parameter, as a whole struct result is not one of a struct parameter today. |
+| (b) one `Buffer<T>` in id order                          | A `Buffer<T>` of as many elements as members, in id order, as a binding holds a `Record` (Rule 8.21). `read()` gives `T`'s typed array.                                                                       | The type loses the member names. The host must know the id order. It is an argument of an `array<T>` parameter.                                                               |
+| (c) a `Buffer<Record<K, T>>` of one element              | `read()` gives `[{ red: …, green: … }]`.                                                                                                                                                                      | A new kind of element: a `Buffer` of objects that is not a class's. `at(i)` needs an accessor of its own.                                                                     |
+
+**Q6. How an `array<S, N>` of structs is held, as a result or as a field.**
+
+| Option                                                               | What it is                                                                                                                                                                                                                                                                                             | Costs                                                                                                                                                                                                                                                                                                     |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (a) one `Buffer<S>` of `N` elements (recommended)                    | A `Buffer` of structs, laid out as a storage array of `S`. `read()` gives an `S[]`: instances of the class where the module exports `S` as a class that is not abstract, and plain objects otherwise (Rule 8.21; R9). `at(i)` gives the struct accessor. It is an argument of an `array<S>` parameter. | A larger implementation. Today a struct `Buffer` comes from a class's layout. For an `interface` `S`, the face must carry `S`'s layout for the result. [inference, agent] A11 Q4 limits what the host makes with `array()`, not what a call returns. A `Buffer<S>` of another class is refused, as today. |
+| (b) an object of `Buffer`s, one per leaf field, each of `N` elements | `r.parts.pos` is a `Buffer<vec3>` of `N` elements. It continues A11 Q6's recursion with today's `Buffer`s of scalars.                                                                                                                                                                                  | A small implementation. The shape changes: an array of objects becomes an object of arrays. It is not an argument of an `array<S>` parameter. One read back for each leaf.                                                                                                                                |
+| (c) an array of `N` objects of `Buffer`s                             | `r.parts[i].pos` is a `Buffer<vec3>` of one element.                                                                                                                                                                                                                                                   | `N` times as many `Buffer`s and read backs. It is not an argument of an `array<S>` parameter.                                                                                                                                                                                                             |
+
+**Q7. Only under Q6 (a): an `array<S, N>` whose `S` holds a `bool`.**
+
+- [fact] A `bool` has no storage layout (`layoutOf`, fact 3). So `S` has no layout as a storage array,
+  and no `array<S>` parameter has a host face.
+
+| Option                                                           | What it is                                                                                                    | Costs                                                                                    |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| (a) a host-only layout, a `bool` as one `u32` word (recommended) | The result `Buffer<S>` lays out each `bool` as Q1 holds it. `read()` and `at(i)` work. No parameter takes it. | A layout that no shader shares. The runtime, not the compiler, decides it for this case. |
+| (b) Q6 (b) for such an `S` only                                  | That `S` gives an object of `Buffer`s, one per leaf.                                                          | Two shapes for `array<S, N>`, chosen by the fields of `S`.                               |
+| (c) refuse at the call                                           | A `TypeError` with no `TS` code, as today.                                                                    | It narrows decision 4. The owner decides it.                                             |
+
+**The owner's answers to Q1 to Q7.**
+
+- [decision, owner, 2026-11-11] The owner picked the recommended option (a) of each question in the
+  question UI. The record has no other words.
+- What the answers mean:
+  1. Q1: a `bool` result is a `Buffer<bool>`, one `u32` word (0 or 1) for each component. `read()`
+     gives a `boolean[]`. A `vecN<bool>` result is a `Buffer` of `vecN<bool>`, read the same way.
+  2. Q2: `read()` of a matrix result gives a `Float32Array` of the components, column-major, with no
+     padding, one matrix after another. `length` counts matrices. The call pads each column to the
+     column stride when it uploads.
+  3. Q3: a matrix parameter takes a `Buffer<matCxR>` of one element and a `Buffer<f32>` of `C * R`
+     elements, column-major, as option (a) says.
+  4. Q4: a key result is a `Buffer<K>` that holds one `u32` id for each element. `read()` gives a
+     `K[]` of the member strings.
+  5. Q5: a `Record` result is an object of `Buffer`s, one for each member.
+  6. Q6: an `array<S, N>` of structs, as a result or as a field, is one `Buffer<S>` of `N` elements.
+     `read()` gives an `S[]`. It is an argument of an `array<S>` parameter.
+  7. Q7: for an `array<S, N>` whose `S` holds a `bool`, the result `Buffer<S>` has a host-only
+     layout, each `bool` one `u32` word. No parameter takes it.
+- [inference, agent] Q7's layout is the std430 layout of `S` with each `bool` as a `u32` and each
+  `vecN<bool>` as a `vecN<u32>`. It follows from "a `bool` as one `u32` word".
+- [inference, agent] Q-F (A10) gives a returned array "its argument's length and class". It does not
+  apply to an `array<S, N>` result, whose `N` and `S` come from the type.
+- [fact] The review (B2-1) found that A12's first answer text extended Q3 to an array of matrices,
+  which no question asked. Asked, the owner chose, in Korean:
+
+  "받음 (추천)"
+
+  (English translation: accept it; recommended.)
+
+- What it means: an `array<matCxR>` parameter takes a `Buffer<f32>` whose length is a multiple of
+  `C * R`, column-major, padded at the call, and a `Buffer<matCxR>`. A single matrix parameter keeps
+  Q3 item 3: exactly `C * R`.
+- [fact] The review (B2-2) found that frame item 4 let an `array<T>` parameter take a result `Buffer`
+  of `N` for a key and a matrix, which no question asked. Asked, the owner chose, in Korean:
+
+  "둘 다 받음 (추천)"
+
+  (English translation: accept both; recommended.)
+
+- What it means:
+  1. A `Buffer<K>` of `N` elements from an `array<K, N>` result is an argument of an `array<K>`
+     parameter. The call passes the id words as they are.
+  2. A `Buffer<matCxR>` of `N` elements is an argument of an `array<matCxR>` parameter. The call pads
+     each column to the column stride.
+  3. [fact] No `array<bool>` parameter exists (fact 3).
+- [fact] Rule 12.7 (CLAUDE.md, "A test reads both halves"): slice 1 tests each kind on both halves on
+  the same source: the runtime value, and the `tsc` type of the host view. The types that change:
+  `BufferRead`, `BufferElement` and `BufferData` for a `bool`, a `vecN<bool>` (flat `boolean[]`, where
+  the host type family's `vec3b` is a tuple today) and a key `K`; the parameter types
+  `bool | Buffer<bool>`, `matCxR | Buffer<matCxR> | Buffer<f32>` and `K | Buffer<K>`; and the overload
+  that `bufferResult` (`src/compiler/ts/host-face.ts`) gives for each kind. A refusal with a `TS`
+  code is tested on both halves too.
+- [fact] Each answer is part of slice 1's scope (decision 4). #1257 states each in its rule and
+  surface text.
+
+**Author examples, before and after.**
+
+1. Decision 3.
+
+   ```ts
+   // shade: export function scan(xs: array<u32>): u32 { … }
+   const xs = array([1, 2, 3]); // Before (#1257 at 51f5bf8c): TypeError
+   // After: a Buffer of 3 whose element is not fixed yet
+   const total = scan(xs); // the first use fixes u32 (OD-7)
+   const ys = array([0.5, 2]); // no call takes ys: its element is f32
+   ```
+
+2. Decision 4, with the owner's answers to Q1 to Q7.
+
+   ```ts
+   // shade: export function test(ps: array<Particle>): bool { … }
+   //        export function pose(ps: array<Particle>): mat4x4<f32> { … }
+   //        export function top(ps: array<Particle>): array<Particle, 4> { … }
+   //        export function aim(@inout ps: array<Particle>, m: mat4x4<f32>): void { … }
+   //        export function step(@inout ps: array<Particle>, dt: f32): void { … }
+   const b = test(ps); // Before: TypeError at the call. After: Buffer<bool> of 1 (Q1)
+   const [ok] = await b.read(); // a boolean
+   const m = pose(ps); // Buffer<mat4x4> of 1 (Q2)
+   aim(ps, m); // the result is an argument of a matrix parameter
+   const best = top(ps); // Buffer<Particle> of 4 (Q6)
+   step(best, 1 / 60); // an argument of an array<Particle> parameter
+   ```
+
+**The deviations of slice 1.**
+
+Each is a difference between the accepted text (with A10 and A11) and #1257 at `51f5bf8c`, as
+#1257's body records it, and D-l as `b14f2373` delivers it. D-o is a difference in the process of
+this amendment.
+
+| ID  | Deviation                                                                                                                                                                                                                                                                                                                                                                   | Disposition                                                                                                                                                                                                                                                            | Next action                                                                                                                                                                                                                                                                                           |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-l | A11, "Q3, the program runtime": the program runtime's bindings take plain values each frame. At `b14f2373`, the program runtime binds a scalar `Buffer` to any buffer binding: a uniform, a sized storage binding, and a storage array with no size. It is the only read-back path of a compute dispatch (decision 1; finding S7 of the review of #1257).                   | open (new; the owner's disposition, decision 1)                                                                                                                                                                                                                        | Milestone 5 builds the read-back path and closes it.                                                                                                                                                                                                                                                  |
+| D-m | A10 Q-C, meaning 2: a scalar result of a call on a resource is a `Buffer` of length 1. Inside today's `fuse()`, which A10 keeps until slice 5, a value-returning call still returns a promise of its value. The host view types it as a `Buffer`. `examples/hosts/loop-fuse/host.ts` casts `total(u)`, and `journeys/_host-import/src/gpu.ts` casts `dsum` and `pushAbove`. | open (new)                                                                                                                                                                                                                                                             | Slice 5 switches `fuse` and removes the difference and the casts.                                                                                                                                                                                                                                     |
+| D-n | Change 0129 (`implemented`) keeps a successful write-only recovery. At `51f5bf8c`, a failed `Buffer` is refused at the next call that takes it (A7, Decision (b)). So a write-only call recovers it only when the call was queued before the failure was known. Inside today's `fuse()`, a plan's earlier write-only call still supplies it (0129).                         | closed: made part of the approved text by this amendment, as a consequence of A7, Decision (b)                                                                                                                                                                         | #1257 qualifies the sentence of Rule 11.8 ("proven write-only destinations can recover") and those of surface §65, §67 and §71 on write-only recovery: outside today's `fuse()`, a write-only call recovers a failed `Buffer` only when it was queued before the failure was known. Before its merge. |
+| D-o | `changes/README.md`, Independent review: "A proposal whose record has no independent review is not ready for the owner's decision." The owner answered Q1 to Q7 and D-n before an independent review read A12. The owner also answered Q8 to Q11, and D2, D3 and D5, before a review read their text.                                                                       | closed: the review at `0ec970d3` read Q1 to Q7; the delta review at `ee976421` read Q8 to Q11; the review at `ed389599` read the answers to D2, D3 and D5 and approved (findings F1 to F3 fixed in this revision). Each review's findings are answered in this record. | None.                                                                                                                                                                                                                                                                                                 |
+
+- [decision, owner, 2026-11-11] D-n: the owner picked the recommended option in the question UI: made
+  part of the approved text, as a consequence of A7, Decision (b). The record has no other words.
+- [fact] D-a to D-k stay as A10 and A11 record them. #1257's body says that it closes D-i and D-g.
+  Their closure is recorded when #1257 merges.
+
+**Open items of slice 1.**
+
+| Item                                                                                                                                                                                                                                                                                               | Source         | Next action                                                                        |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------- |
+| The check `TypeNN candidate (build + CPU)` fails on #1257. TypeNN imports the `Resident` type, which slice 1 removes. The check is not required. [inference, agent] A10 Q-G foresees this: `downstream.yml` can turn red at slices 1 and 2.                                                        | #1257; A10 Q-G | TypeNN migrates when its pin moves (`downstream`). No pull request is assigned.    |
+| A11's open items on the padding of a kernel's array of vectors, `read()` of a `Buffer<f64>`, the editor's type of Q7's mixed call, and the region range of a scalar `Buffer`. #1257 states each at `51f5bf8c`: the call pads; a `Float64Array`; a third overload that returns a promise; no range. | A11; #1257     | The owner reads them with #1257's example before and after, before its merge.      |
+| What a matrix field of a `Buffer<S>` (Q6) gives in `at(i)` and in `read()`. Today `get()` of a matrix field of a struct `Buffer` gives the padded columns (`src/runtime/resource.ts`).                                                                                                             | Review S4      | #1257 states it and shows it to the owner with its example before and after.       |
+| The kinds that stay refused in slice 1: `array<Record<K, T>, N>`, `array<array<T, M>, N>` and a matrix of `f64` ([inference, agent], decision 4).                                                                                                                                                  | Review S5      | The owner reads the list with #1257's example before and after, before its merge.  |
+| Which uses decide the element type of a `Buffer` from `array(number[])` (decision 3, [inference, agent]), under the answers to Q8 to Q11.                                                                                                                                                          | Decision 3     | #1257 states the list and shows it to the owner with its example before and after. |
+| A11's open item on a sized array of structs as a field.                                                                                                                                                                                                                                            | A11 Q6         | Closed by decision 4 and the owner's answer to Q6.                                 |
+| A11's open item on the result's class under A10 Q-F for a `Buffer<f32>` passed as `array<vec3<f32>>`.                                                                                                                                                                                              | A11; A10 Q-F   | Unchanged: ask the owner before slice 3.                                           |
+
+**The slices of milestone 4, status.**
+
+- [fact] This statement updates A11's status table. A11's text stays as it is.
+
+| Slice  | Status                                                                                                                                                                                                                                                                                                                                                           |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0      | done: #1251, merged as `937147b8`.                                                                                                                                                                                                                                                                                                                               |
+| 1      | in progress: #1257 (draft), head `b14f2373`. Decisions 1 and 2 are in it (D-l stated in `d903a35c`). Decision 3 as first drafted, a `Buffer<f32>`, is `268c4cd2`; it changes to follow OD-7 and the answers to Q8 to Q11 after this amendment merges. Decision 4, with the answers to Q1 to Q7, B2-1 and B2-2, is implemented in it after this amendment merges. |
+| 2 to 6 | not started.                                                                                                                                                                                                                                                                                                                                                     |
+
+**Open, owner must settle.**
+
+- [fact] Nothing for A12's own decisions. The owner answered Q8 to Q11 and D2, D3 and D5 on
+  2026-11-11. The open items above that wait on the owner are read with #1257's example before and
+  after.
+- [fact] Decision 3 as first drafted conflicted with OD-7. The owner resolved it on 2026-11-11 ("OD-7
+  적용: 첫 쓰임이 타입 결정").
+- [inference, agent] No other decision of this amendment conflicts with an entry of
+  `docs/owner-decisions.md` (OD-1 to OD-8). Each option of Q8 to Q11 is checked against them above.
+
+**Independent review record of A12.**
+
+- [fact] Reviewer: an AI agent (Claude Code) that did not write A12, on 2026-11-11. Revision reviewed:
+  `0ec970d3`. It found 2 blocking findings, 8 should-fix findings and 5 notes. Verdict: request
+  changes.
+
+| Finding                                                                   | Answer                                                                                                                                                                                           |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| B1. Two false facts on sized bindings; the status row against decision 3. | Fixed: decision 1 cites #1257's body and S7; D-l names any buffer binding; the status row names `b14f2373`, `268c4cd2` and `d903a35c`.                                                           |
+| B2-1. Q3 extended to an array of matrices.                                | The owner answered: "받음 (추천)". Q3 item 3 repeats option (a); the array case is recorded as the owner's answer.                                                                               |
+| B2-2. Array parameters of key and matrix result `Buffer`s.                | The owner answered: "둘 다 받음 (추천)". Frame item 4 and the table say so; no `array<bool>` parameter exists.                                                                                   |
+| B2-3. An unapproved proposal in decision 3.                               | Fixed: relabelled [inference, agent] as what the decision needs.                                                                                                                                 |
+| B2-4. Q7's layout is not stated.                                          | Fixed: [inference, agent] std430 of `S`, a `bool` as a `u32` and a `vecN<bool>` as a `vecN<u32>`.                                                                                                |
+| S1. The owner's words are not recorded.                                   | Fixed: each decision says that the owner picked the recommended option in the question UI, with no other words, or quotes the words. D-n has a `[decision, owner]` bullet.                       |
+| S2. OD-7 is not checked.                                                  | The owner answered: "OD-7 적용: 첫 쓰임이 타입 결정". Decision 3 is revised; the conflict and the missed check are recorded; Q8 to Q11 ask the design, each option checked against OD-1 to OD-8. |
+| S3. D-n is closed, but the rule text says the opposite.                   | Fixed: D-n's next action names Rule 11.8 and surface §65, §67 and §71. The source is spelled "A7, Decision (b)".                                                                                 |
+| S4. Q2 (a)'s cost.                                                        | Fixed: added to option (a); the matrix field of a `Buffer<S>` is an open item.                                                                                                                   |
+| S5. Kinds that stay refused.                                              | Fixed: listed under decision 4 and in the open items.                                                                                                                                            |
+| S6. Two host spellings of a key array.                                    | Fixed: added to Q4 (a)'s costs.                                                                                                                                                                  |
+| S7. "Nothing" against the open items.                                     | Fixed: "Open, owner must settle" names Q8 to Q11 and points to the open items.                                                                                                                   |
+| S8. The editor half of each kind.                                         | Fixed: a Rule 12.7 statement under the owner's answers names the types and the overloads.                                                                                                        |
+| N1. A long line.                                                          | Fixed: wrapped.                                                                                                                                                                                  |
+| N2. The review record and the process deviation.                          | Fixed: this record, and D-o.                                                                                                                                                                     |
+| N3. `array([])`.                                                          | Fixed: a `Buffer` of 0 elements whose element is not fixed.                                                                                                                                      |
+| N4. Q-F and `array<S, N>`.                                                | Fixed: Q-F does not apply; `N` and `S` come from the type.                                                                                                                                       |
+| N5. `step` is not declared.                                               | Fixed: declared in Example 2.                                                                                                                                                                    |
+
+- [fact] A delta review read A12 at `ee976421` on 2026-11-11, by the same reviewer. Verdict: approve
+  with should-fix. It found no blocking finding, 5 should-fix findings and 3 notes.
+
+| Finding                                                 | Answer                                                                                                    |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| D1. Three takers missing from the uses that decide.     | Fixed: a matrix parameter, an `array<matCxR>` parameter and a program runtime's buffer binding are added. |
+| D2. A refused first use.                                | The owner answered: "고정하지 않음 (추천)".                                                               |
+| D3. Rule 12.7 does not cover Q8; places not parameters. | The owner answered: "받음, 그 자리가 타입을 고정 (추천)". The editor types of Q8 and D3 are stated.       |
+| D4. D-o is closed while the deviation happened again.   | Fixed: D-o names Q8 to Q11 and D2, D3 and D5, and its disposition names the reviews.                      |
+| D5. `device.array()` and the pool.                      | The owner answered: "재사용하면 다시 열린 타입 (추천)".                                                   |
+| E1. A fact that slice 1 makes true.                     | Fixed: "no longer refused after slice 1", labelled [inference, agent].                                    |
+| E2. Affects.                                            | Fixed: A10 Q-I meaning 1 and A11 Q1 and Q2 are added.                                                     |
+| E3. Long lines.                                         | Fixed: wrapped.                                                                                           |
+
+- [fact] No review has read the revision that answers the delta review.
+
+- Affects: A11 Q3 (decision 1, D-l; decision 3, the reading of "takes an array", and OD-7); A11's
+  open items (the sized array of structs, by decision 4); A10 Q-C meanings 2 and 3 (decision 4
+  extends them to new kinds; D-m); A11 Q5 (B2-1 extends its rule to an array of matrices); change
+  0129's write-only recovery and Rule 11.8 (D-n, closed); the bundle sizes of the configuration and
+  validation record (decision 2); A10 Q-I meaning 1 and A11 Q1 and Q2 (`Buffer<number>`: an element
+  kind, a union read type and `set` on an open element); A11's slice status table.
+- Status: `status: accepted` does not change.
+
 ## What it owes downstream
 
 - **typeshade.github.io** (`typeshade/web`, `apps/typeshade`). Every host page and Playground

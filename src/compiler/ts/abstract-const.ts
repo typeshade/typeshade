@@ -35,11 +35,12 @@
 import ts from 'typescript';
 import type { Expr } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
-import { f32T } from '../../core/ir/types.js';
+import { f32T, f64T, i32T, u32T } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic, noteUse } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
 import { sameFile, writtenRange, writtenText } from './context.js';
+import type { AbstractConstDecl, AbstractConstRead } from './symbols.js';
 
 /** One read of a constant that an integer position typed. */
 interface IntegerRead {
@@ -92,12 +93,25 @@ const readByExpr = new WeakMap<Expr, AbstractConst>();
 interface NodeMarks {
   readonly read: Map<ts.Node, AbstractConst>;
   readonly carried: Map<ts.Node, Carried>;
+  /** Each lowering of a read, with the type the read took there (`readTypeAt`). */
+  readonly lowerings: Map<ts.Node, ReadLowering[]>;
+  /** Each constant of no fixed type this compile declared, by its declared name. */
+  readonly decls: Map<ts.Node, AbstractConst>;
+}
+/** One lowering of a read of a constant of no fixed type: the type it took, or `null` for a read
+ *  inside the initializer of another such constant, which takes no type of its own there. */
+interface ReadLowering {
+  type: ShaderType | null;
 }
 const nodeMarks = new WeakMap<ts.SourceFile, NodeMarks>();
 function marksOf(node: ts.Node): NodeMarks {
   const sf = node.getSourceFile();
   let marks = nodeMarks.get(sf);
-  if (marks === undefined) nodeMarks.set(sf, (marks = { read: new Map(), carried: new Map() }));
+  if (marks === undefined)
+    nodeMarks.set(
+      sf,
+      (marks = { read: new Map(), carried: new Map(), lowerings: new Map(), decls: new Map() }),
+    );
   return marks;
 }
 const readByNode = {
@@ -198,7 +212,7 @@ export function abstractConstFor(
   // finite here.
   const tree = abstractTreeOf(initializer);
   if (tree === undefined) return undefined;
-  return {
+  const info: AbstractConst = {
     name,
     value: tree.value,
     integerWritten: tree.integerWritten,
@@ -208,6 +222,12 @@ export function abstractConstFor(
     sources: tree.reads,
     integerReads: [],
   };
+  // The editor's hover names the declaration in the language's words, and a read inside the
+  // initializer takes no type of its own: it is part of this constant's value (change 0134
+  // item 4, decision Q3).
+  marksOf(nameNode).decls.set(nameNode, info);
+  for (const leaf of readLeaves(initializer)) settleRead(leaf, null);
+  return info;
 }
 
 const projectedAnnotations = new WeakMap<ts.SourceFile, ReadonlySet<number>>();
@@ -319,8 +339,156 @@ export function markAbstractRead<E extends Expr>(
   if (info !== undefined) {
     readByExpr.set(expr, info);
     readByNode.set(node, info);
+    lowerRead(node, expr.type);
   }
   return expr;
+}
+
+// ─── the type each read took, for the editor's hover (change 0134 item 4) ────────────────────
+//
+// A read lowers as the constant's emitted `f32` declaration, and a retarget then gives it the
+// type the written number takes in its place: an integer (`noteIntegerRead`), or an `f64`
+// (`noteF64Read`). Each lowering of a read is kept with its type, and the hover shows a read's
+// type where every lowering of it agrees: a generic function's body, lowered once per instance,
+// or a counter's start lowered again (`withReadTypes`), can give one read two types, and the
+// hover then names the declaration in the language's words.
+
+/** Set while a lowering only looks ahead (`peekingReads`). */
+let peeking = 0;
+
+/** Runs `lower`, a lowering that only looks ahead at a type and whose result the program does
+ *  not keep (a loop's bound read before its counter is typed, a receiver read before its
+ *  member), with no lowering of a read recorded for the hover: the lowering the program keeps
+ *  records it. */
+export function peekingReads<T>(lower: () => T): T {
+  peeking++;
+  try {
+    return lower();
+  } finally {
+    peeking--;
+  }
+}
+
+/** Runs `lower`, a lowering the program keeps even where a lookahead reached it (a function's
+ *  body, a generic instance cached at its first call), with its reads recorded. */
+export function unpeekedReads<T>(lower: () => T): T {
+  const outer = peeking;
+  peeking = 0;
+  try {
+    return lower();
+  } finally {
+    peeking = outer;
+  }
+}
+
+/** Records that the reads in `node` were folded to a value of `type` where they stand (a loop's
+ *  step folded to its counter's type, a `switch` label to its selector's), as the written number
+ *  would be. Only the hover reads it: the fold is no integer read for the division rule. A
+ *  float-written constant folded to an integer is read as the written number (`j += C` with
+ *  `const C = 2.0`), which no one type names, as in `noteCastRead`. */
+export function noteFoldedRead(node: ts.Expression, type: ShaderType): void {
+  const tree = abstractTreeOf(node);
+  if (tree === undefined) return;
+  const integer = type.kind === 'scalar' && (type.scalar === 'i32' || type.scalar === 'u32');
+  const read = integer && !tree.integerWritten ? null : type;
+  for (const leaf of readLeaves(node)) settleRead(leaf, read);
+}
+
+/** Starts one lowering of the read `node`, at the type `type` it lowered to. */
+function lowerRead(node: ts.Node, type: ShaderType): void {
+  if (peeking > 0) return;
+  const { lowerings } = marksOf(node);
+  const seen = lowerings.get(node);
+  if (seen === undefined) lowerings.set(node, [{ type }]);
+  else seen.push({ type });
+}
+
+/** Gives the latest lowering of the read `node` the type `type`. */
+function settleRead(node: ts.Node, type: ShaderType | null): void {
+  if (peeking > 0) return;
+  const latest = marksOf(node).lowerings.get(node)?.at(-1);
+  if (latest !== undefined) latest.type = type;
+}
+
+/** Records that a loop counter's start read `info` at `type`, as on `main` (`withReadTypes`):
+ *  one lowering of the read `node` that took `type`. */
+export function noteForcedRead(
+  node: ts.Node,
+  info: AbstractConst | undefined,
+  type: ShaderType,
+): void {
+  if (info !== undefined) lowerRead(node, type);
+}
+
+/** The reads of constants of no fixed type that `node` holds as written numbers: the node itself,
+ *  or the operands of `+ - * / %` and a unary minus over such reads (`abstractTreeOf`). */
+function readLeaves(node: ts.Expression): ts.Node[] {
+  const inner = stripParens(node);
+  if (readByNode.has(inner)) return [inner];
+  if (ts.isPrefixUnaryExpression(inner) && inner.operator === ts.SyntaxKind.MinusToken)
+    return readLeaves(inner.operand);
+  if (ts.isBinaryExpression(inner) && ARITH.has(inner.operatorToken.kind))
+    return [...readLeaves(inner.left), ...readLeaves(inner.right)];
+  return [];
+}
+
+/** Records that `node`, a read or arithmetic over reads, was lifted to an `f64` literal
+ *  carrying the full double (Rule 5.2): each read in it took `f64` there. */
+export function noteF64Read(node: ts.Expression, type: ShaderType): void {
+  for (const leaf of readLeaves(node)) settleRead(leaf, type);
+}
+
+/** Records the type the reads in `node`, the argument of the conversion `name` of a constant of
+ *  no fixed type, took: `f64(K)` reads the double, and `i32(K)` and `u32(K)` read an
+ *  integer-written constant as that integer. A float-written constant converted to an integer
+ *  is read as the written number (`u32(C)` with `const C = 7.5` converts 7.5), which no one
+ *  type names. */
+export function noteCastRead(node: ts.Expression, name: string): void {
+  const tree = abstractTreeOf(node);
+  if (tree === undefined) return;
+  const type =
+    name === 'f64'
+      ? f64T
+      : (name === 'i32' || name === 'u32') && tree.integerWritten
+        ? name === 'u32'
+          ? u32T
+          : i32T
+        : null;
+  for (const leaf of readLeaves(node)) settleRead(leaf, type);
+}
+
+/** What one compile of `sourceFile` knows of its constants of no fixed type, in its offsets:
+ *  each declaration and each read. Call it after the lowering, before the next one resets the
+ *  marks (`resetAbstractConsts`). */
+export function abstractConstFacts(sourceFile: ts.SourceFile): {
+  readonly decls: AbstractConstDecl[];
+  readonly reads: AbstractConstRead[];
+} {
+  const marks = nodeMarks.get(sourceFile);
+  if (marks === undefined) return { decls: [], reads: [] };
+  const decls: AbstractConstDecl[] = [];
+  for (const [node, info] of marks.decls) {
+    if (info.keyword === 'let') continue;
+    const start = node.getStart(sourceFile);
+    decls.push({
+      fileName: sourceFile.fileName,
+      start,
+      length: node.getEnd() - start,
+      keyword: info.keyword,
+      written: info.written,
+      integerWritten: info.integerWritten,
+    });
+  }
+  const reads: AbstractConstRead[] = [];
+  for (const [node, lowerings] of marks.lowerings) {
+    const first = lowerings[0]?.type ?? null;
+    const one =
+      first !== null &&
+      lowerings.every((l) => l.type !== null && JSON.stringify(l.type) === JSON.stringify(first));
+    const start = node.getStart(sourceFile);
+    reads.push({ start, length: node.getEnd() - start, type: one ? first : null });
+  }
+  return { decls, reads };
 }
 
 /** Where a value comes from, when it comes from constants of no fixed type with no declared
@@ -487,6 +655,7 @@ export function noteIntegerRead(node: ts.Expression, type: 'i32' | 'u32'): void 
   for (const read of tree.reads) {
     for (const info of withSources(read)) info.integerReads.push({ type, node });
   }
+  for (const leaf of readLeaves(node)) settleRead(leaf, type === 'u32' ? u32T : i32T);
 }
 
 /** Whether `node` is `inner`, or holds it. */

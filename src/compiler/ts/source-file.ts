@@ -13,6 +13,7 @@ import {
   markProjectedAnnotations,
   reportAbstractDivisions,
   resetAbstractConsts,
+  abstractConstFacts,
 } from './abstract-const.js';
 import { withoutKernelLoops } from './lower/kernel-methods.js';
 import ts from 'typescript';
@@ -42,7 +43,12 @@ import { separateModuleVars } from './module-var-names.js';
 import { collectStructs, emittedStructDecls, type CollectedStruct } from './structs.js';
 import type { DeclaredSymbol, LoweredExpression } from './symbols.js';
 import type { SourceSpan } from '../../core/ir/span.js';
-import { closeExpressionTable, openExpressionTable } from './symbols.js';
+import {
+  abstractConstTableOf,
+  closeExpressionTable,
+  openExpressionTable,
+  recordAbstractConstTable,
+} from './symbols.js';
 import {
   orderedStructDecls,
   typesOfFunctions,
@@ -546,6 +552,9 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
     }
   }
 
+  // The constants of no fixed type and the type each read took, for the editor's hover (change
+  // 0134 item 4). The next lowering of this file resets the marks they are read from.
+  recordAbstractConstTable(sourceFile, abstractConstFacts(sourceFile));
   return {
     result: {
       hasDirective: true,
@@ -750,6 +759,23 @@ function compileLinked(
   for (const x of inner.expressions) {
     const at = inEntry(x.start, x.length);
     if (at !== undefined) expressions.push({ ...x, ...at });
+  }
+  // The constants of no fixed type: every declaration in the file that wrote it, since a read in
+  // the entry can name one an imported file declares, and the entry's reads (change 0134 item 4).
+  const table = abstractConstTableOf(sourceFile);
+  if (table !== undefined) {
+    recordAbstractConstTable(entry, {
+      decls: table.decls.flatMap((d) => {
+        const m = linked.map(d.start, d.start + d.length);
+        return m === undefined
+          ? []
+          : [{ ...d, fileName: m.file.name, start: m.start, length: m.end - m.start }];
+      }),
+      reads: table.reads.flatMap((r) => {
+        const at = inEntry(r.start, r.length);
+        return at === undefined ? [] : [{ ...r, ...at }];
+      }),
+    });
   }
   const result: CompileTsSourceResult = {
     ...inner,

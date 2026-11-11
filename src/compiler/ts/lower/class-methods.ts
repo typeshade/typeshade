@@ -24,6 +24,7 @@
 // The object's name in the emitted function is `self_`, not `self`: Tint refuses `self`, which
 // is on WGSL's reserved-word list (as `this` is), and GLSL ES 3.00 takes either.
 
+import { peekingReads } from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { Expr, FuncDecl, Stmt } from '../../../core/ir/nodes.js';
@@ -2371,7 +2372,8 @@ export function mutatingReceiver(
   // A chain inside a larger expression: what a method that returns `this` hands back is a copy
   // there, since a struct is a value, and a change to it would be dropped (chains.ts).
   if (ts.isCallExpression(bare) && ts.isPropertyAccessExpression(bare.expression)) {
-    const inner = lowerExpression(bare.expression.expression, sourceFile, scope, []);
+    const receiver = bare.expression.expression;
+    const inner = peekingReads(() => lowerExpression(receiver, sourceFile, scope, []));
     const link =
       inner?.type.kind === 'struct'
         ? memberFunctionOf(inner.type.name, bare.expression.name.text, 'method', scope)
@@ -2419,7 +2421,7 @@ export function lowerMutatingCall(
   const member = callee.name.text;
   // The receiver's type, read without reporting: a receiver that does not lower, or is not a
   // struct, takes the ordinary path and gets its diagnostics there.
-  const peek = lowerExpression(obj, sourceFile, scope, []);
+  const peek = peekingReads(() => lowerExpression(obj, sourceFile, scope, []));
   if (!peek || peek.type.kind !== 'struct') return 'not-a-mutating-call';
   const name = peek.type.name;
   const found = memberFunctionOf(name, member, 'method', scope);

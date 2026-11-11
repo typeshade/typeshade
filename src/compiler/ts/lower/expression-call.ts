@@ -1,5 +1,10 @@
 import { isUndecidedRead } from '../use-inference.js';
-import { abstractLiteralOf, isAbstractRead, noteIntegerRead } from '../abstract-const.js';
+import {
+  abstractLiteralOf,
+  isAbstractRead,
+  noteIntegerRead,
+  peekingReads,
+} from '../abstract-const.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { Expr } from '../../../core/ir/nodes.js';
@@ -146,7 +151,9 @@ function vectorMethodMessage(
   } else if (isCanonicalMathFn(method) && SCALAR_CAST[method] === undefined) {
     // The builtin's own checks, on the arguments lowered where nothing is reported.
     const scratch: TsCompilerDiagnostic[] = [];
-    const args = node.arguments.map((a) => lowerExpression(a, sourceFile, scope, scratch));
+    const args = peekingReads(() =>
+      node.arguments.map((a) => lowerExpression(a, sourceFile, scope, scratch)),
+    );
     const takes = (list: Expr[]): boolean =>
       (expectedArity(method) ?? list.length) === list.length &&
       checkMathArgs(method, method, list, node, sourceFile, []);
@@ -1373,7 +1380,7 @@ function lowerBoolReduce(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  const peek = lowerExpression(node.arguments[0]!, sourceFile, scope, []);
+  const peek = peekingReads(() => lowerExpression(node.arguments[0]!, sourceFile, scope, []));
   // The argument's own mistakes are said where it is lowered, once.
   if (!peek) return lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
   // `all(e: bool) -> bool` and `any(e: bool) -> bool` are overloads of both builtins, and both

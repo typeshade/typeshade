@@ -16,6 +16,7 @@
 // is, `v.setX(1.).len()`, and one that would change it is refused where the receiver is
 // lowered, with the fix (class-methods.ts).
 
+import { peekingReads } from '../abstract-const.js';
 import ts from 'typescript';
 import type { Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
@@ -119,7 +120,7 @@ export function lowerChainPrelude(
   if (calls.length === 0 && !isNew) return 'not-a-chain';
   if (!isNew && !isPlace(root)) return 'not-a-chain';
   // Read without reporting: what does not lower is the ordinary path's to say.
-  const peek = lowerExpression(root, sourceFile, scope, []);
+  const peek = peekingReads(() => lowerExpression(root, sourceFile, scope, []));
   if (peek === undefined || peek.type.kind !== 'struct') return 'not-a-chain';
   const struct = peek.type.name;
   for (const call of calls) {

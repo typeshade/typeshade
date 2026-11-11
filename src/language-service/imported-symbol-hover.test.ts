@@ -289,7 +289,9 @@ describe('the hover of a symbol another document declares is the compiler’s (R
     // in the program of a document that imports the file, so the declaration keeps
     // TypeScript's generic text, though each importing program lowers one instance.
     expect(atDeclaration('twice<T')).toBe(bare('function twice<T extends f32 | vec3>(x: T): T'));
-    expect(atDeclaration('HALF = ')).toBe(bare('const HALF: f32'));
+    // A constant of no fixed type reads in the language's words at its declaration (change
+    // 0134 item 4, decision Q3).
+    expect(atDeclaration('HALF = ')).toBe(bare('const HALF = 0.5 (f32 or f64 where it is read)'));
     expect(atDeclaration('AXIS = ')).toBe(bare('const AXIS: vec3<f32>'));
     expect(atDeclaration('frame: u32')).toBe(bare('let frame: u32'));
     expect(atDeclaration('tint: override')).toBe(bare('const tint: f32'));
@@ -309,7 +311,9 @@ describe('the hover of a symbol another document declares is the compiler’s (R
       [{ needle: 'r.reach', skip: 2 }, bare('(method) Ray.reach(k: f32): f32')],
       [{ needle: 'r.far', skip: 2 }, bare('(property) Ray.far: f32')],
       [{ needle: 'Ray.unit', skip: 4, ns: ['lib.Ray.unit', 8] }, bare('(method) Ray.unit(): f32')],
-      [{ needle: 'Tone.GAMMA', skip: 5, ns: ['lib.Tone.GAMMA', 9] }, bare('const Tone.GAMMA: 2.2')],
+      // A constant of no fixed type reads at the type the compiler gave the read (change 0134
+      // item 4), not TypeScript's literal type.
+      [{ needle: 'Tone.GAMMA', skip: 5, ns: ['lib.Tone.GAMMA', 9] }, bare('const Tone.GAMMA: f32')],
       [
         { needle: 'Tone.map', skip: 5, ns: ['lib.Tone.map', 9] },
         bare('function Tone.map(x: f32): f32'),
@@ -434,7 +438,9 @@ export function fs(): vec4 {
       's(@inout n: vec3<f32>, k: f32): f32'.replace('vec3<f32>', 'vec3'),
     ]);
     // In the library, under the names the library writes.
-    expect(hoverAt(service, files, LIB, 'HALF = ')).toBe(bare('const HALF: f32'));
+    expect(hoverAt(service, files, LIB, 'HALF = ')).toBe(
+      bare('const HALF = 0.5 (f32 or f64 where it is read)'),
+    );
     expect(hoverAt(service, files, LIB, 'shade(@inout')).toBe(
       bare('function shade(@inout n: vec3<f32>, k: f32): f32'),
     );
@@ -706,10 +712,14 @@ export function fs(): vec4 {
     expect(compiled(files, LIB).wgsl).toContain('const K: f32 = 0.5;');
     const service = opened(files);
     const inImport = (needle: string) => hoverAt(service, files, MAIN, needle, 0, 'import {');
-    expect(inImport('K,')).toBe(bare('const K: f32'));
+    // An import names no read: the constant of no fixed type reads in the language's words, as
+    // an alias, the mark TypeScript gives every import binding.
+    expect(inImport('K,')).toBe(bare('(alias) const K = 0.5 (f32 or f64 where it is read)'));
     expect(inImport('g }')).toBe(bare('function g(@inout a: f32): f32'));
     expect(inImport('J,')).toBe(bare('const J: u32'));
-    expect(hoverAt(service, files, LIB, 'K = ')).toBe(bare('const K: f32'));
+    expect(hoverAt(service, files, LIB, 'K = ')).toBe(
+      bare('const K = 0.5 (f32 or f64 where it is read)'),
+    );
   });
 
   it('keeps TypeScript’s quick info when the declaring document is not open', () => {
@@ -1235,7 +1245,7 @@ export function fs(): vec4 {
     expect(compiled(files, UNUSED).wgsl).not.toContain('const K');
     const service = opened(files);
     const imports = (needle: string) => hoverAt(service, files, UNUSED, needle, 0, 'import {');
-    expect(imports('K,')).toBe(bare('const K: f32'));
+    expect(imports('K,')).toBe(bare('(alias) const K = 0.5 (f32 or f64 where it is read)'));
     // A module variable is \`let\`, as in the declaring file.
     expect(imports('frame,')).toBe(bare('let frame: u32'));
     expect(hoverAt(service, files, LIB, 'frame: u32')).toBe(bare('let frame: u32'));
@@ -1284,7 +1294,9 @@ export function fs(): vec4 {
     };
     const service = opened(files, createTypeshadeLanguageServiceWith({}, analyze));
     runs = [];
-    expect(hoverAt(service, files, UNUSED, 'K,', 0, 'import {')).toBe(bare('const K: f32'));
+    expect(hoverAt(service, files, UNUSED, 'K,', 0, 'import {')).toBe(
+      bare('(alias) const K = 0.5 (f32 or f64 where it is read)'),
+    );
     // The hovered document and the declaring document. \`other.shade.ts\` links the declaring
     // file too, and is not analysed.
     expect(runs).toEqual([UNUSED, LIB]);

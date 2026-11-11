@@ -2,7 +2,12 @@
 //
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
-import { hasNoWrittenResult, moduleAbstractConst, noteCarriedReturn } from '../abstract-const.js';
+import {
+  hasNoWrittenResult,
+  moduleAbstractConst,
+  noteCarriedReturn,
+  unpeekedReads,
+} from '../abstract-const.js';
 import { attributeDecoratorsOf, isTypeDecorator } from '../attribute-types.js';
 import { variableRefused } from '../refused-names.js';
 import { moduleVarSourceName } from '../module-var-names.js';
@@ -3364,8 +3369,18 @@ export function lowerParamDefaults(
 
 /** Lower `node`'s body into `stub`. For a class method or constructor (#86) `receiver` says
  *  what `this` is: the struct-typed first parameter of a method, read as `self_`, or the local
- *  `self_` a constructor starts from the zero struct and returns. */
+ *  `self_` a constructor starts from the zero struct and returns.
+ *
+ *  A body is lowered once and kept (a generic instance is cached where it is first called), so
+ *  a lookahead lowering that reaches it records the reads of the body for the hover
+ *  (`unpeekedReads`, change 0134 item 4). */
 export function fillFunctionBody(
+  ...args: Parameters<typeof fillFunctionBodyNow>
+): ReturnType<typeof fillFunctionBodyNow> {
+  return unpeekedReads(() => fillFunctionBodyNow(...args));
+}
+
+function fillFunctionBodyNow(
   node: FunctionNode,
   stub: FuncDecl,
   sourceFile: ts.SourceFile,

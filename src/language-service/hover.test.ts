@@ -165,8 +165,12 @@ describe("getHover: the compiler's type for a symbol declared in this document",
     expect(use).not.toContain('number');
   });
 
-  it('shows f32 for a const bound to a fractional literal, not the literal type', () => {
-    expect(hoverAt(source.indexOf('const half') + 6)).toContain('const half: f32');
+  it('shows a const bound to a fractional literal in the language words, not the literal type', () => {
+    // A constant of no fixed type: its declaration in TypeShade's words, and a read at the type
+    // the compiler gave it there (change 0134 item 4, decision Q3).
+    expect(hoverAt(source.indexOf('const half') + 6)).toContain(
+      'const half = 0.5 (f32 or f64 where it is read)',
+    );
     expect(hoverAt(source.lastIndexOf('half'))).toContain('const half: f32');
   });
 
@@ -527,8 +531,10 @@ describe('getHover: a symbol declared in another document', () => {
     // reads the symbol the front end declared there (`importedSymbolAt`). TypeScript's quick
     // info said `(alias) const K: 1`, a literal type where the compiler has an `f32`.
     expect(hover?.contents).toBe('```ts\nconst K: f32\n```');
+    // At its declaration, a constant of no fixed type reads in the language's words (change
+    // 0134 item 4, decision Q3); the read above is the type the compiler gave that read.
     const lib = service.getHover('/lib.ts', { line: 1, character: 13 });
-    expect(lib?.contents).toBe(hover?.contents);
+    expect(lib?.contents).toBe('```ts\nconst K = 1. (f32 or f64 where it is read)\n```');
   });
 });
 
