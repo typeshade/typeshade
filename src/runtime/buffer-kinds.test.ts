@@ -103,6 +103,12 @@ export function first64(xs: array<f64>): f64 {
   return xs[0];
 }
 
+/** The sum of the components of m times (1, 1, 1), a matrix of f64. */
+export function rows64(m: mat3x3<f64>): f64 {
+  const v = m * vec3<f64>(f64(1.), f64(1.), f64(1.));
+  return v.x + v.y + v.z;
+}
+
 /** The sum of the vectors. */
 export function cen(vs: array<vec3u>): vec3u {
   let c = vec3u(0);
@@ -476,6 +482,23 @@ describe('array(number[]): the first use fixes the element (Amendment A12, decis
     expect(() => m.sum64!(ys)).toThrow("this Buffer's element is f32, which its first use fixed");
   });
 
+  it("a matrix of f64 takes no Buffer, and the refusal fixes nothing (the owner's answer to Q12 of 2026-11-11, A13)", async () => {
+    const m = await load();
+    // The plain-data check refuses it at the call, since the function has no call on a resource
+    // for a matrix of f64 (A12 Q3 covers a matrix of f32 only).
+    const refusal = /^rows64\(\): parameter "m" \(mat3x3<f64>\)/;
+    const xs = array([1, 0, 0, 0, 2, 0, 0, 0, 3]);
+    expect(() => m.rows64!(xs)).toThrow(TypeError);
+    expect(() => m.rows64!(xs)).toThrow(refusal);
+    expect(() => m.rows64!(array(new Float64Array(9)))).toThrow(refusal);
+    expect(() => m.rows64!(array(new Float32Array(9)))).toThrow(refusal);
+    // The refused use fixes nothing (A12, D2): a later f32 use fixes f32.
+    m.sumf!(xs);
+    expect(await read(xs)).toBeInstanceOf(Float32Array);
+    // Plain data is the matrix's value.
+    expect(await m.rows64!([1, 0, 0, 0, 2, 0, 0, 0, 3])).toBe(6);
+  });
+
   it("a Buffer that device.array()'s pool hands out again is open again (D5)", async () => {
     const m = await load();
     const d = await createDevice({ prefer: ['cpu'] });
@@ -678,6 +701,8 @@ describe('a host program over the view (tsc)', () => {
       ['const r: Float32Array | Int32Array | Uint32Array | Float64Array = await o.read();', ''],
       ['const r3: Float32Array | Int32Array | Uint32Array = await o.read();', 'TS2322'],
       ['m.sum64(o); m.first64(o);', ''],
+      ['m.rows64(o);', 'TS2345'],
+      ['m.rows64(array(new Float64Array(9)));', 'TS2345'],
       ['const r2: Float32Array = await o.read();', 'TS2322'],
       ['m.scan(o); m.sumi(o); m.sumf(o); m.cen(o);', ''],
       ['m.times(o, o, o); m.trace(o, o, o); m.traces(o, o);', ''],
