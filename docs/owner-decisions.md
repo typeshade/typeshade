@@ -119,3 +119,23 @@ and every person reads this file before any other document of this repository.
   - A value that one use makes an integer and that `/` divides is refused, not silently divided
     as integers (the owner's choice, 2026-11-09, proposal 0134 question 6).
   - Proposal 0134 records the full design.
+
+### OD-8. A `"use typeshade"` file can carry a decorator that a library declares
+
+- Date: 2026-11-11. The owner said this in the session that designs the game engine of
+  `typeshade/radiance`, after the agent showed that the compiler refuses `@entity` and `@system`
+  in a `"use typeshade"` file with `TS8028`.
+- The owner's words: "use typeshade 안에서도 radiance import해서 사용한다거나 extends 한다거나, 뭐
+  추가 데코레이터를 지원한다거나.."; "shade.ts 안에 커스텀 데코레이터 지원도 추가되어야할 것
+  같습니다. 확실히 좋은 방향으로 만드려면"; "앞으로 당신이 만든 자체 엔진이 강력해지려면".
+- What it means:
+  - The language is to accept a decorator that is not one of the compiler's own attributes, when
+    a library declares it. Rule 6.7 says today that a decorator outside its list must be
+    refused. A proposal changes that rule before any code changes.
+  - The compiler learns no name of a library. A name such as `entity` or `system` belongs to the
+    library that declares it (`docs/dx.md`, principle 7). A decorator that nothing declares is
+    still refused.
+  - The owner has not yet said what a declared decorator does. The agent showed two readings on
+    2026-11-11: the compiler records the decorator and reports it to a tool, or the compiler
+    runs it to change the code. The proposal shows both with their costs against OD-3, and the
+    owner decides there.
