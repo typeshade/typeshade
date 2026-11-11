@@ -1,8 +1,10 @@
 // On WebGL2 a submission flushes, and a `read()` waits on a fence (change 0138, Amendment A5,
-// default 6; detail 3's fence is the same `gpuDone`). A recording context stands in for WebGL2: it
+// default 6; `readFence` in `gl-fence.ts`). A recording context stands in for WebGL2: it
 // logs each `flush`, `fenceSync`, `clientWaitSync` and `deleteSync`, and signals its fence at the
 // second poll. The browser evidence is the `resource` arm of `gate:differential`, which counts the
 // same calls on a real WebGL2 context.
+//
+// Verifies: Rule 11.8 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { kernelQueue, makeResident, residentState } from './resident.js';

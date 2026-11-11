@@ -245,15 +245,21 @@ export interface Device {
    *  `queue.onSubmittedWorkDone()`, after the kernel queue has settled; on the other tiers when
    *  the calls have settled. */
   wait(): Promise<void>;
-  /** Wait for the plans in flight, destroy every array the device holds, pooled or not, each once,
-   *  and destroy the WebGPU device the owner requested. A `GPUDevice` or a runtime the host handed
-   *  in is left as it is. A use after `dispose()` is a `TypeError`. */
+  /** Wait for the plans in flight. Land what a call of this device wrote into each exported storage
+   *  array, and drop this device's copy of it (change 0138, R3). Then destroy
+   *  every array the device holds, pooled or not, each once, and destroy the WebGPU device the
+   *  owner requested. A `GPUDevice` or a runtime the host handed in is left as it is. A use after
+   *  `dispose()` is a `TypeError`. */
   dispose(): Promise<void>;
-  /** Make this device the default of a block until the returned handle is disposed (change
-   *  0138, Amendment A2): `using _ = device.use()`. Uses nest, and the innermost is the default.
-   *  `texture()`, `zeros()`, `array()` and `uniform()` make what they make on the default device,
-   *  and a kernel call or an entry call with no resource of a device runs on it (change 0138,
-   *  R3). Where the `lib` declares no `Symbol.dispose`, call `dispose()` on the handle.
+  /** Make this device the device in use until the returned handle is disposed (the default
+   *  device of change 0138, Amendment A2): `using _ = device.use()`. Uses nest, and the innermost
+   *  is the device in use. `texture()`, `zeros()`, `array()` and `uniform()` make what they make
+   *  on it, and a kernel call or an entry call with no owned resource runs on it (change 0138,
+   *  R3). A `Uniform` takes no part in the choice of a call's device. The uses are one stack for
+   *  each instance of the runtime module, not one for each async task: while a task awaits inside
+   *  a block, a resource or a call with no owned resource that another task makes takes this
+   *  device. Caution: do not await inside a block while other tasks may make resources or calls.
+   *  Where the `lib` declares no `Symbol.dispose`, call `dispose()` on the handle.
    *  @throws `TypeError` after `dispose()`. */
   use(): DeviceUse;
 }
