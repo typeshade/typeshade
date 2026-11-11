@@ -954,17 +954,21 @@ A7's table. A7's text stays as it is.
 
 **The owner's decisions on #1238 (2026-11-11).**
 
-- [decision, owner, 2026-11-11] On the first review: "Fix S1-S4, then re-review". Commit
-  `1fda2689` fixes S1 to S4 and S6. The second review read that commit.
-- [fact] #1238's body sends S5 to a separate amendment pull request. This amendment is that pull
-  request.
+- [decision, owner, 2026-11-11] On the first review: "Fix S1-S4, then re-review". The
+  description of the option the owner chose also said: "S5 goes to a separate A8 amendment PR".
+  - [fact] Commit `1fda2689` fixes S1 to S4 and S6. The second review read that commit.
+  - [fact] This amendment is the pull request of S5.
 - [decision, owner, 2026-11-11] Q-a, the device of a resource: "Keep the rule, exempt Uniform".
   - A resource belongs to the device in use when it is made. With no device in use, it belongs to
     the default owner.
   - A `Uniform` takes no part in choosing a call's device. Its value is copied at each call (D-b),
     so it joins a call on any device.
-  - This amends R3's words "A resource belongs to one device" for a `Uniform`.
-  - The alternative was to keep R3's words for a `Uniform` too. Cost of the alternative: a
+  - [fact] The owner kept the rule that a resource belongs to the device in use when it is made.
+    The exemption is only from the choice of a call's device.
+  - [inference, agent] R3's words "A resource belongs to one device" still hold for a `Uniform`.
+    Only R3's "A node runs on the device of its input resources" does not count a `Uniform` among
+    the inputs that choose the device.
+  - The alternative was to let a `Uniform` take part in the choice too. Cost of the alternative: a
     `Uniform` made at module top is refused beside a `Buffer` made in a `use()` block (review
     finding S6).
   - Cost recorded: when D-b is fixed and a `Uniform` gets a device copy, it needs one copy for each
@@ -1032,15 +1036,16 @@ Each is a difference between the accepted text (with A5 to A8) and `75f114cb`.
 
 **Open items from the reviews of #1238.**
 
-| Item                                                                                                                                                                     | Source              | Next action                                                                            |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------- | -------------------------------------------------------------------------------------- |
-| S3 has no unit test. Only the WebGL2 resource arm of `gate:differential` holds it.                                                                                       | Second review, N-r1 | A Node test with a WebGL2 stand-in tier. No pull request is assigned.                  |
-| A plain `Buffer` written on a WebGPU device and not read before `dispose()` of that device loses the write. Its `read()` then fails with an unclear error.               | Second review, N-r2 | Land owned `Buffer`s too, with a weak registry per owner. No pull request is assigned. |
-| The module-level `exported` set of `src/runtime/resource.ts` holds every exported binding strongly. A module reload keeps old bindings alive.                            | Second review, N-r3 | None assigned. The review calls it minor.                                              |
-| `use()` is one stack for the page.                                                                                                                                       | First review, N1    | State it in the text pull request of slice 2b (D-e).                                   |
-| The `core/gl-fence.ts` row of `src/AGENTS.md`, and that file's header, say that `read()` waits on `gpuDone`. It uses `readFence`, which ends the wait on a lost context. | Second review, R-s2 | A documentation fix, in the text pull request of slice 2b or in its own pull request.  |
-| The first sentence of the `CHANGELOG.md` entry of #1238 still lists `uniform()` among what belongs to the device in use.                                                 | Second review, N-r4 | A documentation fix, with the item above.                                              |
-| The refusal table of surface §71 (`fuse`) has no row for the refusal of a call on a resource.                                                                            | #1241, Open items   | The owner decides whether a follow-up adds a row.                                      |
+| Item                                                                                                                                                                     | Source              | Next action                                                                                          |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------- | ---------------------------------------------------------------------------------------------------- |
+| S3 has no unit test. Only the WebGL2 resource arm of `gate:differential` holds it.                                                                                       | Second review, N-r1 | A Node test with a WebGL2 stand-in tier. No pull request is assigned.                                |
+| A plain `Buffer` written on a WebGPU device and not read before `dispose()` of that device loses the write. Its `read()` then fails with an unclear error.               | Second review, N-r2 | Land owned `Buffer`s too, with a weak registry per owner. No pull request is assigned.               |
+| The module-level `exported` set of `src/runtime/resource.ts` holds every exported binding strongly. A module reload keeps old bindings alive.                            | Second review, N-r3 | None assigned. The review calls it minor.                                                            |
+| `use()` is one stack for the page.                                                                                                                                       | First review, N1    | State it in the text pull request of slice 2b (D-e).                                                 |
+| Inside `use()` of a disposed device, `zeros()` and `uniform()` succeed, and the call fails later. `array()` and `texture()` throw at once. #1238 did not fix it.         | First review, N2    | Check that the device in use is usable when a resource takes its owner. No pull request is assigned. |
+| The `core/gl-fence.ts` row of `src/AGENTS.md`, and that file's header, say that `read()` waits on `gpuDone`. It uses `readFence`, which ends the wait on a lost context. | Second review, R-s2 | A documentation fix, in the text pull request of slice 2b or in its own pull request.                |
+| The first sentence of the `CHANGELOG.md` entry of #1238 still lists `uniform()` among what belongs to the device in use.                                                 | Second review, N-r4 | A documentation fix, with the item above.                                                            |
+| The refusal table of surface §71 (`fuse`) has no row for the refusal of a call on a resource.                                                                            | #1241, Open items   | The owner decides whether a follow-up adds a row.                                                    |
 
 - Affects: milestone 3's plan (the slice table of A7), R3 (Q-a: a `Uniform`; Q-b: an exported
   binding; Q-c: `array()` in a `use()` block), and the deviations D-c, D-d, D-e and D-h. No
