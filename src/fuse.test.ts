@@ -6968,3 +6968,80 @@ describe('a trip count the device holds, on a recording device (change 0094, Rul
     }
   });
 });
+
+// Today's fuse() records no resource (change 0138, milestone 4): a kernel call or an entry call that
+// takes a Buffer or a Uniform in the body rejects with a TypeError that names the parameter or the
+// binding (Rules 8.24 and 11.13). It rejects, and does not throw: this pins the behavior at
+// 76b66224, which the review of the text pull request (T-S2) questions.
+const RESOURCES = `"use typeshade";
+
+export class Particle {
+  pos: vec3 = vec3(0.);
+  life: f32 = 0.;
+}
+
+export class Params {
+  dt: f32 = 0.;
+  drag: f32 = 0.;
+}
+
+export declare const cam: uniform<Params>;
+export declare const lives: storage<array<f32>, "read_write">;
+
+/** Ages every particle by dt. */
+export function age(xs: array<Particle>, dt: f32): void {
+  for (let i = 0; i < xs.length; i++) {
+    xs[i].life = xs[i].life + dt;
+  }
+}
+
+/** Writes the step into each element of lives. */
+@compute([4])
+export function mark(id: builtin<"global_invocation_id">) {
+  if (id.x < lives.length) {
+    lives[id.x] = cam.dt;
+  }
+}
+`;
+
+describe('a call that takes a resource in the body of fuse() (Rule 11.13, change 0138)', () => {
+  it('rejects a kernel call and an entry call with a TypeError that names the parameter or the binding', async () => {
+    const g = hostFace(RESOURCES, { fileName: '/app/resources.shade.ts', runtime: RUNTIME });
+    expect(g.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const m = (await loadCode(g.code!, 'resources')) as unknown as {
+      readonly Particle: abstract new () => object;
+      readonly Params: abstract new () => object;
+      readonly age: (xs: unknown, dt: number) => Promise<unknown> | undefined;
+      readonly mark: (bindings: unknown, workgroups: unknown) => Promise<unknown> | undefined;
+    };
+    configure({ prefer: ['cpu'] });
+    try {
+      const ps = runtime.zeros(m.Particle as never, 2);
+      const calls: (Promise<unknown> | undefined)[] = [];
+      await fuse(() => {
+        calls.push(m.age(ps, 1));
+        calls.push(
+          m.mark(
+            {
+              cam: runtime.uniform(m.Params as never, { dt: 1 }),
+              lives: resident(new Float32Array(4)),
+            },
+            [1],
+          ),
+        );
+      });
+      await expect(calls[0]).rejects.toThrow(
+        new TypeError(
+          `age(): parameter "xs" is a resource, which the body of today's fuse() does not record; call the function outside it, or pass array(xs).`,
+        ),
+      );
+      await expect(calls[1]).rejects.toThrow(
+        new TypeError(
+          `mark(): binding "cam" is a resource, which the body of today's fuse() does not record; call the entry outside it, or pass array(xs).`,
+        ),
+      );
+    } finally {
+      configure({ prefer: ['webgpu', 'webgl2', 'cpu'] });
+    }
+  });
+});
