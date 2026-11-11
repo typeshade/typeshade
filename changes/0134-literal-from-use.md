@@ -919,6 +919,33 @@ counter, is recorded here too.
   declares, carry these readings.
 - Status: `status: accepted` does not change.
 
+### Amendment A5. The owner's decisions on part 4b (2026-11-11)
+
+Pull request #1264 delivers part 4b. Its first revision left choices that this text does not
+decide, and an independent review of it at `d2296760` found defects. The owner decided each in
+the Claude Code session on 2026-11-11, after the choices, their costs and one example each were
+shown (`OD-4`).
+
+- [decision, owner, 2026-11-11] "이 PR에서 모두 구현". The first revision covered a function
+  declared at the top of a file or of a namespace only. A method, a getter, a static function, a
+  local function, an arrow function and an instance of a generic function take their result from
+  their calls too, in the same pull request, with copies and the inference of each copy. The
+  copies of a generic function's instance are that instance's (Rule 8.9). This does not decide
+  issue #1256 (the one decision of a `let` in a generic function's body).
+- [decision, owner, 2026-11-11] "작성자 기본값 유지". The function keeps the `f32` result under its
+  own name, and only the other types get named copies (`g_u32`). Item 1's text for Rule 8.19 names
+  every copy after its type; Rule 8.19 and surface §14 are written with this reading.
+- [decision, owner, 2026-11-11] "export는 f32 유지". A function the host calls (an export, a member
+  of an exported class) keeps the `f32` result the host reads, also where the file's own calls ask
+  one other type; those calls take the copy.
+- [decision, owner, 2026-11-11] "거부 유지". A `/` over a call of a function that some call makes an
+  integer is refused with `TS8003` and the one checked edit, whichever copy the call takes: with
+  `x * g()` elsewhere, `f32(vi + g()) + f32(g() / 2)` is refused, and does not compute 3.5 through
+  the `f32` copy. The meaning of a division does not depend on other lines (Amendment A2).
+- Affects: no front-matter field. Rules 5.1 and 8.19 and surface §14, which the front matter
+  declares, carry these readings.
+- Status: `status: accepted` does not change.
+
 ### Configuration and validation record
 
 The change is delivered in parts. `status: accepted` stays until every part is delivered and
@@ -1280,9 +1307,164 @@ read)`, and `const C = 0.1 (f32 or f64 where it is read)` for a float-written co
     `import { K }`, `import { K as Q }`, and `import { R }` of a re-export `export { K as R }`
     read `(alias) const … = 4 (…)` at the import.
 
-Not delivered yet: the second part of items 1 and 3 (4b), the hover of a function its callers
-decide and of its copies (item 4, with 4b), the document part of item 5, item 5 for `journeys/`
-and the helper sources of `examples/` (Amendment A1), and the audit.
+**Part 6, the second part of items 1 and 3 (4b), with the hover of item 4 it owes.** Pull
+request #1264.
+
+- Delivered: a module variable and a static field that code writes (surface §24, Rule 8.13), and
+  a class field (Rule 8.14, surface §26), with no annotation and initialized by integer-written
+  numbers, take their type from their uses through part 4a's inference (`inferredModuleVar` in
+  `src/compiler/ts/module-vars.ts`, `inferredFieldOf` in `src/compiler/ts/structs.ts`); where no
+  use decides, each is an `f32`. A function of the file or of a namespace that writes no result
+  type and whose first `return` is an integer-written number or a value no use has decided takes
+  its result from its calls (Rule 8.19; `noteCallerDecided`, `callerDecidedCall` and `inCopy` in
+  `src/compiler/ts/use-inference.ts`, the copies in `lowerSourceFunctions`). Each call records
+  what its own use asks, an `f32` use included. Where every call that decides asks one type, the
+  function returns it. Calls that ask two or more types get one copy for each type but `f32`,
+  named as an instance of Rule 8.9 is (`g_u32`), and the function keeps the `f32` result. Each
+  copy lowers its body under its own key, so its locals and its calls decide apart (Amendment
+  A1, "사본마다 추론"). A `/` over such a variable, field or call that only inference made an
+  integer is refused through part 3's rule, with the one checked edit. Rules 5.1, 8.14 and 8.19
+  and surface §13, §14, §24 and §26 say so.
+- Delivered, item 4 (part 5's open deviation 1): `function g(): u32` for a function its callers
+  decide to one type; for one with copies, `function g() (u32 or f32 where it is called)` at the
+  declaration, the copy's result at each call (`function g(): u32` in `vi + g()`), and
+  `let k (u32 or f32 where "g" is called)` at a local the copies type apart
+  (`recordResultCopies`, `recordCopyCall` in `src/compiler/ts/symbols.ts`; `resultCopiesLine` in
+  `src/language-service/hover.ts`). The language service reads the field type the projection
+  wrote as not the author's (`hasNoWrittenType`), as part 3 reads a static field's.
+- Tests: `src/compiler/ts/use-inference-module.test.ts`, both halves on each source, the hover
+  where the type is the point, and the CPU oracle.
+- [fact, measured 2026-11-11 against `main` at `8923b2d0`] Programs that change: newly accepted,
+  each refused on `main` for an integer use of an `f32` (`let n = 0; n += vi`,
+  `this.m += v`, `vi + g()`). Newly refused: none; each `/` this part refuses stands in a program
+  that `main` refused for its integer use. A value that changes: a variable, a field or a function
+  result of integer-written numbers whose use is an `f64` is an `f64` (`let n = 16777217; d * n`
+  multiplies by 16777217 on a device, where it multiplied by 16777216), as part 4a's `let` is.
+  `CHANGELOG.md` names each class.
+- The choices the first revision made by default, and its deviation 1 (only a function at the
+  top of a file or of a namespace), went to the owner: Amendment A5 decides each. Implemented in
+  this part: the result of a method, a getter, a static function, a local function, an arrow
+  function and a generic function's instance follows the same rule (`planResult` in
+  `lowerSourceFunctions`, the calls in `src/compiler/ts/lower/caller-decided.ts`); a copy is made
+  the first time a call asks for its type (`copyOfResult`); an exported function or a member of
+  an exported class keeps the `f32` the host reads; a `/` over a call of a function that some
+  call makes an integer is refused, whichever copy the call takes (`integerResult`). A call of
+  such a function is a value no use has decided as soon as its function is found in the pass,
+  and a call's decision reaches its function in the next pass, so a chain takes one pass a link.
+  A call in a conversion (`u32(g())`) decides nothing, as F19 requires. Each copy has its own
+  local functions (`g_u32_inc`), so what they capture has the copy's types.
+- The independent review of pull request #1264 at `d2296760` (2026-11-11), each fixed with a test
+  that reads both halves in `src/compiler/ts/use-inference-module.test.ts`:
+  - Finding 1: two functions of one short name (`g` and `N.g`) shared their decisions, and dead
+    copies were emitted. The calls are now counted for their function's declaration and emitted
+    name (`calleeKeyOf`), and a copy is made only where a call asks for it.
+  - Finding 2: a write to a static field the file writes (`S.n += vi`, `S.n = vi`) recorded no
+    demand. The written field is marked as its read is (`lowerStaticFieldTarget`).
+  - Finding 3: a result whose returns give two types where its calls fixed one said "declared
+    u32", which the author never wrote. The sentence now names the calls:
+    `Function "g" returns u32 where its calls use it and f32 at a "return"; …`. A chain longer
+    than `MAX_INFERENCE_PASSES` follows no longer leaves some links decided and others not: the
+    last pass switches every such result off (`switchCallersOff`), and the mismatch at a call of
+    one says to write its result type. [fact, measured 2026-11-11 at `fdf1364e`] A chain of 10
+    links compiled; one of 16 was refused (at `d2296760`, 8 links already failed). See the second
+    review below.
+  - Finding 5 (information, not fixed here; the session's coordinator files an issue): compile
+    time grows fast with the depth of an expression, on `main` too, and part 4b adds passes.
+    [fact, measured 2026-11-11 on this branch with the review's `timing2.ts`] One 24-term
+    expression over 8 functions with copies takes 30.6 s; over 6, 403 ms; with no copies, under
+    100 ms.
+- The second independent review of pull request #1264 at `fdf1364e` (2026-11-11) compared its
+  corpus against `main` with no difference, and confirmed six findings, each fixed with a test that
+  reads both halves in `src/compiler/ts/use-inference-module.test.ts`:
+  - Finding 1: the pass cap switched off every function of the file, also one outside the chain
+    (`function k() { return 7; }` with `f32(vi + k())` beside a 16-link chain that asks only
+    `f32`). A call's `f32` alone now lowers nothing again, so such a chain uses up no pass, and the
+    cap switches off only the functions no call has given another type yet (`switchCallersOff`).
+    [fact, measured 2026-11-11] `k` is a `u32` beside chains of 10, 16 and 20 such links (eval
+    10.5); an integer chain of 16 links compiles, and one of 17 is refused with one diagnostic
+    that names `g16`, the first link switched off.
+  - Finding 2: `export { g }` did not keep the `f32` the host reads. The front end and the host
+    face now read one definition of what the host imports (`src/compiler/ts/host-exports.ts`):
+    an `export` modifier and an `export { … }` clause, `export { g as h }` included. The author's
+    default export has no host face (Rule 11.10), so it keeps none.
+  - Finding 3: the local functions of a copy could take the name of a function the author wrote
+    (`g_u32_inc`). A copy whose body declares local functions takes a name that no function of
+    the module begins with (`g_u32_1`, `g_u32_1_inc`).
+  - Finding 4: one call that decides a method, a getter, an arrow function or a local function
+    hovered as `number`, and so did a generic instance's call with copies. Every such decision is
+    recorded, and the hover shows `(method) C.m(): u32`, `(getter) C.m: u32`,
+    `const m: () => u32`, `(local function) m(): u32`, and at a generic instance's call the copy's
+    result.
+  - Finding 5: a `return` that reads a captured variable typed apart by the copies was refused under
+    the emitted name (`t_inc`). The sentence names the function as written and the variable:
+    `… at a "return" that reads "base", a variable of the function around it: every copy of "inc"
+reads the one "base", which has one type (Rule 8.19). Write the type of "base", or the return
+type of "inc".` The program stays refused, as on `main`, with one diagnostic.
+  - Finding 6: a refused `/` over a getter's read named `C.m()`; it names the read as written,
+    `c.m`. The note of the pass cap is matched to the calls of the switched-off functions, not to
+    a name.
+- The third independent review of pull request #1264 at `574b1dc1` (2026-11-11) found no change
+  against `main` in its corpus and in the host face of 219 files, and confirmed five findings, each
+  fixed with a test that reads both halves (`use-inference-module.test.ts`, and
+  `host-face.test.ts` for the host's half):
+  - Finding 1: an exported function with copies had no host face (`export declare const g:
+never`), since the copy recorded a symbol at the function's name. A copy records none
+    (`recordName`), so the host face binds the function itself, with the `f32` the host reads:
+    `export declare function g(): f32` for `export { g }`, `export { g as h }` and
+    `export function g`, called from the host and type-checked there. An exported arrow function
+    (`export const g = () => 3`) has no host face on `main` either, with or without copies, since
+    the front end records no symbol at its name; that is not part of this change, and it stays.
+  - Finding 2: the hover at a call of a generic function's instance shows the call's type
+    arguments and the instance's parameter types (`function m<f32>(a: f32): u32`).
+  - Finding 3: the cap switched off a function whose calls asked only `f32`, which then took a
+    type its call did not ask. A function whose calls asked only `f32` is decided, and is not
+    switched off; the chain's one diagnostic stays.
+  - Finding 4: the cap counts the lowerings of the module, which every chain and every other
+    inferred value share, not the links of one chain. Counting it per chain would need a fixed
+    point for each chain; Rule 8.19 and surface §14 say what the cap counts instead. [fact,
+    measured 2026-11-11] The review's program (a 16-link chain beside `let a = 3; let b: u32 = a +
+vi;`) compiles now, since a call asks for its copy in the lowering that settles its body.
+  - Finding 5: a call inside a body whose result another call fixed (`function q() { return m(); }`
+    with `x * q()`) read the result `m` had, and recorded no use, so `m` got no `f32` copy and
+    `q` was refused. Such a call records its use until a use decides it (`open`), and `m` keeps
+    the `f32` beside its copy `m_u32`, in both directions.
+- The fourth independent review of pull request #1264 at `dbec4ba1` (2026-11-11) found two
+  findings; the owner decided the same day to fix both in this part. Each is fixed with a test that
+  reads both halves:
+  - Finding 1: the `f32` ask did not pass through two forwarding links
+    (`function r() { return m(); } function q() { return r(); }` with `x * q() + f32(vi + m())`
+    was refused). Two causes: a call's `f32` decision lowered nothing again where its function had
+    another type, and a call's decision, made while its function's body had one result, stayed
+    when a later pass gave that body the `f32` beside copies. A call's `f32` now lowers again
+    where its function had another type, and the body of a function whose calls fixed its result
+    is lowered under a key of that result (`setHomeTag`), so its calls and locals decide anew
+    when the result changes. The ask passes through any number of links: chains of two and three
+    links, and asks of `u32` through `q` beside `i32` through `r`, compile.
+  - Finding 2: since a copy records no symbol, the hover at a call of a function an imported file
+    declares showed the declaration's `f32` where the call takes a copy. The linked compile maps
+    the calls of functions with copies to the entry (`mapResultCopies`), and the hover at such a
+    call shows the copy's result (`importedCallLine`). The host face does not change.
+- The fifth independent review of pull request #1264 at `19ba7837` (2026-11-11) found the corpus,
+  the host face and the timing clean, and three findings. The owner decided the same day to fix
+  the two hover findings here, each with a test that reads both halves:
+  - Finding 1: a call through a namespace import (`ns.g()`) hovered the declaration's `f32`, since
+    the linked compile records the call where `ns` starts. The hover looks the call up at the
+    name and at the start of what the call names (`importedCallLine`).
+  - Finding 2: a call of an imported generic function dropped its type arguments. It shows them
+    as a call in the declaring file does (`function g<f32>(a: f32): u32`).
+  - On the same path, a call of an imported class's method and of an imported arrow function
+    hovers as the copy it takes (`(method) C.m(): u32`).
+- Deviations, open:
+  - A generic class's field shares one decision across its instances, as issue #1256 records
+    for a generic function's body (deferred by the owner).
+  - A call of a function with copies inside a body that is itself copied takes two copies; its
+    hover keeps the words.
+  - Issue #1271 (the owner's decision of 2026-11-11, recorded as open): a local typed from a call
+    result that a later pass changes (`function q() { let k = 2; return m() * k; }`) keeps the type
+    it took from the earlier result.
+
+Not delivered yet: the document part of item 5, item 5 for `journeys/` and the helper sources of
+`examples/` (Amendment A1), and the audit.
 
 ## What it owes downstream
 

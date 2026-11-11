@@ -43,7 +43,14 @@ import {
 } from './type-map.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { foldConstComponents } from './loop-bound.js';
-import { reportIntLitRange, retargetDeclaredIntLit } from './lit-coerce.js';
+import { isIntegerLiteralTree, reportIntLitRange, retargetDeclaredIntLit } from './lit-coerce.js';
+import { hasNoWrittenType } from './abstract-const.js';
+import {
+  decidedType,
+  inferenceConflict,
+  useInferenceActive,
+  type InferredValue,
+} from './use-inference.js';
 import { lowerExpression } from './lower/expression.js';
 import { lowerArrayLiteral, refuseListSpread } from './lower/expression-array.js';
 import { isOverrideType } from './overrides.js';
@@ -517,7 +524,14 @@ function lowerPlain(
     refuse(name, sourceFile, scope);
     return undefined;
   }
-  if (decl.type !== undefined) {
+  // A type the language service wrote into the text it analyses is not the author's: a static
+  // field of integer-written numbers takes its type from its uses in the editor too (Rule 12.7).
+  const projected =
+    decl.type !== undefined &&
+    decl.initializer !== undefined &&
+    isIntegerLiteralTree(decl.initializer) &&
+    hasNoWrittenType(decl, sourceFile);
+  if (decl.type !== undefined && !projected) {
     // `let seed: perInvocation<u32> = 7` (#83, removed in §24). Refused here, at the
     // annotation and before `typeOf` runs, so it is the author's only diagnostic: `typeOf`
     // would otherwise fall back to `structT('perInvocation')` and report a type mismatch
@@ -593,13 +607,37 @@ function lowerPlain(
     );
     return undefined;
   }
+  // A module variable, or a static field the file writes, initialized by integer-written numbers
+  // takes its type from its uses (Rule 5.1, surface §24, change 0134 item 1): the decision an
+  // earlier pass of this compile settled (`use-inference.ts`), else the `f32` the compiler
+  // chooses, while each read records what its use asks.
+  const inferred =
+    useInferenceActive(sourceFile) && isIntegerLiteralTree(decl.initializer)
+      ? inferredModuleValue(decl, name, sourceFile, diagnostics)
+      : undefined;
+  if (inferred?.type !== undefined) {
+    const one = finish(
+      decl,
+      decl,
+      name,
+      'private',
+      inferred.type,
+      authorTypeText(inferred.type),
+      undefined,
+      sourceFile,
+      scope,
+      diagnostics,
+    );
+    if (one !== undefined) inferredVars.set(one, inferred);
+    return one;
+  }
   const before = diagnostics.length;
   const init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics);
   if (!init) {
     refuseIfSilent(name, before, sourceFile, scope, diagnostics);
     return undefined;
   }
-  return finish(
+  const one = finish(
     decl,
     decl,
     name,
@@ -612,6 +650,37 @@ function lowerPlain(
     diagnostics,
     init,
   );
+  if (one !== undefined && inferred !== undefined) inferredVars.set(one, inferred);
+  return one;
+}
+
+/** The record each read of a module variable whose uses decide its type is marked with. */
+const inferredVars = new WeakMap<ModuleVarDecl, InferredValue>();
+
+/** The record of `v`, when its uses decide its type (change 0134 item 1). */
+export function inferredModuleVar(v: ModuleVarDecl): InferredValue | undefined {
+  return inferredVars.get(v);
+}
+
+function inferredModuleValue(
+  decl: VarSite,
+  name: string,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): InferredValue {
+  const conflict = inferenceConflict(sourceFile, decl);
+  if (conflict !== undefined) {
+    diagnostics.push(makeDiagnostic(sourceFile, decl.name, conflict, TS_CODES.TYPE_MISMATCH));
+  }
+  const type = decidedType(sourceFile, decl);
+  const shown = ts.isIdentifier(decl.name) ? decl.name.text : name;
+  return {
+    decl,
+    key: decl,
+    name: shown,
+    written: decl.initializer!.getText(sourceFile).replace(/\s+/g, ' '),
+    ...(type !== undefined ? { type } : {}),
+  };
 }
 
 /** The rules both spaces share once the type is known: what the space may hold, no initializer

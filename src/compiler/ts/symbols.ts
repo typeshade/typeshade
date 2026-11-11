@@ -283,3 +283,114 @@ export function recordAbstractConstTable(
 export function abstractConstTableOf(sourceFile: ts.SourceFile): AbstractConstTable | undefined {
   return abstractConstTables.get(sourceFile);
 }
+
+// ─── a function its callers decide, with copies (Rule 8.19, change 0134 items 1 and 4) ───────
+//
+// A function whose calls ask two or more result types is lowered once for each (`g_u32` beside
+// `g`), so the table above records two types at its declaration and at each local of its body,
+// and no one written type describes them. This side table holds what the hover says instead:
+// at the declaration, the result types in TypeShade's words; at a call, the copy that call
+// takes. Keyed by the source file, as the tables above are.
+
+/** Per source file: the result types of each function with copies, by the offset of its name,
+ *  and the result type of each call of one, by the offset of the call's callee name. */
+const resultCopies = new WeakMap<
+  ts.SourceFile,
+  {
+    readonly decls: Map<number, { readonly name: string; readonly types: readonly ShaderType[] }>;
+    readonly calls: Map<number, ShaderType | null>;
+    /** The parameter types of the function each such call calls, for an instance's hover. */
+    readonly params: Map<number, readonly ShaderType[]>;
+  }
+>();
+
+function resultCopiesOf(sourceFile: ts.SourceFile) {
+  let table = resultCopies.get(sourceFile);
+  if (table === undefined) {
+    table = { decls: new Map(), calls: new Map(), params: new Map() };
+    resultCopies.set(sourceFile, table);
+  }
+  return table;
+}
+
+/** Record that the function named at `name` is lowered once for each of `types`. */
+export function recordResultCopies(
+  sourceFile: ts.SourceFile,
+  name: ts.Node,
+  shown: string,
+  types: readonly ShaderType[],
+): void {
+  resultCopiesOf(sourceFile).decls.set(name.getStart(sourceFile), { name: shown, types });
+}
+
+/** Record that the call whose callee name is `callee` calls the copy that returns `type`. */
+export function recordCopyCall(
+  sourceFile: ts.SourceFile,
+  callee: ts.Node,
+  type: ShaderType,
+  params: readonly ShaderType[] = [],
+): void {
+  const { calls, params: paramsAt } = resultCopiesOf(sourceFile);
+  const at = callee.getStart(sourceFile);
+  paramsAt.set(at, params);
+  const seen = calls.get(at);
+  // A call in a body lowered twice (a copy of the function around it) can take two copies.
+  if (seen === undefined) calls.set(at, type);
+  else if (seen !== null && JSON.stringify(seen) !== JSON.stringify(type)) calls.set(at, null);
+}
+
+/** Keeps, for `entry`, what the compile of the linked source `linked` recorded of the calls of
+ *  functions with copies that stand in `entry` (`compileLinked`): `at` maps an offset of the
+ *  linked source to one of `entry`, or gives `undefined` for one in another file. */
+export function mapResultCopies(
+  linked: ts.SourceFile,
+  entry: ts.SourceFile,
+  at: (offset: number) => number | undefined,
+): void {
+  const table = resultCopies.get(linked);
+  if (table === undefined) return;
+  const mine = resultCopiesOf(entry);
+  for (const [offset, type] of table.calls) {
+    const to = at(offset);
+    if (to === undefined) continue;
+    mine.calls.set(to, type);
+    const params = table.params.get(offset);
+    if (params !== undefined) mine.params.set(to, params);
+  }
+  for (const [offset, decl] of table.decls) {
+    const to = at(offset);
+    if (to !== undefined) mine.decls.set(to, decl);
+  }
+}
+
+/** Forgets what an earlier pass of the use inference recorded (`use-inference.ts`). */
+export function resetResultCopies(sourceFile: ts.SourceFile): void {
+  resultCopies.delete(sourceFile);
+}
+
+/** The parameter types of the function the call whose callee name starts at `offset` calls. */
+export function copyCallParamsAt(
+  sourceFile: ts.SourceFile,
+  offset: number,
+): readonly ShaderType[] | undefined {
+  return resultCopies.get(sourceFile)?.params.get(offset);
+}
+
+/** Whether some function of `sourceFile` has copies whose words the hover shows. */
+export function hasResultCopies(sourceFile: ts.SourceFile): boolean {
+  const table = resultCopies.get(sourceFile);
+  return (table?.decls.size ?? 0) > 0 || (table?.calls.size ?? 0) > 0;
+}
+
+/** The result types of the function whose name starts at `offset`, when it has copies. */
+export function resultCopiesAt(
+  sourceFile: ts.SourceFile,
+  offset: number,
+): { readonly name: string; readonly types: readonly ShaderType[] } | undefined {
+  return resultCopies.get(sourceFile)?.decls.get(offset);
+}
+
+/** The result type of the call whose callee name starts at `offset`, when it calls a copy. */
+export function copyCallAt(sourceFile: ts.SourceFile, offset: number): ShaderType | undefined {
+  return resultCopies.get(sourceFile)?.calls.get(offset) ?? undefined;
+}
