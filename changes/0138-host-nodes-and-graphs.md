@@ -3284,6 +3284,26 @@ this amendment.
   3. Deviation D-q: item 2 is made part of the approved text by this amendment (A13). Item 3 rests on
      item 2 of this list, an inference. The owner answered Q13 (below): item 3 is made part of the approved text too.
 
+**Decision 4. The bundle budgets after A12 and A13.**
+
+- [fact] #1257 at `9b78bae7` takes the measured gzip bytes in `scripts/bundle-budget.json`. A12
+  decision 2 accepted the sizes at `51f5bf8c`. The growth since then comes from A12 decision 3 and
+  decision 4 and from decision 1 of this amendment:
+
+| Bundle                 | A12 decision 2 | `9b78bae7` | Growth (gzip bytes) |
+| ---------------------- | -------------- | ---------- | ------------------- |
+| `typeshade/runtime`    | 168,413        | 170,646    | +2,233              |
+| `typeshade/fuse`       | 114,063        | 115,268    | +1,205              |
+| `typeshade/algorithms` | 68,217         | 70,312     | +2,095              |
+| `typeshade/random`     | 49,724         | 51,896     | +2,172              |
+
+- [decision, owner, 2026-11-11] The owner picked the recommended option in the question UI: "수용
+  (추천)" (English translation: accept; recommended). Description: "결정하신 기능(Q1–Q7, OD-7 추론,
+  f64)의 비용입니다. 측정값은 이미 scripts/bundle-budget.json에 들어 있습니다. A13에 기록합니다."
+  (English translation: the cost of the decided features, Q1 to Q7, the OD-7 inference and `f64`;
+  the measured values are already in `scripts/bundle-budget.json`; recorded in A13.)
+- [fact] A later commit of #1257 that moves a budget again asks the owner again.
+
 **Deviations.**
 
 | ID  | Approved text                                                                                             | Delivered (#1257 at `da043f1d`)                               | Disposition                                                                                                                                                   |
@@ -3374,7 +3394,7 @@ this amendment.
 
 - [fact] No review has read the revision that answers the delta review.
 
-- Affects: A12 decision 3 (the places that fix the element); A12's Q8 meaning and A12's editor list,
+- Affects: A12 decision 3 (the places that fix the element); A12 decision 2 (the bundle budgets, decision 4); A12's Q8 meaning and A12's editor list,
   items 2 to 4; A12 decision 4, item 2, and A12's open item on the kinds that stay refused (D-p);
   A12's slice status table.
 - Status: `status: accepted` does not change.
