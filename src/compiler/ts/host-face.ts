@@ -2737,12 +2737,76 @@ const notCallable = (reason: string): string =>
 const queuedCall = (written: 'arrays' | 'bindings'): string =>
   `A call whose written ${written} are all Residents and that returns nothing may be made without await: it is queued and runs in order, and read() of a Resident it writes waits for it and throws its error (Rule 11.8); the signature returning void is that call.`;
 
+/** What a call on a resource is, which the sentence of a kernel function and of a `@compute`
+ *  entry say where a resource is an argument (change 0138, R2). */
+const resourceCall =
+  ' A call that takes a resource (a Buffer, a Uniform, or a binding the module exports) does not block: it returns nothing, the runtime submits it when the current microtask checkpoint ends or at the next read() or call, each call sees the values of its own call, and its error is thrown at the next read() or call with the line of the call (change 0138, R2).';
+
+/** The resource types a call on a resource takes in place of a value of the exported class
+ *  `cls` (change 0138, R2): a `Uniform` of it where it has a uniform layout, a `Buffer` of it
+ *  for an array with no size where it has a storage layout. Each is written as the type of an
+ *  exported binding, which a `Uniform` or a `Buffer` the host makes is assignable to. */
+function resourceTypes(
+  exports: readonly FaceExport[],
+): (cls: string, kind: 'uniform' | 'buffer') => string | undefined {
+  const classes = new Map(
+    exports.flatMap((e) => (e.kind === 'class' && !e.abstract ? [[e.name, e] as const] : [])),
+  );
+  return (cls, kind) => {
+    const c = classes.get(cls);
+    if (c === undefined) return undefined;
+    if (kind === 'uniform')
+      return c.layouts.u === undefined
+        ? undefined
+        : `Omit<Uniform<${cls}>, 'dispose' | keyof Disposable>`;
+    return c.layouts.s === undefined
+      ? undefined
+      : `Omit<Buffer<${cls}>, 'dispose' | keyof Disposable>`;
+  };
+}
+
 /** What the view reads beside the exports to write a struct by its name (change 0116, decisions
  *  D7 and D8): the names, and the type of each binding and of each parameter of a function. */
 interface ViewTypes {
   readonly naming: Naming;
   readonly binding: (name: string) => ShaderType | undefined;
   readonly param: (fn: string, name: string) => ShaderType | undefined;
+}
+
+/** The bindings object of a `@compute` entry's call that only queues (Rule 8.24): its
+ *  `queuedType`, with a `Uniform` of the class where a uniform binding holds one, and a `Buffer`
+ *  of it where a storage array with no size holds them, for a call on a resource (change 0138,
+ *  R2). */
+function queuedBindings(
+  e: HostExport & { kind: 'compute' },
+  types: ViewTypes,
+  resource: (cls: string, kind: 'uniform' | 'buffer') => string | undefined,
+): string {
+  const { queued } = bindingsTypes(e.entry.bindings, types.binding, types.naming);
+  let changed = false;
+  const fields = queued.map((field) => {
+    const b = e.entry.bindings.find((x) => field.startsWith(`readonly ${x.name}: `));
+    if (b === undefined || !isBufferBinding(b)) return field;
+    const t = types.binding(b.name);
+    let extra: string | undefined;
+    if (b.space === 'uniform')
+      extra = resource(bindingTsType(b.layout, false, true, t, types.naming), 'uniform');
+    else if (b.layout.k === 'a' && b.layout.n === null && b.layout.e.k === 'o')
+      extra = resource(
+        bindingTsType(
+          b.layout.e,
+          b.writes,
+          false,
+          t?.kind === 'array' ? t.elem : undefined,
+          types.naming,
+        ),
+        'buffer',
+      );
+    if (extra === undefined) return field;
+    changed = true;
+    return `${field} | ${extra}`;
+  });
+  return changed ? objectType(fields) : e.queuedType!;
 }
 
 function viewText(
@@ -2760,6 +2824,8 @@ function viewText(
   // exported struct and class (change 0116, decision D7).
   const named = structNames(exports, true);
   const args = types.naming.named;
+  // The resources a call on a resource takes (change 0138, R2).
+  const resource = resourceTypes(exports);
   // The declarations first: the imports are the names they write (`viewImports`).
   const out: string[] = [];
   for (const e of exports) {
@@ -2812,11 +2878,11 @@ function viewText(
         const [x, y, z] = e.entry.wg;
         out.push(
           ...above(
-            `An \`@compute([${x}, ${y}, ${z}])\` entry: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Resident a call wrote (change 0075); each binding the entry writes is read back into your value in place, or stays on the device in a Resident. The shape shown is its default; options.constants selects declared overrides without changing workgroups (Rules 8.24 and 11.8). ${queuedCall('bindings')}`,
+            `An \`@compute([${x}, ${y}, ${z}])\` entry: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Resident a call wrote (change 0075); each binding the entry writes is read back into your value in place, or stays on the device in a Resident. The shape shown is its default; options.constants selects declared overrides without changing workgroups (Rules 8.24 and 11.8). ${queuedCall('bindings')}${e.queuedType !== undefined && queuedBindings(e, types, resource) !== e.queuedType ? resourceCall : ''}`,
           ),
           ...(e.queuedType !== undefined
             ? [
-                `export declare function ${e.name}(bindings: ${e.queuedType}, workgroups: ${WORKGROUPS}, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): void;`,
+                `export declare function ${e.name}(bindings: ${queuedBindings(e, types, resource)}, workgroups: ${WORKGROUPS}, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): void;`,
               ]
             : []),
           `export declare function ${e.name}(bindings: ${e.bindingsType}, workgroups: ${WORKGROUPS}, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): Promise<void>;`,
@@ -2830,7 +2896,12 @@ function viewText(
         const params = (queued: boolean): string =>
           f.params
             .map((p) => {
-              if (p.k === 'value') return `${p.name}: ${argType(p.type, args)}`;
+              if (p.k === 'value') {
+                const t = argType(p.type, args);
+                // A call that only queues takes a uniform of the class (change 0138, R2).
+                const u = queued ? resource(t, 'uniform') : undefined;
+                return `${p.name}: ${u === undefined ? t : `${t} | ${u}`}`;
+              }
               // A storage texture is a device's texture; a sampled one any image (change 0077).
               if (p.k === 'texture')
                 return `${p.name}: ${p.storage !== undefined ? 'Texture' : IMAGE_SOURCE}`;
@@ -2842,10 +2913,25 @@ function viewText(
               // `array<T>` holds its `Resident` (change 0116, decision D3); a written array of
               // the call that only queues is a `Resident` alone.
               const type = types.param(f.fn, p.name);
-              const array =
+              const plain =
                 queued && p.writes
                   ? residentOf(p.layout, p.writes, type, types.naming)
                   : unsizedType(p.layout, p.writes, type, types.naming);
+              // A call that only queues takes a storage array of the class (change 0138, R2).
+              const buffer =
+                queued && p.layout.e.k === 'o'
+                  ? resource(
+                      bindingTsType(
+                        p.layout.e,
+                        p.writes,
+                        false,
+                        type?.kind === 'array' ? type.elem : undefined,
+                        types.naming,
+                      ),
+                      'buffer',
+                    )
+                  : undefined;
+              const array = buffer === undefined ? plain : `${plain} | ${buffer}`;
               // An array a loop pushes onto may come with its length, which a Resident holds
               // (change 0094, decision D5: on such an array only).
               return p.pushed === true
@@ -2869,14 +2955,15 @@ function viewText(
           f.gpu?.loops.some((l) => l.device !== undefined) === true
             ? " A loop whose trip count it reads from an array runs from a count the GPU computes, with nothing read back, and its writes past an array's end are dropped (Rule 8.21)."
             : '';
+        const queues = f.result.k === 'void' && f.params.some((p) => p.k === 'array' && p.writes);
         out.push(
           ...above(
-            `A kernel function (Rule 8.22). ${where}. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8).${counted}${pushes} ${queuedCall('arrays')}`,
+            `A kernel function (Rule 8.22). ${where}. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8).${counted}${pushes} ${queuedCall('arrays')}${queues && params(true) !== params(true).replace(/ \| Omit<(Uniform|Buffer)<[^>]*>, 'dispose' \| keyof Disposable>/g, '') ? resourceCall : ''}`,
           ),
         );
         // With every written array a `Resident` and no result, nothing waits: the call queues.
-        if (f.result.k === 'void' && f.params.some((p) => p.k === 'array' && p.writes))
-          out.push(`export declare function ${e.name}(${params(true)}): void;`);
+        // So does a call that takes a resource (change 0138, R2).
+        if (queues) out.push(`export declare function ${e.name}(${params(true)}): void;`);
         out.push(
           `export declare function ${e.name}(${params(false)}): Promise<${resultType(f.result, named)}>;`,
         );

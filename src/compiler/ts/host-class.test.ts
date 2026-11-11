@@ -188,8 +188,9 @@ describe('the class in the view (Rule 8.20)', () => {
     expect(v).toContain(
       'export declare function run(out: array<f32>, xs: array<f32>, filters: array<OnePole>, block: u32): Promise<void>;',
     );
+    // The call that only queues takes a Buffer of the class too (change 0138, R2).
     expect(v).toContain(
-      'export declare function run(out: Resident<Float32Array>, xs: array<f32>, filters: Resident<OnePole[]>, block: u32): void;',
+      "export declare function run(out: Resident<Float32Array>, xs: array<f32>, filters: Resident<OnePole[]> | Omit<Buffer<OnePole>, 'dispose' | keyof Disposable>, block: u32): void;",
     );
     expect(v).toContain('import type { f32, u32, array } from');
     // `exports` reports the class as the struct it is: `hostFace` keeps the shape of its result.
