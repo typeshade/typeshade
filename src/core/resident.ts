@@ -46,7 +46,7 @@ import { checkLimitValues } from './device-limits.js';
 import { automaticFp64Flavor } from './device-info.js';
 import { fuseSlot } from './fuse-scope.js';
 import { afterCheckpoint, flushSubmission, throwFailure } from './submission.js';
-import { gpuDone } from './gl-fence.js';
+import { readFence } from './gl-fence.js';
 import { warnDeprecated } from './deprecation.js';
 import { TIERS, tierNames, type Tier } from './tiers.js';
 import type { Fp64Flavor } from './passes/fp64-lower.js';
@@ -124,12 +124,13 @@ export class ResidentArrayState {
   /** The WebGL2 context a call that wrote the handle ran on, whose fence its next `read()` waits
    *  on (change 0138, Amendment A5, default 6); undefined otherwise. */
   fence: WebGL2RenderingContext | undefined;
-  /** Wait on the fence of the WebGL2 context that last wrote the handle, once. */
+  /** Wait on the fence of the WebGL2 context that last wrote the handle, once. A lost context ends
+   *  the wait: the WebGL2 tier read the values back inside the call (`readFence`). */
   async fenced(): Promise<void> {
     const gl = this.fence;
     if (gl === undefined) return;
     this.fence = undefined;
-    await gpuDone(gl);
+    await readFence(gl);
   }
   /** Set by `destroy()`: a use after it throws. */
   destroyed = false;

@@ -182,8 +182,9 @@ describes it.
   R3: two entry calls under `device.use()` give the CPU tier's bits; a call that mixes devices,
   and a call on another device between a write of an exported binding and its `read()`, are
   refused; and an exported binding read by calls on two devices gives each the dirty ranges the
-  other took. On WebGL2 the submission ends with a `flush` and `read()` waits on a fence
-  (Amendment A5, default 6).
+  other took; a device disposed after a write of an exported binding lands it first. On WebGL2 the
+  submission ends with a `flush` and `read()` waits on a fence (Amendment A5, default 6), and a
+  call with plain data only places no fence.
 - `bun run gate:render`: the class-based 3D SDF example is rendered on headless WebGPU and its 48x48 RGBA8 pixels are compared exactly with the committed image golden. Use `UPDATE_RT_GOLDEN=1 bun run gate:render` only for an intentional golden refresh.
 - `bun run gate:journeys` (after `build`): the packed tarball installed into a fresh project,
   and every program in `journeys/` checked the way a user meets it: `compile()`, the language

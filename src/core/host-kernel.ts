@@ -704,9 +704,10 @@ function runKernel(
   args: readonly unknown[],
   owner: CallOwner,
   reads: IncomingReads,
+  recorded = false,
 ): Promise<unknown> {
   try {
-    const checked = { ...checkCall(cpu, k, argc, args), owner };
+    const checked = { ...checkCall(cpu, k, argc, args), owner, recorded };
     checkIncoming(kernelInputs(k, checked, reads));
     return runChecked(cpu, k, checked);
   } catch (e) {
@@ -794,7 +795,7 @@ function recordKernel(
     return s === undefined ? [] : [s];
   });
   joinRecorded(`${k.name}()`, site, uploads, written, () =>
-    runKernel(cpu, k, argc, mapped, owner, reads),
+    runKernel(cpu, k, argc, mapped, owner, reads, true),
   );
   return undefined;
 }
@@ -837,6 +838,10 @@ export interface KernelRange {
 export interface CheckedCall {
   /** The owner captured by an ordinary call; a recorded call uses its scope's owner. */
   readonly owner?: CallOwner;
+  /** A call on a resource, recorded and submitted later (change 0138, R2): on WebGL2 its
+   *  submission flushes and a `read()` of what it wrote waits on a fence (Amendment A5, default 6).
+   *  A call with plain data keeps today's meaning, and marks nothing. */
+  readonly recorded?: boolean;
   readonly states: readonly (ResidentArrayState | undefined)[];
   readonly hosts: readonly unknown[];
   readonly values: readonly unknown[];
@@ -1221,8 +1226,9 @@ export async function runChecked(
       if (run !== undefined) recordDispatches(run.counts, run.group, drawn);
       // The submission flushes the context, and a read() of what the call wrote waits on a fence
       // (change 0138, Amendment A5, default 6).
-      // A plan of a scope keeps its own submission (Rule 11.13).
-      if (run === undefined) {
+      // Only a recorded call: a plan of a scope keeps its own submission (Rule 11.13), and a call
+      // with plain data read its values back inside the call (S3 of the review of #1238).
+      if (run === undefined && c.recorded === true) {
         usedGl(gl);
         k.params.forEach((p, i) => {
           const s = states[i];

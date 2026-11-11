@@ -50,6 +50,12 @@ export function lives(xs: array<Particle>, out: array<f32>): void {
   }
 }
 
+export function scale(xs: array<f32>, k: f32): void {
+  for (let i = 0; i < xs.length; i++) {
+    xs[i] = xs[i] * k;
+  }
+}
+
 @compute([64])
 export function step(id: builtin<"global_invocation_id">) {
   if (id.x < ps.length) {
@@ -130,6 +136,13 @@ interface Outcome {
    *  read() after it. Empty on the other tiers. */
   glEnd: string[];
   glRead: string[];
+  /** S3 of the review of #1238: a call with plain data only that wrote a Resident, and the WebGL2
+   *  calls of its read(): no fence, since the call read its values back. */
+  plainValues: number[];
+  plainRead: string[];
+  /** S2 of the review: what a call on another device read of the exported binding after the
+   *  device whose call wrote it was disposed, or the error. */
+  afterDispose: string;
   error?: string;
 }
 
@@ -154,6 +167,7 @@ async function runInPage(input: {
       move(xs: unknown, p: unknown): unknown;
       step(b: unknown, w: unknown): unknown;
       lives(xs: unknown, out: unknown): unknown;
+      scale(xs: unknown, k: number): Promise<unknown>;
     };
     array(cls: unknown, data?: unknown[]): Buffer;
     configure(o: { prefer: string[] }): void;
@@ -183,6 +197,9 @@ async function runInPage(input: {
     crossed: false,
     glEnd: [],
     glRead: [],
+    plainValues: [],
+    plainRead: [],
+    afterDispose: '',
   };
   // Every flush and fence of the WebGL2 context, in order.
   const glLog: string[] = [];
@@ -327,6 +344,30 @@ async function runInPage(input: {
     const b2 = other.array(new Float32Array(4));
     m.lives(m.ps, b2);
     for (const r of [a1, b1, a2, b2]) out.twoDevices.push(...(await r.read()));
+    // S3: a call with plain data only (a Resident is no resource of R2) keeps today's meaning: it
+    // reads its values back inside the call, and its read() places no fence.
+    const plain = within(dev, () => g.array(new Float32Array([1, 2, 3, 4]))) as unknown as {
+      read(): Promise<Float32Array>;
+    };
+    await m.scale(plain, 2);
+    await g.kernelQueue.idle();
+    const plainMark = glLog.length;
+    out.plainValues = Array.from(await plain.read());
+    out.plainRead = glLog.slice(plainMark);
+    // S2: a device disposed after its call wrote the exported binding lands the values first, and
+    // drops its copy: a call on another device takes them.
+    const gone = await g.createDevice({ prefer });
+    m.ps.set(data.slice(0, 4));
+    m.camera.set({ dt: 1, drag: 1 });
+    within(gone, () => m.step({ camera: m.camera, ps: m.ps }, [1]));
+    await gone.dispose();
+    try {
+      const after = other.array(new Float32Array(4));
+      m.lives(m.ps, after);
+      out.afterDispose = Array.from(await after.read()).join(', ');
+    } catch (e) {
+      out.afterDispose = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    }
     await dev.dispose();
     await other.dispose();
   } catch (e) {
@@ -414,6 +455,14 @@ export async function resourceCallArm(page: Page): Promise<number> {
       check(
         o.twoDevices.length === 16 && o.twoDevices.every((x, i) => Object.is(x, want[i])),
         `${tier}: an exported binding uploads its dirty ranges on each device that reads it (${o.twoDevices.join(', ')})`,
+      );
+      check(
+        o.plainValues.join() === '2,4,6,8' && !o.plainRead.includes('fenceSync'),
+        `${tier}: a call with plain data only reads back inside the call, and its read() places no fence (${o.plainValues.join(', ')}; ${o.plainRead.includes('fenceSync') ? 'a fence at read()' : 'no fence'})`,
+      );
+      check(
+        o.afterDispose === [1, 1.125, 1.25, 1.375].join(', '),
+        `${tier}: a device disposed after a write of an exported binding lands it first (${o.afterDispose})`,
       );
       if (tier === 'webgl2') {
         check(

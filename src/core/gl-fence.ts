@@ -35,3 +35,27 @@ export async function gpuDone(gl: WebGL2RenderingContext): Promise<void> {
   }
   gl.deleteSync(fence);
 }
+
+/**
+ * Wait on a fence for a `read()` of what a recorded call wrote on WebGL2 (change 0138, Amendment
+ * A5, default 6). The WebGL2 tier reads each call's words back inside the call, so the values are
+ * on the host already: a lost context (`isContextLost()`, a `null` fence, `WAIT_FAILED`) ends the
+ * wait and is no error of the read (S4 of the review of #1238). The next call meets the lost
+ * context itself.
+ */
+export async function readFence(gl: WebGL2RenderingContext): Promise<void> {
+  if (gl.isContextLost?.() === true) return;
+  const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+  if (fence === null) return;
+  gl.flush();
+  try {
+    for (;;) {
+      const state = gl.clientWaitSync(fence, 0, 0);
+      if (state === gl.ALREADY_SIGNALED || state === gl.CONDITION_SATISFIED) return;
+      if (state === gl.WAIT_FAILED) return;
+      await yieldToPage();
+    }
+  } finally {
+    gl.deleteSync(fence);
+  }
+}

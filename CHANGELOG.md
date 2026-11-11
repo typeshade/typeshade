@@ -29,11 +29,14 @@ repository is an official release yet: the `typeshade` package on npm holds only
   storage array keeps a device copy for each device whose call reads it, and each copy takes
   every dirty range the host set since its own last call. Between a call that writes an exported
   binding and its `read()`, a call on another device is refused with a `TypeError` that says to
-  await `read()` first. On WebGL2 the end of a submission flushes the context, and `read()` waits
-  on a fence (`core/gl-fence.ts`). A draw keeps today's owner. Measured bundle budgets move
-  (`scripts/bundle-budget.json`, gzip bytes): `typeshade/runtime` 166484 to 166929,
-  `typeshade/fuse` 113593 to 113898, `typeshade/algorithms` 64741 to 64863 and `typeshade/random`
-  46043 to 46183: the call layer each one carries settles a call's device at the call now.
+  await `read()` first; a device disposed in that time lands the values first and drops its copy.
+  A `Uniform` joins a call on any device, since its value is copied at each call. On WebGL2 the end
+  of a submission of recorded calls flushes the context, and `read()` of what such a call wrote
+  waits on a fence (`core/gl-fence.ts`); a lost context ends the wait, since the values are on the
+  host already. A call with plain data places no flush and no fence. A draw keeps today's owner. Measured bundle budgets move
+  (`scripts/bundle-budget.json`, gzip bytes): `typeshade/runtime` 166484 to 167177,
+  `typeshade/fuse` 113593 to 113898, `typeshade/algorithms` 64741 to 64878 and `typeshade/random`
+  46043 to 46200: the call layer each one carries settles a call's device at the call now.
 
 - **A call on a resource does not block** (change 0138, milestone 3, R2; Amendment A5). A kernel
   function that returns nothing, or a `@compute` entry, called with a `Buffer` or a `Uniform`

@@ -59,6 +59,7 @@ import { CpuTexture, cpuFormatGap } from '../core/cpu-texture.js';
 import { ownerInUse, textureOwners } from '../core/owner.js';
 import { TIERS, tierNames, type Tier } from '../core/tiers.js';
 import { TextureImpl, type Texture } from './resources.js';
+import { forgetOwner } from './resource.js';
 import { webgpuDevice } from '../rhi/webgpu.js';
 import { fitChunk, learnRate, type ChunkRate } from './chunk.js';
 import { defaultDevice, endUse, pushUse } from './default-device.js';
@@ -413,11 +414,17 @@ class DeviceImpl implements Device {
   array<T>(value: T): Resident<T>;
   array<E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>;
   array(...args: unknown[]): Resident<unknown> {
+    return this.arrayAs('resident()', args);
+  }
+
+  /** `array()` with the refusals worded for `at`: `array()` of `typeshade/runtime` makes a device's
+   *  `Resident` with this when the device is in use (change 0138, R3). Not API. */
+  arrayAs(at: string, args: readonly unknown[]): Resident<unknown> {
     this.#usable('array()');
     const zeroed = args.length >= 2;
     const [value, element] = args as [unknown, unknown];
     // The refusals of `resident()` come first, so a wrong value makes no slot.
-    const probe = makeResident('resident()', zeroed ? [value, element] : [value]);
+    const probe = makeResident(at, zeroed ? [value, element] : [value]);
     const probeState = residentState(probe)!;
     const el: PooledElement | undefined = zeroed ? (element as ZeroedElement) : elementOf(value);
     const length = zeroed
@@ -608,6 +615,9 @@ class DeviceImpl implements Device {
     if (this.#disposing !== undefined) return this.#disposing;
     this.#disposing = (async () => {
       await kernelQueue.idle();
+      // Each exported storage array lands what a call of this device wrote, while the device holds
+      // it, and drops this device's copy (change 0138, R3).
+      await forgetOwner(this.owner);
       // The pooled arrays are in `live` too, so each is destroyed once.
       for (const slot of this.#live.values()) slot.inner.destroy();
       this.#live.clear();

@@ -24,7 +24,7 @@ import { createTypeshadeLanguageService } from '../language-service/service.js';
 import { tscDiagnostics } from '../core/testing/tsc-diagnostics.js';
 import { array, configure, createDevice, uniform, zeros, type Device } from '../runtime.js';
 import { kernelQueue } from '../core/resident.js';
-import type { Buffer, Uniform } from './resource.js';
+import { deviceCopies, type Buffer, type Uniform } from './resource.js';
 import type { f32, vec3 } from './host-types.js';
 
 const RUNTIME = resolve(__dirname, '../core/host-runtime.ts');
@@ -186,12 +186,40 @@ describe('a resource belongs to the device in use when it is made (R3)', () => {
     }
     m.age(xs, 1);
     expect(await lifeOf(xs)).toEqual([1, 1, 1]);
-    // A Uniform alone decides the device of a call on an exported binding.
+    // A Uniform takes no part in the choice of the device (the owner's decision of 2026-11-11 on
+    // Q-a): a call on an exported binding and a Uniform runs on the device in use.
     m.ps.set(data(2));
-    m.move(m.ps, p);
+    {
+      using _ = dev.use();
+      m.move(m.ps, p);
+    }
     expect(await lifeOf(m.ps)).toEqual([2, 2]);
     m.lives(xs, out);
     expect(Array.from(await out.read())).toEqual([1, 1, 1]);
+  });
+
+  it('a Uniform made with no device in use joins a call beside a Buffer made in a block (Q-a)', async () => {
+    const m = await load();
+    // The shape of a host module: the uniform at the top, the device opened later.
+    const p = uniform(m.Params, { dt: 3 });
+    const dev = await cpuDevice();
+    let xs: Buffer<{ pos: vec3; life: f32 }>;
+    {
+      using _ = dev.use();
+      xs = zeros(m.Particle, 2);
+      expect(m.move(xs, p)).toBeUndefined();
+    }
+    // Outside the block too: the call runs on the device of xs.
+    m.move(xs, p);
+    expect(await lifeOf(xs)).toEqual([6, 6]);
+  });
+
+  it('array(n, el) and array(xs) in a block name array() in their errors (S1)', async () => {
+    const dev = await cpuDevice();
+    using _ = dev.use();
+    const make = array as (...a: unknown[]) => unknown;
+    expect(() => make(0, 'f32')).toThrow(/^array\(\): a zeroed Resident takes a length/);
+    expect(() => make(Symbol('x'))).toThrow(/^array\(\): /);
   });
 
   it('a Buffer made with no device in use belongs to the default owner, in a block too', async () => {
@@ -217,14 +245,14 @@ describe('a call that mixes devices is a TypeError (R3)', () => {
     };
     const xs = mine(a, () => array(m.Particle, data(2, 1))) as Buffer<{ pos: vec3; life: f32 }>;
     const out = mine(b, () => array(new Float32Array(2)));
-    const p = mine(b, () => uniform(m.Params, { dt: 1 }));
     expect(() => m.lives(xs, out)).toThrow(TypeError);
     expect(() => m.lives(xs, out)).toThrow(
       /parameter "out" belongs to Device #\d+, while parameter "xs" belongs to Device #\d+/,
     );
-    expect(() => m.move(xs, p)).toThrow(/A call takes resources from one owner/);
-    // A Buffer of the default owner beside a device's is a mix too.
-    expect(() => m.move(zeros(m.Particle, 1), p)).toThrow(TypeError);
+    // A Buffer of the default owner beside a device's Resident is a mix too.
+    expect(() => m.lives(zeros(m.Particle, 2), out)).toThrow(
+      /A call takes resources from one owner/,
+    );
     expect(kernelQueue.held.length).toBe(0);
     // The refused calls changed nothing: the Buffer reads its own values.
     expect(xs.at(0).life.get()).toBe(1);
@@ -284,6 +312,49 @@ describe('an exported binding belongs to no one device (R3, R10)', () => {
     m.lives(m.ps, out);
     expect(Array.from(await out.read())).toEqual([3, 3]);
     expect(Array.from(await before.read())).toEqual([1, 1]);
+  });
+});
+
+describe('a device disposed while an exported binding holds its copy (S2)', () => {
+  it('lands what its call wrote, drops its copy, and leaves the binding usable', async () => {
+    const m = await load();
+    const a = await createDevice({ prefer: ['cpu'] });
+    const b = await cpuDevice();
+    m.ps.set(data(2, 1));
+    m.camera.set({ dt: 1 });
+    // The devices of the tests before hold copies too, until they are disposed.
+    const before = deviceCopies(m.ps);
+    {
+      using _ = a.use();
+      m.step({ camera: m.camera, ps: m.ps }, [1]);
+    }
+    expect(deviceCopies(m.ps)).toBe(before + 1);
+    await a.dispose();
+    // The copy of the disposed device is gone, and what its call wrote is in the region.
+    expect(deviceCopies(m.ps)).toBe(before);
+    expect(m.ps.at(0).life.get()).toBe(2);
+    const out = b.array(new Float32Array(2));
+    m.lives(m.ps, out);
+    expect(Array.from(await out.read())).toEqual([2, 2]);
+    expect(await lifeOf(m.ps)).toEqual([2, 2]);
+  });
+
+  it('keeps no copy of a disposed device that only read it', async () => {
+    const m = await load();
+    m.ps.set(data(2, 1));
+    const before = deviceCopies(m.ps);
+    for (let i = 0; i < 3; i++) {
+      const d = await createDevice({ prefer: ['cpu'] });
+      m.lives(m.ps, d.array(new Float32Array(2)));
+      await kernelQueue.idle();
+      await d.dispose();
+    }
+    expect(deviceCopies(m.ps)).toBe(before);
+    m.ps.at(0).life.set(9);
+    const d = await cpuDevice();
+    const out = d.array(new Float32Array(2));
+    m.lives(m.ps, out);
+    expect(Array.from(await out.read())).toEqual([9, 1]);
   });
 });
 

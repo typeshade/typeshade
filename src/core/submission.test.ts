@@ -50,3 +50,27 @@ describe('a submission on WebGL2 (A5, default 6)', () => {
     expect(log.length).toBe(5);
   });
 });
+
+describe('a lost WebGL2 context at read() (S4 of the review of #1238)', () => {
+  it('gives the values the host holds, since the call read them back already', async () => {
+    for (const lost of [
+      { fenceSync: () => null, clientWaitSync: () => 5, isContextLost: () => false },
+      { fenceSync: () => ({}), clientWaitSync: () => 5, isContextLost: () => true },
+      { fenceSync: () => ({}), clientWaitSync: () => 5, isContextLost: () => false },
+    ]) {
+      const gl = {
+        SYNC_GPU_COMMANDS_COMPLETE: 1,
+        ALREADY_SIGNALED: 2,
+        TIMEOUT_EXPIRED: 3,
+        CONDITION_SATISFIED: 4,
+        WAIT_FAILED: 5,
+        flush: () => undefined,
+        deleteSync: () => undefined,
+        ...lost,
+      } as unknown as WebGL2RenderingContext;
+      const r = makeResident('array()', [new Float32Array([1, 2])]);
+      residentState(r)!.fence = gl;
+      expect(Array.from((await r.read()) as Float32Array)).toEqual([1, 2]);
+    }
+  });
+});

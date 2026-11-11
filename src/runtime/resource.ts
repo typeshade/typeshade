@@ -40,8 +40,10 @@
 // runs on that device, and a call that mixes devices is a `TypeError`. An exported binding belongs
 // to no one device: a storage array keeps a device copy for each device whose call reads it, and
 // the dirty ranges one copy takes stay pending for the others, which take them at their own next
-// call. Between a call that wrote it and `read()`, a call on another device is refused. On WebGL2 a
-// `read()` waits on a fence (Amendment A5, default 6).
+// call. Between a call that wrote it and `read()`, a call on another device is refused, and a
+// device disposed in that time lands the values first and drops its copy. A `Uniform` joins a call
+// on any device, since its value is copied at each call (D-b; the owner's decision of 2026-11-11).
+// On WebGL2 a `read()` waits on a fence (Amendment A5, default 6).
 //
 // Like the rest of `typeshade/runtime` it imports no compiler.
 
@@ -60,7 +62,7 @@ import type { array as HostArray, f32, f64, i32, u32 } from './host-types.js';
 import type { Texture } from './resources.js';
 import { globalRegion, type Range, type Region } from './region.js';
 import { defaultDevice } from './default-device.js';
-import { throwFailure } from '../core/submission.js';
+import { noteFailure, throwFailure } from '../core/submission.js';
 import { resources, type RecordedBuffer as Recorded } from '../core/host-record.js';
 import { callDefault, type CallOwner } from '../core/owner.js';
 
@@ -149,7 +151,8 @@ class Core {
   readonly states = new Map<CallOwner, RegionState>();
   /** The device the resource belongs to (change 0138, R3): the device in use when it was made, or
    *  the default owner when none was. Undefined for an exported binding, which belongs to no one
-   *  device. */
+   *  device. A Uniform's takes no part in the choice of a call's device (`resourceOf`; the owner's
+   *  decision of 2026-11-11 on Q-a). */
   owner: CallOwner | undefined = callDefault();
 
   constructor(region: Region, bytes: number, name: string, remedy: string, stride = 0) {
@@ -227,8 +230,12 @@ class Core {
    *  and its `read()` throw (the owner's decision of 2026-11-11), or undefined. */
   error(): unknown {
     for (const s of this.states.values()) if (s.error !== undefined) return s.error;
-    return undefined;
+    return this.kept;
   }
+
+  /** The error of a device copy that was dropped with its device (`BufferRoot.forget`), kept as a
+   *  failed call's until `set(data)` or `resize()`. */
+  kept: unknown;
 
   /** Throw when the resource was freed: a freed range may be another resource's now. */
   live(): void {
@@ -1035,27 +1042,58 @@ class BufferRoot {
       // No call wrote the array since the last read: the region holds what the device holds.
       const state = core.ahead;
       if (state === undefined) return this.#decode(core.region.buffer, core.range.offset);
-      // On WebGL2 the read waits on a fence (Amendment A5, default 6).
-      await state.fenced();
-      await state.sync(true);
-      core.live();
-      const st = this.#l.st;
-      const bytes = state.length * st;
-      const back = new ArrayBuffer(Math.max(4, bytes));
-      pack(new DataView(back), 0, { ...this.#l, n: state.length }, state.host, '');
-      // A `set` made while the read waited is newer than the device's value: then the read lands
-      // nothing, and the array stays ahead of the region until a later read.
-      if (!core.dirty && state.length === this.#length && core.ahead === state) {
-        new Uint8Array(core.region.buffer, core.range.offset, bytes).set(
-          new Uint8Array(back, 0, bytes),
-        );
-        core.ahead = undefined;
-        // The values landed are newer than each other device's copy: it takes all of them at its
-        // next call (an exported binding, R3).
-        for (const other of core.states.values()) if (other !== state) other.captured = -1;
-      }
+      const back = await this.#land(state);
       return this.#decode(back, 0, state.length);
     })();
+  }
+
+  /** Bring back what a call wrote into the device copy `state`, and land it in the array's range
+   *  of the region (R17). Gives the values brought back. */
+  async #land(state: RegionState): Promise<ArrayBuffer> {
+    const core = this.#core;
+    // On WebGL2 the read waits on a fence (Amendment A5, default 6).
+    await state.fenced();
+    await state.sync(true);
+    core.live();
+    const st = this.#l.st;
+    const bytes = state.length * st;
+    const back = new ArrayBuffer(Math.max(4, bytes));
+    pack(new DataView(back), 0, { ...this.#l, n: state.length }, state.host, '');
+    // A `set` made while the read waited is newer than the device's value: then the read lands
+    // nothing, and the array stays ahead of the region until a later read.
+    if (!core.dirty && state.length === this.#length && core.ahead === state) {
+      new Uint8Array(core.region.buffer, core.range.offset, bytes).set(
+        new Uint8Array(back, 0, bytes),
+      );
+      core.ahead = undefined;
+      // The values landed are newer than each other device's copy: it takes all of them at its
+      // next call (an exported binding, R3).
+      for (const other of core.states.values()) if (other !== state) other.captured = -1;
+    }
+    return back;
+  }
+
+  /** The device of `owner` is disposed (S2 of the review of #1238): land what its last call wrote
+   *  into its copy, while the device still holds it, and drop the copy, so the array is never left
+   *  waiting on a device that is gone, and no later call joins dirty ranges into a dead copy. A
+   *  failed landing keeps its error as a failed call's: thrown at the next `read()` or call, and
+   *  kept by the array until `set(data)` or `resize()` (the owner's decision (b)). */
+  async forget(owner: CallOwner): Promise<void> {
+    const core = this.#core;
+    const state = core.states.get(owner);
+    if (state === undefined) return;
+    if (core.ahead === state && state.error === undefined && !core.range.freed) {
+      try {
+        await this.#land(state);
+      } catch (e) {
+        core.kept = e;
+        noteFailure(e);
+      }
+    }
+    if (core.ahead === state) core.ahead = undefined;
+    if (state.error !== undefined) core.kept ??= state.error;
+    core.states.delete(owner);
+    state.handle?.destroy();
   }
 
   /** Every element laid out at `offset` of `buffer`, each an instance of the class. */
@@ -1136,6 +1174,7 @@ class BufferRoot {
   /** The array holds new values in all its range: the next call writes all of them to the device
    *  copy, and the failure of an earlier call is gone (the owner's decision of 2026-11-11). */
   #rewritten(): void {
+    this.#core.kept = undefined;
     for (const state of this.#core.states.values()) {
       state.error = undefined;
       state.captured = -1;
@@ -1364,8 +1403,9 @@ export function array(...args: unknown[]): unknown {
   }
   // A Resident belongs to the device in use, as `device.array()` makes one (R3); with none in
   // use, to the default owner, as `resident()` made one.
-  const device = defaultDevice() as { array(...a: unknown[]): unknown } | undefined;
-  if (device !== undefined) return device.array(...args);
+  const device = defaultDevice() as
+    { arrayAs(at: string, a: readonly unknown[]): unknown } | undefined;
+  if (device !== undefined) return device.arrayAs('array()', args);
   return makeResident('array()', args);
 }
 
@@ -1402,6 +1442,7 @@ export function exportedBinding(
   };
   // It belongs to no one device: each device whose call reads it takes its own copy (R3).
   cores.get(resource as object)!.owner = undefined;
+  if (resource instanceof BufferRoot) exported.add(resource);
   Object.defineProperty(resource, 'dispose', { value: refuse });
   if (typeof disposeKey === 'symbol')
     Object.defineProperty(resource, disposeKey, { value: refuse });
@@ -1624,7 +1665,11 @@ export function resourceOf(v: unknown):
   return {
     kind: 'uniform',
     name: core.name,
-    owner: core.owner,
+    // A Uniform takes no part in the choice of a call's device (the owner's decision of 2026-11-11
+    // on Q-a): its value is copied at each call (deviation D-b), so it joins a call on any device.
+    // When D-b is fixed and a Uniform gets a device copy, it needs one copy for each device, as an
+    // exported storage array has.
+    owner: undefined,
     value: () => {
       core.live();
       return readValue(new DataView(core.region.buffer, core.range.offset, layout.sz), 0, layout);
@@ -1637,3 +1682,20 @@ const uniformLayouts = new WeakMap<object, Layout & { k: 'o' }>();
 
 // The call layer reads resources through this, and imports no resource itself.
 resources.of = resourceOf;
+
+/** The storage arrays a shader module exports, which keep a copy for each device (R3). They live
+ *  as long as their module, so the set holds them. */
+const exported = new Set<BufferRoot>();
+
+/** The device of `owner` is disposed: each exported storage array lands what a call of that device
+ *  wrote and drops its copy (S2 of the review of #1238). `Device.dispose()` calls it after the
+ *  calls queued before it, and before it destroys its WebGPU device. Not API. */
+export async function forgetOwner(owner: CallOwner): Promise<void> {
+  for (const b of exported) await b.forget(owner);
+}
+
+/** How many device copies a storage array holds: one for each device whose call took it and that
+ *  is not disposed (change 0138, R3). Not API: a test reads it. */
+export function deviceCopies(resource: object): number {
+  return cores.get(resource)?.states.size ?? 0;
+}
