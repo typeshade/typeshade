@@ -2666,7 +2666,7 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
 - [fact] An independent review read A12 at `0ec970d3` after those answers. It found 2 blocking
   findings, 8 should-fix findings and 5 notes ("Independent review record of A12", below). The owner
   answered three points of it on 2026-11-11: decision 3 against OD-7, and B2-1 and B2-2. Decision 3's
-  answer opens questions Q8 to Q11, which the owner has not answered.
+  answer opened questions Q8 to Q11, which the owner answered on 2026-11-11 (below).
 
 **Decision 1. The program runtime keeps a scalar `Buffer` for a storage array with no size (D-l).**
 
@@ -2745,8 +2745,8 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
   element is not fixed.
 - [inference, agent] Rule 12.7 needs the editor to agree. The type of `array` gains an overload for a
   `readonly number[]`. What it returns is Q8.
-- The design points with more than one reasonable answer are Q8 to Q11 below. The owner has not
-  answered them. Each option is checked against every entry of `docs/owner-decisions.md`. OD-1 (a
+- The design points with more than one reasonable answer are Q8 to Q11 below. The owner answered
+  them on 2026-11-11 ("The owner's answers to Q8 to Q11", below). Each option is checked against every entry of `docs/owner-decisions.md`. OD-1 (a
   language of its own), OD-2 (stage attributes), OD-5 (parameter qualifiers), OD-6 (no release) and
   OD-8 (library decorators) do not touch an element type. The column "OD check" names only OD-3,
   OD-4 and OD-7. No option reverses an entry.
@@ -2786,6 +2786,30 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
 - Cost recorded under each option: OD-7 asks the runtime to keep a `Buffer` whose element is open. A
   `Buffer<f32>`, `Buffer<i32>` or `Buffer<u32>` made from a typed array is fixed when it is made, as
   today.
+
+**The owner's answers to Q8 to Q11.**
+
+- [decision, owner, 2026-11-11] The owner picked the recommended option (a) of each question in the
+  question UI. The chosen labels, in Korean, with English translations:
+  - Q8: "Buffer<number> (추천)" (English translation: `Buffer<number>`; recommended).
+  - Q9: "f32로 반올림한 값, 타입은 열린 채 (추천)" (English translation: the values rounded to `f32`,
+    with the type still open; recommended).
+  - Q10: "그 호출에서 TypeError (추천)" (English translation: a `TypeError` at that call;
+    recommended).
+  - Q11: "타입을 열어 둠 (추천)" (English translation: keep the type open; recommended).
+- What the answers mean:
+  1. Q8: `array(xs: readonly number[])` returns `Buffer<number>`. Each parameter that takes a
+     `Buffer<f32>`, `Buffer<i32>` or `Buffer<u32>` also takes a `Buffer<number>`. `read()` is typed
+     `Float32Array | Int32Array | Uint32Array`. The type does not change after the first use.
+  2. Q9: before a use fixes the type, `read()` gives a `Float32Array` of the numbers rounded to `f32`,
+     and `at(i).get()` one of them. Neither fixes the type. The runtime keeps the numbers as given
+     until a call fixes it.
+  3. Q10: a call that needs another element type than the fixed one throws a `TypeError` at that call.
+     It names the fixed type and the line of the first use, and changes nothing.
+  4. Q11: before the type is fixed, `set(data)` of numbers, `resize(n)` and `at(i).set(x)` keep it
+     open. After it is fixed, each checks against it (A11 Q1).
+- [fact] No answer reverses an entry of `docs/owner-decisions.md`. The OD check of each chosen option
+  is in its table above.
 
 **Decision 4. The result kinds that A11 left open are implemented in slice 1.**
 
@@ -3022,7 +3046,7 @@ this amendment.
 | D-l | A11, "Q3, the program runtime": the program runtime's bindings take plain values each frame. At `b14f2373`, the program runtime binds a scalar `Buffer` to any buffer binding: a uniform, a sized storage binding, and a storage array with no size. It is the only read-back path of a compute dispatch (decision 1; finding S7 of the review of #1257).                   | open (new; the owner's disposition, decision 1)                                                                                                                | Milestone 5 builds the read-back path and closes it.                                                                                                                                                                                                                                                  |
 | D-m | A10 Q-C, meaning 2: a scalar result of a call on a resource is a `Buffer` of length 1. Inside today's `fuse()`, which A10 keeps until slice 5, a value-returning call still returns a promise of its value. The host view types it as a `Buffer`. `examples/hosts/loop-fuse/host.ts` casts `total(u)`, and `journeys/_host-import/src/gpu.ts` casts `dsum` and `pushAbove`. | open (new)                                                                                                                                                     | Slice 5 switches `fuse` and removes the difference and the casts.                                                                                                                                                                                                                                     |
 | D-n | Change 0129 (`implemented`) keeps a successful write-only recovery. At `51f5bf8c`, a failed `Buffer` is refused at the next call that takes it (A7, Decision (b)). So a write-only call recovers it only when the call was queued before the failure was known. Inside today's `fuse()`, a plan's earlier write-only call still supplies it (0129).                         | closed: made part of the approved text by this amendment, as a consequence of A7, Decision (b)                                                                 | #1257 qualifies the sentence of Rule 11.8 ("proven write-only destinations can recover") and those of surface §65, §67 and §71 on write-only recovery: outside today's `fuse()`, a write-only call recovers a failed `Buffer` only when it was queued before the failure was known. Before its merge. |
-| D-o | `changes/README.md`, Independent review: "A proposal whose record has no independent review is not ready for the owner's decision." The owner answered Q1 to Q7 and D-n before an independent review read A12.                                                                                                                                                              | closed: the review ran afterwards, at `0ec970d3`, and this revision answers each finding (below). The owner answered the three points it raised for the owner. | None. Q8 to Q11 go to the owner with this reviewed revision.                                                                                                                                                                                                                                          |
+| D-o | `changes/README.md`, Independent review: "A proposal whose record has no independent review is not ready for the owner's decision." The owner answered Q1 to Q7 and D-n before an independent review read A12.                                                                                                                                                              | closed: the review ran afterwards, at `0ec970d3`, and this revision answers each finding (below). The owner answered the three points it raised for the owner. | None. The owner answered Q8 to Q11 after the review, on 2026-11-11.                                                                                                                                                                                                                                   |
 
 - [decision, owner, 2026-11-11] D-n: the owner picked the recommended option in the question UI: made
   part of the approved text, as a consequence of A7, Decision (b). The record has no other words.
@@ -3031,30 +3055,29 @@ this amendment.
 
 **Open items of slice 1.**
 
-| Item                                                                                                                                                                                                                                                                                               | Source         | Next action                                                                       |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------- |
-| The check `TypeNN candidate (build + CPU)` fails on #1257. TypeNN imports the `Resident` type, which slice 1 removes. The check is not required. [inference, agent] A10 Q-G foresees this: `downstream.yml` can turn red at slices 1 and 2.                                                        | #1257; A10 Q-G | TypeNN migrates when its pin moves (`downstream`). No pull request is assigned.   |
-| A11's open items on the padding of a kernel's array of vectors, `read()` of a `Buffer<f64>`, the editor's type of Q7's mixed call, and the region range of a scalar `Buffer`. #1257 states each at `51f5bf8c`: the call pads; a `Float64Array`; a third overload that returns a promise; no range. | A11; #1257     | The owner reads them with #1257's example before and after, before its merge.     |
-| What a matrix field of a `Buffer<S>` (Q6) gives in `at(i)` and in `read()`. Today `get()` of a matrix field of a struct `Buffer` gives the padded columns (`src/runtime/resource.ts`).                                                                                                             | Review S4      | #1257 states it and shows it to the owner with its example before and after.      |
-| The kinds that stay refused in slice 1: `array<Record<K, T>, N>`, `array<array<T, M>, N>` and a matrix of `f64` ([inference, agent], decision 4).                                                                                                                                                  | Review S5      | The owner reads the list with #1257's example before and after, before its merge. |
-| Which uses decide the element type of a `Buffer` from `array(number[])` (decision 3, [inference, agent]).                                                                                                                                                                                          | Decision 3     | #1257 states the list and shows it to the owner with Q8 to Q11.                   |
-| A11's open item on a sized array of structs as a field.                                                                                                                                                                                                                                            | A11 Q6         | Closed by decision 4 and the owner's answer to Q6.                                |
-| A11's open item on the result's class under A10 Q-F for a `Buffer<f32>` passed as `array<vec3<f32>>`.                                                                                                                                                                                              | A11; A10 Q-F   | Unchanged: ask the owner before slice 3.                                          |
+| Item                                                                                                                                                                                                                                                                                               | Source         | Next action                                                                        |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------- |
+| The check `TypeNN candidate (build + CPU)` fails on #1257. TypeNN imports the `Resident` type, which slice 1 removes. The check is not required. [inference, agent] A10 Q-G foresees this: `downstream.yml` can turn red at slices 1 and 2.                                                        | #1257; A10 Q-G | TypeNN migrates when its pin moves (`downstream`). No pull request is assigned.    |
+| A11's open items on the padding of a kernel's array of vectors, `read()` of a `Buffer<f64>`, the editor's type of Q7's mixed call, and the region range of a scalar `Buffer`. #1257 states each at `51f5bf8c`: the call pads; a `Float64Array`; a third overload that returns a promise; no range. | A11; #1257     | The owner reads them with #1257's example before and after, before its merge.      |
+| What a matrix field of a `Buffer<S>` (Q6) gives in `at(i)` and in `read()`. Today `get()` of a matrix field of a struct `Buffer` gives the padded columns (`src/runtime/resource.ts`).                                                                                                             | Review S4      | #1257 states it and shows it to the owner with its example before and after.       |
+| The kinds that stay refused in slice 1: `array<Record<K, T>, N>`, `array<array<T, M>, N>` and a matrix of `f64` ([inference, agent], decision 4).                                                                                                                                                  | Review S5      | The owner reads the list with #1257's example before and after, before its merge.  |
+| Which uses decide the element type of a `Buffer` from `array(number[])` (decision 3, [inference, agent]), under the answers to Q8 to Q11.                                                                                                                                                          | Decision 3     | #1257 states the list and shows it to the owner with its example before and after. |
+| A11's open item on a sized array of structs as a field.                                                                                                                                                                                                                                            | A11 Q6         | Closed by decision 4 and the owner's answer to Q6.                                 |
+| A11's open item on the result's class under A10 Q-F for a `Buffer<f32>` passed as `array<vec3<f32>>`.                                                                                                                                                                                              | A11; A10 Q-F   | Unchanged: ask the owner before slice 3.                                           |
 
 **The slices of milestone 4, status.**
 
 - [fact] This statement updates A11's status table. A11's text stays as it is.
 
-| Slice  | Status                                                                                                                                                                                                                                                                                                                                    |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0      | done: #1251, merged as `937147b8`.                                                                                                                                                                                                                                                                                                        |
-| 1      | in progress: #1257 (draft), head `b14f2373`. Decisions 1 and 2 are in it (D-l stated in `d903a35c`). Decision 3 as first drafted, a `Buffer<f32>`, is `268c4cd2`; it changes to follow OD-7 after the owner answers Q8 to Q11. Decision 4, with the answers to Q1 to Q7, B2-1 and B2-2, is implemented in it after this amendment merges. |
-| 2 to 6 | not started.                                                                                                                                                                                                                                                                                                                              |
+| Slice  | Status                                                                                                                                                                                                                                                                                                                                                           |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0      | done: #1251, merged as `937147b8`.                                                                                                                                                                                                                                                                                                                               |
+| 1      | in progress: #1257 (draft), head `b14f2373`. Decisions 1 and 2 are in it (D-l stated in `d903a35c`). Decision 3 as first drafted, a `Buffer<f32>`, is `268c4cd2`; it changes to follow OD-7 and the answers to Q8 to Q11 after this amendment merges. Decision 4, with the answers to Q1 to Q7, B2-1 and B2-2, is implemented in it after this amendment merges. |
+| 2 to 6 | not started.                                                                                                                                                                                                                                                                                                                                                     |
 
 **Open, owner must settle.**
 
-- [fact] Q8 to Q11 (decision 3 under OD-7), before #1257 implements decision 3 again.
-- [fact] Nothing else for A12's own decisions. The open items above that wait on the owner are read
+- [fact] Nothing for A12's own decisions. The owner answered Q8 to Q11 on 2026-11-11. The open items above that wait on the owner are read
   with #1257's example before and after.
 - [fact] Decision 3 as first drafted conflicted with OD-7. The owner resolved it on 2026-11-11 ("OD-7
   적용: 첫 쓰임이 타입 결정").
