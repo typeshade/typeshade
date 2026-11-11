@@ -1,5 +1,5 @@
 import { isUndecidedRead } from '../use-inference.js';
-import { abstractLiteralOf, isAbstractRead } from '../abstract-const.js';
+import { abstractLiteralOf, isAbstractRead, noteIntegerRead } from '../abstract-const.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { Expr } from '../../../core/ir/nodes.js';
@@ -2686,6 +2686,8 @@ function intArg(
     return undefined;
   }
   const v = lit.value;
+  // A constant of no fixed type is read as this integer (change 0134 item 2).
+  noteIntegerRead(node, typeKey(want) === 'u32' ? 'u32' : 'i32');
   // Negative is refused whatever the target type. A layer is typed i32 because that is the
   // overload WGSL's array sampling takes, not because -1 means anything: both it and a mip
   // level are indices into memory that starts at 0.

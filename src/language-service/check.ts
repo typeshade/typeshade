@@ -26,7 +26,9 @@
 // `checkOpenDocument` rather than assembling the same list again: two copies of it are two
 // answers about one file as soon as either changes (Rule 12.7).
 
+import { isAbstractDivisionRefusal } from '../compiler/ts/abstract-const.js';
 import { compile } from '../compiler/ts/compile.js';
+import { relatedSitesOf } from '../compiler/ts/diagnostic.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
 import type { TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import ts from 'typescript';
@@ -163,6 +165,18 @@ export function checkOpenDocument(
   doc: CheckDocument,
   options: Pick<CheckOptions, 'deprecations'> = {},
 ): CheckDiagnostic[] {
+  return checkOpen(service, doc, options);
+}
+
+/** {@link checkOpenDocument}; `elsewhere` receives each refusal of `doc`'s program of a `/`
+ *  that stands in a file `doc` imports (a `/` over a constant that `doc` reads as an integer,
+ *  change 0134). The refusal stands on `doc`'s read, with the `/` as its related site (#1186). */
+function checkOpen(
+  service: TypeshadeLanguageService,
+  doc: CheckDocument,
+  options: Pick<CheckOptions, 'deprecations'>,
+  elsewhere?: (d: TsCompilerDiagnostic) => void,
+): CheckDiagnostic[] {
   const found = service
     .getDiagnostics(doc.uri)
     .filter((d) => d.uri === doc.uri)
@@ -185,6 +199,7 @@ export function checkOpenDocument(
     ...(options.deprecations === true ? { deprecations: true } : {}),
   });
   for (const d of compiled.diagnostics) {
+    if (isAbstractDivisionRefusal(d) && relatedSitesOf(d).length > 0) elsewhere?.(d);
     if (d.code !== TS_CODES.BACKEND) continue;
     if (d.fileName !== doc.uri) continue;
     const row = fromCompiler(doc, d);
@@ -218,15 +233,37 @@ export function checkDocuments(
   const diagnostics: CheckDiagnostic[] = [];
   const queue = [...docs];
   const queued = new Set(docs.map((d) => d.uri));
+  // A refusal of a `/` in an imported file stands on the read in the importing file that makes
+  // it one (change 0134, #1186). The `/` is its related site, and the mismatch the imported file
+  // raises alone around that `/` is the same mistake: `compile()` reports it once (Rule 12.4).
+  const elsewhere: TsCompilerDiagnostic[] = [];
   for (let i = 0; i < queue.length; i++) {
     const doc = queue[i]!;
     service.openDocument(doc.uri, doc.text);
-    diagnostics.push(...checkOpenDocument(service, doc, options));
+    diagnostics.push(...checkOpen(service, doc, options, (d) => elsewhere.push(d)));
     service.closeDocument(doc.uri);
     for (const imported of importedDocuments(doc, options.readDocument)) {
       if (queued.has(imported.uri)) continue;
       queued.add(imported.uri);
       queue.push(imported);
+    }
+  }
+  for (const d of elsewhere) {
+    for (const site of relatedSitesOf(d)) {
+      const doc = queue.find((q) => q.uri === site.fileName);
+      if (doc === undefined) continue;
+      for (let i = diagnostics.length - 1; i >= 0; i--) {
+        const f = diagnostics[i]!;
+        if (
+          f.file === doc.path &&
+          f.code === TS_CODES.TYPE_MISMATCH &&
+          f.severity === 'error' &&
+          f.offset <= site.start &&
+          f.offset + f.length >= site.start + site.length &&
+          !isAbstractDivisionRefusal(f)
+        )
+          diagnostics.splice(i, 1);
+      }
     }
   }
   return {

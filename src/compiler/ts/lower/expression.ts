@@ -1,13 +1,14 @@
 // === Expression lowering ===
 //
 // Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
+import { carriedOf, markInferredRead, noteDemand, softDemands } from '../use-inference.js';
 import {
-  inferredDivisionMessage,
-  markInferredRead,
-  noteDemand,
-  softDemands,
-} from '../use-inference.js';
-import { markAbstractRead, noteAbstractDivision } from '../abstract-const.js';
+  carriedByCall,
+  markAbstractRead,
+  markCarriedRead,
+  noteAbstractDivision,
+  readTypeFor,
+} from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js';
@@ -180,6 +181,10 @@ export function lowerExpression(
     return undefined;
   }
   let value = lowerExpressionNode(node, sourceFile, scope, diagnostics, contextual);
+  // A call of a function, a method or a getter that writes no result type and returns a value
+  // that comes from a constant of no fixed type carries that origin (Amendment A3 of 0134).
+  if (value?.op === 'call')
+    markCarriedRead(value, skipParens(node), carriedByCall(sourceFile, value.fn));
   // What the expression gave as written, before the position wraps it (change 0088).
   if (value !== undefined) noteValueType(node, value.type);
   // An optional nothing narrowed, where the position wants its `T`: the test to write, in
@@ -547,10 +552,14 @@ function lowerIdentifier(
         return lowerOptionalRead(node, binding, contextual, sourceFile, diagnostics);
       }
       return markInferredRead(
-        markAbstractRead(
-          { op: 'param', type: binding.type, name: irNameOf(binding) },
+        markCarriedRead(
+          markAbstractRead(
+            { op: 'param', type: binding.type, name: irNameOf(binding) },
+            node,
+            binding.abstract,
+          ),
           node,
-          binding.abstract,
+          carriedOf(binding.carries, binding.inferred),
         ),
         node,
         binding.inferred,
@@ -598,11 +607,25 @@ function lowerIdentifier(
       if (binding.kind === 'local' && isOptional(binding.type)) {
         return lowerOptionalRead(node, binding, contextual, sourceFile, diagnostics);
       }
+      {
+        // A loop counter's start lowered again at its type on `main` reads the constant as
+        // that integer (`withReadTypes`, Amendment A3 of change 0134).
+        const forced = readTypeFor(binding.abstract);
+        // The read is a typed value there, not a written number (`isAbstractRead`), so a peer
+        // literal takes its type (`Math.max(k, 1)`, `k >> 1`).
+        if (forced !== undefined && binding.abstract !== undefined) {
+          return { op: 'lit', type: forced, value: binding.abstract.value };
+        }
+      }
       return markInferredRead(
-        markAbstractRead(
-          { op: 'varref', type: binding.type, name: irNameOf(binding) },
+        markCarriedRead(
+          markAbstractRead(
+            { op: 'varref', type: binding.type, name: irNameOf(binding) },
+            node,
+            binding.abstract,
+          ),
           node,
-          binding.abstract,
+          carriedOf(binding.carries, binding.inferred),
         ),
         node,
         binding.inferred,
@@ -850,7 +873,11 @@ function lowerBinary(
   if (!left || !right) return undefined;
   // A `/` over constants of no fixed type and written numbers alone (change 0134, decisions Q10
   // and Q11): recorded, and refused once the module's reads are known.
-  noteAbstractDivision(node, sourceFile);
+  noteAbstractDivision(
+    node,
+    sourceFile,
+    (name) => scope.resolveCallee(name) === undefined && scope.resolve(name) === undefined,
+  );
   // `v === x` with an optional operand is ECMAScript's equality (Rule 7.10); any other
   // operator takes the `T`, which an optional nothing narrowed is not.
   const equality = lowerOptionalEquality(node, left, right, sourceFile, scope, diagnostics);
@@ -868,19 +895,6 @@ function lowerBinary(
   }
   const arith = ARITH[node.operatorToken.kind];
   if (arith !== undefined) {
-    // A `/` is an integer division only when one operand has an integer type the author wrote
-    // (decisions Q6 and Q11). Where every operand is an integer by inference, it is refused.
-    if (
-      node.operatorToken.kind === ts.SyntaxKind.SlashToken &&
-      intElem(left.type) !== undefined &&
-      intElem(right.type) !== undefined
-    ) {
-      const refusal = inferredDivisionMessage(node.left, node.right, '/', () => 'let', sourceFile);
-      if (refusal !== undefined) {
-        pushDiag(diagnostics, sourceFile, node, refusal, TS_CODES.TYPE_MISMATCH);
-        return undefined;
-      }
-    }
     if (arith === '*') {
       const mixed = matVecMul(left, right);
       if (mixed) return mixed;

@@ -7,9 +7,16 @@ import type { ShaderType } from '../../core/ir/types.js';
 import { f64T, isF64 } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
-import { TS_CODES } from './codes.js';
-import { abstractLiteralOf, isIntegerWrittenRead, noteIntegerRead } from './abstract-const.js';
 import { noteDemand } from './use-inference.js';
+import { TS_CODES } from './codes.js';
+import {
+  abstractLiteralOf,
+  abstractTreeOf,
+  isIntegerWrittenRead,
+  noteIntegerContext,
+  noteIntegerRead,
+} from './abstract-const.js';
+import { foldIntLit, intElemOf, wrapInt } from '../../core/passes/opt/expr-utils.js';
 
 export function isIntegerLiteralNode(node: ts.Expression): boolean {
   if (ts.isParenthesizedExpression(node)) return isIntegerLiteralNode(node.expression);
@@ -71,9 +78,24 @@ export function fitsTarget(v: number, target: ShaderType): boolean {
     : v >= -2147483648 && v <= 2147483647;
 }
 
+/** Folds a literal-only `binop` or a negated literal into one literal, with the arithmetic of
+ *  the node's own type. A node typed `f32` (a written number has no other type until a position
+ *  gives it one) folds with ECMAScript doubles, so `1 / 2` is `0.5` (decision Q1 of change
+ *  0134). A node typed `i32` or `u32` folds as the target computes it (`foldIntLit`): a
+ *  scalar cast yields a value of its type, so `u32(7) / 2` truncates to `3` and
+ *  `u32(7) - 8` wraps to `4294967295`, as WGSL and GLSL ES 3.00 do. A fold the integer rule
+ *  leaves undefined (a divisor of zero, a shift out of range) leaves the node as it is. */
 export function foldNumericLit(expr: Expr): Expr {
+  const int = intElemOf(expr.type);
   if (expr.op === 'unop' && expr.a.op === 'lit' && typeof expr.a.value === 'number') {
-    return { op: 'lit', type: expr.type, value: -expr.a.value };
+    // A negated `u32` has no value of its type to fold to: the node is left for the check
+    // that refuses it, as it was before.
+    if (int === 'u32') return expr;
+    return {
+      op: 'lit',
+      type: expr.type,
+      value: int === 'i32' ? wrapInt(-expr.a.value, 'i32') : -expr.a.value,
+    };
   }
   if (
     expr.op === 'binop' &&
@@ -87,6 +109,10 @@ export function foldNumericLit(expr: Expr): Expr {
       typeof a.value === 'number' &&
       typeof b.value === 'number'
     ) {
+      if (int !== undefined) {
+        const v = foldIntLit(expr.bop, a.value, b.value, int);
+        return v === undefined ? expr : { op: 'lit', type: expr.type, value: v };
+      }
       const v =
         expr.bop === '+'
           ? a.value + b.value
@@ -110,13 +136,24 @@ export function retargetIntLit(expr: Expr, node: ts.Expression, peer: ShaderType
   // A read of a constant of no fixed type, or arithmetic over such reads and written numbers,
   // takes an integer peer's type as the written number would (Rule 5.1, change 0134 item 2).
   // Beside anything else it is left as lowered, so an `f32` read keeps the constant's name.
+  // An integer position asks an integer of a `/` inside what it reads (`xs[k / 2]`,
+  // `r + y / 2`), whether or not a literal is kept: the refusal of that `/` names the integer edit.
+  if (isIntScalar(peer)) noteIntegerContext(node, typeKey(peer) === 'u32' ? 'u32' : 'i32');
   const abstract = abstractLiteralOf(expr);
-  if (abstract !== undefined) {
+  if (abstract !== undefined && abstract.op === 'lit' && typeof abstract.value === 'number') {
     if (!isIntScalar(peer)) return expr;
-    const out = retargetWrittenIntLit(abstract, node, peer);
-    if (out.op !== 'lit' || !isIntScalar(out.type)) return expr;
-    noteIntegerRead(expr, typeKey(out.type) === 'u32' ? 'u32' : 'i32');
-    return out;
+    const kind = typeKey(peer) === 'u32' ? 'u32' : 'i32';
+    const tree = abstractTreeOf(node);
+    if (
+      tree === undefined ||
+      !tree.integerWritten ||
+      !Number.isInteger(abstract.value) ||
+      !fitsTarget(abstract.value, peer)
+    )
+      return expr;
+    // The literal is kept, so this is a read of the constant as an integer.
+    noteIntegerRead(node, kind);
+    return { op: 'lit', type: peer, value: abstract.value };
   }
   return retargetWrittenIntLit(expr, node, peer);
 }
@@ -174,6 +211,9 @@ function retargetF64DeclaredLit(expr: Expr, node: ts.Expression): Expr {
  *  `select` of two u32 literals rather than a select of two f32 ones. */
 export function retargetIntLitCtx(expr: Expr, node: ts.Expression, target: ShaderType): Expr {
   noteDemand(expr, target);
+  // An integer position asks an integer of a `/` inside what it reads (`let j: u32 = k / 2`,
+  // `h((k % 4) / 2)`): the refusal of that `/` names the integer edit (change 0134).
+  if (isIntScalar(target)) noteIntegerContext(node, typeKey(target) === 'u32' ? 'u32' : 'i32');
   // A DECLARED f64 is the one non-integer context that retypes a literal, and for the same
   // reason the integer contexts do: the type is stated, so the written number means a value
   // of it. `const k: f64 = 0.1` lowered `0.1` to an f32 and then reported "cannot let/const k

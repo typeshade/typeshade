@@ -1,4 +1,5 @@
 import { softDemands } from '../use-inference.js';
+import { noteIntegerContext } from '../abstract-const.js';
 import {
   logicalTypeKey as typeKey,
   absentLiteral,
@@ -115,6 +116,8 @@ function lowerIndexOf(
     }
     return { op: 'index', type: (base.type as { elem: ShaderType }).elem, base, idx };
   }
+  // An index takes either integer type (change 0134): a `/` it reads names the other reads' type.
+  noteIntegerContext(node.argumentExpression, 'i32', true);
   // An index asks for an integer of no kind of a value its uses decide (change 0134 item 1).
   idx = softDemands(() => retargetIntLit(idx!, node.argumentExpression, i32T));
   const ik = typeKey(idx.type);

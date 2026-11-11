@@ -3,6 +3,7 @@
 import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
+import { relatedSitesOf } from '../compiler/ts/diagnostic.js';
 import { STAGE_CALLEES } from '../compiler/ts/stage-call.js';
 import { fileDeclaresType } from '../compiler/ts/type-map.js';
 import { isRemovedCall } from '../compiler/ts/removed-names.js';
@@ -2902,14 +2903,49 @@ function isAboutRefusedBuiltinValue(
   context: DiagnosticFilterContext,
   diagnostic: TypeshadeDiagnostic,
   refused: readonly ts.Node[],
+  imported: readonly TsCompilerDiagnostic[],
 ): boolean {
   const checker = context.checker;
-  if (refused.length === 0 || checker === undefined) return false;
+  if ((refused.length === 0 && imported.length === 0) || checker === undefined) return false;
   if (!diagnostic.message.includes("'never'")) return false;
   const end = diagnostic.span.start + diagnostic.span.length;
   let found = false;
+  // A struct the document imports: the refusal stands on the field in the file that declares
+  // it, where that file's document shows it, and the write here repeats it (#1186).
+  const refusedElsewhere = (d: ts.Declaration): boolean => {
+    if (!ts.isPropertySignature(d) && !ts.isPropertyDeclaration(d) && !ts.isParameter(d))
+      return false;
+    const type = d.type;
+    if (
+      type === undefined ||
+      !ts.isTypeReferenceNode(type) ||
+      !ts.isIdentifier(type.typeName) ||
+      type.typeName.text !== 'builtin'
+    )
+      return false;
+    const file = d.getSourceFile();
+    return imported.some(
+      (e) => e.fileName === file.fileName && type.getStart(file) <= e.start && e.start < type.end,
+    );
+  };
+  // A local declared from a read of such a value is `never` too (`let near = out.cd[0]`), and
+  // a write of that local is reported the same way (#1185). `seen` ends a walk through
+  // declarations that read each other.
+  const seen = new Set<ts.Node>();
+  const readsRefused = (node: ts.Node): boolean => {
+    if (ts.isIdentifier(node)) return declares(checker.getSymbolAtLocation(node));
+    if (ts.isTypeNode(node)) return false;
+    return ts.forEachChild(node, readsRefused) === true;
+  };
   const declares = (symbol: ts.Symbol | undefined): boolean =>
-    symbol?.declarations?.some((d) => refused.includes(d)) === true;
+    symbol?.declarations?.some((d) => {
+      if (refused.includes(d) || refusedElsewhere(d)) return true;
+      if (!ts.isVariableDeclaration(d) || d.initializer === undefined || seen.has(d)) return false;
+      seen.add(d);
+      const reads = readsRefused(d.initializer);
+      seen.delete(d);
+      return reads;
+    }) === true;
   const visit = (node: ts.Node): void => {
     if (found || node.getEnd() <= diagnostic.span.start || node.getStart(context.sourceFile) >= end)
       return;
@@ -2989,6 +3025,13 @@ export function mergeDiagnostics(
     vars: refusedVars(analysis.sourceFile).map((n) => spanOfNode(n, analysis.sourceFile)),
   };
   const refusedBuiltins = refusedBuiltinDeclarations(sourceFile, compilerErrors);
+  // The same refusals the program reports in a file this document imports.
+  const importedBuiltinRefusals = analysis.diagnostics.filter(
+    (d) =>
+      d.category === 'error' &&
+      d.fileName !== sourceFile.fileName &&
+      (d.code === TS_CODES.TYPE_MISMATCH || d.code === TS_CODES.BUILTIN_NAME),
+  );
   const keptTypescript = typescript.filter((diagnostic) => {
     if (diagnostic.severity !== 'error') return true;
     if (isKnockOn(context, diagnostic, typescript)) return false;
@@ -2996,7 +3039,8 @@ export function mergeDiagnostics(
     if (isInRefusedDecorator(context, diagnostic, compilerErrors)) return false;
     if (isAboutRefusedStageCall(context, diagnostic, compilerErrors)) return false;
     if (isAboutRefusedIoArgument(context, diagnostic, compilerErrors)) return false;
-    if (isAboutRefusedBuiltinValue(context, diagnostic, refusedBuiltins)) return false;
+    if (isAboutRefusedBuiltinValue(context, diagnostic, refusedBuiltins, importedBuiltinRefusals))
+      return false;
     if (repeatsRefusal(context, diagnostic, refusals, compilerErrors)) return false;
     if (repeatsStrictModeRefusal(context, diagnostic, compilerErrors)) return false;
     if (readsDeclarationAsValue(context, diagnostic, compilerErrors)) return false;
@@ -3182,6 +3226,17 @@ export function fromCompilerDiagnostic(
   diagnostic: TsCompilerDiagnostic,
 ): TypeshadeDiagnostic {
   const span = spanForDiagnostic(sourceFile, diagnostic);
+  // The declaration a refusal reported at a use is about, in the file that holds it (#1186).
+  const related = relatedSitesOf(diagnostic).map((site) => ({
+    location: {
+      uri: site.fileName,
+      range: {
+        start: { line: site.line - 1, character: site.character - 1 },
+        end: { line: site.endLine - 1, character: site.endCharacter - 1 },
+      },
+    },
+    message: RELATED_SITE_MESSAGE,
+  }));
   return {
     uri,
     span,
@@ -3190,8 +3245,13 @@ export function fromCompilerDiagnostic(
     message: diagnostic.message,
     code: diagnostic.code ?? 'TS8099',
     source: 'typeshade',
+    ...(related.length > 0 ? { relatedInformation: related } : {}),
   };
 }
+
+/** What the related location of a refusal reported at a use says: the place the sentence names,
+ *  in the file the program imports. */
+const RELATED_SITE_MESSAGE = 'The place this diagnostic is about.';
 
 /**
  * Returns `sourceFile`'s TypeShade diagnostics from `analysis`, the front end's own analysis
@@ -3213,7 +3273,9 @@ export function getTypeshadeDiagnostics(
       // caller sees them without `tsc`; here they would underline the same token twice.
       .filter((d) => d.code !== TS_CODES.SYNTAX)
       // A document's list is what is located in it (Rule 3.9): a mistake in a file it imports
-      // is shown on that file, as `tsc` shows it, and its offsets index that file's text.
+      // is shown on that file, as `tsc` shows it, and its offsets index that file's text. A
+      // refusal that only this program makes about an imported declaration is located here,
+      // at the use: the compiler reports it in the entry file (`compileLinked`, #1186).
       .filter((d) => d.fileName === sourceFile.fileName)
       .map((d) => fromCompilerDiagnostic(sourceFile, uri, d))
   );

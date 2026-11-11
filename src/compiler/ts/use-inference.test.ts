@@ -217,21 +217,23 @@ describe('what stays refused', () => {
 });
 
 describe('the division rule (decisions Q6 and Q11)', () => {
-  const sentence = (op: '/' | '/=', float: string): string =>
-    `"k" is a u32 by its uses, and no operand of "k ${op} 2" has a declared type, so the "${op}" ` +
-    `does not say which division it is. Write "let k: u32 = 7" for the integer division, or ` +
-    `${float} for the float one.`;
+  // One edit, the one that compiles where the quotient stands (Amendment A2, "하나만"); the
+  // compiler checks it before it names it (change 0134).
+  const sentence = (op: '/' | '/='): string =>
+    `"k" is a u32 where another line reads it, and no operand of "k ${op} 2" has a declared ` +
+    `type, so the "${op}" does not say which division it is. Write "let k: u32 = 7" for the ` +
+    `integer division.`;
 
   it('refuses let k = 7; const r = h(k); return r + k / 2; (emitted k / 2u before, F20)', () => {
-    refused(fn('let k = 7; const r = h(k); return r + k / 2;'), [sentence('/', '"f32(k) / 2"')]);
+    refused(fn('let k = 7; const r = h(k); return r + k / 2;'), [sentence('/')]);
   });
 
   it('refuses let k = 7; h(k); k /= 2; (a u32 division before, F21)', () => {
-    refused(fn('let k = 7; h(k); k /= 2; return k;'), [sentence('/=', '"let k: f32 = 7"')]);
+    refused(fn('let k = 7; h(k); k /= 2; return k;'), [sentence('/=')]);
   });
 
   it('refuses a value the new inference made an integer: n += vi; n / 2', () => {
-    refused(fn('let k = 7; k += vi; return k / 2;'), [sentence('/', '"f32(k) / 2"')]);
+    refused(fn('let k = 7; k += vi; return k / 2;'), [sentence('/')]);
   });
 
   it('accepts let k = 7; h(k); return vi / k; a declared u32 divides (F21)', () => {

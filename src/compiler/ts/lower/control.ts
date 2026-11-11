@@ -1,4 +1,6 @@
-import { isOpenCounter, noteDemand, noteOpenCounter } from '../use-inference.js';
+import { inferredReadAt, isOpenCounter, noteDemand, noteOpenCounter } from '../use-inference.js';
+import { abstractTreeOf, originOf, withReadTypes, type AbstractConst } from '../abstract-const.js';
+import { localNumericInference } from '../local-numeric-inference.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
@@ -474,11 +476,47 @@ function lowerHeaderCounter(
   const bound = comparedBound(node, name);
   const boundType =
     bound === undefined ? undefined : lowerExpression(bound, sourceFile, scope, [])?.type;
+  // A written integer bound makes a float-written start an `i32` counter. A constant of no
+  // fixed type is no such bound: it takes the counter's type, as it did when it was an `f32`
+  // constant, so `for (let j = 0.; j < K; j += 1.)` keeps its `f32` counter (change 0134).
   const intBound =
     bound !== undefined &&
-    (isIntegerLiteralTree(bound) || (boundType !== undefined && isIntScalar(boundType)));
+    ((isIntegerLiteralTree(bound) && (abstractTreeOf(bound)?.reads.length ?? 0) === 0) ||
+      (boundType !== undefined && isIntScalar(boundType)));
   const floatWritten = ts.isNumericLiteral(start) && !isIntegerWritten(start);
-  if (annotated !== undefined || !floatWritten || intBound) {
+  // A start that comes from a constant of no fixed type keeps the type the counter has on
+  // `main`, the constant's emitted type, as a counter bounded by one does, and the counter
+  // carries that origin (Amendment A3 of change 0134).
+  const builtin = (callee: string): boolean =>
+    scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined;
+  const origin = decl.type === undefined ? originOf(written, builtin) : undefined;
+  const fromConstant = origin !== undefined && origin.reaches.length > 0;
+  // On `main` a function-local `const` took an integer type from its declared uses (changes 0036
+  // and 0037), and a counter started by an expression over it took the type that expression had
+  // then. The counter keeps it (A3, and the owner's decision of 2026-11-10, "`main`과 같이 u32
+  // 유지"): the start is lowered again with each such constant read at that type. Where that
+  // lowering is refused, as `-k` of a `u32` was on `main`, the counter keeps the type it has here.
+  const onMain = fromConstant ? mainReadTypes(origin.reaches, sourceFile) : undefined;
+  if (onMain !== undefined) {
+    // A start that lowers there lowers with no error; a refused one gives `undefined`. What it
+    // would say again goes to a scratch list.
+    const scratch: TsCompilerDiagnostic[] = [];
+    const again = withReadTypes(onMain, () => lowerExpression(written, sourceFile, scope, scratch));
+    if (again !== undefined) init = again;
+  }
+  // An integer conversion is a value of its type, not a value written as an integer (Rule
+  // 7.5): the counter takes that type, as `u32(x)` with an `f32` `x` always did. The fold gives
+  // the conversion of a written number a literal of its type (#1217), which the block below
+  // would otherwise retarget to `i32`: `u32(3)` counted in `i32`. An `f32(…)` start keeps the
+  // retarget: an `f32` counter needs `TS8007` to catch a step that rounds away (the owner's
+  // decision of 2026-11-11, "이 PR은 i32/u32만"; issue #1242).
+  const conversion =
+    decl.type === undefined &&
+    ts.isCallExpression(start) &&
+    ts.isIdentifier(start.expression) &&
+    ['i32', 'u32'].includes(start.expression.text) &&
+    scope.resolveCallee(start.expression.text) === undefined;
+  if (!fromConstant && !conversion && (annotated !== undefined || !floatWritten || intBound)) {
     // The induction variable's declared type, or i32 when there is no annotation. `for (let j:
     // i32 = -1; …)` reaches this with a PrefixUnaryExpression rather than a NumericLiteral, which
     // the `init.op === 'lit'` special case this replaces never matched — so the initializer kept
@@ -511,12 +549,20 @@ function lowerHeaderCounter(
     return undefined;
   }
   const type: ShaderType = annotated ?? init.type;
+  const read =
+    decl.type === undefined && ts.isIdentifier(start) ? inferredReadAt(start) : undefined;
+  const startValue = read !== undefined && read.type === undefined ? read : undefined;
   const bound_ = scope.define({
     kind: 'local',
     name,
     type,
     mutable: true,
     constValue: init.op === 'lit' ? init.value : undefined,
+    ...(fromConstant ? { carries: origin } : {}),
+    // A counter that starts at a value whose uses have not decided its type takes that type:
+    // its own uses decide it (`let y = k; for (let j = y; …) h(j)` makes `y` a `u32`; change
+    // 0134 item 1).
+    ...(startValue !== undefined ? { inferred: startValue } : {}),
   });
   scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'local', type, mutable: true });
   // What a local function in the loop body reads `i` through (Rule 8.17).
@@ -524,6 +570,38 @@ function lowerHeaderCounter(
   // Two sequential loops over `i` are the first shape a shader author writes; the second
   // counter takes the IR name `i_1` so the two never collide in the function (#38).
   return { s: 'var', name: irNameOf(bound_), type, init };
+}
+
+/** The integer type each constant of `reaches` had on `main`, when every one is a function-local
+ *  `const` that took an integer type from its declared uses there (changes 0036 and 0037). A
+ *  constant derived from others (`const kk = k + 1`) takes theirs when they agree. A module
+ *  constant was an `f32` on `main`, so a start that reaches one gives `undefined`. Two types
+ *  that disagree (`k + m`) make the start's lowering refuse, and the counter keeps its type. */
+export function mainReadTypes(
+  reaches: readonly AbstractConst[],
+  sourceFile: ts.SourceFile,
+): Map<AbstractConst, ShaderType> | undefined {
+  const typeOf = (info: AbstractConst): ShaderType | undefined => {
+    const decl = info.nameNode.parent;
+    if (!ts.isVariableDeclaration(decl) || info.nameNode.getSourceFile() !== sourceFile) {
+      return undefined;
+    }
+    const own = localNumericInference(decl, sourceFile)?.type;
+    if (own !== undefined) return own;
+    const from = info.sources.map(typeOf);
+    const first = from[0];
+    return first !== undefined &&
+      from.every((t) => t !== undefined && typeKey(t) === typeKey(first))
+      ? first
+      : undefined;
+  };
+  const types = new Map<AbstractConst, ShaderType>();
+  for (const info of reaches) {
+    const type = typeOf(info);
+    if (type === undefined) return undefined;
+    types.set(info, type);
+  }
+  return types.size > 0 ? types : undefined;
 }
 
 export function lowerWhile(

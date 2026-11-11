@@ -9,7 +9,11 @@ import {
   endUseInferencePass,
   settleUseInference,
 } from './use-inference.js';
-import { reportAbstractDivisions, resetAbstractConsts } from './abstract-const.js';
+import {
+  markProjectedAnnotations,
+  reportAbstractDivisions,
+  resetAbstractConsts,
+} from './abstract-const.js';
 import { withoutKernelLoops } from './lower/kernel-methods.js';
 import ts from 'typescript';
 import type {
@@ -52,6 +56,7 @@ import {
   dropRepeatedDiagnostics,
   sortDiagnosticsByPosition,
   makeDiagnostic,
+  sortFileDiagnosticsByPosition,
   syntaxDiagnostics,
 } from './diagnostic.js';
 import { collectEnables } from './enables.js';
@@ -70,6 +75,8 @@ import {
 } from '../../core/passes/derivative-rewrite.js';
 import { checkBuiltinTypeForms } from './builtin-type-form.js';
 import { giveEntryLocations } from './entry-locations.js';
+import { locateProgramErrors } from './program-refusals.js';
+import { resolveSpecifierFile } from './specifier.js';
 import { interstageMismatches } from '../../core/passes/lint/rules/interstage-io.js';
 import {
   authorTypeText,
@@ -329,6 +336,12 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
   // 8.1, changes 0130 and 0140). The call is still read as the entry it stood for, so nothing
   // else is said about it (Rule 12.4).
   refuseStageCalls(sourceFile, diagnostics);
+  // The type a `builtin<N, …>` writes: the migration form warned, and `builtin<"clip_distances">`
+  // refused, once each (Rule 6.6, change 0135). Read before the structs and the bodies: a field
+  // refused here is withheld from its struct, and a name declared from a read of it binds
+  // nothing, so each use of that name finds this refusal standing and says nothing more
+  // (Rule 12.4, `refused-names.ts`, #1185).
+  checkBuiltinTypeForms(sourceFile, diagnostics);
   const structs = collectStructs(sourceFile, diagnostics, symbols);
   // The structs, so a buffer binding's host-shareable rules can be read through its struct
   // type (§51) — collected first, which this order already guaranteed.
@@ -495,13 +508,22 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
   reportUndeclaredValues(sourceFile, diagnostics);
   // A `/` over a constant of no fixed type that some read made an integer (change 0134,
   // decisions Q10 and Q11), known only now that every read was lowered.
-  reportAbstractDivisions(sourceFile, diagnostics);
+  reportAbstractDivisions(sourceFile, diagnostics, (text, starts) => {
+    const edited = ts.createSourceFile(
+      sourceFile.fileName,
+      text,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    if (starts !== undefined) markProjectedAnnotations(edited, starts);
+    return compileTsSource(text, { sourceFile: edited, emit: false }).diagnostics.filter(
+      (d) => d.category === 'error',
+    );
+  });
   // The decorated form of the migration release, read as written and warned once each
   // (change 0111, milestone 4).
   warnDecoratedForm(sourceFile, diagnostics);
-  // The type a `builtin<N, …>` writes: the migration form warned, and `builtin<"clip_distances">`
-  // refused, once each (Rule 6.6, change 0135).
-  checkBuiltinTypeForms(sourceFile, diagnostics);
   dropRepeatedDiagnostics(diagnostics);
   sortDiagnosticsByPosition(diagnostics);
   let wgsl: string | undefined;
@@ -607,6 +629,7 @@ function compileLinked(
   // linker joined was declared in the file the sentence is about or imported into it.
   const origin: LinkedOrigin = {
     sourceFile,
+    files: linked.files.map((f) => f.name),
     written: (start, end) => {
       const m = linked.map(start, end);
       return m && { file: m.file.name, text: m.file.sourceFile.text.slice(m.start, m.end) };
@@ -663,10 +686,42 @@ function compileLinked(
       endCharacter: e.character + 1,
     };
   };
-  for (const d of inner.diagnostics) {
-    const mapped = mapDiagnostic(d);
-    if (mapped !== undefined) diagnostics.push(mapped);
-  }
+  // Where each error of the program stands (#1186, `program-refusals.ts`).
+  const located = locateProgramErrors({
+    entry,
+    linked,
+    linkedSource: sourceFile,
+    roots: new Set([entry.fileName, ...(options.roots ?? []).map((r) => r.fileName)]),
+    errors: inner.diagnostics.flatMap((d) => {
+      const mapped = mapDiagnostic(d);
+      return mapped === undefined ? [] : [{ raised: d, mapped }];
+    }),
+    resolve: (from, specifier) =>
+      options.resolveImport?.(from, specifier) ??
+      resolveSpecifierFile(from, specifier, options.readDocument),
+    optionsKey: JSON.stringify(options, (key, value: unknown) =>
+      typeof value === 'function' ||
+      key === 'sourceFile' ||
+      key === 'roots' ||
+      key === 'fileName' ||
+      // An own program is compiled with `emit: false` whatever this compile emits.
+      key === 'emit'
+        ? undefined
+        : value,
+    ),
+    ownProgram: (file) =>
+      compileTsProgram(file.sourceFile.text, {
+        ...options,
+        fileName: file.name,
+        sourceFile: undefined,
+        roots: undefined,
+        emit: false,
+      }).result.diagnostics,
+  });
+  diagnostics.push(...located);
+  // Document order, as the editor lists them (Rules 12.5 and 12.7): a refusal that moved to its
+  // use stands among the entry file's own.
+  sortFileDiagnosticsByPosition(diagnostics, entry.fileName);
   remapSpans(linked, [
     ...inner.funcs,
     ...inner.consts,

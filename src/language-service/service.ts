@@ -1,6 +1,11 @@
 // === createTypeshadeLanguageService: the TypeshadeLanguageService of design doc §4 ===
 
-import { markProjectedAnnotations } from '../compiler/ts/abstract-const.js';
+import { TS_CODES } from '../compiler/ts/codes.js';
+import {
+  isAbstractDivisionRefusal,
+  markProjectedAnnotations,
+} from '../compiler/ts/abstract-const.js';
+import { relatedSitesOf } from '../compiler/ts/diagnostic.js';
 import ts from 'typescript';
 import { emitModule } from '../core/backends/wgsl.js';
 import { emitGlslModule } from '../core/backends/glsl.js';
@@ -17,7 +22,7 @@ import {
   mergeDiagnostics,
 } from './diagnostics.js';
 import { getCompletions } from './completions.js';
-import { getHover } from './hover.js';
+import { getHover, type HoverProgram } from './hover.js';
 import {
   getDefinition,
   getDocumentSymbols,
@@ -285,21 +290,35 @@ export function createTypeshadeLanguageServiceWith(
   }
 
   /**
-   * The analysis of every open document other than `uri` whose program links `declaringUri`
-   * (Rule 3.9): what the hover in `uri` reads for a field that `declaringUri` declares and that
-   * the program of `uri` gives no place among its entries (`hover.ts`, `entryLocationLine`).
+   * The program of every open document other than `uri` that links `declaringUri` (Rule 3.9),
+   * with the document's uri: what the hover in `uri` reads for a field that `declaringUri`
+   * declares, where the program of `uri` gives the field no place among its entries
+   * (`hover.ts`, `entryLocationLines`) or no symbol at all (`getHover`, the signature of a
+   * field of a struct that its own file does not use).
    * Each is that document's own cache entry, the one its diagnostics, symbols and tokens read,
    * so a hover adds no analysis that the service does not keep: an open document is analysed
    * once per version, here or at its own first request.
    */
-  function programsLinking(uri: string, declaringUri: string): CompileTsSourceResult[] {
-    const out: CompileTsSourceResult[] = [];
+  function programsLinking(uri: string, declaringUri: string): HoverProgram[] {
+    const out: HoverProgram[] = [];
     for (const open of tsHost.openUris()) {
       if (open === uri || !dependenciesOf(open).includes(declaringUri)) continue;
       const sourceFile = sourceFileOf(open);
-      if (sourceFile !== undefined) out.push(entryOf(open, sourceFile).analysis);
+      if (sourceFile !== undefined)
+        out.push({ uri: open, analysis: entryOf(open, sourceFile).analysis });
     }
     return out;
+  }
+
+  /** The program of the open document `uri`, its own cache entry, or `undefined` when the
+   *  document is not open: what the hover reads for a name its document imports and its
+   *  program does not keep (`hover.ts`, `unlinkedSymbolAt`). No other document is analysed. */
+  function programOf(uri: string): HoverProgram | undefined {
+    if (!tsHost.hasDocument(uri)) return undefined;
+    const sourceFile = sourceFileOf(uri);
+    return sourceFile === undefined
+      ? undefined
+      : { uri: sourceFile.fileName, analysis: entryOf(sourceFile.fileName, sourceFile).analysis };
   }
 
   /** The cache entry for `uri` under its current `dependencyKey`, computing the front-end
@@ -312,7 +331,11 @@ export function createTypeshadeLanguageServiceWith(
     // item 2): a static field of written numbers keeps no fixed type under the analysis.
     const projection = tsHost.projectionOf(uri);
     if (projection !== undefined)
-      markProjectedAnnotations(sourceFile, projection.insertionStarts());
+      markProjectedAnnotations(
+        sourceFile,
+        projection.insertionStarts(),
+        projection.insertionLengths(),
+      );
     const entry: DocumentCacheEntry = { key, analysis: analyze(sourceFile, imports) };
     cache.set(uri, entry);
     return entry;
@@ -328,7 +351,38 @@ export function createTypeshadeLanguageServiceWith(
       options.merge === false ? undefined : entry.analysis,
       languageService.getProgram()?.getTypeChecker(),
     ).sort(byDocumentOrder);
-    return entry.diagnostics;
+    // A `/` over a constant of no fixed type is refused where another read makes the constant
+    // an integer (change 0134), and that read may stand in a document that imports this one.
+    // The refusal then stands on that read, with this file's `/` as its related site (#1186),
+    // and the mismatch this file raises alone around the `/` is the same mistake: `compile()`
+    // of the importing document reports it once (Rule 12.4). It is read from the importing
+    // documents that are open, at each request: it depends on them, so it is not cached here.
+    const own = entry.diagnostics;
+    const sites: { start: TypeshadePosition; end: TypeshadePosition }[] = [];
+    for (const program of programsLinking(uri, uri)) {
+      for (const d of program.analysis.diagnostics) {
+        if (!isAbstractDivisionRefusal(d)) continue;
+        for (const site of relatedSitesOf(d)) {
+          if (site.fileName !== sourceFile.fileName) continue;
+          sites.push({
+            start: { line: site.line - 1, character: site.character - 1 },
+            end: { line: site.endLine - 1, character: site.endCharacter - 1 },
+          });
+        }
+      }
+    }
+    if (sites.length === 0) return own;
+    const before = (a: TypeshadePosition, b: TypeshadePosition): boolean =>
+      a.line < b.line || (a.line === b.line && a.character <= b.character);
+    return own.filter(
+      (o) =>
+        !(
+          o.code === TS_CODES.TYPE_MISMATCH &&
+          o.severity === 'error' &&
+          !isAbstractDivisionRefusal({ code: String(o.code), message: o.message }) &&
+          sites.some((site) => before(o.range.start, site.start) && before(site.end, o.range.end))
+        ),
+    );
   }
 
   const inner: TypeshadeLanguageService = {
@@ -370,14 +424,10 @@ export function createTypeshadeLanguageServiceWith(
       const sourceFile = sourceFileOf(uri);
       if (!sourceFile) return undefined;
       const offset = offsetAt(sourceFile, position);
-      return getHover(
-        languageService,
-        sourceFile,
-        uri,
-        offset,
-        entryOf(uri, sourceFile).analysis,
-        (declaringUri) => programsLinking(sourceFile.fileName, declaringUri),
-      );
+      return getHover(languageService, sourceFile, uri, offset, entryOf(uri, sourceFile).analysis, {
+        linking: (declaringUri) => programsLinking(sourceFile.fileName, declaringUri),
+        of: (other) => programOf(other),
+      });
     },
 
     getDefinition(uri, position) {

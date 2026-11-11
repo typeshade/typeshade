@@ -1,4 +1,4 @@
-// The libm's test (change 0042, milestone 1a): sin and cos, for an f32 and an f64 operand.
+// The libm's test (change 0042, milestone 1a): sin, cos and tan, for an f32 and an f64 operand.
 //
 // It holds five things. The baked JavaScript form is the one the source gives. Every constant
 // derived from pi is the one a BigInt computation gives. The interpreter that walks the libm's
@@ -14,11 +14,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { LIBM_GENERATED, LIBM_SOURCE, bakeLibm } from '../../../scripts/bake-libm.js';
+import { bakeLibm, libmGenerated, libmSource } from '../../../scripts/bake-libm.js';
 import { compileLibmSource } from '../../compiler/ts/libm-source.js';
 import { compile } from '../../compiler/ts/compile.js';
 import { compileModuleJs } from '../cpu-codegen.js';
-import { BUILTINS, COMPONENTWISE, LIBM_TRIG } from '../cpu-runtime.js';
+import { BUILTINS, COMPONENTWISE, LIBM } from '../cpu-runtime.js';
 import { compileModule } from '../oracle.js';
 import type { ConstDecl, Expr } from '../ir/nodes.js';
 import {
@@ -36,19 +36,26 @@ import {
 import {
   F32_FORMAT,
   F64_FORMAT,
+  exactTan,
   exactTrig,
+  exactValue,
   f32OfBits,
   f64OfWords,
   piFixed,
   ulpError,
+  wordsOf,
+  type Exact,
 } from '../testing/libm-reference.js';
+import { withEngineMathRefused } from '../testing/engine-math.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const LIBM_SOURCE = libmSource('trig');
+const LIBM_GENERATED = libmGenerated('trig');
 const source = readFileSync(join(ROOT, LIBM_SOURCE), 'utf8');
 const compiled = compileLibmSource(source, LIBM_SOURCE);
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
-/** sin and cos as the gates measure them: for an f64 operand, and for an f32 operand. */
-const LIBM = libmFunctions(LIBM_TRIG);
+/** sin, cos and tan as the gates measure them: for an f64 operand, and for an f32 operand. */
+const TRIG = libmFunctions(LIBM);
 type Trig = Parameters<typeof libmFunctions>[0];
 
 describe('the libm source and its baked JavaScript form', () => {
@@ -57,7 +64,7 @@ describe('the libm source and its baked JavaScript form', () => {
   });
 
   it('is baked: trig.generated.ts is what scripts/bake-libm.ts writes from the source', () => {
-    expect(readFileSync(join(ROOT, LIBM_GENERATED), 'utf8')).toBe(bakeLibm(source));
+    expect(readFileSync(join(ROOT, LIBM_GENERATED), 'utf8')).toBe(bakeLibm(source, 'trig'));
   });
 
   it('builds no code at run time: the baked form has no Function constructor and no eval', () => {
@@ -170,7 +177,7 @@ describe('form against form: the interpreter on the libm IR and the baked JavaSc
       let compared = 0;
       for (const set of libmInputs(routine, COUNT)) {
         const a = littleEndianBytes(libmResults(interpreter[routine], set.values));
-        const b = littleEndianBytes(libmResults(LIBM[routine], set.values));
+        const b = littleEndianBytes(libmResults(TRIG[routine], set.values));
         expect([set.name, sha256(a.bytes), a.nans]).toEqual([set.name, sha256(b.bytes), b.nans]);
         compared += set.values.length;
       }
@@ -180,7 +187,7 @@ describe('form against form: the interpreter on the libm IR and the baked JavaSc
 
   it('sees a difference: one result with its last bit changed gives another hash', () => {
     const set = libmInputs('sinF64', 1000)[1]!;
-    const good = libmResults(LIBM_TRIG.sinF64, set.values);
+    const good = libmResults(LIBM.sinF64, set.values);
     const bad = Float64Array.from(good);
     bad[500] = bad[500]! * (1 + 2 ** -52);
     expect(bad[500]).not.toBe(good[500]);
@@ -194,7 +201,7 @@ describe('form against form: the interpreter on the libm IR and the baked JavaSc
     );
     for (const routine of LIBM_ROUTINES) {
       for (const set of libmInputs(routine, 2000)) {
-        for (const x of set.values) expect(fresh[routine](x)).toBe(LIBM[routine](x));
+        for (const x of set.values) expect(fresh[routine](x)).toBe(TRIG[routine](x));
       }
     }
   });
@@ -217,7 +224,7 @@ describe('engine against engine: trig.gate.json', () => {
   });
 
   it('this engine makes the inputs and the results that the file hashes', () => {
-    expect(libmGateRows(LIBM, sha256)).toEqual(file.rows);
+    expect(libmGateRows(TRIG, sha256)).toEqual(file.rows);
   });
 
   it('only a NaN or an infinite operand gives a NaN result', () => {
@@ -227,7 +234,7 @@ describe('engine against engine: trig.gate.json', () => {
       for (const set of libmInputs(routine, 20_000)) {
         for (const x of set.values) {
           if (Number.isFinite(x)) finite++;
-          if (Number.isNaN(LIBM[routine](x)) === Number.isFinite(x))
+          if (Number.isNaN(TRIG[routine](x)) === Number.isFinite(x))
             wrong.push(`${routine}(${String(x)})`);
         }
       }
@@ -268,14 +275,17 @@ describe('the error is under 1 ULP (decision N9)', () => {
   ];
 
   const worst = (routine: LibmRoutine, sample: readonly number[]): [number, number, number] => {
-    const fn = routine.startsWith('sin') ? 'sin' : 'cos';
+    const exact = (x: number): Exact =>
+      routine.startsWith('tan')
+        ? exactTan(x)
+        : exactTrig(routine.startsWith('sin') ? 'sin' : 'cos', x);
     const format = routine.endsWith('F32') ? F32_FORMAT : F64_FORMAT;
     let max = 0;
     let at = 0;
     let measured = 0;
     for (const x of sample) {
       if (!Number.isFinite(x)) continue;
-      const error = ulpError(LIBM[routine](x), exactTrig(fn, x), format);
+      const error = ulpError(TRIG[routine](x), exact(x), format);
       if (error === undefined) continue;
       measured++;
       if (Math.abs(error) > max) {
@@ -307,11 +317,162 @@ describe('the error is under 1 ULP (decision N9)', () => {
   });
 });
 
-describe('the CPU tier calls the libm for sin and cos', () => {
+describe('tan: the special values, the thresholds and the hard operands', () => {
+  const same = (got: number, want: number): void => {
+    expect(Object.is(got, want), `${String(got)} is not ${String(want)}`).toBe(true);
+  };
+  const error = (x: number): number => Math.abs(ulpError(LIBM.tanF64(x), exactTan(x), F64_FORMAT)!);
+  /** The f64 that is `k` values after `x`, for a positive `x`. */
+  const after = (x: number, k: number): number => {
+    const [hi, lo] = wordsOf(x);
+    const v = BigInt(hi) * 4294967296n + BigInt(lo) + BigInt(k);
+    return f64OfWords(Number(v >> 32n), Number(v & 0xffffffffn));
+  };
+
+  it('the values ECMA-262 and IEEE 754 fix', () => {
+    same(LIBM.tanF64(0), 0);
+    same(LIBM.tanF64(-0), -0);
+    same(LIBM.tanF64(NaN), NaN);
+    same(LIBM.tanF64(Infinity), NaN);
+    same(LIBM.tanF64(-Infinity), NaN);
+    // tan(x) is x below 2^-27, down to the smallest subnormal, with its sign.
+    for (const x of [5e-324, -5e-324, 2.2250738585072014e-308, 2 ** -28, -(2 ** -28)]) {
+      same(LIBM.tanF64(x), x);
+    }
+    // tan is odd, bit for bit.
+    for (const x of [0.3, 0.7, 1, 1.5707963267948966, 100, 1e10, 1e22, 1e300]) {
+      same(LIBM.tanF64(-x), -LIBM.tanF64(x));
+    }
+  });
+
+  it('the coefficients of the kernel are those of fdlibm, word for word', () => {
+    const words: readonly (readonly [number, number])[] = [
+      [0x3fd55555, 0x55555563],
+      [0x3fc11111, 0x1110fe7a],
+      [0x3faba1ba, 0x1bb341fe],
+      [0x3f9664f4, 0x8406d637],
+      [0x3f8226e3, 0xe96e8493],
+      [0x3f6d6d22, 0xc9560328],
+      [0x3f57dbc8, 0xfee08315],
+      [0x3f4344d8, 0xf2f26501],
+      [0x3f3026f7, 0x1a8d1068],
+      [0x3f147e88, 0xa03792a6],
+      [0x3f12b80f, 0x32f0a7e9],
+      [0xbef375cb, 0xdb605373],
+      [0x3efb2a70, 0x74bf7ad4],
+    ];
+    for (const [i, [hi, lo]] of words.entries()) {
+      const c = compiled.module.consts.find((d) => d.name === `T${String(i)}`)!;
+      expect([i, wordsOf(c.cpuValue as number)]).toEqual([i, [hi, lo]]);
+    }
+  });
+
+  it('near an odd multiple of pi/2, where the result is large, the error is under 1 ULP', () => {
+    // pi/2 rounded, its neighbours, and the f64 nearest a multiple of pi/2, which is odd.
+    const hard = 6381956970095103 * 2 ** 797;
+    for (const x of [
+      1.5707963267948966, 1.5707963267948968, 1.5707963267948963, 4.71238898038469,
+    ]) {
+      expect([x, error(x) < 1]).toEqual([x, true]);
+    }
+    expect(Math.abs(LIBM.tanF64(1.5707963267948966))).toBeGreaterThan(1e16);
+    expect(error(hard)).toBeLessThan(1);
+    expect(error(-hard)).toBeLessThan(1);
+    expect(Math.abs(LIBM.tanF64(hard))).toBeGreaterThan(2 ** 60);
+    // The odd multiples up to 2^20 * pi/2, each rounded, and four neighbours of each.
+    let max = 0;
+    for (let k = 1; k < 2_000_000; k += 4001) {
+      for (const d of [-2, -1, 0, 1, 2])
+        max = Math.max(max, error(after(k * 1.5707963267948966, d)));
+    }
+    expect(max).toBeLessThan(1);
+    expect(max).toBeGreaterThan(0.25);
+  });
+
+  it('a huge operand: every exponent from 2^20 to the largest', () => {
+    const next = mulberry32(0x7a17a17a);
+    let max = 0;
+    for (let e = 1043; e < 2047; e++) {
+      for (let i = 0; i < 3; i++) {
+        max = Math.max(max, error(f64OfWords(((e << 20) | (next() & 0x800fffff)) >>> 0, next())));
+      }
+    }
+    expect(max).toBeLessThan(1);
+    expect(error(Number.MAX_VALUE)).toBeLessThan(1);
+  });
+
+  it('at each threshold of the routine the error is under 1 ULP on both sides, and tan does not decrease', () => {
+    // 2^-27 (tan(x) is x below it), 0.625 (the kernel runs on pi/4 - |x| from it), 0.6744 (where
+    // fdlibm's kernel has that switch), pi/4 (the first reduction starts past it) and
+    // 2^20 * pi/2 (the second reduction starts at it).
+    const thresholds = [
+      f64OfWords(0x3e400000, 0),
+      f64OfWords(0x3fe40000, 0),
+      f64OfWords(0x3fe59428, 0),
+      f64OfWords(0x3fe921fc, 0),
+      f64OfWords(0x413921fb, 0),
+    ];
+    for (const t of thresholds) {
+      let previous = LIBM.tanF64(after(t, -513));
+      for (let k = -512; k <= 512; k++) {
+        const x = after(t, k);
+        const r = LIBM.tanF64(x);
+        expect([x, error(x) < 1]).toEqual([x, true]);
+        // The last threshold is far from a pole only by chance; tan increases between poles.
+        if (t < 1e6) expect([x, r >= previous]).toEqual([x, true]);
+        previous = r;
+      }
+    }
+  });
+});
+
+describe('tan: the operands of the largest errors that a sample has measured', () => {
+  // fdlibm's kernel measured up to 0.9277 ULP just below its switch at 0.6744 (the review of
+  // #1207). The kernel now takes the cube by exact products below 0.625, and one sum from it.
+  const error = (x: number): number => Math.abs(ulpError(LIBM.tanF64(x), exactTan(x), F64_FORMAT)!);
+
+  it('the operands at which the earlier kernel measured 0.9023 and 0.8839 ULP are under 0.25', () => {
+    // The first is from the independent review of #1207, the second from the sweep of #1207.
+    for (const x of [2.926865656139087e106, -11.896597503998837]) {
+      expect([x, error(x) < 0.25]).toEqual([x, true]);
+    }
+    // The earlier result was 0.7873026738547275, one unit above.
+    expect(LIBM.tanF64(2.926865656139087e106)).toBe(0.7873026738547274);
+  });
+
+  it('the reduced argument at which the earlier kernel measured 0.9277 ULP is under 0.25', () => {
+    // The review of #1207 measured the kernel on 96,000,000 pairs of a head and a tail. This
+    // pair was its largest error. The kernel is no export: the interpreter of the source's module gives it.
+    const ktan = (
+      compileModule(compiled.module, { precision: 'f32' }).fns as unknown as Record<
+        string,
+        (x: number, y: number, odd: boolean) => number
+      >
+    )['ktan']!;
+    const x = 0.6707954031500757;
+    const y = -3.906014701318836e-17;
+    // tan(x + y) is tan(x) + y (1 + tan(x)^2), to far below a unit: y^2 is below 2^-108.
+    const t = exactTan(x);
+    const tail = exactValue(y);
+    const one = 1n << t.scale;
+    const slope = one + ((t.num * t.num) >> t.scale);
+    const exact = {
+      num: t.num + (((tail.num << (t.scale - tail.scale)) * slope) >> t.scale),
+      scale: t.scale,
+    };
+    const measured = Math.abs(ulpError(ktan(x, y, false), exact, F64_FORMAT)!);
+    expect(measured).toBeLessThan(0.25);
+  });
+});
+
+describe('the CPU tier calls the libm for sin, cos and tan', () => {
+  /** The functions of the engine's `Math` that no CPU path of this family may call. */
+  const ENGINE = ['sin', 'cos', 'tan'] as const;
   const program = compile(`"use typeshade";
 export function single(x: f32): f32 { return sin(x) - cos(x); }
 export function double(x: f64): f64 { return Math.sin(x) - Math.cos(x); }
 export function lanes(v: vec3): vec3 { return sin(v) + cos(v.zyx); }
+export function tangent(x: f32): f32 { return tan(x); }
 `);
   const x = 1e10;
   const fr = Math.fround;
@@ -321,42 +482,48 @@ export function lanes(v: vec3): vec3 { return sin(v) + cos(v.zyx); }
   });
 
   it("in 'f32' precision an f32 operand takes the f64 routine, rounded once", () => {
-    for (const build of [compileModule, compileModuleJs]) {
-      const fns = build(program.module, { precision: 'f32' }).fns as Record<
-        string,
-        (...a: unknown[]) => unknown
-      >;
-      expect(fns['single']!(x)).toBe(fr(LIBM.sinF32(x) - LIBM.cosF32(x)));
-      expect(fns['double']!(x)).toBe(LIBM_TRIG.sinF64(x) - LIBM_TRIG.cosF64(x));
-      expect(fns['lanes']!([1, 2, 3])).toEqual(
-        [1, 2, 3].map((c, i) => fr(LIBM.sinF32(c) + LIBM.cosF32(3 - i))),
-      );
-    }
+    for (const build of [compileModule, compileModuleJs])
+      withEngineMathRefused(ENGINE, () => {
+        const fns = build(program.module, { precision: 'f32' }).fns as Record<
+          string,
+          (...a: unknown[]) => unknown
+        >;
+        expect(fns['single']!(x)).toBe(fr(TRIG.sinF32(x) - TRIG.cosF32(x)));
+        expect(fns['double']!(x)).toBe(LIBM.sinF64(x) - LIBM.cosF64(x));
+        expect(fns['lanes']!([1, 2, 3])).toEqual(
+          [1, 2, 3].map((c, i) => fr(TRIG.sinF32(c) + TRIG.cosF32(3 - i))),
+        );
+        expect(fns['tangent']!(x)).toBe(TRIG.tanF32(x));
+      });
   });
 
   it("in 'f64' precision every operand takes the f64 routine", () => {
-    for (const build of [compileModule, compileModuleJs]) {
-      const fns = build(program.module, { precision: 'f64' }).fns as Record<
-        string,
-        (...a: unknown[]) => unknown
-      >;
-      expect(fns['single']!(x)).toBe(LIBM_TRIG.sinF64(x) - LIBM_TRIG.cosF64(x));
-      expect(fns['double']!(x)).toBe(LIBM_TRIG.sinF64(x) - LIBM_TRIG.cosF64(x));
-    }
+    for (const build of [compileModule, compileModuleJs])
+      withEngineMathRefused(ENGINE, () => {
+        const fns = build(program.module, { precision: 'f64' }).fns as Record<
+          string,
+          (...a: unknown[]) => unknown
+        >;
+        expect(fns['single']!(x)).toBe(LIBM.sinF64(x) - LIBM.cosF64(x));
+        expect(fns['double']!(x)).toBe(LIBM.sinF64(x) - LIBM.cosF64(x));
+        expect(fns['tangent']!(x)).toBe(LIBM.tanF64(x));
+      });
   });
 
   it('the tables hold the routines, not the engine Math', () => {
     expect(COMPONENTWISE.sin.lane).not.toBe(Math.sin);
     expect(COMPONENTWISE.cos.lane).not.toBe(Math.cos);
+    expect(COMPONENTWISE.tan.lane).not.toBe(Math.tan);
+    expect(BUILTINS['tan']!([1, 2])).toEqual([LIBM.tanF64(1), LIBM.tanF64(2)]);
     // The f64 nearest a multiple of pi/2. The libm is under 1 ULP from the exact value there.
     // An engine's `Math.cos` need not be: on Bun 1.4.4 it is 7.95 ULP off. The table's entry is
     // the libm's routine, on a scalar and on a vector.
     const hard = 6381956970095103 * 2 ** 797;
-    expect(BUILTINS['cos']!(hard)).toBe(LIBM_TRIG.cosF64(hard));
-    expect(BUILTINS['sin']!([1, hard])).toEqual([LIBM_TRIG.sinF64(1), LIBM_TRIG.sinF64(hard)]);
-    expect(
-      Math.abs(ulpError(LIBM_TRIG.cosF64(hard), exactTrig('cos', hard), F64_FORMAT)!),
-    ).toBeLessThan(1);
+    expect(BUILTINS['cos']!(hard)).toBe(LIBM.cosF64(hard));
+    expect(BUILTINS['sin']!([1, hard])).toEqual([LIBM.sinF64(1), LIBM.sinF64(hard)]);
+    expect(Math.abs(ulpError(LIBM.cosF64(hard), exactTrig('cos', hard), F64_FORMAT)!)).toBeLessThan(
+      1,
+    );
     // No id of an f32 routine exists.
     expect(Object.keys(BUILTINS).filter((k) => /F32$/.test(k) && k.startsWith('__'))).toEqual([]);
   });
@@ -385,7 +552,7 @@ export function bound(): u32 {
   return n;
 }
 `);
-  const want = [LIBM.sinF32(X), LIBM.cosF32(X)];
+  const want = [TRIG.sinF32(X), TRIG.cosF32(X)];
 
   it('the operand is an f32, and the program compiles', () => {
     expect(Math.fround(X)).toBe(X);

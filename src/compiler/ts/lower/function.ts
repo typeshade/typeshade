@@ -2,7 +2,7 @@
 //
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
-import { moduleAbstractConst } from '../abstract-const.js';
+import { hasNoWrittenResult, moduleAbstractConst, noteCarriedReturn } from '../abstract-const.js';
 import { attributeDecoratorsOf, isTypeDecorator } from '../attribute-types.js';
 import { variableRefused } from '../refused-names.js';
 import { moduleVarSourceName } from '../module-var-names.js';
@@ -109,7 +109,8 @@ import {
   isBarrierIntrinsic,
   SUBGROUP_INTRINSICS,
 } from '../../../core/intrinsics.js';
-import { diagnosticAtSpan, makeDiagnostic } from '../diagnostic.js';
+import { diagnosticAtSpan, keepUses, makeDiagnostic, noteUse } from '../diagnostic.js';
+import { instanceUsesOf } from '../generic-structs.js';
 import { checkComputeOnlyUses } from '../stage-restrictions.js';
 import { spanOf, withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
@@ -732,7 +733,7 @@ export function lowerSourceFunctions(
     });
   };
   for (const r of ready) {
-    if (r.node.type !== undefined || r.stub.stage !== undefined) continue;
+    if (!hasNoWrittenResult(r.node, sourceFile) || r.stub.stage !== undefined) continue;
     // Lowered outside any instance of a generic function, wherever the call that asks is.
     pendingFill.set(r.stub, () => {
       withTypeArguments(undefined, () => fillReady(r, true));
@@ -746,6 +747,7 @@ export function lowerSourceFunctions(
     infers: boolean,
   ): void => {
     const said = saidFor(cf);
+    const saidBefore = said.length;
     track(cf.stub, infers, said, node, () =>
       fillFunctionBody(
         node,
@@ -770,6 +772,14 @@ export function lowerSourceFunctions(
         infers,
       ),
     );
+    // What the body of a generic class's instance says is true of the places that write the
+    // instance, `Box<P>`: a program that imports the class reports it at the first of them its
+    // entry file writes (#1186). The last recorded use is the first one read.
+    const made = instanceUsesOf(sourceFile, cf.struct.decl.name);
+    if (made.length > 0) {
+      for (const d of said.slice(saidBefore))
+        for (const use of [...made].reverse()) noteUse(d, use, sourceFile);
+    }
     nodeByName.set(cf.stub.name, node);
     funcs.push(cf.stub);
   };
@@ -1072,6 +1082,9 @@ export function lowerSourceFunctions(
       callees.set(emitted, stub);
       writtenAs.set(emitted, name);
       making.push(name);
+      // What the body says of this instance is true of the call that asked for it: a program
+      // that imports the function reports it at that call (#1186).
+      const saidBefore = diags.length;
       try {
         // In the body, a parameter of function type names the function handed over.
         const handed = new Map<string, string>();
@@ -1130,6 +1143,7 @@ export function lowerSourceFunctions(
         fillLifted(mine, sf, diags);
       } finally {
         making.pop();
+        for (const d of diags.slice(saidBefore)) noteUse(d, node, sf);
       }
       return stub;
     });
@@ -1797,8 +1811,13 @@ export function lowerSourceFunctions(
   for (const r of ready) {
     if (pendingFill.has(r.stub)) runPending(r.stub);
     // An entry that writes no return type returns what its body does (Rule 8.19, change 0136).
-    else if (r.node.type !== undefined || r.stub.stage !== undefined)
-      fillReady(r, r.node.type === undefined);
+    else if (!hasNoWrittenResult(r.node, sourceFile) || r.stub.stage !== undefined)
+      fillReady(
+        r,
+        r.stub.stage === undefined
+          ? hasNoWrittenResult(r.node, sourceFile)
+          : r.node.type === undefined,
+      );
   }
   fillLifted(lifted, sourceFile, diagnostics);
   // Once every body is lowered, the instances and the functions written as arguments among
@@ -2053,7 +2072,9 @@ function sayInherited(
             names.length === 1
               ? names[0]!
               : `${names.slice(0, -1).join(', ')} and ${names.at(-1)!}`;
-          diagnostics[group.index] = { ...d, message: `${prefix}${together}${suffix}` };
+          const joined = { ...d, message: `${prefix}${together}${suffix}` };
+          keepUses(joined, diagnostics[group.index]!);
+          diagnostics[group.index] = joined;
           continue;
         }
         fields.set(id, { index: diagnostics.length, classes: [name] });
@@ -2837,7 +2858,15 @@ export function parseSignature(
   if (!params) return undefined;
   // A function that writes no return type says it in its body (Rule 8.19); an entry's is its
   // output, which its signature declares.
-  const ret = parseReturnType(node.type, sourceFile, diagnostics, structs, stageInfo.stage);
+  // A result type the editor's projection wrote is not the author's (change 0134): the
+  // function infers it, as `compile()` reads the same text.
+  const ret = parseReturnType(
+    stageInfo.stage === undefined && hasNoWrittenResult(node, sourceFile) ? undefined : node.type,
+    sourceFile,
+    diagnostics,
+    structs,
+    stageInfo.stage,
+  );
   if (!ret) return undefined;
   // A stage output of an emulated double is a varying or a render-target write (#151 F64-09).
   if (
@@ -3583,6 +3612,16 @@ export function fillFunctionBody(
           : lowerArrowValue(node.body, stub, sourceFile, scope, diagnostics)
         : lowerStatements((node.body as ts.Block).statements, sourceFile, scope, diagnostics);
   if (inferRet === true) recordName();
+  // An expression body is the function's one `return`: a value that comes from a constant of no
+  // fixed type hands its origin to each call (Amendment A3 of change 0134), as a `return` does.
+  if (ts.isArrowFunction(node) && !ts.isBlock(node.body) && hasNoWrittenResult(node, sourceFile)) {
+    noteCarriedReturn(
+      sourceFile,
+      stub.name,
+      node.body,
+      (callee) => scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined,
+    );
+  }
   // A path that ends a function with an optional result without a `return` is the absent
   // value, as TypeScript reads the end of the body (Rule 7.10, change 0099): the return is
   // appended here, with the same value `return undefined;` lowers to. A plain function's

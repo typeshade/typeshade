@@ -30,7 +30,7 @@ import type { Expr } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { f64T, i32T, u32T } from '../../core/ir/types.js';
 import { logicalTypeKey as typeKey } from './optional.js';
-import { abstractLiteralOf } from './abstract-const.js';
+import { abstractLiteralOf, type AbstractConst, type Carried } from './abstract-const.js';
 
 /** What a use asks of a value: a concrete scalar, or `int`, an integer of no kind (an index, a
  *  bitwise operand with no typed peer), which is an `i32` unless another use says `u32`. */
@@ -352,4 +352,46 @@ export function inferredDivisionMessage(
     `division it is. Write "${keywordOf(value)} ${value.name}: ${type} = ${value.written ?? '...'}" for the integer ` +
     `division, or ${float} for the float one.`
   );
+}
+
+/** The origin a read of `value` carries when its uses made it an integer: a `/` over it whose
+ *  operands have no declared type is refused, as a `/` over a constant that some read makes an
+ *  integer is (decisions Q6 and Q11; `abstract-const.ts` reports it, with the edit it checks).
+ *  One record for each declaration, for each type its uses gave it. */
+const origins = new WeakMap<ts.Node, { key: string; carried: Carried }>();
+export function inferredOrigin(value: InferredValue | undefined): Carried | undefined {
+  if (value === undefined || value.type === undefined) return undefined;
+  const key = typeKey(value.type);
+  if (key !== 'i32' && key !== 'u32') return undefined;
+  const cached = origins.get(value.decl);
+  if (cached !== undefined && cached.key === key) return cached.carried;
+  const decl = value.decl as ts.VariableDeclaration;
+  const info: AbstractConst = {
+    name: value.name,
+    value: Number.NaN,
+    integerWritten: true,
+    keyword: 'let',
+    nameNode: decl.name,
+    written: value.written ?? '',
+    sources: [],
+    // Its uses are the other read that makes it an integer: they stand outside any `/`.
+    integerReads: [{ type: key, node: decl.name as ts.Expression }],
+  };
+  const carried: Carried = {
+    reaches: [info],
+    float: false,
+    variable: { keyword: 'let', name: value.name, init: value.written ?? '', type: key },
+  };
+  origins.set(value.decl, { key, carried });
+  return carried;
+}
+
+/** What a read of a binding carries: the constants its initializer reaches, and where its uses
+ *  made it an integer and it reaches none, the record of {@link inferredOrigin}. */
+export function carriedOf(
+  carries: Carried | undefined,
+  value: InferredValue | undefined,
+): Carried | undefined {
+  if (carries !== undefined && carries.reaches.length > 0) return carries;
+  return inferredOrigin(value) ?? carries;
 }

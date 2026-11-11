@@ -1,7 +1,7 @@
 // Implements: Rule 6.2, the remedy a read-only resource names (docs/language-design.md; traced in reqs/).
 // === Lowering context / symbol table ===
 
-import type { AbstractConst } from './abstract-const.js';
+import type { AbstractConst, Carried } from './abstract-const.js';
 import type { InferredValue } from './use-inference.js';
 import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
@@ -324,6 +324,9 @@ export function withWrittenStructs<R>(f: () => R): R {
  *  share (Rule 3.2), and a sentence still names it as its own file writes it. */
 export interface LinkedOrigin {
   readonly sourceFile: ts.SourceFile;
+  /** Every file of the program as `written` names it, the file it starts from first, then in
+   *  the order the linker read them. */
+  readonly files: readonly string[];
   readonly written: (
     start: number,
     end: number,
@@ -359,6 +362,13 @@ export function writtenText(node: ts.Node): string {
   return LINKED_ORIGIN.written(node.getStart(sf), node.getEnd())?.text ?? node.getText(sf);
 }
 
+/** The text from `start` to `end` of `sf` as its own file writes it, where the linker joined
+ *  files into `sf`; the text of `sf` itself otherwise or where the range maps to no one file. */
+export function writtenRange(sf: ts.SourceFile, start: number, end: number): string {
+  if (LINKED_ORIGIN?.sourceFile !== sf) return sf.text.slice(start, end);
+  return LINKED_ORIGIN.written(start, end)?.text ?? sf.text.slice(start, end);
+}
+
 /** Whether `a` and `b` were written in one file: one file of the program a linked source joins,
  *  or the one source being lowered. */
 export function sameFile(a: ts.Node, b: ts.Node): boolean {
@@ -369,6 +379,17 @@ export function sameFile(a: ts.Node, b: ts.Node): boolean {
   const fileOf = (n: ts.Node): string | undefined =>
     origin.written(n.getStart(sf), n.getStart(sf))?.file;
   return fileOf(a) === fileOf(b);
+}
+
+/** Which file of the program `node` was written in: its index in {@link LinkedOrigin.files},
+ *  0 for the file the program starts from and for a source that is not linked. */
+export function programFileOf(node: ts.Node): number {
+  const sf = node.getSourceFile();
+  const origin = LINKED_ORIGIN;
+  if (origin?.sourceFile !== sf) return 0;
+  const file = origin.written(node.getStart(sf), node.getStart(sf))?.file;
+  const at = file === undefined ? -1 : origin.files.indexOf(file);
+  return at < 0 ? 0 : at;
 }
 
 /** What {@link useWrittenStructs} reads a struct's written form off: the name it is emitted
@@ -613,6 +634,10 @@ export interface Binding {
   /** For a value whose type its uses decide (Rule 5.1, change 0134 item 1): its record, which
    *  each read of the name is marked with (`use-inference.ts`). */
   readonly inferred?: InferredValue;
+  /** For a `let` with no annotation that was initialized from constants of no fixed type
+   *  (`let y = k`): those constants, which a `/` over the variable reaches (Amendment A2 of
+   *  change 0134). */
+  readonly carries?: Carried;
   /** Integer-only proof for bounds checks, derived from the emitted initializer. Unlike
    * constValue, this never approximates an f32 subtree with the CPU's double precision. */
   readonly indexConstValue?: number;

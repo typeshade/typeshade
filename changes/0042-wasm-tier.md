@@ -7,6 +7,7 @@ rules:
   - '7.2'
   - '9.4'
   - '11.1'
+  - '11.2'
   - '11.7'
   - '11.8'
   - '11.11'
@@ -721,6 +722,8 @@ checks, the NaN bits and the libm are the compiler's work (OD-3).
   `Math` in the last bit.
 - Rule 11.1: its rationale. The CPU tier has two generated forms, and a named gate holds each
   to the oracle bit for bit; "not a fourth implementation" is replaced by that statement.
+- Rule 11.2: the comment with the measured text stands on the id's `INTRINSICS` row, or on its
+  entry of `PORTABLE_INTRINSICS` (Amendment A5).
 - Rule 11.7: the CPU tier's two forms and their gate; their relation; the out-of-range
   behaviour; the canonical NaN; the libm in place of the engine's `Math`; the
   `'wasm-unsafe-eval'` note.
@@ -967,6 +970,190 @@ routine that exists.
 **Slices of milestone 1a.** The milestone is delivered in slices, each its own pull request:
 the internal operations with `sin` and `cos` (#1168); the other 17 functions; the rule text of
 Rules 1.3, 9.4 and 11.24; the split by function; the sweep against CORE-MATH.
+
+### A3. No monotonic promise; the fdlibm notice; `exp2`; what the first seven functions measured (2026-11-10)
+
+**Delivered so far.** [observed result] Seven of the 19 functions are on `main` at `fbd151af`:
+`sin` and `cos` ([#1168](https://github.com/typeshade/typeshade/pull/1168)), `exp`, `exp2`,
+`log`, `log2` and `ldexp` ([#1181](https://github.com/typeshade/typeshade/pull/1181)), and a
+second method for `exp2` ([#1199](https://github.com/typeshade/typeshade/pull/1199)). Each
+pull request had an independent review. No review found an operand at or above 1 ULP.
+
+| Function     | Largest error measured for an `f64` operand | Measured by                                       |
+| ------------ | ------------------------------------------- | ------------------------------------------------- |
+| `sin`, `cos` | 0.794 ULP                                   | the review of #1168, about 10.8 million operands  |
+| `exp`        | 0.9217 ULP                                  | the review of #1181, 7.8 million focused operands |
+| `exp2`       | 0.7718 ULP                                  | #1199 after its review, 115 million operands      |
+| `log`        | 0.8518 ULP                                  | the review of #1181                               |
+| `log2`       | 0.8615 ULP                                  | the review of #1181                               |
+| `ldexp`      | correctly rounded                           | the review of #1181, 8.4 million cases            |
+
+Each number is the largest of a sample. None is a proved bound. An `f32` result measured at
+most 0.5009 ULP before Amendment A2 and 0.5000 ULP after it.
+
+**Decision, monotonic results.** The review of #1181 found that `exp2` was not monotonic at
+two pairs of operands near −0.4973 and −0.4977, each inside 1 ULP. Asked on 2026-11-10 whether
+the libm promises monotonic results as well, the owner chose "약속하지 않음". The promise stays
+the engine identity and an error under 1 ULP. A step that decreases where the exact function
+increases is recorded when a review finds one, and it is no defect. The alternative was to
+promise it. Cost recorded: a caller that needs a monotonic function cannot rest on the libm.
+[observed result] After #1199 a scan of about 366 million consecutive doubles found no such
+step in `exp2`.
+
+**Decision, the fdlibm notice.** The kernels and the coefficients of `sin`, `cos`, `exp`,
+`log` and `log2` are fdlibm's, whose licence grants use "provided that this notice is
+preserved". Asked on 2026-11-10 how far the notice goes, the owner chose "소스 + NOTICE + 생성
+파일": the notice is in each libm source, in `NOTICE` (which the package ships), and in the
+header of each baked file. The alternatives were the sources only, or a preserved comment in
+each built bundle as well. Cost recorded: a minified bundle carries no notice. This is the
+owner's decision and no legal advice.
+
+**`exp2`.** The proposal named no method for `exp2`. [observed result] The first method
+(#1181: the nearest integer out, the kernel of `exp` on the rest) measured up to 0.9282 ULP.
+Asked on 2026-11-10, the owner chose "머지, exp2는 뒤에 개선" and then "빠진 항을 더한 뒤 머지".
+The method on `main` takes the nearest half-integer out. Its kernel runs on half the range. An
+odd half-step multiplies by the square root of 2, held as a head and a tail, with all four
+terms of the product.
+
+**Open, a subnormal result.** [observed result] `exp` and `exp2` round a subnormal result
+twice: once in the last sum and once in the scaling. The review of #1199 measured 0.834 ULP at
+most for such a result before the last change, and 0.7718 ULP after it. It is under 1 ULP.
+Next action: none planned; the sweep against CORE-MATH measures it again.
+
+**Open, compile-time refusals.** `CONST_CALLS` in `src/compiler/ts/loop-bound.ts` still reads
+the engine's `Math` for the range and domain refusals of `exp`, `exp2`, `log`, `log2` and
+`ldexp`. It gives no CPU value. Next action: a later slice of milestone 1a reads it.
+
+**Two bugs that the libm work found and that are fixed.** Neither is part of this proposal.
+An author's function named `__fround` was taken for the rounding step
+([#1178](https://github.com/typeshade/typeshade/pull/1178)). A module constant's expression did
+not round as `f32` arithmetic does in `'f32'` precision
+([#1190](https://github.com/typeshade/typeshade/pull/1190)).
+
+### A4. `pow` keeps ECMAScript's special values; what the next eleven functions measured (2026-11-10)
+
+**Delivered so far.** [observed result] Eighteen of the 19 functions are on `main` at
+`93a9e863`: `tan`, `asin`, `acos`, `atan` and `atan2`
+([#1207](https://github.com/typeshade/typeshade/pull/1207)), a second kernel for `tan`
+([#1214](https://github.com/typeshade/typeshade/pull/1214)), and `sinh`, `cosh`, `tanh`,
+`asinh`, `acosh` and `atanh` ([#1215](https://github.com/typeshade/typeshade/pull/1215)). Each
+pull request had an independent review. No review found an operand at or above 1 ULP.
+
+| Function | Largest error measured for an `f64` operand | Measured by                                                  |
+| -------- | ------------------------------------------- | ------------------------------------------------------------ |
+| `tan`    | 0.6753 ULP                                  | #1214, 72 million operands; its review measured 0.6663       |
+| `asin`   | 0.7283 ULP                                  | #1207, 21 million operands; its review measured 0.7274       |
+| `acos`   | 0.7897 ULP                                  | the review of #1207                                          |
+| `atan`   | 0.8569 ULP                                  | the review of #1207                                          |
+| `atan2`  | 0.8564 ULP                                  | the review of #1207                                          |
+| `sinh`   | 0.5854 ULP                                  | the review of #1215, 61.75 million `f64` operands in all six |
+| `cosh`   | 0.5298 ULP                                  | the review of #1215                                          |
+| `tanh`   | 0.5714 ULP                                  | the review of #1215                                          |
+| `asinh`  | 0.5738 ULP                                  | the review of #1215                                          |
+| `acosh`  | 0.5670 ULP                                  | the review of #1215                                          |
+| `atanh`  | 0.5697 ULP                                  | the review of #1215                                          |
+
+Each number is the largest of a sample. None is a proved bound. Before #1214 the kernel of `tan`
+measured up to 0.9373 ULP (#1214, on `main` at `50234ad6`; the review of #1207 measured 0.9277).
+After it, the kernel measured 0.6926 ULP.
+
+**Decision, the special values of `pow`.** [fact] Two rules give different answers for some
+pairs of `a ** b` and `Math.pow`. Rule 1.3 gives the oracle "ECMAScript's result for a form
+borrowed from ECMAScript". Surface §10 and Rule 7.2 lower `a ** b` to WGSL's `pow(a, b)`. Rule
+9.4 lowers a `Math` member to "the WGSL builtin of the same meaning". WGSL leaves `pow`
+indeterminate for x < 0, for x = 1 with y infinite and for x infinite with y = 0. Asked on
+2026-11-10, the owner first chose "측정 후 다시 결정": measure the targets first (Rule 11.2).
+
+- [observed result] Configuration: 2026-11-10, `main` at `a86de5c3`, Chromium 153.0.8010.12.
+  WebGPU ran on Dawn and Tint over SwiftShader Vulkan. WebGL2 ran on ANGLE over SwiftShader
+  Vulkan. Each result was read back as bits.
+- [observed result] Tint at run time and WebGL2 gave the same bits on all 18 pairs measured.
+  They differ from ECMAScript on 11 special pairs:
+  - `(-2) ** 3` gives 8, and `(-2) ** 0.5` gives 1.4142138.
+  - `1 ** ±Infinity`, `(-1) ** Infinity`, `1 ** NaN` and `Infinity ** 0` give +Infinity.
+  - `(-0) ** 3` gives +0, and `(-Infinity) ** 3` gives +Infinity.
+  - `(-0) ** -1` and `0 ** -1` give 2^127.
+- [observed result] They agree with ECMAScript on `(-2) ** 2`, `NaN ** 0`, `0 ** 0`,
+  `(-0) ** ±2` and `Infinity ** -1`. On `2 ** 0.5` they give 1.4142138, 2 ULP from
+  ECMAScript's 1.4142135.
+- [observed result] The formula exp2(y × log2(x)) in `f32` differs from SwiftShader on 10 of
+  the 11 special pairs, all but `(-0) ** 3`. Tint's constant evaluator refuses each pair that a
+  literal can spell with x < 0, or with x = 0 and y ≤ 0. WGSL has no literal for an infinity or
+  a NaN.
+- [inference] So neither ECMAScript's values nor the formula gives the bits that SwiftShader
+  gave. Values copied from SwiftShader would match one software driver only. GLSL ES 3.00
+  (§4.5.1) lets a driver interchange +0 and -0, and Tint folds the literal `-0.0` to +0. So no
+  target is held to the sign of a zero.
+
+Asked again on 2026-11-10, the owner chose "A + GPU 차이 기록": the CPU `pow` keeps the special
+values of ECMA-262 that `Math.pow` gives (Rule 1.3), and the libm's routine keeps them too. The
+pull request that implements `pow` records the measured differences, as Rule 11.2 asks: a comment
+on the `pow` row of `INTRINSICS` with the measured text, and a row of the determinism report
+(surface §38). This widens "What it touches": surface §38 gains a row for `pow` beside the row for
+the out-of-range access. The alternatives were WGSL's value where WGSL fixes one (`(-0) ** 3` +0,
+`(-0) ** -1` +Infinity) and ECMAScript's elsewhere, or the values SwiftShader gave. Cost recorded:
+the CPU and a GPU give different results for these pairs, as they did before. Only SwiftShader
+was measured; a hardware driver may give other values.
+
+**Side finding.** [observed result] At `main` `93a9e863`, `export const K: f32 = (-0.) ** 3.;`
+emits `pow(0.0, 3.0)` in WGSL and in GLSL, and `export const Z: f32 = -0.;` emits `0.0`: a
+literal loses the sign of its zero. Tint folds `-0.0` to +0, so the WGSL result does not change.
+ANGLE over SwiftShader folds `pow(-0.0, 3.0)` to -0, so the GLSL text gives +0 where a signed
+literal gives -0. GLSL ES 3.00 (§4.5.1) allows the two zeros to be interchanged, so both results
+are permitted. Next action: none planned; it is recorded here.
+
+**Open, `pow`.** The 19th function has no routine of the libm yet: `COMPONENTWISE.pow` is
+`Math.pow`. Next action: the pull request that implements `pow` under this decision, with the
+records of Rule 11.2.
+
+**Open, compile-time refusals.** `CONST_CALLS` in `src/compiler/ts/loop-bound.ts` reads the
+engine's `Math` for the range and domain refusals of `exp`, `exp2`, `log`, `log2`, `ldexp`,
+`sinh`, `cosh` and `pow`, and `src/compiler/ts/lower/const-call.ts` reads `Math.pow` for the
+value a refusal names. Neither gives a CPU value. This widens the open item of Amendment A3.
+Next action: a later slice of milestone 1a reads them.
+
+**Open, internal routines at run time.** `LIBM` carries the internal routines of each family
+(`hyperbolic`, `lnOnePlus`, `sqrtRest`, `sumErr`, `prodErr` and the earlier kernels). Next
+action: the slice that splits the libm by function (Amendment A2).
+
+### A5. Where the record of Rule 11.2 for `pow` stands; all 19 functions delivered (2026-11-10)
+
+**Delivered.** [observed result] `pow` is the libm's routine on `main` at `68b57a03`
+([#1219](https://github.com/typeshade/typeshade/pull/1219)), with the special values Amendment A4
+chose. All 19 functions of the libm are now the compiler's own routines. This closes the item
+"Open, `pow`" of Amendment A4. [observed result] The largest `f64` error measured for `pow` is
+0.8599 ULP (#1219, 54.7 million pairs; its review measured 0.8443 on 16.9 million pairs). It is
+the largest of a sample, not a proved bound.
+
+**Decision, the place of the record.** [fact] Rule 11.2 asks for "a comment on the `INTRINSICS`
+row with the measured text". Amendment A4 asks for "a comment on the `pow` row of `INTRINSICS`".
+Rule 9.1 classifies `pow` in `PORTABLE_INTRINSICS`, and `src/core/intrinsic-coverage.test.ts`
+refuses an `INTRINSICS` row for an id of that set. #1219 put the comment on the `'pow'` entry of
+`PORTABLE_INTRINSICS`, where `pow` is classified.
+
+Asked on 2026-11-10, the owner chose "0042에 개정 한 줄". That entry is the place of the record
+for `pow`. The open deviation of #1219 is closed by this amendment. The alternatives were to
+change the words of Rule 11.2 now, or to move `pow` into `INTRINSICS`. This widens "What it
+touches": Rule 11.2 says where the comment stands for an id of `PORTABLE_INTRINSICS`. Next
+action: the slice that writes the text of the rules (Amendment A2) words Rule 11.2 for both sets.
+
+### A6. Milestone 3 of proposal 0138 comes before this proposal's stage 1 (2026-11-11)
+
+- [fact] Amendment A5 of proposal 0138 (merged as `d5c33767`) records the owner's decision of
+  2026-11-10: milestone 3 of 0138 (non-blocking calls on `Buffer<T>` and `Uniform<T>`) is
+  implemented before milestone 2, which is this proposal's stage 1.
+- [fact] This proposal assumed the other order. The row "A resource on a CPU tier" says "no call
+  takes a resource yet". The note after decision C2 says that stage 1 delivers the mechanism and
+  milestone 3 of 0138 then passes a resource through it. Stages 1f and 1g name no `Buffer<T>` or
+  `Uniform<T>`.
+- [inference] When stage 1f starts, calls on resources already run on the JavaScript CPU tier,
+  WebGPU and WebGL2. So stage 1f must cover a call on a resource, or name the fallback to the
+  JavaScript CPU tier as the reason for such a call.
+- [fact] Open: which of the two stage 1f does. Next action: the owner is asked before stage 1b
+  starts, and the answer is recorded in an amendment. The row "A resource on a CPU tier" is
+  written again with it.
+- Affects: the row "A resource on a CPU tier", the note after decision C2, stages 1f and 1g. No
+  front-matter entry changes.
 
 ## What it owes downstream
 

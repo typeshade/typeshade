@@ -19,6 +19,47 @@ repository is an official release yet: the `typeshade` package on npm holds only
 
 ### Added
 
+- **Data decides the device of a call** (change 0138, milestone 3, R3; Amendment A5, default 6).
+  `zeros()`, `array()` and `uniform()` make what they make on the device in use
+  (`using _ = (await createDevice(…)).use()`), or on the default owner when none is in use, and
+  it stays that device's after the block. A kernel call or an entry call runs on the device of its
+  resources; with none of a device (plain values, exported bindings) it runs on the device in use,
+  where it ran on the default owner before. A call that mixes devices is a `TypeError` at the
+  call that names both, and changes no `Buffer`. An exported binding belongs to no one device: a
+  storage array keeps a device copy for each device whose call reads it, and each copy takes
+  every dirty range the host set since its own last call. Between a call that writes an exported
+  binding and its `read()`, a call on another device is refused with a `TypeError` that says to
+  await `read()` first; a device disposed in that time lands the values first and drops its copy.
+  A `Uniform` joins a call on any device, since its value is copied at each call. On WebGL2 the end
+  of a submission of recorded calls flushes the context, and `read()` of what such a call wrote
+  waits on a fence (`core/gl-fence.ts`); a lost context ends the wait, since the values are on the
+  host already. A call with plain data places no flush and no fence. A draw keeps today's owner. Measured bundle budgets move
+  (`scripts/bundle-budget.json`, gzip bytes): `typeshade/runtime` 166484 to 167177,
+  `typeshade/fuse` 113593 to 113898, `typeshade/algorithms` 64741 to 64878 and `typeshade/random`
+  46043 to 46200: the call layer each one carries settles a call's device at the call now.
+
+- **A call on a resource does not block** (change 0138, milestone 3, R2; Amendment A5). A kernel
+  function that returns nothing, or a `@compute` entry, called with a `Buffer` or a `Uniform`
+  (an exported binding among them) is checked at the call, recorded, and returns nothing:
+  `age(ps, dt)` then `await ps.read()`. A call refused at the call site leaves each `Buffer` as it
+  was. The runtime submits the recorded calls in the next task after the call (the end of the
+  microtask checkpoint, as near as JavaScript can see it), at a `read()`, and before a call or a
+  draw with plain data only. Each call sees the values of its own call. On WebGPU each dirty range
+  of a `Buffer` is one `writeBuffer`. Between a call that writes a `Buffer` and its `read()`, the
+  array's `get`, `set`, `set(data)`, `resize` and `needsUpdate` throw a `TypeError` that says to
+  await `read()` first. A recorded call that fails throws at the next `read()` or call, with the
+  line of the call; a `Buffer` it wrote throws the same error at each later call that takes it and
+  at its `read()`, until `set(data)` or `resize()` gives it new values; the pending copy of the error
+  is still thrown once at the next `read()` or call anywhere, and after the failure `get()` gives
+  the values from before the failed call. A call with plain data keeps
+  its meaning. Not yet: a kernel that returns a value on a resource, a written plain array, a
+  `Resident`-only call as a call on a resource, a held length `{ array, length }`, a sized storage binding, `using device.use()` for
+  calls (R3), `show` and its back-pressure (Q14). Measured bundle budgets move
+  (`scripts/bundle-budget.json`, gzip bytes): `typeshade/runtime` 165142 to 166484,
+  `typeshade/fuse` 113354 to 113593, `typeshade/algorithms` 62515 to 64741 and
+  `typeshade/random` 43790 to 46043: the call layer each one carries records calls now and copies
+  their plain arguments (`copyOf`, which tree shaking dropped from the last two before).
+
 - **An entry's I/O without what the compiler knows** (change 0135). A built-in value takes its
   type from WGSL: `vi: builtin<"vertex_index">` is a `u32`, and an option is the second
   argument, `builtin<"position", { invariant: true }>`. `builtin<"clip_distances", array<f32, N>>`
@@ -38,8 +79,11 @@ repository is an official release yet: the `typeshade` package on npm holds only
   is the one `reflect()` reports, read off the same IR. A built-in value, a field of a struct
   no entry uses and a value refused with `TS8010` show no such line. A field of a struct that
   another file declares shows the line too, in the importing file and in the declaring file,
-  with the number of the linked program (Rule 3.9). The declaring file shows no line when two
-  open programs that import it give the field two numbers.
+  with the number of the linked program (Rule 3.9). When two open programs that import the
+  declaring file give the field two numbers, the declaring file shows one line for each
+  program, with its file: `vertex attribute at @location(1) in a.shade.ts` and
+  `vertex attribute at @location(2) in b.shade.ts`. A program that refused the field has the
+  line `no location in b.shade.ts (TS8010)`.
 
 - **Every `for` loop, and an entry's inferred result** (change 0136). A `for` that is not
   counted compiles as an open loop, as a `while` does (Rule 7.5): `for (;;)` with a `break`, an
@@ -99,6 +143,29 @@ init?)`, `zeros(Class, n)` and `array(Class, data)`, which make a `Uniform<T>` o
   the measured gzip sizes: `typeshade/runtime` single file 164,207 to 164,811 (+604), split
   initial 45,353 to 45,961 and split total 166,395 to 167,003. The floors and the other caps do
   not change.
+
+- **Host resources before non-blocking calls** (change 0138, milestone 3, Amendment A5, D1 to
+  D7). A field of the class of an exported binding named like a member of its host accessor is
+  refused with the new code `TS8079`, in the compiler and in the editor with the same text:
+  `set` on the class and on every struct it holds, and `needsUpdate` or `dispose` on the class of
+  an exported `uniform<T>`. The host's editor reports `TS8079` in the text of the type error on
+  `uniform(Class)`, `zeros(Class, n)` and `array(Class, data)` for such a class, and the runtime
+  keeps its `TypeError`. Only a binding that is a host resource is read (an exported class, not
+  abstract, with the layout), by the predicate the host view uses, and the refusal stands on the
+  field's declaration, in the class that declares it. Cost: a generic wrapper such as
+  `<T extends object>(c: abstract new (...args: never) => T) => uniform(c)` is now TS2345, since
+  the refusal stays unresolved for its `T`; type the parameter as
+  `Parameters<typeof uniform<T>>[0]` (or cast) instead. A storage array keeps a dirty range for
+  each element written, joined when two touch, and joined into one past 16 ranges; a uniform keeps its one widened range. The
+  types of `Uniform` and `Buffer` declare `[Symbol.dispose]` where the host's `lib` has
+  `Symbol.dispose`, so `using u = uniform(Camera)` type-checks. An exported binding's type has
+  no `dispose()`: the view declares `Omit<Uniform<Camera>, 'dispose' | keyof Disposable>`.
+  `HostExport` has the kind `resource`, so `HostFace.exports` reports an exported binding with
+  its class and length, not as `never`. A scalar field's `get()` returns its number (an `f64`
+  its joined number) and a vector, matrix or array field its `Readonly` view, as before. The caps
+  of `scripts/bundle-budget.json` take the measured gzip sizes: `typeshade/runtime` single file
+  164,896 to 165,142 (+246), split initial 45,961 to 46,217 and split total 167,078 to 167,335.
+  The floors and the other caps do not change.
 
 - **WebGPU scratch acquisition counts** (change 0128, #992). New fuse reports include
   `webgpuScratch` allocation and reuse counts and their buffer descriptor bytes. Empty scopes,
@@ -222,9 +289,9 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   is an `f32` product, and `const N = 8; for (let j = 0; j < N; j++)` compiles. The emitted
   declaration stays `const K: f32 = 3.0;`, and an `f32` read names it. No official release
   carried the old meaning, so the change takes effect with no warning release (OD-6).
-  **Values that change** in the emitted WGSL and GLSL, each through a conversion or beside an
-  `f64`, where the constant was rounded to `f32` before (the CPU oracle already computed the
-  exact value, so the two now agree):
+  **Values that change** in the emitted WGSL and GLSL, and on the CPU oracle in `'f32'`
+  precision, each through a conversion or beside an `f64`, where the constant was rounded to
+  `f32` before:
   - `const PRIME = 2654435761; vi * u32(PRIME)` multiplied by 2654435840 and multiplies by 2654435761.
   - `const K = 16777217; vi + u32(K)` added 16777216 and adds 16777217.
   - `const K = -16777219; i32(K)` read -16777220 and reads -16777219.
@@ -233,20 +300,60 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
     carries the double of 7 / 3. `const M = K / 3;` beside an `f64` does the same.
   - `const C = 0.1;` beside an `f64` carried the `f32` value 0.10000000149011612 and carries the
     double 0.1, as the written `x * 0.1` does.
+  - On the CPU oracle in `'f64'` precision (`compile().eval`), the rule is: a read of a module
+    constant by its name carried the double the author wrote before this change, and a value
+    the front end folded from the constant at compile time carried its `f32` rounding. So the
+    rows above read the same value there, and a value moves exactly where the front end folded
+    such a read: `const C = 0.1; const D: f64 = C;` read 0.10000000149011612 and reads 0.1, and
+    `const K = 4294967295; u32(K)` read 4294967040 and reads 4294967295.
+  - Arithmetic other than `/` over a value that comes from a constant that another line reads as
+    an integer has the written number's value, where it was integer arithmetic before
+    (Amendment A2, "규칙대로 두고 기록"): with `function h(a: u32): u32`,
+    `const k = 7; h(k); f32(k - 8)` was 4294967295 and is -1, and `f32(k * 1000000000)` was
+    2705032704 and is 7000000000. The same holds through a function result:
+    `function g() { const k = 7; h(k); return k; }` with `f32(g() - 8)` was 4294967295 and is -1.
 
-  **Newly refused** (`TS8003`): a `/` whose operands are all written numbers and constants of no
-  fixed type, where another line reads one of those constants as an integer. With
+  **Newly refused** (`TS8003`): a `/` or `/=` whose operands have no declared type, one of which
+  carries the origin of a constant of no fixed type that some read makes an integer, in this
+  file or in a file that imports it (Amendment A3, "보수적 추적 규칙"). A value carries that
+  origin through every expression and binding (an operator, a builtin, `as`, `!`, a
+  conditional, a member, a derived constant, a `let` or a pattern binding, a variable that a
+  closure captures, a generic function's parameter, the start of a loop counter, and the result
+  of a function, a method, a getter or a closure that writes no result type) and loses it only
+  at a declared type, a typed constructor (`vec3u(k, 1, 2)`) included (Amendment A4). A float-written literal or constant in either operand makes a
+  float division, which is accepted (`6.283185307179586 / N`, `(N * 0.5) / 2`). A counter
+  whose start carries such a constant keeps the type it had: the `f32` of a module constant,
+  and the `u32` that `h(k)` gives a function-local `k` for `for (let j = k + 1; …)`. With
   `function h(a: u32): u32`, `const k = 7; h(k); return f32(k / 2);` emitted `3.0`,
   `const k = 7; const r = h(k); return r + k / 2;` emitted `r + 3u`, and
   `const k = 7; h(k); return xs[k / 2];` emitted `xs[3u]`. `vi / k` with a declared `u32` `vi`
   stays an integer division, and `x / N` with a declared `f32` `x` a float one. A conversion to
   `i32` or `u32` is such a read too: `const K = 7; return f32(u32(K)) + f32(K / 2);` is refused.
+  So is a `/` over a call of `function g() { const k = 7; h(k); return k; }`: `f32(g() / 2)` was
+  3 and is refused, as is the same through a method, a getter, a closure and a `let`. With
+  `function id<T>(a: T): T`, `f32(id(k) / 2)` was 3 and is refused (Amendment A4), and so are
+  `const [a, b] = [k, 1]; f32(a / 2)` and `let w = 3; f32((k + w) / 2)` (refused on `main` as
+  a mismatch). With `const K = 8;`, `let j: u32 = K / 2; let i: u32 = K / 2;` refuses both:
+  each quotient is the other's other read (Amendment A4; the owner's decision of 2026-11-11, "A4대로
+  거부 유지"). The sentence names an edit the compiler has checked: where none compiles, the
+  program holds another mistake, and a mismatch around the `/` stays only where that edit leaves
+  it, so the mistake is one diagnostic (Rule 12.4). Uses that are no division are refused where
+  the written number is refused: with `const k = 7; h(k);`, `f32(~k)`, `f32((k | 1) >> 1)` and
+  `f32((k % 4) >> 1)` compiled (`k` was a `u32`) and are refused, as `~7` and `(7 | 1) >> 1`
+  are; `f32(~(k << 1))` was 4294967281 and is -15, the written number's `i32` value.
   **Migration:** to keep an `f32` constant, write its type (`const K: f32 = 16777217`). For a
-  refused `/`, write the constant's type for the integer division (`const k: u32 = 7`) or
-  convert the operand for the float one (`f32(k) / 2`), as the sentence says. One more program
+  refused `/`, make the edit the sentence names: the constant's type where an integer position
+  reads the quotient (`const k: u32 = 7`), or the constant converted elsewhere (`f32(k) / 2`). One more program
   changes: `f64(K)` on `const K = 1e38` is the written `f64(1e38)`, so `f64(K) * 4.` folds to a
   double the emulation cannot hold and is refused as the written form is; write
   `const K: f32 = 1e38` to keep the run-time product.
+
+- **An imported struct keeps its name beside an entry's type alias of that name** (#1194, pull
+  request #1200). The linker names a type alias last, since it emits nothing. A program whose
+  entry writes `type Light = f32;` and imports a file that declares `interface Light` emitted the
+  struct as `lib_Light`; it now emits `Light`, as the one-file program does. The struct name is
+  visible to a host (`reflect()`, the manifest). The owner accepted this change as an improvement
+  on 2026-11-10 ("개선으로 수용하고 기록").
 
 - **`@vertex()` and `@fragment()` are refused, and so is a second `@workgroup_size([n])`** (Rules
   8.1 and 8.22; change 0130, amendment A1; the owner's decisions of 2026-11-10). Both forms
@@ -263,6 +370,158 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   8.7), `@compute([8])` and one `@workgroup_size([8])` compile as before, with the same emit.
   `tshc migrate` rewrites neither form: the author deletes `()` or the second attribute. No
   official release accepted the refused forms (OD-6).
+
+- **`pow` on the CPU is the libm's** (change 0042, milestone 1a, the last of its 19 functions).
+  The CPU oracle and the CPU tier computed `a ** b` and `Math.pow(a, b)` with the engine's
+  `Math.pow`, whose result ECMAScript leaves to the engine. They now compute it with a routine of
+  the compiler's own libm, on an `f64`; the result for an `f32` operand is that result rounded once.
+  A result may differ from before in the last bit, and it is the same on Node and on Bun. No syntax
+  changes, and no author-facing name is added. The special values do not change: they are
+  ECMA-262's (Number::exponentiate), as `Math.pow` gives them (the owner's decision of 2026-11-10,
+  Amendment A4 of change 0042, Rule 1.3). `(-2) ** 3` is -8, `1 ** Infinity` is NaN, `NaN ** 0` is 1, `(-0) ** 3` is -0 and
+  `(-0) ** -1` is -Infinity; a test holds every step of the table and every pair of 31 special
+  operands to `Math.pow`. A GPU's `pow` stays the driver's. Measured on Tint and on WebGL2 over
+  SwiftShader, eleven special pairs part from the CPU tiers (Amendment A4); the comment on `pow` in
+  `src/core/intrinsics.ts` and the `note` of the determinism report's `pow` row record them
+  (Rule 11.2, surface §38). The routine is fdlibm's `e_pow.c` with one change: fdlibm's series for
+  x within 2^-20 of 1 with |y| past 2^31 measured 670 ULP, so every x takes the general reduction. An
+  integer power that is representable is exact. The numbers that follow are results on samples, not a
+  bound for every operand. Against MPFR on 54,739,721 seeded pairs with a finite result, placed where
+  the method is weakest (x near 1 with a large y, results near the overflow and in the subnormal
+  range, a negative x with an integer y, |y| past 2^31), the largest error is 0.8599 ULP; 712 pairs
+  are past 0.8 ULP and none past 0.9. An `f32` result measured 0.5000 ULP at most on 6,499,508
+  pairs. The routine takes 1.9 to 7.2 times the time of the engine's `Math.pow` on Bun 1.4.4 and
+  Node 22.23.4. The caps of `scripts/bundle-budget.json` take the measured gzip sizes for the two
+  bundles that hold the CPU op library: `typeshade/algorithms` single file 60,894 to 62,515
+  (+1,621), split initial and total 60,072 to 61,610; `typeshade/random` single file 42,187 to
+  43,790 (+1,603), split initial and total 41,325 to 42,887. The floors and the other caps do not
+  change.
+
+- **`sinh`, `cosh`, `tanh`, `asinh`, `acosh` and `atanh` on the CPU are the libm's** (change 0042,
+  milestone 1a, slice 2). The CPU oracle and the CPU tier computed them with the engine's
+  `Math.sinh`, `Math.cosh`, `Math.tanh`, `Math.asinh`, `Math.acosh` and `Math.atanh`, whose results
+  ECMAScript leaves to the engine. They now compute them with routines of the compiler's own libm,
+  one for each function, on an `f64`; the result for an `f32` operand is that result rounded once. A
+  result may differ from before in the last bit, and it is the same on Node and on Bun. A GPU's
+  functions stay the driver's. No syntax changes, and no author-facing name is added. The routines
+  keep fdlibm's formulas and special cases. fdlibm's forms round several times after a step whose
+  own error is near half a unit, and measured 1.6 to 2.2 ULP against MPFR on 200,000 operands each.
+  So every step before the last is carried as a head and a rest, with Dekker's exact product and
+  Knuth's exact sum, and each result is rounded once. Two internal kernels take the place of
+  fdlibm's `expm1` and `log1p`; neither is an author's function. Every special value that ECMA-262
+  and IEEE 754 fix is held by a test: the signed zeros, the infinities, a NaN, `acosh` below 1,
+  `atanh` at ±1 and past it, and the overflow of `sinh` and `cosh`. The numbers that follow are
+  results on samples, not a bound for every operand. This pull request measured each function
+  against MPFR on at least 20,000,000 seeded operands with a finite result, placed where each method
+  is weakest: the largest error is 0.5823 ULP for `sinh`, 0.5260 for `cosh`, 0.5674 for `tanh`,
+  0.5711 for `asinh`, 0.5661 for `acosh` and 0.5667 for `atanh`, and no result is past 0.6 ULP. A
+  test holds the operand of each largest error. The routines take 0.8 to 5.5 times the time of the
+  engine's functions on Bun 1.4.4 and Node 22.23.4. The six are in `explog.shade.ts`, which `NOTICE`
+  already names. The caps of `scripts/bundle-budget.json` take the measured gzip sizes for the two
+  bundles that hold the CPU op library: `typeshade/algorithms` single file 59,492 to 60,894
+  (+1,402), split initial and total 58,555 to 60,072; `typeshade/random` single file 40,679 to
+  42,187 (+1,508), split initial and total 39,798 to 41,325. The floors and the other caps do not
+  change. `pow` is still the engine's `Math.pow`.
+
+- **`tan` on the CPU has a wider margin under 1 ULP** (change 0042, milestone 1a). The kernel of
+  `tan` keeps fdlibm's polynomial and sums it with fewer roundings. Below 0.625 the cube and its
+  product by the first coefficient are exact products, and their rests join the small term. From
+  0.625 the kernel runs on pi/4 - |x| with its rest, and the result is one exact difference less
+  twice a small term. fdlibm's switch between the two forms was at 0.6744, and just below it the
+  review of #1207 measured up to 0.9277 ULP. The numbers that follow are results on samples against
+  MPFR, measured by this pull request on the same seeded operands before and after the change; they
+  are not a bound for every operand. On 96,000,000 pairs of a reduced argument in [0.62, 0.6744) and
+  a random tail, the largest error fell from 0.9373 ULP to 0.6884, and the results past 0.8 ULP from
+  14,145 to 0 (12 past 0.9 before). On 30,000,000 pairs across the kernel's whole range, both forms
+  of the result, the largest error fell from 0.9112 to 0.6926. On 72,070,374 operands of `tan`
+  itself (30,000,000 of every exponent, and 6,000,000 each that are huge, tiny, below 2^21, below
+  100, below pi/4 and near the switch, 3,000,000 at or next to an odd multiple of pi/2, 3,000,000
+  multiples of pi/2, and the 70,374 operands of the review nearest a multiple of pi/2), the largest
+  error fell from 0.8842 to 0.6753, and the results past 0.8 ULP from 187 to 0; no set got worse.
+  The operand at which the review measured 0.9023 ULP now measures 0.0977, and the reduced argument
+  of 0.9277 measures 0.0723. `tan` still does not decrease around each threshold. Every special
+  value stays. A CPU result of `tan` for an `f64` operand may differ from before in the last bit:
+  3,428 of 249,896 on every bit pattern and about 6,800 of 250,000 on [-100, 100). No `f32` result
+  of the gate sets changed. `sin` and `cos` do not change. A call on [-pi/4, pi/4] measured 18.2 ns on
+  Bun 1.4.4 (13.6 before) and 18.8 ns on Node 22.23.4 (19.4 before) in one run; the review's
+  runs on Bun gave differences from -0.2 to +9.9 ns, so the change is within run-to-run noise. The caps of
+  `scripts/bundle-budget.json` take the measured gzip sizes: `typeshade/algorithms` single file
+  59,287 to 59,492 (+205), split initial and total 58,364 to 58,555; `typeshade/random` single file
+  40,462 to 40,679 (+217), split initial and total 39,623 to 39,798. The floors and the other caps
+  do not change.
+
+- **`tan`, `asin`, `acos`, `atan` and `atan2` on the CPU are the libm's** (change 0042,
+  milestone 1a, slice 2). The CPU oracle and the CPU tier computed them with the engine's
+  `Math.tan`, `Math.asin`, `Math.acos`, `Math.atan` and `Math.atan2`, whose results ECMAScript
+  leaves to the engine. They now compute them with routines of the compiler's own libm, one for
+  each function, on an `f64`; the result for an `f32` operand is that result rounded once. A
+  result may differ from before in the last bit, and it is the same on Node and on Bun. A GPU's
+  functions stay the driver's. No syntax changes, and no author-facing name is added. `tan` is
+  in the source of `sin` and `cos` and takes their two reductions as they are. The methods and
+  coefficients are fdlibm's, with three differences. `asin` from 0.5 and `acos` to -0.5 take
+  the square root as a head of 21 bits and the rest, so that the difference from pi/2 or from pi
+  is exact: each result has one rounding less. `atan2` puts the rest of the division `y / x`
+  back into the result, and gives a result past pi/2 as one sum; fdlibm's `atan2` rounds the
+  quotient and then subtracts a rounded arctangent from pi. Every special value that ECMA-262
+  and IEEE 754 fix is held by a test: the signed zeros, the infinities, a NaN, an operand past 1
+  for `asin` and `acos`, and each special pair of `atan2`. The numbers that follow are results
+  on samples, not a bound for every operand. Two measurements exist. This pull request's sweep
+  took 21,000,000 seeded operands or more of each function of one operand and 25,000,000 pairs
+  of `atan2`, placed where each method is weakest, against an exact BigInt reference. The
+  independent review of #1207 took more operands against MPFR: 96,000,000 for the kernel of
+  `tan`, 59,200,000 for `atan` and 103,600,000 pairs for `atan2`. The largest error that either
+  measured is 0.9023 ULP for `tan` (the review; the sweep measured 0.8839), 0.7283 for `asin`
+  (the sweep; the review 0.7274), 0.7897 for `acos` (the review; the sweep 0.7737), 0.8569 for
+  `atan` (the review; the sweep 0.8460) and 0.8564 for `atan2` (the review; the sweep 0.8522).
+  Each of these operands was measured again with the BigInt reference, and a test holds each.
+  No result of either measurement is at or past 1 ULP. Past 0.9 ULP the review found results of
+  `tan` only: on 96,000,000 pairs of a reduced argument and its tail, the kernel of `tan`
+  measured up to 0.9277 ULP just below its switch at 0.6744, with 23 results past 0.9. Past
+  0.8 ULP the review counted 23,356 of 59,200,000 for `atan` and 19,111 of 103,600,000 for
+  `atan2`; the sweep counted 52 for `tan`, 460 for `atan`, 468 for `atan2`, and none for `asin`
+  and `acos`. With fdlibm's forms `asin` measured up to 0.9235 ULP and `acos` up to 0.9081 on
+  the same kind of sample. The caps of `scripts/bundle-budget.json` take the measured gzip sizes
+  for the two bundles that hold the CPU op library: `typeshade/algorithms` single file 56,835 to
+  59,287 (+2,452), split initial and total 55,998 to 58,364; `typeshade/random` single file
+  38,068 to 40,462 (+2,394), split initial and total 37,264 to 39,623. The floors and the other
+  caps do not change. `NOTICE` names the new source and its baked form.
+
+- **`exp2` on the CPU has a wider margin under 1 ULP** (change 0042, milestone 1a). The libm's
+  `exp2` took the nearest integer out of its operand and ran its kernel on the rest. It now
+  takes the nearest half-integer out, so the kernel runs on half the range, and an odd
+  half-step multiplies by sqrt(2), held as a head and a tail: the result is the head plus one
+  small term, which holds the head's product with the kernel's result, the tail, and the tail's
+  product with it. The numbers that follow are results on samples, not a bound for every
+  operand. On 2,800,000 seeded operands the largest error fell from 0.9056 ULP to 0.7873 ULP,
+  and the results past 0.8 ULP from 2,083 to 0, before the tail's product joined the small
+  term. An independent review of #1199 then measured up to 0.8340 ULP on 115,300,000 operands.
+  With the tail's product, the largest error measured is 0.7718 ULP: 0.7718 on the review's
+  operands, and 0.7688 on 84,000,000 seeded operands against the exact BigInt reference. No
+  result of these runs is past 0.8 ULP. The operand at which a review measured 0.9282 ULP now
+  measures 0.0718 ULP, and `exp2` no longer decreases at the two pairs of operands near -0.4973 and
+  -0.4977. An integer operand still gives the exact power of two, and a half-integer now gives
+  the correctly rounded result. A CPU result of `exp2` may differ from before in the last bit.
+  The caps of `scripts/bundle-budget.json` take the measured gzip sizes: `typeshade/algorithms`
+  single file 56,681 to 56,835 (+154), split initial and total 55,861 to 55,998;
+  `typeshade/random` single file 37,946 to 38,068 (+122), split initial and total 37,138 to
+  37,264. The tail's product is 8 and 9 of those bytes. The floors and the other caps do not
+  change.
+
+- **`exp`, `exp2`, `log`, `log2` and `ldexp` on the CPU are the libm's** (change 0042, milestone
+  1a, slice 2). The CPU oracle and the CPU tier computed them with the engine's `Math.exp`,
+  `Math.log`, `Math.log2` and `**`, whose results ECMAScript leaves to the engine. They now
+  compute them with routines of the compiler's own libm, one for each function, on an `f64`;
+  the result for an `f32` operand is that result rounded once. A result may differ from before
+  in the last bit, and it is the same on Node and on Bun. The error of `exp`, `exp2`, `log` and
+  `log2` is under 1 ULP. `exp2` of an integer is the exact power of two, and `log2` of a power
+  of two is its exact exponent. `ldexp` is the exact product rounded once: `x * 2 ** e` rounded
+  twice for a subnormal result. A GPU's functions stay the driver's. No syntax changes, and no
+  author-facing name is added. The caps of `scripts/bundle-budget.json` take the measured gzip
+  sizes for the two bundles that hold the CPU op library: `typeshade/algorithms` single file
+  55,438 to 56,681 (+1,243), split initial and total 54,595 to 55,861; `typeshade/random`
+  single file 36,707 to 37,946 (+1,239), split initial and total 35,909 to 37,138. The floors
+  and the other caps do not change. The libm derives from fdlibm: `NOTICE`, the libm sources and
+  their baked forms carry fdlibm's notice.
 
 - **`sin` and `cos` on the CPU are the libm's, not the engine's** (change 0042, milestone 1a).
   The CPU oracle and the CPU tier computed `sin` and `cos` with the engine's `Math.sin` and
@@ -1956,6 +2215,122 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `docs/ir-builder.md` describes the builder for engines and tools.
 
 ### Fixed
+
+- **An integer conversion that starts a `for` counter declares the counter's type** (Rule 7.5).
+  A header name with no annotation is an `i32` (or a `u32` beside a `u32` bound) only when its
+  value is written as an integer, and any other value gives it the value's type. `u32(x)`
+  counted in `u32`, but `u32(3)` counted in `i32`: the fold made it a literal of its type
+  (#1217), and the header read the literal as a written integer. A start `u32(…)` or `i32(…)`
+  now gives the counter the conversion's type. An `f32(…)` start still counts in `i32`, as
+  before: an `f32` counter needs `TS8007` to catch a step that rounds away (issue #1242; the
+  owner's decision of 2026-11-11, "이 PR은 i32/u32만"). With `function h(a: u32): u32` and
+  `function hi(a: i32): i32`:
+  **Newly accepted:** a `u32(n)` counter where a `u32` is asked (`h(j)`, `j < vi` with a `u32`
+  `vi`, `j < u32(8)`): `for (let j = u32(3); j < 8; j++) { a += f32(h(j)); }` was refused and
+  gives 25.
+  **Newly refused:** every place where the counter was used as an `i32`, each an `i32` loop
+  before, is refused as it is for `u32(x)`: a unary minus of a `u32` (`a += f32(-j)` with a
+  `u32(3)` start was -25), arithmetic or a comparison with an `i32` (`j < ii`, an index
+  `xs[tv + j]`), a negative written number beside it (`j * -1`), a bitwise operator with an
+  `i32` (`j & tv`), an `i32` argument (`hi(j)`) and an assignment to an `i32` (`let q: i32 = j`). A `u32(n)` counter that counts down to `j >= 0`
+  leaves the range of `u32` (`TS8006`).
+  **Values that change:** unsigned arithmetic that goes below zero now wraps:
+  `for (let j = u32(2); j < 6; j++) { a += f32(j - 3); }` was 2 and is 4294967296 (the `f32` sum
+  of 4294967295, 0, 1 and 2). `~j` is the `u32` complement:
+  `for (let j = u32(3); j < 8; j++) { a += f32(~j); }` was -30 and is 21474836480.
+  Write `i32(…)`, or no conversion, for an `i32` counter.
+
+- **A struct that holds itself is refused instead of overflowing the stack** (Rules 12.4, 12.6
+  and 12.7, #1204). A struct that holds itself, directly, through other structs, through an
+  array with a size or without, or through an optional `T | undefined`, made `compile()`, the
+  editor's diagnostics and hover, and `tshc check` throw `RangeError`. `array<R, 2>` and
+  `R | undefined` compiled to WGSL that Tint refuses. Now one `TS8010` stands on the field that
+  closes the cycle:
+  `Field "R.r" makes "R" contain itself, through "R" -> "R". A struct has a fixed size, so it cannot hold itself: hold an index into an array of "R" instead, or remove the field.`
+  A struct the program uses is checked, every class, and a struct its file exports
+  though nothing uses it. Programs that compiled before and are now refused: an exported
+  struct of that shape nothing uses, and a used one through `array<R, N>` or `R | undefined`.
+  Within one file the struct declared first names the cycle, so `interface B { y: f32; a: A; }`
+  then `export interface A { x: f32; b: B; }` is refused on `A.b`. Across files, each file cuts
+  the cycles through its own structs on its own fields, as its own program does, and the editor
+  and `tshc check` show those cuts in that file. One cut can break two cycles, so a file reports
+  at least one cut and not always one for each cycle. `compile()` reports every cut of the file
+  it starts from, and a cut of an imported file only where a cycle is left, in that file. No
+  reader puts a cut on an import line. Within one file, the cut of a cycle reached through an
+  earlier struct, and of overlapping cycles, can differ from this fix's first commit, `8b6d0751`.
+  With `S0 { f2: S2 }`, `S1 { f2: S2 }` and `S2 { f1: S1 }`, the cycle is refused on `S2.f1`,
+  as the struct declared first in it, `S1`, names it. Every set of cuts leaves no cycle. A
+  program where every struct holds every other, 48 structs, takes about 2.2 s to compile.
+
+- **A program's refusal of an imported declaration is shown in a file that reports it**
+  (Rules 3.9 and 12.7, #1186). A refusal that only a use makes, about a declaration an imported
+  file holds, was located in the imported file. That file's own program accepts the
+  declaration, so the editor showed the refusal in no document, and `tshc check` passed a
+  folder that `compile()` refused. An error now stands in the first file that reports it at
+  the same place when compiled on its own: the file that holds what it is about, then each file
+  that holds a use, then each file on the way of imports up to the file the compile starts
+  from, which reports what reaches it. It stands on that file's use: the entry's parameter or result for a field of an imported struct with no
+  location (`TS8010`) or of a type that cannot cross (`TS8003`, `TS8038`); the outermost call
+  for the body of an imported generic function or of a function that takes a function; the
+  first `Box<P>` for a method of an imported generic class; the type a binding writes for a
+  field of an imported struct that no binding of its own file holds. A file that holds no use the
+  front end records has it on its re-export of the entry, else on its import. The editor's diagnostic carries the place the
+  error is about as related information. A program of one file, a warning, and a mistake of an
+  imported file itself are reported where they were, once. When an imported file and the file
+  the compile starts from both make one refused instance of a generic function, it is reported
+  once, at the imported file's call, until that file is fixed. Not covered yet (#1212): a file
+  that holds a struct and the fragment entry that takes it, and no vertex entry, reports the
+  same sentence alone, so the error stays in that file.
+  An interface or a type alias that a file exports (with `export`, or in an export list) is now
+  checked in that file though nothing there uses it: two fields at one location, one
+  `blend_src` of a pair, `interpolate` on a `builtin<…>`, `invariant` off `position` and a
+  written location on a `bool` are reported at the declaration. Not checked this way: an
+  interface that extends another, a declaration with a field that is no shader type, and a
+  struct the file neither exports nor uses. The importing document no longer shows
+  TypeScript's `never` error for a write of an imported `builtin<N>` field that the compiler
+  refused.
+- **The hover of an imported symbol reads the compiler's type, as a local one does** (Rule
+  12.7). A field, a function, a module constant, a module variable, an override and a binding
+  that another `"use typeshade"` file declares showed TypeScript's quick info in the importing
+  file: `vec2` where the declaring file shows `vec2<f32>`, `(alias) const HALF: 0.5` for
+  `const HALF: f32`, `number` for an instance of a generic function, a binding as its expanded
+  structure with no resource line, and a function without its `@inout` and `@out` qualifiers.
+  The editor now reads such a symbol in the linked program of the hovered file (Rule 3.9), so
+  the type is the one the declaring file shows, with no `(alias)` or `import` line. The name is
+  the one the hovered file writes: `bp` of `import { bump as bp }` reads
+  `function bp(@inout v: f32): void`. Signature help of an imported function shows its
+  qualifiers too. A struct reads by the name the hovered file imports it under, when it has
+  exactly one, and by its declared name otherwise, so a name the linker generated
+  (`lib_Light`, `lib_Stage_VsOut`) no longer shows as a struct's name in a hover, in the
+  importing file's own symbols included. The arguments of an instance of a generic class keep
+  the module's spelling. A call of an overloaded function reads its implementation, with its
+  qualifiers. A
+  function's qualifiers stay on their parameters when a parameter before them takes a
+  function. A generic function or class with two instances in a program keeps TypeScript's
+  quick info at each use, where the hover showed every use the first instance. An override reads the compiler's type
+  in its own file too: `override<bool>` is `const flag: bool`, where it read `boolean`. A
+  method, a getter, a static member and a member of a namespace or of an enum keep
+  TypeScript's quick info across an import.
+  `src/language-service/imported-symbol-hover.test.ts` reads both halves on the same files.
+
+- **A scalar cast of a written number is a value of its type** (Rule 5.3). The front end folded
+  an integer-typed expression of literals with ECMAScript doubles, so `f32(u32(7) / 2)` emitted
+  `3.5`, `f32(i32(-7) / 2)` emitted `-3.5`, `f32(u32(7) - 8)` emitted `-1.0`,
+  `f32(i32(2147483647) + 1)` emitted `2147483648.0` and `f32(u32(7) * u32(1000000000))` emitted
+  `7000000000.0`, and `f32(-i32(-2147483648))` emitted `2147483648.0`, in WGSL, in GLSL ES 3.00
+  and on the CPU oracle. `xs[u32(7) / 2]` and
+  `vi + u32(7) / 2` failed in the backend (`TS8015`, `SD0017 u32 literal 3.5`). The fold now
+  follows the target's integer rule, as the optimizer's constant folder does: `3`, `-3`,
+  `4294967295`, `-2147483648`, `2705032704`, `-2147483648`, `xs[3]` and `vi + 3u`. A written number keeps its
+  ECMAScript value (`7 / 2` is `3.5`). No example, journey or golden changes.
+
+- **A module constant with an expression rounds as a function does, in `'f32'` precision**
+  (Rule 11.7). `const X: f32 = 100.7; const S: f32 = sin(X);` gave `S` the value of `sin` on the
+  unrounded 100.7, rounded, on the CPU oracle and the CPU tier in `'f32'` precision, while
+  `sin(X)` in a function read `X` as the `f32` it is, as a GPU does. The two differed in the
+  fifth digit for this `X`. The `'f32'` precision pass rewrote function bodies only; it now
+  rewrites a module constant's expression too. The emitted WGSL and GLSL do not change, and
+  `'f64'` precision does not change.
 
 - **A function an author names `__fround` is called on the CPU** (Rule 9.5). The `'f32'`
   precision pass read the name alone and took a call of such a function for its own rounding

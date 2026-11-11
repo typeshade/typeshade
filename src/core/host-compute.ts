@@ -49,8 +49,25 @@ import {
 import { specializeEntry, checkEntryLimits, cpuSpecialization } from './host-overrides.js';
 import { fuseSlot } from './fuse-scope.js';
 import { checkIncoming, type IncomingReads } from './host-failure.js';
-import { defaultOwner, inferOwner, ownerOf, resourceOwner, type CallOwner } from './owner.js';
+import {
+  callDefault,
+  defaultOwner,
+  inferOwner,
+  ownerOf,
+  resourceOwner,
+  type CallOwner,
+} from './owner.js';
 import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
+import {
+  argumentOwner,
+  callSite,
+  commitArguments,
+  isResource,
+  joinRecorded,
+  recordArgument,
+  type RecordedArgument,
+} from './host-record.js';
+import { throwFailure, usedGl } from './submission.js';
 import { glContext } from './gl-context.js';
 import { runGlCompute, type GlComputeReport } from './gl-compute.js';
 import type { PlanRun } from './host-kernel.js';
@@ -163,6 +180,10 @@ export interface IndirectCount {
 export interface CheckedEntry {
   /** The owner captured by an ordinary call; a recorded call uses its scope's owner. */
   readonly owner?: CallOwner;
+  /** A call on a resource, recorded and submitted later (change 0138, R2): on WebGL2 its
+   *  submission flushes and a `read()` of what it wrote waits on a fence (Amendment A5, default 6).
+   *  A call with plain data keeps today's meaning, and marks nothing. */
+  readonly recorded?: boolean;
   /** The `Resident` each binding stands for, by binding. */
   readonly states: ReadonlyMap<EntryBinding, ResidentArrayState>;
   readonly checked: Checked;
@@ -279,7 +300,8 @@ export function entryInputs(
  *   an entry the CPU tier cannot run (a barrier, a texture) where WebGPU does not run it, and
  *   for a scratch array of a `fuse` scope, which only the kernel calls in the body take;
  *   `Error` when no tier it may use can run it. A call made inside the body of `fuse()` is
- *   recorded and forms a group of its own in the scope's plan (Rule 11.13, change 0069).
+ *   recorded and forms a group of its own in the scope's plan (Rule 11.13, change 0069); one
+ *   there that takes a resource throws a `TypeError` at the call (change 0138, R4).
  */
 export function callCompute(
   cpu: GeneratedCpu,
@@ -302,20 +324,48 @@ export function callCompute(
     prepared = false;
     refusal = err;
   }
-  if (fuseSlot.active !== undefined)
+  const resources =
+    typeof bindings === 'object' && bindings !== null
+      ? e.bindings.filter((b) => isResource((bindings as Record<string, unknown>)[b.name]))
+      : [];
+  if (fuseSlot.active !== undefined) {
+    // A graph that takes resources is milestone 4's `fuse(fn)` (change 0138, R4).
+    if (resources.length > 0)
+      throw new TypeError(
+        `${e.name}(): binding "${resources[0]!.name}" is a resource, which the body of today's fuse() does not record; call the entry outside it, or pass array(xs).`,
+      );
     return fuseSlot.active.entry(cpu, e, argc, bindings, workgroups, entryHost, reads);
+  }
+  // A call on a resource does not block (change 0138, R2).
+  if (resources.length > 0) {
+    if (!prepared) throw refusal;
+    return recordCompute(
+      cpu,
+      e,
+      argc,
+      bindings as Record<string, unknown>,
+      workgroups,
+      reads,
+    ) as never;
+  }
+  // A recorded call that failed is thrown at the next call (Amendment A5, default 7).
+  try {
+    throwFailure();
+  } catch (err) {
+    return Promise.reject(err);
+  }
   const written: ResidentArrayState[] = [];
-  const resources: [string, CallOwner | undefined][] = [];
+  const owners: [string, CallOwner | undefined][] = [];
   let owner: CallOwner;
   try {
     if (typeof bindings === 'object' && bindings !== null)
       for (const b of e.bindings) {
         const value = (bindings as Record<string, unknown>)[b.name];
         const s = residentState(value);
-        resources.push([`binding "${b.name}"`, resourceOwner(value)]);
+        owners.push([`binding "${b.name}"`, resourceOwner(value)]);
         if (s !== undefined && isBuffer(b) && b.writes) written.push(s);
       }
-    resources.push([
+    owners.push([
       '"workgroups.indirect"',
       resourceOwner(
         typeof workgroups === 'object' && workgroups !== null && 'indirect' in workgroups
@@ -324,7 +374,7 @@ export function callCompute(
         `${e.name}(): "workgroups.indirect"`,
       ),
     ]);
-    owner = inferOwner(`${e.name}()`, resources);
+    owner = inferOwner(`${e.name}()`, owners, undefined, callDefault());
   } catch (err) {
     return Promise.reject(err);
   }
@@ -340,6 +390,84 @@ export function callCompute(
     (err: unknown) => written.forEach((s) => (s.error = err)),
   );
   return call;
+}
+
+/**
+ * A call of a `@compute` entry whose bindings include a resource (change 0138, R2): checked now,
+ * recorded with the values it sees, and run once it is submitted. It returns nothing. A uniform
+ * binding takes a `Uniform` (an exported binding among them) by its value at the call; a storage
+ * array with no size takes a `Buffer` of its class.
+ *
+ * @throws `TypeError` naming the entry and the binding, now: for a written binding that is no
+ *   resource, and for a resource where the binding takes none; the error of an earlier recorded
+ *   call that failed (Amendment A5, default 7).
+ */
+function recordCompute(
+  cpu: GeneratedCpu,
+  e: ComputeEntry,
+  argc: number,
+  bindings: Record<string, unknown>,
+  workgroups: unknown,
+  reads: IncomingReads,
+): undefined {
+  // The generated module calls `callCompute` of `core/host-entry-program.ts`, which calls this.
+  const site = callSite(callCompute, 1);
+  throwFailure();
+  const mapped: Record<string, unknown> = { ...bindings };
+  // The device of the call, at the call (R3): the one its resources belong to, or with none of
+  // its own the device in use. A call that mixes devices is refused before anything is taken.
+  const indirect =
+    typeof workgroups === 'object' && workgroups !== null && 'indirect' in workgroups
+      ? workgroups.indirect
+      : undefined;
+  const owner = inferOwner(
+    `${e.name}()`,
+    [
+      ...e.bindings.map((b): [string, CallOwner | undefined] => [
+        `binding "${b.name}"`,
+        argumentOwner(bindings[b.name]),
+      ]),
+      ['"workgroups.indirect"', resourceOwner(indirect, `${e.name}(): "workgroups.indirect"`)],
+    ],
+    undefined,
+    callDefault(),
+  );
+  // Each binding is taken with nothing changed yet; a refusal ends the check of what was taken.
+  const taken: RecordedArgument[] = [];
+  try {
+    for (const b of e.bindings) {
+      if (!(b.name in bindings)) continue;
+      const at = `${e.name}(): binding "${b.name}"`;
+      const buffer = isBuffer(b);
+      const unsized = buffer && b.layout.k === 'a' && b.layout.n === null;
+      const r = recordArgument(
+        at,
+        bindings[b.name],
+        unsized ? (b.layout as { st: number; e: unknown }) : undefined,
+        buffer && b.writes,
+        buffer,
+        owner,
+      );
+      taken.push(r);
+      mapped[b.name] = r.value;
+    }
+  } catch (err) {
+    for (const t of taken) t.buffer?.done();
+    throw err;
+  }
+  // Every binding is checked at the call; only then are the values the call sees copied out (the
+  // review of #1236, B2 and S2).
+  const { uploads } = commitArguments(taken, () => checkEntryCall(e, argc, mapped, workgroups));
+  const written = e.bindings.flatMap((b) => {
+    const s = isBuffer(b) && b.writes ? residentState(mapped[b.name]) : undefined;
+    return s === undefined ? [] : [s];
+  });
+  joinRecorded(`${e.name}()`, site, uploads, written, async () => {
+    const checked = { ...checkEntryCall(e, argc, mapped, workgroups), owner, recorded: true };
+    checkIncoming(entryInputs(e, checked, reads));
+    await runEntry(cpu, e, checked, undefined);
+  });
+  return undefined;
 }
 
 /** What one tier of the call layer makes of an entry call (Rule 11.8): the reason it cannot run
@@ -449,6 +577,14 @@ export async function runEntry(
       const grid = await gridOf(wg, owner, run);
       if (grid === undefined) return;
       await hostCopies(states, checked.values, run);
+      // The submission flushes the context, and a read() of what the call wrote waits on a fence
+      // (change 0138, Amendment A5, default 6).
+      // Only a recorded call: a plan of a scope keeps its own submission (Rule 11.13), and a call
+      // with plain data read its values back inside the call (S3 of the review of #1238).
+      if (run === undefined && c.recorded === true) {
+        usedGl(gl);
+        for (const [b, s] of states) if (b.writes) s.fence = gl;
+      }
       // The program runtime's WebGL2 dispatch binds a `_fp64` guard of its own by that name, so an
       // authored binding of that name runs as it did (change 0125).
       if (

@@ -35,10 +35,12 @@ exports:
   - Uniform
   - Node
   - Device
+  - HostExport
 exports-removed:
   - resident
   - configure
-codes: []
+codes:
+  - TS8079
 examples: []
 names: []
 downstream:
@@ -418,7 +420,9 @@ buffers, barriers, uploads) the compiler and the runtime decide (OD-3).
 - **Surface §65 and §69.** The manifest and `rt.load` stop being the host's entry point for a
   draw.
 - **Exports.** `zeros`, `uniform`, `texture`, `show`, `device`, `node`, `inspect` and the types
-  `Buffer`, `Texture`, `Uniform` and `Node` are new in `typeshade/runtime`. `array` is reshaped:
+  `Buffer`, `Uniform` and `Node` are new in `typeshade/runtime`. `Texture` is an existing export,
+  which `texture()` returns (Amendment A5, D5). `HostExport` gains a kind for a host resource (A5,
+  D6). `array` is reshaped:
   it is a type export of `typeshade/runtime` today (`src/runtime.ts`) and becomes also a
   function. `fuse` is reshaped and is exported by `typeshade/runtime` as well as `typeshade/fuse`. The removals (`createRuntime`, `runtime`, the
   bindings-object and canvas calls) are left to a later proposal after a deprecation release.
@@ -668,6 +672,255 @@ sits under it.
   arrays) and accepted by the owner before any implementation. This proposal does not repeat
   its design. Q10 (the bundle and build cost) moves to 0042.
 - Affects: R16, decision 14, Q10, Q12, milestone 2. No front-matter entry changes.
+- Status: `status: accepted` does not change.
+
+### A5. Before milestone 3: Q4, Q14, the order of milestones 2 and 3, and D1 to D7 (2026-11-10)
+
+- [fact] Why. Milestone 3 (non-blocking calls) needs Q4 and Q14 (the table of the approval
+  record). Amendment A3 leaves D1 to D7 of milestone 1 for it.
+- [fact] Milestone 2 is carried out under proposal 0042 (Amendment A4). At `main` `25103b0b`, its
+  milestone 1a is not finished, and its milestones 1b to 1h are not started.
+- [fact] Two independent reviews read the drafts of this amendment. The first found that the
+  answers to Q4 and Q14 contradicted each other for a `show` whose canvas has a frame in flight.
+  It also listed thirteen open questions. The second found three more conflicts. The owner
+  answered them on 2026-11-10, below.
+
+**Q4, submission.**
+
+- [decision, owner, 2026-11-10] Asked when a recorded call is submitted, the owner chose
+  "둘 다: 마이크로태스크 끝 + read/show에서 즉시". The runtime submits the calls recorded in a
+  microtask when the current microtask checkpoint ends. A `read()` submits at once every call
+  recorded before it. A `show` does the same, except where the Q14 decisions make it wait. The
+  author writes no submit (OD-3). The alternatives were the checkpoint only, or `read()` and
+  `show` only. Cost recorded: calls separated by an `await` that ends the task (a `read()`, a
+  timer, an event) go in separate submissions.
+
+**Q14, back-pressure.**
+
+- [decision, owner, 2026-11-10] Asked how a `requestAnimationFrame` loop is kept from queuing
+  frames, the owner chose "show가 같은 캔버스의 이전 프레임을 기다림". At most one submission waits
+  for each canvas. A submission that waits for its canvas is a held submission. The alternatives
+  were a runtime that drops frames, or a host that decides. Cost recorded: when the GPU is slow,
+  the canvas updates at the GPU's rate.
+- [decision, owner, 2026-11-10] Asked what waits, the owner chose "그 프레임의 호출 전체가 함께
+  기다림". The calls recorded before the `show` are held with it, so the loop's computation is
+  held too. A `read()` or a plain-data call releases them (below). The alternative was to hold the
+  write to the canvas only.
+- [decision, owner, 2026-11-10] Asked what a second `show` on a canvas with a held submission
+  does, the owner chose "계산은 모두 실행, 표시는 최신 것만". The calls of both frames run, in
+  order. The canvas shows only the newer image. No computation is dropped. The alternatives were
+  to hold both, or to throw. Cost recorded: the older image may never reach the canvas.
+- [decision, owner, 2026-11-10] Asked how a `read()` relates to a held submission, the owner
+  chose "read()가 대기 호출을 풀어 바로 제출". A `read()` submits the held submission at once,
+  with every other call recorded before it. Only the write to the canvas still waits for the
+  previous frame. The write to the canvas stays the held submission. A call with plain data only
+  does the same. The alternative was a `read()` that
+  waits for the canvas. Cost recorded: a loop that reads every frame has no back-pressure on its
+  computation.
+- [decision, owner, 2026-11-10] Asked what happens when the GPU stays slower than the loop, the
+  owner chose "대기 프레임에 합침". A further `show` adds its calls to the held submission and
+  replaces the image to show. Unless a `read()` or a plain-data call releases it, the GPU receives
+  one frame at a time. The alternatives were to
+  submit the oldest frame's calls, or a `show` that returns a promise. Cost recorded: while the
+  GPU stays slower, the list of held calls grows in the host's memory.
+- [decision, owner, 2026-11-10] Asked about three details together, the owner chose "추천 기본값
+  채택":
+  1. A canvas's previous frame is done when the GPU work of its submission completes. A `show`
+     on a canvas with no previous frame submits at once.
+  2. A graph that writes two canvases is submitted when neither canvas has a frame in flight.
+  3. On WebGL2, each frame places a `fenceSync`. The runtime polls it before it submits the held
+     submission.
+- [decision, owner, 2026-11-10] Asked about a `show` after a `read()` released the calls, and
+  about the CPU tier, the owner chose "합침 + CPU는 그리기가 끝난 때". A further `show` joins the
+  held submission that the canvas write left. On the CPU tier, a canvas's previous frame is done
+  when its draw (the pixels and the write to the canvas) ends. The alternative was a second held
+  submission for the canvas.
+
+**The defaults of the first review.**
+
+- [decision, owner, 2026-11-10] Asked about nine defaults together, the owner chose "추천 기본값을
+  모두 채택":
+  1. `show` returns at once, with no value.
+  2. A `read()` submits every call recorded before it, not only the calls it depends on.
+  3. A `set()` between two calls of one submission is taken as a snapshot at each call. Each
+     call sees the value at its own call (R10). R8's upload "at submission" becomes an upload for
+     each call that sees a new value.
+  4. "The end of the microtask" is the end of the current microtask checkpoint.
+  5. On the CPU tier, a submission runs the calls.
+  6. On WebGL2, a submission flushes, and a `read()` waits on a fence.
+  7. An error of a submission is thrown at the next `read()`, `show` or call, with the call site
+     of the failed call (R2).
+  8. One submission is not made one fused plan; only `fuse` fuses (Rule 11.13).
+  9. A call with plain data only first submits the calls recorded and not yet submitted, a held
+     submission included.
+
+**Order of milestones 2 and 3.**
+
+- [decision, owner, 2026-11-10] Asked for the order, the owner chose "마일스톤 3을 먼저".
+  Milestone 3 is implemented before milestone 2. Cost recorded: the WebAssembly tier comes later.
+- [proposal] The approval record's order holds for the other milestones. The owner was not asked
+  about them.
+- [inference] Milestone 3 needs only the JavaScript CPU tier, WebGPU and WebGL2. Its uploads and
+  read backs use the region of R17 as it is today, an `ArrayBuffer`.
+- [fact] Proposal 0042 at `main` `25103b0b` assumes the earlier order. Its row "Today" (line 117)
+  and its note at lines 391 to 394 put milestone 3 of this proposal after its stage 1. Its
+  milestones 1f and 1g name no `Buffer<T>` or `Uniform<T>`. Open: 0042 must say how its tier takes
+  the resources of milestone 3. Next action: an amendment of 0042 before its milestone 1b starts.
+- [fact] Amendment A4 calls proposal 0042 a draft. It was accepted by
+  [#1162](https://github.com/typeshade/typeshade/pull/1162).
+
+**D1 to D7 of milestone 1.**
+
+- [decision, owner, 2026-11-10] D1: "숫자 유지, R7을 개정". R8 is amended, since `get` is in R8 (the
+  option named R7): `get` returns a
+  scalar field's number, and the view of a vector or an array field as `Readonly`. An `f64` scalar
+  field returns its joined number. Cost recorded: a scalar and a vector field return different
+  kinds.
+- [decision, owner, 2026-11-10] D2: "범위 여러 개를 두되 개수에 상한". Milestone 3 keeps a dirty
+  range for each element written. It joins them into one range when their count passes a limit.
+  R9 stands. Cost recorded: more code and tests than one widened range.
+- [decision, owner, 2026-11-10] D3: "거부 유지, 컴파일 시점에도 진단". For its code, the owner
+  chose "새 코드 + 호스트 쪽은 편집기". A field named `set` stays refused. A field named
+  `needsUpdate` or `dispose` stays refused in a uniform's struct. The new code `TS8079` reports
+  each on the struct of an exported binding, in the compiler and the editor. On a host's
+  `uniform(Class, …)` or `zeros(Class, n)`, the editor reports `TS8079`, and the runtime keeps its
+  `TypeError`. R7, R8 and R17 name the reserved names. Cost recorded: these names cannot be fields
+  of such a struct.
+- [decision, owner, 2026-11-10] D4 to D7: "네 가지 모두 추천대로". D4: the types of `Uniform` and
+  `Buffer` declare `[Symbol.dispose]`, so `using` works. D5: `texture()` returns the existing
+  `Texture` export; the section "What it touches" no longer calls `Texture` new. D6: `HostExport`
+  gains a kind for a host resource, so `HostFace.exports` and the compiler agree (Rule 12.7). D7:
+  the type of an exported binding has no `dispose()`; the runtime still throws a `TypeError`.
+- [fact] This amendment adds `TS8079` to `codes` and `HostExport` to `exports` in the front
+  matter. Milestone 3's first pull request carries D1 to D7 out.
+
+**Open.**
+
+- [fact] Open for milestone 4: a `read()` or a `show` inside a `fuse(fn)` trace. Open for
+  milestone 5: a `show` into a texture.
+- Affects: Q4, Q14, R7, R8, R9, the approval record's Milestones line (milestones 2 and 3 change
+  places), D1 to D7, the section "What it touches" (Exports), and the front matter's `codes` and
+  `exports`.
+- Status: `status: accepted` does not change.
+
+### A6. The deviations of milestone 3's first pull request (2026-11-11)
+
+- [fact] Pull request [#1231](https://github.com/typeshade/typeshade/pull/1231) carries out D1 to
+  D7 of Amendment A5. Its independent review found three differences from A5's words.
+- [decision, owner, 2026-11-11] D3 on the host side. A5 says the editor reports `TS8079` on a
+  host's `uniform(Class, …)` or `zeros(Class, n)`. A host file is TypeScript, so the editor
+  reports TypeScript's `TS2345` (`TS2769` for `array`), and the second line of its text names
+  `TS8079` and the field. Asked which holds, the owner chose "TS2345 안의 TS8079 문구로 수용".
+  The alternatives were a plugin that reports `TS8079` itself, or a runtime error only. Cost
+  recorded: a generic wrapper that passes any class to `uniform` no longer type-checks.
+- [decision, owner, 2026-11-11] D3's reach and place. #1231 refuses the names on `array(…)` too,
+  and refuses `set` at any depth of a struct, as the runtime does. It placed the diagnostic on the
+  binding. Asked which holds, the owner chose "범위는 수용, 위치는 필드로 옮김": the wider reach
+  stands, and `TS8079` stands on the field's declaration. The alternatives were to keep both, or
+  to narrow the reach to A5's words.
+- [fact] The text of Rules 6.1 and 8.21 for D3 and for calls on resources goes in its own pull
+  request. Its Doorstop items are reviewed by a person after the owner reads the text.
+- Affects: D3. No front-matter entry changes.
+- Status: `status: accepted` does not change.
+
+### A7. Milestone 3's slices, the window and a failed call, and the deviations of slice 2a (2026-11-11)
+
+- [fact] Why. Pull request [#1236](https://github.com/typeshade/typeshade/pull/1236), merged as
+  `76b66224`, carries out slice 2a of milestone 3. Its body records a plan of slices, two
+  decisions of the owner, five deferred questions and deviations D-a to D-g. Amendment A6 records
+  none of them.
+- [fact] Two independent reviews read #1236, at `becee199` and at `ab2247ef`. The first found
+  the blocking findings B1 to B3. The owner's decisions (a) and (b) answer B1 and B3.
+
+**The slices of milestone 3.**
+
+| Slice | Content                                                                                                                                                                                                                                                                                            | Status                                               |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| 2a    | A kernel function that returns nothing, and a `@compute` entry, take a `Buffer` or a `Uniform`. The call is checked, recorded and submitted later (R2, R8, R10, R17; A5, Q4 and defaults 2, 3, 4, 7 and 9). The tiers are the CPU tier and WebGPU. A WebGL2 entry call reads back inside the call. | done: #1236, merged as `76b66224`                    |
+| 2b    | R3, the device of the data. A call follows `using _ = device.use()`, and a call that mixes devices is a `TypeError`. An exported binding uploads its dirty range on each device that reads it. WebGL2 flushes at a submission and waits on a fence at a `read()` (A5, default 6).                  | not started                                          |
+| 2c    | `show(image, canvas)` and the held submission of Q14, as A5 records it, on WebGPU, WebGL2 (`fenceSync`) and the CPU tier.                                                                                                                                                                          | not started                                          |
+| Text  | Rules 6.1, 8.21, 8.23, 8.24, 11.8 and 11.13 and surface §64, §65 and §67 say what slice 2a delivered. The test of slice 2a gains its `Verifies:` tags.                                                                                                                                             | in progress: its Doorstop review waits for the owner |
+
+- [proposal] The plan above is the agent's. The owner approved the merge of #1236, whose body
+  carries it. The owner was not asked about the slices as a separate question.
+
+**Decision (a): the window between a writing call and its `read()`.**
+
+- The window: the time from a call that writes a `Buffer` to that `Buffer`'s `read()`.
+- [fact] B1 was observed on the CPU tier at `becee199`. A writing call ran, and then `set()` wrote
+  one field. The element's other fields went back to their values from before the call.
+- [fact] The cause is A5 D2: a `Buffer` keeps one dirty range for each element. While the device
+  holds the newer values, the region holds stale bytes beside the field that `set()` writes.
+- [decision, owner, 2026-11-11] "그 구간의 set()을 거부". Between a call that writes a `Buffer`
+  and its `read()`, `set()` on that `Buffer` throws a `TypeError`, as `get()` does. A5 D2 stands.
+- [fact] #1236 applies the same refusal to `set(data)`, `resize()` and `needsUpdate` in the
+  window (review finding S1). Each would drop or overwrite what the call wrote. The owner approved
+  the merge with that text.
+- Alternative: a dirty range exact to the field while the device holds the newer values. Cost of
+  the alternative: ranges below one element, a deviation from A5 D2.
+- Cost recorded: a host cannot set a field of a written `Buffer` until it awaits `read()`.
+- [fact] The error says: "…: a call wrote Buffer<Particle>, and its values are on the device
+  until `await Buffer<Particle>.read()` brings them back; await it first."
+
+**Decision (b): a writing call that fails.**
+
+- [fact] B3, observed at `becee199`: after a writing call failed, every later call on its `Buffer`
+  failed. Neither `set(data)` nor `resize()` restored the `Buffer`; only `dispose()` ended it.
+- [decision, owner, 2026-11-11] "set(data)나 resize()로 복구". After a writing call fails, each
+  later call that takes that `Buffer`, and its `read()`, throw the original error with the call
+  site. This holds until `set(data)` or `resize()` gives the `Buffer` new values.
+- Alternative: only the next `read()` or call throws the error, which are A5 default 7's words
+  alone. Cost of the alternative: a later call reads values that a failed call left unknown.
+- Cost recorded: to recover, the host gives the whole `Buffer` new values. The failed call leaves
+  the window, so `get()` reads the region again.
+- [fact] The region then holds what it held before the writing calls not yet read back. After two
+  writing calls with no `read()` between them, where the second fails, `get()` gives the values
+  from before the first.
+- [fact] The pending copy of the error (A5, default 7) is still thrown once. It is thrown at the
+  next `read()` or call, wherever it is, a call with plain data and a draw among them. So a
+  recovery runs in this order, as #1236 delivers it:
+  1. A call that writes the `Buffer` fails when it is submitted.
+  2. The `Buffer` leaves the window, and `get()` gives the region's values, as the fact above says.
+  3. `set(data)` or `resize()` gives the `Buffer` new values.
+  4. The next `read()` or call throws the error once, unless one threw it since the failure.
+  5. The call after it works.
+
+**The five deferred questions.**
+
+- [decision, owner, 2026-11-11] "다섯 모두 지금 동작 유지, 나중에 결정". Today's behavior stays for
+  each question, and each question stays open.
+- [inference, agent] Decision (a) refuses `get()` in the window too, so it agrees with question 2's
+  current behavior. The owner may close question 2; the owner has not closed it.
+
+| No. | Question                                                                                                                | Behavior at `76b66224`                                                                                        | Status |
+| --- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------ |
+| 1   | What resource does a kernel function return when it returns a value and takes a resource? R2 says "returns a resource". | A `TypeError` at the call, and `TS2345` in the host's editor. Q2 is milestone 4.                              | open   |
+| 2   | What does `get()` give between a call that writes a `Buffer` and its `read()`?                                          | It throws a `TypeError`.                                                                                      | open   |
+| 3   | Is a call whose only resource is a `Resident` (`array(xs)`) a call on a resource under R2?                              | No. It stays today's queued or awaited call (Rule 11.8).                                                      | open   |
+| 4   | A plain array, `Map` or `Set` that a call on a resource writes: refuse, or allow?                                       | A `TypeError` at the call, and `TS2769`. The host passes `array(xs)` or a `Buffer`.                           | open   |
+| 5   | May an entry call take a `Buffer` of `N` elements for a sized storage binding (`storage<array<T, N>>`)?                 | No. The call refuses it with a `TypeError`, and the view's overload that only queues takes no `Buffer` there. | open   |
+
+- Next action for questions 1, 3, 4 and 5: ask the owner again before a slice that changes the
+  behavior. No slice and no date are set.
+
+**The deviations of slice 2a.**
+
+Each is a difference between the accepted text (with A5 and A6) and `76b66224`.
+
+| ID  | Deviation                                                                                                                                                                                                                                 | Disposition | Next action                                                                                            |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------ |
+| D-a | A recorded call runs in order from its submission, but on WebGPU each call makes its own `GPUQueue.submit`. One `GPUQueue.submit` for each submission is not done.                                                                        | open        | One `GPUQueue.submit` for each submission. No slice is assigned yet.                                   |
+| D-b | A `Uniform` argument is passed as its value at the call and packed again at each call. R8's dirty-range economy does not reach a uniform yet.                                                                                             | open        | Upload a uniform's dirty range, as a `Buffer` does. No slice is assigned yet.                          |
+| D-c | WebGL2 (A5, default 6): an entry call's pass program reads back inside the call, so no flush and no fence is placed. A kernel function on a `Buffer` of structs has no WebGL2 tier (Rule 11.8).                                           | open        | Slice 2b.                                                                                              |
+| D-d | A recorded call runs on the default owner (`configure`), as a `Resident` of `array()` does. R3 is not carried out.                                                                                                                        | open        | Slice 2b.                                                                                              |
+| D-e | Rules 8.21 and 8.24 and surface §64 and §67 still said "No call takes a resource yet" at `76b66224`. The test carried no `Verifies:` tag.                                                                                                 | open        | The text pull request, with the Doorstop review that the owner approves.                               |
+| D-f | A5 Q4 submits "when the current microtask checkpoint ends". JavaScript cannot see that point, so the submission comes in the next task. Calls that tasks before it record join the same submission. The order and the snapshots are kept. | open        | The owner decides whether A5 Q4 is read as "the next task", by an amendment, or whether it stays open. |
+| D-g | The host view's overload that only queues still types a held length `{ array, length }` beside a `Buffer`. `tsc` accepts it, and the runtime refuses it with a `TypeError` at the call.                                                   | open        | A separate overload for a call on a resource, in slice 2b or later.                                    |
+
+- [fact] Open beside them: proposal 0042's row "A resource on a CPU tier" describes `main` at
+  `9c7b1899`, before milestone 3. Its amendment stays open (A5; 0042, Amendment A6).
+- Affects: milestone 3's plan, R2 (the window and a failed call), A5 default 7 and A5 Q4 (D-f).
+  It also affects the deferred questions. No front-matter entry changes.
 - Status: `status: accepted` does not change.
 
 ## What it owes downstream

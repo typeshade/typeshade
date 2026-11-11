@@ -108,9 +108,15 @@ describe('an exported storage array with no size is read by both halves (Rule 6.
 
   it('the view declares it a Buffer, and every other binding as before', () => {
     const view = face().view;
-    expect(view).toContain('export declare const ps: Buffer<Particle>;');
-    expect(view).toContain('export declare const ro: Buffer<Particle>;');
-    expect(view).toContain('export declare const four: Buffer<Particle>;');
+    expect(view).toContain(
+      "export declare const ps: Omit<Buffer<Particle>, 'dispose' | keyof Disposable>;",
+    );
+    expect(view).toContain(
+      "export declare const ro: Omit<Buffer<Particle>, 'dispose' | keyof Disposable>;",
+    );
+    expect(view).toContain(
+      "export declare const four: Omit<Buffer<Particle>, 'dispose' | keyof Disposable>;",
+    );
     expect(view).toContain(
       'The shader states no size for this storage array, so the host sets its length: call `resize(n)` or `set(data)` before `at` or `read`, which throw a `TypeError` until then.',
     );
@@ -310,8 +316,13 @@ describe('a host program over the view types the buffer', () => {
       'ps.set([{ pos: [0, 1, 2], life: 1 }, { life: 2 }]);',
       'ps.at(0).life.set(1);',
       'const n: number = ps.length;',
-      'const b: Buffer<Particle> = ps;',
-      'const r: Buffer<Particle> = ro;',
+      'const b: Buffer<Particle> = zeros(Particle, 1);',
+      'const r: Omit<Buffer<Particle>, "dispose" | keyof Disposable> = ro;',
+      'const s: Buffer<Particle> = ps;',
+      'ps.dispose();',
+      'b.dispose();',
+      '{ using u = zeros(Particle, 1); }',
+      '{ using u = ps; }',
       'ps.resize("8");',
       'ps.set([{ nope: 1 }]);',
       'ps.set({ life: 1 });',
@@ -321,7 +332,7 @@ describe('a host program over the view types the buffer', () => {
       'ps = b;',
     ];
     const app = join(dir, 'app.ts');
-    writeFileSync(app, `${head}${lines.join('\n')}\nexport { n, r };\n`);
+    writeFileSync(app, `${head}${lines.join('\n')}\nexport { n, r, s };\n`);
     const found = await tscDiagnostics([app], {
       strict: true,
       noEmit: true,
@@ -349,8 +360,15 @@ describe('a host program over the view types the buffer', () => {
       'ps.set([{ pos: [0, 1, 2], life: 1 }, { life: 2 }]);: ',
       'ps.at(0).life.set(1);: ',
       'const n: number = ps.length;: ',
-      'const b: Buffer<Particle> = ps;: ',
-      'const r: Buffer<Particle> = ro;: ',
+      'const b: Buffer<Particle> = zeros(Particle, 1);: ',
+      'const r: Omit<Buffer<Particle>, "dispose" | keyof Disposable> = ro;: ',
+      // An exported binding lives as long as its module: its type has no `dispose()` and no
+      // `[Symbol.dispose]()` (Amendment A5, D7), and a `Buffer` the host made has both (D4).
+      'const s: Buffer<Particle> = ps;: TS2739',
+      'ps.dispose();: TS2339',
+      'b.dispose();: ',
+      '{ using u = zeros(Particle, 1); }: ',
+      '{ using u = ps; }: TS2850',
       'ps.resize("8");: TS2345',
       'ps.set([{ nope: 1 }]);: TS2353',
       'ps.set({ life: 1 });: TS2353',

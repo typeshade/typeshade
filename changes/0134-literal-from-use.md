@@ -792,6 +792,133 @@ example of each option was shown (`OD-4`). Each decision is the agent's recommen
   which the front matter declares, carry these readings when items 1 to 3 are implemented.
 - Status: `status: accepted` does not change.
 
+### Amendment A2. The owner's decisions on the review of item 2 (2026-11-10)
+
+Pull request #1184 implements item 2. An independent review of it at `827bc9e1` found programs
+that this text does not decide, and one place where the delivered sentence differs from this
+text. The owner decided each in the Claude Code session on 2026-11-10, after the programs and
+their values on `main` and on the pull request were shown (`OD-4`). Each decision is the
+agent's recommendation.
+
+- [decision, owner, 2026-11-10] "캐스트도 세기". A cast is a read. With `const K = 7;`,
+  `u32(K)` reads `K` as an integer, so `f32(u32(K)) + f32(K / 2)` is refused (`TS8003`), as the
+  Division paragraph refuses `h(K); f32(K / 2)`.
+- [decision, owner, 2026-11-10] "거부". A `/` that reaches such a constant through an operator,
+  a builtin, a conditional or a derived constant. With `const k = 7; h(k);`, each of these
+  computed 3 on `main` (the first computed 1) and would compute 3.5 (1.5) with no diagnostic:
+  `(k % 4) / 2`, `max(k, 1) / 2`, `abs(k) / 2`, `(x > 0 ? k : 1) / 2`, `(k | 1) / 2`,
+  `const m = k * 2;` then `m / 4`, `const m = k;` then `m / 2`. Each is refused (`TS8003`), for
+  the reason of the direct `k / 2`: no operand of the `/` has a declared type. No program
+  changes its value through a division without a diagnostic.
+- [decision, owner, 2026-11-10] "거부". The same through a `let`. With
+  `const k = 7; h(k); let y = k;`, `f32(y / 2)` computed 3 on `main`. It is refused
+  (`TS8003`), as the derived constant is.
+- [decision, owner, 2026-11-10] "규칙대로 두고 기록". Arithmetic that is not a division keeps
+  Rule 5.1: each read takes the type the written number would take. With `const k = 7; h(k);`,
+  `f32(k - 8)` is -1 (4294967295 on `main`) and `f32(k * 1000000000)` is 7000000000
+  (2705032704 on `main`), as `f32(7 - 8)` and `f32(7 * 1000000000)` are. "Values that change"
+  is read with these two rows.
+- [decision, owner, 2026-11-10] "편집기를 컴파일러에 맞춤". A read in another file is a read.
+  With `export const K = 7;` and `x * (K / 2)` in one file, and `vi * K` in a file that imports
+  it, the program is refused (`TS8003`), and the editor and `tshc check` report what `compile()`
+  reports (Rule 12.7).
+- [decision, owner, 2026-11-10] "하나만, 수정안으로 기록". The sentence of the refused `/`.
+  The Division paragraph says "The sentence names the two fixes". The review found places where
+  one of the two fixes leaves another diagnostic, which Rule 12.5 forbids. The sentence names
+  one fix, the one that compiles at that place. Where the other read is an integer position:
+  `Write "const k: u32 = 7" for the integer division.` Elsewhere:
+  `Write "f32(k) / 2" for the float division.`, with each such constant of the operand
+  converted (`(f32(k) + 1) / 2`). A test applies the named fix and holds the result to compile
+  in both halves. The Division paragraph's sentence about the two fixes is read with this
+  limit.
+- [decision, owner, 2026-11-10] "직접 쓴 형태도 컴파일". With `q: u32`, `q += K * 2` compiles
+  (6) and the written `q += 3 * 2` is refused on `main`, while `q = q + 3 * 2` compiles. The
+  written form is a defect of the compound assignment, which retargets one literal only. A pull
+  request of its own fixes it. It is no part of this change.
+- [decision, owner, 2026-11-10] "4a, 4b로 나누기". Items 1 and 3 are delivered in two pull
+  requests. The first carries a function's `let`, the division refusals and the counter of an
+  open `for`. The second carries module variables, class fields and a function's result that
+  its callers decide. After the first, the rule text says which declarations still take `f32`.
+- Correction of a measured fact. The implementing agent reported that the CPU oracle on `main`
+  already computed the exact value of a constant. That holds for the `'f64'` precision oracle
+  only. The `'f32'` precision oracle, which the gates hold against a device, recorded the
+  rounded value (`const K = 16777217; vi + u32(K)` gave 16777216), as "Today" says.
+- Affects: no front-matter field. Rule 5.1 and surface §12 and §13, which the front matter
+  declares, carry these readings.
+- Status: `status: accepted` does not change.
+
+### Amendment A3. The owner's decisions on the second review of item 2 (2026-11-10)
+
+A second independent review of pull request #1184 at `1abf8fbb` found that values still change
+through a `/` with no diagnostic, along paths that Amendment A2 does not list, and that some
+shapes this text accepts are refused. The owner decided each in the Claude Code session on
+2026-11-10, after the programs and their values on `main` and on the pull request were shown
+(`OD-4`). Each decision is the agent's recommendation.
+
+- [decision, owner, 2026-11-10] "수용". Three refusals that the implementation drew from A2's
+  sentence "No program changes its value through a division without a diagnostic", each an
+  integer division on `main`: with `const k = 7; h(k);`, `let y = k; let z = y + 1;` then
+  `z / 2`; `const m = max(k, 1);` then `m / 2`; `let y = k;` then `y /= 2`. Each is refused
+  (`TS8003`).
+- [decision, owner, 2026-11-10] "지금대로 두고 기록". A `let` that a constant initializes and
+  that later takes another value (`let y = k; y = x;` then `y / 2`) stays refused, and a `let`
+  that takes the constant only by a later assignment (`let y = x; y = k;` then `y / 2`) stays a
+  float division, as on `main`. Item 1 takes this up again.
+- [decision, owner, 2026-11-10] "먼저 별도 PR로 고치기". On `main` a scalar cast of a written
+  number gives an untyped literal: `u32(7) / 2` is 3.5, and `xs[u32(7) / 2]` fails in the
+  backend. A cast gives a value of its type, so `u32(7) / 2` is the integer division 3. A bug
+  fix of its own fixes the written form first. Item 2 then reads `u32(K) / 2` the same way.
+- [decision, owner, 2026-11-10] "보수적 추적 규칙". A value that comes from a constant of no
+  fixed type carries that origin through every expression and binding: an operator, a builtin
+  (`Math.*` and `select` included), `as`, `!`, a conditional, a derived constant, a `let`, the
+  start of a loop counter, and the result of a function, a method, a getter or a closure that
+  returns such a value. It loses that origin only where it passes a declared type: an
+  annotation, a declared parameter, field or result, or a cast. A `/` whose operands have no
+  declared type, and one of which carries the origin of a constant that some read makes an
+  integer, is refused (`TS8003`). A loop counter whose start is such a constant keeps the type
+  it has on `main`, as a counter bounded by one does.
+- [decision, owner, 2026-11-10] "실수 나눗셈으로 허용". A `/` with a float-written literal or a
+  float-written constant in either operand is a float division, and it is accepted: with `N`
+  read as an integer elsewhere, `const STEP = 6.283185307179586 / N`, `TAU / N` and `1.0 / W`
+  compile. This is the Division paragraph's reading: not every operand's integer type came from
+  inference.
+- [decision, owner, 2026-11-10] "4a와 이어서 머지". Without item 1, a `let` that a constant
+  initializes takes `f32`, so uses that are no division and that compiled on `main` are refused
+  (`let y = k;` then `vi + y`, `xs[y]`, `h(y)`). Item 1 types such a `let` from its uses. So the
+  pull request of item 2 and the first pull request of items 1 and 3 merge one after the other,
+  and `main` does not hold item 2 alone.
+- Affects: no front-matter field. Rule 5.1 and surface §12 and §13, which the front matter
+  declares, carry these readings.
+- Status: `status: accepted` does not change.
+
+### Amendment A4. The owner's decisions on the third review of item 2 (2026-11-10)
+
+A third independent review of pull request #1184 at `345d3ae8` found three places that
+Amendments A1 to A3 do not decide. The owner decided each in the Claude Code session on
+2026-11-10, after the programs and their values on `main` and on the pull request were shown
+(`OD-4`). Each decision is the agent's recommendation. A fourth decision of the same day, on the
+counter, is recorded here too.
+
+- [decision, owner, 2026-11-10] "`main`과 같이 u32 유지". A loop counter whose start is an
+  expression over a constant of no fixed type, such as `const k = 7; h(k); for (let j = k + 1;
+…)`, keeps the type it had on `main` (here `u32`), as A3 says for a counter that starts at the
+  constant.
+- [decision, owner, 2026-11-10] "선언된 타입으로 보기". A typed constructor (`vec3u(…)`,
+  `vec2<u32>(…)`, and the same forms for `i32` and `f32`) is a declared type. Like a cast, it
+  ends the origin that A3 carries: with `const k = 7; h(k);`, `f32(vec3u(k, 1, 2).x / 2)` is 3,
+  as on `main`.
+- [decision, owner, 2026-11-10] "거부 유지하고 목록에 기록". A generic parameter or result
+  declares no type, so the origin passes through it: `id(k) / 2` with
+  `function id<T>(a: T): T` is refused (`TS8003`). It compiled on `main` (3), and the pull
+  request lists it among the programs newly refused.
+- [decision, owner, 2026-11-10] "수용하고 수정안 A4로 기록". The quotient's own read is not
+  another read. With `const K = 8;`, `let j: u32 = K / 2` is `4u`, as the written `8 / 2` is,
+  and so are `h(K / 2)`, `vi + K / 2` and `u32(K / 2)`. A `/` is refused only where a read other
+  than the one that holds the quotient makes the constant an integer.
+- Affects: no front-matter field. Rule 5.1 and surface §12 and §13, which the front matter
+  declares, carry these readings.
+- Status: `status: accepted` does not change.
+
 ### Configuration and validation record
 
 The change is delivered in parts. `status: accepted` stays until every part is delivered and
@@ -811,29 +938,214 @@ and the same diagnostics, in both halves, before and after. No golden changed.
   tests of `src/compiler/ts/abstract-const.test.ts` (both halves) and the journey
   `journeys/untyped-constants/` (WebGPU, WebGL2 and the CPU oracle). `CHANGELOG.md`,
   `### Changed`, names each value.
-- [fact, measured 2026-11-10 on `main` at `0fb8a53e`] "Values that change" says that the CPU
-  oracle records the rounded `f32` value of a constant that `f32` does not hold exactly. The
-  measurement shows otherwise. `compile().eval` already gave 16777217, 2654435761, the double
-  of 7 / 3 and the double 0.1 for the rows of that section, because a module constant keeps
-  its double for the oracle (`ConstDecl.cpuValue`). The emitted WGSL and GLSL carried the `f32`
-  rounding. So the device and the oracle disagreed on those programs before part 3, and agree
-  after it. The oracle's values do not move; the emitted text moves to them. The approved text
-  is not rewritten; this note corrects it.
+- [fact, measured 2026-11-10 on `main` at `0a095a24` and on the branch] The CPU oracle has two
+  precisions. In `'f32'` precision, which the gates hold against a device, it read each row of
+  "Values that change" at the `f32` rounding before part 3 (16777216, 2654435840, the `f32`
+  quotient, the `f32` value of 0.1) and reads the exact value after it, as that section says.
+  In `'f64'` precision (`compile().eval`) a read of a module constant by its name carried the
+  double the author wrote before part 3 too (`ConstDecl.cpuValue`), so those rows read the same
+  value there before and after. Two rows move in `'f64'` precision: `const C = 0.1; const D:
+f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32(K)` read
+  4294967040 and reads 4294967295. An earlier note in this record and in pull request #1184
+  said that the oracle's values do not move; that was measured in `'f64'` precision only and
+  was wrong as written. The approved text is not rewritten.
 - [decision, owner, 2026-11-10] "캐스트도 세기". A cast is a read for the division rule. A
   conversion `i32(K)` or `u32(K)` of a constant of no fixed type reads it as an integer, as an
   argument of that type does. So `const K = 7; return f32(u32(K)) + f32(K / 2);` is refused
   with `TS8003`, in the sentence of the rule. `f32(K)` and `f64(K)` do not make the constant an
   integer, and `f32(K) / 2` is the edit the sentence names. Implemented in part 3. A conversion
-  of a quotient (`u32(K / 2)`) converts the written number and reads no integer `K`.
+  of arithmetic over the constant counts too (`u32(K + 1)`).
+- Amendment A4 (PR #1224), "수용하고 수정안 A4로 기록": the quotient's own read is not another
+  read, so a conversion of the quotient itself (`u32(K / 2)`) does not refuse it.
 - [decision, owner, 2026-11-10] "별도 PR로 결함 수정". `const K = 1e38;` with `f64(K) * 4.` is
   newly refused: `f64(K)` is the written `f64(1e38)`, and the front end folds the product to a
   double that the emulation cannot hold (`TS8015`, as the written form does on `main`). Part 3
   goes on as it is: the constant behaves as the written number. The fold is a defect of its
   own, and it is fixed in its own pull request under an issue that the session's coordinator
   files. `src/core/passes/fp64-lower.test.ts` writes the type of its two `1e38` constants.
+- [decision, owner, 2026-11-10] "거부". A `/` that reaches such a constant through an
+  operator, a builtin, a conditional or a derived constant is refused for the same reason as
+  the direct `k / 2`: `(k % 4) / 2`, `max(k, 1) / 2`, `abs(k) / 2`, `(x > 0 ? k : 1) / 2`,
+  `(k | 1) / 2`, `const m = k * 2; … m / 4`, `const m = k; m / 2`. No program changes its value
+  silently through a division. Implemented in part 3.
+- [decision, owner, 2026-11-10] "규칙대로 두고 기록". Arithmetic other than `/` keeps Rule 5.1:
+  with `function h(a: u32): u32`, `const k = 7; h(k); f32(k - 8)` was 4294967295 and is -1, and
+  `f32(k * 1000000000)` was a wrapped `u32` and is 7000000000, as the written number gives.
+  These rows are added to "Values that change" by this record and by the `CHANGELOG.md` entry.
+- [decision, owner, 2026-11-10] "편집기를 컴파일러에 맞춤". A read in another file counts. With
+  `export const K = 7;` and `x * (K / 2)` in a library and `vi * K` in the file that imports
+  it, `compile()` of the importing file refuses the `/` in the library file, and the editor
+  shows the same `TS8003` there (Rule 12.7): `checkDocuments` over the two documents, and the
+  language service while the importing document is open. Implemented in part 3.
+- The independent review of pull request #1184 at `827bc9e1` (2026-11-10) found F3 to F12, all
+  inside the approved text. Each is fixed in part 3 with a test that reads both halves: a
+  float-written counter against a constant bound keeps its `f32` (F3); a float-written constant
+  is never an integer read (F4); the quotient's own read is not another read (F5, Amendment A4,
+  PR #1224); a bitwise
+  compound assignment, a typed constant, a derived constant, a conversion of arithmetic and a
+  texture level count as integer reads (F6); the sentence names one edit that compiles (F7);
+  `k % 8` takes the type of its read (F8); a declared `f64` position is tested (F9); the oracle
+  note is corrected (F10); the hover deviation names its rule (F12). F11 is below.
+- [decision, owner, 2026-11-10, Amendment A2] "거부", the same through a `let`. With
+  `const k = 7; h(k); let y = k;`, `f32(y / 2)` is refused. Implemented in part 3: a variable
+  with no annotation whose initializer reaches such a constant with no declared type between
+  carries it (`let y = k`, `let y = k + 1`, `const m = max(k, 1)`), a second variable
+  initialized from the first carries it too (`let z = y + 1`), and `y /= 2` is a `/` over it.
+  The second variable and the `/=` follow the amendment's sentence "No program changes its
+  value through a division without a diagnostic". Measured and not decided by the text: a
+  variable that carried the constant and is assigned another value later
+  (`let y = k; y = x; … y / 2`) is still refused, and a variable that takes the constant by a
+  later assignment (`let y = x; y = k; … y / 2`) is not.
+- Open deviation, decided by Amendment A2 ("직접 쓴 형태도 컴파일"): `q += K * 2` with a `u32`
+  `q` compiles (`6u`), and the written `q += 3 * 2` is refused on `main` and in part 3. The
+  written form is a defect of the compound assignment, issue #1205, fixed in a pull request of
+  its own. It is no part of this change, and part 3 keeps `q += K * 2` as it is.
+- Amendment A3 (2026-11-10), implemented in part 3 after a second independent review of pull
+  request #1184 at `1abf8fbb`:
+  - "보수적 추적 규칙": `originOf` in `src/compiler/ts/abstract-const.ts` is the one rule. A
+    value carries the origin of a constant of no fixed type through an operator (`**`
+    included), a builtin (`Math.*`; `select` by its two value arguments), `as`, `satisfies`,
+    `!`, a conditional, a member or an element, a derived constant, a `let`, the start of a loop
+    counter, and the result of a function, a method, a getter or a closure (an arrow's
+    expression body included) that writes no result type. It loses the origin at a declared
+    type, a conversion included. A counter started by such a constant keeps the type of the
+    constant's emitted declaration (`f32`), as on `main`, and carries the origin.
+  - Amendment A4 (PR #1224), "`main`과 같이 u32 유지": a counter whose start carries the
+    origin keeps the type it has on `main`. `lowerHeaderCounter` in
+    `src/compiler/ts/lower/control.ts` lowers the start again with each function-local constant
+    it reaches read at the integer type its declared uses gave it on `main` (changes 0036 and
+    0037; `withReadTypes` in `abstract-const.ts`). Two types that disagree make that lowering
+    refuse, and the counter keeps its type. `k + 1`, `k * 2`, `k | 1`, `k >> 1`, `k % 2`, `Math.max(k, 1)`,
+    `max`, `clamp`, `abs`, a conditional, `select`, `k!` and a derived constant (`kk`, `kk + 1`)
+    give a `u32` counter after `h(k)`, with the values `main` gave. The counter carries the
+    origin, so a `/` over it is refused as A3 says. A start that `main` refused (`-k` of a
+    `u32`, `k ** 2`, `k + 0.5`, `K + k` with a module constant `K`) keeps the `f32` it has
+    here. A start through a `let` or a function result (`let y = k;` then `j = y`, `j = g()`)
+    is a value of items 1 and 3, and part 4a takes it up.
+  - "실수 나눗셈으로 허용": a float-written literal or constant in either operand makes a
+    float division, which is accepted.
+  - "수용" and "지금대로 두고 기록": the three extra refusals stay; a `let` that takes the
+    constant only by a later assignment adds no origin (`let y = x; y = k;` then `y / 2` stays a
+    float division), and a `let` initialized from the constant keeps its origin when it is
+    assigned another value later.
+  - "먼저 별도 PR로 고치기": the fold of a scalar cast is fixed in pull request #1217, which
+    this part takes when it is on `main`. Pull request #1217 merged on `main` as `3b242e9b`
+    on 2026-11-10, and this part merged it in: the rows of a cast (`u32(K) / 2` is 3,
+    `u32(K) - 8` is 4294967295, `u32(A) + 1` is 0) give the typed value, the same as the
+    written number, and `abstract-const.test.ts` reads each in both halves.
+  - "4a와 이어서 머지": part 3 and the first part of items 1 and 3 merge one after the other.
+    The uses that are no division and that a `let` initialized from a constant makes refused
+    (`let y = k;` then `vi + y`, `xs[y]`, `h(y)`, `switch (y)`, `xs[g()]`) are that part's to
+    fix, and its tests cover them.
+  - The review's other findings, each with a test that reads both halves: the named edit
+    compiles where the quotient stands (M1: a typed integer position names the declaration
+    with the type it asks, an index the other reads' type, else the `/` converted to that type;
+    a float position converts, a bitwise operation as a whole); the subject and the edit are
+    the author's text across an import (M4: `L.K`, `KK`); the `'f64'` precision moves are
+    stated as a rule (M5, below); `checkDocuments` and the language service replace a file's
+    own mismatch around a refused `/` as `compile()` does (M6); `n ^= K` out of range is
+    refused with §13's sentence; `u32(-C)` with `C = 0.1` is `0u`; and each of the 23
+    surviving mutants has a test or its code is removed where no program reaches it.
+- The third independent review of pull request #1184 at `345d3ae8` (2026-11-10), and Amendment
+  A4 (PR #1224), implemented in part 3, each with a test that reads both halves:
+  - F1: a closure or a local function that captures a variable carrying the origin carries it.
+  - F2 and F8: a result type that the editor's projection writes is not the author's, so a
+    function declaration, an arrow and a function expression infer their result in the editor
+    as `compile()` does. A recursive function declaration is the one `TS8031` in both halves.
+  - F3: the named edit is checked. The front end compiles the source with each candidate edit
+    and names the first that adds no error. Where none does, the program holds a second mistake:
+    the edit that adds fewest errors is named. (Changed by the fourth review's decision 1 below:
+    a mismatch around the `/` stays only where that edit leaves it.)
+    [fact, measured 2026-11-11 with the review's checker over its matrices] 270 of 15,223 named
+    edits still leave a diagnostic (321 of 15,215 at `345d3ae8`). Each of their 47 distinct
+    shapes was refused on `main` too: a negation of a `u32`, `sign` or `Math.trunc` of an
+    integer, a vector constructor of mixed element types, a negative index, `u32` of a negative
+    value, and a vector converted by `f32(v)`.
+  - F4, "선언된 타입으로 보기": a typed constructor ends the origin.
+  - F6 (a conversion that starts a counter declares the counter's type) is not part 3's: see
+    the fourth review's decision 2 below.
+  - F7: a pattern binding carries the origin of the element it reads.
+  - F10, "거부 유지하고 목록에 기록": `id(k) / 2` with a generic `id` stays refused.
+  - A variable of written numbers alone (`let w = 3`) declares no type and carries an origin that
+    reaches no constant, so `(k + w) / 2` is refused as A3 says, and `let w = 3.5` makes a float
+    division.
+  - Not changed, and handed back for a decision: F5. A library function that the importing
+    program does not keep is not in the linked program, so its `/` is not lowered there.
+- The fourth independent review of pull request #1184 at `b53fb228` (2026-11-11). The owner
+  decided three findings in the Claude Code session on 2026-11-11:
+  - [decision, owner, 2026-11-11] Finding 1, Rule 12.4 against Rule 5.1's sentence on an edit
+    that does not compile: "12.4: 진단 하나". Where no edit compiles, a mismatch around the `/`
+    stays only where the edit the sentence names leaves it. `xs[-k / 2]`, `f32(h(-k / 2))`,
+    `f32(vi + -k / 2)` and `let j: u32 = -k / 2` give one diagnostic each, as on `main` and at
+    `345d3ae8`. Rule 5.1's last sentence and surface §13 say so.
+  - [decision, owner, 2026-11-11] Finding 2, the third review's F6: "별도 버그 수정 PR로
+    분리". Part 3 does not change how a conversion starts a counter; the bug fix is pull request
+    #1235 from `main`, which needs nothing of part 3. Until it was merged, part 3 refused every
+    counter started by `u32(…)` of a constant of no fixed type, or of arithmetic over one, where
+    the counter is used as a `u32` (deviation 13): a module constant (`u32(KM)`, 25), a
+    function-local constant with no declared use (25), `u32(k + 1)` after `h(k)` (22), `u32(k)`
+    with `j < vi` (7) and `a += f32(j + vi)` (50). Closed: #1235 merged on `main` as `2fae525a`,
+    part 3 merged it in, and each of the seven rows of `abstract-const.test.ts` ("a counter
+    started by u32(…) of an untyped constant counts in u32") gives `main`'s value in both
+    halves.
+  - [decision, owner, 2026-11-11] Finding 7, two quotients each the other's other read: "A4대로
+    거부 유지". With `const K = 8;`, `let j: u32 = K / 2; let i: u32 = K / 2;` refuses both. It
+    is a row of "Newly refused" in `CHANGELOG.md`.
+  - Finding 3: an `f32` edit leaves an index and a shift amount integers
+    (`vec2(k, 5)[k] / 2` names `vec2(f32(k), 5)[k] / 2`).
+  - Finding 4: the edits are checked in rounds. In a round, an edit in an expression statement
+    shares a compile with one edit of each other statement, and an error there is the edit's
+    whose statement holds it. An edit is compiled alone, as the sentence names it alone, where
+    another edit could change what it sees: a declaration edit (it changes every read of the
+    constant, and one compile serves every refusal that names it), an edit in a statement that
+    declares a name, and an edit of a shared compile that adds an error outside every refused
+    statement. The fifth review (at `66f33372`) found that an earlier version charged a
+    declaration edit only with the errors outside every refused statement, so it named edits
+    that do not compile alone (`f32(vi + k / 2) + x * (k / 3)` named `const k: u32 = 7`).
+    [fact, measured 2026-11-11] On the review's 1,890 programs of many `/` (`M.json`), each
+    named edit equals the one of checking each edit alone (`b53fb228`); 486 programs report one
+    diagnostic fewer, the mismatches of decision 1. At N = 100 refused lines, `compile()` takes
+    211 ms and the editor 266 ms (`main`: 124 and 199 ms).
+  - Finding 5: the uses that are no division and are refused where the written number is
+    (`f32(~k)`, `f32((k | 1) >> 1)`, `f32((k % 4) >> 1)`), and the value move of
+    `f32(~(k << 1))` (4294967281 to -15), are rows of `CHANGELOG.md`.
+  - Finding 6: a recursive function declaration is the one `TS8031` in both halves. A recursive
+    arrow `const` shows `TS7023` beside `TS8031` in the editor, as on `main`. Open item.
+  - Finding 8: `tshc check` prints no related site for a refusal that stands on an importing
+    file's read. Open item.
+- Open deviations recorded after the fifth review, each with the owner's decision of 2026-11-11:
+  - [decision, owner, 2026-11-11] Issue #1245, "이슈로 기록하고 진행": the edit check compiles
+    each edit in a statement that declares a name alone, so a file where each refused `/`
+    stands in such a statement costs N compiles of the file (N² in all).
+  - [decision, owner, 2026-11-11] Issue #1246, "이슈로 기록": the named edit compiles where the
+    quotient stands, and it can leave a mismatch in a caller of the function that holds it.
+- [fact, measured 2026-11-11 on `main` at `cbb72182` merged in] Pull request #1191 (#1186)
+  places an error of a program in the first file that reports it when compiled alone. A library
+  compiled alone does not refuse its `/` when only an importing file reads the constant as an
+  integer, so the refusal of "편집기를 컴파일러에 맞춤" now stands on that read in the importing
+  file, with the `/` in the library as its related site, in `compile()`, `checkDocuments` and
+  the editor (`noteUse` in `reportAbstractDivisions`). The mismatch the library raises alone
+  around the `/` is the same mistake: each reader shows one diagnostic. A library that also reads
+  the constant as an integer refuses the `/` itself, where it stands.
+- [fact, measured 2026-11-10] M5, the rule of the `'f64'` precision oracle: a read of a module
+  constant by its name carried the double the author wrote before part 3, and a value the front
+  end folded from the constant at compile time carried its `f32` rounding. A value moves there
+  exactly where the front end folded such a read: `const C = 0.1; const D: f64 = C;`
+  (0.10000000149011612 to 0.1) and `const K = 4294967295; u32(K)` (4294967040 to 4294967295).
+- [fact, measured 2026-11-10] Arithmetic other than `/` through a function result follows the
+  row of A2 ("규칙대로 두고 기록"): `function g() { const k = 7; h(k); return k; }` with
+  `f32(g() - 8)` was 4294967295 and is -1, and `f32(g() * 1000000000)` was 2705032704 and is 7000000000.
 - Deviations of part 3, each open for the audit at the end:
-  - Hover is not changed: a declaration and every read still show `const K: f32`. Item 4 is its
-    own part.
+  - Hover is not changed: a declaration and every read still show `const K: f32`, also at a
+    read the compiler types `u32`. Until item 4 is delivered this is a deviation from Rule 12.7
+    ("The language service and the compiler must name one vocabulary") and from the `getHover`
+    row of `docs/language-service-api.md` (line 485: "the COMPILER's type for every name the
+    front end declared in this document"). Item 4 is its own part.
+  - Closed by Amendment A2 ("하나만, 수정안으로 기록"): the refusal sentence names one edit,
+    where "Proposed" says that it names the two fixes. It names the one that compiles where
+    the quotient stands.
+  - `%` is read through a constant of no fixed type (`xs[k % 8]`), which compiled before; the
+    written `xs[7 % 8]` stays refused, on `main` and on the branch.
   - An exported constant of no fixed type keeps its `f32` declaration in reflection, the
     manifest and the host view. The estimate of item 2 (the host view spells it `number`) is
     neither implemented nor measured.
@@ -842,6 +1154,8 @@ and the same diagnostics, in both halves, before and after. No golden changed.
     value.
   - Rule 5.1's sentence "the literal must be an `f32`" stays for an unannotated `let`, a field
     and a function's result until items 1 and 3 are delivered.
+  - Closed by pull request #1191 (#1186) and the note below: F9 of the third review (the editor
+    showed nothing where `compile()` of the importing file refused in the library file).
 
 Not delivered yet: items 1 and 3, item 4, the document part of item 5, item 5 for `journeys/`
 and the helper sources of `examples/` (Amendment A1), and the audit.

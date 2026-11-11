@@ -510,7 +510,7 @@ describe("getHover: an array's length is the type the compiler reads", () => {
 });
 
 describe('getHover: a symbol declared in another document', () => {
-  it("keeps TypeScript's quick info, since the compiler's table is this document's", () => {
+  it('reads the type the compiler gave it in the program, as the declaring document does', () => {
     const service = createTypeshadeLanguageService();
     service.openDocument(
       '/lib.ts',
@@ -523,9 +523,12 @@ describe('getHover: a symbol declared in another document', () => {
       '/main.ts',
       service.positionAt('/main.ts', main.indexOf('* K') + 2),
     );
-    // `K` is declared in `/lib.ts`, so `/main.ts`'s symbol table says nothing about it and
-    // TypeScript answers, exactly as before: a span belongs to the file it indexes.
-    expect(hover?.contents).toContain('const K: 1');
+    // `K` is declared in `/lib.ts`. The program of `/main.ts` links that file, and the hover
+    // reads the symbol the front end declared there (`importedSymbolAt`). TypeScript's quick
+    // info said `(alias) const K: 1`, a literal type where the compiler has an `f32`.
+    expect(hover?.contents).toBe('```ts\nconst K: f32\n```');
+    const lib = service.getHover('/lib.ts', { line: 1, character: 13 });
+    expect(lib?.contents).toBe(hover?.contents);
   });
 });
 
@@ -644,7 +647,7 @@ export function mp(x: f32, y: f32): f32 {
     // The hover names these two results, so the oracle is held to them. `eval` is the oracle
     // `compile()` hands a user; `compileModuleJs` is the generated-JavaScript one.
     expect(MATH_MEMBER_DOCS.pow).toContain(
-      '`Math.pow(-2., 3.)` is -8 and `Math.pow(-2., 0.5)` is NaN.',
+      "JavaScript's special values (`Math.pow(-2., 3.)` is -8 and `Math.pow(-2., 0.5)` is NaN)",
     );
     const js = compileModuleJs(compiled.module).fns;
     for (const name of ['p', 'mp']) {
@@ -668,6 +671,10 @@ export function mp(x: f32, y: f32): f32 {
       const contents = hoverAt(needle, plus);
       expect(contents, needle).toContain(MATH_MEMBER_DOCS.pow);
       expect(contents, needle).toContain('GPU result is undefined');
+      // The pairs outside WGSL's domain that Tint and WebGL2 were measured to part on
+      // (Amendment A4 of change 0042).
+      expect(contents, needle).toContain('when `x` is 1 and `y` is infinite');
+      expect(contents, needle).toContain('when `x` is infinite and `y` is 0');
       expect(contents, needle).not.toContain('produces NaN');
     }
   });

@@ -217,6 +217,7 @@ import { computeArm } from './gl-compute-arm.js';
 import { commonModulesArm } from './common-modules-arm.js';
 import { classArm } from './class-arm.js';
 import { residentFailureArm } from './resident-failure-arm.js';
+import { resourceCallArm } from './resource-call-arm.js';
 import { libmArm } from './libm-arm.js';
 import type { ShaderType, StructDecl } from '../src/index.js';
 
@@ -2879,11 +2880,12 @@ async function chainArm(page: Page): Promise<number> {
 
 async function main(): Promise<number> {
   const browserSettings = gateBrowserSettings(process.env);
-  // `TYPESHADE_DIFF_ARMS=libm,kernel,chain,glsl,compute,common,class,failure` runs a subset; every
+  // `TYPESHADE_DIFF_ARMS=libm,kernel,chain,glsl,compute,common,class,failure,resource` runs a subset; every
   // arm by default.
   const arms = new Set(
     (
-      process.env['TYPESHADE_DIFF_ARMS'] ?? 'libm,kernel,chain,glsl,compute,common,class,failure'
+      process.env['TYPESHADE_DIFF_ARMS'] ??
+      'libm,kernel,chain,glsl,compute,common,class,failure,resource'
     ).split(','),
   );
   // The libm (change 0042, milestone 1a): its JavaScript form on this script's engine, held to
@@ -2905,13 +2907,15 @@ async function main(): Promise<number> {
         arms.has('chain') ||
         arms.has('common') ||
         arms.has('class') ||
-        arms.has('failure'),
+        arms.has('failure') ||
+        arms.has('resource'),
       webgl:
         arms.has('glsl') ||
         arms.has('compute') ||
         arms.has('common') ||
         arms.has('class') ||
-        arms.has('failure'),
+        arms.has('failure') ||
+        arms.has('resource'),
     });
     const page = await browser.newPage();
     await page.goto(url);
@@ -2927,6 +2931,9 @@ async function main(): Promise<number> {
     // oracle.
     if (arms.has('class')) failures += await classArm(page);
     if (arms.has('failure')) failures += await residentFailureArm(page);
+    // A call on a resource (change 0138, milestone 3): recorded, with the values of its own call,
+    // on WebGPU and WebGL2 against the CPU tier, and the dirty range of a Buffer as one writeBuffer.
+    if (arms.has('resource')) failures += await resourceCallArm(page);
   } catch (error) {
     primaryFailed = true;
     throw error;

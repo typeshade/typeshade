@@ -45,6 +45,8 @@ import type { CallOwner } from './owner.js';
 import { checkLimitValues } from './device-limits.js';
 import { automaticFp64Flavor } from './device-info.js';
 import { fuseSlot } from './fuse-scope.js';
+import { afterCheckpoint, flushSubmission, throwFailure } from './submission.js';
+import { readFence } from './gl-fence.js';
 import { warnDeprecated } from './deprecation.js';
 import { TIERS, tierNames, type Tier } from './tiers.js';
 import type { Fp64Flavor } from './passes/fp64-lower.js';
@@ -119,6 +121,17 @@ export class ResidentArrayState {
   gpu: { d: GpuDevice; buffer: GpuBuffer; size: number; layout: Layout } | undefined;
   /** The error of a queued call that wrote the handle, which `read()` throws. */
   error: unknown;
+  /** The WebGL2 context a call that wrote the handle ran on, whose fence its next `read()` waits
+   *  on (change 0138, Amendment A5, default 6); undefined otherwise. */
+  fence: WebGL2RenderingContext | undefined;
+  /** Wait on the fence of the WebGL2 context that last wrote the handle, once. A lost context ends
+   *  the wait: the WebGL2 tier read the values back inside the call (`readFence`). */
+  async fenced(): Promise<void> {
+    const gl = this.fence;
+    if (gl === undefined) return;
+    this.fence = undefined;
+    await readFence(gl);
+  }
   /** Set by `destroy()`: a use after it throws. */
   destroyed = false;
   /** Whether the device buffer holds stale contents that are zeros by contract, which the next
@@ -451,7 +464,7 @@ const MOST_DEPTH = 100;
  * gives is shallow and has nothing to refuse. It stops at a level it must look at again, a kind it
  * cannot copy or a depth at which a cycle is possible, and a second walk of the value keeps both.
  */
-function copyOf<T>(v: T, caller: string): T {
+export function copyOf<T>(v: T, caller: string): T {
   if (typeof v !== 'object' || v === null) return v;
   try {
     return walkCopy(v, caller, false) as T;
@@ -661,7 +674,11 @@ export function handleOf(state: ResidentArrayState): Resident<unknown> {
       return (async () => {
         live();
         await kernelQueue.idle();
+        // A recorded call that failed is thrown at the next read() (change 0138, R2).
+        throwFailure();
         if (state.error !== undefined) throw state.error;
+        // On WebGL2 the read waits on a fence (Amendment A5, default 6).
+        await state.fenced();
         return state.snapshot();
       })();
     },
@@ -693,14 +710,28 @@ export function handleOf(state: ResidentArrayState): Resident<unknown> {
 // ─── the order of calls ──────────────────────────────────────────────────────────────────────
 
 /** The kernel calls and entry calls in the order they were made: each runs when the one before
- *  has settled. */
+ *  has settled.
+ *
+ *  A call on a resource (change 0138, R2) is recorded with {@link kernelQueue.record}: it is held
+ *  apart, and joins the order when the current microtask checkpoint ends, or sooner when anything
+ *  else uses the order (a call with plain data only, a `read()`, a draw), which submits every
+ *  call recorded before it first (Amendment A5, Q4 and defaults 2, 4 and 9). */
 export const kernelQueue = {
   last: Promise.resolve() as Promise<unknown>,
   /** How many calls are queued and not yet settled. */
   pending: 0,
+  /** The calls recorded and not yet submitted, in the order they were made. */
+  held: [] as (() => void)[],
+  /** Whether a submission at the end of the checkpoint is waiting. */
+  scheduled: false,
   /** Run `f` after every call made before it. */
   run<T>(f: () => Promise<T>): Promise<T> {
     fuseSlot.active?.refuse('the kernel queue', 'a call that joins it');
+    this.submit();
+    return this.enqueue(f);
+  },
+  /** Put `f` at the end of the order. */
+  enqueue<T>(f: () => Promise<T>): Promise<T> {
     this.pending++;
     const p = this.last.then(f);
     this.last = p
@@ -710,15 +741,44 @@ export const kernelQueue = {
       });
     return p;
   },
+  /**
+   * Record `f`, a call on a resource (change 0138, R2): it runs after every call made before it,
+   * once the calls recorded are submitted. The submission comes when the current microtask
+   * checkpoint ends, or at the next use of the order, whichever is first.
+   */
+  record<T>(f: () => Promise<T>): Promise<T> {
+    fuseSlot.active?.refuse('the kernel queue', 'a call that joins it');
+    return new Promise<T>((resolve, reject) => {
+      this.held.push(() => {
+        this.enqueue(f).then(resolve, reject);
+      });
+      if (!this.scheduled) {
+        this.scheduled = true;
+        afterCheckpoint(() => {
+          this.scheduled = false;
+          this.submit();
+        });
+      }
+    });
+  },
+  /** Submit every call recorded and not yet submitted, in order. The end of the submission
+   *  flushes each WebGL2 context its calls used (Amendment A5, default 6). */
+  submit(): void {
+    if (this.held.length === 0) return;
+    for (const join of this.held.splice(0)) join();
+    void this.enqueue(async () => flushSubmission());
+  },
   /** Run `f` now when no call is queued, and after the calls queued before it otherwise. */
   whenIdle(f: () => void): void {
     fuseSlot.active?.refuse('the kernel queue', 'a call that waits on it');
+    this.submit();
     if (this.pending === 0) f();
-    else void this.run(async () => f());
+    else void this.enqueue(async () => f());
   },
   /** Settle once every call made so far has. */
   idle(): Promise<unknown> {
     fuseSlot.active?.refuse('the kernel queue', 'a call that waits on it');
+    this.submit();
     return this.last;
   },
 };

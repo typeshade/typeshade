@@ -43,7 +43,7 @@ import { pushedLength, startPushesAt } from './push-count.js';
 import { CpuTexture, isCpuTexture } from './cpu-texture.js';
 import { fuseSlot } from './fuse-scope.js';
 import { checkIncoming, type IncomingReads } from './host-failure.js';
-import { inferOwner, ownerOf, resourceOwner, type CallOwner } from './owner.js';
+import { callDefault, inferOwner, ownerOf, resourceOwner, type CallOwner } from './owner.js';
 import type { PortableIr } from './ir/portable.js';
 import { KERNEL_TREE, treeIdentity, type TreeOp } from './kernel-tree.js';
 import type { Fp64Flavor } from './passes/fp64-lower.js';
@@ -54,6 +54,16 @@ import {
   type KernelGlLoop,
 } from './host-kernel-gl.js';
 import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
+import {
+  callSite,
+  argumentOwner,
+  commitArguments,
+  isResource,
+  joinRecorded,
+  recordArgument,
+  type RecordedArgument,
+} from './host-record.js';
+import { throwFailure, usedGl } from './submission.js';
 import { fromShader, toShader, type HostType } from './host-values.js';
 import type { Tier } from './tiers.js';
 import {
@@ -615,7 +625,8 @@ const WORDS = { k: 'a', n: null, st: 4, e: { k: 's', t: 'u32' } } as const;
  *
  * @throws `TypeError` naming the function and the parameter for a value that does not fit, and
  *   for an array shorter than the index range a loop writes; `Error` when no tier it may use can
- *   run it.
+ *   run it. Inside the body of `fuse()`, a `TypeError` at the call for a resource argument
+ *   (change 0138, R4).
  */
 export function callKernel(
   cpu: GeneratedCpu,
@@ -625,7 +636,23 @@ export function callKernel(
   reads?: IncomingReads,
 ): Promise<unknown> {
   const scope = fuseSlot.active;
-  if (scope !== undefined) return scope.kernel(cpu, k, argc, args, reads);
+  if (scope !== undefined) {
+    // A graph that takes resources is milestone 4's `fuse(fn)` (change 0138, R4).
+    const r = args.findIndex(isResource);
+    if (r >= 0)
+      throw new TypeError(
+        `${k.name}(): parameter "${k.params[r]?.name ?? r}" is a resource, which the body of today's fuse() does not record; call the function outside it, or pass array(xs).`,
+      );
+    return scope.kernel(cpu, k, argc, args, reads);
+  }
+  // A call on a resource does not block (change 0138, R2).
+  if (args.some(isResource)) return recordKernel(cpu, k, argc, args, reads) as never;
+  // A recorded call that failed is thrown at the next call (Amendment A5, default 7).
+  try {
+    throwFailure();
+  } catch (e) {
+    return Promise.reject(e);
+  }
   let owner: CallOwner;
   try {
     owner = inferOwner(
@@ -645,6 +672,8 @@ export function callKernel(
           ],
         ];
       }),
+      undefined,
+      callDefault(),
     );
   } catch (err) {
     return Promise.reject(err);
@@ -674,14 +703,100 @@ function runKernel(
   args: readonly unknown[],
   owner: CallOwner,
   reads: IncomingReads,
+  recorded = false,
 ): Promise<unknown> {
   try {
-    const checked = { ...checkCall(cpu, k, argc, args), owner };
+    const checked = { ...checkCall(cpu, k, argc, args), owner, recorded };
     checkIncoming(kernelInputs(k, checked, reads));
     return runChecked(cpu, k, checked);
   } catch (e) {
     return Promise.reject(e);
   }
+}
+
+/**
+ * A call of a kernel function whose arguments include a resource (change 0138, R2): checked now,
+ * recorded with the values it sees, and run once it is submitted. It returns nothing.
+ *
+ * @throws `TypeError` naming the function and the parameter, now: for a function that returns a
+ *   value, for an array it writes that is no resource, and for a storage array of another class;
+ *   the error of an earlier recorded call that failed (Amendment A5, default 7).
+ */
+function recordKernel(
+  cpu: GeneratedCpu,
+  k: KernelFace,
+  argc: number,
+  args: readonly unknown[],
+  reads: IncomingReads,
+): undefined {
+  const site = callSite(callKernel);
+  throwFailure();
+  const bad = arityError(k, argc);
+  if (bad !== undefined) throw bad;
+  if (k.result.k !== 'void')
+    throw new TypeError(
+      `${k.name}(): takes a resource, and returns a value: a call on a resource that returns a value is not available yet (change 0138, milestone 3). Pass plain data and await the call, or return nothing and write a Buffer.`,
+    );
+  // The device of the call, at the call (R3): the one its resources belong to, or with none of
+  // its own the device in use. A call that mixes devices is refused before anything is taken.
+  const owner = inferOwner(
+    `${k.name}()`,
+    k.params.map((p, i): [string, CallOwner | undefined] => [
+      `parameter "${p.name}"`,
+      argumentOwner((p.k === 'array' ? heldArgument(args[i])?.array : undefined) ?? args[i]),
+    ]),
+    undefined,
+    callDefault(),
+  );
+  // Each argument is taken with nothing changed yet; a refusal ends the check of what was taken.
+  const taken: RecordedArgument[] = [];
+  try {
+    k.params.forEach((p, i) => {
+      const at = `${k.name}(): parameter "${p.name}"`;
+      const held = p.k === 'array' ? heldArgument(args[i]) : undefined;
+      if (held !== undefined) {
+        if (isResource(held.array))
+          throw new TypeError(`${at}: a held length takes no Buffer yet; pass array(xs).`);
+        // A plain array the call pushes onto would be written in place with nothing waiting for it,
+        // as any written plain array would (deferred question 4: refused).
+        if (residentState(held.array) === undefined)
+          throw new TypeError(
+            `${at} is written by the call, which takes a resource, so it does not block and nothing waits to read it back: pass a Buffer, or array(xs), and await its read() (change 0138, R2).`,
+          );
+        // A held length on a call that takes a resource is not recorded yet: the call takes a
+        // Resident apart from a Buffer only as an array it writes or reads (today's refusal,
+        // kept with the deferred questions).
+        throw new TypeError(
+          `${at}: a call that takes a resource takes no held length { array, length } yet (change 0138, milestone 3); make the call with plain data and Residents only, and await it.`,
+        );
+      }
+      taken.push(
+        recordArgument(
+          at,
+          args[i],
+          p.k === 'array' ? p.layout : undefined,
+          (p.k === 'array' || p.k === 'collection') && p.writes,
+          p.k !== 'texture',
+          owner,
+        ),
+      );
+    });
+  } catch (e) {
+    for (const t of taken) t.buffer?.done();
+    throw e;
+  }
+  const mapped = taken.map((t) => t.value);
+  // Every argument is checked at the call, as a call with plain data checks it when it runs; only
+  // then are the values the call sees copied out (the review of #1236, B2 and S2).
+  const { uploads } = commitArguments(taken, () => checkCall(cpu, k, argc, mapped));
+  const written = k.params.flatMap((p, i) => {
+    const s = p.k === 'array' && p.writes ? residentState(mapped[i]) : undefined;
+    return s === undefined ? [] : [s];
+  });
+  joinRecorded(`${k.name}()`, site, uploads, written, () =>
+    runKernel(cpu, k, argc, mapped, owner, reads, true),
+  );
+  return undefined;
 }
 
 /** Incoming contents in parameter order. A held length is data even for a write-only array. */
@@ -722,6 +837,10 @@ export interface KernelRange {
 export interface CheckedCall {
   /** The owner captured by an ordinary call; a recorded call uses its scope's owner. */
   readonly owner?: CallOwner;
+  /** A call on a resource, recorded and submitted later (change 0138, R2): on WebGL2 its
+   *  submission flushes and a `read()` of what it wrote waits on a fence (Amendment A5, default 6).
+   *  A call with plain data keeps today's meaning, and marks nothing. */
+  readonly recorded?: boolean;
   readonly states: readonly (ResidentArrayState | undefined)[];
   readonly hosts: readonly unknown[];
   readonly values: readonly unknown[];
@@ -1104,6 +1223,17 @@ export async function runChecked(
       // (change 0094, Rule 11.8).
       if (k.gpu!.finish !== undefined) finishOnHost(cpu, k, live, values);
       if (run !== undefined) recordDispatches(run.counts, run.group, drawn);
+      // The submission flushes the context, and a read() of what the call wrote waits on a fence
+      // (change 0138, Amendment A5, default 6).
+      // Only a recorded call: a plan of a scope keeps its own submission (Rule 11.13), and a call
+      // with plain data read its values back inside the call (S3 of the review of #1238).
+      if (run === undefined && c.recorded === true) {
+        usedGl(gl);
+        k.params.forEach((p, i) => {
+          const s = states[i];
+          if (p.k === 'array' && p.writes && s !== undefined) s.fence = gl;
+        });
+      }
       const out = tailResult(cpu, k, values, []);
       return result(async () => out);
     }

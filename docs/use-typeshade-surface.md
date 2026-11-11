@@ -495,7 +495,12 @@ export function fs(v: VsOut): Color {
   `render target at @location(0)`, and `returns a render target at @location(0)` on a fragment
   entry with a bare result. A value with no location shows no such line: a built-in value, a
   field of a struct no entry uses, and a value refused with `TS8010`. A field of a struct that
-  another file declares shows the number it has in the program that imports it (§68).
+  another file declares shows the number it has in the program that imports it (§68). In the
+  declaring file, where the open programs that import it give the field different numbers,
+  the hover shows one line for each program, with its file:
+  `vertex attribute at @location(1) in a.shade.ts` and
+  `vertex attribute at @location(2) in b.shade.ts`. A program that refused the field has its
+  line too, with the code of its diagnostic: `no location in b.shade.ts (TS8010)`.
 
 ### What an entry may return
 
@@ -1358,21 +1363,59 @@ field that no code writes are read as the written number is: `vi * K` is `vi * 3
 is an `f32` product, and `xs[K]` is an index. A `/` needs one more rule, because a written
 `7 / 2` is `3.5` and an integer division is `3`. A `/` is an integer division only when one
 operand has an integer type the author wrote. So `vi / K` with a `u32` `vi` divides integers,
-and `x / K` with an `f32` `x` divides floats. A `/` whose operands are all written numbers and
-constants of no fixed type is refused where another line reads one of those constants as an
-integer:
+and `x / K` with an `f32` `x` divides floats. A `/` whose operands have no declared type is
+refused where another line reads the constant it reaches as an integer:
 
 ```ts
 const N = 8;
 const HALF = N / 2; // refused when a loop bound reads N as an i32
 // TS8003: "N" is an i32 where another line reads it, and no operand of "N / 2" has a declared
-// type, so the "/" does not say which division it is. Write "const N: i32 = 8" for the integer
-// division, or "f32(N) / 2" for 4.
+// type, so the "/" does not say which division it is. Write "f32(N) / 2" for the float
+// division.
 ```
 
-A conversion is a read: `i32(N)` or `u32(N)` anywhere reads `N` as an integer, as an argument
-of that type does, and `f32(N)` or `f64(N)` does not. Where no line reads `N` as an integer,
-`N / 2` is the ECMAScript value, `4`, and `7 / 2` is `3.5`.
+A value keeps where it came from (Amendment A3 of change 0134). A value computed from such a
+constant carries its origin through every expression and binding: an operator, a builtin
+(`max(k, 1)`, `Math.max(k, 1)`, `select(1, k, c)`), `as`, `!`, a conditional, a member
+(`vec2(k, 1).x`), a derived constant (`const M = N * 2`), a `let` (`let y = N`) or a pattern
+binding (`const [a, b] = [N, 1]`), a variable that a closure captures, the start of a loop
+counter, and a call of a function, a method, a getter or a closure that writes no result type
+and returns such a value. A generic function's parameter declares no type, so `id(k) / 2` is
+refused. A value loses the origin only where it passes a declared type: an annotation, a
+declared parameter, field or result, a conversion, or a typed constructor (`vec3u(k, 1, 2)`,
+Amendment A4). A variable of written numbers alone (`let w = 3`) declares no type either, so
+`(k + w) / 2` carries the origin of `k`. The other read is any
+place that types the constant an integer: an argument, a typed declaration, a loop bound, an
+index, a conversion `i32(N)` or `u32(N)`, and a read in a file that imports the constant. When
+only a file that imports the constant reads it so, the refusal stands on that read, with the `/`
+as its related place (§68).
+`f32(N)` and `f64(N)` are no such read, and a float-written constant (`const C = 7.5`) is never
+read as an integer.
+
+A float-written literal or a float-written constant in either operand makes a float division,
+which is accepted: `const STEP = 6.283185307179586 / N`, `TAU / N`, `1.0 / W`,
+`(N * 0.5) / 2`. A loop counter whose start carries such a constant keeps the type it had
+before change 0134: `for (let j = N; …)` keeps the `f32` of the constant's declaration, and
+with `const k = 7; h(k);` the start `k + 1` or `Math.max(k, 1)` gives a `u32` counter, the type
+its declared uses give `k`. The counter carries the constant, so a `/` over it is refused. A
+start through a `let` or a function result takes that value's type, which items 1 and 3 of
+change 0134 will infer.
+
+The sentence names one edit, the one that compiles where the quotient stands. Where an integer
+position reads the quotient (`xs[k / 2]`, `r + k / 2`, `let j: u32 = …`), it names the
+constant with the type that position asks (`const k: u32 = 7`), or, where another read asks
+another type, the `/` with each value converted to it (`i32(k) / 2`). Anywhere else it names
+the `/` with each value converted to `f32`, a bitwise operation converted as a whole
+(`f32(k | 1) / 2`). A `/=` names the variable with its type written (`let y: f32 = k`). The
+compiler checks the edit before it names it. Where none of these compiles, the program holds
+another mistake (`h(x + k / 2)` passes an `f32` sum to a `u32`). The sentence names the edit
+that adds fewest errors, and a mismatch around the `/` stays only where that edit leaves it, so
+the mistake is one diagnostic (Rule 12.4).
+
+The quotient's own read is not another read (Amendment A4). `let j: u32 = N / 2` is `4u`, as the written
+`8 / 2` is there, and `x * (N / 2)` is the ECMAScript value where no other line reads `N` as an
+integer. Arithmetic other than `/` has the written number's value at every read: with `const k
+= 7` that an argument reads as a `u32`, `f32(k - 8)` is `-1`.
 
 **A `let` of a written number takes its type from its uses** (Rule 5.1, change 0134;
 `docs/owner-decisions.md` OD-7). The declared uses above are not the only ones that count. The
@@ -1412,15 +1455,16 @@ value no line reads), the compiler chooses `f32` by itself. No default type is p
 language: an author writes a number as a number.
 
 A `/` or a `/=` is an integer division only when one operand has an integer type the author
-wrote. Where every operand is an integer by inference, it is refused:
+wrote. Where every operand is an integer by inference, it is refused, with the one edit that
+compiles, as for a constant above:
 
 ```ts
 let k = 7;
 h(k); // h(a: u32): k is a u32 by its uses
 return r + k / 2;
-// TS8003: "k" is a u32 by its uses, and no operand of "k / 2" has a declared type, so the "/"
-// does not say which division it is. Write "let k: u32 = 7" for the integer division, or
-// "f32(k) / 2" for the float one.
+// TS8003: "k" is a u32 where another line reads it, and no operand of "k / 2" has a declared
+// type, so the "/" does not say which division it is. Write "let k: u32 = 7" for the integer
+// division.
 ```
 
 `vi / k` with a declared `u32` `vi` is an integer division, as `vi / 7` is.
@@ -1429,8 +1473,15 @@ The counter of a counted `for` keeps its rule (an `i32`, or a `u32` against a `u
 The counter of a `for` that is not counted is such a `let`: in
 `for (let j = 0; ; j++) { a += j; … }` with an `f32` `a`, `j` is an `f32`.
 
-A module variable (§24), a class field (§26) and a function's inferred result (§14) still take
-`f32` from a written number; the next part of change 0134 gives them the same rule.
+A counter that starts at such a `let` takes the type the counter's own uses give it:
+`let y = k; for (let j = y; j < 8; j++) { h(j); }` makes `y`, and `j`, a `u32`. A `let` of a
+constant that is a written integer (`let y = k`) is such a `let`. A function that writes no
+result type and returns a value over a function-local constant returns the type that value had
+before change 0134: `function g() { const k = 7; h(k); return k; }` returns a `u32`, so
+`xs[g()]` compiles.
+
+A module variable (§24), a class field (§26) and a function's inferred result (§14) otherwise
+still take `f32` from a written number; the next part of change 0134 gives them the same rule.
 `compile(source, { deprecations: true })` stays as the mechanism of Rule 13.10 and reports
 nothing until a window opens (`RELEASING.md` §7).
 
@@ -5388,6 +5439,32 @@ half, on a magnitude past the largest finite binary16 and on one below the small
 `ldexp` was a `target` row and is not one any more: its GLSL scale is now built in two halves,
 and a sweep of all 278 legal exponents against a WGSL driver found no disagreement.
 
+`pow` (`a ** b` and `Math.pow`) is an `inherited` row with a `note`, because its special pairs
+part from the oracle. The CPU tiers give ECMA-262's table: `(-2) ** 3` is -8, `1 ** Infinity`
+is NaN, `NaN ** 0` is 1, `(-0) ** 3` is -0 and `(-0) ** -1` is -Infinity. WGSL leaves x < 0,
+x = 1 with an infinite y and an infinite x with y = 0 outside its domain, and GLSL ES 3.00
+leaves x < 0, and x = 0 with y <= 0, undefined. Inside WGSL's domain, the bound inherited from
+exp2(y * log2(x)) does not hold an infinite result, and no target is held to the sign of a zero.
+Measured on 2026-11-10 on Chromium 153.0.8010.12, Tint at run time and WebGL2 (ANGLE), both over
+SwiftShader Vulkan, with the operands read from a buffer, eleven special pairs part (Amendment A4
+of change 0042):
+
+| Pair              | The CPU tiers (ECMA-262) | Tint and WebGL2 (SwiftShader) |
+| ----------------- | ------------------------ | ----------------------------- |
+| `(-2, 3)`         | -8                       | 8                             |
+| `(-2, 0.5)`       | NaN                      | 1.4142138                     |
+| `(1, Infinity)`, `(1, -Infinity)`, `(-1, Infinity)`, `(1, NaN)` | NaN | +Infinity |
+| `(Infinity, 0)`   | 1                        | +Infinity                     |
+| `(-0, 3)`         | -0                       | +0                            |
+| `(0, -1)`         | +Infinity                | 2^127                         |
+| `(-0, -1)`        | -Infinity                | 2^127                         |
+| `(-Infinity, 3)`  | -Infinity                | +Infinity                     |
+
+`(-2, 2)`, `(0, 0)`, `(NaN, 0)`, `(-0, 2)`, `(-0, -2)` and `(Infinity, -1)` agreed. `(2, 0.5)`
+gave 1.4142138, 2 ULP from ECMAScript: an accuracy point inside the bound WGSL inherits, not a
+special pair. A constant `**` that Tint's constant evaluator refuses, x < 0 or x = 0 with y <= 0,
+is refused by the front end first (TS8003).
+
 **One operation at a time.** `accuracyOf(op)` answers for a single builtin id, operator or matrix
 product: `{ kind: 'exact' }` when there is one answer on both targets, otherwise the kind and
 bound the report would list. It answers for every id the compiler can emit; the test suite walks
@@ -8171,7 +8248,9 @@ module (§26) and not a member of the host class, so its comment has no line in 
 
 The sentence of a kernel function and of a `@compute` entry also says how a call is queued (Rule 11.8,
 §65, §67). A call whose written arrays or bindings are all `Resident`s, and that returns nothing, may
-be made without `await`. The signature that returns `void` is that call.
+be made without `await`. The signature that returns `void` is that call. It also takes a `Buffer`
+or a `Uniform` of an exported class, an exported binding among them, and then the sentence says
+what a call on a resource does (below).
 
 The plugin rewrites a view when its module changes, in `vite dev` and in `vite build`. On a clean
 checkout `tsc` often runs before Vite (create-vite's `build` script is `tsc && vite build`), so
@@ -8366,11 +8445,16 @@ Each uniform and storage array is a byte range of one memory region (R17 of chan
 `ArrayBuffer` that is resizable where the runtime has one. Each field has one accessor with a
 typed view of the region, made once and made again only after the region moved its ranges. `set`
 checks each number as a call checks it (Rule 8.21), compares it with what the view holds, writes
-only a changed one and widens the resource's dirty byte range; it allocates nothing. `get` returns
-a scalar's number, or the typed view of a vector, a matrix or an array of scalars, each element at
-its stride (a matrix column of three rows has a fourth, unused lane). An `f64` field is two `f32`
-halves in the region, so its `get` returns the joined number or a new `Float64Array`. A host that
-writes through a view sets `needsUpdate = true`. A new resource is dirty over its whole range.
+only a changed one and marks its bytes dirty; it allocates nothing. A uniform widens its one dirty
+byte range. A buffer keeps a dirty range for each element written, and joins two ranges that
+touch, so `ps.at(2)` and `ps.at(3)` are one range and `ps.at(9)` another. When a buffer holds more
+than 16 ranges, it joins them into one, from the first dirty byte to the last: each range is one
+upload call, and past 16 calls fewer, larger uploads cost less (change 0138, Amendment A5, D2).
+`get` returns a scalar's number, or the typed view of a vector, a matrix or an array of scalars,
+each element at its stride (a matrix column of three rows has a fourth, unused lane). An `f64`
+field is two `f32` halves in the region, so its `get` returns the joined number or a new
+`Float64Array`. A host that writes through a view sets `needsUpdate = true`, which marks the whole
+resource dirty. A new resource is dirty over its whole range.
 
 A buffer's length is the host's to set (change 0138, Amendment A3). `ps.resize(n)` gives it `n`
 elements: the ones that fit keep their values, and a new one is zero. `ps.set(data)` gives it the
@@ -8383,16 +8467,91 @@ accessor again with at().`
 
 A resource is freed by `dispose()` or when the garbage collector reclaims it. Where the runtime
 has `Symbol.dispose`, a resource has `[Symbol.dispose]()` as well, which `using` calls at the end
-of a block; the types do not declare it yet. An accessor of a freed resource throws a `TypeError` that names it:
+of a block: `using ps = zeros(Particle, 64);`. The types of `Uniform` and `Buffer` declare it where
+the host's `lib` declares `Symbol.dispose` (change 0138, Amendment A5, D4). An accessor of a freed resource throws a `TypeError` that names it:
 `Uniform<Camera> was disposed; its fields cannot be read or set. Make a new one with
 uniform(Camera).` A class with a field that has no layout (a `bool`, a two-row matrix in a
 uniform) is refused with the reason, and so is a field named like the accessor's own member
-(`set`, and on a uniform `needsUpdate` and `dispose`). A texture lives on its device only and
-takes no range of the region.
+(`set`, and on a uniform `needsUpdate` and `dispose`): the runtime throws a `TypeError`, and the
+host's editor reports TypeScript's `TS2345` on the call, `uniform(Loose)` (`TS2769` on
+`array(Loose, data)`), whose text names `TS8079` and the field, from the types of `uniform`,
+`zeros` and `array` (Amendment A5, D3; Amendment A6). `texture({ size, format })` returns a `Texture`, the type
+`typeshade/runtime` exports for a program runtime's texture (D5). A texture lives on its device
+only and takes no range of the region.
 
-At milestone 1 no call takes a resource yet: a kernel function, an entry and a draw take plain data
-and a `Resident` as before. The upload of each dirty range when a call reads the resource is
-milestone 3 of change 0138.
+**A call on a resource** (change 0138, R2; Rules 8.21 and 11.8). A kernel function that returns
+nothing (§65) and a `@compute` entry (§67) take a `Buffer` where they take an array with no size of
+its class, and a `Uniform` where they take its struct, an exported binding among them. Such a call
+does not block and returns nothing. The host awaits only `read()`:
+
+```ts
+import { uniform, zeros } from 'typeshade/runtime';
+import { Particle, Params, age, move } from './scene.shade.ts';
+
+const ps = zeros(Particle, 1024);
+const p = uniform(Params, { dt: 1 / 60, drag: 0 });
+age(ps, 1 / 60); // returns nothing: the call is recorded
+move(ps, p); // sees p as it is now
+p.dt.set(0); // a later call sees this; move() does not
+const out = await ps.read(); // submits, waits, and lands the values in the region
+```
+
+The call checks every argument at once. The runtime submits the recorded calls in the order they
+were made: when the current microtask checkpoint ends (change 0138, Amendment A5, Q4), at a
+`read()`, or before a call or a draw with plain data only. JavaScript cannot see the end of a
+checkpoint, so this version submits in the next task (deviation D-f of change 0138, open). Each
+call sees the values of its own call. The call copies the dirty ranges of a `Buffer` and the value
+of a `Uniform`. The submission writes each range to the device, one `writeBuffer` for each dirty
+range on WebGPU. The first call that takes a `Buffer`, and the first after `set(data)` or
+`resize()`, copy the whole array, which uploads whole. `read()` lands what the calls wrote in the
+buffer's range of the region.
+
+The window of a `Buffer` is the time from a call that writes it to its `read()`. In the window the
+buffer's values are on the device. `set` of the buffer then throws a `TypeError`, as `get` does
+(the owner's decision of 2026-11-11): `` Buffer<Particle>[0].life.get(): a call wrote
+Buffer<Particle>, and its values are on the device until `await Buffer<Particle>.read()` brings
+them back; await it first. `` A `set` there would write the element's other fields back over what
+the call wrote. `set(data)`, `resize` and `needsUpdate` throw too, since each would drop or
+overwrite what the call wrote. The owner accepted these three with the merge of the slice that
+added them (change 0138, Amendment A7).
+
+Beside the checks of a call with plain data, a call on a resource refuses these, with a `TypeError`
+at the call, and then changes no `Buffer`:
+
+- a function that returns a value: `` total(): takes a resource, and returns a value: a call on a
+  resource that returns a value is not available yet (change 0138, milestone 3). Pass plain data
+  and await the call, or return nothing and write a Buffer. ``
+- an array, a `Map`, a `Set` or a binding the call writes that is no `Buffer` and no `Resident`:
+  `lives(): parameter "out" is written by the call, which takes a resource, so it does not block
+  and nothing waits to read it back: pass a Buffer, or array(xs), and await its read() (change
+  0138, R2).`
+- a held length `{ array, length }`. The host view still types it beside a `Buffer` (deviation D-g
+  of change 0138, open).
+- a `Buffer` of another class.
+- a `Buffer` where no array with no size is taken, a storage binding of a stated size among them:
+  `move(): parameter "p" takes no storage array, and got Buffer<Particle>. A Buffer is an argument
+  where the function or the entry takes an array with no size of its class.`
+
+A call that takes no `Buffer` and no `Uniform` is the call of §65 and §67, as before.
+
+A recorded call that fails when it is submitted throws at the next `read()` or call, with the line
+of the failed call. A `Buffer` that the failed call wrote keeps the error. Each later call that
+takes it, and its `read()`, throw it until `set(data)` or `resize()` gives the buffer new values
+(the owner's decision of 2026-11-11). A recovery goes in this order:
+
+1. A call that writes `ps` fails when it is submitted.
+2. `ps` leaves the window, so `get()` reads the region again: what it held before the writing
+   calls not yet read back.
+3. `ps.set(data)` or `ps.resize(n)` gives `ps` new values.
+4. The next `read()` or call, wherever it is, throws the error once, unless one threw it since the
+   failure. A call with plain data and a draw count as calls.
+5. The call after it works.
+
+In the body of today's `fuse` scope, a call that takes a resource throws a `TypeError` at the call
+(milestone 4 of change 0138). A draw takes no resource yet. A recorded call runs
+on the default owner's tiers, not on the device of its data (R3; deviation D-d of change 0138,
+open). On WebGL2 an entry call reads back inside the call, with no flush and no fence (Amendment A5,
+default 6; deviation D-c of change 0138, open).
 
 **Exported bindings** (change 0138, R10; Rule 6.1). A binding the shader module exports is a host
 resource. `export declare const camera: uniform<Camera>` is a `Uniform<Camera>` in the host, and
@@ -8440,11 +8599,38 @@ a length: `read()` then gives an empty array. A storage array that states its si
 `ps.resize(8)` on the 64 elements above throws a `TypeError`, and so does a `set(data)` of
 another length.
 
-The binding lives as long as its module, so its `dispose()` throws a `TypeError`. A scalar, a
+The binding lives as long as its module. Its type has no `dispose()` and no `[Symbol.dispose]()`,
+`Omit<Uniform<Camera>, 'dispose' | keyof Disposable>` in the view, so `camera.dispose()` and
+`using c = camera` are type errors; at run time its `dispose()` throws a `TypeError` (Amendment
+A5, D7). `HostFace.exports` reports the binding as a `resource`, with its class and its length
+(D6). A field of the binding's class named like the accessor's own member is refused on the
+field's declaration, in the compiler and in the editor:
+
+```ts
+// scene.shade.ts
+export class Camera {
+  pos: vec3 = vec3(0.);
+  dispose: f32 = 0.; // TS8079: the accessor's own method
+}
+export declare const camera: uniform<Camera>;
+```
+
+`"Camera.dispose" is named like the host accessor's own method "dispose": "camera" is a binding the
+module exports, a Uniform<Camera> in the host, whose fields are properties of that accessor.
+Rename the field (Rule 6.1).` (`TS8079`). The names are `set` on the binding's class and on every
+struct it holds, and `needsUpdate` and `dispose` on the class of a `uniform<T>` itself; a storage
+array's element may have a field `dispose`. An inherited field is named in the class that
+declares it, and a binding exported under another name (`export { camera as cam }`) by that name.
+Only a binding that is a host resource is read: a class that no exported binding holds, and the
+class of a binding that is no resource (a class the module does not export, an abstract class),
+may have such a field. A scalar, a
 vector, a struct no exported class declares, an array of scalars or vectors, one `storage<T>`, a
 texture and a sampler have no resource of their own yet: the view declares each `never`, with the
-reason. An entry call still takes the binding's value in its bindings
-object; binding the exported resource at a call is milestone 3 of change 0138.
+reason. An entry call takes an exported `Uniform` and an exported storage array with no size
+as they are in its bindings object, and a kernel function that returns nothing takes an
+exported resource as an argument (above). For an exported storage array of a stated size, an entry call refuses the
+`Buffer` itself with a `TypeError`, and takes a plain array of its elements as before (deferred
+question 5 of change 0138).
 
 **The default device** (change 0138, Amendment A2; Rule 11.8). A device is opened by
 `createDevice()` alone. `using _ = device.use()` makes it the default device until the end of the
@@ -8638,7 +8824,8 @@ const sum = await total(img); // a reduction: a tree per workgroup, then its par
 ```
 
 It is asynchronous from the start, and it returns `Promise<void>` or `Promise<R>` for a result.
-Each array it writes is read back into yours in place.
+Each array it writes is read back into yours in place. A call that takes a `Buffer` or a `Uniform`
+returns nothing and does not block, and a `Buffer` it writes keeps the values until `read()` (§64).
 
 | Parameter                           | Host value                                                                        |
 | ----------------------------------- | --------------------------------------------------------------------------------- |
@@ -8647,6 +8834,7 @@ Each array it writes is read back into yours in place.
 | `array<vecN>` of those              | the scalar's typed array, `N` numbers per element; the call pads a `vec3` element. `.length` counts vectors (change 0068). |
 | `array<S>`, a struct                | an array of objects                                                               |
 | any of the above | a `Resident` of it (below) |
+| `array<S>`, or a struct `S`, of an exported class | also a `Buffer<S>`, or a `Uniform<S>` (§64) |
 | an array a loop pushes onto | any of the above, or `{ array, length, offset? }`: the array with its held length (below, change 0094) |
 
 **Where it runs.** When the proof accepts every loop of the function, each loop is one dispatch
@@ -9244,10 +9432,10 @@ the binding's host value (Rule 8.21):
 
 | Binding                                         | Host value                                                                                   |
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `uniform<T>`, a sized `storage<T>`              | `T`'s host value (§64)                                                                        |
+| `uniform<T>`, a sized `storage<T>`              | `T`'s host value (§64); for a `uniform<T>` of an exported class, also a `Uniform<T>` (§64)   |
 | `storage<array<T>>` of a scalar or a vector     | `Float32Array`, `Int32Array` or `Uint32Array`, the components one after another             |
 | the same of an `f64` or a `vecNf64`             | `Float64Array`, which the runtime splits into the two `f32`s the GPU holds                   |
-| `storage<array<S>>` of a struct                 | an array of objects                                                                          |
+| `storage<array<S>>` of a struct                 | an array of objects, or for an exported class a `Buffer<S>` (§64)                            |
 | an atomic, `storage<array<atomic<u32>>>`        | its integer's value, or `Uint32Array` / `Int32Array` for an array                            |
 | a written `storage<T>` whose `T` is one scalar  | a typed array of length one, which the call writes back                                     |
 | `texture_2d<f32>`                               | an image source: `ImageBitmap`, `ImageData`, `HTMLImageElement`, `HTMLCanvasElement`, `HTMLVideoElement` or `OffscreenCanvas`, uploaded at each call, or a program runtime's `Texture` (§69), bound as it is |
@@ -9282,6 +9470,26 @@ is one `Resident` passed as two bindings of one call. Entry calls and kernel cal
 another in the order they were made, so an entry and a kernel function can share a `Resident`.
 The failed-input policy of §65 applies before the entry executes, including after override specialization.
 Its content-reading bindings are checked in declaration order, followed by a Resident indirect count; write-only bindings can recover.
+
+**Resources as bindings** (change 0138, R2; Rules 8.21 and 8.24). A `uniform<T>` of a class the
+module exports may be a `Uniform<T>`, and a `storage<array<T>>` of one a `Buffer<T>`, an exported
+binding among them. A call that takes one returns nothing and does not block, as a kernel call on
+a resource does (§64). A `Buffer` the entry writes keeps its values on the device until
+`await buffer.read()`. Entry calls and kernel calls run in the order they were made, so a call
+reads what an earlier call wrote:
+
+```ts
+import { all, camera, step } from './scene.shade.ts'; // step reaches camera and all
+
+all.resize(1024);
+camera.set({ time: now / 1000 });
+step({ camera, all }, [1024 / 64]); // returns nothing
+step({ camera, all }, [1024 / 64]); // reads what the first call wrote
+const out = await all.read(); // the one wait
+```
+
+The window, the refusals and a failed call are those of §64. A storage binding of a stated size
+refuses a `Buffer` with a `TypeError` (deferred question 5 of change 0138).
 
 **The workgroup count** is `n` or `[x, y, z]`, passed to `dispatchWorkgroups` as written. The
 view's comment on the entry gives its default `@workgroup_size`; selected constants above determine
@@ -9647,6 +9855,28 @@ through `readDocument`, which returns a file's text or `undefined`, and a packag
 `resolveImport` replaces the rule above, packages included. A compile with no `readDocument`
 reads nothing: a file with no import compiles as it always has, and an import in one is
 `TS8072`. A diagnostic located in an imported file carries that file's `fileName` and offsets.
+An error of a program stands in one file. The candidates are, in order: the file that holds the
+declaration or the expression the error is about, then each file that holds a use of it (the
+entry's parameter or result that takes a struct, the call or the type that makes an instance of
+a generic declaration, the type that names an imported struct), then each file on the way of imports up to the file the compile starts
+from, which is the last. Each candidate has a place for the error: the declaration or the
+expression in the first file; else the outermost use the file writes; else, where the front end
+records no use, its re-export of the entry point that holds the use; else its import of the file below. The error stands in the first
+candidate that reports the same error at that place when it is compiled on its own, and at that
+place: the same code and sentence, about the same span, reported on the same span. Two spans are
+the same when they end together and start together or with only `export`, optionally
+`default`, and whitespace and comments between their starts; a nested expression is another span. So an error
+located in an imported file is one that file reports there when it is compiled on its own, and a
+mistake of a file in the middle of a chain of imports is reported in that file and not again in each file above it. A
+middle file whose own program reports the refusal at another of its calls (it makes the
+instance first in another function) is no owner: the file above it reports the refusal on its
+own use, or on its import of that file when it writes none. A file compiled on its own makes an instance of a
+generic declaration once, at the first call that asks for it: when an imported file and the file
+the compile starts from both make one refused instance, the imported file reports it, and the
+other call adds nothing until that file is fixed. A warning stays where it is written. One case
+is not covered yet (#1212): a file that holds a struct and the fragment entry that takes it, and
+no vertex entry, reports the same sentence on its own for another reason, so the error stands in
+that file and not in the file the compile starts from.
 The Vite plugin (§64) and `tshc sync` read from disk, and find a package from the module's own
 directory up. `tshc check` checks a shader module a checked file imports too, a package's
 included, once, under its own path. The language service reads an import as its TypeScript half

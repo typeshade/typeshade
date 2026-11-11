@@ -195,6 +195,117 @@ export function vs(vi: builtin<"vertex_index">): VsOut {
     ]);
   });
 
+  // A name declared from a read of the refused field binds nothing, and each use of it says
+  // nothing more (Rule 12.4, #1185). The refusal was raised after the bodies were lowered, so
+  // the use found no error standing in the declaration it resolves to and read "Unknown
+  // identifier".
+  describe('a name declared from a read of the refused field says nothing more (#1185)', () => {
+    const DECLARED = (type: string, body: string): string => `"use typeshade";
+interface VsOut {
+  pos: builtin<"position">;
+  cd: ${type};
+}
+@vertex
+export function vs(i: builtin<"vertex_index">): VsOut {
+  let out: VsOut = { pos: vec4(f32(i), 0., 0., 1.), cd: [0., 0.] };
+  out.cd[0] = 1.;
+${body}
+  return out;
+}
+`;
+    const ONE_TS8003: readonly Said[] = [
+      {
+        category: 'error',
+        code: 'TS8003',
+        message:
+          'Builtin "clip_distances" has no single type: write builtin<"clip_distances", array<f32, N>> with N from 1 to 8.',
+        at: 'builtin<"clip_distances">',
+      },
+    ];
+    const BODIES: readonly (readonly [string, string])[] = [
+      ['a const used once', '  const near = out.cd[0];\n  out.pos.z = near;'],
+      ['a const used twice', '  const near = out.cd[0];\n  out.pos.z = near;\n  out.pos.y = near;'],
+      ['a let', '  let near = out.cd[0];\n  out.pos.z = near;'],
+      [
+        'a let that is written and read again',
+        '  let near = out.cd[0];\n  near = near + 1.;\n  near += 2.;\n  out.pos.z = near;',
+      ],
+      [
+        'a const declared from a const declared from the field',
+        '  const all = out.cd;\n  const near = all[0];\n  const twice = near * 2.;\n  out.pos.z = twice;',
+      ],
+      ['a pattern that reads the field', '  const { cd } = out;\n  out.pos.z = cd[0];'],
+    ];
+
+    for (const [name, body] of BODIES) {
+      it(`${name}: the one TS8003, in both halves`, () => {
+        bothSay(DECLARED('builtin<"clip_distances">', body), ONE_TS8003);
+      });
+      it(`${name}: the valid neighbour array<f32, 2> compiles, with no diagnostic`, () => {
+        const source = DECLARED('builtin<"clip_distances", array<f32, 2>>', body);
+        bothSay(source, []);
+        expect(compiled(source).wgsl).toContain('@builtin(clip_distances) cd: array<f32, 2>,');
+      });
+    }
+
+    it('a helper function that declares a const from the field: the one TS8003', () => {
+      bothSay(
+        `"use typeshade";
+interface VsOut {
+  pos: builtin<"position">;
+  cd: builtin<"clip_distances">;
+}
+function nearOf(o: VsOut): f32 {
+  const near = o.cd[1];
+  return near;
+}
+@vertex
+export function vs(i: builtin<"vertex_index">): VsOut {
+  let out: VsOut = { pos: vec4(f32(i), 0., 0., 1.), cd: [0., 0.] };
+  out.pos.z = nearOf(out);
+  return out;
+}
+`,
+        ONE_TS8003,
+      );
+    });
+
+    it('a name WGSL does not have: a const declared from the field keeps the one TS8024', () => {
+      bothSay(
+        `"use typeshade";
+interface VsOut {
+  pos: builtin<"position">;
+  depth: builtin<"frag_dept">;
+}
+@vertex
+export function vs(i: builtin<"vertex_index">): VsOut {
+  let out: VsOut = { pos: vec4(f32(i), 0., 0., 1.), depth: 0. };
+  const d = out.depth;
+  out.pos.z = d;
+  return out;
+}
+`,
+        [
+          {
+            category: 'error',
+            code: 'TS8024',
+            message: 'Unknown builtin "frag_dept". Did you mean "frag_depth"?',
+            at: '"frag_dept"',
+          },
+        ],
+      );
+    });
+
+    it('a name nothing declares beside the refused field is still unknown', () => {
+      // The instrument: the quiet is for a name the refused field explains, and no other.
+      const source = DECLARED('builtin<"clip_distances">', '  out.pos.z = far;');
+      expect(compilerSays(source).map((d) => `${d.code} ${d.message}`)).toEqual([
+        ONE_TS8003[0]!.code + ' ' + ONE_TS8003[0]!.message,
+        'TS8022 Unknown identifier "far".',
+      ]);
+    });
+  });
+
   it('a name WGSL does not have, with no type, gets its one TS8024 in both halves', () => {
     const source = `"use typeshade";
 interface VsOut {

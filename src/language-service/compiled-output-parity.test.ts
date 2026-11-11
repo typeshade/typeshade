@@ -19,13 +19,13 @@ import { shadeExamples } from '../../examples/_shade.js';
 
 const EXAMPLES = join(dirname(fileURLToPath(import.meta.url)), '../../examples');
 
-/** The examples whose outputs hold the same declarations in another order. The editor's run of
- *  the front end lowers a function whose return type is inferred (Rule 8.19) after its caller,
- *  where `compile()` lowers it before, so the pane prints `fs` above `tint`, `ring` and the
- *  local `falloff` and the compiler below them. WGSL declares in any order, and the GLSL emitter
- *  still puts every callee above `main`, so both texts compile; this set is here so an order
- *  that starts to differ anywhere else, or stops differing here, is seen. */
-const REORDERED = new Set(['inferred-returns.shade.ts']);
+/** The examples whose outputs hold the same declarations in another order. None now: the
+ *  editor's run of the front end lowered a function whose return type is inferred (Rule 8.19)
+ *  after its caller, as if the projection's result type were the author's, and printed
+ *  `inferred-returns.shade.ts` in another order. A result type the projection writes is not the
+ *  author's (change 0134, `hasNoWrittenResult`), so the pane lowers in `compile()`'s order. The
+ *  set stays so an order that starts to differ is seen. */
+const REORDERED = new Set<string>();
 
 /** A text's lines, blank ones left out, in sorted order: what two texts that hold the same
  *  declarations in another order still share. A line, not a declaration, because GLSL puts the

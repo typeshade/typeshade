@@ -1219,6 +1219,24 @@ export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
   // multi-arg math — identical spelling on both targets.
   'min',
   'max',
+  // `pow` is spelled the same on both targets, and its special pairs part from the CPU tiers
+  // (Rule 11.2). The CPU tiers give ECMA-262's table (Number::exponentiate; the owner's decision
+  // of 2026-11-10, Rule 1.3). WGSL leaves x < 0, x = 1 with an infinite y and an infinite x with
+  // y = 0 outside the domain, where a driver "may instead yield an indeterminate value";
+  // GLSL ES 3.00 §8.2 leaves x < 0, and x = 0 with y <= 0, undefined. Measured 2026-11-10 on
+  // Chromium, Tint over SwiftShader Vulkan and WebGL2 over ANGLE and SwiftShader, the
+  // operands loaded as bits from a buffer and the result read back as bits: both gave 8 for
+  // (-2, 3) (the CPU -8), 1.4142138 for (-2, 0.5) (NaN), +Infinity for (1, +-Infinity),
+  // (-1, Infinity) and (1, NaN) (NaN), +Infinity for (Infinity, 0) (1), +0 for (-0, 3) (-0),
+  // 2^127 for (0, -1) and (-0, -1) (+Infinity and -Infinity), and +Infinity for
+  // (-Infinity, 3) (-Infinity); (-2, 2), (0, 0), (NaN, 0), (-0, 2), (-0, -2) and
+  // (Infinity, -1) agreed. Tint's constant evaluator refuses a constant x < 0, or x = 0 with
+  // y <= 0, which the front end refuses first (TS8003). Eleven special pairs part; (2, 0.5)
+  // gave 1.4142138, 2 ULP from ECMAScript, an accuracy point inside the bound WGSL inherits,
+  // not a special pair. Configuration: `main` at a86de5c3, Chromium 153.0.8010.12, Dawn and
+  // Tint, and ANGLE, over SwiftShader Vulkan. Amendment A4 of change 0042 records the
+  // measurement. The determinism report's `pow` row carries the same in its `note`
+  // (surface §38).
   'pow',
   'clamp',
   'mix',
