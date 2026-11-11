@@ -6,6 +6,8 @@ import {
   carriedOf,
   decidedType,
   inferenceConflict,
+  inferredOfExpr,
+  keyOf,
   noteIntegerUse,
   noteStoredType,
   useInferenceActive,
@@ -136,11 +138,17 @@ import { unknownNameSentence } from '../unknown-names.js';
 import { publicFieldNames } from './expression-prop.js';
 import { recordOf } from '../key-types.js';
 
-/** The value an assignment to `left` writes, when its uses have not decided its type yet. */
-function undecidedTarget(left: ts.Expression, scope: LoweringScope): InferredValue | undefined {
+/** The value an assignment to `left` writes, when its uses have not decided its type yet: a
+ *  name, or a field or a static field (`this.n`, `S.n`) whose lowered `target` reads one. */
+function undecidedTarget(
+  left: ts.Expression,
+  scope: LoweringScope,
+  target?: Expr,
+): InferredValue | undefined {
   const inner = ts.isParenthesizedExpression(left) ? left.expression : left;
-  if (!ts.isIdentifier(inner)) return undefined;
-  const value = scope.resolve(inner.text)?.inferred;
+  const value = ts.isIdentifier(inner)
+    ? (scope.resolve(inner.text)?.inferred ?? inferredOfExpr(target))
+    : inferredOfExpr(target);
   return value !== undefined && value.type === undefined ? value : undefined;
 }
 
@@ -716,6 +724,7 @@ function lowerDeclarationKind(
       }
       inferredValue = {
         decl,
+        key: keyOf(decl),
         name,
         written: writtenText(decl.initializer!).replace(/\s+/g, ' '),
         ...(annotated !== undefined ? { type: annotated } : {}),
@@ -1828,7 +1837,7 @@ function lowerAssign(
   value = retargetIntLitCtx(value, right, want);
   value = reportIntLitRange(value, right, want, sourceFile, diagnostics) ?? value;
   // `k = vi` gives a value its uses decide the type of what it stores (change 0134 item 1).
-  noteStoredType(undecidedTarget(left, scope), value, value.type);
+  noteStoredType(undecidedTarget(left, scope, target), value, value.type);
   if (typeKey(want) !== typeKey(value.type)) {
     pushDiag(
       diagnostics,
@@ -1894,7 +1903,7 @@ function lowerBitwiseAssignOpTo(
   const k = typeKey(target.type);
   if (k !== 'i32' && k !== 'u32') {
     // `f |= 4` makes a value its uses decide an integer (change 0134 item 1).
-    noteIntegerUse(undecidedTarget(left, scope));
+    noteIntegerUse(undecidedTarget(left, scope, target));
     pushDiag(
       diagnostics,
       sourceFile,
@@ -2068,7 +2077,7 @@ function lowerAssignOpTo(
     value = retargetLit(value, right, target.type);
   }
   // `n += vi` gives a value its uses decide the type of what it adds (change 0134 item 1).
-  noteStoredType(undecidedTarget(left, scope), value, value.type);
+  noteStoredType(undecidedTarget(left, scope, target), value, value.type);
   if (typeKey(target.type) !== typeKey(value.type)) {
     // `v += s` with a vector target and a scalar of its element kind follows the same
     // broadcast rule as `v + s`; the result must still be the target's own type.

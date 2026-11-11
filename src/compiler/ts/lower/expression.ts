@@ -592,7 +592,16 @@ function lowerIdentifier(
       }
       if (refuseBareAtomic(binding.type, node, sourceFile, scope, diagnostics)) return undefined;
       const ref: Expr = { op: 'varref', type: binding.type, name: irNameOf(binding) };
-      return binding.space === 'workgroup' ? withSpan(ref, sourceFile, node) : ref;
+      // A module variable whose uses decide its type (change 0134 item 1).
+      return markInferredRead(
+        markCarriedRead(
+          binding.space === 'workgroup' ? withSpan(ref, sourceFile, node) : ref,
+          node,
+          carriedOf(undefined, binding.inferred),
+        ),
+        node,
+        binding.inferred,
+      );
     }
     case 'binding':
     case 'local':

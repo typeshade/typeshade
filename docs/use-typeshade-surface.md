@@ -1495,8 +1495,9 @@ result type and returns a value over a function-local constant returns the type 
 before change 0134: `function g() { const k = 7; h(k); return k; }` returns a `u32`, so
 `xs[g()]` compiles.
 
-A module variable (§24), a class field (§26) and a function's inferred result (§14) otherwise
-still take `f32` from a written number; the next part of change 0134 gives them the same rule.
+A module variable (§24) and a static field that code writes take their type from their uses in
+the same way. A class field (§26) and a function's inferred result (§14) otherwise still take
+`f32` from a written number; the rest of part 4b of change 0134 gives them the same rule.
 `compile(source, { deprecations: true })` stays as the mechanism of Rule 13.10 and reports
 nothing until a window opens (`RELEASING.md` §7).
 
@@ -2932,9 +2933,11 @@ export function k(
 - A plain `let seed: u32 = 7` emits `var<private> seed: u32 = 7u;`. The initializer is
   optional and a constant expression by §12's measure (a literal, a module const, arithmetic or
   a math builtin over those; a list for an array, an object literal for a struct); without one
-  the variable is zero. Without an annotation the type is the initializer's, by the rule a
-  `const` follows: `let v = 1.5` and `let n = 7` are both f32, and `let n: u32 = 7` is the
-  integer. Any stage may use it. The space itself is never written out, and WGSL's own name for
+  the variable is zero. Without an annotation the type is the initializer's: `let v = 1.5` is
+  an f32. An integer-written initializer (`let n = 7`, `let n = 2 * 3`) gives the variable the
+  type its uses give it, as a function's `let` takes one (§13, change 0134): `let n = 0;` with
+  `n += gid.x` makes `n` a `u32`, and where no use decides it is an f32. A static field that
+  code writes is such a variable too (§26). `let n: u32 = 7` writes the type. Any stage may use it. The space itself is never written out, and WGSL's own name for
   it could not be written anyway: `private` is a word TypeScript reserves in strict mode, and
   every module is strict.
 - `workgroup<T>` emits `var<workgroup> tile: array<f32, 64>;`. It takes no initializer (WGSL

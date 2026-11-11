@@ -11,6 +11,7 @@ import {
 import { attributeDecoratorsOf, isTypeDecorator } from '../attribute-types.js';
 import { variableRefused } from '../refused-names.js';
 import { moduleVarSourceName } from '../module-var-names.js';
+import { inferredModuleVar } from '../module-vars.js';
 import { stageCallOf, stageCallOfDeclaration, stageDeclarationOf } from '../stage-call.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import { moduleIndexConst } from '../index-bound.js';
@@ -3213,6 +3214,7 @@ export function functionScope(
   // A module variable (§24) reads and writes as a `varref`, like a binding; its space decides
   // what may hold an atomic and which stage may reach it.
   for (const v of vars) {
+    const inferred = inferredModuleVar(v);
     defineOnce({
       kind: 'modvar',
       name: moduleVarSourceName(v),
@@ -3220,6 +3222,7 @@ export function functionScope(
       type: v.type,
       mutable: true,
       space: v.space,
+      ...(inferred !== undefined ? { inferred } : {}),
     });
   }
   // Module values live outside the parameters and body locals, as in TypeScript (#429).

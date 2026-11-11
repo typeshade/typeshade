@@ -1,4 +1,5 @@
-import { markAbstractRead } from '../abstract-const.js';
+import { markAbstractRead, markCarriedRead } from '../abstract-const.js';
+import { carriedOf, markInferredRead } from '../use-inference.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { Expr } from '../../../core/ir/nodes.js';
@@ -224,7 +225,16 @@ function lowerPropertyAccessOf(
       }
       const ref: Expr =
         binding.kind === 'modvar'
-          ? { op: 'varref', type: binding.type, name: irNameOf(binding) }
+          ? // A static field the file writes, whose uses decide its type (change 0134 item 1).
+            markInferredRead(
+              markCarriedRead(
+                { op: 'varref', type: binding.type, name: irNameOf(binding) },
+                node,
+                carriedOf(undefined, binding.inferred),
+              ),
+              node,
+              binding.inferred,
+            )
           : markAbstractRead(
               { op: 'constref', type: binding.type, name: binding.name },
               node,
