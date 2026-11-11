@@ -57,8 +57,10 @@ export interface AbstractConst {
   readonly value: number;
   /** Whether every written number of the initializer is integer-written (Rule 5.1). */
   readonly integerWritten: boolean;
-  /** `const` for the remedy line; a static field is written `static`. */
-  readonly keyword: 'const' | 'static' | 'let';
+  /** `const` for the remedy line; a static field is written `static`. A value its uses decide
+   *  (change 0134 item 1) is a `let`, a static field, a field (no keyword, `''`), or the result
+   *  of a function its callers decide (`function`), whose declaration no edit names. */
+  readonly keyword: 'const' | 'static' | 'let' | '' | 'function';
   /** The constant's name in its declaration, to name the declaration in a remedy, which is
    *  given only in the file that declares it (`sameFile`). */
   readonly nameNode: ts.Node;
@@ -468,7 +470,7 @@ export function abstractConstFacts(sourceFile: ts.SourceFile): {
   if (marks === undefined) return { decls: [], reads: [] };
   const decls: AbstractConstDecl[] = [];
   for (const [node, info] of marks.decls) {
-    if (info.keyword === 'let') continue;
+    if (info.keyword !== 'const' && info.keyword !== 'static') continue;
     const start = node.getStart(sourceFile);
     decls.push({
       fileName: sourceFile.fileName,
@@ -505,7 +507,7 @@ export interface Carried extends Origin {
   /** For a variable: `let` or `const`, its name, its initializer as written and whether the
    *  initializer's type is an integer, for the remedy of a `/=` (`let y: f32 = f32(k << 1)`). */
   readonly variable?: {
-    readonly keyword: 'let' | 'const';
+    readonly keyword: 'let' | 'const' | 'static' | '';
     readonly name: string;
     readonly init: string;
     /** The variable's scalar type: `i32`, `u32` or `f32`. */
@@ -948,7 +950,8 @@ function divisionEdits(
         text:
           variable === undefined
             ? `${node.left.getText(sourceFile)} = f32(${node.left.getText(sourceFile)}) / ${node.right.getText(sourceFile)}`
-            : `${variable.keyword} ${variable.name}: ${variable.type} = ${variable.init}`,
+            : `${variable.keyword === '' ? '' : `${variable.keyword} `}${variable.name}: ` +
+              `${variable.type} = ${variable.init}`,
       },
     ];
   }
@@ -963,6 +966,7 @@ function divisionEdits(
     return { kind: type === 'f32' ? 'float' : 'integer', text, change: replace(text) };
   };
   const declared = (type: 'i32' | 'u32'): DivisionEdit | undefined => {
+    if (info.keyword === 'function') return undefined;
     if (!sameFile(info.nameNode, node) || !info.integerReads.every((r) => r.type === type)) {
       return undefined;
     }
@@ -970,7 +974,8 @@ function divisionEdits(
     // After the name, in place of a type the projection wrote there.
     const at = info.nameNode.getEnd();
     const change = { start: at, end: decl.type?.getEnd() ?? at, text: `: ${type}` };
-    return { kind: 'integer', text: `${info.keyword} ${short}: ${type} = ${info.written}`, change };
+    const head = info.keyword === '' ? short : `${info.keyword} ${short}`;
+    return { kind: 'integer', text: `${head}: ${type} = ${info.written}`, change };
   };
   const other: 'i32' | 'u32' = read.type === 'u32' ? 'i32' : 'u32';
   const out: (DivisionEdit | undefined)[] = [];

@@ -44,6 +44,7 @@ import {
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { foldConstComponents } from './loop-bound.js';
 import { isIntegerLiteralTree, reportIntLitRange, retargetDeclaredIntLit } from './lit-coerce.js';
+import { hasNoWrittenType } from './abstract-const.js';
 import {
   decidedType,
   inferenceConflict,
@@ -523,7 +524,14 @@ function lowerPlain(
     refuse(name, sourceFile, scope);
     return undefined;
   }
-  if (decl.type !== undefined) {
+  // A type the language service wrote into the text it analyses is not the author's: a static
+  // field of integer-written numbers takes its type from its uses in the editor too (Rule 12.7).
+  const projected =
+    decl.type !== undefined &&
+    decl.initializer !== undefined &&
+    isIntegerLiteralTree(decl.initializer) &&
+    hasNoWrittenType(decl, sourceFile);
+  if (decl.type !== undefined && !projected) {
     // `let seed: perInvocation<u32> = 7` (#83, removed in §24). Refused here, at the
     // annotation and before `typeOf` runs, so it is the author's only diagnostic: `typeOf`
     // would otherwise fall back to `structT('perInvocation')` and report a type mismatch

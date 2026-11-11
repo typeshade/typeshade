@@ -293,6 +293,35 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   imports the constant. A function-local `const`, a member of a namespace and a static field
   that no code writes read the same way. A read whose lowerings give it two types (a generic
   function's body) keeps the words. No emitted text and no diagnostic changes.
+- **A module variable, a class field and a function's result take their type from their uses**
+  (change 0134, items 1, 3 and 4, part 4b; Rules 5.1, 8.14 and 8.19, surface §13, §14, §24 and
+  §26; Amendment A1, "사본마다 추론"; `docs/owner-decisions.md` OD-7). A module `let`, a static
+  field that code writes and a class field, with no annotation and initialized by
+  integer-written numbers (`let n = 0`, `hits = 0`, `n = 2 * 3`), take the type their uses give
+  them, as a function's `let` does; where no use decides, each is the `f32` it always was. A
+  function of the file or of a namespace that writes no result type and whose first `return` is
+  a written integer or such a value takes its result from its calls: `function g() { return 1; }`
+  returns a `u32` where `vi + g()` is its only call. Calls that ask two types get a copy for each
+  type but `f32` (`g_u32`), each inferring its own locals; the function keeps the `f32` result,
+  which a call that decides nothing, a conversion (`u32(g())`) and the host read. The hover shows
+  `let n: u32`, `(property) C.hits: u32`, `function g(): u32`, and for a function with copies
+  `function g() (u32 or f32 where it is called)` at the declaration, the copy's result at each
+  call and `let k (u32 or f32 where "g" is called)` at a local the copies type apart.
+  **Newly accepted**, each refused before: `let n = 0;` with `n += gid.x`; `class C { m = 0; … this.m += v; }`;
+  `function g() { return 1; }` with `vi + g()`; `function g() { let k = 0; k += 1; return k; }`
+  called as `v + g()` and as `x * g()`.
+  **Newly refused** (`TS8003`): none against this version's predecessor. A `/` or `/=` whose
+  operands are all integers by inference only, such a variable, field or call among them, is
+  refused with the edit that compiles (`let n = 7; … h(n); f32(n / 2)` names `f32(n) / 2`;
+  `this.n /= 2` names `n: u32 = 7`; `h(g()); g() / 2` names `f32(g()) / 2`). Each such program was
+  refused before for its integer use, so none computed a value.
+  **Values that change:** a module variable, a field or a function result of integer-written
+  numbers whose use is an `f64` is an `f64`, as a function's `let` is since part 4a: `let n =
+16777217;` with `d * n` (`d: f64`) multiplies by 16777217 on a device, where it multiplied by the
+  `f32` 16777216, and the same for `class C { n = 16777217; }` with `d * c.n` and for
+  `function g() { return 16777217; }` with `d * g()`. Such a variable or field is emitted as an
+  `f64` (`vec2<f32>`), and arithmetic on it is the emulated double's. The `'f64'` precision oracle
+  read the exact value before too. Write the type (`let n: f32 = 16777217`) to keep the old value.
 - **A function-local `let` of a written number takes its type from its uses** (change 0134,
   items 1 and 3, part 4a; Rule 5.1, surface §13; `docs/owner-decisions.md` OD-7). An
   unannotated `let` initialized by integer-written numbers, by a constant of no fixed type that

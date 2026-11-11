@@ -6,7 +6,12 @@ import { relatedSitesOf } from '../compiler/ts/diagnostic.js';
 import { entryNode } from '../compiler/ts/entry-locations.js';
 import { qualifiersOf } from '../compiler/ts/lower/references.js';
 import { linkedCompileOf, type CompileTsSourceResult } from '../compiler/ts/source-file.js';
-import { abstractConstTableOf, type DeclaredSymbol } from '../compiler/ts/symbols.js';
+import {
+  abstractConstTableOf,
+  copyCallAt,
+  resultCopiesAt,
+  type DeclaredSymbol,
+} from '../compiler/ts/symbols.js';
 import { ioAttrOf, retIoAttrOf } from '../core/ir/entry-io.js';
 import type { FuncDecl } from '../core/ir/nodes.js';
 import type { ShaderType } from '../core/ir/types.js';
@@ -1033,6 +1038,71 @@ function declarationLine(
   }
 }
 
+/** "u32 or f32", "i32, u32 or f32": the types in the order of TypeShade's words (decision Q3). */
+function typesInWords(types: readonly ShaderType[], struct: StructNames): string {
+  const order = ['i32', 'u32', 'f32', 'f64'];
+  const rank = (t: string): number => (order.includes(t) ? order.indexOf(t) : order.length);
+  const spelled = [...new Set(types.map((t) => spellShaderType(t, struct)))].sort(
+    (a, b) => rank(a) - rank(b),
+  );
+  return spelled.length <= 1
+    ? (spelled[0] ?? '')
+    : `${spelled.slice(0, -1).join(', ')} or ${spelled[spelled.length - 1]!}`;
+}
+
+/**
+ * The first line of the hover of a function whose calls ask two or more result types, and of
+ * a local in its body (Rule 8.19, change 0134 item 4; Amendment A1, "사본마다 추론"), or
+ * `undefined` when `node` names neither. The function is lowered once for each type, so the
+ * compiler's table records a type for each copy and no one of them is the type of every use. The
+ * hover reads the compile's own facts (`resultCopiesAt`, `copyCallAt`) and computes none:
+ *
+ * - at a call, the result of the copy that call takes: `function g(): u32` in `vi + g()`;
+ * - at the declaration, and at a call with no one copy, the result types in TypeShade's words:
+ *   `function g() (u32 or f32 where it is called)`;
+ * - at a local of its body that the copies type apart, each type:
+ *   `let k (u32 or f32 where "g" is called)`.
+ */
+function resultCopiesLine(
+  node: ts.Node,
+  defs: readonly ts.DefinitionInfo[],
+  uri: string,
+  sourceFile: ts.SourceFile,
+  analysis: CompileTsSourceResult,
+  struct: StructNames,
+): string | undefined {
+  if (!ts.isIdentifier(node)) return undefined;
+  const def = defs.find((d) => d.fileName === uri);
+  if (def === undefined) return undefined;
+  const table = analysis.sourceFile;
+  const at = def.textSpan.start;
+  const fn = resultCopiesAt(table, at);
+  if (fn !== undefined) {
+    const symbol = analysis.symbols.find((s) => s.start === at && s.kind === 'function');
+    const params =
+      symbol === undefined ? [] : writtenParams(sourceFile, at, { uri, analysis }, symbol, struct);
+    const head = `function ${node.text}(${params.join(', ')})`;
+    const call = copyCallAt(table, node.getStart(sourceFile));
+    return call !== undefined
+      ? `${head}: ${spellShaderType(call, struct)}`
+      : `${head} (${typesInWords(fn.types, struct)} where it is called)`;
+  }
+  const local = analysis.symbols.filter((s) => s.start === at && s.kind === 'local');
+  if (local.length < 2 || local.every((s) => typesOf(s) === typesOf(local[0]!))) return undefined;
+  let around: ts.Node | undefined = nodeAt(sourceFile, at);
+  while (around !== undefined && !ts.isFunctionDeclaration(around)) around = around.parent;
+  const name = around === undefined ? undefined : (around as ts.FunctionDeclaration).name;
+  const copies = name === undefined ? undefined : resultCopiesAt(table, name.getStart(sourceFile));
+  if (copies === undefined) return undefined;
+  return (
+    `${local[0]!.mutable === false ? 'const' : 'let'} ${node.text} ` +
+    `(${typesInWords(
+      local.map((s) => s.type),
+      struct,
+    )} where "${copies.name}" is called)`
+  );
+}
+
 /**
  * The first line of the hover of a constant of no fixed type (Rule 5.1, change 0134 item 4), or
  * `undefined` when `node` names none. `defs` is where TypeScript resolves the name.
@@ -1339,6 +1409,7 @@ export function getHover(
       checker,
       imported !== undefined && imported.program !== self ? imported.program.analysis : undefined,
     ) ??
+    resultCopiesLine(node, defs, uri, sourceFile, analysis, struct) ??
     line() ??
     ts.displayPartsToString(quickInfo.displayParts);
   const documentation = ts.displayPartsToString(quickInfo.documentation);

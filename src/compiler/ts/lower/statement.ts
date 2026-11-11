@@ -8,6 +8,8 @@ import {
   inferenceConflict,
   inferredOfExpr,
   keyOf,
+  noteCallerDecided,
+  readsUndecided,
   noteIntegerUse,
   noteStoredType,
   useInferenceActive,
@@ -342,6 +344,24 @@ function lowerStatementKind(
           lowerExpression(node.expression!, sourceFile, scope, scratch),
         );
         if (again !== undefined && scratch.length === 0) expr = again;
+      }
+      // The first `return` of a function of the file that writes no result type, returning a
+      // written number or a value no use has decided: its callers decide the result (Rule 8.19,
+      // change 0134 item 1). Each call then picks the copy its own use asks for.
+      const fnNode = scope.ownerNode();
+      if (
+        expr !== undefined &&
+        onMain === undefined &&
+        scope.returnType() === undefined &&
+        // A result that may be absent (`T | undefined`, Rule 7.10) keeps its first `return`'s.
+        scope.returnsAbsence() === 0 &&
+        fnNode !== undefined &&
+        ts.isFunctionDeclaration(fnNode) &&
+        (fnNode.typeParameters?.length ?? 0) === 0 &&
+        (ts.isSourceFile(fnNode.parent) || ts.isModuleBlock(fnNode.parent)) &&
+        (writtenIntegerTree(node.expression, scope) || readsUndecided(expr))
+      ) {
+        noteCallerDecided(sourceFile, fnNode);
       }
     }
     if (!expr) {

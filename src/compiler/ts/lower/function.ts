@@ -12,6 +12,13 @@ import { attributeDecoratorsOf, isTypeDecorator } from '../attribute-types.js';
 import { variableRefused } from '../refused-names.js';
 import { moduleVarSourceName } from '../module-var-names.js';
 import { inferredModuleVar } from '../module-vars.js';
+import {
+  decisionsOfCall,
+  inCopy,
+  isCallerDecided,
+  registerCallerDecided,
+  useInferenceActive,
+} from '../use-inference.js';
 import { stageCallOf, stageCallOfDeclaration, stageDeclarationOf } from '../stage-call.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import { moduleIndexConst } from '../index-bound.js';
@@ -34,7 +41,7 @@ import { kernelWorkgroups } from '../../../core/kernel-workgroup.js';
 import { setParameterLocals } from '../../../core/ir/parameter-locals.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import type { SourceSpan } from '../../../core/ir/span.js';
-import { structT, voidT } from '../../../core/ir/types.js';
+import { f32T, structT, voidT } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import {
   LoweringScope,
@@ -52,7 +59,12 @@ import {
   withheldTableOf,
 } from '../context.js';
 import { hasRefusedIoAttribute, type CollectedStruct } from '../structs.js';
-import { recordDeclaration, recordInferredReturn, type DeclaredSymbolSink } from '../symbols.js';
+import {
+  recordDeclaration,
+  recordInferredReturn,
+  recordResultCopies,
+  type DeclaredSymbolSink,
+} from '../symbols.js';
 import { mapTsTypeToShaderType, withCollections } from '../type-map.js';
 import {
   absentOf,
@@ -738,8 +750,84 @@ export function lowerSourceFunctions(
       nodeByName.set(r.stub.name, r.node);
     });
   };
+  // ═══ A result its callers decide (Rule 8.19, change 0134 item 1) ═══
+  //
+  // A function of the file that writes no result type and returns a written number or a value
+  // no use has decided (an earlier pass of this compile found it, `noteCallerDecided`) takes its
+  // result from its calls. Where every call that decides asks one type, the function returns
+  // it. Where the calls ask two or more, each type but `f32` gets a copy of the function, named
+  // as an instance is (`g_u32`, Rule 8.9), and the function itself keeps the `f32` result, which
+  // a call that decides nothing and the host read. Each copy infers its own locals (Amendment
+  // A1, "사본마다 추론"): its body is lowered under its own key (`inCopy`).
+  const decidedByCallers = new Set<FuncDecl>();
+  const resultCopies: { r: (typeof ready)[number]; stub: FuncDecl }[] = [];
+  if (useInferenceActive(sourceFile)) {
+    let calls: Map<string, ts.CallExpression[]> | undefined;
+    for (const r of ready) {
+      if (r.stub.stage !== undefined || !hasNoWrittenResult(r.node, sourceFile)) continue;
+      if (r.node.name === undefined || !isCallerDecided(sourceFile, r.node)) continue;
+      calls ??= callsByName(sourceFile);
+      const types = new Map<string, ShaderType>();
+      for (const call of calls.get(r.node.name.text) ?? []) {
+        for (const t of decisionsOfCall(sourceFile, call)) types.set(typeKey(t), t);
+      }
+      const copies = new Map<string, FuncDecl>();
+      const shown = r.prefix === '' ? r.node.name.text : `${r.prefix}.${r.node.name.text}`;
+      registerCallerDecided(r.stub, shown, r.node.name, copies);
+      if (types.size === 0) continue;
+      if (types.size === 1) {
+        const [[key, t]] = [...types];
+        if (key !== 'f32') {
+          (r.stub as { ret: ShaderType }).ret = t!;
+          decidedByCallers.add(r.stub);
+        }
+        copies.set(key!, r.stub);
+        continue;
+      }
+      // The function itself holds the `f32` result, written as if the author had: its body's
+      // calls then decide their own callees as an `f32` result asks.
+      (r.stub as { ret: ShaderType }).ret = f32T;
+      decidedByCallers.add(r.stub);
+      copies.set('f32', r.stub);
+      for (const [key, t] of types) {
+        if (key === 'f32') continue;
+        let emitted = instanceName(r.stub.name, [t]);
+        for (let n = 1; callees.has(emitted) || refused.has(emitted); n++) {
+          emitted = `${instanceName(r.stub.name, [t])}_${String(n)}`;
+        }
+        // Its signature said what it had to say where the function is declared.
+        const stub = parseSignature(
+          r.node,
+          sourceFile,
+          [],
+          structs,
+          emitted,
+          undefined,
+          consts,
+          overrides,
+        );
+        if (stub === undefined) continue;
+        (stub as { ret: ShaderType }).ret = t;
+        callees.set(emitted, stub);
+        writtenAs.set(emitted, shown);
+        copies.set(key, stub);
+        resultCopies.push({ r, stub });
+      }
+      // The hover names each result type at the declaration (item 4 of change 0134); the host
+      // calls an exported function at the `f32` the function itself keeps.
+      const listed = new Map(types);
+      if (isExported(r.node)) listed.set('f32', f32T);
+      recordResultCopies(
+        sourceFile,
+        r.node.name,
+        shown,
+        ['i32', 'u32', 'f32', 'f64'].flatMap((k) => (listed.has(k) ? [listed.get(k)!] : [])),
+      );
+    }
+  }
   for (const r of ready) {
     if (!hasNoWrittenResult(r.node, sourceFile) || r.stub.stage !== undefined) continue;
+    if (decidedByCallers.has(r.stub)) continue;
     // Lowered outside any instance of a generic function, wherever the call that asks is.
     pendingFill.set(r.stub, () => {
       withTypeArguments(undefined, () => fillReady(r, true));
@@ -1816,6 +1904,8 @@ export function lowerSourceFunctions(
   // lowered already is not lowered again.
   for (const r of ready) {
     if (pendingFill.has(r.stub)) runPending(r.stub);
+    // A result its callers decided is lowered as one the author wrote.
+    else if (decidedByCallers.has(r.stub)) fillReady(r, false);
     // An entry that writes no return type returns what its body does (Rule 8.19, change 0136).
     else if (!hasNoWrittenResult(r.node, sourceFile) || r.stub.stage !== undefined)
       fillReady(
@@ -1824,6 +1914,10 @@ export function lowerSourceFunctions(
           ? hasNoWrittenResult(r.node, sourceFile)
           : r.node.type === undefined,
       );
+  }
+  // Each copy of a function its callers decide, with the result its calls asked for.
+  for (const { r, stub } of resultCopies) {
+    inCopy(stub.name, () => fillReady({ ...r, stub }, false));
   }
   fillLifted(lifted, sourceFile, diagnostics);
   // Once every body is lowered, the instances and the functions written as arguments among
@@ -2091,6 +2185,30 @@ function sayInherited(
 }
 
 /** The functions a function's body calls, by name. */
+/** Every call in `sourceFile` whose callee is a name or a member, by that name: the calls that
+ *  may call a function its callers decide. Only a call lowered as one records a decision. */
+function callsByName(sourceFile: ts.SourceFile): Map<string, ts.CallExpression[]> {
+  const out = new Map<string, ts.CallExpression[]>();
+  const walk = (n: ts.Node): void => {
+    if (ts.isCallExpression(n)) {
+      const c = n.expression;
+      const name = ts.isIdentifier(c)
+        ? c.text
+        : ts.isPropertyAccessExpression(c)
+          ? c.name.text
+          : undefined;
+      if (name !== undefined) {
+        const list = out.get(name) ?? [];
+        list.push(n);
+        out.set(name, list);
+      }
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(sourceFile);
+  return out;
+}
+
 function calleeNamesOf(body: readonly Stmt[]): Set<string> {
   const names = new Set<string>();
   const walkStmt = (s: Stmt): void => {

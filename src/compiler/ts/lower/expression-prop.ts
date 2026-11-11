@@ -1,5 +1,6 @@
 import { markAbstractRead, markCarriedRead } from '../abstract-const.js';
 import { carriedOf, markInferredRead } from '../use-inference.js';
+import { inferredFieldOf } from '../structs.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { Expr } from '../../../core/ir/nodes.js';
@@ -404,9 +405,23 @@ function lowerPropertyAccessOf(
     if (refuseBareAtomic(ft, node, sourceFile, scope, diagnostics)) return undefined;
     // An optional field reads as its value where the flow says the path is present (Rule
     // 7.10, change 0093, decision D2).
+    // A field whose uses decide its type (Rule 8.14, change 0134 item 1), declared on this class
+    // or a class above it.
+    const field = emittedMemberName(prop);
+    const inferred = [base.type.name, ...scope.ancestorsOf(base.type.name)]
+      .map((n) => inferredFieldOf(sourceFile, n, field))
+      .find((v) => v !== undefined);
     return lowerOptionalMember(
       node,
-      { op: 'member', type: ft, base, field: emittedMemberName(prop) },
+      markInferredRead(
+        markCarriedRead(
+          { op: 'member', type: ft, base, field },
+          node,
+          carriedOf(undefined, inferred),
+        ),
+        node,
+        inferred,
+      ),
       sourceFile,
     );
   }

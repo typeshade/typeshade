@@ -1495,9 +1495,10 @@ result type and returns a value over a function-local constant returns the type 
 before change 0134: `function g() { const k = 7; h(k); return k; }` returns a `u32`, so
 `xs[g()]` compiles.
 
-A module variable (§24) and a static field that code writes take their type from their uses in
-the same way. A class field (§26) and a function's inferred result (§14) otherwise still take
-`f32` from a written number; the rest of part 4b of change 0134 gives them the same rule.
+A module variable (§24), a static field that code writes, a class field (§26) and the result of a
+function of the file that returns a written integer or such a value (§14) take their type from
+their uses in the same way. A `/` over one of them that only inference made an integer is refused
+with the edit that compiles, as above.
 `compile(source, { deprecations: true })` stays as the mechanism of Rule 13.10 and reports
 nothing until a window opens (`RELEASING.md` §7).
 
@@ -1930,7 +1931,28 @@ a method, a getter and a field that holds a function all take the type of their 
 with a value, and one with none returns nothing. The `return`s after the first are typed against
 it as against a written type, so `return 0` after `return u32(7)` is a `u32`. A call that needs
 the type before the body's turn lowers that body first, so a function may be called above its
-declaration:
+declaration.
+
+A function of the file or of a namespace whose first `return` is a written integer
+(`return 1`), or a value no use has decided (`let k = 0; k += 1; return k;`), takes its result
+from its calls (Rule 8.19, change 0134): `function g() { return 1; }` returns a `u32` where
+`vi + g()` is its only call. Calls that ask two or more types get one copy of the function for
+each type but `f32`, named as a generic instance is (`g_u32`), and the function itself keeps the
+`f32` result. Each copy infers its own locals, and a call in a copy decides its own callee's copy:
+
+```ts
+function g() { let k = 0; k += 1; return k; }
+export function a(v: u32): u32 { return v + g(); } // calls g_u32, whose k is a u32
+export function b(x: f32): f32 { return x * g(); } // calls g, whose k is an f32
+```
+
+Where no call decides (a function only the host calls, a call in a cast, `u32(g())`), the result
+is an `f32`, the compiler's choice. A `/` over a call whose integer result only the calls decided
+is refused as a `/` over an integer by inference is (§13). The hover shows `function g(): u32` for
+one type; for copies, `function g() (u32 or f32 where it is called)` at the declaration, the
+copy's result at each call, and `let k (u32 or f32 where "g" is called)` at a local the copies
+type apart. A method, a getter, a local function and a generic function's instance keep the type
+of their first `return`:
 
 ```ts
 "use typeshade";
@@ -3603,8 +3625,12 @@ field, TS8035 for a function).
 `constructor(public x: f32, public y: f32) {}` declares the fields `x` and `y` where the
 constructor stands, and the constructor assigns them from its parameters before the field
 initializers run (Rule 8.14). `private`, `protected` and `readonly` declare one too. A field
-written without a type takes the one its initializer names: a written number is an `f32` (Rule
-5.1), `true` and `false` a `bool`, `new P()` the struct `P`, `vec3(0.)` or `u32(1)` that type. One
+written without a type takes the one its initializer names: `true` and `false` a `bool`, `new P()`
+the struct `P`, `vec3(0.)` or `u32(1)` that type, and a float-written number an `f32`. An
+integer-written number (`hits = 0`, `n = 2 * 3`) gives the field the type its uses give it, as a
+`let` takes one (Rule 5.1, §13, change 0134): `this.hits += vi` makes it a `u32`, and where no use
+decides it is an `f32`. A static field that code writes is a module variable and takes its type
+the same way (§24). One
 whose initializer names no type, `a = f(x)`, is TS8010 with the fix, `a: T = ...`; before this
 it was dropped from the struct with nothing said where it was declared, and every use of it read
 as an unknown field.

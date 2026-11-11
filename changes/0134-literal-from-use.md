@@ -1280,9 +1280,62 @@ read)`, and `const C = 0.1 (f32 or f64 where it is read)` for a float-written co
     `import { K }`, `import { K as Q }`, and `import { R }` of a re-export `export { K as R }`
     read `(alias) const … = 4 (…)` at the import.
 
-Not delivered yet: the second part of items 1 and 3 (4b), the hover of a function its callers
-decide and of its copies (item 4, with 4b), the document part of item 5, item 5 for `journeys/`
-and the helper sources of `examples/` (Amendment A1), and the audit.
+**Part 6, the second part of items 1 and 3 (4b), with the hover of item 4 it owes.** Pull
+request #1264.
+
+- Delivered: a module variable and a static field that code writes (surface §24, Rule 8.13), and
+  a class field (Rule 8.14, surface §26), with no annotation and initialized by integer-written
+  numbers, take their type from their uses through part 4a's inference (`inferredModuleVar` in
+  `src/compiler/ts/module-vars.ts`, `inferredFieldOf` in `src/compiler/ts/structs.ts`); where no
+  use decides, each is an `f32`. A function of the file or of a namespace that writes no result
+  type and whose first `return` is an integer-written number or a value no use has decided takes
+  its result from its calls (Rule 8.19; `noteCallerDecided`, `callerDecidedCall` and `inCopy` in
+  `src/compiler/ts/use-inference.ts`, the copies in `lowerSourceFunctions`). Each call records
+  what its own use asks, an `f32` use included. Where every call that decides asks one type, the
+  function returns it. Calls that ask two or more types get one copy for each type but `f32`,
+  named as an instance of Rule 8.9 is (`g_u32`), and the function keeps the `f32` result. Each
+  copy lowers its body under its own key, so its locals and its calls decide apart (Amendment
+  A1, "사본마다 추론"). A `/` over such a variable, field or call that only inference made an
+  integer is refused through part 3's rule, with the one checked edit. Rules 5.1, 8.14 and 8.19
+  and surface §13, §14, §24 and §26 say so.
+- Delivered, item 4 (part 5's open deviation 1): `function g(): u32` for a function its callers
+  decide to one type; for one with copies, `function g() (u32 or f32 where it is called)` at the
+  declaration, the copy's result at each call (`function g(): u32` in `vi + g()`), and
+  `let k (u32 or f32 where "g" is called)` at a local the copies type apart
+  (`recordResultCopies`, `recordCopyCall` in `src/compiler/ts/symbols.ts`; `resultCopiesLine` in
+  `src/language-service/hover.ts`). The language service reads the field type the projection
+  wrote as not the author's (`hasNoWrittenType`), as part 3 reads a static field's.
+- Tests: `src/compiler/ts/use-inference-module.test.ts`, both halves on each source, the hover
+  where the type is the point, and the CPU oracle.
+- [fact, measured 2026-11-11 against `main` at `8923b2d0`] Programs that change: newly accepted,
+  each refused on `main` for an integer use of an `f32` (`let n = 0; n += vi`,
+  `this.m += v`, `vi + g()`). Newly refused: none; each `/` this part refuses stands in a program
+  that `main` refused for its integer use. A value that changes: a variable, a field or a function
+  result of integer-written numbers whose use is an `f64` is an `f64` (`let n = 16777217; d * n`
+  multiplies by 16777217 on a device, where it multiplied by 16777216), as part 4a's `let` is.
+  `CHANGELOG.md` names each class.
+- Choices the text leaves open, made by default and shown to the owner on the pull request:
+  - The function itself keeps the `f32` result beside its copies, so the host, a conversion
+    (`u32(g())`) and a call that decides nothing read it. Rule 8.19's new text names every copy
+    after the type; this part names the copies of every type but `f32`.
+  - An exported function its calls decide to one type returns that type to the host too
+    (`export function g() { return 3; }` with only `vi + g()` returns a `u32`). With copies, the
+    host reads the `f32` of the function itself.
+  - A call in a conversion (`u32(g())`) decides nothing, as F19 requires
+    (`function g() { return 16777217; } … u32(g())` keeps the `f32` result).
+- Deviations, open:
+  - A method, a getter, a local function, an arrow function and a generic function's instance
+    keep the type of their first `return` (`f32` from a written number). Rule 8.19's new text
+    names "a function"; this part covers a function declared at the top of a file or of a
+    namespace. The others take the next part.
+  - A generic class's field shares one decision across its instances, as issue #1256 records
+    for a generic function's body (deferred by the owner).
+  - A call of a function with copies inside a body that is itself copied takes two copies; its
+    hover keeps the words.
+
+Not delivered yet: the methods, local functions and generic instances of the deviation above,
+the document part of item 5, item 5 for `journeys/` and the helper sources of `examples/`
+(Amendment A1), and the audit.
 
 ## What it owes downstream
 

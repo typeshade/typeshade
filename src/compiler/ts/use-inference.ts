@@ -26,10 +26,11 @@
 // Implements: Rule 5.1 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
-import type { Expr } from '../../core/ir/nodes.js';
+import type { Expr, FuncDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { f32T, f64T, i32T, u32T } from '../../core/ir/types.js';
 import { logicalTypeKey as typeKey } from './optional.js';
+import { resetResultCopies } from './symbols.js';
 import { abstractLiteralOf, type AbstractConst, type Carried } from './abstract-const.js';
 
 /** What a use asks of a value: a concrete scalar, or `int`, an integer of no kind (an index, a
@@ -47,6 +48,9 @@ export interface InferredValue {
   /** A read of a function's result at one call: every use it has counts, an `f32` one too,
    *  since each call takes the copy its own use asks for (Rule 8.19, change 0134 item 1). */
   readonly perUse?: true;
+  /** For such a read: the name of the function, which a refusal of a `/` over the call names,
+   *  and which stands outside any `/` as the uses that decided the result do. */
+  readonly function?: ts.Node;
   /** The name as the author wrote it. */
   readonly name: string;
   /** The initializer as the author wrote it, for a remedy line. */
@@ -101,6 +105,7 @@ export function beginUseInferencePass(sourceFile: ts.SourceFile): State | undefi
   const outer = current;
   const state = states.get(sourceFile);
   if (state !== undefined) state.demands = new Map();
+  resetResultCopies(sourceFile);
   current = state;
   return outer;
 }
@@ -242,6 +247,58 @@ export function isCallerDecided(sourceFile: ts.SourceFile, decl: ts.Node): boole
   return states.get(sourceFile)?.callerDecided.has(decl) === true;
 }
 
+/** For a function its callers decide, its copies by the key of their result type; the function
+ *  itself holds the `f32` result, or the one type every deciding call asks. */
+const callerDecidedStubs = new WeakMap<
+  FuncDecl,
+  {
+    readonly name: string;
+    readonly node: ts.Node;
+    readonly copies: ReadonlyMap<string, FuncDecl>;
+  }
+>();
+
+/** Registers `stub`, a function its callers decide, with the copies this pass made of it. */
+export function registerCallerDecided(
+  stub: FuncDecl,
+  name: string,
+  node: ts.Node,
+  copies: ReadonlyMap<string, FuncDecl>,
+): void {
+  callerDecidedStubs.set(stub, { name, node, copies });
+}
+
+/** The function a call of `decl` at `call` calls, and the record its read is marked with, when
+ *  the callers of `decl` decide its result (Rule 8.19, change 0134 item 1): the copy whose result
+ *  the call's own use decided, else the function itself. */
+export function callerDecidedCall(
+  decl: FuncDecl,
+  call: ts.Node,
+  sourceFile: ts.SourceFile,
+): { readonly target: FuncDecl; readonly value: InferredValue } | undefined {
+  const info = callerDecidedStubs.get(decl);
+  const state = states.get(sourceFile);
+  if (info === undefined || state === undefined) return undefined;
+  const key = keyOf(call);
+  const asked = state.decided.get(key);
+  const copy = asked === undefined ? undefined : info.copies.get(typeKey(asked));
+  const target = copy ?? decl;
+  // Once the callers decided the function, a call that decides nothing reads the result it has.
+  const type = copy !== undefined || info.copies.size > 0 ? target.ret : undefined;
+  return {
+    target,
+    value: {
+      decl: call,
+      key,
+      name: info.name,
+      perUse: true,
+      function: info.node,
+      written: `${info.name}()`,
+      ...(type !== undefined ? { type } : {}),
+    },
+  };
+}
+
 /** Every decision of this compile for the call `call`, one for each copy the call is lowered
  *  in, or for the call itself outside any copy. */
 export function decisionsOfCall(sourceFile: ts.SourceFile, call: ts.Node): ShaderType[] {
@@ -329,8 +386,21 @@ export function softDemands<T>(run: () => T): T {
   }
 }
 
+let quiet = false;
+
+/** Runs `run` with no demand recorded: the peer it retargets against has no type of its own. */
+export function quietDemands<T>(run: () => T): T {
+  const outer = quiet;
+  quiet = true;
+  try {
+    return run();
+  } finally {
+    quiet = outer;
+  }
+}
+
 function record(value: InferredValue, asked: Demand): void {
-  if (current === undefined || value.type !== undefined) return;
+  if (current === undefined || quiet || value.type !== undefined) return;
   // An `f32` peer asks nothing: an undecided value is an `f32` already, and a written number
   // beside it is typed `f32` only by having no type (`j + 1`). An integer use beside an `f32`
   // use is refused where the `f32` use stands, once the value is the integer. A call of a
@@ -422,28 +492,44 @@ export function inferredOrigin(value: InferredValue | undefined): Carried | unde
   const cacheKey = openCounter ? 'counter' : key;
   const cached = origins.get(value.key ?? value.decl);
   if (cached !== undefined && cached.key === cacheKey) return cached.carried;
-  const decl = value.decl as ts.VariableDeclaration;
+  // A `let` or a module variable is written `let`, a static field `static`, a field with no
+  // keyword; a call of a function its callers decide names the function, whose result the
+  // edit does not declare (`function`).
+  const decl = value.decl as ts.VariableDeclaration | ts.PropertyDeclaration;
+  const keyword: AbstractConst['keyword'] =
+    value.function !== undefined
+      ? 'function'
+      : ts.isPropertyDeclaration(decl)
+        ? decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword) === true
+          ? 'static'
+          : ''
+        : 'let';
+  const nameNode = value.function ?? decl.name;
   const info: AbstractConst = {
-    name: value.name,
+    name: value.function !== undefined ? `${value.name}()` : value.name,
     value: Number.NaN,
     integerWritten: true,
-    keyword: 'let',
-    nameNode: decl.name,
+    keyword,
+    nameNode,
     written: value.written ?? '',
     sources: [],
     // Its uses are the other read that makes it an integer: they stand outside any `/`.
-    integerReads: [{ type: key, node: decl.name as ts.Expression }],
+    integerReads: [{ type: key, node: nameNode as ts.Expression }],
     ...(openCounter ? { openCounter: true as const } : {}),
   };
   const carried: Carried = {
     reaches: [info],
     float: false,
-    variable: {
-      keyword: 'let',
-      name: value.name,
-      init: value.written ?? '',
-      type: openCounter ? 'f32' : key,
-    },
+    ...(keyword === 'function'
+      ? {}
+      : {
+          variable: {
+            keyword,
+            name: value.name,
+            init: value.written ?? '',
+            type: openCounter ? 'f32' : key,
+          },
+        }),
   };
   origins.set(value.key ?? value.decl, { key: cacheKey, carried });
   return carried;
