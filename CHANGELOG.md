@@ -2108,6 +2108,28 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A struct that holds itself is refused instead of overflowing the stack** (Rules 12.4, 12.6
+  and 12.7, #1204). A struct that holds itself, directly, through other structs, through an
+  array with a size or without, or through an optional `T | undefined`, made `compile()`, the
+  editor's diagnostics and hover, and `tshc check` throw `RangeError`. `array<R, 2>` and
+  `R | undefined` compiled to WGSL that Tint refuses. Now one `TS8010` stands on the field that
+  closes the cycle:
+  `Field "R.r" makes "R" contain itself, through "R" -> "R". A struct has a fixed size, so it cannot hold itself: hold an index into an array of "R" instead, or remove the field.`
+  A struct the program uses is checked, every class, and a struct its file exports
+  though nothing uses it. Programs that compiled before and are now refused: an exported
+  struct of that shape nothing uses, and a used one through `array<R, N>` or `R | undefined`.
+  Within one file the struct declared first names the cycle, so `interface B { y: f32; a: A; }`
+  then `export interface A { x: f32; b: B; }` is refused on `A.b`. Across files, each file cuts
+  the cycles through its own structs on its own fields, as its own program does, and the editor
+  and `tshc check` show those cuts in that file. One cut can break two cycles, so a file reports
+  at least one cut and not always one for each cycle. `compile()` reports every cut of the file
+  it starts from, and a cut of an imported file only where a cycle is left, in that file. No
+  reader puts a cut on an import line. Within one file, the cut of a cycle reached through an
+  earlier struct, and of overlapping cycles, can differ from this fix's first commit, `8b6d0751`.
+  With `S0 { f2: S2 }`, `S1 { f2: S2 }` and `S2 { f1: S1 }`, the cycle is refused on `S2.f1`,
+  as the struct declared first in it, `S1`, names it. Every set of cuts leaves no cycle. A
+  program where every struct holds every other, 48 structs, takes about 2.2 s to compile.
+
 - **A program's refusal of an imported declaration is shown in a file that reports it**
   (Rules 3.9 and 12.7, #1186). A refusal that only a use makes, about a declaration an imported
   file holds, was located in the imported file. That file's own program accepts the

@@ -57,7 +57,13 @@ import {
   type MixinApplication,
 } from './mixins.js';
 import { pushTypeArguments } from './generics.js';
-import { authorTypeText, useWrittenStructs, writtenText, type StructOrigin } from './context.js';
+import {
+  authorTypeText,
+  programFileOf,
+  useWrittenStructs,
+  writtenText,
+  type StructOrigin,
+} from './context.js';
 import {
   genericClasses,
   genericStructName,
@@ -72,7 +78,7 @@ import {
   qualifiedParts,
   refuseNamespaceStatement,
 } from './namespaces.js';
-import { markOmittableField, optionalDeclaredType } from './optional.js';
+import { markOmittableField, optionalDeclaredType, optionalInner } from './optional.js';
 
 /** Refused IO metadata is not an IR field and never reaches emit or portable payloads.
  *  Inheritance keeps field identity, so the original declaration owns the one refusal. */
@@ -1014,11 +1020,274 @@ export function collectStructs(
     );
   }
   checkOverrideKinds(sourceFile, diagnostics);
-  return withUnimplementedAbstracts(
-    promoteClassValues(inherited, sourceFile),
+  return refuseStructCycles(
+    withUnimplementedAbstracts(promoteClassValues(inherited, sourceFile), sourceFile, diagnostics),
+    candidates,
+    reachable,
+    nodeOf,
     sourceFile,
     diagnostics,
   );
+}
+
+/** The struct names a field of type `t` holds by value: the struct itself, an array's element
+ *  (with a size or without), and the `T` of an optional `T | undefined`, which is a struct that
+ *  holds a `T` (Rule 7.10). */
+function heldStructs(t: ShaderType): string[] {
+  if (t.kind === 'array') return heldStructs(t.elem);
+  if (t.kind !== 'struct') return [];
+  const inner = optionalInner(t);
+  return inner === undefined ? [t.name] : heldStructs(inner);
+}
+
+/** Whether a declaration is exported from its file: an `export` modifier on it, or a name an
+ *  `export { … }` clause of the file lists. */
+function exportedNamesOf(sourceFile: ts.SourceFile): Set<string> {
+  const out = new Set<string>();
+  for (const stmt of sourceFile.statements) {
+    if (
+      (ts.isInterfaceDeclaration(stmt) || ts.isTypeAliasDeclaration(stmt)) &&
+      stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+    )
+      out.add(stmt.name.text);
+    if (
+      ts.isExportDeclaration(stmt) &&
+      stmt.moduleSpecifier === undefined &&
+      stmt.exportClause !== undefined &&
+      ts.isNamedExports(stmt.exportClause)
+    ) {
+      for (const e of stmt.exportClause.elements) out.add((e.propertyName ?? e.name).text);
+    }
+  }
+  return out;
+}
+
+/** Refuse a struct that holds itself, through its own fields or through other structs', on one
+ *  field of each cycle, and cut that field from the struct (#1204).
+ *
+ *  WGSL gives every struct a fixed size, so a struct that holds itself, by value, in an array
+ *  with a size or without, or in an optional, has none; Tint refuses it with
+ *  `cyclic dependency found: 'R' -> 'R'` (measured in headless Chromium 156 on 2026-11-10,
+ *  Rule 13.3). The front end says so in the author's words instead (Rule 12.6), before anything
+ *  below walks the fields: the runtime-array checks, the constructor's zero values, the layout
+ *  and the CPU oracle each recurse through a struct's fields and overflowed the stack on one.
+ *  The field is withheld rather than kept, so no later walk meets the cycle and a read of the
+ *  field says nothing more (Rule 12.4).
+ *
+ *  Checked: every struct the program collects (each class, and each interface or object type a
+ *  use reaches), and an exported interface or object type nothing in its file uses. TypeShade
+ *  never emits that last one, so Tint never sees it; it is checked because a file that exports
+ *  a struct is checked on its own (the owner's decision of 2026-11-10, #1204). One neither
+ *  exported nor used stays unchecked, as every other rule leaves it. Each file's cuts are
+ *  the ones its own program makes, on its own fields: within one file a cycle is named from
+ *  the struct declared first. The program makes every cut of the file it starts from, and a
+ *  cut of an imported file only where a cycle is left (see below). */
+function refuseStructCycles(
+  structs: CollectedStruct[],
+  candidates: ReadonlyMap<string, Candidate>,
+  reachable: ReadonlySet<string>,
+  nodeOf: ReadonlyMap<string, ts.Node>,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): CollectedStruct[] {
+  const collected = new Map(structs.map((s) => [s.decl.name, s]));
+  const exported = exportedNamesOf(sourceFile);
+  // An exported interface or object type no use reached was never collected; its fields are
+  // read here for the walk alone, and whatever else is wrong with them stays unsaid, as it was.
+  const uncollected = new Map<string, readonly StructField[]>();
+  const fieldsOf = (name: string): readonly StructField[] => {
+    const struct = collected.get(name);
+    if (struct !== undefined) return struct.decl.fields;
+    const known = uncollected.get(name);
+    if (known !== undefined) return known;
+    const candidate = candidates.get(name);
+    if (candidate === undefined || candidate.generic) return [];
+    const fields: StructField[] = [];
+    uncollected.set(name, fields);
+    for (const member of candidate.members) {
+      if (!ts.isPropertySignature(member) || !ts.isIdentifier(member.name)) continue;
+      const type = mapTsTypeToShaderType(member.type, sourceFile, []);
+      if (type !== undefined) fields.push({ name: member.name.text, type });
+    }
+    return fields;
+  };
+  // Every struct the checked ones hold, at any depth, is walked from in turn, so the order of
+  // the walk is the order of the declarations and not the order uses reach them.
+  const checked = [
+    ...structs.map((s) => s.decl.name),
+    ...[...candidates.keys()].filter((name) => !reachable.has(name) && exported.has(name)),
+  ];
+  const roots = new Set<string>();
+  const reach = (name: string): void => {
+    if (roots.has(name) || (!collected.has(name) && !candidates.has(name))) return;
+    roots.add(name);
+    for (const field of fieldsOf(name)) heldStructs(field.type).forEach(reach);
+  };
+  checked.forEach(reach);
+  // The cuts are chosen file by file, and each file's choice reads only what every program
+  // that holds the file sees alike: the structs its own structs reach, its declarations in
+  // source order and their fields. So a file's cuts here are the ones its own program makes,
+  // and a cut of an imported file stands in that file at the place its own program reports it
+  // (Rule 12.4, `program-refusals.ts`), never on an import of it.
+  const positionOf = (name: string): number =>
+    (nodeOf.get(name) ?? candidates.get(name)?.nameNode)?.getStart(sourceFile) ?? 0;
+  const order = [...roots].sort((a, b) => positionOf(a) - positionOf(b));
+  const fileIndex = new Map<string, number>();
+  const fileOf = (name: string): number => {
+    let at = fileIndex.get(name);
+    if (at === undefined) {
+      const node = nodeOf.get(name) ?? candidates.get(name)?.nameNode;
+      fileIndex.set(name, (at = node === undefined ? 0 : programFileOf(node)));
+    }
+    return at;
+  };
+  /** One field of a struct, the step from it to the struct the field holds. */
+  interface Edge {
+    readonly from: string;
+    readonly field: string;
+    readonly to: string;
+  }
+  const keyOf = (from: string, field: string): string => `${from}\u0000${field}`;
+  const edgesOf = (name: string, cuts: ReadonlySet<string>): Edge[] =>
+    fieldsOf(name).flatMap((field) =>
+      cuts.has(keyOf(name, field.name))
+        ? []
+        : heldStructs(field.type)
+            .filter((to) => roots.has(to))
+            .map((to) => ({ from: name, field: field.name, to })),
+    );
+  /** The first cycle through `start`, as the fields from it back to it, walking the fields in
+   *  order and each struct once, or `undefined` when no field left leads back to it. */
+  const cycleThrough = (start: string, cuts: ReadonlySet<string>): Edge[] | undefined => {
+    const seen = new Set<string>([start]);
+    const path: Edge[] = [];
+    const find = (name: string): boolean => {
+      for (const edge of edgesOf(name, cuts)) {
+        path.push(edge);
+        if (edge.to === start) return true;
+        if (!seen.has(edge.to)) {
+          seen.add(edge.to);
+          if (find(edge.to)) return true;
+        }
+        path.pop();
+      }
+      return false;
+    };
+    return find(start) ? path : undefined;
+  };
+  /** The cuts the program that starts from `file` makes on that file's fields: for each of its
+   *  structs in source order, each cycle through it, cut at the last field of the cycle that
+   *  leaves a struct of the file. Within one file that is the field that leads back to the
+   *  struct declared first, which names the cycle. */
+  const ownCuts = (file: number): { cycle: Edge[]; at: number }[] => {
+    const cuts = new Set<string>();
+    const out: { cycle: Edge[]; at: number }[] = [];
+    for (const start of order) {
+      if (fileOf(start) !== file) continue;
+      for (let cycle = cycleThrough(start, cuts); cycle; cycle = cycleThrough(start, cuts)) {
+        let at = cycle.length - 1;
+        while (at > 0 && fileOf(cycle[at]!.from) !== file) at--;
+        cuts.add(keyOf(cycle[at]!.from, cycle[at]!.field));
+        out.push({ cycle, at });
+      }
+    }
+    return out;
+  };
+  /** Whether `edge` is still on a cycle once the `cuts` are made. */
+  const onCycle = (edge: Edge, cuts: ReadonlySet<string>): boolean => {
+    const seen = new Set<string>();
+    const reaches = (name: string): boolean => {
+      if (name === edge.from) return true;
+      if (seen.has(name)) return false;
+      seen.add(name);
+      return edgesOf(name, cuts).some((e) => reaches(e.to));
+    };
+    return reaches(edge.to);
+  };
+
+  const cut = new Map<string, Set<string>>();
+  const shownStruct = (name: string): string => authorTypeText(structT(name));
+  const report = (cycle: readonly Edge[], at: number): void => {
+    const { from: name, field, to: held } = cycle[at]!;
+    // The struct the field holds, then around the cycle back to it.
+    const path = [...cycle.slice(at + 1), ...cycle.slice(0, at + 1)].map((e) => e.from);
+    const written = collected.get(name)?.privateFields?.get(field)?.written ?? field;
+    const root = shownStruct(held);
+    diagnostics.push(
+      diag(
+        sourceFile,
+        fieldNodeOf(name, field, collected, candidates) ?? nodeOf.get(name) ?? sourceFile,
+        `Field "${shownStruct(name)}.${written}" makes "${root}" contain itself, through ` +
+          `${[...path, held].map((n) => `"${shownStruct(n)}"`).join(' -> ')}. A struct has a ` +
+          `fixed size, so it cannot hold itself: hold an index into an array of "${root}" ` +
+          `instead, or remove the field.`,
+      ),
+    );
+    let fields = cut.get(name);
+    if (fields === undefined) cut.set(name, (fields = new Set()));
+    fields.add(field);
+  };
+  // The file the program starts from makes every cut its own program makes. Each file it
+  // imports, in the order the linker read them, adds a cut of its own only where a cycle is
+  // left, so a cycle is reported once in the program. Every cycle has a struct in some file,
+  // and that file's cuts leave no cycle through its structs, so none is left at the end.
+  const applied = new Set<string>();
+  const files = [...new Set(order.map(fileOf))].sort((a, b) => a - b);
+  for (const file of files) {
+    for (const { cycle, at } of ownCuts(file)) {
+      const edge = cycle[at]!;
+      if (file !== 0 && !onCycle(edge, applied)) continue;
+      applied.add(keyOf(edge.from, edge.field));
+      report(cycle, at);
+    }
+  }
+  if (cut.size === 0) return structs;
+  return structs.map((s) => {
+    const fields = cut.get(s.decl.name);
+    if (fields === undefined) return s;
+    return {
+      ...s,
+      decl: { ...s.decl, fields: s.decl.fields.filter((f) => !fields.has(f.name)) },
+      withheld: new Set([...(s.withheld ?? []), ...fields]),
+    };
+  });
+}
+
+/** Where `field` of the struct `name` is written: its member in the class, the interface or
+ *  the object type, or in the base it inherits the field from. */
+function fieldNodeOf(
+  name: string,
+  field: string,
+  collected: ReadonlyMap<string, CollectedStruct>,
+  candidates: ReadonlyMap<string, Candidate>,
+  seen: Set<string> = new Set(),
+): ts.Node | undefined {
+  if (seen.has(name)) return undefined;
+  seen.add(name);
+  const struct = collected.get(name);
+  const written = struct?.privateFields?.get(field)?.written ?? field;
+  const named = (n: ts.PropertyName | ts.BindingName | undefined): boolean =>
+    n !== undefined && (ts.isIdentifier(n) || ts.isPrivateIdentifier(n)) && n.text === written;
+  const cls = struct?.classNode;
+  if (cls !== undefined) {
+    for (const member of cls.members) {
+      if (ts.isPropertyDeclaration(member) && named(member.name)) return member;
+      if (ts.isConstructorDeclaration(member)) {
+        const param = member.parameters.find(
+          (p) => ts.getModifiers(p)?.length !== undefined && named(p.name),
+        );
+        if (param !== undefined) return param;
+      }
+    }
+  }
+  const candidate = candidates.get(name);
+  const member = candidate?.members.find((m) => ts.isPropertySignature(m) && named(m.name));
+  if (member !== undefined) return member;
+  for (const base of struct?.bases ?? []) {
+    const found = fieldNodeOf(base, field, collected, candidates, seen);
+    if (found !== undefined) return found;
+  }
+  return undefined;
 }
 
 /** Static-only classes need no value declaration until a construction or type position uses

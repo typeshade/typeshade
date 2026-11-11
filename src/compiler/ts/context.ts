@@ -322,6 +322,9 @@ export function withWrittenStructs<R>(f: () => R): R {
  *  share (Rule 3.2), and a sentence still names it as its own file writes it. */
 export interface LinkedOrigin {
   readonly sourceFile: ts.SourceFile;
+  /** Every file of the program as `written` names it, the file it starts from first, then in
+   *  the order the linker read them. */
+  readonly files: readonly string[];
   readonly written: (
     start: number,
     end: number,
@@ -367,6 +370,17 @@ export function sameFile(a: ts.Node, b: ts.Node): boolean {
   const fileOf = (n: ts.Node): string | undefined =>
     origin.written(n.getStart(sf), n.getStart(sf))?.file;
   return fileOf(a) === fileOf(b);
+}
+
+/** Which file of the program `node` was written in: its index in {@link LinkedOrigin.files},
+ *  0 for the file the program starts from and for a source that is not linked. */
+export function programFileOf(node: ts.Node): number {
+  const sf = node.getSourceFile();
+  const origin = LINKED_ORIGIN;
+  if (origin?.sourceFile !== sf) return 0;
+  const file = origin.written(node.getStart(sf), node.getStart(sf))?.file;
+  const at = file === undefined ? -1 : origin.files.indexOf(file);
+  return at < 0 ? 0 : at;
 }
 
 /** What {@link useWrittenStructs} reads a struct's written form off: the name it is emitted
