@@ -3176,7 +3176,19 @@ this amendment.
 | E2. Affects.                                            | Fixed: A10 Q-I meaning 1 and A11 Q1 and Q2 are added.                                                     |
 | E3. Long lines.                                         | Fixed: wrapped.                                                                                           |
 
-- [fact] No review has read the revision that answers the delta review.
+- [fact] A second delta review read A13 at `f17cf429` on 2026-11-11, by the same reviewer. Verdict:
+  approve with should-fix. It found no blocking finding, 5 should-fix findings and 4 notes.
+
+| Finding                                                                      | Answer                                                                                                                                          |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. A budget rule no source gives.                                            | Fixed: the bullet is deleted.                                                                                                                   |
+| 2. Q12 and Q13 in the wrong section.                                         | Fixed: moved before the deviations; the OD check is back under "Open, owner must settle" and covers them.                                       |
+| 3. Stale scope and D-r.                                                      | Fixed: the Why bullets and D-r name Q12, Q13 and decision 4; D-r cites this review.                                                             |
+| 4. A stale status row.                                                       | Fixed: it names `9b78bae7` and `bb001887`.                                                                                                      |
+| 5. `Affects` without A12 Q3.                                                 | Fixed: added.                                                                                                                                   |
+| Notes: decision 3 item 2, the title, the options of Q12 and Q13, long lines. | Fixed: item 2 is marked superseded; the title names the budgets; the options not chosen are stated. Long lines: kept where Prettier keeps them. |
+
+- [fact] No review has read the revision that answers the second delta review.
 
 - Affects: A11 Q3 (decision 1, D-l; decision 3, the reading of "takes an array", and OD-7); A11's
   open items (the sized array of structs, by decision 4); A10 Q-C meanings 2 and 3 (decision 4
@@ -3186,11 +3198,10 @@ this amendment.
   kind, a union read type and `set` on an open element); A11's slice status table.
 - Status: `status: accepted` does not change.
 
-### A13. Slice 1: an `f64` place, a `Record` in an `array<S, N>` result, and the host view of `Buffer<number>` (2026-11-11)
+### A13. Slice 1: an `f64` place, a `Record` in an `array<S, N>` result, the host view of `Buffer<number>`, and the bundle budgets (2026-11-11)
 
-- [fact] Why. #1257 implements A12. Its head was `da043f1d` when this amendment was written. The
-  implementation found three points that A12 does not decide.
-- [fact] The owner answered each point on 2026-11-11, in the conversation. This amendment records
+- [fact] Why. #1257 implements A12. Its head was `da043f1d` when this amendment was written. The implementation found three points that A12 does not decide (decisions 1 to 3). The review of A13 found two more, Q12 and Q13, and the bundle budgets grew again (decision 4).
+- [fact] The owner answered each of them on 2026-11-11, in the conversation. This amendment records
   the answers and the deviations they make.
 - [fact] Baseline: `main` at `29f62fe7` (#1265, Amendment A12).
 - [fact] This amendment changes no front matter, no rule text of `docs/language-design.md` and no
@@ -3279,7 +3290,7 @@ this amendment.
 - What it means:
   1. A12's editor list, item 2, becomes: a `Buffer<number>` passes in each of those places, and the
      host view does not write the union.
-  2. [inference, agent] The owner's answer covers item 3 too: the same type relation holds there, and
+  2. [superseded by the owner's answer to Q13] The owner's answer covers item 3 too: the same type relation holds there, and
      a `Buffer<number>` passes where a `Buffer<u32>` is taken.
   3. Deviation D-q: item 2 is made part of the approved text by this amendment (A13). Item 3 rests on
      item 2 of this list, an inference. The owner answered Q13 (below): item 3 is made part of the approved text too.
@@ -3302,38 +3313,6 @@ this amendment.
   f64)의 비용입니다. 측정값은 이미 scripts/bundle-budget.json에 들어 있습니다. A13에 기록합니다."
   (English translation: the cost of the decided features, Q1 to Q7, the OD-7 inference and `f64`;
   the measured values are already in `scripts/bundle-budget.json`; recorded in A13.)
-- [fact] A later commit of #1257 that moves a budget again asks the owner again.
-
-**Deviations.**
-
-| ID  | Approved text                                                                                             | Delivered (#1257 at `da043f1d`)                               | Disposition                                                                                                                                                   |
-| --- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D-p | A12 decision 4, item 2: an `array<S, N>` result whose `S` holds a `Record` is held in `Buffer`s.          | Refused at the call on both halves.                           | open: a later slice closes it.                                                                                                                                |
-| D-q | A12's editor list, items 2 and 3: the host view writes the union with `Buffer<number>`.                   | Not written; TypeScript accepts a `Buffer<number>` there.     | item 2: made part of the approved text by this amendment (A13). Item 3: made part of the approved text by this amendment (A13), by the owner's answer to Q13. |
-| D-r | `changes/README.md`, Independent review: a proposal needs an independent review before the owner decides. | The owner answered the three points before a review read A13. | closed: the review at `c607c4fc` read A13 and approved with should-fix; its record is below.                                                                  |
-
-**Open items.**
-
-| Item                                                                | Source     | Next action                                                              |
-| ------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------ |
-| D-p                                                                 | Decision 2 | The agent that plans slices 2 to 6 asks the owner which slice closes it. |
-| The `f64` place of decision 1 in #1257's code, tests and rule text. | Decision 1 | #1257 implements it before its merge.                                    |
-| D-p and D-q in #1257's body.                                        | Deviations | #1257's body records both before its merge.                              |
-| D-l, D-m and the other open items of A12.                           | A12        | Unchanged.                                                               |
-
-**The slices of milestone 4, status.**
-
-- [fact] This statement updates A12's status table. A12's text stays as it is.
-
-| Slice  | Status                                                                                                                                                                                                            |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0      | done: #1251, merged as `937147b8`.                                                                                                                                                                                |
-| 1      | in progress: #1257 (draft), head `da043f1d` when this was written. A12 decisions 3 and 4 are implemented (`e2059d12` to `04262eaf`) and its rule text is `da043f1d`. Decision 1 of this amendment is in progress. |
-| 2 to 6 | not started.                                                                                                                                                                                                      |
-
-**Open, owner must settle.**
-
-- [fact] Nothing. The owner answered Q12 and Q13 on 2026-11-11 (below).
 
 **The owner's answers to Q12 and Q13.**
 
@@ -3350,6 +3329,13 @@ this amendment.
     남습니다. 비용: 항목 3도 승인 문구에 편입된다고 기록합니다." (English translation: the reason of
     item 2; the behaviour is the same and the type check stays strict; cost: item 3 is recorded as
     part of the approved text too.)
+- [fact] The option the owner did not choose, for each:
+  - Q12: "f64로 고정, Buffer<f64> C*R개 받음" (English translation: fix `f64`, take a `Buffer<f64>` of
+    `C * R`). Its cost: a layout path, tests and an editor overload for a matrix of `f64`, while a
+    matrix of `f64` as a result stays refused.
+  - Q13: "항목 3에는 적음" (English translation: write it for item 3). Its cost: a `Buffer<i32>` passes
+    at a `u32` place, such as indices or an indirect count, and the editor does not catch it.
+  - [inference, agent] Neither option of either question reverses an entry of OD-1 to OD-8.
 - What the answers mean:
   1. Q12: a parameter of a matrix of `f64` takes no `Buffer`, a `Buffer<number>` among them. The call
      refuses it with a `TypeError` at the call, and the host view types no `Buffer` there. The
@@ -3359,8 +3345,39 @@ this amendment.
      (`src/compiler/ts/host-face.ts:528`). #1257 must test it on both halves (Rule 12.7).
   3. Q13: A12's editor list, item 3, becomes as item 2 does: a `Buffer<number>` passes there, and the
      host view does not write the union.
+     **Deviations.**
+
+| ID  | Approved text                                                                                             | Delivered (#1257 at `da043f1d`)                                                                                            | Disposition                                                                                                                                                                       |
+| --- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-p | A12 decision 4, item 2: an `array<S, N>` result whose `S` holds a `Record` is held in `Buffer`s.          | Refused at the call on both halves.                                                                                        | open: a later slice closes it.                                                                                                                                                    |
+| D-q | A12's editor list, items 2 and 3: the host view writes the union with `Buffer<number>`.                   | Not written; TypeScript accepts a `Buffer<number>` there.                                                                  | item 2: made part of the approved text by this amendment (A13). Item 3: made part of the approved text by this amendment (A13), by the owner's answer to Q13.                     |
+| D-r | `changes/README.md`, Independent review: a proposal needs an independent review before the owner decides. | The owner answered decisions 1 to 3 before a review read A13, and Q12, Q13 and decision 4 before a review read their text. | closed: the review at `c607c4fc` read decisions 1 to 3; the second delta review at `f17cf429` read Q12, Q13 and decision 4 and approved with should-fix. Their records are below. |
+
+**Open items.**
+
+| Item                                                                | Source     | Next action                                                              |
+| ------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------ |
+| D-p                                                                 | Decision 2 | The agent that plans slices 2 to 6 asks the owner which slice closes it. |
+| The `f64` place of decision 1 in #1257's code, tests and rule text. | Decision 1 | #1257 implements it before its merge.                                    |
+| D-p and D-q in #1257's body.                                        | Deviations | #1257's body records both before its merge.                              |
+| D-l, D-m and the other open items of A12.                           | A12        | Unchanged.                                                               |
+
+**The slices of milestone 4, status.**
+
+- [fact] This statement updates A12's status table. A12's text stays as it is.
+
+| Slice  | Status                                                                                                                                                                                                                                                                                                         |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0      | done: #1251, merged as `937147b8`.                                                                                                                                                                                                                                                                             |
+| 1      | in progress: #1257 (draft), head `da043f1d` when this was written. A12 decisions 3 and 4 are implemented (`e2059d12` to `04262eaf`) and its rule text is `da043f1d`. Decision 1 of this amendment is implemented in `9b78bae7` and its rule text is `bb001887`. The test of Q12 on both halves is in progress. |
+| 2 to 6 | not started.                                                                                                                                                                                                                                                                                                   |
+
+**Open, owner must settle.**
+
+- [fact] Nothing. The owner answered decisions 1 to 4, Q12 and Q13 on 2026-11-11 (above).
+
 - [inference, agent] No decision of this amendment conflicts with an entry of
-  `docs/owner-decisions.md` (OD-1 to OD-8). Decision 1 follows OD-7.
+  `docs/owner-decisions.md` (OD-1 to OD-8): decisions 1 to 4, Q12 and Q13. Decision 1 follows OD-7.
 
 **Independent review record of A13.**
 
@@ -3394,7 +3411,7 @@ this amendment.
 
 - [fact] No review has read the revision that answers the delta review.
 
-- Affects: A12 decision 3 (the places that fix the element); A12 decision 2 (the bundle budgets, decision 4); A12's Q8 meaning and A12's editor list,
+- Affects: A12 decision 3 (the places that fix the element); A12 Q3 (Q12: a matrix of `f32` only); A12 decision 2 (the bundle budgets, decision 4); A12's Q8 meaning and A12's editor list,
   items 2 to 4; A12 decision 4, item 2, and A12's open item on the kinds that stay refused (D-p);
   A12's slice status table.
 - Status: `status: accepted` does not change.
