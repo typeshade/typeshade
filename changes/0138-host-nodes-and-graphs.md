@@ -2659,8 +2659,9 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
 - [fact] This amendment changes no front matter, no rule text of `docs/language-design.md` and no
   code. #1257 changes its rule and surface text in its own commits.
 - [fact] Decision 4 asks for a design that A10 and A11 do not give. This amendment proposes it and
-  lists the points with more than one reasonable answer as questions Q1 to Q7. The owner has not
-  answered them.
+  lists the points with more than one reasonable answer as questions Q1 to Q7. The owner answered
+  each on 2026-11-11, in the conversation, with the recommended option ("The owner's answers to Q1
+  to Q7", below).
 
 **Decision 1. The program runtime keeps a scalar `Buffer` for a storage array with no size (D-l).**
 
@@ -2670,6 +2671,10 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
   with no size (`src/runtime/program.ts`). It is the only read-back path of a compute dispatch. Four
   users need it: `journeys/mnist`, `journeys/_harness.mjs`, `journeys/limits` and
   `scripts/compile-gate.ts`. A sized binding takes no `Buffer`.
+- [fact] Finding S7 of the review of #1257: the program runtime binds a scalar `Buffer` to any buffer
+  binding, a sized one too. The reason: the journey harness reads sized compute outputs back through
+  a `Buffer`. So the sentence "A sized binding takes no `Buffer`" in #1257's body does not hold.
+- [decision, owner, 2026-11-11] S7 is part of D-l. It stays open and is closed in milestone 5.
 - [decision, owner, 2026-11-11] The owner's disposition, as #1257's body records it: an open
   deviation, closed in milestone 5 when the read-back path is built. It is deviation D-l (below).
 
@@ -2767,7 +2772,8 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
   4. A result `Buffer` is another call's argument where the parameter takes its element (A10 Q-C).
   5. A struct that holds a new kind follows item 3. Its field gives what this design gives for the
      kind.
-- [proposal, agent] The table gives the recommended option of each question.
+- [proposal, agent] The table gives the recommended option of each question. [decision, owner,
+  2026-11-11] The owner chose each of them (below).
 
 | Kind                    | `Buffer` (recommended)                    | `read()` gives                                                 | `at(i).get()` gives           | As another call's argument                             | Question |
 | ----------------------- | ----------------------------------------- | -------------------------------------------------------------- | ----------------------------- | ------------------------------------------------------ | -------- |
@@ -2838,6 +2844,31 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
 | (b) Q6 (b) for such an `S` only                                  | That `S` gives an object of `Buffer`s, one per leaf.                                                          | Two shapes for `array<S, N>`, chosen by the fields of `S`.                               |
 | (c) refuse at the call                                           | A `TypeError` with no `TS` code, as today.                                                                    | It narrows decision 4. The owner decides it.                                             |
 
+**The owner's answers to Q1 to Q7.**
+
+- [decision, owner, 2026-11-11] The owner answered each question in the conversation, with the
+  recommended option (a).
+- What the answers mean:
+  1. Q1: a `bool` result is a `Buffer<bool>`, one `u32` word (0 or 1) for each component. `read()`
+     gives a `boolean[]`. A `vecN<bool>` result is a `Buffer` of `vecN<bool>`, read the same way.
+  2. Q2: `read()` of a matrix result gives a `Float32Array` of the components, column-major, with no
+     padding, one matrix after another. `length` counts matrices. The call pads each column to the
+     column stride when it uploads.
+  3. Q3: a matrix parameter takes a `Buffer<matCxR>` of one element and a `Buffer<f32>`. The length
+     of the `Buffer<f32>` must be a multiple of the matrix's `C * R` components.
+  4. Q4: a key result is a `Buffer<K>` that holds one `u32` id for each element. `read()` gives a
+     `K[]` of the member strings.
+  5. Q5: a `Record` result is an object of `Buffer`s, one for each member.
+  6. Q6: an `array<S, N>` of structs, as a result or as a field, is one `Buffer<S>` of `N` elements.
+     `read()` gives an `S[]`. It is an argument of an `array<S>` parameter.
+  7. Q7: for an `array<S, N>` whose `S` holds a `bool`, the result `Buffer<S>` has a host-only
+     layout, each `bool` one `u32` word. No parameter takes it.
+- [inference, agent] Q3's rule for a `Buffer<f32>` of more than one matrix applies where an array of
+  matrices is taken. A matrix parameter, which takes one matrix, takes a `Buffer<f32>` of exactly
+  `C * R` elements, as A10 Q-C's "a `Buffer` of one element" reads.
+- [fact] Each answer is part of slice 1's scope (decision 4). #1257 states each in its rule and
+  surface text.
+
 **Author examples, before and after.**
 
 1. Decision 3.
@@ -2846,7 +2877,7 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
    const xs = array([1, 2, 3]); // Before (#1257 at 51f5bf8c): TypeError. After: Buffer<f32> of 3
    ```
 
-2. Decision 4, with the recommended options. [proposal, agent]
+2. Decision 4, with the owner's answers to Q1 to Q7.
 
    ```ts
    // shade: export function test(ps: array<Particle>): bool { … }
@@ -2866,11 +2897,11 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
 Each is a difference between the accepted text (with A10 and A11) and #1257 at `51f5bf8c`, as
 #1257's body records it.
 
-| ID  | Deviation                                                                                                                                                                                                                                                                                                                                                                   | Disposition                                         | Next action                                                                                                                                            |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| D-l | A11, "Q3, the program runtime": the program runtime's bindings take plain values each frame. The program runtime keeps a scalar `Buffer` for a storage array with no size, the only read-back path of a compute dispatch (decision 1).                                                                                                                                      | open (new; the owner's disposition, decision 1)     | Milestone 5 builds the read-back path and closes it.                                                                                                   |
-| D-m | A10 Q-C, meaning 2: a scalar result of a call on a resource is a `Buffer` of length 1. Inside today's `fuse()`, which A10 keeps until slice 5, a value-returning call still returns a promise of its value. The host view types it as a `Buffer`. `examples/hosts/loop-fuse/host.ts` casts `total(u)`, and `journeys/_host-import/src/gpu.ts` casts `dsum` and `pushAbove`. | open (new)                                          | Slice 5 switches `fuse` and removes the difference and the casts.                                                                                      |
-| D-n | Change 0129 (`implemented`) keeps a successful write-only recovery. At `51f5bf8c`, a failed `Buffer` is refused at the next call that takes it (A7, decision b). So a write-only call recovers it only when the call was queued before the failure was known. Inside today's `fuse()`, a plan's earlier write-only call still supplies it (0129).                           | open (new); the owner's disposition is not recorded | Ask the owner: make it part of the approved text by an amendment (A7 decision b governs a `Buffer`), or restore 0129's recovery. Before #1257's merge. |
+| ID  | Deviation                                                                                                                                                                                                                                                                                                                                                                                                     | Disposition                                                                                                          | Next action                                                                                      |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| D-l | A11, "Q3, the program runtime": the program runtime's bindings take plain values each frame. The program runtime keeps a scalar `Buffer` for a storage array with no size, the only read-back path of a compute dispatch (decision 1). It also binds a scalar `Buffer` to a sized buffer binding, since the journey harness reads sized compute outputs back through one (finding S7 of the review of #1257). | open (new; the owner's disposition, decision 1)                                                                      | Milestone 5 builds the read-back path and closes it.                                             |
+| D-m | A10 Q-C, meaning 2: a scalar result of a call on a resource is a `Buffer` of length 1. Inside today's `fuse()`, which A10 keeps until slice 5, a value-returning call still returns a promise of its value. The host view types it as a `Buffer`. `examples/hosts/loop-fuse/host.ts` casts `total(u)`, and `journeys/_host-import/src/gpu.ts` casts `dsum` and `pushAbove`.                                   | open (new)                                                                                                           | Slice 5 switches `fuse` and removes the difference and the casts.                                |
+| D-n | Change 0129 (`implemented`) keeps a successful write-only recovery. At `51f5bf8c`, a failed `Buffer` is refused at the next call that takes it (A7, decision b). So a write-only call recovers it only when the call was queued before the failure was known. Inside today's `fuse()`, a plan's earlier write-only call still supplies it (0129).                                                             | closed: made part of the approved text by this amendment (the owner, 2026-11-11), as a consequence of A7, decision b | None. For a `Buffer` outside today's `fuse()`, A7 decision b governs 0129's write-only recovery. |
 
 - [fact] D-a to D-k stay as A10 and A11 record them. #1257's body says that it closes D-i and D-g.
   Their closure is recorded when #1257 merges.
@@ -2881,35 +2912,34 @@ Each is a difference between the accepted text (with A10 and A11) and #1257 at `
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------- |
 | The check `TypeNN candidate (build + CPU)` fails on #1257. TypeNN imports the `Resident` type, which slice 1 removes. The check is not required. [inference, agent] A10 Q-G foresees this: `downstream.yml` can turn red at slices 1 and 2.                                                        | #1257; A10 Q-G | TypeNN migrates when its pin moves (`downstream`). No pull request is assigned. |
 | A11's open items on the padding of a kernel's array of vectors, `read()` of a `Buffer<f64>`, the editor's type of Q7's mixed call, and the region range of a scalar `Buffer`. #1257 states each at `51f5bf8c`: the call pads; a `Float64Array`; a third overload that returns a promise; no range. | A11; #1257     | The owner reads them with #1257's example before and after, before its merge.   |
-| A11's open item on a sized array of structs as a field.                                                                                                                                                                                                                                            | A11 Q6         | Closed by decision 4. How it is held is Q6 of this amendment.                   |
+| A11's open item on a sized array of structs as a field.                                                                                                                                                                                                                                            | A11 Q6         | Closed by decision 4 and the owner's answer to Q6.                              |
 | A11's open item on the result's class under A10 Q-F for a `Buffer<f32>` passed as `array<vec3<f32>>`.                                                                                                                                                                                              | A11; A10 Q-F   | Unchanged: ask the owner before slice 3.                                        |
 
 **The slices of milestone 4, status.**
 
 - [fact] This statement updates A11's status table. A11's text stays as it is.
 
-| Slice  | Status                                                                                                                                                                                             |
-| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0      | done: #1251, merged as `937147b8`.                                                                                                                                                                 |
-| 1      | in progress: #1257 (draft), head `51f5bf8c`. Decisions 1 to 3 are in it. Decision 4 waits for the owner's answers to Q1 to Q7, after this amendment merges. D-n waits for the owner's disposition. |
-| 2 to 6 | not started.                                                                                                                                                                                       |
+| Slice  | Status                                                                                                                                                                       |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0      | done: #1251, merged as `937147b8`.                                                                                                                                           |
+| 1      | in progress: #1257 (draft), head `51f5bf8c`. Decisions 1 to 3 are in it. Decision 4, with the owner's answers to Q1 to Q7, is implemented in it after this amendment merges. |
+| 2 to 6 | not started.                                                                                                                                                                 |
 
 **Open, owner must settle.**
 
-- [fact] Q1 to Q7 above, before #1257 implements decision 4.
-- [fact] The disposition of D-n, before #1257's merge.
+- [fact] Nothing. The owner answered Q1 to Q7 and gave the disposition of D-n on 2026-11-11.
 - [inference, agent] No decision of this amendment conflicts with an entry of
   `docs/owner-decisions.md`. Decision 3 agrees with OD-3: the author no longer builds a typed array
   for a plain `number[]`.
 
 **Independent review record of A12.**
 
-- [fact] No independent review has read A12. It is not ready for the owner's decision on Q1 to Q7
-  until one has (`changes/README.md`, Independent review).
+- [fact] No independent review has read A12. The owner answered Q1 to Q7 before one did. A review of
+  this text stays owed (`changes/README.md`, Independent review).
 
 - Affects: A11 Q3 (decision 1, D-l; decision 3, the reading of "takes an array"); A11's open items
   (the sized array of structs, by decision 4); A10 Q-C meanings 2 and 3 (decision 4 extends them to
-  new kinds; D-m); change 0129's write-only recovery (D-n); the bundle sizes of the configuration and
+  new kinds; D-m); change 0129's write-only recovery (D-n, closed); the bundle sizes of the configuration and
   validation record (decision 2); A11's slice status table.
 - Status: `status: accepted` does not change.
 
