@@ -473,7 +473,18 @@ function lowerHeaderCounter(
       typeKey(boundType) === 'u32'
         ? boundType
         : undefined;
-    const counterType = annotated ?? hint ?? i32T;
+    // A conversion declares its type, as an annotation does: `for (let j = u32(3); …)` counts
+    // in `u32`. The fold gives the conversion of a written number a literal of its type
+    // (#1217), which the line below would retarget to `i32`.
+    const converted =
+      decl.type === undefined &&
+      ts.isCallExpression(start) &&
+      ts.isIdentifier(start.expression) &&
+      (start.expression.text === 'i32' || start.expression.text === 'u32') &&
+      isIntScalar(init.type)
+        ? init.type
+        : undefined;
+    const counterType = annotated ?? converted ?? hint ?? i32T;
     init = retargetDeclaredIntLit(init, written, counterType);
     // Out of range, the §13 sentence is the one diagnostic: the loop-bound walk would
     // otherwise add a second one about a start value the author has already been told about.

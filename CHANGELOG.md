@@ -2108,6 +2108,19 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A conversion that starts a `for` counter declares the counter's type** (Rule 7.5). A header
+  name with no annotation is an `i32` (or a `u32` beside a `u32` bound) only when its value is
+  written as an integer, and any other value gives it the value's type. `u32(x)` with an `f32`
+  `x` counted in `u32`, but `u32(3)` counted in `i32`: the fold made it a literal of its type
+  (#1217), and the header read the literal as a written integer. It now counts in `u32`.
+  **Newly accepted:** `for (let j = u32(3); j < 8; j++) { a += f32(h(j)); }` with
+  `function h(a: u32): u32` was refused (`Argument 1 of "h" type mismatch.`) and gives 25.
+  **Newly refused:** each compiled as an `i32` loop before. `for (let j = u32(0); j < ii; j++)`
+  with an `i32` `ii` is refused (`Type mismatch: cannot compare u32 and i32`), as with
+  `u32(x)`; `for (let j = u32(0); j < 8; j++) { hi(j) }` with `function hi(a: i32): i32` is
+  refused (`Argument 1 of "hi" type mismatch.`); `for (let j = u32(3); j >= 0; j--)` leaves the
+  range of `u32` (`TS8006`). Write `i32(…)`, or no conversion, for an `i32` counter.
+
 - **A program's refusal of an imported declaration is shown in a file that reports it**
   (Rules 3.9 and 12.7, #1186). A refusal that only a use makes, about a declaration an imported
   file holds, was located in the imported file. That file's own program accepts the
