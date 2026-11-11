@@ -454,6 +454,27 @@ describe('generated compute and draw dependencies (0129)', () => {
       await d.dispose();
     }
   });
+  it('refuses an indirect count a failed call wrote at the call, and takes it again after set(data) (A7, decision b)', async () => {
+    const m = await load(ENTRIES);
+    const d = await createDevice({ prefer: ['cpu'] });
+    try {
+      const counts = d.array(Uint32Array.of(4, 1, 1));
+      const dst = d.array(new Float32Array(4).fill(1));
+      fail(m, d, counts, 'words', 4);
+      await settle();
+      const e = errorOf(counts);
+      expect(e).toBeInstanceOf(TypeError);
+      // Refused before anything is taken: dst changes not and keeps no error.
+      expect(thrown(() => m.reset!({ dst }, { indirect: counts }))).toBe(e);
+      expect(errorOf(dst)).toBeUndefined();
+      expect([...(await dst.read())]).toEqual([1, 1, 1, 1]);
+      counts.set(Uint32Array.of(4, 1, 1));
+      void m.reset!({ dst }, { indirect: counts });
+      expect([...(await dst.read())]).toEqual([7, 7, 7, 7]);
+    } finally {
+      await d.dispose();
+    }
+  });
   it('admits recovery across entry calls within one plan', async () => {
     const m = await load(ENTRIES);
     const d = await createDevice({ prefer: ['cpu'] });

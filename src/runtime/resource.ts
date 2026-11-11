@@ -57,10 +57,12 @@ import {
   ResidentArrayState,
   type ZeroedElement,
 } from '../core/resident.js';
-import type { array as HostArray, f32, f64, i32, u32 } from './host-types.js';
+import type { array as HostArray, f32, f64, i32, u32, vec4f } from './host-types.js';
 import type { Texture } from './resources.js';
 import { globalRegion, type Range, type Region } from './region.js';
 import { defaultDevice } from './default-device.js';
+// Loads the module the declaration of `ScratchBuffers` below adds to, for a type only.
+import type {} from '../core/fuse-plan.js';
 import { noteFailure, throwFailure } from '../core/submission.js';
 import { resources, type RecordedBuffer as Recorded } from '../core/host-record.js';
 import { callDefault, type CallOwner } from '../core/owner.js';
@@ -898,6 +900,18 @@ export type ZeroedBufferElement<E> = E extends 'f32' ? f32 : E extends 'i32' ? i
 /** Any `Buffer`, of any element: what `device.release()` takes. Not exported from a barrel. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyBuffer = Buffer<any>;
+
+// What `scope.scratch()` of a `fuse` scope returns (`ScratchBuffers` in `core/fuse-plan.ts`), added
+// here so that `typeshade/fuse` imports no type of the program runtime (change 0138, Amendment
+// A10, slice 1).
+declare module '../core/fuse-plan.js' {
+  interface ScratchBuffers {
+    readonly f32: Buffer<f32>;
+    readonly i32: Buffer<i32>;
+    readonly u32: Buffer<u32>;
+    readonly vec4f: Buffer<vec4f>;
+  }
+}
 
 /** What `read()` of a `Buffer<T>` gives: the typed array of the scalar for a scalar or a vector
  *  `T`, the components one after another (Amendment A11, Q2 and Q5); `T[]` for a struct (R9). */

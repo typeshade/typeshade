@@ -85,7 +85,9 @@ export async function run(): Promise<Record<string, number[]>> {
   let fusedSum: Promise<number> | undefined;
   const plan = await dev.fuse(() => {
     dscale(tripled, src, 3);
-    fusedSum = dsum(tripled);
+    // Inside today's fuse() a call that returns a value returns its promise; the host view types
+    // the call outside fuse(), a Buffer (change 0138, Amendment A10, slice 1; slice 5 joins them).
+    fusedSum = dsum(tripled) as unknown as Promise<number>;
   });
   const doubleIntegerFused = [
     await fusedSum!,
@@ -526,7 +528,9 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     const out = fdev.array(new Uint32Array(600).fill(7));
     const zs = fdev.array(pxs.length, 'f32');
     let n = 0;
-    const keep = (): void => void pushAbove(ys, 19.8, out).then((c) => (n = c));
+    // Called only inside fuse(), where the call returns its promise (as `fusedSum` above).
+    const keep = (): void =>
+      void (pushAbove(ys, 19.8, out) as unknown as Promise<number>).then((c) => (n = c));
     if (fused)
       await fdev.fuse(() => {
         void fuseScale(xs, ys, 2);

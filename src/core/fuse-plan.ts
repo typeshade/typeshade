@@ -43,8 +43,6 @@ import {
 } from './host-kernel.js';
 import type { CallOwner } from './owner.js';
 import { ResidentArrayState } from './resident.js';
-import type { Buffer } from '../runtime/resource.js';
-import type { f32, i32, u32, vec4f } from '../runtime/host-types.js';
 import { TIERS, type Tier } from './tiers.js';
 
 import {
@@ -60,6 +58,22 @@ import {
 } from './fuse-record.js';
 export { buildPlan, runScope, ScratchState } from './fuse-record.js';
 export type { Plan, PlanCall, PlanDependency, PlanGroup, PlanInput } from './fuse-record.js';
+
+/**
+ * The `Buffer` that `scope.scratch()` returns for each element, by the element's name.
+ * `runtime/resource.ts` adds the members (`Buffer<f32>` for `f32`, and so on) by declaration
+ * merging, so `typeshade/fuse` reaches no module of the program runtime, not even for a type
+ * (`scripts/bundle-boundary.ts`). Not API.
+ */
+export interface ScratchBuffers {
+  /** No element: what `scope.scratch()` returns before the program runtime's types load. */
+  readonly none?: never;
+}
+
+/** The `Buffer` of element `E` that `scope.scratch()` returns. */
+export type ScratchBuffer<E extends string> = ScratchBuffers extends { readonly [K in E]: infer B }
+  ? B
+  : never;
 
 /**
  * What the body of a `fuse` call receives: the scope that records the kernel calls the body
@@ -100,10 +114,10 @@ export interface FuseScope {
    * @throws `TypeError` for a length that is not a whole number in that range, an element that
    *   is none of the four, and a call made when the body is not running.
    */
-  scratch(length: number, element?: 'f32'): Buffer<f32>;
-  scratch(length: number, element: 'i32'): Buffer<i32>;
-  scratch(length: number, element: 'u32'): Buffer<u32>;
-  scratch(length: number, element: 'vec4f'): Buffer<vec4f>;
+  scratch(length: number, element?: 'f32'): ScratchBuffer<'f32'>;
+  scratch(length: number, element: 'i32'): ScratchBuffer<'i32'>;
+  scratch(length: number, element: 'u32'): ScratchBuffer<'u32'>;
+  scratch(length: number, element: 'vec4f'): ScratchBuffer<'vec4f'>;
 }
 
 // ─── grouping ────────────────────────────────────────────────────────────────────────────────

@@ -310,6 +310,10 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   - A geometry's `vertices` take a `Buffer<f32>`, `Buffer<i32>` or `Buffer<u32>`, and its
     `indices` a `Buffer<u32>`. Today's `fuse()` records a call on a scalar `Buffer`, and
     `scope.scratch()` returns a `Buffer`.
+  - The caps of `scripts/bundle-budget.json` take the measured gzip bytes: `typeshade/runtime`
+    168,413 (+1,236), `typeshade/fuse` 114,063 (+165), `typeshade/algorithms` 68,217 (+3,339) and
+    `typeshade/random` 49,724 (+3,524), for the result `Buffer`s and the checks of a call on a
+    resource that the generated modules carry.
 
 - **A function-local `let` of a written number takes its type from its uses** (change 0134,
   items 1 and 3, part 4a; Rule 5.1, surface §13; `docs/owner-decisions.md` OD-7). An

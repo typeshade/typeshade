@@ -439,6 +439,10 @@ function recordCompute(
     undefined,
     callDefault(),
   );
+  // A `Buffer<u32>` of counts that a failed call wrote throws its error at each later call that
+  // takes it, as a binding does (A7, decision b; Amendment A10, Q-I).
+  const countsError = residentState(indirect)?.error;
+  if (countsError !== undefined) throw countsError;
   // Each binding is taken with nothing changed yet; a refusal ends the check of what was taken.
   const taken: RecordedArgument[] = [];
   try {
