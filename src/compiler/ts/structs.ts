@@ -57,7 +57,13 @@ import {
   type MixinApplication,
 } from './mixins.js';
 import { pushTypeArguments } from './generics.js';
-import { authorTypeText, useWrittenStructs, writtenText, type StructOrigin } from './context.js';
+import {
+  authorTypeText,
+  inEntryFile,
+  useWrittenStructs,
+  writtenText,
+  type StructOrigin,
+} from './context.js';
 import {
   genericClasses,
   genericStructName,
@@ -1074,8 +1080,8 @@ function exportedNamesOf(sourceFile: ts.SourceFile): Set<string> {
  *  a struct is checked on its own (the owner's decision of 2026-11-10, #1204). One neither
  *  exported nor used stays unchecked, as every other rule leaves it. The walk follows the
  *  declarations in the order of the program's source: within one file a cycle is named from
- *  the struct declared first, and across files it closes on a field of the file the program
- *  starts from (see below). */
+ *  the struct declared first, and a cycle through a struct of the file the program starts from
+ *  is cut at a field of that file (see below). */
 function refuseStructCycles(
   structs: CollectedStruct[],
   candidates: ReadonlyMap<string, Candidate>,
@@ -1118,51 +1124,91 @@ function refuseStructCycles(
     for (const field of fieldsOf(name)) heldStructs(field.type).forEach(reach);
   };
   checked.forEach(reach);
-  // A linked program places each imported file's declarations before the file it starts from
-  // (`link.ts`), so a cycle through the file's own struct closes on the file's own field, which
-  // is where that file's own program reports it and so where a program that imports it does
-  // too (Rule 12.4, `program-refusals.ts`). Within one file the order is the source order.
+  // Within one file the walk follows the source order, so the struct declared first names the
+  // cycle. A linked program places each imported file's declarations before the file it starts
+  // from (`link.ts`); where the cycle is cut is chosen below, not by this order.
   const positionOf = (name: string): number =>
     (nodeOf.get(name) ?? candidates.get(name)?.nameNode)?.getStart(sourceFile) ?? 0;
   const order = [...roots].sort((a, b) => positionOf(a) - positionOf(b));
 
+  // Each cycle found is cut at one field, and the walk starts again without it, so a cycle a
+  // cut already broke is not reported again and every cycle left is found. A cycle is cut at
+  // the field that closes it when that field's struct is in the file the program starts from,
+  // else at the first field of the cycle that leaves a struct in that file: that file's own
+  // program reports its own field, and the mistake an imported file holds stands there
+  // (`program-refusals.ts`), never on an import of a file the program reports it for. A cycle
+  // with no struct in that file closes where the walk closes it.
   const cut = new Map<string, Set<string>>();
-  const done = new Set<string>();
-  const stack: string[] = [];
-  const shownStruct = (name: string): string => authorTypeText(structT(name));
-  const visit = (name: string): void => {
-    stack.push(name);
-    for (const field of fieldsOf(name)) {
-      for (const held of heldStructs(field.type)) {
-        if (stack.includes(held)) {
-          const path = [...stack.slice(stack.indexOf(held)), held];
-          const written =
-            collected.get(name)?.privateFields?.get(field.name)?.written ?? field.name;
-          const root = shownStruct(held);
-          diagnostics.push(
-            diag(
-              sourceFile,
-              fieldNodeOf(name, field.name, collected, candidates) ??
-                nodeOf.get(name) ??
-                sourceFile,
-              `Field "${shownStruct(name)}.${written}" makes "${root}" contain itself, through ` +
-                `${path.map((n) => `"${shownStruct(n)}"`).join(' -> ')}. A struct has a fixed ` +
-                `size, so it cannot hold itself: hold an index into an array of "${root}" ` +
-                `instead, or remove the field.`,
-            ),
-          );
-          let fields = cut.get(name);
-          if (fields === undefined) cut.set(name, (fields = new Set()));
-          fields.add(field.name);
-          break;
-        }
-        if (!done.has(held)) visit(held);
-      }
+  const isCut = (name: string, field: string): boolean => cut.get(name)?.has(field) === true;
+  const ownStruct = new Map<string, boolean>();
+  const isOwn = (name: string): boolean => {
+    let own = ownStruct.get(name);
+    if (own === undefined) {
+      const node = nodeOf.get(name) ?? candidates.get(name)?.nameNode;
+      ownStruct.set(name, (own = node === undefined || inEntryFile(node)));
     }
-    stack.pop();
-    done.add(name);
+    return own;
   };
-  for (const root of order) if (!done.has(root)) visit(root);
+  const shownStruct = (name: string): string => authorTypeText(structT(name));
+  /** One field of the walk: the struct that holds it, and its name. */
+  interface Edge {
+    readonly from: string;
+    readonly field: string;
+  }
+  const report = (cycle: readonly Edge[]): void => {
+    const closing = cycle.length - 1;
+    const firstOwn = cycle.findIndex((e) => isOwn(e.from));
+    const at = firstOwn < 0 || isOwn(cycle[closing]!.from) ? closing : firstOwn;
+    const { from: name, field } = cycle[at]!;
+    // The struct the field holds, then around the cycle back to it.
+    const path = [...cycle.slice(at + 1), ...cycle.slice(0, at + 1)].map((e) => e.from);
+    const held = path[0]!;
+    const written = collected.get(name)?.privateFields?.get(field)?.written ?? field;
+    const root = shownStruct(held);
+    diagnostics.push(
+      diag(
+        sourceFile,
+        fieldNodeOf(name, field, collected, candidates) ?? nodeOf.get(name) ?? sourceFile,
+        `Field "${shownStruct(name)}.${written}" makes "${root}" contain itself, through ` +
+          `${[...path, held].map((n) => `"${shownStruct(n)}"`).join(' -> ')}. A struct has a ` +
+          `fixed size, so it cannot hold itself: hold an index into an array of "${root}" ` +
+          `instead, or remove the field.`,
+      ),
+    );
+    let fields = cut.get(name);
+    if (fields === undefined) cut.set(name, (fields = new Set()));
+    fields.add(field);
+  };
+  /** Walk from every root in order; report and cut the first cycle met, and say whether one
+   *  was. Each struct is walked once a walk. */
+  const walk = (): boolean => {
+    const done = new Set<string>();
+    const stack: Edge[] = [];
+    const onStack = new Set<string>();
+    const visit = (name: string): boolean => {
+      onStack.add(name);
+      for (const field of fieldsOf(name)) {
+        if (isCut(name, field.name)) continue;
+        for (const held of heldStructs(field.type)) {
+          const edge = { from: name, field: field.name };
+          if (onStack.has(held)) {
+            const from = held === name ? stack.length : stack.findIndex((e) => e.from === held);
+            report([...stack.slice(from), edge]);
+            return true;
+          }
+          if (done.has(held)) continue;
+          stack.push(edge);
+          if (visit(held)) return true;
+          stack.pop();
+        }
+      }
+      onStack.delete(name);
+      done.add(name);
+      return false;
+    };
+    return order.some((root) => !done.has(root) && visit(root));
+  };
+  while (walk());
   if (cut.size === 0) return structs;
   return structs.map((s) => {
     const fields = cut.get(s.decl.name);

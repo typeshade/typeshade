@@ -14,6 +14,7 @@ import { compile } from './compile.js';
 import { TS_CODES } from './codes.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { checkDocuments } from '../../language-service/check.js';
+import { runCli, type CliHost } from '../../cli/run.js';
 
 const FILE = '/p/a.ts';
 const H = '"use typeshade";\n';
@@ -370,6 +371,235 @@ describe('a struct that holds itself (#1204)', () => {
         `b.ts ${TS_CODES.STRUCT_FIELD} ${inB}`,
         `c.ts ${TS_CODES.STRUCT_FIELD} ${inC}`,
       ]);
+    });
+  });
+
+  // A ring of three or four files, and two cycles through one struct (#1204 review). The
+  // program cuts each cycle at a field of the file it starts from, so each file's own program
+  // reports its own field, and no reader puts the mistake on an import line or in a file that
+  // holds no field of that cycle.
+  describe('around a ring or a diamond', () => {
+    /** One file of a case: its struct declarations and the names it imports. */
+    type Case = Readonly<Record<string, { imports: string; decls: string }>>;
+    /** Where a cycle stands: the file, the text of the field, the field and the path. */
+    type Expected = readonly (readonly [string, string, string, readonly string[]])[];
+    const filesOf = (c: Case, entry: string, use: string): Record<string, string> => {
+      const out: Record<string, string> = {};
+      for (const [name, f] of Object.entries(c)) {
+        const imports = f.imports
+          .split(';')
+          .filter((i) => i !== '')
+          .map((i) => {
+            const [names, from] = i.split('@');
+            return `import { ${names} } from './${from}.shade.js';\n`;
+          })
+          .join('');
+        out[`/p/${name}.shade.ts`] =
+          `${H}${imports}${f.decls}\n` +
+          (name === entry ? `@compute([1]) export function main(): void { ${use} }\n` : '');
+      }
+      return out;
+    };
+    const lineCol = (text: string, at: number): string => {
+      const before = text.slice(0, at).split('\n');
+      return `${before.length}:${before[before.length - 1]!.length + 1}`;
+    };
+    const memoryHost = (files: Record<string, string>): { host: CliHost; out: string[] } => {
+      const out: string[] = [];
+      const host: CliHost = {
+        cwd: '/p',
+        readFile: (path) => files[path],
+        writeFile: () => undefined,
+        kind: (path) =>
+          files[path] !== undefined
+            ? 'file'
+            : Object.keys(files).some((f) => f.startsWith(`${path}/`))
+              ? 'directory'
+              : undefined,
+        list: (path) =>
+          Object.keys(files)
+            .filter((f) => f.startsWith(`${path}/`))
+            .map((f) => f.slice(path.length + 1).split('/')[0]!),
+        stdout: (text) => void out.push(text),
+        stderr: (text) => void out.push(text),
+      };
+      return { host, out };
+    };
+
+    const cases: readonly (readonly [string, Case, string, Expected])[] = [
+      [
+        'a ring of three files',
+        {
+          a: { imports: 'B@b', decls: 'export interface A { x: f32; b: B; }' },
+          b: { imports: 'C@c', decls: 'export interface B { y: f32; c: C; }' },
+          c: { imports: 'A@a', decls: 'export interface C { z: f32; a: A; }' },
+        },
+        'let r: A;',
+        [
+          ['a', 'b: B;', 'A.b', ['B', 'C', 'A', 'B']],
+          ['b', 'c: C;', 'B.c', ['C', 'A', 'B', 'C']],
+          ['c', 'a: A;', 'C.a', ['A', 'B', 'C', 'A']],
+        ],
+      ],
+      [
+        'a ring of four files',
+        {
+          a: { imports: 'B@b', decls: 'export interface A { x: f32; b: B; }' },
+          b: { imports: 'C@c', decls: 'export interface B { y: f32; c: C; }' },
+          c: { imports: 'D@d', decls: 'export interface C { z: f32; d: D; }' },
+          d: { imports: 'A@a', decls: 'export interface D { w: f32; a: A; }' },
+        },
+        'let r: A;',
+        [
+          ['a', 'b: B;', 'A.b', ['B', 'C', 'D', 'A', 'B']],
+          ['b', 'c: C;', 'B.c', ['C', 'D', 'A', 'B', 'C']],
+          ['c', 'd: D;', 'C.d', ['D', 'A', 'B', 'C', 'D']],
+          ['d', 'a: A;', 'D.a', ['A', 'B', 'C', 'D', 'A']],
+        ],
+      ],
+      [
+        'a ring of three classes',
+        {
+          a: { imports: 'B@b', decls: 'export class A { x: f32 = 0.; b: B = new B(); }' },
+          b: { imports: 'C@c', decls: 'export class B { y: f32 = 0.; c: C = new C(); }' },
+          c: { imports: 'A@a', decls: 'export class C { z: f32 = 0.; a: A = new A(); }' },
+        },
+        'let r = new A(); r.x = 1.;',
+        [
+          ['a', 'b: B = new B();', 'A.b', ['B', 'C', 'A', 'B']],
+          ['b', 'c: C = new C();', 'B.c', ['C', 'A', 'B', 'C']],
+          ['c', 'a: A = new A();', 'C.a', ['A', 'B', 'C', 'A']],
+        ],
+      ],
+      [
+        'two cycles through the struct of the file the compile starts from',
+        {
+          a: { imports: 'B@b;C@c', decls: 'export interface A { x: f32; b: B; c: C; }' },
+          b: { imports: 'A@a', decls: 'export interface B { y: f32; a: A; }' },
+          c: { imports: 'A@a', decls: 'export interface C { z: f32; a: A; }' },
+        },
+        'let r: A;',
+        [
+          ['a', 'b: B;', 'A.b', ['B', 'A', 'B']],
+          ['a', 'c: C;', 'A.c', ['C', 'A', 'C']],
+          ['b', 'a: A;', 'B.a', ['A', 'B', 'A']],
+          ['c', 'a: A;', 'C.a', ['A', 'C', 'A']],
+        ],
+      ],
+      [
+        'two cycles through the struct of the file the compile starts from, fields swapped',
+        {
+          a: { imports: 'C@c;B@b', decls: 'export interface A { x: f32; c: C; b: B; }' },
+          b: { imports: 'A@a', decls: 'export interface B { y: f32; a: A; }' },
+          c: { imports: 'A@a', decls: 'export interface C { z: f32; a: A; }' },
+        },
+        'let r: A;',
+        [
+          ['a', 'c: C;', 'A.c', ['C', 'A', 'C']],
+          ['a', 'b: B;', 'A.b', ['B', 'A', 'B']],
+          ['b', 'a: A;', 'B.a', ['A', 'B', 'A']],
+          ['c', 'a: A;', 'C.a', ['A', 'C', 'A']],
+        ],
+      ],
+      [
+        'a ring of four structs in two files, two in each',
+        {
+          a: {
+            imports: 'B, D@b',
+            decls: 'export interface A { x: f32; b: B; }\nexport interface C { z: f32; d: D; }',
+          },
+          b: {
+            imports: 'A, C@a',
+            decls: 'export interface B { y: f32; c: C; }\nexport interface D { w: f32; a: A; }',
+          },
+        },
+        'let r: A;',
+        [
+          ['a', 'b: B;', 'A.b', ['B', 'C', 'D', 'A', 'B']],
+          ['b', 'a: A;', 'D.a', ['A', 'B', 'C', 'D', 'A']],
+        ],
+      ],
+    ];
+
+    for (const [name, c, use, expected] of cases) {
+      it(`one diagnostic in each file that holds a field of it, on that field: ${name}`, () => {
+        const files = filesOf(c, 'a', use);
+        const readDocument = (f: string): string | undefined => files[f];
+        const at = (f: string, start: number, length: number): string =>
+          `[${files[f]!.slice(start, start + length)}]`;
+        const want = (file: string): string[] =>
+          expected
+            .filter(([f]) => f === file)
+            .map(
+              ([, text, field, path]) => `[${text}] ${TS_CODES.STRUCT_FIELD} ${cycle(field, path)}`,
+            );
+
+        // The compiler, on the file the compile starts from: what that file holds.
+        const entry = '/p/a.shade.ts';
+        const compiled = compile(files[entry]!, { fileName: entry, readDocument });
+        expect(
+          compiled.diagnostics.map(
+            (d) => `${d.fileName} ${at(d.fileName!, d.start, d.length)} ${d.code} ${d.message}`,
+          ),
+        ).toEqual(want('a').map((w) => `${entry} ${w}`));
+
+        // The editor, in every file.
+        for (const file of Object.keys(c)) {
+          const path = `/p/${file}.shade.ts`;
+          const text = files[path]!;
+          const offset = (p: { line: number; character: number }): number =>
+            text.split('\n').slice(0, p.line).join('\n').length +
+            (p.line > 0 ? 1 : 0) +
+            p.character;
+          const service = createTypeshadeLanguageService({ readDocument });
+          service.openDocument(path, text);
+          expect(
+            service
+              .getDiagnostics(path)
+              .map(
+                (d) =>
+                  `${at(path, offset(d.range.start), offset(d.range.end) - offset(d.range.start))} ` +
+                  `${String(d.code)} ${d.message}`,
+              ),
+          ).toEqual(want(file));
+        }
+
+        // tshc check over the tree: one error per field, at the field, and exit status 1.
+        const { host, out } = memoryHost({ ...files });
+        const status = runCli(['check', '--format', 'short'], host, { version: '0.0.0' });
+        expect(status).toBe(1);
+        const lines = out.join('').split('\n');
+        const fieldOffset = (file: string, text: string): number =>
+          files[`/p/${file}.shade.ts`]!.indexOf(text, files[`/p/${file}.shade.ts`]!.indexOf('{'));
+        const wantLines = expected.map(
+          ([file, text, field, path]) =>
+            `${file}.shade.ts:${lineCol(files[`/p/${file}.shade.ts`]!, fieldOffset(file, text))}` +
+            ` - error ${TS_CODES.STRUCT_FIELD}: ${cycle(field, path)}`,
+        );
+        expect(lines.filter((l) => l.includes(' - error '))).toEqual(wantLines);
+        expect(lines).toContain(
+          `Found ${expected.length} errors in ${new Set(expected.map(([f]) => f)).size} files ` +
+            `(${Object.keys(c).length} files checked).`,
+        );
+      });
+    }
+  });
+
+  // The location a single file's cycle moved to with the walk in source order (#1204): the
+  // struct declared first names the cycle, and the field that closes it is the later struct's.
+  it('in one file, closes on the field of the struct declared later', () => {
+    const source = `${H}interface B { y: f32; a: A; }\nexport interface A { x: f32; b: B; }\n`;
+    const message = cycle('A.b', ['B', 'A', 'B']);
+    const { compiler, editor, compiled } = bothHalves(source);
+    expect(compiler).toEqual(ONE(message));
+    expect(editor).toEqual(ONE(message));
+    const [d] = compiled.diagnostics;
+    expect(source.slice(d!.start, d!.start + d!.length)).toBe('b: B;');
+    const service = createTypeshadeLanguageService();
+    service.openDocument(FILE, source);
+    expect(service.getDiagnostics(FILE)[0]!.range).toEqual({
+      start: { line: 2, character: 29 },
+      end: { line: 2, character: 34 },
     });
   });
 
