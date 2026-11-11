@@ -2105,9 +2105,9 @@ its example before and after (`CLAUDE.md`, Merging).
   again in the conversation, with options. For each question, this amendment records the options of
   #1257, the options of the conversation where they differ, the owner's chosen label and what it
   means.
-- [fact] After an independent review of A11, the owner answered three more questions on 2026-11-11:
-  the element view of a scalar `Buffer` (under Q1), a `Buffer` of vectors (under Q5) and the program
-  runtime (under Q3).
+- [fact] After an independent review of A11, the owner answered four more questions on 2026-11-11:
+  the element view of a scalar `Buffer` (under Q1), a `Buffer` of vectors (under Q5), the program
+  runtime's bindings, and its vertices and indices (both under Q3).
 - [fact] Each chosen label is quoted in Korean, as the owner chose it, with an English translation.
 - [fact] Baseline: `main` at `937147b8` (the merge of #1251, Amendment A10).
 - [fact] This amendment changes the front matter (`downstream` only, below). It amends R2's third
@@ -2244,9 +2244,34 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
 - What the decision means:
   1. `camera`, `light` and `lights` of `journeys/engine` become plain values passed each frame.
   2. The program runtime already takes plain values.
-  3. Slice 1 does not extend the program runtime to bind a `Uniform` or a `Buffer`.
+  3. Slice 1 does not extend the program runtime to bind a `Uniform` or a `Buffer` as a binding.
 - [fact] The program runtime takes a `Resident` for vertices and indices today
-  (`src/runtime/program.ts:346-358`). What takes its place there after slice 1 is open (below).
+  (`src/runtime/program.ts:346-358`). The answer below decides what takes its place there.
+
+**Q3, vertices and indices in the program runtime.**
+
+- [fact] The option that the owner chose in the conversation said, in Korean:
+
+  "정점·인덱스에 한해 Buffer<f32>/Buffer<u32>를 받게 함(Resident가 하던 일을 그대로). 비용: 슬라이스 1이 조금 커짐(바인딩 전체가 아니라 정점·인덱스만)."
+
+  (English translation: take a `Buffer<f32>` or a `Buffer<u32>` for vertices and indices only, doing
+  what a `Resident` did. Cost: slice 1 grows a little, for vertices and indices only, not for every
+  binding.)
+
+- [decision, owner, 2026-11-11] The owner chose:
+
+  "프로그램 런타임이 Buffer를 받음 (추천)"
+
+  (English translation: the program runtime takes a `Buffer`; recommended.)
+
+- What the decision means:
+  1. The program runtime takes a `Buffer` for a geometry's vertices and indices, in place of today's
+     `Resident`: a `Buffer<f32>` or a `Buffer<u32>`.
+  2. The data stays on the device, as a `Resident`'s did.
+  3. For every other binding, the program runtime takes no `Buffer` and no `Uniform` in slice 1. Those
+     stay plain values passed each frame (Q3, the program runtime).
+- [fact] This is part of slice 1's scope. It closes the open item on vertices and indices.
+- Cost recorded: slice 1 grows a little, for vertices and indices only.
 - Costs recorded:
   1. Code that keeps a non-array `Resident` migrates: `journeys/engine`, and tests in
      `src/runtime/runtime.test.ts` and `src/compiler/ts/typed-bindings.test.ts`. Change 0025's record
@@ -2491,7 +2516,8 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
    camera.time.set(t);
    ```
 
-   [fact] The program runtime does not bind a `Uniform` in slice 1 (Q3, the program runtime). The
+   [fact] The program runtime does not bind a `Uniform` in slice 1 (Q3, the program runtime). It takes
+   a `Buffer` for vertices and indices only (Q3, vertices and indices). The
    uniform form is for a node call (R11).
 
 4. Q4: an array of plain objects of a struct that is not a class.
@@ -2561,11 +2587,11 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
 
 - [fact] This statement updates A10's slice table. A10's text stays as it is.
 
-| Slice  | Status                                                                                                                                      |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0      | done: #1251, merged as `937147b8`.                                                                                                          |
-| 1      | in progress: #1257 (draft), head `86b5de3d`. Blocked on this amendment. After its merge, #1257 implements Q1 to Q7, except the open points. |
-| 2 to 6 | not started.                                                                                                                                |
+| Slice  | Status                                                                                                                                                                                                                         |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0      | done: #1251, merged as `937147b8`.                                                                                                                                                                                             |
+| 1      | in progress: #1257 (draft), head `86b5de3d`. Blocked on this amendment. After its merge, #1257 implements Q1 to Q7, except the open points. Its scope includes a `Buffer` for the program runtime's vertices and indices (Q3). |
+| 2 to 6 | not started.                                                                                                                                                                                                                   |
 
 **Open, owner must settle.**
 
@@ -2584,7 +2610,6 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
 | `f64`: whether `read()` of a `Buffer<f64>` gives a `Float64Array`.                                                                  | Q2, Rule 8.21  | #1257 states it and shows it to the owner.              |
 | The editor's type of Q7's mixed call (a resource argument, a promise result).                                                       | Q7, A10 item 1 | #1257 states the overload and shows it to the owner.    |
 | When a scalar `Buffer` takes a range of the region (R17's last sentence).                                                           | Q1             | #1257 states it and shows it to the owner.              |
-| What takes the place of a `Resident` for the program runtime's vertices and indices, since slice 1 does not bind a `Buffer` there.  | Q3             | #1257 states it and shows it to the owner.              |
 
 **Independent review record of A11.**
 
