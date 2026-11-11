@@ -724,6 +724,30 @@ describe('a struct that holds itself (#1204)', () => {
     }
   });
 
+  // A cycle reached through an earlier struct: the walk names it from the first struct of the
+  // cycle in source order, `S1`, so it closes on `S2.f1` (`S1.f2` at 8b6d0751, accepted by the
+  // owner on 2026-11-11).
+  it('in one file, a cycle reached through an earlier struct is named from its first struct', () => {
+    const source = program(
+      'export interface S0 { v: f32; f2: S2; }\n' +
+        'export interface S1 { v: f32; f2: S2; }\n' +
+        'export interface S2 { v: f32; f1: S1; }',
+      'let r: S0;',
+    );
+    const message = cycle('S2.f1', ['S1', 'S2', 'S1']);
+    const { compiler, editor, compiled } = bothHalves(source);
+    expect(compiler).toEqual(ONE(message));
+    expect(editor).toEqual(ONE(message));
+    const [d] = compiled.diagnostics;
+    expect(source.slice(d!.start, d!.start + d!.length)).toBe('f1: S1;');
+    const service = createTypeshadeLanguageService();
+    service.openDocument(FILE, source);
+    expect(service.getDiagnostics(FILE)[0]!.range).toEqual({
+      start: { line: 3, character: 30 },
+      end: { line: 3, character: 37 },
+    });
+  });
+
   // The location a single file's cycle moved to with the walk in source order (#1204): the
   // struct declared first names the cycle, and the field that closes it is the later struct's.
   it('in one file, closes on the field of the struct declared later', () => {

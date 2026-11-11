@@ -2101,7 +2101,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   and `tshc check` show those cuts in that file. One cut can break two cycles, so a file reports
   at least one cut and not always one for each cycle. `compile()` reports every cut of the file
   it starts from, and a cut of an imported file only where a cycle is left, in that file. No
-  reader puts a cut on an import line.
+  reader puts a cut on an import line. Within one file, the cut of a cycle reached through an
+  earlier struct, and of overlapping cycles, can differ from this fix's first commit, `8b6d0751`.
+  With `S0 { f2: S2 }`, `S1 { f2: S2 }` and `S2 { f1: S1 }`, the cycle is refused on `S2.f1`,
+  as the struct declared first in it, `S1`, names it. Every set of cuts leaves no cycle. A
+  program where every struct holds every other, 48 structs, takes about 2.2 s to compile.
 
 - **A program's refusal of an imported declaration is shown in a file that reports it**
   (Rules 3.9 and 12.7, #1186). A refusal that only a use makes, about a declaration an imported
