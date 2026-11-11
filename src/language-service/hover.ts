@@ -1158,6 +1158,25 @@ function resultCopiesLine(
   );
 }
 
+/** The hover at a call, in this document, of a function another file declares whose calls decide
+ *  its result (Rule 8.19, change 0134 item 4): the declaration's line with the result of the
+ *  copy this call takes, as this document's program lowered it (Rule 12.7). */
+function importedCallLine(
+  node: ts.Node,
+  declared: string | undefined,
+  imported: ImportedSymbol | undefined,
+  analysis: CompileTsSourceResult,
+  sourceFile: ts.SourceFile,
+  struct: StructNames,
+): string | undefined {
+  if (declared === undefined || imported === undefined || imported.symbol.kind !== 'function') {
+    return undefined;
+  }
+  const call = copyCallAt(analysis.sourceFile, node.getStart(sourceFile));
+  if (call === undefined) return undefined;
+  return declared.replace(/\): [^)]*$/, `): ${spellShaderType(call, struct)}`);
+}
+
 /**
  * The first line of the hover of a constant of no fixed type (Rule 5.1, change 0134 item 4), or
  * `undefined` when `node` names none. `defs` is where TypeScript resolves the name.
@@ -1467,6 +1486,7 @@ export function getHover(
       imported !== undefined && imported.program !== self ? imported.program.analysis : undefined,
     ) ??
     resultCopiesLine(node, defs, uri, sourceFile, analysis, struct) ??
+    importedCallLine(node, line(), imported, analysis, sourceFile, struct) ??
     line() ??
     ts.displayPartsToString(quickInfo.displayParts);
   const documentation = ts.displayPartsToString(quickInfo.documentation);

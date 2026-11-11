@@ -1428,6 +1428,22 @@ vi;`) compiles now, since a call asks for its copy in the lowering that settles 
     with `x * q()`) read the result `m` had, and recorded no use, so `m` got no `f32` copy and
     `q` was refused. Such a call records its use until a use decides it (`open`), and `m` keeps
     the `f32` beside its copy `m_u32`, in both directions.
+- The fourth independent review of pull request #1264 at `dbec4ba1` (2026-11-11) found two
+  findings; the owner decided the same day to fix both in this part. Each is fixed with a test that
+  reads both halves:
+  - Finding 1: the `f32` ask did not pass through two forwarding links
+    (`function r() { return m(); } function q() { return r(); }` with `x * q() + f32(vi + m())`
+    was refused). Two causes: a call's `f32` decision lowered nothing again where its function had
+    another type, and a call's decision, made while its function's body had one result, stayed
+    when a later pass gave that body the `f32` beside copies. A call's `f32` now lowers again
+    where its function had another type, and the body of a function whose calls fixed its result
+    is lowered under a key of that result (`setHomeTag`), so its calls and locals decide anew
+    when the result changes. The ask passes through any number of links: chains of two and three
+    links, and asks of `u32` through `q` beside `i32` through `r`, compile.
+  - Finding 2: since a copy records no symbol, the hover at a call of a function an imported file
+    declares showed the declaration's `f32` where the call takes a copy. The linked compile maps
+    the calls of functions with copies to the entry (`mapResultCopies`), and the hover at such a
+    call shows the copy's result (`importedCallLine`). The host face does not change.
 - Deviations, open:
   - A generic class's field shares one decision across its instances, as issue #1256 records
     for a generic function's body (deferred by the owner).

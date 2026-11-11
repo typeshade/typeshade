@@ -51,6 +51,8 @@ import {
   closeExpressionTable,
   openExpressionTable,
   recordAbstractConstTable,
+  mapResultCopies,
+  resetResultCopies,
 } from './symbols.js';
 import {
   orderedStructDecls,
@@ -810,6 +812,10 @@ function compileLinked(
       }),
     });
   }
+  // The calls of functions with copies, for the hover at a call in the entry of a function an
+  // imported file declares (change 0134 item 4).
+  resetResultCopies(entry);
+  mapResultCopies(sourceFile, entry, (offset) => inEntry(offset, 1)?.start);
   const result: CompileTsSourceResult = {
     ...inner,
     diagnostics,

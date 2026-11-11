@@ -94,6 +94,8 @@ interface State {
    *  and in the running one, by `calleeKeyOf`. */
   askedBefore: Map<object, Map<string, ShaderType>>;
   askedNow: Map<object, Map<string, ShaderType>>;
+  /** The result each function its callers decide had in the running pass, by `calleeKeyOf`. */
+  readonly results: Map<object, ShaderType>;
   /** Set for the last pass of a compile whose passes ran out (`switchCallersOff`). */
   callersOff: boolean;
   /** The functions `switchCallersOff` switched off: those no call had decided yet. */
@@ -122,6 +124,7 @@ export function beginUseInference(sourceFile: ts.SourceFile): void {
     askedBefore: new Map(),
     askedNow: new Map(),
     callersOff: false,
+    results: new Map(),
     off: new Set(),
     offCalls: new Map(),
   });
@@ -204,9 +207,15 @@ export function settleUseInference(sourceFile: ts.SourceFile): boolean {
     // use is a decision, which picks the copy of the function it calls.
     if (one === undefined || one === 'int') continue;
     if (one === 'f32') {
-      // A call's own `f32` use picks the function's `f32`, which it has unless another call
-      // asks another type: it lowers nothing again by itself (the comparison below).
-      if (perUse) decide(decl, f32T, callee);
+      // A call's own `f32` use picks the function's `f32`. Where the function had the `f32`
+      // already it lowers nothing again; where it had another type (it returns a call whose
+      // function another call made an integer), the next pass gives it the `f32`, and so on
+      // through every function that forwards a call (`return r()`), one pass a link.
+      if (perUse) {
+        decide(decl, f32T, callee);
+        const had = callee === undefined ? undefined : state.results.get(callee);
+        if (had !== undefined && typeKey(had) !== 'f32') changed = true;
+      }
       continue;
     }
     decide(decl, TYPE_OF[one], callee);
@@ -290,6 +299,20 @@ export function inCopy<T>(tag: string | undefined, run: () => T): T {
   } finally {
     copyTag = outer;
   }
+}
+
+const homeTags = new WeakMap<FuncDecl, string>();
+
+/** Marks `stub`, a function whose calls fixed its result, so that its body is lowered under a key
+ *  of that result: where a later pass gives it another result (an `f32` beside copies, where it
+ *  had one integer type), the calls and the locals of its body decide anew, as a copy's do. */
+export function setHomeTag(stub: FuncDecl, tag: string): void {
+  homeTags.set(stub, tag);
+}
+
+/** The key `setHomeTag` gave the body of `stub`, if any. */
+export function homeTagOf(stub: FuncDecl): string | undefined {
+  return homeTags.get(stub);
 }
 
 /** The copy whose body is being lowered, if any. */
@@ -395,6 +418,7 @@ export function callerDecidedCall(
   if (!state.callerDecided.has(info.decl)) return undefined;
   const key = keyOf(call);
   const asked = state.decided.get(key);
+  state.results.set(info.key, decl.ret);
   if (asked !== undefined) {
     let types = state.askedNow.get(info.key);
     if (types === undefined) state.askedNow.set(info.key, (types = new Map()));

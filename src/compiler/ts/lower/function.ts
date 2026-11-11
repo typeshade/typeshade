@@ -18,7 +18,9 @@ import {
   askedOf,
   calleeKeyOf,
   currentCopy,
+  homeTagOf,
   inCopy,
+  setHomeTag,
   isCallerDecided,
   noteCallerDecided,
   readsUndecided,
@@ -802,6 +804,7 @@ export function lowerSourceFunctions(
     const ret = asked.size === 1 && others.length === 1 && !o.exported ? others[0]![1] : f32T;
     (o.stub as { ret: ShaderType }).ret = ret;
     decidedByCallers.add(o.stub);
+    setHomeTag(o.stub, `${o.stub.name}:${typeKey(ret)}`);
     // The hover names each result type at the declaration (item 4 of change 0134); the host
     // calls an exported function at the `f32` it keeps.
     const listed = new Map(asked);
@@ -3645,7 +3648,12 @@ export function lowerParamDefaults(
 export function fillFunctionBody(
   ...args: Parameters<typeof fillFunctionBodyNow>
 ): ReturnType<typeof fillFunctionBodyNow> {
-  return unpeekedReads(() => fillFunctionBodyNow(...args));
+  // A function whose calls fixed its result lowers its body under a key of that result
+  // (`setHomeTag`, change 0134).
+  const home = homeTagOf(args[1]);
+  return home === undefined
+    ? unpeekedReads(() => fillFunctionBodyNow(...args))
+    : inCopy(home, () => unpeekedReads(() => fillFunctionBodyNow(...args)));
 }
 
 function fillFunctionBodyNow(

@@ -339,6 +339,30 @@ export function recordCopyCall(
   else if (seen !== null && JSON.stringify(seen) !== JSON.stringify(type)) calls.set(at, null);
 }
 
+/** Keeps, for `entry`, what the compile of the linked source `linked` recorded of the calls of
+ *  functions with copies that stand in `entry` (`compileLinked`): `at` maps an offset of the
+ *  linked source to one of `entry`, or gives `undefined` for one in another file. */
+export function mapResultCopies(
+  linked: ts.SourceFile,
+  entry: ts.SourceFile,
+  at: (offset: number) => number | undefined,
+): void {
+  const table = resultCopies.get(linked);
+  if (table === undefined) return;
+  const mine = resultCopiesOf(entry);
+  for (const [offset, type] of table.calls) {
+    const to = at(offset);
+    if (to === undefined) continue;
+    mine.calls.set(to, type);
+    const params = table.params.get(offset);
+    if (params !== undefined) mine.params.set(to, params);
+  }
+  for (const [offset, decl] of table.decls) {
+    const to = at(offset);
+    if (to !== undefined) mine.decls.set(to, decl);
+  }
+}
+
 /** Forgets what an earlier pass of the use inference recorded (`use-inference.ts`). */
 export function resetResultCopies(sourceFile: ts.SourceFile): void {
   resultCopies.delete(sourceFile);

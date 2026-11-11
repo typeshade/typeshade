@@ -327,7 +327,8 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   such functions longer than the compiler follows (the module is lowered at most 16 times, one link
   a lowering, so 17 links), each link no call decided yet keeps the `f32` of its first `return`, a
   function whose calls asked only `f32` keeps it too, and the one mismatch says which result type
-  to write. A call inside a body whose result another call fixed asks for its own copy.
+  to write. A call inside a body whose result another call fixed asks for its own copy, through any
+  number of functions that forward a call (`function q() { return r(); }`).
   **Values that change:** a module variable, a field or a function result of integer-written
   numbers whose use is an `f64` is an `f64`, as a function's `let` is since part 4a: `let n =
 16777217;` with `d * n` (`d: f64`) multiplies by 16777217 on a device, where it multiplied by the

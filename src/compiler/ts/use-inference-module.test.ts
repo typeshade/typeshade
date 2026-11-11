@@ -540,3 +540,62 @@ export function t(vi: u32, x: f32): f32 { return f32(vi + q()) + x * m(); }`);
     expect(b.eval('t', [1, 2])).toBe(10);
   });
 });
+
+describe('the fourth review of #1264 (dbec4ba1)', () => {
+  it('the f32 ask passes through every link that forwards a call (1)', () => {
+    const two =
+      src(`function m() { return 3; } function r() { return m(); } function q() { return r(); }
+export function t(vi: u32, x: f32): f32 { return x * q() + f32(vi + m()); }`);
+    const a = accepted(two);
+    expect(a.wgsl).toContain('fn m() -> f32 {');
+    expect(a.wgsl).toContain('fn r() -> f32 {');
+    expect(a.wgsl).toContain('fn q() -> f32 {');
+    expect(a.wgsl).toContain('fn m_u32() -> u32 {');
+    expect(a.eval('t', [1, 2])).toBe(10);
+    const middle =
+      src(`function m() { return 3; } function r() { return m(); } function q() { return r(); }
+export function t(vi: u32, x: f32): f32 { return x * q() + f32(vi + r()); }`);
+    expect(accepted(middle).eval('t', [1, 2])).toBe(10);
+    const three = src(`function m() { return 3; } function s() { return m(); }
+function r() { return s(); } function q() { return r(); }
+export function t(vi: u32, x: f32): f32 { return x * q() + f32(vi + s()); }`);
+    const b = accepted(three);
+    expect(b.wgsl).toContain('fn s_u32() -> u32 {');
+    expect(b.eval('t', [1, 2])).toBe(10);
+    const mixed =
+      src(`function m() { return 3; } function r() { return m(); } function q() { return r(); }
+export function t(vi: u32, k: i32, x: f32): f32 { return f32(vi + q()) + f32(k + r()) + x * m(); }`);
+    const c = accepted(mixed);
+    expect(c.wgsl).toContain('fn r_i32() -> i32 {');
+    expect(c.wgsl).toContain('fn m_u32() -> u32 {');
+    expect(c.eval('t', [1, 2, 2])).toBe(15);
+  });
+
+  it('a call of a function an imported file declares hovers as the copy it takes (2)', () => {
+    const lib = '/p/b.shade.ts';
+    const main = '/p/a.shade.ts';
+    for (const [declares, name] of [
+      ['export function g() { return 3; }', 'g'],
+      ['function g() { return 3; }\nexport function k() { return g(); }', 'k'],
+    ] as const) {
+      const files: Record<string, string> = {
+        [lib]: `"use typeshade";\n${declares}\n`,
+        [main]: `"use typeshade";\nimport { ${name} } from './b.shade.ts';\nexport function t(vi: u32, x: f32): f32 { return f32(vi + ${name}()) + x * ${name}(); }\n`,
+      };
+      const result = compile(files[main]!, { fileName: main, readDocument: (n) => files[n] });
+      expect(result.diagnostics).toEqual([]);
+      expect(result.wgsl).toContain(`(vi + ${name}_u32())`);
+      expect(result.eval('t', [1, 2])).toBe(10);
+      const service = createTypeshadeLanguageService({ readDocument: (u) => files[u] });
+      for (const [uri, text] of Object.entries(files)) service.openDocument(uri, text);
+      expect(service.getDiagnostics(main)).toEqual([]);
+      const at = (needle: string): string => {
+        const offset = files[main]!.indexOf(needle) + needle.length;
+        const contents = String(service.getHover(main, service.positionAt(main, offset))?.contents);
+        return contents.split('\n')[1] ?? contents;
+      };
+      expect(at('vi + ')).toBe(`function ${name}(): u32`);
+      expect(at('x * ')).toBe(`function ${name}(): f32`);
+    }
+  });
+});
